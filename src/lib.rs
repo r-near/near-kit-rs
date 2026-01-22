@@ -64,9 +64,9 @@ pub use types::*;
 // Re-export client types
 pub use client::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, AddKeyCall, BalanceQuery, CallBuilder,
-    ContractCall, DeleteKeyCall, DeployCall, EnvSigner, FileSigner, InMemorySigner, Near,
-    NearBuilder, RetryConfig, RotatingSigner, RpcClient, SandboxNetwork, Signer,
-    TransactionBuilder, TransactionSend, TransferCall, ViewCall,
+    ContractCall, DelegateOptions, DelegateResult, DeleteKeyCall, DeployCall, EnvSigner,
+    FileSigner, InMemorySigner, Near, NearBuilder, RetryConfig, RotatingSigner, RpcClient,
+    SandboxNetwork, Signer, TransactionBuilder, TransactionSend, TransferCall, ViewCall,
 };
 
 /// Prelude module for convenient imports.
@@ -76,14 +76,14 @@ pub use client::{
 /// ```
 pub mod prelude {
     pub use crate::client::{
-        EnvSigner, FileSigner, InMemorySigner, Near, NearBuilder, RotatingSigner, SandboxNetwork,
-        Signer,
+        DelegateOptions, DelegateResult, EnvSigner, FileSigner, InMemorySigner, Near, NearBuilder,
+        RotatingSigner, SandboxNetwork, Signer,
     };
     pub use crate::types::{
         AccessKeyPermissionView, AccountId, ActionView, BlockReference, CryptoHash,
-        FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts, FinalExecutionStatus, Finality,
-        Gas, MerkleDirection, NearToken, PublicKey, Receipt, ReceiptContent, SecretKey,
-        TxExecutionStatus,
+        DelegateDecodeError, FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts,
+        FinalExecutionStatus, Finality, Gas, MerkleDirection, NearToken, PublicKey, Receipt,
+        ReceiptContent, SecretKey, SignedDelegateAction, TxExecutionStatus,
     };
     pub use crate::Error;
 }
