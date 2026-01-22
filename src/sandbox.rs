@@ -103,10 +103,18 @@ static SHARED_SANDBOX: OnceCell<SharedSandbox> = OnceCell::const_new();
 
 /// A shared sandbox instance that persists across tests.
 ///
-/// This wrapper holds a `near_sandbox::Sandbox` and implements [`SandboxNetwork`].
-/// It is used by [`SandboxConfig::shared()`] to provide a singleton sandbox.
+/// This wrapper holds a reference to a `near_sandbox::Sandbox` and implements
+/// [`SandboxNetwork`]. It is obtained via [`SandboxConfig::shared()`].
 ///
-/// The shared sandbox is never stopped - it persists for the entire test run.
+/// The shared sandbox persists for the entire test run. All tests in a binary
+/// share the same sandbox instance when using `cargo test`.
+///
+/// # Note on Cleanup
+///
+/// The sandbox process may outlive the test process since Rust doesn't run
+/// static destructors. This is a known limitation that should be fixed in
+/// `near-sandbox-rs`. For now, you may see orphaned `near-sandbox` processes
+/// after test runs.
 pub struct SharedSandbox {
     inner: near_sandbox::Sandbox,
 }

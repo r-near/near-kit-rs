@@ -2,7 +2,7 @@
 //!
 //! These tests are useful for inspecting actual response structures.
 //!
-//! Run with: `cargo nextest run --test debug_rpc_responses --features sandbox --no-capture`
+//! Run with: `cargo test --test debug_rpc_responses --features sandbox -- --nocapture`
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 

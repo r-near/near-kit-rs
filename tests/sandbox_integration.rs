@@ -3,7 +3,7 @@
 //! These tests use a shared sandbox instance with unique subaccounts per test,
 //! following the pattern from defuse-sandbox.
 //!
-//! Run with: `cargo nextest run --test sandbox_integration --features sandbox`
+//! Run with: `cargo test --test sandbox_integration --features sandbox`
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
