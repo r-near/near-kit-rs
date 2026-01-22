@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use crate::error::Error;
 use crate::types::{
-    AccountId, Action, BlockReference, FinalExecutionOutcome, Finality, Gas, NearToken, PublicKey,
-    Transaction, TxExecutionStatus,
+    AccountId, Action, BlockReference, FinalExecutionOutcome, Finality, Gas, IntoGas,
+    IntoNearToken, NearToken, PublicKey, Transaction, TxExecutionStatus,
 };
 
 use super::rpc::RpcClient;
@@ -220,30 +220,18 @@ impl ContractCall {
     }
 
     /// Set gas limit (accepts string like "30 Tgas" or Gas type).
-    pub fn gas(mut self, gas: impl AsRef<str>) -> Self {
-        if let Ok(g) = gas.as_ref().parse() {
+    pub fn gas(mut self, gas: impl IntoGas) -> Self {
+        if let Ok(g) = gas.into_gas() {
             self.gas = g;
         }
         self
     }
 
-    /// Set gas limit from Gas type directly.
-    pub fn gas_amount(mut self, gas: Gas) -> Self {
-        self.gas = gas;
-        self
-    }
-
     /// Set attached deposit (accepts string like "1 NEAR" or NearToken type).
-    pub fn deposit(mut self, amount: impl AsRef<str>) -> Self {
-        if let Ok(a) = amount.as_ref().parse() {
+    pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
+        if let Ok(a) = amount.into_near_token() {
             self.deposit = a;
         }
-        self
-    }
-
-    /// Set attached deposit from NearToken type directly.
-    pub fn deposit_amount(mut self, amount: NearToken) -> Self {
-        self.deposit = amount;
         self
     }
 

@@ -6,20 +6,18 @@ use serde::{Deserialize, Serialize};
 use super::{AccountId, Gas, NearToken, PublicKey};
 
 /// Access key permission.
+///
+/// IMPORTANT: Variant order matters for Borsh serialization!
+/// NEAR Protocol defines: 0 = FunctionCall, 1 = FullAccess
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum AccessKeyPermission {
-    /// Full access to the account.
-    FullAccess,
-    /// Function call access with restrictions.
+    /// Function call access with restrictions. (discriminant = 0)
     FunctionCall(FunctionCallPermission),
+    /// Full access to the account. (discriminant = 1)
+    FullAccess,
 }
 
 impl AccessKeyPermission {
-    /// Create a full access permission.
-    pub fn full_access() -> Self {
-        Self::FullAccess
-    }
-
     /// Create a function call permission.
     pub fn function_call(
         receiver_id: AccountId,
@@ -31,6 +29,11 @@ impl AccessKeyPermission {
             receiver_id,
             method_names,
         })
+    }
+
+    /// Create a full access permission.
+    pub fn full_access() -> Self {
+        Self::FullAccess
     }
 }
 

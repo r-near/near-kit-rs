@@ -68,6 +68,11 @@ impl Near {
         &self.rpc
     }
 
+    /// Get the RPC URL.
+    pub fn rpc_url(&self) -> &str {
+        self.rpc.url()
+    }
+
     /// Get the signer's account ID, if a signer is configured.
     pub fn account_id(&self) -> Option<&AccountId> {
         self.signer.as_ref().map(|s| s.account_id())
@@ -431,8 +436,8 @@ impl Near {
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
         self.call(contract_id, method)
             .args(args)
-            .gas_amount(gas)
-            .deposit_amount(deposit)
+            .gas(gas)
+            .deposit(deposit)
             .await
     }
 }

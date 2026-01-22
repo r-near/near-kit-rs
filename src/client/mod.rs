@@ -2,6 +2,7 @@
 
 mod keystore;
 mod near;
+mod nonce_manager;
 mod query;
 mod rpc;
 mod signer;

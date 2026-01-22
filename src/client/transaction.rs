@@ -28,16 +28,24 @@
 
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-use crate::error::Error;
+use crate::error::{Error, RpcError};
 use crate::types::{
-    AccountId, Action, BlockReference, FinalExecutionOutcome, Finality, Gas, NearToken, PublicKey,
-    Transaction, TxExecutionStatus,
+    AccountId, Action, BlockReference, FinalExecutionOutcome, Finality, Gas, IntoGas,
+    IntoNearToken, NearToken, PublicKey, Transaction, TxExecutionStatus,
 };
 
+use super::nonce_manager::NonceManager;
 use super::rpc::RpcClient;
 use super::signer::Signer;
+
+/// Global nonce manager shared across all TransactionBuilder instances.
+/// This is an implementation detail - not exposed to users.
+fn nonce_manager() -> &'static NonceManager {
+    static NONCE_MANAGER: OnceLock<NonceManager> = OnceLock::new();
+    NONCE_MANAGER.get_or_init(NonceManager::new)
+}
 
 // ============================================================================
 // TransactionBuilder
@@ -127,14 +135,8 @@ impl TransactionBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn transfer(mut self, amount: impl AsRef<str>) -> Self {
-        let amount: NearToken = amount.as_ref().parse().unwrap_or(NearToken::ZERO);
-        self.actions.push(Action::transfer(amount));
-        self
-    }
-
-    /// Add a transfer action with a NearToken amount directly.
-    pub fn transfer_amount(mut self, amount: NearToken) -> Self {
+    pub fn transfer(mut self, amount: impl IntoNearToken) -> Self {
+        let amount = amount.into_near_token().unwrap_or(NearToken::ZERO);
         self.actions.push(Action::transfer(amount));
         self
     }
@@ -223,14 +225,8 @@ impl TransactionBuilder {
     }
 
     /// Add a stake action.
-    pub fn stake(mut self, amount: impl AsRef<str>, public_key: PublicKey) -> Self {
-        let amount: NearToken = amount.as_ref().parse().unwrap_or(NearToken::ZERO);
-        self.actions.push(Action::stake(amount, public_key));
-        self
-    }
-
-    /// Add a stake action with NearToken amount directly.
-    pub fn stake_amount(mut self, amount: NearToken, public_key: PublicKey) -> Self {
+    pub fn stake(mut self, amount: impl IntoNearToken, public_key: PublicKey) -> Self {
+        let amount = amount.into_near_token().unwrap_or(NearToken::ZERO);
         self.actions.push(Action::stake(amount, public_key));
         self
     }
@@ -313,31 +309,19 @@ impl CallBuilder {
         self
     }
 
-    /// Set gas limit (accepts string like "30 Tgas").
-    pub fn gas(mut self, gas: impl AsRef<str>) -> Self {
-        if let Ok(g) = gas.as_ref().parse() {
+    /// Set gas limit (accepts string like "30 Tgas" or Gas value).
+    pub fn gas(mut self, gas: impl IntoGas) -> Self {
+        if let Ok(g) = gas.into_gas() {
             self.gas = g;
         }
         self
     }
 
-    /// Set gas limit from Gas type directly.
-    pub fn gas_amount(mut self, gas: Gas) -> Self {
-        self.gas = gas;
-        self
-    }
-
-    /// Set attached deposit (accepts string like "1 NEAR").
-    pub fn deposit(mut self, amount: impl AsRef<str>) -> Self {
-        if let Ok(a) = amount.as_ref().parse() {
+    /// Set attached deposit (accepts string like "1 NEAR" or NearToken value).
+    pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
+        if let Ok(a) = amount.into_near_token() {
             self.deposit = a;
         }
-        self
-    }
-
-    /// Set attached deposit from NearToken type directly.
-    pub fn deposit_amount(mut self, amount: NearToken) -> Self {
-        self.deposit = amount;
         self
     }
 
@@ -368,13 +352,8 @@ impl CallBuilder {
     }
 
     /// Add a transfer action.
-    pub fn transfer(self, amount: impl AsRef<str>) -> TransactionBuilder {
+    pub fn transfer(self, amount: impl IntoNearToken) -> TransactionBuilder {
         self.finish().transfer(amount)
-    }
-
-    /// Add a transfer action with NearToken amount.
-    pub fn transfer_amount(self, amount: NearToken) -> TransactionBuilder {
-        self.finish().transfer_amount(amount)
     }
 
     /// Add a deploy contract action.
@@ -410,7 +389,7 @@ impl CallBuilder {
     }
 
     /// Add a stake action.
-    pub fn stake(self, amount: impl AsRef<str>, public_key: PublicKey) -> TransactionBuilder {
+    pub fn stake(self, amount: impl IntoNearToken, public_key: PublicKey) -> TransactionBuilder {
         self.finish().stake(amount, public_key)
     }
 
@@ -477,50 +456,97 @@ impl IntoFuture for TransactionSend {
                 .ok_or(Error::NoSigner)?;
 
             let signer_id = signer.account_id().clone();
+            let public_key = signer.public_key().clone();
+            let public_key_str = public_key.to_string();
 
-            // Get access key for nonce
-            let access_key = builder
-                .rpc
-                .view_access_key(
-                    &signer_id,
-                    signer.public_key(),
-                    BlockReference::Finality(Finality::Optimistic),
-                )
-                .await?;
+            // Retry loop for InvalidNonceError
+            const MAX_NONCE_RETRIES: u32 = 3;
+            let mut last_error: Option<Error> = None;
 
-            // Get recent block hash
-            let block = builder
-                .rpc
-                .block(BlockReference::Finality(Finality::Final))
-                .await?;
+            for attempt in 0..MAX_NONCE_RETRIES {
+                // Get nonce from manager (fetches from blockchain on first call, then increments locally)
+                let rpc = builder.rpc.clone();
+                let signer_id_clone = signer_id.clone();
+                let public_key_clone = public_key.clone();
 
-            // Build transaction
-            let tx = Transaction::new(
-                signer_id,
-                signer.public_key().clone(),
-                access_key.nonce + 1,
-                builder.receiver_id,
-                block.header.hash,
-                builder.actions,
-            );
+                let nonce = if attempt > 0 {
+                    // Invalidate on retry to get fresh nonce
+                    nonce_manager().invalidate(signer_id.as_ref(), &public_key_str);
+                    nonce_manager()
+                        .get_next_nonce(signer_id.as_ref(), &public_key_str, || async {
+                            let access_key = rpc
+                                .view_access_key(
+                                    &signer_id_clone,
+                                    &public_key_clone,
+                                    BlockReference::Finality(Finality::Optimistic),
+                                )
+                                .await?;
+                            Ok(access_key.nonce)
+                        })
+                        .await?
+                } else {
+                    nonce_manager()
+                        .get_next_nonce(signer_id.as_ref(), &public_key_str, || async {
+                            let access_key = rpc
+                                .view_access_key(
+                                    &signer_id_clone,
+                                    &public_key_clone,
+                                    BlockReference::Finality(Finality::Optimistic),
+                                )
+                                .await?;
+                            Ok(access_key.nonce)
+                        })
+                        .await?
+                };
 
-            // Sign
-            let signature = signer.sign(tx.get_hash().as_bytes())?;
-            let signed_tx = crate::types::SignedTransaction {
-                transaction: tx,
-                signature,
-            };
+                // Get recent block hash (use finalized for stability)
+                let block = builder
+                    .rpc
+                    .block(BlockReference::Finality(Finality::Final))
+                    .await?;
 
-            // Send
-            let outcome = builder.rpc.send_tx(&signed_tx, builder.wait_until).await?;
+                // Build transaction
+                let tx = Transaction::new(
+                    signer_id.clone(),
+                    public_key.clone(),
+                    nonce,
+                    builder.receiver_id.clone(),
+                    block.header.hash,
+                    builder.actions.clone(),
+                );
 
-            if outcome.is_failure() {
-                return Err(Error::TransactionFailed(
-                    outcome.failure_message().unwrap_or_default(),
-                ));
+                // Sign
+                let signature = signer.sign(tx.get_hash().as_bytes())?;
+                let signed_tx = crate::types::SignedTransaction {
+                    transaction: tx,
+                    signature,
+                };
+
+                // Send
+                match builder.rpc.send_tx(&signed_tx, builder.wait_until).await {
+                    Ok(outcome) => {
+                        if outcome.is_failure() {
+                            return Err(Error::TransactionFailed(
+                                outcome.failure_message().unwrap_or_default(),
+                            ));
+                        }
+                        return Ok(outcome);
+                    }
+                    Err(RpcError::InvalidNonce { .. }) if attempt < MAX_NONCE_RETRIES - 1 => {
+                        // Retry with fresh nonce
+                        last_error = Some(Error::Rpc(RpcError::InvalidNonce {
+                            expected: 0,
+                            actual: nonce,
+                        }));
+                        continue;
+                    }
+                    Err(e) => return Err(Error::Rpc(e)),
+                }
             }
 
-            Ok(outcome)
+            Err(last_error.unwrap_or_else(|| {
+                Error::InvalidTransaction("Unknown error during transaction send".to_string())
+            }))
         })
     }
 }

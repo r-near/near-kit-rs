@@ -478,6 +478,108 @@ impl BorshDeserialize for Gas {
     }
 }
 
+// ============================================================================
+// IntoNearToken trait
+// ============================================================================
+
+/// Trait for types that can be converted into a NearToken.
+///
+/// This allows methods to accept both string representations ("5 NEAR")
+/// and direct NearToken values.
+///
+/// # Example
+///
+/// ```
+/// use near_kit::prelude::*;
+///
+/// fn example(amount: impl IntoNearToken) {
+///     let token = amount.into_near_token().unwrap();
+/// }
+///
+/// // Both work:
+/// example("5 NEAR");
+/// example(NearToken::from_near(5));
+/// ```
+pub trait IntoNearToken {
+    /// Convert into a NearToken.
+    fn into_near_token(self) -> Result<NearToken, ParseAmountError>;
+}
+
+impl IntoNearToken for NearToken {
+    fn into_near_token(self) -> Result<NearToken, ParseAmountError> {
+        Ok(self)
+    }
+}
+
+impl IntoNearToken for &str {
+    fn into_near_token(self) -> Result<NearToken, ParseAmountError> {
+        self.parse()
+    }
+}
+
+impl IntoNearToken for String {
+    fn into_near_token(self) -> Result<NearToken, ParseAmountError> {
+        self.parse()
+    }
+}
+
+impl IntoNearToken for &String {
+    fn into_near_token(self) -> Result<NearToken, ParseAmountError> {
+        self.parse()
+    }
+}
+
+// ============================================================================
+// IntoGas trait
+// ============================================================================
+
+/// Trait for types that can be converted into Gas.
+///
+/// This allows methods to accept both string representations ("30 Tgas")
+/// and direct Gas values.
+///
+/// # Example
+///
+/// ```
+/// use near_kit::prelude::*;
+///
+/// fn example(gas: impl IntoGas) {
+///     let g = gas.into_gas().unwrap();
+/// }
+///
+/// // Both work:
+/// example("30 Tgas");
+/// example(Gas::from_tgas(30));
+/// ```
+pub trait IntoGas {
+    /// Convert into Gas.
+    fn into_gas(self) -> Result<Gas, ParseGasError>;
+}
+
+impl IntoGas for Gas {
+    fn into_gas(self) -> Result<Gas, ParseGasError> {
+        Ok(self)
+    }
+}
+
+impl IntoGas for &str {
+    fn into_gas(self) -> Result<Gas, ParseGasError> {
+        self.parse()
+    }
+}
+
+impl IntoGas for String {
+    fn into_gas(self) -> Result<Gas, ParseGasError> {
+        self.parse()
+    }
+}
+
+impl IntoGas for &String {
+    fn into_gas(self) -> Result<Gas, ParseGasError> {
+        self.parse()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

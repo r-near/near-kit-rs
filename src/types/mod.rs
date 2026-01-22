@@ -28,4 +28,4 @@ pub use rpc::{
     NodeVersion, StatusResponse, SyncInfo, TransactionView, ViewFunctionResult,
 };
 pub use transaction::{SignedTransaction, Transaction};
-pub use units::{Gas, NearToken};
+pub use units::{Gas, IntoGas, IntoNearToken, NearToken};
