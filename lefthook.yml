@@ -1,0 +1,21 @@
+# Lefthook configuration for near-kit-rs
+# Install: https://github.com/evilmartians/lefthook
+# Run `lefthook install` after cloning
+
+pre-commit:
+  commands:
+    rustfmt:
+      glob: "*.rs"
+      run: cargo fmt
+      stage_fixed: true
+    
+    clippy:
+      glob: "*.rs"
+      run: cargo clippy --all-targets --all-features -- -D warnings
+      fail_text: "Clippy found issues. Please fix them before committing."
+
+pre-push:
+  commands:
+    test:
+      run: cargo nextest run
+      fail_text: "Tests failed. Please fix them before pushing."

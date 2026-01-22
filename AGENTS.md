@@ -169,14 +169,50 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 5. **Use `serde`** for JSON serialization (RPC)
 6. **Fully qualify trait methods** when both `serde::Deserialize` and `borsh::BorshDeserialize` are in scope
 
-### Testing
+### Development Setup
 
-Run tests with:
+After cloning, install git hooks:
 ```bash
-cargo test
+lefthook install
 ```
 
-All tests should pass before committing.
+This sets up pre-commit hooks for:
+- **rustfmt** - Code formatting (auto-fixes and stages)
+- **clippy** - Linting with warnings as errors
+
+And pre-push hooks for:
+- **cargo nextest** - Run all tests
+
+### Testing
+
+We use [cargo-nextest](https://nexte.st/) as our test runner:
+
+```bash
+# Run all tests
+cargo nextest run
+
+# Run specific test
+cargo nextest run test_name
+
+# Run with output
+cargo nextest run --no-capture
+```
+
+For doc tests (not supported by nextest):
+```bash
+cargo test --doc
+```
+
+### Code Quality
+
+Before committing, ensure:
+```bash
+cargo fmt          # Format code
+cargo clippy       # Run linter  
+cargo nextest run  # Run tests
+```
+
+All checks must pass - the pre-commit hook enforces this.
 
 ### Key Files to Reference
 
