@@ -15,8 +15,10 @@ mod units;
 pub use account::AccountId;
 pub use action::{
     AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction, DelegateAction,
-    DeleteAccountAction, DeleteKeyAction, DeployContractAction, FunctionCallAction,
-    FunctionCallPermission, NonDelegateAction, SignedDelegateAction, StakeAction, TransferAction,
+    DeleteAccountAction, DeleteKeyAction, DeployContractAction, DeployGlobalContractAction,
+    DeterministicAccountStateInit, DeterministicAccountStateInitV1, DeterministicStateInitAction,
+    FunctionCallAction, FunctionCallPermission, GlobalContractDeployMode, GlobalContractIdentifier,
+    NonDelegateAction, SignedDelegateAction, StakeAction, TransferAction, UseGlobalContractAction,
 };
 pub use block_reference::{BlockReference, Finality, TxExecutionStatus};
 pub use hash::CryptoHash;

@@ -3,7 +3,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use super::{AccountId, Gas, NearToken, PublicKey};
+use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey};
 
 /// Access key permission.
 ///
@@ -80,26 +80,38 @@ impl AccessKey {
 }
 
 /// A transaction action.
+///
+/// IMPORTANT: Variant order matters for Borsh serialization!
+/// The discriminants match NEAR Protocol specification:
+/// 0 = CreateAccount, 1 = DeployContract, 2 = FunctionCall, 3 = Transfer,
+/// 4 = Stake, 5 = AddKey, 6 = DeleteKey, 7 = DeleteAccount, 8 = Delegate,
+/// 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Action {
-    /// Create a new account.
+    /// Create a new account. (discriminant = 0)
     CreateAccount(CreateAccountAction),
-    /// Deploy contract code.
+    /// Deploy contract code. (discriminant = 1)
     DeployContract(DeployContractAction),
-    /// Call a contract function.
+    /// Call a contract function. (discriminant = 2)
     FunctionCall(FunctionCallAction),
-    /// Transfer NEAR tokens.
+    /// Transfer NEAR tokens. (discriminant = 3)
     Transfer(TransferAction),
-    /// Stake NEAR for validation.
+    /// Stake NEAR for validation. (discriminant = 4)
     Stake(StakeAction),
-    /// Add an access key.
+    /// Add an access key. (discriminant = 5)
     AddKey(AddKeyAction),
-    /// Delete an access key.
+    /// Delete an access key. (discriminant = 6)
     DeleteKey(DeleteKeyAction),
-    /// Delete the account.
+    /// Delete the account. (discriminant = 7)
     DeleteAccount(DeleteAccountAction),
-    /// Delegate action (for meta-transactions).
+    /// Delegate action (for meta-transactions). (discriminant = 8)
     Delegate(Box<SignedDelegateAction>),
+    /// Publish a contract to global registry. (discriminant = 9)
+    DeployGlobalContract(DeployGlobalContractAction),
+    /// Deploy from a previously published global contract. (discriminant = 10)
+    UseGlobalContract(UseGlobalContractAction),
+    /// NEP-616: Deploy with deterministically derived account ID. (discriminant = 11)
+    DeterministicStateInit(DeterministicStateInitAction),
 }
 
 /// Create a new account.
@@ -165,6 +177,95 @@ pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
 }
 
+// ============================================================================
+// Global Contract Actions
+// ============================================================================
+
+/// How a global contract is identified in the registry.
+///
+/// Global contracts can be referenced either by their code hash (immutable)
+/// or by the account that published them (updatable).
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum GlobalContractIdentifier {
+    /// Reference by code hash (32-byte SHA-256 hash of the WASM code).
+    /// This creates an immutable reference - the contract cannot be updated.
+    CodeHash(CryptoHash),
+    /// Reference by the account ID that published the contract.
+    /// The publisher can update the contract, and all users will get the new version.
+    AccountId(AccountId),
+}
+
+/// Deploy mode for global contracts.
+///
+/// Determines how the contract will be identified in the global registry.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum GlobalContractDeployMode {
+    /// Contract is identified by its code hash (immutable).
+    /// Other accounts reference it by the hash.
+    CodeHash,
+    /// Contract is identified by the signer's account ID (updatable).
+    /// The signer can update the contract later.
+    AccountId,
+}
+
+/// Publish a contract to the global registry.
+///
+/// Global contracts are deployed once and can be referenced by multiple accounts,
+/// saving storage costs. The contract can be identified either by its code hash
+/// (immutable) or by the publishing account (updatable).
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct DeployGlobalContractAction {
+    /// The WASM code to publish.
+    pub code: Vec<u8>,
+    /// How the contract will be identified.
+    pub deploy_mode: GlobalContractDeployMode,
+}
+
+/// Deploy a contract from the global registry.
+///
+/// Instead of uploading the WASM code, this action references a previously
+/// published contract in the global registry.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct UseGlobalContractAction {
+    /// Reference to the published contract.
+    pub contract_identifier: GlobalContractIdentifier,
+}
+
+// ============================================================================
+// NEP-616 Deterministic Account Actions
+// ============================================================================
+
+/// State initialization data for NEP-616 deterministic accounts.
+///
+/// The account ID is derived from: `"0s" + hex(keccak256(borsh(state_init))[12..32])`
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum DeterministicAccountStateInit {
+    /// Version 1 of the state init format.
+    V1(DeterministicAccountStateInitV1),
+}
+
+/// Version 1 of deterministic account state initialization.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct DeterministicAccountStateInitV1 {
+    /// Reference to the contract code (from global registry).
+    pub code: GlobalContractIdentifier,
+    /// Initial key-value pairs to populate in the contract's storage.
+    /// Keys and values are Borsh-serialized bytes.
+    pub data: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
+/// Deploy a contract with a deterministically derived account ID (NEP-616).
+///
+/// This enables creating accounts where the account ID is derived from the
+/// contract code and initial state, making them predictable and reproducible.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct DeterministicStateInitAction {
+    /// The state initialization data.
+    pub state_init: DeterministicAccountStateInit,
+    /// Amount to attach for storage costs.
+    pub deposit: NearToken,
+}
+
 /// Delegate action for meta-transactions.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct DelegateAction {
@@ -192,6 +293,11 @@ pub struct SignedDelegateAction {
 }
 
 /// Non-delegate action (for use within DelegateAction).
+///
+/// This is the same as Action but without the Delegate variant,
+/// since delegate actions cannot contain nested delegate actions.
+///
+/// IMPORTANT: Variant order matters for Borsh serialization!
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum NonDelegateAction {
     CreateAccount(CreateAccountAction),
@@ -202,6 +308,9 @@ pub enum NonDelegateAction {
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
     DeleteAccount(DeleteAccountAction),
+    DeployGlobalContract(DeployGlobalContractAction),
+    UseGlobalContract(UseGlobalContractAction),
+    DeterministicStateInit(DeterministicStateInitAction),
 }
 
 // Helper constructors for actions
@@ -270,5 +379,111 @@ impl Action {
     /// Create a DeleteAccount action.
     pub fn delete_account(beneficiary_id: AccountId) -> Self {
         Self::DeleteAccount(DeleteAccountAction { beneficiary_id })
+    }
+
+    /// Create a Delegate action from a signed delegate action.
+    pub fn delegate(signed_delegate: SignedDelegateAction) -> Self {
+        Self::Delegate(Box::new(signed_delegate))
+    }
+
+    /// Publish a contract to the global registry.
+    ///
+    /// Global contracts are deployed once and can be referenced by multiple accounts,
+    /// saving storage costs.
+    ///
+    /// # Arguments
+    ///
+    /// * `code` - The WASM code to publish
+    /// * `by_hash` - If true, contract is identified by its code hash (immutable).
+    ///   If false (default), contract is identified by the signer's account ID (updatable).
+    pub fn publish_contract(code: Vec<u8>, by_hash: bool) -> Self {
+        Self::DeployGlobalContract(DeployGlobalContractAction {
+            code,
+            deploy_mode: if by_hash {
+                GlobalContractDeployMode::CodeHash
+            } else {
+                GlobalContractDeployMode::AccountId
+            },
+        })
+    }
+
+    /// Deploy a contract from the global registry by code hash.
+    ///
+    /// References a previously published immutable contract.
+    pub fn deploy_from_hash(code_hash: CryptoHash) -> Self {
+        Self::UseGlobalContract(UseGlobalContractAction {
+            contract_identifier: GlobalContractIdentifier::CodeHash(code_hash),
+        })
+    }
+
+    /// Deploy a contract from the global registry by account ID.
+    ///
+    /// References a contract published by the given account.
+    /// The contract can be updated by the publisher.
+    pub fn deploy_from_account(account_id: AccountId) -> Self {
+        Self::UseGlobalContract(UseGlobalContractAction {
+            contract_identifier: GlobalContractIdentifier::AccountId(account_id),
+        })
+    }
+
+    /// Create a NEP-616 deterministic state init action.
+    ///
+    /// The account ID is derived from the state init data:
+    /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`
+    pub fn state_init(state_init: DeterministicAccountStateInit, deposit: NearToken) -> Self {
+        Self::DeterministicStateInit(DeterministicStateInitAction {
+            state_init,
+            deposit,
+        })
+    }
+
+    /// Create a NEP-616 deterministic state init action with code hash reference.
+    pub fn state_init_by_hash(
+        code_hash: CryptoHash,
+        data: Vec<(Vec<u8>, Vec<u8>)>,
+        deposit: NearToken,
+    ) -> Self {
+        Self::DeterministicStateInit(DeterministicStateInitAction {
+            state_init: DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+                code: GlobalContractIdentifier::CodeHash(code_hash),
+                data,
+            }),
+            deposit,
+        })
+    }
+
+    /// Create a NEP-616 deterministic state init action with account reference.
+    pub fn state_init_by_account(
+        account_id: AccountId,
+        data: Vec<(Vec<u8>, Vec<u8>)>,
+        deposit: NearToken,
+    ) -> Self {
+        Self::DeterministicStateInit(DeterministicStateInitAction {
+            state_init: DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+                code: GlobalContractIdentifier::AccountId(account_id),
+                data,
+            }),
+            deposit,
+        })
+    }
+}
+
+impl NonDelegateAction {
+    /// Convert from an Action, returning None if it's a Delegate action.
+    pub fn from_action(action: Action) -> Option<Self> {
+        match action {
+            Action::CreateAccount(a) => Some(NonDelegateAction::CreateAccount(a)),
+            Action::DeployContract(a) => Some(NonDelegateAction::DeployContract(a)),
+            Action::FunctionCall(a) => Some(NonDelegateAction::FunctionCall(a)),
+            Action::Transfer(a) => Some(NonDelegateAction::Transfer(a)),
+            Action::Stake(a) => Some(NonDelegateAction::Stake(a)),
+            Action::AddKey(a) => Some(NonDelegateAction::AddKey(a)),
+            Action::DeleteKey(a) => Some(NonDelegateAction::DeleteKey(a)),
+            Action::DeleteAccount(a) => Some(NonDelegateAction::DeleteAccount(a)),
+            Action::Delegate(_) => None,
+            Action::DeployGlobalContract(a) => Some(NonDelegateAction::DeployGlobalContract(a)),
+            Action::UseGlobalContract(a) => Some(NonDelegateAction::UseGlobalContract(a)),
+            Action::DeterministicStateInit(a) => Some(NonDelegateAction::DeterministicStateInit(a)),
+        }
     }
 }
