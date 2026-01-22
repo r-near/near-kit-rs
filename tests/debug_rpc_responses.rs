@@ -2,23 +2,21 @@
 //!
 //! These tests are useful for inspecting actual response structures.
 //!
-//! Run with: `cargo nextest run --test debug_rpc_responses --no-capture`
+//! Run with: `cargo nextest run --test debug_rpc_responses --features sandbox --no-capture`
+
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use near_kit::prelude::*;
+use near_kit::sandbox::{SandboxConfig, ROOT_ACCOUNT};
 use near_kit::{ActionView, ReceiptContent};
-use near_sandbox::Sandbox;
 
-const SANDBOX_ACCOUNT: &str = "sandbox";
-const SANDBOX_PRIVATE_KEY: &str = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
+/// Counter for generating unique subaccount names
+static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-async fn setup_sandbox() -> (Sandbox, Near, AccountId) {
-    let sandbox = Sandbox::start_sandbox().await.unwrap();
-    let account_id: AccountId = SANDBOX_ACCOUNT.parse().unwrap();
-    let near = Near::custom(&sandbox.rpc_addr)
-        .credentials(SANDBOX_PRIVATE_KEY, SANDBOX_ACCOUNT)
-        .unwrap()
-        .build();
-    (sandbox, near, account_id)
+/// Generate a unique subaccount ID for test isolation
+fn unique_account() -> AccountId {
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("debug{}.{}", n, ROOT_ACCOUNT).parse().unwrap()
 }
 
 /// A minimal valid WASM module for testing
@@ -31,7 +29,8 @@ fn get_test_contract_wasm() -> Vec<u8> {
 
 #[tokio::test]
 async fn debug_sync_info_and_status() {
-    let (_sandbox, near, _) = setup_sandbox().await;
+    let sandbox = SandboxConfig::shared().await;
+    let near = sandbox.client();
 
     let status = near.rpc().status().await.unwrap();
 
@@ -98,7 +97,8 @@ async fn debug_sync_info_and_status() {
 
 #[tokio::test]
 async fn debug_block_details() {
-    let (_sandbox, near, _) = setup_sandbox().await;
+    let sandbox = SandboxConfig::shared().await;
+    let near = sandbox.client();
 
     let block = near.rpc().block(BlockReference::final_()).await.unwrap();
 
@@ -142,11 +142,15 @@ async fn debug_block_details() {
 
 #[tokio::test]
 async fn debug_transaction_receipts() {
-    let (_sandbox, near, root_account) = setup_sandbox().await;
+    let sandbox = SandboxConfig::shared().await;
+    let near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    let root_account: AccountId = ROOT_ACCOUNT.parse().unwrap();
 
     // Create an account with multiple actions to generate receipts
     let receiver_key = SecretKey::generate_ed25519();
-    let receiver_id: AccountId = format!("debug-receipts.{}", root_account).parse().unwrap();
+    let receiver_id = unique_account();
 
     let outcome = near
         .transaction(&receiver_id)
@@ -295,16 +299,22 @@ async fn debug_transaction_receipts() {
             }
         }
     }
+
+    // Silence unused warning
+    let _ = rpc_url;
 }
 
 #[tokio::test]
 async fn debug_access_key_details() {
-    let (_sandbox, near, root_account) = setup_sandbox().await;
+    let sandbox = SandboxConfig::shared().await;
+    let near = sandbox.client();
+
+    let root_account: AccountId = ROOT_ACCOUNT.parse().unwrap();
 
     // Create account with function call key
     let account_key = SecretKey::generate_ed25519();
     let fc_key = SecretKey::generate_ed25519();
-    let account_id: AccountId = format!("fckey-test.{}", root_account).parse().unwrap();
+    let account_id = unique_account();
 
     // Create account and add a function call key
     near.transaction(&account_id)
@@ -351,6 +361,9 @@ async fn debug_access_key_details() {
             }
         }
     }
+
+    // Silence unused warning
+    let _ = root_account;
 }
 
 // ============================================================================
@@ -359,7 +372,8 @@ async fn debug_access_key_details() {
 
 #[tokio::test]
 async fn test_error_account_not_found() {
-    let (_sandbox, near, _) = setup_sandbox().await;
+    let sandbox = SandboxConfig::shared().await;
+    let near = sandbox.client();
 
     let non_existent: AccountId = "this-account-does-not-exist.near".parse().unwrap();
     let result = near.balance(&non_existent).await;
@@ -375,7 +389,10 @@ async fn test_error_account_not_found() {
 
 #[tokio::test]
 async fn test_error_contract_not_deployed() {
-    let (_sandbox, near, account_id) = setup_sandbox().await;
+    let sandbox = SandboxConfig::shared().await;
+    let near = sandbox.client();
+
+    let account_id: AccountId = ROOT_ACCOUNT.parse().unwrap();
 
     // Try to call a function on an account without a contract
     let result = near
@@ -396,7 +413,8 @@ async fn test_error_contract_not_deployed() {
 
 #[tokio::test]
 async fn test_error_unknown_block() {
-    let (_sandbox, near, _) = setup_sandbox().await;
+    let sandbox = SandboxConfig::shared().await;
+    let near = sandbox.client();
 
     // Try to get a block that doesn't exist (very high block number)
     let result = near.rpc().block(BlockReference::at_height(999999999)).await;
@@ -412,11 +430,12 @@ async fn test_error_unknown_block() {
 
 #[tokio::test]
 async fn test_error_invalid_method() {
-    let (_sandbox, near, root_account) = setup_sandbox().await;
+    let sandbox = SandboxConfig::shared().await;
+    let near = sandbox.client();
 
-    // Deploy a minimal contract first
+    // Create an account and deploy a minimal contract
     let contract_key = SecretKey::generate_ed25519();
-    let contract_id: AccountId = format!("contract.{}", root_account).parse().unwrap();
+    let contract_id = unique_account();
 
     let wasm = get_test_contract_wasm();
     near.transaction(&contract_id)

@@ -37,6 +37,9 @@ dirs = "6"
 # Error handling
 thiserror = "2"
 
+# Logging
+tracing = "0.1"
+
 # Optional: Sandbox integration
 near-sandbox = { version = "0.3", features = ["global_install"], optional = true }
 
@@ -49,6 +52,7 @@ tokio-test = "0.4"
 near-sandbox = { version = "0.3", features = ["global_install"] }
 tempfile = "3"
 rstest = "0.25"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]
 lto = true

@@ -55,9 +55,26 @@
 //! }
 //! ```
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use tokio::sync::OnceCell;
+use tracing::{debug, info};
 
 use crate::client::Near;
+
+// ============================================================================
+// Logging and metrics
+// ============================================================================
+
+/// Counter for sandbox instances created (for debugging/testing)
+static SANDBOX_INSTANCE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Get the total number of sandbox instances created during this process.
+///
+/// Useful for verifying that shared sandboxes are actually being shared.
+pub fn sandbox_instance_count() -> usize {
+    SANDBOX_INSTANCE_COUNT.load(Ordering::Relaxed)
+}
 
 // ============================================================================
 // Re-exports for convenience
@@ -100,9 +117,24 @@ impl SharedSandbox {
     }
 
     async fn init_with_version(version: &str) -> Self {
+        let instance_num = SANDBOX_INSTANCE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+        info!(
+            instance = instance_num,
+            version = version,
+            mode = "shared",
+            "Starting sandbox"
+        );
+
         let inner = near_sandbox::Sandbox::start_sandbox_with_version(version)
             .await
             .expect("Failed to start shared sandbox");
+
+        info!(
+            instance = instance_num,
+            rpc_url = %inner.rpc_addr,
+            "Shared sandbox ready"
+        );
+
         Self { inner }
     }
 
@@ -149,9 +181,24 @@ impl OwnedSandbox {
     }
 
     async fn spawn_with_version(version: &str) -> Self {
+        let instance_num = SANDBOX_INSTANCE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+        info!(
+            instance = instance_num,
+            version = version,
+            mode = "fresh",
+            "Starting sandbox"
+        );
+
         let inner = near_sandbox::Sandbox::start_sandbox_with_version(version)
             .await
             .expect("Failed to start sandbox");
+
+        info!(
+            instance = instance_num,
+            rpc_url = %inner.rpc_addr,
+            "Fresh sandbox ready"
+        );
+
         Self { inner: Some(inner) }
     }
 
@@ -184,6 +231,7 @@ impl SandboxNetwork for OwnedSandbox {
 impl Drop for OwnedSandbox {
     fn drop(&mut self) {
         if let Some(sandbox) = self.inner.take() {
+            debug!(rpc_url = %sandbox.rpc_addr, "Stopping fresh sandbox");
             // The near_sandbox::Sandbox will kill the child process when dropped
             drop(sandbox);
         }

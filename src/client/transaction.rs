@@ -519,7 +519,7 @@ impl IntoFuture for TransactionSend {
                 );
 
                 // Sign
-                let signature = signer.sign(tx.get_hash().as_bytes())?;
+                let (signature, _) = signer.sign(tx.get_hash().as_bytes()).await?;
                 let signed_tx = crate::types::SignedTransaction {
                     transaction: tx,
                     signature,

@@ -122,7 +122,7 @@ impl IntoFuture for TransferCall {
             );
 
             // Sign
-            let signature = signer.sign(tx.get_hash().as_bytes())?;
+            let (signature, _) = signer.sign(tx.get_hash().as_bytes()).await?;
             let signed_tx = crate::types::SignedTransaction {
                 transaction: tx,
                 signature,
@@ -294,7 +294,7 @@ impl IntoFuture for ContractCall {
             );
 
             // Sign
-            let signature = signer.sign(tx.get_hash().as_bytes())?;
+            let (signature, _) = signer.sign(tx.get_hash().as_bytes()).await?;
             let signed_tx = crate::types::SignedTransaction {
                 transaction: tx,
                 signature,
@@ -414,7 +414,7 @@ impl IntoFuture for DeployCall {
             );
 
             // Sign
-            let signature = signer.sign(tx.get_hash().as_bytes())?;
+            let (signature, _) = signer.sign(tx.get_hash().as_bytes()).await?;
             let signed_tx = crate::types::SignedTransaction {
                 transaction: tx,
                 signature,
@@ -519,7 +519,7 @@ impl IntoFuture for AddKeyCall {
             );
 
             // Sign
-            let signature = signer.sign(tx.get_hash().as_bytes())?;
+            let (signature, _) = signer.sign(tx.get_hash().as_bytes()).await?;
             let signed_tx = crate::types::SignedTransaction {
                 transaction: tx,
                 signature,
@@ -624,7 +624,7 @@ impl IntoFuture for DeleteKeyCall {
             );
 
             // Sign
-            let signature = signer.sign(tx.get_hash().as_bytes())?;
+            let (signature, _) = signer.sign(tx.get_hash().as_bytes()).await?;
             let signed_tx = crate::types::SignedTransaction {
                 transaction: tx,
                 signature,

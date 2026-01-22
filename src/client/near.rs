@@ -7,10 +7,9 @@ use serde::de::DeserializeOwned;
 use crate::error::Error;
 use crate::types::{AccountId, Gas, NearToken, PublicKey, SecretKey};
 
-use super::keystore::{InMemoryKeyStore, KeyStore};
 use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
 use super::rpc::{RetryConfig, RpcClient, MAINNET, TESTNET};
-use super::signer::{KeyStoreSigner, Signer};
+use super::signer::{InMemorySigner, Signer};
 use super::transaction::TransactionBuilder;
 use super::tx::{AddKeyCall, ContractCall, DeleteKeyCall, DeployCall, TransferCall};
 
@@ -117,11 +116,7 @@ impl Near {
             .parse()
             .expect("sandbox should provide valid account id");
 
-        let keystore = Arc::new(InMemoryKeyStore::new());
-        keystore.add(&account_id, secret_key);
-
-        let signer = KeyStoreSigner::new(keystore, account_id)
-            .expect("keystore should have the key we just added");
+        let signer = InMemorySigner::from_secret_key(account_id, secret_key);
 
         Near {
             rpc: Arc::new(RpcClient::new(network.rpc_url())),
@@ -564,28 +559,9 @@ impl NearBuilder {
         self
     }
 
-    /// Set up signing using a keystore and account ID.
-    ///
-    /// This is a convenience method that creates a `KeyStoreSigner` for you.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if no key exists in the keystore for the given account.
-    pub fn keystore(
-        mut self,
-        keystore: Arc<dyn KeyStore>,
-        account_id: impl AsRef<str>,
-    ) -> Result<Self, Error> {
-        let account_id: AccountId = account_id.as_ref().parse()?;
-        let signer = KeyStoreSigner::new(keystore, account_id)?;
-        self.signer = Some(Arc::new(signer));
-        Ok(self)
-    }
-
     /// Set up signing using a private key string and account ID.
     ///
-    /// This is a convenience method that creates an in-memory keystore with the
-    /// provided key and sets up a signer for the account.
+    /// This is a convenience method that creates an `InMemorySigner` for you.
     ///
     /// # Example
     ///
@@ -601,15 +577,7 @@ impl NearBuilder {
         private_key: impl AsRef<str>,
         account_id: impl AsRef<str>,
     ) -> Result<Self, Error> {
-        let secret_key: crate::types::SecretKey = private_key.as_ref().parse()?;
-        let account_id: AccountId = account_id.as_ref().parse()?;
-
-        // Create an in-memory keystore with this single key
-        let keystore = Arc::new(InMemoryKeyStore::new());
-        keystore.add(&account_id, secret_key);
-
-        // Create a signer from the keystore
-        let signer = KeyStoreSigner::new(keystore, account_id)?;
+        let signer = InMemorySigner::new(account_id, private_key)?;
         self.signer = Some(Arc::new(signer));
         Ok(self)
     }

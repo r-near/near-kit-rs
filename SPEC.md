@@ -748,7 +748,6 @@ pub enum RpcError {
 pub struct Near {
     rpc: Arc<RpcClient>,
     signer: Option<Arc<dyn Signer>>,
-    default_account: Option<AccountId>,
 }
 
 impl Near {
@@ -869,13 +868,11 @@ impl Near {
 pub struct NearBuilder {
     rpc_url: String,
     signer: Option<Arc<dyn Signer>>,
-    default_account: Option<AccountId>,
     retry_config: RetryConfig,
 }
 
 impl NearBuilder {
     pub fn signer(self, signer: impl Signer + 'static) -> Self;
-    pub fn default_account(self, account_id: impl TryInto<AccountId>) -> Self;
     pub fn retry_config(self, config: RetryConfig) -> Self;
     
     pub fn build(self) -> Near;
@@ -891,35 +888,169 @@ impl From<NearBuilder> for Near {
 
 ### Signer Trait
 
+The `Signer` trait is the unified abstraction for signing transactions. It combines:
+- **Account identity**: Which account is signing
+- **Signing capability**: How to sign messages
+
+The trait uses async signing to support remote signers (hardware wallets, cloud KMS, etc.).
+
 ```rust
 /// Trait for signing transactions.
+/// 
+/// A signer knows which account it signs for and can sign arbitrary messages.
+/// The `sign` method returns both the signature and the public key used,
+/// which enables key rotation (where different calls may use different keys).
+#[async_trait]
 pub trait Signer: Send + Sync {
-    /// Sign a message hash.
-    fn sign(&self, message: &[u8]) -> Result<Signature, SignerError>;
+    /// The account this signer signs for.
+    fn account_id(&self) -> &AccountId;
     
-    /// Get the public key.
-    fn public_key(&self) -> &PublicKey;
-    
-    /// Get the account ID (if known).
-    fn account_id(&self) -> Option<&AccountId>;
+    /// Sign a message, returning the signature and the public key used.
+    /// 
+    /// Returning the public key allows signers to use different keys for
+    /// different transactions (e.g., key rotation for high-throughput bots).
+    async fn sign(&self, message: &[u8]) -> Result<(Signature, PublicKey), SignerError>;
 }
-
-/// Signer from a secret key.
-pub struct SecretKeySigner {
-    secret_key: SecretKey,
-    account_id: Option<AccountId>,
-}
-
-impl SecretKeySigner {
-    pub fn new(secret_key: SecretKey) -> Self;
-    pub fn with_account_id(secret_key: SecretKey, account_id: AccountId) -> Self;
-    
-    /// Parse from seed phrase.
-    pub fn from_seed_phrase(phrase: &str, password: Option<&str>) -> Result<Self, SignerError>;
-}
-
-impl Signer for SecretKeySigner { ... }
 ```
+
+### Signer Implementations
+
+#### InMemorySigner
+
+Simple signer with a single key stored in memory. Most common for scripts and bots.
+
+```rust
+pub struct InMemorySigner {
+    account_id: AccountId,
+    secret_key: SecretKey,
+}
+
+impl InMemorySigner {
+    /// Create a new signer with an account ID and secret key.
+    pub fn new(account_id: &str, secret_key: &str) -> Result<Self, Error>;
+    
+    /// Create from a SecretKey directly.
+    pub fn from_secret_key(account_id: AccountId, secret_key: SecretKey) -> Self;
+}
+
+// Usage:
+let signer = InMemorySigner::new("alice.testnet", "ed25519:...")?;
+let near = Near::testnet().signer(signer).build();
+```
+
+#### FileSigner
+
+Loads a key from `~/.near-credentials/{network}/{account}.json`. Compatible with near-cli.
+
+```rust
+pub struct FileSigner {
+    account_id: AccountId,
+    secret_key: SecretKey,  // Loaded at construction
+}
+
+impl FileSigner {
+    /// Load credentials for an account from the standard NEAR credentials directory.
+    pub fn new(network: &str, account_id: &str) -> Result<Self, Error>;
+    
+    /// Load from a specific file path.
+    pub fn from_file(path: impl AsRef<Path>, account_id: &str) -> Result<Self, Error>;
+}
+
+// Usage:
+let signer = FileSigner::new("testnet", "alice.testnet")?;
+let near = Near::testnet().signer(signer).build();
+```
+
+#### EnvSigner
+
+Loads credentials from environment variables. Useful for CI/CD and containers.
+
+```rust
+pub struct EnvSigner {
+    account_id: AccountId,
+    secret_key: SecretKey,
+}
+
+impl EnvSigner {
+    /// Load from NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY environment variables.
+    pub fn new() -> Result<Self, Error>;
+    
+    /// Load from custom environment variable names.
+    pub fn from_env_vars(account_var: &str, key_var: &str) -> Result<Self, Error>;
+}
+
+// Usage (with NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY set):
+let signer = EnvSigner::new()?;
+let near = Near::testnet().signer(signer).build();
+```
+
+#### RotatingSigner
+
+Uses multiple keys for the same account, rotating through them round-robin.
+Solves the nonce collision problem for high-throughput applications.
+
+```rust
+pub struct RotatingSigner {
+    account_id: AccountId,
+    keys: Vec<SecretKey>,
+    counter: AtomicUsize,
+}
+
+impl RotatingSigner {
+    /// Create a rotating signer with multiple keys.
+    pub fn new(account_id: &str, keys: Vec<SecretKey>) -> Result<Self, Error>;
+    
+    /// Parse keys from string format.
+    pub fn from_key_strings(account_id: &str, keys: &[&str]) -> Result<Self, Error>;
+}
+
+// Usage:
+let signer = RotatingSigner::from_key_strings("bot.near", &[
+    "ed25519:key1...",
+    "ed25519:key2...",
+    "ed25519:key3...",
+])?;
+let near = Near::mainnet().signer(signer).build();
+
+// Each concurrent transaction uses a different key, avoiding nonce collisions
+futures::future::join_all((0..20).map(|_| {
+    near.transfer("recipient.near", "0.1 NEAR")
+})).await;
+```
+
+#### LedgerSigner (Future)
+
+Hardware wallet support via Ledger.
+
+```rust
+pub struct LedgerSigner {
+    account_id: AccountId,
+    derivation_path: String,
+}
+
+impl LedgerSigner {
+    pub fn new(account_id: &str, derivation_path: &str) -> Result<Self, Error>;
+}
+
+// The sign() method talks to the Ledger device
+// User confirms transaction on the device
+```
+
+### Design Rationale
+
+1. **No KeyStore trait**: The KeyStore abstraction added complexity without benefit. 
+   Each signer implementation knows how to get its keys directly.
+
+2. **Async signing**: Enables hardware wallets, remote KMS, and other async signing methods.
+
+3. **Returns (Signature, PublicKey)**: Allows `RotatingSigner` to use different keys 
+   for different transactions. The caller doesn't need to know which key was used upfront.
+
+4. **Account ID on signer**: Every signer knows which account it signs for. This is 
+   required information for building transactions anyway.
+
+5. **Simple constructors**: `InMemorySigner::new("account", "key")` is easy to understand
+   and use. No need for intermediate KeyStore objects.
 
 ---
 
@@ -1344,15 +1475,30 @@ use near_kit::prelude::*;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ══════════════════════════════════════════════════════════════════
-    // Setup
+    // Setup - Multiple ways to configure a signer
     // ══════════════════════════════════════════════════════════════════
     
+    // Option 1: Direct key
     let near = Near::testnet()
-        .signer(SecretKeySigner::from_seed_phrase(
-            "your seed phrase here...",
-            None,
-        )?)
-        .default_account("alice.testnet")
+        .signer(InMemorySigner::new("alice.testnet", "ed25519:...")?)
+        .build();
+    
+    // Option 2: From file (~/.near-credentials/testnet/alice.testnet.json)
+    let near = Near::testnet()
+        .signer(FileSigner::new("testnet", "alice.testnet")?)
+        .build();
+    
+    // Option 3: From environment variables
+    let near = Near::testnet()
+        .signer(EnvSigner::new()?)
+        .build();
+    
+    // Option 4: Rotating keys for high-throughput
+    let near = Near::mainnet()
+        .signer(RotatingSigner::from_key_strings("bot.near", &[
+            "ed25519:key1...",
+            "ed25519:key2...",
+        ])?)
         .build();
     
     // ══════════════════════════════════════════════════════════════════

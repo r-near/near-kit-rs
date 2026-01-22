@@ -1,141 +1,615 @@
 //! Signer trait and implementations.
 //!
-//! A `Signer` provides the ability to sign transactions using keys from a [`KeyStore`].
+//! A `Signer` knows which account it signs for and can sign arbitrary messages.
+//! The trait uses async signing to support remote signers (hardware wallets, cloud KMS, etc.).
+//!
+//! # Implementations
+//!
+//! - [`InMemorySigner`] - Single key stored in memory
+//! - [`FileSigner`] - Key loaded from ~/.near-credentials
+//! - [`EnvSigner`] - Key loaded from environment variables
+//! - [`RotatingSigner`] - Multiple keys with round-robin rotation
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use near_kit::{Near, InMemorySigner};
+//!
+//! # async fn example() -> Result<(), near_kit::Error> {
+//! let signer = InMemorySigner::new(
+//!     "alice.testnet",
+//!     "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
+//! )?;
+//!
+//! let near = Near::testnet()
+//!     .signer(signer)
+//!     .build();
+//!
+//! near.transfer("bob.testnet", "1 NEAR").await?;
+//! # Ok(())
+//! # }
+//! ```
 
+use std::future::Future;
+use std::path::Path;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::error::SignerError;
-use crate::types::{AccountId, PublicKey, Signature};
+use crate::types::{AccountId, PublicKey, SecretKey, Signature};
 
-use super::keystore::KeyStore;
+// ============================================================================
+// Signer Trait
+// ============================================================================
 
 /// Trait for signing transactions.
 ///
-/// A signer provides the ability to sign messages (transaction hashes) and
-/// knows which account and public key it represents.
+/// A signer knows which account it signs for and can sign arbitrary messages.
+/// The `sign` method returns both the signature and the public key used,
+/// which enables key rotation (where different calls may use different keys).
 ///
-/// # Implementing Custom Signers
+/// # Async Signing
 ///
-/// You can implement this trait for hardware wallets, cloud KMS, or other
-/// signing backends:
+/// The trait uses async signing to support:
+/// - Hardware wallets (user confirmation)
+/// - Cloud KMS (network requests)
+/// - Remote signing services
+///
+/// # Example Implementation
 ///
 /// ```rust,ignore
-/// struct LedgerSigner { /* ... */ }
+/// use near_kit::{Signer, SignerError, AccountId, PublicKey, Signature};
 ///
-/// impl Signer for LedgerSigner {
-///     fn sign(&self, message: &[u8]) -> Result<Signature, SignerError> {
-///         // Sign using Ledger hardware wallet
+/// struct MyCustomSigner {
+///     account_id: AccountId,
+///     // ... your signing backend
+/// }
+///
+/// impl Signer for MyCustomSigner {
+///     fn account_id(&self) -> &AccountId {
+///         &self.account_id
 ///     }
-///     
-///     fn public_key(&self) -> &PublicKey { /* ... */ }
-///     fn account_id(&self) -> &AccountId { /* ... */ }
+///
+///     fn sign(&self, message: &[u8]) -> SignFuture {
+///         let account_id = self.account_id.clone();
+///         Box::pin(async move {
+///             // Your signing logic here
+///             todo!()
+///         })
+///     }
 /// }
 /// ```
 pub trait Signer: Send + Sync {
-    /// Sign a message hash (typically the SHA-256 hash of a serialized transaction).
-    fn sign(&self, message: &[u8]) -> Result<Signature, SignerError>;
+    /// The account this signer signs for.
+    fn account_id(&self) -> &AccountId;
 
-    /// Get the public key for this signer.
+    /// Get the public key that will be used for the next signing operation.
+    ///
+    /// For single-key signers, this always returns the same key.
+    /// For rotating signers, this returns the next key in the rotation
+    /// (the same one that will be used by the next `sign()` call).
     fn public_key(&self) -> &PublicKey;
 
-    /// Get the account ID for this signer.
-    fn account_id(&self) -> &AccountId;
-}
-
-/// A signer that uses a KeyStore to retrieve keys for signing.
-///
-/// This is the standard signer implementation. It retrieves the secret key
-/// from the keystore when signing is needed.
-///
-/// # Example
-///
-/// ```rust
-/// use near_kit::{InMemoryKeyStore, KeyStoreSigner, KeyStore, SecretKey};
-/// use std::sync::Arc;
-///
-/// // Create a keystore and add a key
-/// let keystore = Arc::new(InMemoryKeyStore::new());
-/// let secret = SecretKey::generate_ed25519();
-/// let account_id = "alice.testnet".parse().unwrap();
-/// keystore.add(&account_id, secret);
-///
-/// // Create a signer for that account
-/// let signer = KeyStoreSigner::new(keystore, account_id).unwrap();
-/// ```
-pub struct KeyStoreSigner {
-    keystore: Arc<dyn KeyStore>,
-    account_id: AccountId,
-    public_key: PublicKey,
-}
-
-impl KeyStoreSigner {
-    /// Create a new signer for the given account using keys from the keystore.
+    /// Sign a message, returning the signature and the public key used.
     ///
-    /// Returns an error if no key exists for the account.
-    pub fn new(keystore: Arc<dyn KeyStore>, account_id: AccountId) -> Result<Self, SignerError> {
-        let secret_key = keystore.get(&account_id).ok_or_else(|| {
-            SignerError::SigningFailed(format!("No key found for account {}", account_id))
-        })?;
-        let public_key = secret_key.public_key();
-        Ok(Self {
-            keystore,
-            account_id,
-            public_key,
-        })
-    }
-
-    /// Get the underlying keystore.
-    pub fn keystore(&self) -> &Arc<dyn KeyStore> {
-        &self.keystore
-    }
+    /// Returning the public key allows signers to use different keys for
+    /// different transactions (e.g., key rotation for high-throughput bots).
+    fn sign(&self, message: &[u8]) -> SignFuture;
 }
 
-impl Signer for KeyStoreSigner {
-    fn sign(&self, message: &[u8]) -> Result<Signature, SignerError> {
-        let secret_key = self.keystore.get(&self.account_id).ok_or_else(|| {
-            SignerError::SigningFailed(format!("No key found for account {}", self.account_id))
-        })?;
-        Ok(secret_key.sign(message))
-    }
+/// Future type returned by [`Signer::sign`].
+pub type SignFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<(Signature, PublicKey), SignerError>> + Send + 'a>>;
 
-    fn public_key(&self) -> &PublicKey {
-        &self.public_key
-    }
-
-    fn account_id(&self) -> &AccountId {
-        &self.account_id
-    }
-}
-
-impl Clone for KeyStoreSigner {
-    fn clone(&self) -> Self {
-        Self {
-            keystore: self.keystore.clone(),
-            account_id: self.account_id.clone(),
-            public_key: self.public_key.clone(),
-        }
-    }
-}
-
-impl std::fmt::Debug for KeyStoreSigner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("KeyStoreSigner")
-            .field("account_id", &self.account_id)
-            .field("public_key", &self.public_key)
-            .finish()
-    }
-}
-
+/// Implement Signer for Arc<dyn Signer> for convenience.
 impl Signer for Arc<dyn Signer> {
-    fn sign(&self, message: &[u8]) -> Result<Signature, SignerError> {
-        (**self).sign(message)
+    fn account_id(&self) -> &AccountId {
+        (**self).account_id()
     }
 
     fn public_key(&self) -> &PublicKey {
         (**self).public_key()
     }
 
+    fn sign(&self, message: &[u8]) -> SignFuture {
+        (**self).sign(message)
+    }
+}
+
+// ============================================================================
+// InMemorySigner
+// ============================================================================
+
+/// A signer with a single key stored in memory.
+///
+/// This is the simplest signer implementation, suitable for scripts,
+/// bots, and testing.
+///
+/// # Example
+///
+/// ```rust
+/// use near_kit::InMemorySigner;
+///
+/// let signer = InMemorySigner::new(
+///     "alice.testnet",
+///     "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
+/// ).unwrap();
+/// ```
+#[derive(Clone)]
+pub struct InMemorySigner {
+    account_id: AccountId,
+    secret_key: SecretKey,
+    public_key: PublicKey,
+}
+
+impl InMemorySigner {
+    /// Create a new signer with an account ID and secret key.
+    ///
+    /// # Arguments
+    ///
+    /// * `account_id` - The NEAR account ID (e.g., "alice.testnet")
+    /// * `secret_key` - The secret key in string format (e.g., "ed25519:...")
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the account ID or secret key cannot be parsed.
+    pub fn new(
+        account_id: impl AsRef<str>,
+        secret_key: impl AsRef<str>,
+    ) -> Result<Self, crate::error::Error> {
+        let account_id: AccountId = account_id.as_ref().parse()?;
+        let secret_key: SecretKey = secret_key.as_ref().parse()?;
+        let public_key = secret_key.public_key();
+
+        Ok(Self {
+            account_id,
+            secret_key,
+            public_key,
+        })
+    }
+
+    /// Create a signer from a SecretKey directly.
+    pub fn from_secret_key(account_id: AccountId, secret_key: SecretKey) -> Self {
+        let public_key = secret_key.public_key();
+        Self {
+            account_id,
+            secret_key,
+            public_key,
+        }
+    }
+
+    /// Get the public key.
+    pub fn public_key(&self) -> &PublicKey {
+        &self.public_key
+    }
+}
+
+impl std::fmt::Debug for InMemorySigner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InMemorySigner")
+            .field("account_id", &self.account_id)
+            .field("public_key", &self.public_key)
+            .finish()
+    }
+}
+
+impl Signer for InMemorySigner {
     fn account_id(&self) -> &AccountId {
-        (**self).account_id()
+        &self.account_id
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        &self.public_key
+    }
+
+    fn sign(&self, message: &[u8]) -> SignFuture {
+        let signature = self.secret_key.sign(message);
+        let public_key = self.public_key.clone();
+        Box::pin(async move { Ok((signature, public_key)) })
+    }
+}
+
+// ============================================================================
+// FileSigner
+// ============================================================================
+
+/// A signer that loads its key from `~/.near-credentials/{network}/{account}.json`.
+///
+/// Compatible with credentials created by near-cli and near-cli-rs.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use near_kit::FileSigner;
+///
+/// // Load from ~/.near-credentials/testnet/alice.testnet.json
+/// let signer = FileSigner::new("testnet", "alice.testnet").unwrap();
+/// ```
+#[derive(Clone)]
+pub struct FileSigner {
+    inner: InMemorySigner,
+}
+
+/// Credential file format compatible with near-cli.
+#[derive(serde::Deserialize)]
+struct CredentialFile {
+    #[serde(alias = "secret_key")]
+    private_key: String,
+}
+
+impl FileSigner {
+    /// Load credentials for an account from the standard NEAR credentials directory.
+    ///
+    /// Looks for the file at `~/.near-credentials/{network}/{account_id}.json`.
+    ///
+    /// # Arguments
+    ///
+    /// * `network` - Network name (e.g., "testnet", "mainnet")
+    /// * `account_id` - The NEAR account ID
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The home directory cannot be determined
+    /// - The credentials file doesn't exist
+    /// - The file cannot be parsed
+    pub fn new(
+        network: impl AsRef<str>,
+        account_id: impl AsRef<str>,
+    ) -> Result<Self, crate::error::Error> {
+        let home = dirs::home_dir().ok_or_else(|| {
+            crate::error::Error::Config("Could not determine home directory".to_string())
+        })?;
+        let path = home
+            .join(".near-credentials")
+            .join(network.as_ref())
+            .join(format!("{}.json", account_id.as_ref()));
+
+        Self::from_file(&path, account_id)
+    }
+
+    /// Load credentials from a specific file path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the credentials JSON file
+    /// * `account_id` - The NEAR account ID
+    pub fn from_file(
+        path: impl AsRef<Path>,
+        account_id: impl AsRef<str>,
+    ) -> Result<Self, crate::error::Error> {
+        let content = std::fs::read_to_string(path.as_ref()).map_err(|e| {
+            crate::error::Error::Config(format!(
+                "Failed to read credentials file {}: {}",
+                path.as_ref().display(),
+                e
+            ))
+        })?;
+
+        let cred: CredentialFile = serde_json::from_str(&content).map_err(|e| {
+            crate::error::Error::Config(format!(
+                "Failed to parse credentials file {}: {}",
+                path.as_ref().display(),
+                e
+            ))
+        })?;
+
+        let inner = InMemorySigner::new(account_id, &cred.private_key)?;
+        Ok(Self { inner })
+    }
+
+    /// Get the public key.
+    pub fn public_key(&self) -> &PublicKey {
+        self.inner.public_key()
+    }
+}
+
+impl std::fmt::Debug for FileSigner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FileSigner")
+            .field("account_id", &self.inner.account_id)
+            .field("public_key", &self.inner.public_key)
+            .finish()
+    }
+}
+
+impl Signer for FileSigner {
+    fn account_id(&self) -> &AccountId {
+        self.inner.account_id()
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        self.inner.public_key()
+    }
+
+    fn sign(&self, message: &[u8]) -> SignFuture {
+        self.inner.sign(message)
+    }
+}
+
+// ============================================================================
+// EnvSigner
+// ============================================================================
+
+/// A signer that loads credentials from environment variables.
+///
+/// By default, reads from:
+/// - `NEAR_ACCOUNT_ID` - The account ID
+/// - `NEAR_PRIVATE_KEY` - The private key
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use near_kit::EnvSigner;
+///
+/// // With NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY set:
+/// let signer = EnvSigner::new().unwrap();
+/// ```
+#[derive(Clone)]
+pub struct EnvSigner {
+    inner: InMemorySigner,
+}
+
+impl EnvSigner {
+    /// Load from `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` environment variables.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Either environment variable is not set
+    /// - The values cannot be parsed
+    pub fn new() -> Result<Self, crate::error::Error> {
+        Self::from_env_vars("NEAR_ACCOUNT_ID", "NEAR_PRIVATE_KEY")
+    }
+
+    /// Load from custom environment variable names.
+    ///
+    /// # Arguments
+    ///
+    /// * `account_var` - Name of the environment variable containing the account ID
+    /// * `key_var` - Name of the environment variable containing the private key
+    pub fn from_env_vars(account_var: &str, key_var: &str) -> Result<Self, crate::error::Error> {
+        let account_id = std::env::var(account_var).map_err(|_| {
+            crate::error::Error::Config(format!("Environment variable {} not set", account_var))
+        })?;
+
+        let private_key = std::env::var(key_var).map_err(|_| {
+            crate::error::Error::Config(format!("Environment variable {} not set", key_var))
+        })?;
+
+        let inner = InMemorySigner::new(&account_id, &private_key)?;
+        Ok(Self { inner })
+    }
+
+    /// Get the public key.
+    pub fn public_key(&self) -> &PublicKey {
+        self.inner.public_key()
+    }
+}
+
+impl std::fmt::Debug for EnvSigner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnvSigner")
+            .field("account_id", &self.inner.account_id)
+            .field("public_key", &self.inner.public_key)
+            .finish()
+    }
+}
+
+impl Signer for EnvSigner {
+    fn account_id(&self) -> &AccountId {
+        self.inner.account_id()
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        self.inner.public_key()
+    }
+
+    fn sign(&self, message: &[u8]) -> SignFuture {
+        self.inner.sign(message)
+    }
+}
+
+// ============================================================================
+// RotatingSigner
+// ============================================================================
+
+/// A signer that rotates through multiple keys for the same account.
+///
+/// This solves the nonce collision problem for high-throughput applications.
+/// Each call to `sign()` uses the next key in round-robin order.
+///
+/// # Use Case
+///
+/// NEAR uses per-key nonces. When sending concurrent transactions with a single key,
+/// they can collide on nonce values. By rotating through multiple keys, each
+/// concurrent transaction uses a different key with its own nonce sequence.
+///
+/// # Example
+///
+/// ```rust
+/// use near_kit::{RotatingSigner, SecretKey};
+///
+/// let keys = vec![
+///     SecretKey::generate_ed25519(),
+///     SecretKey::generate_ed25519(),
+///     SecretKey::generate_ed25519(),
+/// ];
+///
+/// let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+///
+/// // Each sign() call uses the next key in sequence
+/// ```
+pub struct RotatingSigner {
+    account_id: AccountId,
+    keys: Vec<(SecretKey, PublicKey)>,
+    counter: AtomicUsize,
+}
+
+impl RotatingSigner {
+    /// Create a rotating signer with multiple keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `account_id` - The NEAR account ID
+    /// * `keys` - Vector of secret keys (must not be empty)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The account ID cannot be parsed
+    /// - The keys vector is empty
+    pub fn new(
+        account_id: impl AsRef<str>,
+        keys: Vec<SecretKey>,
+    ) -> Result<Self, crate::error::Error> {
+        if keys.is_empty() {
+            return Err(crate::error::Error::Config(
+                "RotatingSigner requires at least one key".to_string(),
+            ));
+        }
+
+        let account_id: AccountId = account_id.as_ref().parse()?;
+        let keys: Vec<_> = keys
+            .into_iter()
+            .map(|sk| {
+                let pk = sk.public_key();
+                (sk, pk)
+            })
+            .collect();
+
+        Ok(Self {
+            account_id,
+            keys,
+            counter: AtomicUsize::new(0),
+        })
+    }
+
+    /// Create a rotating signer from key strings.
+    ///
+    /// # Arguments
+    ///
+    /// * `account_id` - The NEAR account ID
+    /// * `keys` - Slice of secret keys in string format (e.g., "ed25519:...")
+    pub fn from_key_strings(
+        account_id: impl AsRef<str>,
+        keys: &[impl AsRef<str>],
+    ) -> Result<Self, crate::error::Error> {
+        let parsed_keys: Result<Vec<SecretKey>, _> =
+            keys.iter().map(|k| k.as_ref().parse()).collect();
+        Self::new(account_id, parsed_keys?)
+    }
+
+    /// Get the number of keys in rotation.
+    pub fn key_count(&self) -> usize {
+        self.keys.len()
+    }
+
+    /// Get all public keys.
+    pub fn public_keys(&self) -> Vec<&PublicKey> {
+        self.keys.iter().map(|(_, pk)| pk).collect()
+    }
+}
+
+impl std::fmt::Debug for RotatingSigner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RotatingSigner")
+            .field("account_id", &self.account_id)
+            .field("key_count", &self.keys.len())
+            .field("counter", &self.counter.load(Ordering::Relaxed))
+            .finish()
+    }
+}
+
+impl Signer for RotatingSigner {
+    fn account_id(&self) -> &AccountId {
+        &self.account_id
+    }
+
+    fn public_key(&self) -> &PublicKey {
+        // Return the key that will be used by the next sign() call
+        // (load returns current value, fetch_add in sign() returns value before incrementing)
+        let idx = self.counter.load(Ordering::Relaxed) % self.keys.len();
+        &self.keys[idx].1
+    }
+
+    fn sign(&self, message: &[u8]) -> SignFuture {
+        // Round-robin key selection (fetch_add returns value BEFORE incrementing)
+        let idx = self.counter.fetch_add(1, Ordering::Relaxed) % self.keys.len();
+        let (secret_key, public_key) = &self.keys[idx];
+
+        let signature = secret_key.sign(message);
+        let public_key = public_key.clone();
+
+        Box::pin(async move { Ok((signature, public_key)) })
+    }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_in_memory_signer() {
+        let signer = InMemorySigner::new(
+            "alice.testnet",
+            "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
+        )
+        .unwrap();
+
+        assert_eq!(signer.account_id().as_str(), "alice.testnet");
+
+        let message = b"test message";
+        let (signature, public_key) = signer.sign(message).await.unwrap();
+
+        // Verify the signature matches the public key
+        assert_eq!(&public_key, signer.public_key());
+        assert!(!signature.as_bytes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_rotating_signer() {
+        let keys = vec![
+            SecretKey::generate_ed25519(),
+            SecretKey::generate_ed25519(),
+            SecretKey::generate_ed25519(),
+        ];
+        let expected_public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
+
+        let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+
+        // Verify round-robin rotation
+        let message = b"test";
+
+        let (_, pk1) = signer.sign(message).await.unwrap();
+        assert_eq!(pk1, expected_public_keys[0]);
+
+        let (_, pk2) = signer.sign(message).await.unwrap();
+        assert_eq!(pk2, expected_public_keys[1]);
+
+        let (_, pk3) = signer.sign(message).await.unwrap();
+        assert_eq!(pk3, expected_public_keys[2]);
+
+        // Wraps around
+        let (_, pk4) = signer.sign(message).await.unwrap();
+        assert_eq!(pk4, expected_public_keys[0]);
+    }
+
+    #[test]
+    fn test_rotating_signer_empty_keys() {
+        let result = RotatingSigner::new("bot.testnet", vec![]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_env_signer_missing_vars() {
+        // This should fail because the env vars aren't set
+        let result = EnvSigner::from_env_vars("NONEXISTENT_VAR_1", "NONEXISTENT_VAR_2");
+        assert!(result.is_err());
     }
 }

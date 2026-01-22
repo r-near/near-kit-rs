@@ -100,9 +100,11 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 
 - [x] `Near` struct - Main client
 - [x] `NearBuilder` - Fluent configuration
-- [x] `Signer` trait
-- [x] `KeyStoreSigner` implementation
-- [x] `KeyStore` trait and `InMemoryKeyStore`
+- [x] `Signer` trait (async, returns Signature + PublicKey)
+- [x] `InMemorySigner` - Single key in memory
+- [x] `FileSigner` - Load from ~/.near-credentials
+- [x] `EnvSigner` - Load from environment variables
+- [x] `RotatingSigner` - Multiple keys, round-robin rotation
 - [x] Network presets (mainnet, testnet)
 - [x] `balance()` - Get account balance
 - [x] `account()` - Get full account info
