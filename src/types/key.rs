@@ -274,12 +274,12 @@ impl FromStr for SecretKey {
             .map_err(|e| ParseKeyError::InvalidBase58(e.to_string()))?;
 
         // For ed25519, the secret key might be 32 bytes (seed) or 64 bytes (expanded)
-        if key_type == KeyType::Ed25519 && data.len() != 32 && data.len() != 64 {
-            return Err(ParseKeyError::InvalidLength {
-                expected: 32,
-                actual: data.len(),
-            });
-        } else if key_type == KeyType::Secp256k1 && data.len() != 32 {
+        // For secp256k1, it must be 32 bytes
+        let valid_len = match key_type {
+            KeyType::Ed25519 => data.len() == 32 || data.len() == 64,
+            KeyType::Secp256k1 => data.len() == 32,
+        };
+        if !valid_len {
             return Err(ParseKeyError::InvalidLength {
                 expected: 32,
                 actual: data.len(),

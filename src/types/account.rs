@@ -55,12 +55,12 @@ impl AccountId {
         }
 
         // Check for EVM implicit account (0x prefix)
-        if s.starts_with("0x") {
+        if let Some(hex_part) = s.strip_prefix("0x") {
             if s.len() != 42 {
                 return Err(ParseAccountIdError::InvalidFormat(s.to_string()));
             }
             // Validate hex characters after 0x
-            for c in s[2..].chars() {
+            for c in hex_part.chars() {
                 if !c.is_ascii_hexdigit() {
                     return Err(ParseAccountIdError::InvalidChar(s.to_string(), c));
                 }

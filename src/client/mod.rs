@@ -5,5 +5,5 @@ mod rpc;
 mod signer;
 
 pub use near::{Near, NearBuilder};
-pub use rpc::{RpcClient, RetryConfig};
+pub use rpc::{RetryConfig, RpcClient};
 pub use signer::{SecretKeySigner, Signer};

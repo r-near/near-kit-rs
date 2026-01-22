@@ -4,12 +4,11 @@ use std::sync::Arc;
 
 use crate::error::Error;
 use crate::types::{
-    AccountBalance, AccountId, AccountView, AccessKeyListView, BlockReference,
-    Finality, FinalExecutionOutcome, Gas, NearToken, PublicKey, Transaction, TxExecutionStatus,
-    Action,
+    AccessKeyListView, AccountBalance, AccountId, AccountView, Action, BlockReference,
+    FinalExecutionOutcome, Finality, Gas, NearToken, PublicKey, Transaction, TxExecutionStatus,
 };
 
-use super::rpc::{RpcClient, RetryConfig, MAINNET, TESTNET};
+use super::rpc::{RetryConfig, RpcClient, MAINNET, TESTNET};
 use super::signer::Signer;
 
 /// The main client for interacting with NEAR Protocol.
@@ -404,7 +403,10 @@ impl NearBuilder {
     /// Build the client.
     pub fn build(self) -> Near {
         Near {
-            rpc: Arc::new(RpcClient::with_retry_config(self.rpc_url, self.retry_config)),
+            rpc: Arc::new(RpcClient::with_retry_config(
+                self.rpc_url,
+                self.retry_config,
+            )),
             signer: self.signer,
             default_account: self.default_account,
         }

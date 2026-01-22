@@ -3,17 +3,18 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use base64::{Engine as _, engine::general_purpose::STANDARD};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::error::RpcError;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockReference, BlockView,
-    CryptoHash, FinalExecutionOutcome, GasPrice, PublicKey, SignedTransaction,
-    StatusResponse, TxExecutionStatus, ViewFunctionResult,
+    CryptoHash, FinalExecutionOutcome, GasPrice, PublicKey, SignedTransaction, StatusResponse,
+    TxExecutionStatus, ViewFunctionResult,
 };
 
 /// Network configuration presets.
+#[allow(dead_code)]
 pub struct NetworkConfig {
     pub rpc_url: &'static str,
     pub network_id: &'static str,
@@ -32,6 +33,7 @@ pub const TESTNET: NetworkConfig = NetworkConfig {
 };
 
 /// Localnet configuration.
+#[allow(dead_code)]
 pub const LOCALNET: NetworkConfig = NetworkConfig {
     rpc_url: "http://localhost:3030",
     network_id: "localnet",
@@ -180,7 +182,7 @@ impl RpcClient {
         }
 
         let rpc_response: JsonRpcResponse<R> =
-            serde_json::from_str(&body).map_err(|e| RpcError::Json(e))?;
+            serde_json::from_str(&body).map_err(RpcError::Json)?;
 
         if let Some(error) = rpc_response.error {
             return Err(self.parse_rpc_error(&error));
