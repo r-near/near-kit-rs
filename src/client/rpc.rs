@@ -88,6 +88,11 @@ struct JsonRpcError {
     message: String,
     #[serde(default)]
     data: Option<serde_json::Value>,
+    #[serde(default)]
+    cause: Option<ErrorCause>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    name: Option<String>,
 }
 
 /// Structured error cause from NEAR RPC.
@@ -98,13 +103,18 @@ struct ErrorCause {
     info: Option<serde_json::Value>,
 }
 
-/// Structured error data from NEAR RPC.
+/// Query response for view function calls.
+/// NEAR RPC returns `result` on success or `error` on failure.
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct StructuredErrorData {
-    name: Option<String>,
+struct QueryResponse {
     #[serde(default)]
-    cause: Option<ErrorCause>,
+    result: Option<Vec<u8>>,
+    #[serde(default)]
+    logs: Vec<String>,
+    block_height: u64,
+    block_hash: CryptoHash,
+    #[serde(default)]
+    error: Option<String>,
 }
 
 /// Low-level JSON-RPC client for NEAR.
@@ -215,141 +225,141 @@ impl RpcClient {
 
     /// Parse an RPC error into a specific error type.
     fn parse_rpc_error(&self, error: &JsonRpcError) -> RpcError {
-        if let Some(data) = &error.data {
-            // Try to parse as structured error data (object with name/cause)
-            if let Ok(structured) = serde_json::from_value::<StructuredErrorData>(data.clone()) {
-                if let Some(cause) = &structured.cause {
-                    let cause_name = cause.name.as_str();
-                    let info = cause.info.as_ref();
+        // First, check the direct cause field (NEAR RPC structured errors)
+        if let Some(cause) = &error.cause {
+            let cause_name = cause.name.as_str();
+            let info = cause.info.as_ref();
+            let data = &error.data;
 
-                    match cause_name {
-                        "UNKNOWN_ACCOUNT" => {
-                            if let Some(account_id) = info
-                                .and_then(|i| i.get("requested_account_id"))
-                                .and_then(|a| a.as_str())
-                            {
-                                if let Ok(account_id) = account_id.parse() {
-                                    return RpcError::AccountNotFound(account_id);
-                                }
-                            }
+            match cause_name {
+                "UNKNOWN_ACCOUNT" => {
+                    if let Some(account_id) = info
+                        .and_then(|i| i.get("requested_account_id"))
+                        .and_then(|a| a.as_str())
+                    {
+                        if let Ok(account_id) = account_id.parse() {
+                            return RpcError::AccountNotFound(account_id);
                         }
-                        "INVALID_ACCOUNT" => {
-                            let account_id = info
-                                .and_then(|i| i.get("requested_account_id"))
-                                .and_then(|a| a.as_str())
-                                .unwrap_or("unknown");
-                            return RpcError::InvalidAccount(account_id.to_string());
-                        }
-                        "UNKNOWN_ACCESS_KEY" => {
-                            // Could extract account_id and public_key here
-                        }
-                        "UNKNOWN_BLOCK" => {
-                            let block_ref = extract_block_reference(info, data);
-                            return RpcError::UnknownBlock(block_ref);
-                        }
-                        "UNKNOWN_CHUNK" => {
-                            let chunk_ref = info
-                                .and_then(|i| i.get("chunk_hash"))
-                                .and_then(|c| c.as_str())
-                                .unwrap_or(&error.message);
-                            return RpcError::UnknownChunk(chunk_ref.to_string());
-                        }
-                        "UNKNOWN_EPOCH" => {
-                            let block_ref = extract_block_reference(info, data);
-                            return RpcError::UnknownEpoch(block_ref);
-                        }
-                        "UNKNOWN_RECEIPT" => {
-                            let receipt_id = info
-                                .and_then(|i| i.get("receipt_id"))
-                                .and_then(|r| r.as_str())
-                                .unwrap_or("unknown");
-                            return RpcError::UnknownReceipt(receipt_id.to_string());
-                        }
-                        "NO_CONTRACT_CODE" => {
-                            let account_id = info
-                                .and_then(|i| {
-                                    i.get("contract_account_id")
-                                        .or_else(|| i.get("account_id"))
-                                        .or_else(|| i.get("contract_id"))
-                                })
-                                .and_then(|a| a.as_str())
-                                .unwrap_or("unknown");
-                            if let Ok(account_id) = account_id.parse() {
-                                return RpcError::ContractNotDeployed(account_id);
-                            }
-                        }
-                        "TOO_LARGE_CONTRACT_STATE" => {
-                            let account_id = info
-                                .and_then(|i| i.get("account_id").or_else(|| i.get("contract_id")))
-                                .and_then(|a| a.as_str())
-                                .unwrap_or("unknown");
-                            if let Ok(account_id) = account_id.parse() {
-                                return RpcError::ContractStateTooLarge(account_id);
-                            }
-                        }
-                        "CONTRACT_EXECUTION_ERROR" => {
-                            let contract_id = info
-                                .and_then(|i| i.get("contract_id"))
-                                .and_then(|c| c.as_str())
-                                .unwrap_or("unknown");
-                            let method_name = info
-                                .and_then(|i| i.get("method_name"))
-                                .and_then(|m| m.as_str())
-                                .map(String::from);
-                            if let Ok(contract_id) = contract_id.parse() {
-                                return RpcError::ContractExecution {
-                                    contract_id,
-                                    method_name,
-                                    message: error.message.clone(),
-                                };
-                            }
-                        }
-                        "UNAVAILABLE_SHARD" => {
-                            return RpcError::ShardUnavailable(error.message.clone());
-                        }
-                        "NO_SYNCED_BLOCKS" | "NOT_SYNCED_YET" => {
-                            return RpcError::NodeNotSynced(error.message.clone());
-                        }
-                        "INVALID_SHARD_ID" => {
-                            let shard_id = info
-                                .and_then(|i| i.get("shard_id"))
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| "unknown".to_string());
-                            return RpcError::InvalidShardId(shard_id);
-                        }
-                        "INVALID_TRANSACTION" => {
-                            // Check for InvalidNonce
-                            if let Some(invalid_nonce) = extract_invalid_nonce(data, &error.message)
-                            {
-                                return invalid_nonce;
-                            }
-                            return RpcError::invalid_transaction(
-                                &error.message,
-                                Some(data.clone()),
-                            );
-                        }
-                        "TIMEOUT_ERROR" => {
-                            let tx_hash = info
-                                .and_then(|i| i.get("transaction_hash"))
-                                .and_then(|h| h.as_str())
-                                .map(String::from);
-                            return RpcError::RequestTimeout {
-                                message: error.message.clone(),
-                                transaction_hash: tx_hash,
-                            };
-                        }
-                        "PARSE_ERROR" => {
-                            return RpcError::ParseError(error.message.clone());
-                        }
-                        "INTERNAL_ERROR" => {
-                            return RpcError::InternalError(error.message.clone());
-                        }
-                        _ => {}
                     }
                 }
+                "INVALID_ACCOUNT" => {
+                    let account_id = info
+                        .and_then(|i| i.get("requested_account_id"))
+                        .and_then(|a| a.as_str())
+                        .unwrap_or("unknown");
+                    return RpcError::InvalidAccount(account_id.to_string());
+                }
+                "UNKNOWN_ACCESS_KEY" => {
+                    // Could extract account_id and public_key here
+                }
+                "UNKNOWN_BLOCK" => {
+                    let block_ref = data
+                        .as_ref()
+                        .and_then(|d| d.as_str())
+                        .unwrap_or(&error.message);
+                    return RpcError::UnknownBlock(block_ref.to_string());
+                }
+                "UNKNOWN_CHUNK" => {
+                    let chunk_ref = info
+                        .and_then(|i| i.get("chunk_hash"))
+                        .and_then(|c| c.as_str())
+                        .unwrap_or(&error.message);
+                    return RpcError::UnknownChunk(chunk_ref.to_string());
+                }
+                "UNKNOWN_EPOCH" => {
+                    let block_ref = data
+                        .as_ref()
+                        .and_then(|d| d.as_str())
+                        .unwrap_or(&error.message);
+                    return RpcError::UnknownEpoch(block_ref.to_string());
+                }
+                "UNKNOWN_RECEIPT" => {
+                    let receipt_id = info
+                        .and_then(|i| i.get("receipt_id"))
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("unknown");
+                    return RpcError::UnknownReceipt(receipt_id.to_string());
+                }
+                "NO_CONTRACT_CODE" => {
+                    let account_id = info
+                        .and_then(|i| {
+                            i.get("contract_account_id")
+                                .or_else(|| i.get("account_id"))
+                                .or_else(|| i.get("contract_id"))
+                        })
+                        .and_then(|a| a.as_str())
+                        .unwrap_or("unknown");
+                    if let Ok(account_id) = account_id.parse() {
+                        return RpcError::ContractNotDeployed(account_id);
+                    }
+                }
+                "TOO_LARGE_CONTRACT_STATE" => {
+                    let account_id = info
+                        .and_then(|i| i.get("account_id").or_else(|| i.get("contract_id")))
+                        .and_then(|a| a.as_str())
+                        .unwrap_or("unknown");
+                    if let Ok(account_id) = account_id.parse() {
+                        return RpcError::ContractStateTooLarge(account_id);
+                    }
+                }
+                "CONTRACT_EXECUTION_ERROR" => {
+                    let contract_id = info
+                        .and_then(|i| i.get("contract_id"))
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("unknown");
+                    let method_name = info
+                        .and_then(|i| i.get("method_name"))
+                        .and_then(|m| m.as_str())
+                        .map(String::from);
+                    if let Ok(contract_id) = contract_id.parse() {
+                        return RpcError::ContractExecution {
+                            contract_id,
+                            method_name,
+                            message: error.message.clone(),
+                        };
+                    }
+                }
+                "UNAVAILABLE_SHARD" => {
+                    return RpcError::ShardUnavailable(error.message.clone());
+                }
+                "NO_SYNCED_BLOCKS" | "NOT_SYNCED_YET" => {
+                    return RpcError::NodeNotSynced(error.message.clone());
+                }
+                "INVALID_SHARD_ID" => {
+                    let shard_id = info
+                        .and_then(|i| i.get("shard_id"))
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    return RpcError::InvalidShardId(shard_id);
+                }
+                "INVALID_TRANSACTION" => {
+                    if let Some(invalid_nonce) = data.as_ref().and_then(extract_invalid_nonce) {
+                        return invalid_nonce;
+                    }
+                    return RpcError::invalid_transaction(&error.message, data.clone());
+                }
+                "TIMEOUT_ERROR" => {
+                    let tx_hash = info
+                        .and_then(|i| i.get("transaction_hash"))
+                        .and_then(|h| h.as_str())
+                        .map(String::from);
+                    return RpcError::RequestTimeout {
+                        message: error.message.clone(),
+                        transaction_hash: tx_hash,
+                    };
+                }
+                "PARSE_ERROR" => {
+                    return RpcError::ParseError(error.message.clone());
+                }
+                "INTERNAL_ERROR" => {
+                    return RpcError::InternalError(error.message.clone());
+                }
+                _ => {}
             }
+        }
 
-            // Fallback: check for string error messages (simpler format from some endpoints)
+        // Fallback: check for string error messages in data field
+        if let Some(data) = &error.data {
             if let Some(error_str) = data.as_str() {
                 if error_str.contains("does not exist") {
                     // Try to extract account ID from error message
@@ -439,7 +449,35 @@ impl RpcClient {
         });
 
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await
+
+        // Query responses may have an error field instead of result
+        let response: QueryResponse = self.call("query", params).await?;
+
+        if let Some(error) = response.error {
+            // Parse the error message for known patterns
+            if error.contains("CodeDoesNotExist") {
+                return Err(RpcError::ContractNotDeployed(account_id.clone()));
+            }
+            if error.contains("MethodNotFound") || error.contains("MethodResolveError") {
+                return Err(RpcError::ContractExecution {
+                    contract_id: account_id.clone(),
+                    method_name: Some(method_name.to_string()),
+                    message: error,
+                });
+            }
+            return Err(RpcError::ContractExecution {
+                contract_id: account_id.clone(),
+                method_name: Some(method_name.to_string()),
+                message: error,
+            });
+        }
+
+        Ok(ViewFunctionResult {
+            result: response.result.unwrap_or_default(),
+            logs: response.logs,
+            block_height: response.block_height,
+            block_hash: response.block_hash,
+        })
     }
 
     /// Get block information.
@@ -536,6 +574,7 @@ fn is_retryable_status(status: u16) -> bool {
 }
 
 /// Extract block reference from error info.
+#[allow(dead_code)]
 fn extract_block_reference(info: Option<&serde_json::Value>, data: &serde_json::Value) -> String {
     if let Some(info) = info {
         if let Some(block_ref) = info.get("block_reference") {
@@ -553,7 +592,7 @@ fn extract_block_reference(info: Option<&serde_json::Value>, data: &serde_json::
 }
 
 /// Extract InvalidNonce error from data.
-fn extract_invalid_nonce(data: &serde_json::Value, _message: &str) -> Option<RpcError> {
+fn extract_invalid_nonce(data: &serde_json::Value) -> Option<RpcError> {
     // Navigate nested error structure: TxExecutionError.InvalidTxError.InvalidNonce
     let tx_exec_error = data.get("TxExecutionError")?;
     let invalid_tx_error = tx_exec_error
