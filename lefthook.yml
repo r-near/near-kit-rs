@@ -4,15 +4,15 @@
 
 pre-commit:
   commands:
+    clippy:
+      glob: "*.rs"
+      run: cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features -- -D warnings
+      stage_fixed: true
+    
     rustfmt:
       glob: "*.rs"
       run: cargo fmt
       stage_fixed: true
-    
-    clippy:
-      glob: "*.rs"
-      run: cargo clippy --all-targets --all-features -- -D warnings
-      fail_text: "Clippy found issues. Please fix them before committing."
 
 pre-push:
   commands:
