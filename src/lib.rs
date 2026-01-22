@@ -58,7 +58,7 @@ pub use error::{Error, RpcError};
 pub use types::*;
 
 // Re-export client types
-pub use client::{Near, NearBuilder, RpcClient, RetryConfig, SecretKeySigner, Signer};
+pub use client::{Near, NearBuilder, RetryConfig, RpcClient, SecretKeySigner, Signer};
 
 /// Prelude module for convenient imports.
 ///
