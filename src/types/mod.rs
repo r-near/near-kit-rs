@@ -22,10 +22,10 @@ pub use block_reference::{BlockReference, Finality, TxExecutionStatus};
 pub use hash::CryptoHash;
 pub use key::{KeyType, PublicKey, SecretKey, Signature};
 pub use rpc::{
-    AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView, AccountBalance,
-    AccountView, ActionView, BlockHeaderView, BlockView, ChunkHeaderView, ExecutionOutcome,
-    ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome, GasPrice, NodeVersion,
-    StatusResponse, SyncInfo, TransactionView, ViewFunctionResult,
+    AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
+    AccountBalance, AccountView, ActionView, BlockHeaderView, BlockView, ChunkHeaderView,
+    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome, GasPrice,
+    NodeVersion, StatusResponse, SyncInfo, TransactionView, ViewFunctionResult,
 };
 pub use transaction::{SignedTransaction, Transaction};
 pub use units::{Gas, NearToken};

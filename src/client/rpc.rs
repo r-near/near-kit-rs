@@ -22,13 +22,13 @@ pub struct NetworkConfig {
 
 /// Mainnet configuration.
 pub const MAINNET: NetworkConfig = NetworkConfig {
-    rpc_url: "https://rpc.mainnet.near.org",
+    rpc_url: "https://free.rpc.fastnear.com",
     network_id: "mainnet",
 };
 
 /// Testnet configuration.
 pub const TESTNET: NetworkConfig = NetworkConfig {
-    rpc_url: "https://rpc.testnet.near.org",
+    rpc_url: "https://test.rpc.fastnear.com",
     network_id: "testnet",
 };
 
@@ -81,12 +81,30 @@ struct JsonRpcResponse<T> {
 }
 
 /// JSON-RPC error structure.
+/// NEAR RPC returns structured errors with name/cause/info pattern.
 #[derive(Debug, Deserialize)]
 struct JsonRpcError {
     code: i64,
     message: String,
     #[serde(default)]
     data: Option<serde_json::Value>,
+}
+
+/// Structured error cause from NEAR RPC.
+#[derive(Debug, Deserialize)]
+struct ErrorCause {
+    name: String,
+    #[serde(default)]
+    info: Option<serde_json::Value>,
+}
+
+/// Structured error data from NEAR RPC.
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct StructuredErrorData {
+    name: Option<String>,
+    #[serde(default)]
+    cause: Option<ErrorCause>,
 }
 
 /// Low-level JSON-RPC client for NEAR.
@@ -195,30 +213,44 @@ impl RpcClient {
 
     /// Parse an RPC error into a specific error type.
     fn parse_rpc_error(&self, error: &JsonRpcError) -> RpcError {
-        // Try to extract structured error info
         if let Some(data) = &error.data {
-            if let Some(cause) = data
-                .get("cause")
-                .and_then(|c| c.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                match cause {
-                    "UNKNOWN_ACCOUNT" => {
-                        if let Some(account_id) = data
-                            .get("cause")
-                            .and_then(|c| c.get("info"))
-                            .and_then(|i| i.get("account_id"))
-                            .and_then(|a| a.as_str())
-                        {
-                            if let Ok(account_id) = account_id.parse() {
+            // Try to parse as structured error data (object with name/cause)
+            if let Ok(structured) = serde_json::from_value::<StructuredErrorData>(data.clone()) {
+                if let Some(cause) = &structured.cause {
+                    let cause_name = cause.name.as_str();
+                    let info = cause.info.as_ref();
+
+                    match cause_name {
+                        "UNKNOWN_ACCOUNT" => {
+                            if let Some(account_id) = info
+                                .and_then(|i| i.get("requested_account_id"))
+                                .and_then(|a| a.as_str())
+                            {
+                                if let Ok(account_id) = account_id.parse() {
+                                    return RpcError::AccountNotFound(account_id);
+                                }
+                            }
+                        }
+                        "UNKNOWN_ACCESS_KEY" => {
+                            // Could extract account_id and public_key here
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // Fallback: check for string error messages (simpler format from some endpoints)
+            if let Some(error_str) = data.as_str() {
+                if error_str.contains("does not exist") {
+                    // Try to extract account ID from error message
+                    // Format: "account X does not exist while viewing"
+                    if let Some(start) = error_str.strip_prefix("account ") {
+                        if let Some(account_str) = start.split_whitespace().next() {
+                            if let Ok(account_id) = account_str.parse() {
                                 return RpcError::AccountNotFound(account_id);
                             }
                         }
                     }
-                    "UNKNOWN_ACCESS_KEY" => {
-                        // TODO: Extract account_id and public_key
-                    }
-                    _ => {}
                 }
             }
         }

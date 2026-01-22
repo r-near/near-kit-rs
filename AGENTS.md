@@ -101,7 +101,8 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 - [x] `Near` struct - Main client
 - [x] `NearBuilder` - Fluent configuration
 - [x] `Signer` trait
-- [x] `SecretKeySigner` implementation
+- [x] `KeyStoreSigner` implementation
+- [x] `KeyStore` trait and `InMemoryKeyStore`
 - [x] Network presets (mainnet, testnet)
 - [x] `balance()` - Get account balance
 - [x] `account()` - Get full account info
@@ -113,20 +114,20 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 - [x] `deploy()` - Deploy contract
 - [x] `add_full_access_key()` / `delete_key()` - Key management
 
-### Phase 4: Query Builders (TODO)
+### Phase 4: Query Builders ✅
 
-- [ ] `BalanceQuery` with `IntoFuture`
-- [ ] `AccountQuery` with `IntoFuture`
-- [ ] `ViewCall<T>` with args variants and `IntoFuture`
-- [ ] `AccessKeysQuery` with `IntoFuture`
-- [ ] Block reference builder methods (`.at_block()`, `.finality()`)
+- [x] `BalanceQuery` with `IntoFuture`
+- [x] `AccountQuery` with `IntoFuture`
+- [x] `ViewCall<T>` with args variants and `IntoFuture`
+- [x] `AccessKeysQuery` with `IntoFuture`
+- [x] Block reference builder methods (`.at_block()`, `.finality()`)
 
-### Phase 5: Transaction Builders (TODO)
+### Phase 5: Transaction Builders ✅
 
-- [ ] `ContractCall` builder with `.args()`, `.gas()`, `.deposit()`
-- [ ] `TransferCall` builder with `.wait_until()`
+- [x] `ContractCall` builder with `.args()`, `.gas()`, `.deposit()`
+- [x] `TransferCall` builder with `.wait_until()`
 - [ ] `TransactionOutcome` wrapper type
-- [ ] `.sign_with()` for signer override
+- [x] `.sign_with()` for signer override
 
 ### Phase 6: Batch Transactions (TODO)
 
@@ -159,6 +160,18 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 - [ ] CI/CD setup
 
 ## Coding Guidelines
+
+### Committing Work
+
+**Always commit your work when a task or feature is complete.** Use semantic commit messages:
+
+- `feat: add query builders with IntoFuture support`
+- `fix: handle UNKNOWN_ACCOUNT RPC errors correctly`
+- `refactor: simplify Signer to use KeyStore`
+- `test: add testnet integration tests`
+- `docs: update AGENTS.md checklist`
+
+Run `cargo fmt && cargo clippy && cargo nextest run` before committing to ensure all checks pass.
 
 ### Conventions
 

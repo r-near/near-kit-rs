@@ -2,16 +2,22 @@
 
 use std::sync::Arc;
 
-use crate::error::Error;
-use crate::types::{
-    AccessKeyListView, AccountBalance, AccountId, AccountView, Action, BlockReference,
-    FinalExecutionOutcome, Finality, Gas, NearToken, PublicKey, Transaction, TxExecutionStatus,
-};
+use serde::de::DeserializeOwned;
 
+use crate::error::Error;
+use crate::types::{AccountId, Gas, NearToken, PublicKey};
+
+use super::keystore::{InMemoryKeyStore, KeyStore};
+use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
 use super::rpc::{RetryConfig, RpcClient, MAINNET, TESTNET};
-use super::signer::Signer;
+use super::signer::{KeyStoreSigner, Signer};
+use super::tx::{AddKeyCall, ContractCall, DeleteKeyCall, DeployCall, TransferCall};
 
 /// The main client for interacting with NEAR Protocol.
+///
+/// The `Near` client is the single entry point for all NEAR operations.
+/// It can be configured with a signer for write operations, or used
+/// without a signer for read-only operations.
 ///
 /// # Example
 ///
@@ -20,10 +26,16 @@ use super::signer::Signer;
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), near_kit::Error> {
+///     // Read-only client (no signer)
 ///     let near = Near::testnet().build();
-///     
 ///     let balance = near.balance("alice.testnet").await?;
 ///     println!("Balance: {}", balance);
+///     
+///     // Client with signer for transactions
+///     let near = Near::testnet()
+///         .credentials("ed25519:...", "alice.testnet")?
+///         .build();
+///     near.transfer("bob.testnet", "1 NEAR").await?;
 ///     
 ///     Ok(())
 /// }
@@ -32,7 +44,6 @@ use super::signer::Signer;
 pub struct Near {
     rpc: Arc<RpcClient>,
     signer: Option<Arc<dyn Signer>>,
-    default_account: Option<AccountId>,
 }
 
 impl Near {
@@ -56,184 +67,314 @@ impl Near {
         &self.rpc
     }
 
+    /// Get the signer's account ID, if a signer is configured.
+    pub fn account_id(&self) -> Option<&AccountId> {
+        self.signer.as_ref().map(|s| s.account_id())
+    }
+
     // ========================================================================
-    // Read Operations
+    // Read Operations (Query Builders)
     // ========================================================================
 
     /// Get account balance.
     ///
+    /// Returns a query builder that can be customized with block reference
+    /// options before awaiting.
+    ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::prelude::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
+    ///
+    /// // Simple query
     /// let balance = near.balance("alice.testnet").await?;
     /// println!("Available: {}", balance.available);
+    ///
+    /// // Query at specific block height
+    /// let balance = near.balance("alice.testnet")
+    ///     .at_block(100_000_000)
+    ///     .await?;
+    ///
+    /// // Query with specific finality
+    /// let balance = near.balance("alice.testnet")
+    ///     .finality(Finality::Optimistic)
+    ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn balance(&self, account_id: impl AsRef<str>) -> Result<AccountBalance, Error> {
-        let account_id: AccountId = account_id.as_ref().parse()?;
-        let view = self
-            .rpc
-            .view_account(&account_id, BlockReference::default())
-            .await?;
-        Ok(AccountBalance::from(view))
-    }
-
-    /// Get account balance at a specific block.
-    pub async fn balance_at(
-        &self,
-        account_id: impl AsRef<str>,
-        block: impl Into<BlockReference>,
-    ) -> Result<AccountBalance, Error> {
-        let account_id: AccountId = account_id.as_ref().parse()?;
-        let view = self.rpc.view_account(&account_id, block.into()).await?;
-        Ok(AccountBalance::from(view))
+    pub fn balance(&self, account_id: impl AsRef<str>) -> BalanceQuery {
+        let account_id = account_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
+        BalanceQuery::new(self.rpc.clone(), account_id)
     }
 
     /// Get full account information.
-    pub async fn account(&self, account_id: impl AsRef<str>) -> Result<AccountView, Error> {
-        let account_id: AccountId = account_id.as_ref().parse()?;
-        let view = self
-            .rpc
-            .view_account(&account_id, BlockReference::default())
-            .await?;
-        Ok(view)
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    /// let account = near.account("alice.testnet").await?;
+    /// println!("Storage used: {} bytes", account.storage_usage);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn account(&self, account_id: impl AsRef<str>) -> AccountQuery {
+        let account_id = account_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
+        AccountQuery::new(self.rpc.clone(), account_id)
     }
 
     /// Check if an account exists.
-    pub async fn account_exists(&self, account_id: impl AsRef<str>) -> Result<bool, Error> {
-        let account_id: AccountId = account_id.as_ref().parse()?;
-        match self
-            .rpc
-            .view_account(&account_id, BlockReference::default())
-            .await
-        {
-            Ok(_) => Ok(true),
-            Err(crate::error::RpcError::AccountNotFound(_)) => Ok(false),
-            Err(e) => Err(e.into()),
-        }
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    /// if near.account_exists("alice.testnet").await? {
+    ///     println!("Account exists!");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn account_exists(&self, account_id: impl AsRef<str>) -> AccountExistsQuery {
+        let account_id = account_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
+        AccountExistsQuery::new(self.rpc.clone(), account_id)
     }
 
     /// Call a view function on a contract.
     ///
+    /// Returns a query builder that can be customized with arguments
+    /// and block reference options before awaiting.
+    ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::prelude::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
+    ///
+    /// // Simple view call
     /// let count: u64 = near.view("counter.testnet", "get_count").await?;
+    ///
+    /// // View call with arguments
+    /// let messages: Vec<String> = near.view("guestbook.testnet", "get_messages")
+    ///     .args(serde_json::json!({ "limit": 10 }))
+    ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn view<T: serde::de::DeserializeOwned>(
+    pub fn view<T: DeserializeOwned + Send + 'static>(
         &self,
         contract_id: impl AsRef<str>,
         method: &str,
-    ) -> Result<T, Error> {
-        self.view_with_args(contract_id, method, &()).await
+    ) -> ViewCall<T> {
+        let contract_id = contract_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(contract_id.as_ref()));
+        ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
     }
 
-    /// Call a view function with arguments.
-    pub async fn view_with_args<T: serde::de::DeserializeOwned, A: serde::Serialize>(
+    /// Get all access keys for an account.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    /// let keys = near.access_keys("alice.testnet").await?;
+    /// for key_info in keys.keys {
+    ///     println!("Key: {}", key_info.public_key);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn access_keys(&self, account_id: impl AsRef<str>) -> AccessKeysQuery {
+        let account_id = account_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
+        AccessKeysQuery::new(self.rpc.clone(), account_id)
+    }
+
+    // ========================================================================
+    // Write Operations (Transaction Builders)
+    // ========================================================================
+
+    /// Transfer NEAR tokens.
+    ///
+    /// Returns a transaction builder that can be customized with
+    /// wait options before awaiting.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet()
+    ///         .credentials("ed25519:...", "alice.testnet")?
+    ///     .build();
+    ///
+    /// // Simple transfer
+    /// near.transfer("bob.testnet", "1 NEAR").await?;
+    ///
+    /// // Transfer with wait for finality
+    /// near.transfer("bob.testnet", "1000 NEAR")
+    ///     .wait_until(TxExecutionStatus::Final)
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn transfer(&self, receiver: impl AsRef<str>, amount: impl AsRef<str>) -> TransferCall {
+        let receiver_id = receiver
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(receiver.as_ref()));
+        let amount: NearToken = amount.as_ref().parse().unwrap_or(NearToken::ZERO);
+        TransferCall::new(self.rpc.clone(), self.signer.clone(), receiver_id, amount)
+    }
+
+    /// Call a function on a contract.
+    ///
+    /// Returns a transaction builder that can be customized with
+    /// arguments, gas, deposit, and other options before awaiting.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet()
+    ///         .credentials("ed25519:...", "alice.testnet")?
+    ///     .build();
+    ///
+    /// // Simple call
+    /// near.call("counter.testnet", "increment").await?;
+    ///
+    /// // Call with args, gas, and deposit
+    /// near.call("nft.testnet", "nft_mint")
+    ///     .args(serde_json::json!({ "token_id": "1" }))
+    ///     .gas("100 Tgas")
+    ///     .deposit("0.1 NEAR")
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn call(&self, contract_id: impl AsRef<str>, method: &str) -> ContractCall {
+        let contract_id = contract_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(contract_id.as_ref()));
+        ContractCall::new(
+            self.rpc.clone(),
+            self.signer.clone(),
+            contract_id,
+            method.to_string(),
+        )
+    }
+
+    /// Deploy a contract.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet()
+    ///         .credentials("ed25519:...", "alice.testnet")?
+    ///     .build();
+    ///
+    /// let wasm_code = std::fs::read("contract.wasm").unwrap();
+    /// near.deploy("alice.testnet", wasm_code).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn deploy(&self, account_id: impl AsRef<str>, code: Vec<u8>) -> DeployCall {
+        let account_id = account_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
+        DeployCall::new(self.rpc.clone(), self.signer.clone(), account_id, code)
+    }
+
+    /// Add a full access key to an account.
+    pub fn add_full_access_key(
+        &self,
+        account_id: impl AsRef<str>,
+        public_key: PublicKey,
+    ) -> AddKeyCall {
+        let account_id = account_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
+        AddKeyCall::new(
+            self.rpc.clone(),
+            self.signer.clone(),
+            account_id,
+            public_key,
+        )
+    }
+
+    /// Delete an access key from an account.
+    pub fn delete_key(&self, account_id: impl AsRef<str>, public_key: PublicKey) -> DeleteKeyCall {
+        let account_id = account_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
+        DeleteKeyCall::new(
+            self.rpc.clone(),
+            self.signer.clone(),
+            account_id,
+            public_key,
+        )
+    }
+
+    // ========================================================================
+    // Convenience methods
+    // ========================================================================
+
+    /// Call a view function with arguments (convenience method).
+    pub async fn view_with_args<T: DeserializeOwned + Send + 'static, A: serde::Serialize>(
         &self,
         contract_id: impl AsRef<str>,
         method: &str,
         args: &A,
     ) -> Result<T, Error> {
-        let contract_id: AccountId = contract_id.as_ref().parse()?;
-        let args_bytes = serde_json::to_vec(args)?;
-        let result = self
-            .rpc
-            .view_function(&contract_id, method, &args_bytes, BlockReference::default())
-            .await?;
-        Ok(result.json()?)
-    }
-
-    /// Get all access keys for an account.
-    pub async fn access_keys(
-        &self,
-        account_id: impl AsRef<str>,
-    ) -> Result<AccessKeyListView, Error> {
-        let account_id: AccountId = account_id.as_ref().parse()?;
-        let list = self
-            .rpc
-            .view_access_key_list(&account_id, BlockReference::default())
-            .await?;
-        Ok(list)
-    }
-
-    // ========================================================================
-    // Write Operations
-    // ========================================================================
-
-    /// Transfer NEAR tokens.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::prelude::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///     .signer(SecretKeySigner::generate())
-    ///     .default_account("alice.testnet")
-    ///     .build();
-    ///
-    /// near.transfer("bob.testnet", "1 NEAR").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn transfer(
-        &self,
-        receiver: impl AsRef<str>,
-        amount: impl AsRef<str>,
-    ) -> Result<FinalExecutionOutcome, Error> {
-        let receiver_id: AccountId = receiver.as_ref().parse()?;
-        let amount: NearToken = amount.as_ref().parse()?;
-
-        self.send_actions(receiver_id, vec![Action::transfer(amount)])
+        let contract_id = contract_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(contract_id.as_ref()));
+        ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
+            .args(args)
             .await
     }
 
-    /// Call a function on a contract.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::prelude::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///     .signer(SecretKeySigner::generate())
-    ///     .default_account("alice.testnet")
-    ///     .build();
-    ///
-    /// near.call("counter.testnet", "increment").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn call(
-        &self,
-        contract_id: impl AsRef<str>,
-        method: &str,
-    ) -> Result<FinalExecutionOutcome, Error> {
-        self.call_with_args(contract_id, method, &()).await
-    }
-
-    /// Call a function with arguments.
+    /// Call a function with arguments (convenience method).
     pub async fn call_with_args<A: serde::Serialize>(
         &self,
         contract_id: impl AsRef<str>,
         method: &str,
         args: &A,
-    ) -> Result<FinalExecutionOutcome, Error> {
-        self.call_with_options(contract_id, method, args, Gas::DEFAULT, NearToken::ZERO)
-            .await
+    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
+        self.call(contract_id, method).args(args).await
     }
 
-    /// Call a function with full options.
+    /// Call a function with full options (convenience method).
     pub async fn call_with_options<A: serde::Serialize>(
         &self,
         contract_id: impl AsRef<str>,
@@ -241,113 +382,12 @@ impl Near {
         args: &A,
         gas: Gas,
         deposit: NearToken,
-    ) -> Result<FinalExecutionOutcome, Error> {
-        let contract_id: AccountId = contract_id.as_ref().parse()?;
-        let args_bytes = serde_json::to_vec(args)?;
-
-        self.send_actions(
-            contract_id,
-            vec![Action::function_call(method, args_bytes, gas, deposit)],
-        )
-        .await
-    }
-
-    /// Deploy a contract.
-    pub async fn deploy(
-        &self,
-        account_id: impl AsRef<str>,
-        code: Vec<u8>,
-    ) -> Result<FinalExecutionOutcome, Error> {
-        let account_id: AccountId = account_id.as_ref().parse()?;
-        self.send_actions(account_id, vec![Action::deploy_contract(code)])
+    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
+        self.call(contract_id, method)
+            .args(args)
+            .gas_amount(gas)
+            .deposit_amount(deposit)
             .await
-    }
-
-    /// Add a full access key to an account.
-    pub async fn add_full_access_key(
-        &self,
-        account_id: impl AsRef<str>,
-        public_key: PublicKey,
-    ) -> Result<FinalExecutionOutcome, Error> {
-        let account_id: AccountId = account_id.as_ref().parse()?;
-        self.send_actions(account_id, vec![Action::add_full_access_key(public_key)])
-            .await
-    }
-
-    /// Delete an access key from an account.
-    pub async fn delete_key(
-        &self,
-        account_id: impl AsRef<str>,
-        public_key: PublicKey,
-    ) -> Result<FinalExecutionOutcome, Error> {
-        let account_id: AccountId = account_id.as_ref().parse()?;
-        self.send_actions(account_id, vec![Action::delete_key(public_key)])
-            .await
-    }
-
-    // ========================================================================
-    // Internal helpers
-    // ========================================================================
-
-    /// Send a transaction with the given actions.
-    async fn send_actions(
-        &self,
-        receiver_id: AccountId,
-        actions: Vec<Action>,
-    ) -> Result<FinalExecutionOutcome, Error> {
-        let signer = self.signer.as_ref().ok_or(Error::NoSigner)?;
-
-        let signer_id = signer
-            .account_id()
-            .or(self.default_account.as_ref())
-            .ok_or(Error::NoSignerAccount)?
-            .clone();
-
-        // Get access key for nonce
-        let access_key = self
-            .rpc
-            .view_access_key(
-                &signer_id,
-                signer.public_key(),
-                BlockReference::Finality(Finality::Optimistic),
-            )
-            .await?;
-
-        // Get recent block hash
-        let block = self
-            .rpc
-            .block(BlockReference::Finality(Finality::Final))
-            .await?;
-
-        // Build and sign transaction
-        let tx = Transaction::new(
-            signer_id,
-            signer.public_key().clone(),
-            access_key.nonce + 1,
-            receiver_id,
-            block.header.hash,
-            actions,
-        );
-
-        let signature = signer.sign(tx.get_hash().as_bytes())?;
-        let signed_tx = crate::types::SignedTransaction {
-            transaction: tx,
-            signature,
-        };
-
-        // Send transaction
-        let outcome = self
-            .rpc
-            .send_tx(&signed_tx, TxExecutionStatus::ExecutedOptimistic)
-            .await?;
-
-        if outcome.is_failure() {
-            return Err(Error::TransactionFailed(
-                outcome.failure_message().unwrap_or_default(),
-            ));
-        }
-
-        Ok(outcome)
     }
 }
 
@@ -355,17 +395,36 @@ impl std::fmt::Debug for Near {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Near")
             .field("rpc", &self.rpc)
-            .field("has_signer", &self.signer.is_some())
-            .field("default_account", &self.default_account)
+            .field("account_id", &self.account_id())
             .finish()
     }
 }
 
 /// Builder for creating a [`Near`] client.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use near_kit::prelude::*;
+///
+/// // Read-only client
+/// let near = Near::testnet().build();
+///
+/// // Client with credentials (secret key + account)
+/// let near = Near::testnet()
+///     .credentials("ed25519:...", "alice.testnet")?
+///     .build();
+///
+/// // Client with keystore
+/// let keystore = std::sync::Arc::new(InMemoryKeyStore::new());
+/// // ... add keys to keystore ...
+/// let near = Near::testnet()
+///     .keystore(keystore, "alice.testnet")?
+///     .build();
+/// ```
 pub struct NearBuilder {
     rpc_url: String,
     signer: Option<Arc<dyn Signer>>,
-    default_account: Option<AccountId>,
     retry_config: RetryConfig,
 }
 
@@ -375,23 +434,66 @@ impl NearBuilder {
         Self {
             rpc_url: rpc_url.into(),
             signer: None,
-            default_account: None,
             retry_config: RetryConfig::default(),
         }
     }
 
     /// Set the signer for transactions.
+    ///
+    /// The signer determines which account will sign transactions.
     pub fn signer(mut self, signer: impl Signer + 'static) -> Self {
         self.signer = Some(Arc::new(signer));
         self
     }
 
-    /// Set the default account ID for transactions.
-    pub fn default_account(mut self, account_id: impl AsRef<str>) -> Self {
-        if let Ok(id) = account_id.as_ref().parse() {
-            self.default_account = Some(id);
-        }
-        self
+    /// Set up signing using a keystore and account ID.
+    ///
+    /// This is a convenience method that creates a `KeyStoreSigner` for you.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no key exists in the keystore for the given account.
+    pub fn keystore(
+        mut self,
+        keystore: Arc<dyn KeyStore>,
+        account_id: impl AsRef<str>,
+    ) -> Result<Self, Error> {
+        let account_id: AccountId = account_id.as_ref().parse()?;
+        let signer = KeyStoreSigner::new(keystore, account_id)?;
+        self.signer = Some(Arc::new(signer));
+        Ok(self)
+    }
+
+    /// Set up signing using a private key string and account ID.
+    ///
+    /// This is a convenience method that creates an in-memory keystore with the
+    /// provided key and sets up a signer for the account.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use near_kit::Near;
+    ///
+    /// let near = Near::testnet()
+    ///     .credentials("ed25519:...", "alice.testnet")?
+    ///     .build();
+    /// ```
+    pub fn credentials(
+        mut self,
+        private_key: impl AsRef<str>,
+        account_id: impl AsRef<str>,
+    ) -> Result<Self, Error> {
+        let secret_key: crate::types::SecretKey = private_key.as_ref().parse()?;
+        let account_id: AccountId = account_id.as_ref().parse()?;
+
+        // Create an in-memory keystore with this single key
+        let keystore = Arc::new(InMemoryKeyStore::new());
+        keystore.add(&account_id, secret_key);
+
+        // Create a signer from the keystore
+        let signer = KeyStoreSigner::new(keystore, account_id)?;
+        self.signer = Some(Arc::new(signer));
+        Ok(self)
     }
 
     /// Set the retry configuration.
@@ -408,7 +510,6 @@ impl NearBuilder {
                 self.retry_config,
             )),
             signer: self.signer,
-            default_account: self.default_account,
         }
     }
 }

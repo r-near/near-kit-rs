@@ -58,7 +58,11 @@ pub use error::{Error, RpcError};
 pub use types::*;
 
 // Re-export client types
-pub use client::{Near, NearBuilder, RetryConfig, RpcClient, SecretKeySigner, Signer};
+pub use client::{
+    AccessKeysQuery, AccountExistsQuery, AccountQuery, AddKeyCall, BalanceQuery, ContractCall,
+    DeleteKeyCall, DeployCall, InMemoryKeyStore, KeyStore, KeyStoreSigner, Near, NearBuilder,
+    RetryConfig, RpcClient, Signer, TransferCall, ViewCall,
+};
 
 /// Prelude module for convenient imports.
 ///
@@ -66,7 +70,9 @@ pub use client::{Near, NearBuilder, RetryConfig, RpcClient, SecretKeySigner, Sig
 /// use near_kit::prelude::*;
 /// ```
 pub mod prelude {
-    pub use crate::client::{Near, NearBuilder, SecretKeySigner, Signer};
+    pub use crate::client::{
+        InMemoryKeyStore, KeyStore, KeyStoreSigner, Near, NearBuilder, Signer,
+    };
     pub use crate::types::{
         AccountId, BlockReference, CryptoHash, Finality, Gas, NearToken, PublicKey, SecretKey,
         TxExecutionStatus,

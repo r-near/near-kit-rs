@@ -81,6 +81,15 @@ pub struct AccessKeyView {
     pub block_hash: CryptoHash,
 }
 
+/// Access key details (without block info, used in lists).
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccessKeyDetails {
+    /// Nonce for replay protection.
+    pub nonce: u64,
+    /// Permission level.
+    pub permission: AccessKeyPermissionView,
+}
+
 /// Access key permission from RPC.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -115,7 +124,7 @@ pub struct AccessKeyInfoView {
     /// Public key.
     pub public_key: PublicKey,
     /// Access key details.
-    pub access_key: AccessKeyView,
+    pub access_key: AccessKeyDetails,
 }
 
 // ============================================================================
