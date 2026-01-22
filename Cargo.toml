@@ -14,7 +14,7 @@ categories = ["api-bindings", "cryptography::cryptocurrencies"]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -32,7 +32,7 @@ bs58 = "0.5"
 hex = "0.4"
 
 # Error handling
-thiserror = "1"
+thiserror = "2"
 
 [dev-dependencies]
 tokio-test = "0.4"

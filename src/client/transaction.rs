@@ -535,8 +535,8 @@ impl IntoFuture for TransactionSend {
                     Err(RpcError::InvalidNonce { .. }) if attempt < MAX_NONCE_RETRIES - 1 => {
                         // Retry with fresh nonce
                         last_error = Some(Error::Rpc(RpcError::InvalidNonce {
-                            expected: 0,
-                            actual: nonce,
+                            tx_nonce: nonce,
+                            ak_nonce: 0,
                         }));
                         continue;
                     }

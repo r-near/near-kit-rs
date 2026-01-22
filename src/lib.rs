@@ -75,7 +75,9 @@ pub mod prelude {
         InMemoryKeyStore, KeyStore, KeyStoreSigner, Near, NearBuilder, Signer,
     };
     pub use crate::types::{
-        AccountId, BlockReference, CryptoHash, Finality, Gas, NearToken, PublicKey, SecretKey,
+        AccessKeyPermissionView, AccountId, ActionView, BlockReference, CryptoHash,
+        FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts, FinalExecutionStatus, Finality,
+        Gas, MerkleDirection, NearToken, PublicKey, Receipt, ReceiptContent, SecretKey,
         TxExecutionStatus,
     };
     pub use crate::Error;

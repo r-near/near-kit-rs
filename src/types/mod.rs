@@ -23,9 +23,12 @@ pub use hash::CryptoHash;
 pub use key::{KeyType, PublicKey, SecretKey, Signature};
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
-    AccountBalance, AccountView, ActionView, BlockHeaderView, BlockView, ChunkHeaderView,
-    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome, GasPrice,
-    NodeVersion, StatusResponse, SyncInfo, TransactionView, ViewFunctionResult,
+    AccountBalance, AccountView, ActionReceiptData, ActionView, BlockHeaderView, BlockView,
+    ChunkHeaderView, DataReceiptData, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId,
+    ExecutionStatus, FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts,
+    FinalExecutionStatus, GasPrice, GasProfileEntry, MerkleDirection, MerklePathItem, NodeVersion,
+    Receipt, ReceiptContent, StatusResponse, SyncInfo, TransactionView, ValidatorInfo,
+    ValidatorProposal, ViewFunctionResult,
 };
 pub use transaction::{SignedTransaction, Transaction};
 pub use units::{Gas, IntoGas, IntoNearToken, NearToken};

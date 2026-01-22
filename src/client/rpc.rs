@@ -9,8 +9,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use crate::error::RpcError;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockReference, BlockView,
-    CryptoHash, FinalExecutionOutcome, GasPrice, PublicKey, SignedTransaction, StatusResponse,
-    TxExecutionStatus, ViewFunctionResult,
+    CryptoHash, FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts, GasPrice, PublicKey,
+    SignedTransaction, StatusResponse, TxExecutionStatus, ViewFunctionResult,
 };
 
 /// Network configuration presets.
@@ -193,10 +193,12 @@ impl RpcClient {
         let body = response.text().await?;
 
         if !status.is_success() {
-            return Err(RpcError::InvalidResponse(format!(
-                "HTTP {}: {}",
-                status, body
-            )));
+            let retryable = is_retryable_status(status.as_u16());
+            return Err(RpcError::network(
+                format!("HTTP {}: {}", status, body),
+                Some(status.as_u16()),
+                retryable,
+            ));
         }
 
         let rpc_response: JsonRpcResponse<R> =
@@ -231,8 +233,116 @@ impl RpcClient {
                                 }
                             }
                         }
+                        "INVALID_ACCOUNT" => {
+                            let account_id = info
+                                .and_then(|i| i.get("requested_account_id"))
+                                .and_then(|a| a.as_str())
+                                .unwrap_or("unknown");
+                            return RpcError::InvalidAccount(account_id.to_string());
+                        }
                         "UNKNOWN_ACCESS_KEY" => {
                             // Could extract account_id and public_key here
+                        }
+                        "UNKNOWN_BLOCK" => {
+                            let block_ref = extract_block_reference(info, data);
+                            return RpcError::UnknownBlock(block_ref);
+                        }
+                        "UNKNOWN_CHUNK" => {
+                            let chunk_ref = info
+                                .and_then(|i| i.get("chunk_hash"))
+                                .and_then(|c| c.as_str())
+                                .unwrap_or(&error.message);
+                            return RpcError::UnknownChunk(chunk_ref.to_string());
+                        }
+                        "UNKNOWN_EPOCH" => {
+                            let block_ref = extract_block_reference(info, data);
+                            return RpcError::UnknownEpoch(block_ref);
+                        }
+                        "UNKNOWN_RECEIPT" => {
+                            let receipt_id = info
+                                .and_then(|i| i.get("receipt_id"))
+                                .and_then(|r| r.as_str())
+                                .unwrap_or("unknown");
+                            return RpcError::UnknownReceipt(receipt_id.to_string());
+                        }
+                        "NO_CONTRACT_CODE" => {
+                            let account_id = info
+                                .and_then(|i| {
+                                    i.get("contract_account_id")
+                                        .or_else(|| i.get("account_id"))
+                                        .or_else(|| i.get("contract_id"))
+                                })
+                                .and_then(|a| a.as_str())
+                                .unwrap_or("unknown");
+                            if let Ok(account_id) = account_id.parse() {
+                                return RpcError::ContractNotDeployed(account_id);
+                            }
+                        }
+                        "TOO_LARGE_CONTRACT_STATE" => {
+                            let account_id = info
+                                .and_then(|i| i.get("account_id").or_else(|| i.get("contract_id")))
+                                .and_then(|a| a.as_str())
+                                .unwrap_or("unknown");
+                            if let Ok(account_id) = account_id.parse() {
+                                return RpcError::ContractStateTooLarge(account_id);
+                            }
+                        }
+                        "CONTRACT_EXECUTION_ERROR" => {
+                            let contract_id = info
+                                .and_then(|i| i.get("contract_id"))
+                                .and_then(|c| c.as_str())
+                                .unwrap_or("unknown");
+                            let method_name = info
+                                .and_then(|i| i.get("method_name"))
+                                .and_then(|m| m.as_str())
+                                .map(String::from);
+                            if let Ok(contract_id) = contract_id.parse() {
+                                return RpcError::ContractExecution {
+                                    contract_id,
+                                    method_name,
+                                    message: error.message.clone(),
+                                };
+                            }
+                        }
+                        "UNAVAILABLE_SHARD" => {
+                            return RpcError::ShardUnavailable(error.message.clone());
+                        }
+                        "NO_SYNCED_BLOCKS" | "NOT_SYNCED_YET" => {
+                            return RpcError::NodeNotSynced(error.message.clone());
+                        }
+                        "INVALID_SHARD_ID" => {
+                            let shard_id = info
+                                .and_then(|i| i.get("shard_id"))
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| "unknown".to_string());
+                            return RpcError::InvalidShardId(shard_id);
+                        }
+                        "INVALID_TRANSACTION" => {
+                            // Check for InvalidNonce
+                            if let Some(invalid_nonce) = extract_invalid_nonce(data, &error.message)
+                            {
+                                return invalid_nonce;
+                            }
+                            return RpcError::invalid_transaction(
+                                &error.message,
+                                Some(data.clone()),
+                            );
+                        }
+                        "TIMEOUT_ERROR" => {
+                            let tx_hash = info
+                                .and_then(|i| i.get("transaction_hash"))
+                                .and_then(|h| h.as_str())
+                                .map(String::from);
+                            return RpcError::RequestTimeout {
+                                message: error.message.clone(),
+                                transaction_hash: tx_hash,
+                            };
+                        }
+                        "PARSE_ERROR" => {
+                            return RpcError::ParseError(error.message.clone());
+                        }
+                        "INTERNAL_ERROR" => {
+                            return RpcError::InternalError(error.message.clone());
                         }
                         _ => {}
                     }
@@ -365,19 +475,21 @@ impl RpcClient {
         self.call("send_tx", params).await
     }
 
-    /// Get transaction status.
+    /// Get transaction status with full receipt details.
+    ///
+    /// Uses EXPERIMENTAL_tx_status which returns complete receipt information.
     pub async fn tx_status(
         &self,
         tx_hash: &CryptoHash,
         sender_id: &AccountId,
         wait_until: TxExecutionStatus,
-    ) -> Result<FinalExecutionOutcome, RpcError> {
+    ) -> Result<FinalExecutionOutcomeWithReceipts, RpcError> {
         let params = serde_json::json!({
             "tx_hash": tx_hash.to_string(),
             "sender_account_id": sender_id.to_string(),
             "wait_until": wait_until.as_str(),
         });
-        self.call("tx", params).await
+        self.call("EXPERIMENTAL_tx_status", params).await
     }
 
     /// Merge block reference parameters into a JSON object.
@@ -408,4 +520,49 @@ impl std::fmt::Debug for RpcClient {
             .field("retry_config", &self.retry_config)
             .finish()
     }
+}
+
+// ============================================================================
+// Helper functions
+// ============================================================================
+
+/// Check if an HTTP status code is retryable.
+fn is_retryable_status(status: u16) -> bool {
+    // 408 Request Timeout - retryable
+    // 429 Too Many Requests - retryable (rate limiting)
+    // 503 Service Unavailable - retryable
+    // 5xx Server Errors - retryable
+    status == 408 || status == 429 || status == 503 || (500..600).contains(&status)
+}
+
+/// Extract block reference from error info.
+fn extract_block_reference(info: Option<&serde_json::Value>, data: &serde_json::Value) -> String {
+    if let Some(info) = info {
+        if let Some(block_ref) = info.get("block_reference") {
+            if let Some(s) = block_ref.as_str() {
+                return s.to_string();
+            }
+            if let Some(obj) = block_ref.as_object() {
+                if let Some(block_id) = obj.get("block_id").or_else(|| obj.get("BlockId")) {
+                    return block_id.to_string();
+                }
+            }
+        }
+    }
+    data.to_string()
+}
+
+/// Extract InvalidNonce error from data.
+fn extract_invalid_nonce(data: &serde_json::Value, _message: &str) -> Option<RpcError> {
+    // Navigate nested error structure: TxExecutionError.InvalidTxError.InvalidNonce
+    let tx_exec_error = data.get("TxExecutionError")?;
+    let invalid_tx_error = tx_exec_error
+        .get("InvalidTxError")
+        .or_else(|| data.get("InvalidTxError"))?;
+    let invalid_nonce = invalid_tx_error.get("InvalidNonce")?;
+
+    let ak_nonce = invalid_nonce.get("ak_nonce")?.as_u64()?;
+    let tx_nonce = invalid_nonce.get("tx_nonce")?.as_u64()?;
+
+    Some(RpcError::InvalidNonce { tx_nonce, ak_nonce })
 }

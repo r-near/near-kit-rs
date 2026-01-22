@@ -60,7 +60,7 @@ async fn test_sandbox_transfer() {
         .unwrap();
 
     println!(
-        "Create account outcome: success={}, hash={}",
+        "Create account outcome: success={}, hash={:?}",
         outcome.is_success(),
         outcome.transaction_hash()
     );
@@ -170,7 +170,7 @@ async fn test_sandbox_create_account_outcome() {
         .await
         .unwrap();
 
-    println!("Transaction hash: {}", outcome.transaction_hash());
+    println!("Transaction hash: {:?}", outcome.transaction_hash());
     println!("Gas used: {}", outcome.total_gas_used());
 
     assert!(outcome.is_success());

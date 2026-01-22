@@ -1,0 +1,8 @@
+- not the biggest fan of `.finish()` any cleaner way?
+- guestbook contract wasm from near-kit TS
+- sandbox singleton?
+  - account creation stuff?
+- remaining keystore implementations
+  - native keystore
+  - filesystem
+  - ledger? maybe as a signer?

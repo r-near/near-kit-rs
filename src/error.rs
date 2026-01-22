@@ -91,33 +91,23 @@ pub enum SignerError {
     KeyDerivationFailed(String),
 }
 
+// ============================================================================
+// RPC Errors
+// ============================================================================
+
 /// RPC-specific errors.
 #[derive(Debug, Error)]
 pub enum RpcError {
+    // ─── Network/Transport ───
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 
-    #[error("RPC error: {message} (code: {code})")]
-    Rpc {
-        code: i64,
+    #[error("Network error: {message}")]
+    Network {
         message: String,
-        data: Option<serde_json::Value>,
+        status_code: Option<u16>,
+        retryable: bool,
     },
-
-    #[error("Account not found: {0}")]
-    AccountNotFound(AccountId),
-
-    #[error("Access key not found: {account_id} / {public_key}")]
-    AccessKeyNotFound {
-        account_id: AccountId,
-        public_key: PublicKey,
-    },
-
-    #[error("Contract execution failed: {message}")]
-    ContractPanic { message: String },
-
-    #[error("Invalid nonce: expected {expected}, got {actual}")]
-    InvalidNonce { expected: u64, actual: u64 },
 
     #[error("Timeout after {0} retries")]
     Timeout(u32),
@@ -127,6 +117,107 @@ pub enum RpcError {
 
     #[error("Invalid response: {0}")]
     InvalidResponse(String),
+
+    // ─── Generic RPC Error ───
+    #[error("RPC error: {message} (code: {code})")]
+    Rpc {
+        code: i64,
+        message: String,
+        data: Option<serde_json::Value>,
+    },
+
+    // ─── Account Errors ───
+    #[error("Account not found: {0}")]
+    AccountNotFound(AccountId),
+
+    #[error("Invalid account ID: {0}")]
+    InvalidAccount(String),
+
+    #[error("Access key not found: {account_id} / {public_key}")]
+    AccessKeyNotFound {
+        account_id: AccountId,
+        public_key: PublicKey,
+    },
+
+    // ─── Contract Errors ───
+    #[error("Contract not deployed on account: {0}")]
+    ContractNotDeployed(AccountId),
+
+    #[error("Contract state too large for account: {0}")]
+    ContractStateTooLarge(AccountId),
+
+    #[error("Contract execution failed on {contract_id}: {message}")]
+    ContractExecution {
+        contract_id: AccountId,
+        method_name: Option<String>,
+        message: String,
+    },
+
+    #[error("Contract panic: {message}")]
+    ContractPanic { message: String },
+
+    #[error("Function call error on {contract_id}.{method_name}: {}", panic.as_deref().unwrap_or("unknown error"))]
+    FunctionCall {
+        contract_id: AccountId,
+        method_name: String,
+        panic: Option<String>,
+        logs: Vec<String>,
+    },
+
+    // ─── Block/Chunk Errors ───
+    #[error("Block not found: {0}. It may have been garbage-collected. Try an archival node for blocks older than 5 epochs.")]
+    UnknownBlock(String),
+
+    #[error("Chunk not found: {0}. It may have been garbage-collected. Try an archival node.")]
+    UnknownChunk(String),
+
+    #[error("Epoch not found for block: {0}. The block may be invalid or too old. Try an archival node.")]
+    UnknownEpoch(String),
+
+    #[error("Invalid shard ID: {0}")]
+    InvalidShardId(String),
+
+    // ─── Receipt Errors ───
+    #[error("Receipt not found: {0}")]
+    UnknownReceipt(String),
+
+    // ─── Transaction Errors ───
+    #[error("Invalid transaction: {message}")]
+    InvalidTransaction {
+        message: String,
+        details: Option<serde_json::Value>,
+        shard_congested: bool,
+        shard_stuck: bool,
+    },
+
+    #[error("Invalid nonce: transaction nonce {tx_nonce} must be greater than access key nonce {ak_nonce}")]
+    InvalidNonce { tx_nonce: u64, ak_nonce: u64 },
+
+    #[error("Insufficient balance: required {required}, available {available}")]
+    InsufficientBalance { required: String, available: String },
+
+    #[error("Gas limit exceeded: used {gas_used}, limit {gas_limit}")]
+    GasLimitExceeded { gas_used: String, gas_limit: String },
+
+    // ─── Node Errors ───
+    #[error("Shard unavailable: {0}")]
+    ShardUnavailable(String),
+
+    #[error("Node not synced: {0}")]
+    NodeNotSynced(String),
+
+    #[error("Internal server error: {0}")]
+    InternalError(String),
+
+    // ─── Request Errors ───
+    #[error("Parse error: {0}")]
+    ParseError(String),
+
+    #[error("Request timeout: {message}")]
+    RequestTimeout {
+        message: String,
+        transaction_hash: Option<String>,
+    },
 }
 
 impl RpcError {
@@ -135,6 +226,17 @@ impl RpcError {
         match self {
             RpcError::Http(e) => e.is_timeout() || e.is_connect(),
             RpcError::Timeout(_) => true,
+            RpcError::Network { retryable, .. } => *retryable,
+            RpcError::ShardUnavailable(_) => true,
+            RpcError::NodeNotSynced(_) => true,
+            RpcError::InternalError(_) => true,
+            RpcError::RequestTimeout { .. } => true,
+            RpcError::InvalidNonce { .. } => true,
+            RpcError::InvalidTransaction {
+                shard_congested,
+                shard_stuck,
+                ..
+            } => *shard_congested || *shard_stuck,
             RpcError::Rpc { code, .. } => {
                 // Retry on server errors
                 *code == -32000 || *code == -32603
@@ -142,7 +244,58 @@ impl RpcError {
             _ => false,
         }
     }
+
+    /// Create a network error.
+    pub fn network(message: impl Into<String>, status_code: Option<u16>, retryable: bool) -> Self {
+        RpcError::Network {
+            message: message.into(),
+            status_code,
+            retryable,
+        }
+    }
+
+    /// Create an invalid transaction error.
+    pub fn invalid_transaction(
+        message: impl Into<String>,
+        details: Option<serde_json::Value>,
+    ) -> Self {
+        let details_obj = details.as_ref();
+        let shard_congested = details_obj
+            .and_then(|d| d.get("ShardCongested"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let shard_stuck = details_obj
+            .and_then(|d| d.get("ShardStuck"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        RpcError::InvalidTransaction {
+            message: message.into(),
+            details,
+            shard_congested,
+            shard_stuck,
+        }
+    }
+
+    /// Create a function call error.
+    pub fn function_call(
+        contract_id: AccountId,
+        method_name: impl Into<String>,
+        panic: Option<String>,
+        logs: Vec<String>,
+    ) -> Self {
+        RpcError::FunctionCall {
+            contract_id,
+            method_name: method_name.into(),
+            panic,
+            logs,
+        }
+    }
 }
+
+// ============================================================================
+// Main Error Type
+// ============================================================================
 
 /// Main error type for near-kit operations.
 #[derive(Debug, Error)]
