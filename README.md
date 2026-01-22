@@ -25,10 +25,9 @@ use near_kit::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Configure once
+    // Configure once with inline credentials
     let near = Near::testnet()
-        .signer(SecretKeySigner::from_seed_phrase("your seed phrase...", None)?)
-        .default_account("alice.testnet")
+        .credentials("ed25519:3D4YudUahN1nawWogh8p...", "alice.testnet")?
         .build();
     
     // Simple operations
@@ -41,18 +40,52 @@ async fn main() -> Result<(), Error> {
         .gas("50 Tgas")
         .await?;
     
-    // Batch transactions
-    near.batch("new.alice.testnet")
+    // Multi-action transactions
+    let new_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
+    let wasm_code = std::fs::read("contract.wasm")?;
+    
+    near.transaction("new.alice.testnet")
         .create_account()
         .transfer("5 NEAR")
-        .add_full_access_key(public_key)
+        .add_full_access_key(new_key)
         .deploy(wasm_code)
-        .call("init").args(json!({ "owner": "alice.testnet" }))
+        .call("init").args(serde_json::json!({ "owner": "alice.testnet" }))
         .send()
         .await?;
     
     Ok(())
 }
+```
+
+## Signers
+
+near-kit-rs provides several signer implementations for different use cases:
+
+```rust
+use near_kit::{Near, InMemorySigner, FileSigner, EnvSigner, RotatingSigner, SecretKey};
+
+// InMemorySigner - Single key in memory (most common)
+let signer = InMemorySigner::new(
+    "alice.testnet",
+    "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
+)?;
+
+// FileSigner - Load from ~/.near-credentials/{network}/{account}.json
+let signer = FileSigner::new("testnet", "alice.testnet")?;
+
+// EnvSigner - Load from NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY env vars
+let signer = EnvSigner::new()?;
+
+// RotatingSigner - Multiple keys with round-robin rotation (for high-throughput bots)
+let keys = vec![
+    SecretKey::generate_ed25519(),
+    SecretKey::generate_ed25519(),
+    SecretKey::generate_ed25519(),
+];
+let signer = RotatingSigner::new("bot.testnet", keys)?;
+
+// Use any signer with the Near client
+let near = Near::testnet().signer(signer).build();
 ```
 
 ## Design Principles
@@ -63,9 +96,17 @@ async fn main() -> Result<(), Error> {
 4. **Explicit units**: No ambiguous amounts - must specify `NEAR`, `yocto`, `Tgas`, etc.
 5. **Progressive disclosure**: Simple things are simple, advanced options available when needed
 
+## Features
+
+- **Read operations**: `balance()`, `account()`, `account_exists()`, `view()`, `access_keys()`
+- **Write operations**: `transfer()`, `call()`, `deploy()`, `add_full_access_key()`, `delete_key()`
+- **Multi-action transactions**: `transaction()` builder for atomic operations
+- **Block references**: Query at specific block heights, hashes, or finality levels
+- **Retry logic**: Automatic retry with exponential backoff for transient failures
+
 ## Documentation
 
-See [SPEC.md](./SPEC.md) for the full specification.
+See [SPEC.md](./SPEC.md) for the full API specification.
 
 ## License
 
