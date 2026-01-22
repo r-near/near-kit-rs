@@ -13,6 +13,8 @@
 //!     .build();
 //!
 //! // Create a new sub-account with funding and a key
+//! let new_public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
+//! let wasm_code = std::fs::read("contract.wasm").expect("failed to read wasm");
 //! near.transaction("new.alice.testnet")
 //!     .create_account()
 //!     .transfer("5 NEAR")
@@ -72,6 +74,7 @@ fn nonce_manager() -> &'static NonceManager {
 ///     .await?;
 ///
 /// // Multiple actions (atomic)
+/// let key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
 /// near.transaction("new.alice.testnet")
 ///     .create_account()
 ///     .transfer("5 NEAR")

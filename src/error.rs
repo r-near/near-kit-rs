@@ -91,6 +91,28 @@ pub enum SignerError {
     KeyDerivationFailed(String),
 }
 
+/// Error during keystore operations.
+#[derive(Debug, Error)]
+pub enum KeyStoreError {
+    #[error("Key not found for account: {0}")]
+    KeyNotFound(AccountId),
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("Invalid credential format: {0}")]
+    InvalidFormat(String),
+
+    #[error("Invalid key: {0}")]
+    InvalidKey(#[from] ParseKeyError),
+
+    #[error("Path error: {0}")]
+    PathError(String),
+}
+
 // ============================================================================
 // RPC Errors
 // ============================================================================

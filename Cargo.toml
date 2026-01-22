@@ -31,12 +31,24 @@ rand = "0.8"
 bs58 = "0.5"
 hex = "0.4"
 
+# Filesystem
+dirs = "6"
+
 # Error handling
 thiserror = "2"
+
+# Optional: Sandbox integration
+near-sandbox = { version = "0.3", features = ["global_install"], optional = true }
+
+[features]
+default = []
+sandbox = ["near-sandbox"]
 
 [dev-dependencies]
 tokio-test = "0.4"
 near-sandbox = { version = "0.3", features = ["global_install"] }
+tempfile = "3"
+rstest = "0.25"
 
 [profile.release]
 lto = true

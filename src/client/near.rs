@@ -5,7 +5,7 @@ use std::sync::Arc;
 use serde::de::DeserializeOwned;
 
 use crate::error::Error;
-use crate::types::{AccountId, Gas, NearToken, PublicKey};
+use crate::types::{AccountId, Gas, NearToken, PublicKey, SecretKey};
 
 use super::keystore::{InMemoryKeyStore, KeyStore};
 use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
@@ -13,6 +13,33 @@ use super::rpc::{RetryConfig, RpcClient, MAINNET, TESTNET};
 use super::signer::{KeyStoreSigner, Signer};
 use super::transaction::TransactionBuilder;
 use super::tx::{AddKeyCall, ContractCall, DeleteKeyCall, DeployCall, TransferCall};
+
+/// Trait for sandbox network configuration.
+///
+/// Implement this trait for your sandbox type to enable ergonomic
+/// integration with the `Near` client via [`Near::sandbox()`].
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use near_sandbox::Sandbox;
+///
+/// let sandbox = Sandbox::start_sandbox().await?;
+/// let near = Near::sandbox(&sandbox).build();
+///
+/// // The root account credentials are automatically configured
+/// near.transfer("alice.sandbox", "10 NEAR").await?;
+/// ```
+pub trait SandboxNetwork {
+    /// The RPC URL for the sandbox (e.g., `http://127.0.0.1:3030`).
+    fn rpc_url(&self) -> &str;
+
+    /// The root account ID (e.g., `"sandbox"`).
+    fn root_account_id(&self) -> &str;
+
+    /// The root account's secret key.
+    fn root_secret_key(&self) -> &str;
+}
 
 /// The main client for interacting with NEAR Protocol.
 ///
@@ -61,6 +88,45 @@ impl Near {
     /// Create a builder with a custom RPC URL.
     pub fn custom(rpc_url: impl Into<String>) -> NearBuilder {
         NearBuilder::new(rpc_url)
+    }
+
+    /// Create a builder configured for a sandbox network.
+    ///
+    /// This automatically configures the client with the sandbox's RPC URL
+    /// and root account credentials, making it ready for transactions.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use near_sandbox::Sandbox;
+    /// use near_kit::prelude::*;
+    ///
+    /// let sandbox = Sandbox::start_sandbox().await?;
+    /// let near = Near::sandbox(&sandbox);
+    ///
+    /// // Root account credentials are auto-configured - ready for transactions!
+    /// near.transfer("alice.sandbox", "10 NEAR").await?;
+    /// ```
+    pub fn sandbox(network: &impl SandboxNetwork) -> Near {
+        let secret_key: SecretKey = network
+            .root_secret_key()
+            .parse()
+            .expect("sandbox should provide valid secret key");
+        let account_id: AccountId = network
+            .root_account_id()
+            .parse()
+            .expect("sandbox should provide valid account id");
+
+        let keystore = Arc::new(InMemoryKeyStore::new());
+        keystore.add(&account_id, secret_key);
+
+        let signer = KeyStoreSigner::new(keystore, account_id)
+            .expect("keystore should have the key we just added");
+
+        Near {
+            rpc: Arc::new(RpcClient::new(network.rpc_url())),
+            signer: Some(Arc::new(signer)),
+        }
     }
 
     /// Get the underlying RPC client.
@@ -369,6 +435,7 @@ impl Near {
     ///     .build();
     ///
     /// // Create a new sub-account with funding and a key
+    /// let new_public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
     /// near.transaction("new.alice.testnet")
     ///     .create_account()
     ///     .transfer("5 NEAR")
@@ -568,5 +635,31 @@ impl NearBuilder {
 impl From<NearBuilder> for Near {
     fn from(builder: NearBuilder) -> Self {
         builder.build()
+    }
+}
+
+// ============================================================================
+// near-sandbox integration (behind feature flag or for dev dependencies)
+// ============================================================================
+
+/// Default sandbox root account ID.
+pub const SANDBOX_ROOT_ACCOUNT: &str = "sandbox";
+
+/// Default sandbox root account private key.
+pub const SANDBOX_ROOT_PRIVATE_KEY: &str =
+    "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
+
+#[cfg(feature = "sandbox")]
+impl SandboxNetwork for near_sandbox::Sandbox {
+    fn rpc_url(&self) -> &str {
+        &self.rpc_addr
+    }
+
+    fn root_account_id(&self) -> &str {
+        SANDBOX_ROOT_ACCOUNT
+    }
+
+    fn root_secret_key(&self) -> &str {
+        SANDBOX_ROOT_PRIVATE_KEY
     }
 }

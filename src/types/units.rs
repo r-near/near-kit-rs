@@ -490,7 +490,7 @@ impl BorshDeserialize for Gas {
 /// # Example
 ///
 /// ```
-/// use near_kit::prelude::*;
+/// use near_kit::{IntoNearToken, NearToken};
 ///
 /// fn example(amount: impl IntoNearToken) {
 ///     let token = amount.into_near_token().unwrap();
@@ -541,7 +541,7 @@ impl IntoNearToken for &String {
 /// # Example
 ///
 /// ```
-/// use near_kit::prelude::*;
+/// use near_kit::{Gas, IntoGas};
 ///
 /// fn example(gas: impl IntoGas) {
 ///     let g = gas.into_gas().unwrap();

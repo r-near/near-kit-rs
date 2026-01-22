@@ -54,15 +54,15 @@ pub mod error;
 pub mod types;
 
 // Re-export commonly used types at crate root
-pub use error::{Error, RpcError};
+pub use error::{Error, KeyStoreError, RpcError};
 pub use types::*;
 
 // Re-export client types
 pub use client::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, AddKeyCall, BalanceQuery, CallBuilder,
-    ContractCall, DeleteKeyCall, DeployCall, InMemoryKeyStore, KeyStore, KeyStoreSigner, Near,
-    NearBuilder, RetryConfig, RpcClient, Signer, TransactionBuilder, TransactionSend, TransferCall,
-    ViewCall,
+    ContractCall, DeleteKeyCall, DeployCall, FileKeyStore, InMemoryKeyStore, KeyStore,
+    KeyStoreSigner, Near, NearBuilder, RetryConfig, RpcClient, SandboxNetwork, Signer,
+    TransactionBuilder, TransactionSend, TransferCall, ViewCall,
 };
 
 /// Prelude module for convenient imports.
@@ -72,7 +72,8 @@ pub use client::{
 /// ```
 pub mod prelude {
     pub use crate::client::{
-        InMemoryKeyStore, KeyStore, KeyStoreSigner, Near, NearBuilder, Signer,
+        FileKeyStore, InMemoryKeyStore, KeyStore, KeyStoreSigner, Near, NearBuilder,
+        SandboxNetwork, Signer,
     };
     pub use crate::types::{
         AccessKeyPermissionView, AccountId, ActionView, BlockReference, CryptoHash,

@@ -9,8 +9,8 @@ mod signer;
 mod transaction;
 mod tx;
 
-pub use keystore::{InMemoryKeyStore, KeyStore};
-pub use near::{Near, NearBuilder};
+pub use keystore::{FileKeyStore, InMemoryKeyStore, KeyStore};
+pub use near::{Near, NearBuilder, SandboxNetwork, SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_PRIVATE_KEY};
 pub use query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
 pub use rpc::{RetryConfig, RpcClient};
 pub use signer::{KeyStoreSigner, Signer};
