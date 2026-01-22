@@ -1535,6 +1535,146 @@ async fn test_transfer() {
 
 ---
 
+## Sandbox Testing
+
+The `sandbox` module (behind the `sandbox` feature flag) provides ergonomic APIs for testing against a local NEAR sandbox.
+
+### Design Principles
+
+1. **Consistent with production**: The code you write for tests should look like production code. `Near` is always the entry point - you just pass a different network config.
+
+2. **Sandbox lifecycle management**: The library handles starting/stopping sandboxes, including a shared singleton for test performance.
+
+3. **No magic account creation**: All accounts are created through the standard `near.transaction().create_account()` flow. No hidden state manipulation.
+
+### API Overview
+
+```rust
+use near_kit::prelude::*;
+use near_kit::sandbox::SandboxConfig;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Production code
+// ══════════════════════════════════════════════════════════════════════════════
+
+let near = Near::testnet().build();
+let near = Near::mainnet().build();
+let near = Near::custom("https://my-rpc.example.com").build();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Test code - same pattern, just different network
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Shared sandbox (singleton) - fast, reuses across tests
+let near = Near::sandbox(SandboxConfig::shared().await);
+
+// Fresh sandbox - isolated, stopped on drop
+let sandbox = SandboxConfig::fresh().await;
+let near = Near::sandbox(&sandbox);
+
+// Custom version
+let sandbox = SandboxConfig::builder()
+    .version("2.10.5")
+    .fresh()
+    .await;
+let near = Near::sandbox(&sandbox);
+```
+
+### Shared vs Fresh Sandboxes
+
+**Shared (singleton):**
+- First call starts the sandbox, subsequent calls reuse it
+- Persists for entire test run
+- Fast - no startup cost after first test
+- Tests share blockchain state (use unique account names)
+
+**Fresh (owned):**
+- New sandbox per call
+- Stopped and cleaned up when dropped
+- Slower - full startup cost each time
+- Completely isolated state
+
+### Convenience Method
+
+Both `SharedSandbox` and `OwnedSandbox` provide a `.client()` shortcut:
+
+```rust
+// These are equivalent:
+let near = Near::sandbox(SandboxConfig::shared().await);
+let near = SandboxConfig::shared().await.client();
+
+// For fresh sandboxes, keep a reference if you need it:
+let sandbox = SandboxConfig::fresh().await;
+let near = sandbox.client();
+// sandbox stays alive, near can be used
+```
+
+### Full Test Example
+
+```rust
+use near_kit::prelude::*;
+use near_kit::sandbox::SandboxConfig;
+
+#[tokio::test]
+async fn test_create_account_and_transfer() {
+    // Get sandbox client (shared singleton)
+    let near = Near::sandbox(SandboxConfig::shared().await);
+    
+    // Create a new account - same code as production!
+    let alice_key = SecretKey::generate_ed25519();
+    near.transaction("alice.sandbox")
+        .create_account()
+        .transfer("100 NEAR")
+        .add_full_access_key(alice_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+    
+    // Verify
+    let balance = near.balance("alice.sandbox").await.unwrap();
+    assert!(balance.total > NearToken::from_near(99));
+    
+    // Use alice's account
+    let alice_near = Near::custom(near.rpc_url())
+        .credentials(alice_key.to_string(), "alice.sandbox")
+        .unwrap()
+        .build();
+    
+    alice_near.transfer("bob.sandbox", "10 NEAR").await.unwrap();
+}
+```
+
+### Module Structure
+
+```
+near_kit::sandbox
+├── SandboxConfig        # Factory for sandbox instances
+│   ├── ::shared()       # Get global singleton
+│   ├── ::fresh()        # Spawn new instance
+│   └── ::builder()      # Builder for custom config
+├── SharedSandbox        # Singleton wrapper, implements SandboxNetwork
+├── OwnedSandbox         # Owned wrapper, stopped on drop
+├── SandboxBuilder       # Builder for version and future options
+└── (re-exports)
+    ├── SandboxNetwork   # Trait for sandbox network config
+    ├── ROOT_ACCOUNT     # "sandbox" constant
+    └── ROOT_SECRET_KEY  # Root account secret key
+```
+
+### Feature Flag
+
+The sandbox module requires the `sandbox` feature:
+
+```toml
+[dependencies]
+near-kit = { version = "0.1", features = ["sandbox"] }
+```
+
+This keeps the main library lightweight for production use.
+
+---
+
 ## Resources
 
 - **near-kit (TypeScript reference)**: `/home/ricky/near-kit`

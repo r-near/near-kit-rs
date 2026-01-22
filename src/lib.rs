@@ -53,6 +53,10 @@ pub mod client;
 pub mod error;
 pub mod types;
 
+// Sandbox module - only available with "sandbox" feature
+#[cfg(feature = "sandbox")]
+pub mod sandbox;
+
 // Re-export commonly used types at crate root
 pub use error::{Error, KeyStoreError, RpcError};
 pub use types::*;

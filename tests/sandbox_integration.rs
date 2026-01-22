@@ -3,46 +3,16 @@
 //! These tests use a shared sandbox instance with unique subaccounts per test,
 //! following the pattern from defuse-sandbox.
 //!
-//! Run with: `cargo nextest run --test sandbox_integration`
+//! Run with: `cargo nextest run --test sandbox_integration --features sandbox`
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use near_kit::prelude::*;
-use near_sandbox::Sandbox;
+use near_kit::sandbox::{SandboxConfig, ROOT_ACCOUNT};
 use rstest::{fixture, rstest};
-use tokio::sync::OnceCell;
-
-// Default sandbox credentials (from near-sandbox config)
-const SANDBOX_ACCOUNT: &str = "sandbox";
-const SANDBOX_PRIVATE_KEY: &str = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
-
-/// Shared sandbox state - initialized once, reused across all tests
-struct SharedSandbox {
-    sandbox: Sandbox,
-    rpc_url: String,
-    root_account: AccountId,
-    root_key: SecretKey,
-}
-
-/// Global shared sandbox instance
-static SHARED_SANDBOX: OnceCell<SharedSandbox> = OnceCell::const_new();
 
 /// Counter for generating unique subaccount names
 static SUB_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-/// Initialize the shared sandbox (called once)
-async fn init_shared_sandbox() -> SharedSandbox {
-    let sandbox = Sandbox::start_sandbox().await.unwrap();
-    let root_account: AccountId = SANDBOX_ACCOUNT.parse().unwrap();
-    let root_key: SecretKey = SANDBOX_PRIVATE_KEY.parse().unwrap();
-
-    SharedSandbox {
-        rpc_url: sandbox.rpc_addr.clone(),
-        sandbox,
-        root_account,
-        root_key,
-    }
-}
 
 /// Test context with isolated subaccount
 pub struct TestContext {
@@ -75,12 +45,15 @@ impl TestContext {
 /// can't sign transactions for accounts outside their namespace.
 #[fixture]
 pub async fn ctx() -> TestContext {
-    // Get or initialize the shared sandbox
-    let shared = SHARED_SANDBOX.get_or_init(init_shared_sandbox).await;
+    // Get shared sandbox using the new API
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let root_account: AccountId = ROOT_ACCOUNT.parse().unwrap();
+    let rpc_url = sandbox.rpc_url().to_string();
 
     // Generate unique subaccount name
     let test_num = SUB_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let subaccount_id: AccountId = format!("test{}.{}", test_num, shared.root_account)
+    let subaccount_id: AccountId = format!("test{}.{}", test_num, root_account)
         .parse()
         .unwrap();
 
@@ -88,11 +61,6 @@ pub async fn ctx() -> TestContext {
     let subaccount_key = SecretKey::generate_ed25519();
 
     // Create the subaccount using the root account
-    let root_near = Near::custom(&shared.rpc_url)
-        .credentials(shared.root_key.to_string(), shared.root_account.as_str())
-        .unwrap()
-        .build();
-
     root_near
         .transaction(&subaccount_id)
         .create_account()
@@ -104,7 +72,7 @@ pub async fn ctx() -> TestContext {
         .unwrap();
 
     // Create client for the subaccount
-    let near = Near::custom(&shared.rpc_url)
+    let near = Near::custom(&rpc_url)
         .credentials(subaccount_key.to_string(), subaccount_id.as_str())
         .unwrap()
         .build();
@@ -113,8 +81,8 @@ pub async fn ctx() -> TestContext {
         near,
         account_id: subaccount_id,
         secret_key: subaccount_key,
-        root_account: shared.root_account.clone(),
-        rpc_url: shared.rpc_url.clone(),
+        root_account,
+        rpc_url,
     }
 }
 
