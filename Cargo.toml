@@ -51,7 +51,6 @@ sandbox = ["near-sandbox"]
 tokio-test = "0.4"
 near-sandbox = { version = "0.3", features = ["global_install"] }
 tempfile = "3"
-rstest = "0.25"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]
