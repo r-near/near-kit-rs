@@ -56,63 +56,34 @@ The TypeScript library at `/home/ricky/near-kit` serves as the primary design re
 
 ### Crate Structure
 
+This is a single crate for simplicity. Proc macros (if needed) would be the only separate crate.
+
 ```
 near-kit-rs/
-├── Cargo.toml              # Workspace root
-├── crates/
-│   ├── near-kit/           # Main crate (re-exports everything)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       └── lib.rs      # pub use near_kit_client::*; etc.
-│   │
-│   ├── near-kit-client/    # Core client library
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── client.rs       # Near struct
-│   │       ├── rpc.rs          # RpcClient
-│   │       ├── transaction.rs  # TransactionBuilder
-│   │       ├── signer.rs       # Signer trait + impls
-│   │       ├── query.rs        # Query builders (view, balance, etc.)
-│   │       ├── tokens/         # FT/NFT helpers
-│   │       │   ├── mod.rs
-│   │       │   ├── ft.rs
-│   │       │   └── nft.rs
-│   │       └── error.rs
-│   │
-│   ├── near-kit-types/     # Core types (hand-rolled)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── account.rs      # AccountId
-│   │       ├── units.rs        # NearToken, Gas
-│   │       ├── key.rs          # PublicKey, SecretKey, Signature
-│   │       ├── hash.rs         # CryptoHash
-│   │       ├── action.rs       # Transaction actions
-│   │       ├── transaction.rs  # Transaction, SignedTransaction
-│   │       ├── rpc/            # RPC response types
-│   │       │   ├── mod.rs
-│   │       │   ├── account.rs
-│   │       │   ├── block.rs
-│   │       │   ├── access_key.rs
-│   │       │   ├── outcome.rs
-│   │       │   └── status.rs
-│   │       └── block_reference.rs
-│   │
-│   └── near-kit-macros/    # Proc macros (optional, for #[contract])
-│       ├── Cargo.toml
-│       └── src/
-│           └── lib.rs
-│
-├── examples/
-│   ├── balance.rs
-│   ├── transfer.rs
-│   ├── view_call.rs
-│   ├── contract_call.rs
-│   └── batch_transaction.rs
-│
-└── tests/
-    └── integration/
+├── Cargo.toml              # Single crate
+├── src/
+│   ├── lib.rs              # Main exports and prelude
+│   ├── error.rs            # Error types (Error, RpcError, Parse*Error)
+│   ├── types/
+│   │   ├── mod.rs          # Re-exports all types
+│   │   ├── account.rs      # AccountId with validation
+│   │   ├── units.rs        # NearToken, Gas with string parsing
+│   │   ├── hash.rs         # CryptoHash (SHA-256)
+│   │   ├── key.rs          # PublicKey, SecretKey, Signature
+│   │   ├── action.rs       # Transaction actions (Transfer, FunctionCall, etc.)
+│   │   ├── transaction.rs  # Transaction, SignedTransaction
+│   │   ├── block_reference.rs  # BlockReference, Finality, TxExecutionStatus
+│   │   └── rpc.rs          # RPC response types (AccountView, BlockView, etc.)
+│   └── client/
+│       ├── mod.rs          # Re-exports client components
+│       ├── near.rs         # Near client and NearBuilder
+│       ├── rpc.rs          # RpcClient with retry logic
+│       └── signer.rs       # Signer trait and SecretKeySigner
+├── examples/               # Example code
+├── tests/                  # Integration tests
+├── SPEC.md                 # This file
+├── REFERENCE.md            # TypeScript patterns reference
+└── AGENTS.md               # AI agent instructions
 ```
 
 ### Dependency Philosophy
@@ -122,9 +93,10 @@ near-kit-rs/
 - `reqwest` - HTTP client
 - `serde`, `serde_json` - JSON serialization
 - `borsh` - Borsh serialization (NEAR's binary format)
+- `base64` - Base64 encoding for RPC
 - `thiserror` - Error derive macro
 - `bs58` - Base58 encoding
-- `ed25519-dalek` or `ed25519` - Ed25519 signatures
+- `ed25519-dalek` - Ed25519 signatures
 - `sha2` - SHA-256 hashing
 - `hex` - Hex encoding
 - `rand` - Random number generation (for key generation)
