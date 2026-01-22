@@ -180,6 +180,9 @@ pub enum Error {
     #[error("Transaction failed: {0}")]
     TransactionFailed(String),
 
+    #[error("Invalid transaction: {0}")]
+    InvalidTransaction(String),
+
     #[error("Contract panic: {0}")]
     ContractPanic(String),
 

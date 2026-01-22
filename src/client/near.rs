@@ -11,6 +11,7 @@ use super::keystore::{InMemoryKeyStore, KeyStore};
 use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
 use super::rpc::{RetryConfig, RpcClient, MAINNET, TESTNET};
 use super::signer::{KeyStoreSigner, Signer};
+use super::transaction::TransactionBuilder;
 use super::tx::{AddKeyCall, ContractCall, DeleteKeyCall, DeployCall, TransferCall};
 
 /// The main client for interacting with NEAR Protocol.
@@ -342,6 +343,51 @@ impl Near {
             account_id,
             public_key,
         )
+    }
+
+    // ========================================================================
+    // Multi-Action Transactions
+    // ========================================================================
+
+    /// Create a transaction builder for multi-action transactions.
+    ///
+    /// This allows chaining multiple actions (transfers, function calls, account creation, etc.)
+    /// into a single atomic transaction. All actions either succeed together or fail together.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet()
+    ///     .credentials("ed25519:...", "alice.testnet")?
+    ///     .build();
+    ///
+    /// // Create a new sub-account with funding and a key
+    /// near.transaction("new.alice.testnet")
+    ///     .create_account()
+    ///     .transfer("5 NEAR")
+    ///     .add_full_access_key(new_public_key)
+    ///     .send()
+    ///     .await?;
+    ///
+    /// // Multiple function calls in one transaction
+    /// near.transaction("contract.testnet")
+    ///     .call("method1")
+    ///         .args(serde_json::json!({ "value": 1 }))
+    ///     .call("method2")
+    ///         .args(serde_json::json!({ "value": 2 }))
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn transaction(&self, receiver_id: impl AsRef<str>) -> TransactionBuilder {
+        let receiver_id = receiver_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(receiver_id.as_ref()));
+        TransactionBuilder::new(self.rpc.clone(), self.signer.clone(), receiver_id)
     }
 
     // ========================================================================

@@ -126,16 +126,16 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 
 - [x] `ContractCall` builder with `.args()`, `.gas()`, `.deposit()`
 - [x] `TransferCall` builder with `.wait_until()`
-- [ ] `TransactionOutcome` wrapper type
 - [x] `.sign_with()` for signer override
 
-### Phase 6: Batch Transactions (TODO)
+### Phase 6: Multi-Action Transactions ✅
 
-- [ ] `BatchBuilder` - Fluent batch transaction API
-- [ ] `BatchCallBuilder` - Function call within batch
-- [ ] `.create_account()`, `.transfer()`, `.deploy()`, etc.
-- [ ] `.add_full_access_key()`, `.add_function_call_key()`
-- [ ] `.send()` to execute batch
+- [x] `TransactionBuilder` - Fluent multi-action transaction API
+- [x] `CallBuilder` - Function call within transactions
+- [x] `.create_account()`, `.transfer()`, `.deploy()`, etc.
+- [x] `.add_full_access_key()`, `.add_function_call_key()`
+- [x] `.delete_key()`, `.delete_account()`, `.stake()`
+- [x] `.send()` to execute transaction
 
 ### Phase 7: Token Helpers (TODO)
 

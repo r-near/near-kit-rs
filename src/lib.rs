@@ -59,9 +59,10 @@ pub use types::*;
 
 // Re-export client types
 pub use client::{
-    AccessKeysQuery, AccountExistsQuery, AccountQuery, AddKeyCall, BalanceQuery, ContractCall,
-    DeleteKeyCall, DeployCall, InMemoryKeyStore, KeyStore, KeyStoreSigner, Near, NearBuilder,
-    RetryConfig, RpcClient, Signer, TransferCall, ViewCall,
+    AccessKeysQuery, AccountExistsQuery, AccountQuery, AddKeyCall, BalanceQuery, CallBuilder,
+    ContractCall, DeleteKeyCall, DeployCall, InMemoryKeyStore, KeyStore, KeyStoreSigner, Near,
+    NearBuilder, RetryConfig, RpcClient, Signer, TransactionBuilder, TransactionSend, TransferCall,
+    ViewCall,
 };
 
 /// Prelude module for convenient imports.

@@ -1102,143 +1102,180 @@ impl IntoFuture for ContractCall {
 
 ---
 
-## Batch Transactions
+## Transaction Builder (Multi-Action Transactions)
+
+The `TransactionBuilder` allows chaining multiple actions into a single atomic transaction.
+All actions either succeed together or fail together.
 
 ```rust
-pub struct BatchBuilder {
-    near: Near,
+/// Create a transaction builder targeting a receiver account.
+/// 
+/// The receiver_id is the account that receives all actions in this transaction.
+/// NEAR transactions are single-receiver: all actions go to the same account.
+pub fn transaction(&self, receiver_id: impl AsRef<str>) -> TransactionBuilder;
+
+pub struct TransactionBuilder {
+    rpc: Arc<RpcClient>,
+    signer: Option<Arc<dyn Signer>>,
     receiver_id: AccountId,
     actions: Vec<Action>,
     signer_override: Option<Arc<dyn Signer>>,
     wait_until: TxExecutionStatus,
 }
 
-impl BatchBuilder {
-    pub fn transfer(mut self, amount: impl TryInto<NearToken>) -> Self {
-        self.actions.push(Action::Transfer {
-            deposit: amount.try_into().unwrap_or(NearToken::ZERO),
-        });
-        self
-    }
+impl TransactionBuilder {
+    // ═══════════════════════════════════════════════════════════════════════
+    // Action methods - each returns Self for chaining
+    // ═══════════════════════════════════════════════════════════════════════
     
-    pub fn call(self, method: &str) -> BatchCallBuilder {
-        BatchCallBuilder {
-            batch: self,
-            method: method.to_string(),
-            args: vec![],
-            gas: Gas::DEFAULT,
-            deposit: NearToken::ZERO,
-        }
-    }
+    /// Add a create account action.
+    pub fn create_account(mut self) -> Self;
     
-    pub fn create_account(mut self) -> Self {
-        self.actions.push(Action::CreateAccount);
-        self
-    }
+    /// Add a transfer action (accepts "5 NEAR" strings).
+    pub fn transfer(mut self, amount: impl AsRef<str>) -> Self;
     
-    pub fn deploy(mut self, code: impl Into<Vec<u8>>) -> Self {
-        self.actions.push(Action::DeployContract { code: code.into() });
-        self
-    }
+    /// Add a deploy contract action.
+    pub fn deploy(mut self, code: impl Into<Vec<u8>>) -> Self;
     
-    pub fn add_full_access_key(mut self, public_key: PublicKey) -> Self {
-        self.actions.push(Action::AddKey {
-            public_key,
-            access_key: AccessKey::full_access(),
-        });
-        self
-    }
+    /// Add a function call action (returns CallBuilder for args/gas/deposit).
+    pub fn call(self, method: &str) -> CallBuilder;
     
+    /// Add a full access key.
+    pub fn add_full_access_key(mut self, public_key: PublicKey) -> Self;
+    
+    /// Add a function call access key.
     pub fn add_function_call_key(
-        self,
+        mut self,
         public_key: PublicKey,
-        receiver_id: impl TryInto<AccountId>,
-    ) -> BatchAddKeyBuilder { ... }
+        receiver_id: impl AsRef<str>,
+        method_names: Vec<String>,
+        allowance: Option<NearToken>,
+    ) -> Self;
     
-    pub fn delete_key(mut self, public_key: PublicKey) -> Self {
-        self.actions.push(Action::DeleteKey { public_key });
-        self
-    }
+    /// Delete an access key.
+    pub fn delete_key(mut self, public_key: PublicKey) -> Self;
     
-    pub fn delete_account(mut self, beneficiary: impl TryInto<AccountId>) -> Self {
-        self.actions.push(Action::DeleteAccount {
-            beneficiary_id: beneficiary.try_into().unwrap(),
-        });
-        self
-    }
+    /// Delete the account (transfers remaining balance to beneficiary).
+    pub fn delete_account(mut self, beneficiary_id: impl AsRef<str>) -> Self;
     
-    pub fn sign_with(mut self, signer: impl Signer + 'static) -> Self {
-        self.signer_override = Some(Arc::new(signer));
-        self
-    }
+    /// Add a stake action.
+    pub fn stake(mut self, amount: impl AsRef<str>, public_key: PublicKey) -> Self;
     
-    pub fn wait_until(mut self, status: TxExecutionStatus) -> Self {
-        self.wait_until = status;
-        self
-    }
+    // ═══════════════════════════════════════════════════════════════════════
+    // Configuration
+    // ═══════════════════════════════════════════════════════════════════════
     
-    /// Send the batched transaction.
-    pub fn send(self) -> BatchSend { ... }
+    /// Override the signer for this transaction.
+    pub fn sign_with(mut self, signer: impl Signer + 'static) -> Self;
+    
+    /// Set the execution wait level.
+    pub fn wait_until(mut self, status: TxExecutionStatus) -> Self;
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // Execution
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    /// Send the transaction.
+    pub fn send(self) -> TransactionSend;
 }
 
-pub struct BatchCallBuilder {
-    batch: BatchBuilder,
+// TransactionBuilder implements IntoFuture so it can be .await'd directly
+impl IntoFuture for TransactionBuilder {
+    type Output = Result<FinalExecutionOutcome, Error>;
+}
+
+/// Builder for configuring a function call within a transaction.
+pub struct CallBuilder {
+    builder: TransactionBuilder,
     method: String,
     args: Vec<u8>,
     gas: Gas,
     deposit: NearToken,
 }
 
-impl BatchCallBuilder {
-    pub fn args(mut self, args: impl Serialize) -> Self {
-        self.args = serde_json::to_vec(&args).unwrap();
-        self
-    }
+impl CallBuilder {
+    /// Set JSON arguments.
+    pub fn args<A: Serialize>(mut self, args: A) -> Self;
     
-    pub fn args_borsh(mut self, args: impl BorshSerialize) -> Self {
-        self.args = borsh::to_vec(&args).unwrap();
-        self
-    }
+    /// Set Borsh arguments.
+    pub fn args_borsh<A: BorshSerialize>(mut self, args: A) -> Self;
     
-    pub fn gas(mut self, gas: impl TryInto<Gas>) -> Self {
-        self.gas = gas.try_into().unwrap_or(Gas::DEFAULT);
-        self
-    }
+    /// Set raw byte arguments.
+    pub fn args_raw(mut self, args: Vec<u8>) -> Self;
     
-    pub fn deposit(mut self, amount: impl TryInto<NearToken>) -> Self {
-        self.deposit = amount.try_into().unwrap_or(NearToken::ZERO);
-        self
-    }
+    /// Set gas limit (accepts "30 Tgas" strings).
+    pub fn gas(mut self, gas: impl AsRef<str>) -> Self;
     
-    /// Finish this call and return to the batch builder.
-    pub fn done(self) -> BatchBuilder {
-        let mut batch = self.batch;
-        batch.actions.push(Action::FunctionCall {
-            method_name: self.method,
-            args: self.args,
-            gas: self.gas,
-            deposit: self.deposit,
-        });
-        batch
-    }
+    /// Set attached deposit (accepts "1 NEAR" strings).
+    pub fn deposit(mut self, amount: impl AsRef<str>) -> Self;
+    
+    // All TransactionBuilder methods are available for chaining:
+    pub fn call(self, method: &str) -> CallBuilder;
+    pub fn transfer(self, amount: impl AsRef<str>) -> TransactionBuilder;
+    pub fn create_account(self) -> TransactionBuilder;
+    // ... etc
+    
+    /// Send the transaction.
+    pub fn send(self) -> TransactionSend;
 }
 
-// Allow chaining without explicit .done()
-impl BatchCallBuilder {
-    pub fn transfer(self, amount: impl TryInto<NearToken>) -> BatchBuilder {
-        self.done().transfer(amount)
-    }
-    
-    pub fn call(self, method: &str) -> BatchCallBuilder {
-        self.done().call(method)
-    }
-    
-    pub fn send(self) -> BatchSend {
-        self.done().send()
-    }
-    
-    // ... etc for all BatchBuilder methods
+// CallBuilder also implements IntoFuture
+impl IntoFuture for CallBuilder {
+    type Output = Result<FinalExecutionOutcome, Error>;
 }
+```
+
+### Usage Examples
+
+```rust
+use near_kit::prelude::*;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Create a new sub-account with funding and a key
+// ═══════════════════════════════════════════════════════════════════════════
+
+near.transaction("new.alice.testnet")
+    .create_account()
+    .transfer("5 NEAR")
+    .add_full_access_key(new_public_key)
+    .send()
+    .await?;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Deploy contract and call init method
+// ═══════════════════════════════════════════════════════════════════════════
+
+near.transaction("contract.alice.testnet")
+    .create_account()
+    .transfer("10 NEAR")
+    .add_full_access_key(key)
+    .deploy(wasm_code)
+    .call("init")
+        .args(json!({ "owner": "alice.testnet" }))
+    .send()
+    .await?;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Multiple function calls in one transaction
+// ═══════════════════════════════════════════════════════════════════════════
+
+near.transaction("defi.testnet")
+    .call("deposit")
+        .deposit("10 NEAR")
+    .call("stake")
+        .args(json!({ "amount": "10000000000000000000000000" }))
+        .gas("100 Tgas")
+    .send()
+    .await?;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Delete an account
+// ═══════════════════════════════════════════════════════════════════════════
+
+near.transaction("old.alice.testnet")
+    .delete_account("alice.testnet")  // beneficiary
+    .send()
+    .await?;
 ```
 
 ---
@@ -1364,11 +1401,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     
     // ══════════════════════════════════════════════════════════════════
-    // Batch Transactions
+    // Multi-Action Transactions
     // ══════════════════════════════════════════════════════════════════
     
     // Create account, fund it, deploy contract
-    near.batch("new.alice.testnet")
+    near.transaction("new.alice.testnet")
         .create_account()
         .transfer("5 NEAR")
         .add_full_access_key(new_public_key)
