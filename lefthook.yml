@@ -17,5 +17,5 @@ pre-commit:
 pre-push:
   commands:
     test:
-      run: cargo nextest run
+      run: cargo nextest run --all-features
       fail_text: "Tests failed. Please fix them before pushing."
