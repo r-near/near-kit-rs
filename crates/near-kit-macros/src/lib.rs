@@ -409,6 +409,9 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
     // Build the output
     let expanded = quote! {
         // Original trait (with internal attrs stripped for cleaner output)
+        // The trait is used for defining the interface, but the generated client
+        // struct is what's actually used - so suppress dead_code warnings.
+        #[allow(dead_code)]
         #(#trait_attrs)*
         #vis trait #trait_name #trait_generics : #trait_supertraits {
             #(#cleaned_items)*
