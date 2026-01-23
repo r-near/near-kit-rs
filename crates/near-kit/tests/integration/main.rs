@@ -4,6 +4,8 @@
 //!
 //! Run with: `cargo test --features sandbox --test integration`
 
+#![cfg(feature = "sandbox")]
+
 mod basic_integration;
 mod debug_rpc_responses;
 mod delegate_action_integration;
