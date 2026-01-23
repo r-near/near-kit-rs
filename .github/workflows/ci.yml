@@ -23,6 +23,7 @@ jobs:
         with:
           shared-key: stable
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: "true"
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets
 
@@ -38,6 +39,7 @@ jobs:
         with:
           shared-key: stable
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: "true"
           cache-all-crates: "true"
       - uses: taiki-e/install-action@cargo-llvm-cov
       - name: Run tests with coverage
@@ -56,4 +58,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: "true"
       - run: cargo check --workspace --all-targets
