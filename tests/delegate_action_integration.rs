@@ -43,7 +43,7 @@ async fn test_delegate_action_transfer() {
     root_near
         .transaction(&sender_id)
         .create_account()
-        .transfer("10 NEAR")
+        .transfer(NearToken::near(10))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -57,7 +57,7 @@ async fn test_delegate_action_transfer() {
     root_near
         .transaction(&relayer_id)
         .create_account()
-        .transfer("10 NEAR")
+        .transfer(NearToken::near(10))
         .add_full_access_key(relayer_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -71,7 +71,7 @@ async fn test_delegate_action_transfer() {
     root_near
         .transaction(&recipient_id)
         .create_account()
-        .transfer("1 NEAR")
+        .transfer(NearToken::near(1))
         .add_full_access_key(recipient_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -96,7 +96,7 @@ async fn test_delegate_action_transfer() {
     // Build a delegate action for transferring 2 NEAR to recipient
     let delegate_result = sender_near
         .transaction(&recipient_id)
-        .transfer("2 NEAR")
+        .transfer(NearToken::near(2))
         .delegate(DelegateOptions::with_offset(200))
         .await
         .unwrap();
@@ -166,7 +166,7 @@ async fn test_delegate_action_function_call() {
     root_near
         .transaction(&sender_id)
         .create_account()
-        .transfer("10 NEAR")
+        .transfer(NearToken::near(10))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -180,7 +180,7 @@ async fn test_delegate_action_function_call() {
     root_near
         .transaction(&relayer_id)
         .create_account()
-        .transfer("10 NEAR")
+        .transfer(NearToken::near(10))
         .add_full_access_key(relayer_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -198,7 +198,7 @@ async fn test_delegate_action_function_call() {
     root_near
         .transaction(&contract_id)
         .create_account()
-        .transfer("5 NEAR")
+        .transfer(NearToken::near(5))
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm_code)
         .send()
@@ -221,7 +221,7 @@ async fn test_delegate_action_function_call() {
         .transaction(&contract_id)
         .call("add_message")
         .args(serde_json::json!({ "text": "Hello from delegate!" }))
-        .gas("30 Tgas")
+        .gas(Gas::tgas(30))
         .delegate(DelegateOptions::with_offset(200))
         .await
         .unwrap();
@@ -271,7 +271,7 @@ async fn test_delegate_action_multiple_actions() {
     root_near
         .transaction(&sender_id)
         .create_account()
-        .transfer("20 NEAR")
+        .transfer(NearToken::near(20))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -285,7 +285,7 @@ async fn test_delegate_action_multiple_actions() {
     root_near
         .transaction(&relayer_id)
         .create_account()
-        .transfer("10 NEAR")
+        .transfer(NearToken::near(10))
         .add_full_access_key(relayer_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -311,7 +311,7 @@ async fn test_delegate_action_multiple_actions() {
     let delegate_result = sender_near
         .transaction(&new_account_id)
         .create_account()
-        .transfer("5 NEAR")
+        .transfer(NearToken::near(5))
         .add_full_access_key(new_account_key.public_key())
         .delegate(DelegateOptions::with_offset(200))
         .await
@@ -366,7 +366,7 @@ async fn test_delegate_action_roundtrip_encoding() {
     root_near
         .transaction(&sender_id)
         .create_account()
-        .transfer("5 NEAR")
+        .transfer(NearToken::near(5))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -380,7 +380,7 @@ async fn test_delegate_action_roundtrip_encoding() {
     root_near
         .transaction(&recipient_id)
         .create_account()
-        .transfer("1 NEAR")
+        .transfer(NearToken::near(1))
         .add_full_access_key(recipient_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -395,7 +395,7 @@ async fn test_delegate_action_roundtrip_encoding() {
 
     let delegate_result = sender_near
         .transaction(&recipient_id)
-        .transfer("1 NEAR")
+        .transfer(NearToken::near(1))
         .delegate(Default::default())
         .await
         .unwrap();
@@ -439,7 +439,7 @@ async fn test_delegate_action_validation_errors() {
     root_near
         .transaction(&sender_id)
         .create_account()
-        .transfer("5 NEAR")
+        .transfer(NearToken::near(5))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)

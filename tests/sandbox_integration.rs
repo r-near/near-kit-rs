@@ -35,7 +35,7 @@ async fn test_sandbox_balance() {
     root_near
         .transaction(&account_id)
         .create_account()
-        .transfer("1000 NEAR")
+        .transfer(NearToken::near(1000))
         .add_full_access_key(account_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -62,7 +62,7 @@ async fn test_sandbox_transfer() {
     root_near
         .transaction(&sender_id)
         .create_account()
-        .transfer("100 NEAR")
+        .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -83,7 +83,7 @@ async fn test_sandbox_transfer() {
     let outcome = sender_near
         .transaction(&receiver_id)
         .create_account()
-        .transfer("10 NEAR")
+        .transfer(NearToken::near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -118,7 +118,7 @@ async fn test_sandbox_multiple_transfers() {
     root_near
         .transaction(&sender_id)
         .create_account()
-        .transfer("100 NEAR")
+        .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -141,7 +141,7 @@ async fn test_sandbox_multiple_transfers() {
     sender_near
         .transaction(&receiver1_id)
         .create_account()
-        .transfer("5 NEAR")
+        .transfer(NearToken::near(5))
         .add_full_access_key(receiver1_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -152,7 +152,7 @@ async fn test_sandbox_multiple_transfers() {
     sender_near
         .transaction(&receiver2_id)
         .create_account()
-        .transfer("3 NEAR")
+        .transfer(NearToken::near(3))
         .add_full_access_key(receiver2_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -183,7 +183,7 @@ async fn test_sandbox_simple_transfer() {
     root_near
         .transaction(&sender_id)
         .create_account()
-        .transfer("100 NEAR")
+        .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -202,7 +202,7 @@ async fn test_sandbox_simple_transfer() {
     sender_near
         .transaction(&receiver_id)
         .create_account()
-        .transfer("5 NEAR")
+        .transfer(NearToken::near(5))
         .add_full_access_key(receiver_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -213,7 +213,7 @@ async fn test_sandbox_simple_transfer() {
 
     // Now do a simple transfer using the convenience method
     sender_near
-        .transfer(&receiver_id, "2 NEAR")
+        .transfer(&receiver_id, NearToken::near(2))
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
@@ -241,7 +241,7 @@ async fn test_sandbox_create_account_outcome() {
     root_near
         .transaction(&sender_id)
         .create_account()
-        .transfer("100 NEAR")
+        .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -261,7 +261,7 @@ async fn test_sandbox_create_account_outcome() {
     let outcome = sender_near
         .transaction(&contract_id)
         .create_account()
-        .transfer("50 NEAR")
+        .transfer(NearToken::near(50))
         .add_full_access_key(contract_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -287,7 +287,7 @@ async fn test_sandbox_delete_account() {
     root_near
         .transaction(&parent_id)
         .create_account()
-        .transfer("100 NEAR")
+        .transfer(NearToken::near(100))
         .add_full_access_key(parent_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -306,7 +306,7 @@ async fn test_sandbox_delete_account() {
     parent_near
         .transaction(&temp_id)
         .create_account()
-        .transfer("5 NEAR")
+        .transfer(NearToken::near(5))
         .add_full_access_key(temp_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -348,7 +348,7 @@ async fn test_sandbox_add_and_delete_key() {
     root_near
         .transaction(&account_id)
         .create_account()
-        .transfer("5 NEAR")
+        .transfer(NearToken::near(5))
         .add_full_access_key(account_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -403,7 +403,7 @@ async fn test_sandbox_multiple_actions_in_one_transaction() {
     root_near
         .transaction(&parent_id)
         .create_account()
-        .transfer("100 NEAR")
+        .transfer(NearToken::near(100))
         .add_full_access_key(parent_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -426,7 +426,7 @@ async fn test_sandbox_multiple_actions_in_one_transaction() {
     parent_near
         .transaction(&alice_id)
         .create_account()
-        .transfer("20 NEAR")
+        .transfer(NearToken::near(20))
         .add_full_access_key(alice_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -437,7 +437,7 @@ async fn test_sandbox_multiple_actions_in_one_transaction() {
     parent_near
         .transaction(&bob_id)
         .create_account()
-        .transfer("10 NEAR")
+        .transfer(NearToken::near(10))
         .add_full_access_key(bob_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)

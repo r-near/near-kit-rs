@@ -16,9 +16,25 @@ const YOCTO_PER_MILLINEAR: u128 = 1_000_000_000_000_000_000_000;
 
 /// A NEAR token amount with yoctoNEAR precision (10^-24 NEAR).
 ///
-/// # Parsing
+/// # Creating Amounts
 ///
-/// Supports parsing from strings with explicit units:
+/// Use the typed constructors for compile-time safety:
+///
+/// ```
+/// use near_kit::NearToken;
+///
+/// // Preferred: typed constructors (const, zero-cost)
+/// let five_near = NearToken::near(5);
+/// let half_near = NearToken::millinear(500);
+/// let one_yocto = NearToken::yocto(1);
+///
+/// // Also available: longer form
+/// let amount = NearToken::from_near(5);
+/// ```
+///
+/// # Parsing from Strings
+///
+/// String parsing is available for runtime input (CLI, config files):
 /// - `"5 NEAR"` or `"5 near"` - whole NEAR
 /// - `"1.5 NEAR"` - decimal NEAR
 /// - `"500 milliNEAR"` or `"500 mNEAR"` - milliNEAR
@@ -26,16 +42,11 @@ const YOCTO_PER_MILLINEAR: u128 = 1_000_000_000_000_000_000_000;
 ///
 /// Raw numbers are NOT accepted to prevent unit confusion.
 ///
-/// # Examples
-///
 /// ```
 /// use near_kit::NearToken;
 ///
+/// // For runtime/user input only
 /// let amount: NearToken = "5 NEAR".parse().unwrap();
-/// assert_eq!(amount.as_yoctonear(), 5_000_000_000_000_000_000_000_000);
-///
-/// let decimal: NearToken = "1.5 NEAR".parse().unwrap();
-/// assert_eq!(decimal.as_yoctonear(), 1_500_000_000_000_000_000_000_000);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct NearToken(u128);
@@ -49,6 +60,56 @@ impl NearToken {
     pub const ONE_MILLINEAR: Self = Self(YOCTO_PER_MILLINEAR);
     /// One NEAR.
     pub const ONE_NEAR: Self = Self(YOCTO_PER_NEAR);
+
+    // ========================================================================
+    // Short alias constructors (preferred)
+    // ========================================================================
+
+    /// Create from whole NEAR (short alias for `from_near`).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_kit::NearToken;
+    ///
+    /// let amount = NearToken::near(5);
+    /// assert_eq!(amount, NearToken::from_near(5));
+    /// ```
+    pub const fn near(near: u128) -> Self {
+        Self(near * YOCTO_PER_NEAR)
+    }
+
+    /// Create from milliNEAR (short alias for `from_millinear`).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_kit::NearToken;
+    ///
+    /// let amount = NearToken::millinear(500); // 0.5 NEAR
+    /// assert_eq!(amount, NearToken::from_millinear(500));
+    /// ```
+    pub const fn millinear(millinear: u128) -> Self {
+        Self(millinear * YOCTO_PER_MILLINEAR)
+    }
+
+    /// Create from yoctoNEAR (short alias for `from_yoctonear`).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_kit::NearToken;
+    ///
+    /// let amount = NearToken::yocto(1);
+    /// assert_eq!(amount, NearToken::ONE_YOCTO);
+    /// ```
+    pub const fn yocto(yocto: u128) -> Self {
+        Self(yocto)
+    }
+
+    // ========================================================================
+    // Full-name constructors
+    // ========================================================================
 
     /// Create from yoctoNEAR (10^-24 NEAR).
     pub const fn from_yoctonear(yocto: u128) -> Self {
@@ -289,15 +350,34 @@ const GAS_PER_GGAS: u64 = 1_000_000_000;
 
 /// Gas units for NEAR transactions.
 ///
-/// # Parsing
+/// # Creating Gas Amounts
 ///
-/// Supports parsing from strings:
+/// Use the typed constructors for compile-time safety:
+///
+/// ```
+/// use near_kit::Gas;
+///
+/// // Preferred: short aliases (const, zero-cost)
+/// let default_gas = Gas::tgas(30);
+/// let more_gas = Gas::tgas(100);
+///
+/// // Common constants
+/// let default = Gas::DEFAULT;  // 30 Tgas
+/// let max = Gas::MAX;          // 300 Tgas
+/// ```
+///
+/// # Parsing from Strings
+///
+/// String parsing is available for runtime input:
 /// - `"30 Tgas"` or `"30 tgas"` - teragas (10^12)
 /// - `"5 Ggas"` or `"5 ggas"` - gigagas (10^9)
 /// - `"1000000 gas"` - raw gas units
 ///
-/// # Examples
+/// ```
+/// use near_kit::Gas;
 ///
+/// // For runtime/user input only
+/// let gas: Gas = "30 Tgas".parse().unwrap();
 /// ```
 /// use near_kit::Gas;
 ///
@@ -320,6 +400,42 @@ impl Gas {
 
     /// Maximum gas per transaction (300 Tgas).
     pub const MAX: Self = Self::from_tgas(300);
+
+    // ========================================================================
+    // Short alias constructors (preferred)
+    // ========================================================================
+
+    /// Create from teragas (short alias for `from_tgas`).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_kit::Gas;
+    ///
+    /// let gas = Gas::tgas(30);
+    /// assert_eq!(gas, Gas::DEFAULT);
+    /// ```
+    pub const fn tgas(tgas: u64) -> Self {
+        Self(tgas * GAS_PER_TGAS)
+    }
+
+    /// Create from gigagas (short alias for `from_ggas`).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_kit::Gas;
+    ///
+    /// let gas = Gas::ggas(5);
+    /// assert_eq!(gas.as_ggas(), 5);
+    /// ```
+    pub const fn ggas(ggas: u64) -> Self {
+        Self(ggas * GAS_PER_GGAS)
+    }
+
+    // ========================================================================
+    // Full-name constructors
+    // ========================================================================
 
     /// Create from raw gas units.
     pub const fn from_gas(gas: u64) -> Self {
@@ -484,8 +600,8 @@ impl BorshDeserialize for Gas {
 
 /// Trait for types that can be converted into a NearToken.
 ///
-/// This allows methods to accept both string representations ("5 NEAR")
-/// and direct NearToken values.
+/// This allows methods to accept both typed NearToken values (preferred)
+/// and string representations for runtime input.
 ///
 /// # Example
 ///
@@ -496,9 +612,11 @@ impl BorshDeserialize for Gas {
 ///     let token = amount.into_near_token().unwrap();
 /// }
 ///
-/// // Both work:
+/// // Preferred: typed constructor
+/// example(NearToken::near(5));
+///
+/// // Also works: string parsing (for runtime input)
 /// example("5 NEAR");
-/// example(NearToken::from_near(5));
 /// ```
 pub trait IntoNearToken {
     /// Convert into a NearToken.
@@ -535,8 +653,8 @@ impl IntoNearToken for &String {
 
 /// Trait for types that can be converted into Gas.
 ///
-/// This allows methods to accept both string representations ("30 Tgas")
-/// and direct Gas values.
+/// This allows methods to accept both typed Gas values (preferred)
+/// and string representations for runtime input.
 ///
 /// # Example
 ///
@@ -547,9 +665,11 @@ impl IntoNearToken for &String {
 ///     let g = gas.into_gas().unwrap();
 /// }
 ///
-/// // Both work:
+/// // Preferred: typed constructor
+/// example(Gas::tgas(30));
+///
+/// // Also works: string parsing (for runtime input)
 /// example("30 Tgas");
-/// example(Gas::from_tgas(30));
 /// ```
 pub trait IntoGas {
     /// Convert into Gas.

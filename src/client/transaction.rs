@@ -17,7 +17,7 @@
 //! let wasm_code = std::fs::read("contract.wasm").expect("failed to read wasm");
 //! near.transaction("new.alice.testnet")
 //!     .create_account()
-//!     .transfer("5 NEAR")
+//!     .transfer(NearToken::near(5))
 //!     .add_full_access_key(new_public_key)
 //!     .deploy(wasm_code)
 //!     .call("init")
@@ -137,7 +137,7 @@ impl DelegateResult {
 ///
 /// // Single action
 /// near.transaction("bob.testnet")
-///     .transfer("1 NEAR")
+///     .transfer(NearToken::near(1))
 ///     .send()
 ///     .await?;
 ///
@@ -145,7 +145,7 @@ impl DelegateResult {
 /// let key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
 /// near.transaction("new.alice.testnet")
 ///     .create_account()
-///     .transfer("5 NEAR")
+///     .transfer(NearToken::near(5))
 ///     .add_full_access_key(key)
 ///     .send()
 ///     .await?;
@@ -200,7 +200,7 @@ impl TransactionBuilder {
     /// # use near_kit::prelude::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// near.transaction("bob.testnet")
-    ///     .transfer("1 NEAR")
+    ///     .transfer(NearToken::near(1))
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -232,8 +232,8 @@ impl TransactionBuilder {
     /// near.transaction("contract.testnet")
     ///     .call("set_greeting")
     ///         .args(serde_json::json!({ "greeting": "Hello" }))
-    ///         .gas("10 Tgas")
-    ///         .deposit("0 NEAR")
+    ///         .gas(Gas::tgas(10))
+    ///         .deposit(NearToken::ZERO)
     ///     .call("another_method")
     ///         .args(serde_json::json!({ "value": 42 }))
     ///     .send()
@@ -351,7 +351,7 @@ impl TransactionBuilder {
     ///     .transaction("contract.testnet")
     ///     .call("add_message")
     ///         .args(serde_json::json!({ "text": "Hello!" }))
-    ///         .gas("30 Tgas")
+    ///         .gas(Gas::tgas(30))
     ///     .delegate(Default::default())
     ///     .await?;
     ///
@@ -542,7 +542,7 @@ impl TransactionBuilder {
     /// # use near_kit::prelude::*;
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
     /// near.transaction("alice.testnet")
-    ///     .state_init_by_hash(code_hash, Default::default(), "1 NEAR")
+    ///     .state_init_by_hash(code_hash, Default::default(), NearToken::near(1))
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -568,7 +568,7 @@ impl TransactionBuilder {
     /// # use near_kit::prelude::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// near.transaction("alice.testnet")
-    ///     .state_init_by_publisher("contract-publisher.near", Default::default(), "1 NEAR")
+    ///     .state_init_by_publisher("contract-publisher.near", Default::default(), NearToken::near(1))
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -668,7 +668,21 @@ impl CallBuilder {
         self
     }
 
-    /// Set gas limit (accepts string like "30 Tgas" or Gas value).
+    /// Set gas limit.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// near.transaction("contract.testnet")
+    ///     .call("method")
+    ///         .gas(Gas::tgas(50))
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn gas(mut self, gas: impl IntoGas) -> Self {
         if let Ok(g) = gas.into_gas() {
             self.gas = g;
@@ -676,7 +690,21 @@ impl CallBuilder {
         self
     }
 
-    /// Set attached deposit (accepts string like "1 NEAR" or NearToken value).
+    /// Set attached deposit.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// near.transaction("contract.testnet")
+    ///     .call("method")
+    ///         .deposit(NearToken::near(1))
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
         if let Ok(a) = amount.into_near_token() {
             self.deposit = a;

@@ -1019,7 +1019,7 @@ let near = Near::mainnet().signer(signer).build();
 
 // Each concurrent transaction uses a different key, avoiding nonce collisions
 futures::future::join_all((0..20).map(|_| {
-    near.transfer("recipient.near", "0.1 NEAR")
+        near.transfer("recipient.near", NearToken::millinear(100))
 })).await;
 ```
 
@@ -1372,7 +1372,7 @@ use near_kit::prelude::*;
 
 near.transaction("new.alice.testnet")
     .create_account()
-    .transfer("5 NEAR")
+    .transfer(NearToken::near(5))
     .add_full_access_key(new_public_key)
     .send()
     .await?;
@@ -1383,7 +1383,7 @@ near.transaction("new.alice.testnet")
 
 near.transaction("contract.alice.testnet")
     .create_account()
-    .transfer("10 NEAR")
+    .transfer(NearToken::near(10))
     .add_full_access_key(key)
     .deploy(wasm_code)
     .call("init")
@@ -1397,10 +1397,10 @@ near.transaction("contract.alice.testnet")
 
 near.transaction("defi.testnet")
     .call("deposit")
-        .deposit("10 NEAR")
+        .deposit(NearToken::near(10))
     .call("stake")
         .args(json!({ "amount": "10000000000000000000000000" }))
-        .gas("100 Tgas")
+        .gas(Gas::tgas(100))
     .send()
     .await?;
 
@@ -1506,10 +1506,10 @@ async fn main() -> Result<(), near_kit::Error> {
     counter.add(AddArgs { value: 5 }).await?;
     
     // Payable calls - chain .deposit() before await
-    counter.donate().deposit("1 NEAR").await?;
+    counter.donate().deposit(NearToken::near(1)).await?;
     
     // Override gas for any call
-    counter.add(AddArgs { value: 10 }).gas("50 Tgas").await?;
+    counter.add(AddArgs { value: 10 }).gas(Gas::tgas(50)).await?;
     
     Ok(())
 }
@@ -1685,13 +1685,13 @@ contract.do_something(Args { ... })
 
 // With deposit (only valid for payable methods)
 contract.buy_item(BuyArgs { ... })
-    .deposit("5 NEAR")
+    .deposit(NearToken::near(5))
     .await?;
 
 // Both gas and deposit
 contract.buy_item(BuyArgs { ... })
-    .gas("50 Tgas")
-    .deposit("1 NEAR")
+    .gas(Gas::tgas(50))
+    .deposit(NearToken::near(1))
     .await?;
 
 // Override signer for this call
@@ -2154,7 +2154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ══════════════════════════════════════════════════════════════════
     
     // Simple transfer
-    near.transfer("bob.testnet", "1 NEAR").await?;
+    near.transfer("bob.testnet", NearToken::near(1)).await?;
     
     // Contract call
     near.call("counter.testnet", "increment").await?;
@@ -2162,12 +2162,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Contract call with args, gas, deposit
     near.call("nft.testnet", "nft_mint")
         .args(json!({ "token_id": "1", "receiver_id": "alice.testnet" }))
-        .gas("100 Tgas")
+        .gas(Gas::tgas(100))
         .deposit("0.1 NEAR")
         .await?;
     
     // Wait for finality
-    near.transfer("bob.testnet", "1000 NEAR")
+    near.transfer("bob.testnet", NearToken::near(1000))
         .wait_until(TxExecutionStatus::Final)
         .await?;
     
@@ -2178,7 +2178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create account, fund it, deploy contract
     near.transaction("new.alice.testnet")
         .create_account()
-        .transfer("5 NEAR")
+        .transfer(NearToken::near(5))
         .add_full_access_key(new_public_key)
         .deploy(wasm_code)
         .call("init")
@@ -2434,7 +2434,7 @@ async fn test_create_account_and_transfer() {
     let alice_key = SecretKey::generate_ed25519();
     near.transaction("alice.sandbox")
         .create_account()
-        .transfer("100 NEAR")
+        .transfer(NearToken::near(100))
         .add_full_access_key(alice_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -2451,7 +2451,7 @@ async fn test_create_account_and_transfer() {
         .unwrap()
         .build();
     
-    alice_near.transfer("bob.sandbox", "10 NEAR").await.unwrap();
+    alice_near.transfer("bob.sandbox", NearToken::near(10)).await.unwrap();
 }
 ```
 

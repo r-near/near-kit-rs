@@ -5,7 +5,7 @@ use std::sync::Arc;
 use serde::de::DeserializeOwned;
 
 use crate::error::Error;
-use crate::types::{AccountId, Gas, NearToken, PublicKey, SecretKey};
+use crate::types::{AccountId, Gas, IntoNearToken, NearToken, PublicKey, SecretKey};
 
 use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
 use super::rpc::{RetryConfig, RpcClient, MAINNET, TESTNET};
@@ -297,22 +297,22 @@ impl Near {
     ///         .credentials("ed25519:...", "alice.testnet")?
     ///     .build();
     ///
-    /// // Simple transfer
-    /// near.transfer("bob.testnet", "1 NEAR").await?;
+    /// // Preferred: typed constructor
+    /// near.transfer("bob.testnet", NearToken::near(1)).await?;
     ///
     /// // Transfer with wait for finality
-    /// near.transfer("bob.testnet", "1000 NEAR")
+    /// near.transfer("bob.testnet", NearToken::near(1000))
     ///     .wait_until(TxExecutionStatus::Final)
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn transfer(&self, receiver: impl AsRef<str>, amount: impl AsRef<str>) -> TransferCall {
+    pub fn transfer(&self, receiver: impl AsRef<str>, amount: impl IntoNearToken) -> TransferCall {
         let receiver_id = receiver
             .as_ref()
             .parse()
             .unwrap_or_else(|_| AccountId::new_unchecked(receiver.as_ref()));
-        let amount: NearToken = amount.as_ref().parse().unwrap_or(NearToken::ZERO);
+        let amount = amount.into_near_token().unwrap_or(NearToken::ZERO);
         TransferCall::new(self.rpc.clone(), self.signer.clone(), receiver_id, amount)
     }
 

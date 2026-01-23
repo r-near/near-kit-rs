@@ -33,7 +33,7 @@ fn load_test_contract() -> Vec<u8> {
 async fn create_funded_account(
     root_near: &Near,
     rpc_url: &str,
-    funding: &str,
+    funding: NearToken,
 ) -> (Near, AccountId, SecretKey) {
     let account_key = SecretKey::generate_ed25519();
     let account_id = unique_account();
@@ -69,7 +69,7 @@ async fn test_publish_contract_by_account() {
 
     // Create a publisher account
     let (publisher_near, publisher_id, _) =
-        create_funded_account(&root_near, rpc_url, "50 NEAR").await;
+        create_funded_account(&root_near, rpc_url, NearToken::near(50)).await;
 
     let wasm_code = load_test_contract();
 
@@ -98,7 +98,7 @@ async fn test_publish_contract_by_hash() {
 
     // Create a publisher account
     let (publisher_near, publisher_id, _) =
-        create_funded_account(&root_near, rpc_url, "50 NEAR").await;
+        create_funded_account(&root_near, rpc_url, NearToken::near(50)).await;
 
     let wasm_code = load_test_contract();
 
@@ -127,7 +127,7 @@ async fn test_deploy_from_publisher() {
 
     // Create a publisher account
     let (publisher_near, publisher_id, _) =
-        create_funded_account(&root_near, rpc_url, "50 NEAR").await;
+        create_funded_account(&root_near, rpc_url, NearToken::near(50)).await;
 
     let wasm_code = load_test_contract();
 
@@ -141,7 +141,8 @@ async fn test_deploy_from_publisher() {
         .unwrap();
 
     // Create a user account that will deploy from the publisher
-    let (user_near, user_id, _) = create_funded_account(&root_near, rpc_url, "10 NEAR").await;
+    let (user_near, user_id, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::near(10)).await;
 
     // Deploy from the publisher's global contract
     let outcome = user_near
@@ -172,7 +173,7 @@ async fn test_deploy_from_hash() {
 
     // Create a publisher account
     let (publisher_near, publisher_id, _) =
-        create_funded_account(&root_near, rpc_url, "50 NEAR").await;
+        create_funded_account(&root_near, rpc_url, NearToken::near(50)).await;
 
     let wasm_code = load_test_contract();
 
@@ -190,7 +191,8 @@ async fn test_deploy_from_hash() {
         .unwrap();
 
     // Create a user account that will deploy from the hash
-    let (user_near, user_id, _) = create_funded_account(&root_near, rpc_url, "10 NEAR").await;
+    let (user_near, user_id, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::near(10)).await;
 
     // Deploy from the code hash
     let outcome = user_near
@@ -221,7 +223,7 @@ async fn test_state_init_by_hash() {
 
     // Create a publisher account
     let (publisher_near, publisher_id, _) =
-        create_funded_account(&root_near, rpc_url, "50 NEAR").await;
+        create_funded_account(&root_near, rpc_url, NearToken::near(50)).await;
 
     let wasm_code = load_test_contract();
     let code_hash = CryptoHash::hash(&wasm_code);
@@ -242,7 +244,7 @@ async fn test_state_init_by_hash() {
     // Note: The receiver_id doesn't matter for state_init - the account ID is derived
     let outcome = publisher_near
         .transaction(&publisher_id)
-        .state_init_by_hash(code_hash, initial_data, "5 NEAR")
+        .state_init_by_hash(code_hash, initial_data, NearToken::near(5))
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -264,7 +266,7 @@ async fn test_state_init_by_publisher() {
 
     // Create a publisher account
     let (publisher_near, publisher_id, _) =
-        create_funded_account(&root_near, rpc_url, "50 NEAR").await;
+        create_funded_account(&root_near, rpc_url, NearToken::near(50)).await;
 
     let wasm_code = load_test_contract();
 
@@ -284,7 +286,7 @@ async fn test_state_init_by_publisher() {
     // Use state_init to create a deterministic account
     let outcome = publisher_near
         .transaction(&publisher_id)
-        .state_init_by_publisher(&publisher_id, initial_data, "5 NEAR")
+        .state_init_by_publisher(&publisher_id, initial_data, NearToken::near(5))
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -308,7 +310,8 @@ async fn test_action_create_account() {
     let root_near = sandbox.client();
     let rpc_url = sandbox.rpc_url();
 
-    let (parent_near, parent_id, _) = create_funded_account(&root_near, rpc_url, "20 NEAR").await;
+    let (parent_near, parent_id, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::near(20)).await;
 
     let child_key = SecretKey::generate_ed25519();
     let child_id: AccountId = format!("child.{}", parent_id).parse().unwrap();
@@ -316,7 +319,7 @@ async fn test_action_create_account() {
     let outcome = parent_near
         .transaction(&child_id)
         .create_account()
-        .transfer("5 NEAR")
+        .transfer(NearToken::near(5))
         .add_full_access_key(child_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -334,14 +337,14 @@ async fn test_action_transfer() {
     let root_near = sandbox.client();
     let rpc_url = sandbox.rpc_url();
 
-    let (sender_near, _, _) = create_funded_account(&root_near, rpc_url, "20 NEAR").await;
-    let (_, receiver_id, _) = create_funded_account(&root_near, rpc_url, "5 NEAR").await;
+    let (sender_near, _, _) = create_funded_account(&root_near, rpc_url, NearToken::near(20)).await;
+    let (_, receiver_id, _) = create_funded_account(&root_near, rpc_url, NearToken::near(5)).await;
 
     let initial_balance = root_near.balance(&receiver_id).await.unwrap();
 
     sender_near
         .transaction(&receiver_id)
-        .transfer("3 NEAR")
+        .transfer(NearToken::near(3))
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -361,7 +364,7 @@ async fn test_action_deploy_contract() {
     let rpc_url = sandbox.rpc_url();
 
     let (contract_near, contract_id, _) =
-        create_funded_account(&root_near, rpc_url, "20 NEAR").await;
+        create_funded_account(&root_near, rpc_url, NearToken::near(20)).await;
 
     let wasm_code = load_test_contract();
 
@@ -388,7 +391,7 @@ async fn test_action_function_call() {
     let rpc_url = sandbox.rpc_url();
 
     let (contract_near, contract_id, _) =
-        create_funded_account(&root_near, rpc_url, "20 NEAR").await;
+        create_funded_account(&root_near, rpc_url, NearToken::near(20)).await;
 
     let wasm_code = load_test_contract();
 
@@ -406,8 +409,8 @@ async fn test_action_function_call() {
         .transaction(&contract_id)
         .call("add_message")
         .args(serde_json::json!({ "text": "Hello from test!" }))
-        .gas("30 Tgas")
-        .deposit("0 NEAR")
+        .gas(Gas::tgas(30))
+        .deposit(NearToken::ZERO)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -423,7 +426,8 @@ async fn test_action_add_full_access_key() {
     let root_near = sandbox.client();
     let rpc_url = sandbox.rpc_url();
 
-    let (account_near, account_id, _) = create_funded_account(&root_near, rpc_url, "10 NEAR").await;
+    let (account_near, account_id, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::near(10)).await;
 
     let new_key = SecretKey::generate_ed25519();
 
@@ -449,7 +453,8 @@ async fn test_action_add_function_call_key() {
     let root_near = sandbox.client();
     let rpc_url = sandbox.rpc_url();
 
-    let (account_near, account_id, _) = create_funded_account(&root_near, rpc_url, "10 NEAR").await;
+    let (account_near, account_id, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::near(10)).await;
 
     let fc_key = SecretKey::generate_ed25519();
     let receiver_contract: AccountId = "some-contract.sandbox".parse().unwrap();
@@ -481,7 +486,8 @@ async fn test_action_delete_key() {
     let root_near = sandbox.client();
     let rpc_url = sandbox.rpc_url();
 
-    let (account_near, account_id, _) = create_funded_account(&root_near, rpc_url, "10 NEAR").await;
+    let (account_near, account_id, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::near(10)).await;
 
     // Add a second key
     let second_key = SecretKey::generate_ed25519();
@@ -520,7 +526,7 @@ async fn test_action_delete_account() {
     let rpc_url = sandbox.rpc_url();
 
     let (beneficiary_near, beneficiary_id, _) =
-        create_funded_account(&root_near, rpc_url, "10 NEAR").await;
+        create_funded_account(&root_near, rpc_url, NearToken::near(10)).await;
 
     // Create an account to delete
     let to_delete_key = SecretKey::generate_ed25519();
@@ -529,7 +535,7 @@ async fn test_action_delete_account() {
     beneficiary_near
         .transaction(&to_delete_id)
         .create_account()
-        .transfer("2 NEAR")
+        .transfer(NearToken::near(2))
         .add_full_access_key(to_delete_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -563,12 +569,12 @@ async fn test_action_stake() {
     let rpc_url = sandbox.rpc_url();
 
     let (staker_near, staker_id, staker_key) =
-        create_funded_account(&root_near, rpc_url, "100 NEAR").await;
+        create_funded_account(&root_near, rpc_url, NearToken::near(100)).await;
 
     // Stake action
     let outcome = staker_near
         .transaction(&staker_id)
-        .stake("50 NEAR", staker_key.public_key())
+        .stake(NearToken::near(50), staker_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -589,7 +595,8 @@ async fn test_multiple_actions() {
     let root_near = sandbox.client();
     let rpc_url = sandbox.rpc_url();
 
-    let (parent_near, parent_id, _) = create_funded_account(&root_near, rpc_url, "50 NEAR").await;
+    let (parent_near, parent_id, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::near(50)).await;
 
     let child_key = SecretKey::generate_ed25519();
     let child_id: AccountId = format!("multi.{}", parent_id).parse().unwrap();
@@ -600,7 +607,7 @@ async fn test_multiple_actions() {
     let outcome = parent_near
         .transaction(&child_id)
         .create_account()
-        .transfer("20 NEAR")
+        .transfer(NearToken::near(20))
         .add_full_access_key(child_key.public_key())
         .deploy(wasm_code)
         .send()
@@ -629,7 +636,7 @@ async fn test_multiple_function_calls() {
     let rpc_url = sandbox.rpc_url();
 
     let (contract_near, contract_id, _) =
-        create_funded_account(&root_near, rpc_url, "20 NEAR").await;
+        create_funded_account(&root_near, rpc_url, NearToken::near(20)).await;
 
     let wasm_code = load_test_contract();
 
@@ -647,10 +654,10 @@ async fn test_multiple_function_calls() {
         .transaction(&contract_id)
         .call("add_message")
         .args(serde_json::json!({ "text": "First message" }))
-        .gas("15 Tgas")
+        .gas(Gas::tgas(15))
         .call("add_message")
         .args(serde_json::json!({ "text": "Second message" }))
-        .gas("15 Tgas")
+        .gas(Gas::tgas(15))
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
