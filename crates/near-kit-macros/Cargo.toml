@@ -1,17 +1,20 @@
 [package]
 name = "near-kit-macros"
-version = "0.1.0"
-edition = "2021"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/r-near/near-kit-rs"
 description = "Proc macros for near-kit typed contract interfaces"
 keywords = ["near", "blockchain", "macro", "proc-macro"]
 categories = ["development-tools::procedural-macro-helpers"]
+
+# Inherit from workspace
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 [lib]
 proc-macro = true
 
 [dependencies]
-syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
-quote = "1"
-proc-macro2 = "1"
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true

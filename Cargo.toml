@@ -1,15 +1,20 @@
-[package]
-name = "near-kit"
+[workspace]
+resolver = "2"
+members = [
+    "crates/near-kit",
+    "crates/near-kit-macros",
+]
+
+# Shared workspace metadata
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/r-near/near-kit-rs"
 rust-version = "1.86"
-description = "A clean, ergonomic Rust client for NEAR Protocol"
-keywords = ["near", "blockchain", "crypto", "web3"]
-categories = ["api-bindings", "cryptography::cryptocurrencies"]
 
-[dependencies]
+# Shared dependencies - crates can use `workspace = true` to inherit these
+[workspace.dependencies]
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 
@@ -40,21 +45,22 @@ thiserror = "2"
 # Logging
 tracing = "0.1"
 
-# Proc macros for typed contracts
-near-kit-macros = { path = "./near-kit-macros" }
+# Proc macro dependencies
+syn = { version = "2", features = ["full", "parsing", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"
 
 # Optional: Sandbox integration
-near-sandbox = { version = "0.3.5", features = ["global_install"], optional = true }
-
-[features]
-default = []
-sandbox = ["near-sandbox"]
-
-[dev-dependencies]
-tokio-test = "0.4"
 near-sandbox = { version = "0.3.5", features = ["global_install"] }
+
+# Dev dependencies
+tokio-test = "0.4"
 tempfile = "3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Internal crates
+near-kit = { path = "crates/near-kit" }
+near-kit-macros = { path = "crates/near-kit-macros" }
 
 [profile.release]
 lto = true

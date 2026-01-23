@@ -1,0 +1,59 @@
+[package]
+name = "near-kit"
+description = "A clean, ergonomic Rust client for NEAR Protocol"
+keywords = ["near", "blockchain", "crypto", "web3"]
+categories = ["api-bindings", "cryptography::cryptocurrencies"]
+
+# Inherit from workspace
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Async runtime
+tokio.workspace = true
+
+# HTTP client
+reqwest.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+borsh.workspace = true
+base64.workspace = true
+
+# Cryptography
+ed25519-dalek.workspace = true
+sha2.workspace = true
+rand.workspace = true
+
+# Encoding
+bs58.workspace = true
+hex.workspace = true
+
+# Filesystem
+dirs.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Proc macros for typed contracts
+near-kit-macros.workspace = true
+
+# Optional: Sandbox integration
+near-sandbox = { workspace = true, optional = true }
+
+[features]
+default = []
+sandbox = ["near-sandbox"]
+
+[dev-dependencies]
+tokio-test.workspace = true
+near-sandbox.workspace = true
+tempfile.workspace = true
+tracing-subscriber.workspace = true
