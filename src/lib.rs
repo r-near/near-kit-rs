@@ -48,8 +48,30 @@
 //! let gas: Gas = "30 Tgas".parse().unwrap();
 //! let account: AccountId = "alice.testnet".parse().unwrap();
 //! ```
+//!
+//! # Typed Contract Interfaces
+//!
+//! Use the `#[near_kit::contract]` macro to create type-safe contract clients:
+//!
+//! ```ignore
+//! use near_kit::prelude::*;
+//! use serde::Serialize;
+//!
+//! #[near_kit::contract]
+//! pub trait Counter {
+//!     fn get_count(&self) -> u64;
+//!     
+//!     #[call]
+//!     fn increment(&mut self);
+//! }
+//!
+//! let counter = near.contract::<Counter>("counter.testnet");
+//! let count = counter.get_count().await?;
+//! counter.increment().await?;
+//! ```
 
 pub mod client;
+pub mod contract;
 pub mod error;
 pub mod types;
 
@@ -61,6 +83,9 @@ pub mod sandbox;
 pub use error::{Error, RpcError};
 pub use types::*;
 
+// Re-export contract types
+pub use contract::{Contract, ContractClient};
+
 // Re-export client types
 pub use client::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, AddKeyCall, BalanceQuery, CallBuilder,
@@ -68,6 +93,10 @@ pub use client::{
     FileSigner, InMemorySigner, Near, NearBuilder, RetryConfig, RotatingSigner, RpcClient,
     SandboxNetwork, Signer, TransactionBuilder, TransactionSend, TransferCall, ViewCall,
 };
+
+// Re-export proc macros
+pub use near_kit_macros::call;
+pub use near_kit_macros::contract;
 
 /// Prelude module for convenient imports.
 ///
@@ -79,6 +108,7 @@ pub mod prelude {
         DelegateOptions, DelegateResult, EnvSigner, FileSigner, InMemorySigner, Near, NearBuilder,
         RotatingSigner, SandboxNetwork, Signer,
     };
+    pub use crate::contract::Contract;
     pub use crate::types::{
         AccessKeyPermissionView, AccountId, ActionView, BlockReference, CryptoHash,
         DelegateDecodeError, FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts,
@@ -86,4 +116,8 @@ pub mod prelude {
         ReceiptContent, SecretKey, SignedDelegateAction, TxExecutionStatus,
     };
     pub use crate::Error;
+
+    // Re-export proc macros in prelude
+    pub use near_kit_macros::call;
+    pub use near_kit_macros::contract;
 }

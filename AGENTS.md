@@ -146,18 +146,18 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 - [ ] `ft().balance_of()`, `ft().transfer()`
 - [ ] `nft().tokens_for_owner()`, `nft().transfer()`
 
-### Phase 8: Typed Contract Interfaces (TODO)
+### Phase 8: Typed Contract Interfaces ✅
 
-- [ ] Create `near-kit-macros` proc macro crate
-- [ ] Implement `#[near_kit::contract]` attribute macro
-- [ ] Parse trait definitions (methods, receivers, attributes)
-- [ ] Generate client struct with typed methods
-- [ ] Support `#[call]` and `#[call(payable)]` attributes
-- [ ] Support `#[near_kit::contract(borsh)]` for Borsh serialization
-- [ ] Add `Contract` marker trait and `near.contract::<T>()` method
+- [x] Create `near-kit-macros` proc macro crate
+- [x] Implement `#[near_kit::contract]` attribute macro
+- [x] Parse trait definitions (methods, receivers, attributes)
+- [x] Generate client struct with typed methods
+- [x] Support `#[call]` and `#[call(payable)]` attributes
+- [x] Support `#[near_kit::contract(borsh)]` for Borsh serialization
+- [x] Add `Contract` marker trait and `near.contract::<T>()` method
 - [ ] Add `ViewCallBorsh<T>` for Borsh view deserialization
 - [ ] Unit tests for macro expansion
-- [ ] Integration tests with real contracts
+- [x] Integration tests with real contracts
 
 ### Phase 9: Advanced Features (IN PROGRESS)
 

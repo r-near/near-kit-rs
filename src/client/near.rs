@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
 
+use crate::contract::ContractClient;
 use crate::error::Error;
 use crate::types::{AccountId, Gas, IntoNearToken, NearToken, PublicKey, SecretKey};
 
@@ -501,6 +502,61 @@ impl Near {
             .gas(gas)
             .deposit(deposit)
             .await
+    }
+
+    // ========================================================================
+    // Typed Contract Interfaces
+    // ========================================================================
+
+    /// Create a typed contract client.
+    ///
+    /// This method creates a type-safe client for interacting with a contract,
+    /// using the interface defined via the `#[near_kit::contract]` macro.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use near_kit::prelude::*;
+    /// use serde::Serialize;
+    ///
+    /// #[near_kit::contract]
+    /// pub trait Counter {
+    ///     fn get_count(&self) -> u64;
+    ///     
+    ///     #[call]
+    ///     fn increment(&mut self);
+    ///     
+    ///     #[call]
+    ///     fn add(&mut self, args: AddArgs);
+    /// }
+    ///
+    /// #[derive(Serialize)]
+    /// pub struct AddArgs {
+    ///     pub value: u64,
+    /// }
+    ///
+    /// async fn example(near: &Near) -> Result<(), near_kit::Error> {
+    ///     let counter = near.contract::<Counter>("counter.testnet");
+    ///     
+    ///     // View call - type-safe!
+    ///     let count = counter.get_count().await?;
+    ///     
+    ///     // Change call - type-safe!
+    ///     counter.increment().await?;
+    ///     counter.add(AddArgs { value: 5 }).await?;
+    ///     
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn contract<T: crate::Contract + ?Sized>(
+        &self,
+        contract_id: impl AsRef<str>,
+    ) -> T::Client<'_> {
+        let contract_id: AccountId = contract_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(contract_id.as_ref()));
+        T::Client::new(self, contract_id)
     }
 }
 

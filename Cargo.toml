@@ -40,6 +40,9 @@ thiserror = "2"
 # Logging
 tracing = "0.1"
 
+# Proc macros for typed contracts
+near-kit-macros = { path = "./near-kit-macros" }
+
 # Optional: Sandbox integration
 near-sandbox = { version = "0.3.5", features = ["global_install"], optional = true }
 
