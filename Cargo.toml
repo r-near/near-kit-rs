@@ -41,7 +41,7 @@ thiserror = "2"
 tracing = "0.1"
 
 # Optional: Sandbox integration
-near-sandbox = { version = "0.3", features = ["global_install"], optional = true }
+near-sandbox = { path = "../near-sandbox-rs", features = ["global_install"], optional = true }
 
 [features]
 default = []
@@ -49,9 +49,8 @@ sandbox = ["near-sandbox"]
 
 [dev-dependencies]
 tokio-test = "0.4"
-near-sandbox = { version = "0.3", features = ["global_install"] }
+near-sandbox = { path = "../near-sandbox-rs", features = ["global_install"] }
 tempfile = "3"
-rstest = "0.25"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]

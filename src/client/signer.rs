@@ -553,6 +553,7 @@ impl Signer for RotatingSigner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{Action, CryptoHash, NearToken, Transaction};
 
     #[tokio::test]
     async fn test_in_memory_signer() {
@@ -570,6 +571,77 @@ mod tests {
         // Verify the signature matches the public key
         assert_eq!(&public_key, signer.public_key());
         assert!(!signature.as_bytes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_signature_consistency() {
+        // Same message should produce the same signature (Ed25519 is deterministic)
+        let signer = InMemorySigner::new(
+            "alice.testnet",
+            "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
+        )
+        .unwrap();
+
+        let message = b"test message";
+        let (sig1, pk1) = signer.sign(message).await.unwrap();
+        let (sig2, pk2) = signer.sign(message).await.unwrap();
+
+        assert_eq!(sig1.as_bytes(), sig2.as_bytes());
+        assert_eq!(pk1, pk2);
+    }
+
+    #[tokio::test]
+    async fn test_different_messages_different_signatures() {
+        let signer = InMemorySigner::new(
+            "alice.testnet",
+            "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
+        )
+        .unwrap();
+
+        let (sig1, _) = signer.sign(b"message 1").await.unwrap();
+        let (sig2, _) = signer.sign(b"message 2").await.unwrap();
+
+        assert_ne!(sig1.as_bytes(), sig2.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn test_transaction_signing_with_signer_trait() {
+        let secret_key = SecretKey::generate_ed25519();
+        let signer = InMemorySigner::from_secret_key("alice.testnet".parse().unwrap(), secret_key);
+
+        // Build a transaction
+        let tx = Transaction::new(
+            signer.account_id().clone(),
+            signer.public_key().clone(),
+            1,
+            "bob.testnet".parse().unwrap(),
+            CryptoHash::ZERO,
+            vec![Action::transfer(NearToken::from_near(1))],
+        );
+
+        // Sign using the Signer trait (async)
+        let tx_hash = tx.get_hash();
+        let (signature, returned_pk) = signer.sign(tx_hash.as_bytes()).await.unwrap();
+
+        // Verify the returned public key matches
+        assert_eq!(&returned_pk, signer.public_key());
+
+        // Verify signature is 64 bytes (Ed25519)
+        assert_eq!(signature.as_bytes().len(), 64);
+
+        // Create signed transaction
+        let signed_tx = crate::types::SignedTransaction {
+            transaction: tx,
+            signature,
+        };
+
+        // Verify serialization works
+        let bytes = signed_tx.to_bytes();
+        assert!(!bytes.is_empty());
+
+        // Verify base64 encoding works
+        let base64 = signed_tx.to_base64();
+        assert!(!base64.is_empty());
     }
 
     #[tokio::test]
@@ -600,6 +672,59 @@ mod tests {
         assert_eq!(pk4, expected_public_keys[0]);
     }
 
+    #[tokio::test]
+    async fn test_rotating_signer_public_key_sign_consistency() {
+        // Verify that public_key() returns the key that sign() will use
+        let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
+        let expected_public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
+
+        let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+        let message = b"test";
+
+        // First iteration: public_key should match what sign returns
+        let pk_before_sign = signer.public_key().clone();
+        let (_, pk_from_sign) = signer.sign(message).await.unwrap();
+        assert_eq!(pk_before_sign, pk_from_sign);
+        assert_eq!(pk_from_sign, expected_public_keys[0]);
+
+        // Second iteration
+        let pk_before_sign = signer.public_key().clone();
+        let (_, pk_from_sign) = signer.sign(message).await.unwrap();
+        assert_eq!(pk_before_sign, pk_from_sign);
+        assert_eq!(pk_from_sign, expected_public_keys[1]);
+
+        // Third iteration (wraps to first key)
+        let pk_before_sign = signer.public_key().clone();
+        let (_, pk_from_sign) = signer.sign(message).await.unwrap();
+        assert_eq!(pk_before_sign, pk_from_sign);
+        assert_eq!(pk_from_sign, expected_public_keys[0]);
+    }
+
+    #[tokio::test]
+    async fn test_rotating_signer_each_key_signs_correctly() {
+        // Verify each key in rotation produces valid signatures
+        let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
+
+        let signer = RotatingSigner::new("bot.testnet", keys.clone()).unwrap();
+        let message = b"test message";
+
+        // Sign with first key
+        let (sig1, pk1) = signer.sign(message).await.unwrap();
+        // Verify it matches what the raw key would produce
+        let expected_sig1 = keys[0].sign(message);
+        assert_eq!(sig1.as_bytes(), expected_sig1.as_bytes());
+        assert_eq!(pk1, keys[0].public_key());
+
+        // Sign with second key
+        let (sig2, pk2) = signer.sign(message).await.unwrap();
+        let expected_sig2 = keys[1].sign(message);
+        assert_eq!(sig2.as_bytes(), expected_sig2.as_bytes());
+        assert_eq!(pk2, keys[1].public_key());
+
+        // Different keys produce different signatures
+        assert_ne!(sig1.as_bytes(), sig2.as_bytes());
+    }
+
     #[test]
     fn test_rotating_signer_empty_keys() {
         let result = RotatingSigner::new("bot.testnet", vec![]);
@@ -611,5 +736,60 @@ mod tests {
         // This should fail because the env vars aren't set
         let result = EnvSigner::from_env_vars("NONEXISTENT_VAR_1", "NONEXISTENT_VAR_2");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_signer_from_secret_key() {
+        let secret = SecretKey::generate_ed25519();
+        let expected_pk = secret.public_key();
+
+        let signer = InMemorySigner::from_secret_key("alice.testnet".parse().unwrap(), secret);
+
+        assert_eq!(signer.account_id().as_str(), "alice.testnet");
+        assert_eq!(signer.public_key(), &expected_pk);
+    }
+
+    #[test]
+    fn test_rotating_signer_key_count() {
+        let keys = vec![
+            SecretKey::generate_ed25519(),
+            SecretKey::generate_ed25519(),
+            SecretKey::generate_ed25519(),
+        ];
+
+        let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+
+        assert_eq!(signer.key_count(), 3);
+        assert_eq!(signer.public_keys().len(), 3);
+    }
+
+    #[test]
+    fn test_rotating_signer_from_key_strings() {
+        let keys = [
+            "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
+            "ed25519:4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi5kL6YJt9Z6iLqMBkVfqDH2Zj8bxqXTdMkNmvPcAD8LqCZ",
+        ];
+
+        let signer = RotatingSigner::from_key_strings("bot.testnet", &keys).unwrap();
+
+        assert_eq!(signer.key_count(), 2);
+        assert_eq!(signer.account_id().as_str(), "bot.testnet");
+    }
+
+    #[test]
+    fn test_in_memory_signer_debug_hides_secret() {
+        let signer = InMemorySigner::new(
+            "alice.testnet",
+            "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
+        )
+        .unwrap();
+
+        let debug_str = format!("{:?}", signer);
+
+        // Should show account_id and public_key but NOT the secret key
+        assert!(debug_str.contains("alice.testnet"));
+        assert!(debug_str.contains("public_key"));
+        assert!(!debug_str.contains("secret_key"));
+        assert!(!debug_str.contains("3D4YudUahN1nawWogh"));
     }
 }

@@ -3,7 +3,7 @@
 //! These tests verify that all RPC response types correctly deserialize
 //! from real NEAR RPC responses.
 //!
-//! Run with: `cargo nextest run --test rpc_types_integration --features sandbox`
+//! Run with: `cargo test --test rpc_types_integration --features sandbox`
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 

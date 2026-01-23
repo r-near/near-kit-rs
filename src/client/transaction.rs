@@ -34,8 +34,9 @@ use std::sync::{Arc, OnceLock};
 
 use crate::error::{Error, RpcError};
 use crate::types::{
-    AccountId, Action, BlockReference, FinalExecutionOutcome, Finality, Gas, IntoGas,
-    IntoNearToken, NearToken, PublicKey, Transaction, TxExecutionStatus,
+    AccountId, Action, BlockReference, DelegateAction, FinalExecutionOutcome, Finality, Gas,
+    IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey, SignedDelegateAction,
+    Transaction, TxExecutionStatus,
 };
 
 use super::nonce_manager::NonceManager;
@@ -47,6 +48,72 @@ use super::signer::Signer;
 fn nonce_manager() -> &'static NonceManager {
     static NONCE_MANAGER: OnceLock<NonceManager> = OnceLock::new();
     NONCE_MANAGER.get_or_init(NonceManager::new)
+}
+
+// ============================================================================
+// Delegate Action Types
+// ============================================================================
+
+/// Options for creating a delegate action (meta-transaction).
+#[derive(Clone, Debug, Default)]
+pub struct DelegateOptions {
+    /// Explicit block height at which the delegate action expires.
+    /// If omitted, uses the current block height plus `block_height_offset`.
+    pub max_block_height: Option<u64>,
+
+    /// Number of blocks after the current height when the delegate action should expire.
+    /// Defaults to 200 blocks if neither this nor `max_block_height` is provided.
+    pub block_height_offset: Option<u64>,
+
+    /// Override nonce to use for the delegate action. If omitted, fetches
+    /// from the access key and uses nonce + 1.
+    pub nonce: Option<u64>,
+}
+
+impl DelegateOptions {
+    /// Create options with a specific block height offset.
+    pub fn with_offset(offset: u64) -> Self {
+        Self {
+            block_height_offset: Some(offset),
+            ..Default::default()
+        }
+    }
+
+    /// Create options with a specific max block height.
+    pub fn with_max_height(height: u64) -> Self {
+        Self {
+            max_block_height: Some(height),
+            ..Default::default()
+        }
+    }
+}
+
+/// Result of creating a delegate action.
+///
+/// Contains the signed delegate action plus a pre-encoded payload for transport.
+#[derive(Clone, Debug)]
+pub struct DelegateResult {
+    /// The fully signed delegate action.
+    pub signed_delegate_action: SignedDelegateAction,
+    /// Base64-encoded payload for HTTP/JSON transport.
+    pub payload: String,
+}
+
+impl DelegateResult {
+    /// Get the raw bytes of the signed delegate action.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.signed_delegate_action.to_bytes()
+    }
+
+    /// Get the sender account ID.
+    pub fn sender_id(&self) -> &AccountId {
+        self.signed_delegate_action.sender_id()
+    }
+
+    /// Get the receiver account ID.
+    pub fn receiver_id(&self) -> &AccountId {
+        self.signed_delegate_action.receiver_id()
+    }
 }
 
 // ============================================================================
@@ -232,6 +299,145 @@ impl TransactionBuilder {
         let amount = amount.into_near_token().unwrap_or(NearToken::ZERO);
         self.actions.push(Action::stake(amount, public_key));
         self
+    }
+
+    /// Add a signed delegate action to this transaction (for relayers).
+    ///
+    /// This is used by relayers to wrap a user's signed delegate action
+    /// and submit it to the blockchain, paying for the gas on behalf of the user.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example(relayer: Near, payload: &str) -> Result<(), near_kit::Error> {
+    /// // Relayer receives base64 payload from user
+    /// let signed_delegate = SignedDelegateAction::from_base64(payload)?;
+    ///
+    /// // Relayer submits it, paying the gas
+    /// let result = relayer
+    ///     .transaction(signed_delegate.sender_id().as_str())
+    ///     .signed_delegate_action(signed_delegate)
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn signed_delegate_action(mut self, signed_delegate: SignedDelegateAction) -> Self {
+        // Set receiver_id to the sender of the delegate action (the original user)
+        self.receiver_id = signed_delegate.sender_id().clone();
+        self.actions.push(Action::delegate(signed_delegate));
+        self
+    }
+
+    // ========================================================================
+    // Meta-transactions (Delegate Actions)
+    // ========================================================================
+
+    /// Build and sign a delegate action for meta-transactions (NEP-366).
+    ///
+    /// This allows the user to sign a set of actions off-chain, which can then
+    /// be submitted by a relayer who pays the gas fees. The user's signature
+    /// authorizes the actions, but they don't need to hold NEAR for gas.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// // User builds and signs a delegate action
+    /// let result = near
+    ///     .transaction("contract.testnet")
+    ///     .call("add_message")
+    ///         .args(serde_json::json!({ "text": "Hello!" }))
+    ///         .gas("30 Tgas")
+    ///     .delegate(Default::default())
+    ///     .await?;
+    ///
+    /// // Send payload to relayer via HTTP
+    /// println!("Payload to send: {}", result.payload);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn delegate(self, options: DelegateOptions) -> Result<DelegateResult, Error> {
+        if self.actions.is_empty() {
+            return Err(Error::InvalidTransaction(
+                "Delegate action requires at least one action".to_string(),
+            ));
+        }
+
+        // Verify no nested delegates
+        for action in &self.actions {
+            if matches!(action, Action::Delegate(_)) {
+                return Err(Error::InvalidTransaction(
+                    "Delegate actions cannot contain nested signed delegate actions".to_string(),
+                ));
+            }
+        }
+
+        // Get the signer
+        let signer = self
+            .signer_override
+            .as_ref()
+            .or(self.signer.as_ref())
+            .ok_or(Error::NoSigner)?;
+
+        let sender_id = signer.account_id().clone();
+        let public_key = signer.public_key().clone();
+
+        // Get nonce
+        let nonce = if let Some(n) = options.nonce {
+            n
+        } else {
+            let access_key = self
+                .rpc
+                .view_access_key(
+                    &sender_id,
+                    &public_key,
+                    BlockReference::Finality(Finality::Optimistic),
+                )
+                .await?;
+            access_key.nonce + 1
+        };
+
+        // Get max block height
+        let max_block_height = if let Some(h) = options.max_block_height {
+            h
+        } else {
+            let status = self.rpc.status().await?;
+            let offset = options.block_height_offset.unwrap_or(200);
+            status.sync_info.latest_block_height + offset
+        };
+
+        // Convert actions to NonDelegateAction
+        let delegate_actions: Vec<NonDelegateAction> = self
+            .actions
+            .into_iter()
+            .filter_map(NonDelegateAction::from_action)
+            .collect();
+
+        // Create delegate action
+        let delegate_action = DelegateAction {
+            sender_id,
+            receiver_id: self.receiver_id,
+            actions: delegate_actions,
+            nonce,
+            max_block_height,
+            public_key: public_key.clone(),
+        };
+
+        // Sign the delegate action
+        let hash = delegate_action.get_hash();
+        let (signature, _) = signer.sign(hash.as_bytes()).await?;
+
+        // Create signed delegate action
+        let signed_delegate_action = delegate_action.sign(signature);
+        let payload = signed_delegate_action.to_base64();
+
+        Ok(DelegateResult {
+            signed_delegate_action,
+            payload,
+        })
     }
 
     // ========================================================================

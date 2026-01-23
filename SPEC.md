@@ -56,11 +56,11 @@ The TypeScript library at `/home/ricky/near-kit` serves as the primary design re
 
 ### Crate Structure
 
-This is a single crate for simplicity. Proc macros (if needed) would be the only separate crate.
+This is a single crate for simplicity, with a separate proc-macro crate for typed contracts.
 
 ```
 near-kit-rs/
-├── Cargo.toml              # Single crate
+├── Cargo.toml              # Main crate
 ├── src/
 │   ├── lib.rs              # Main exports and prelude
 │   ├── error.rs            # Error types (Error, RpcError, Parse*Error)
@@ -74,11 +74,16 @@ near-kit-rs/
 │   │   ├── transaction.rs  # Transaction, SignedTransaction
 │   │   ├── block_reference.rs  # BlockReference, Finality, TxExecutionStatus
 │   │   └── rpc.rs          # RPC response types (AccountView, BlockView, etc.)
-│   └── client/
-│       ├── mod.rs          # Re-exports client components
-│       ├── near.rs         # Near client and NearBuilder
-│       ├── rpc.rs          # RpcClient with retry logic
-│       └── signer.rs       # Signer trait and SecretKeySigner
+│   ├── client/
+│   │   ├── mod.rs          # Re-exports client components
+│   │   ├── near.rs         # Near client and NearBuilder
+│   │   ├── rpc.rs          # RpcClient with retry logic
+│   │   └── signer.rs       # Signer trait and SecretKeySigner
+│   └── contract.rs         # Contract marker trait for typed contracts
+├── near-kit-macros/        # Proc macro crate for #[near_kit::contract]
+│   ├── Cargo.toml
+│   └── src/
+│       └── lib.rs          # Proc macro implementation
 ├── examples/               # Example code
 ├── tests/                  # Integration tests
 ├── SPEC.md                 # This file
@@ -1411,6 +1416,626 @@ near.transaction("old.alice.testnet")
 
 ---
 
+## Typed Contract Interfaces (Proc Macro)
+
+The `#[near_kit::contract]` proc macro provides compile-time type safety for contract interactions. Instead of using stringly-typed method names and `serde_json::Value` for arguments, you define a Rust trait that mirrors the contract's interface.
+
+### Why Typed Contracts?
+
+**Without typed contracts:**
+```rust
+// Method names are strings - typos compile fine
+let count: u64 = near.view("counter.near", "get_counnt").await?;  // typo!
+
+// Args are JSON - wrong fields compile fine  
+near.call("counter.near", "add")
+    .args(json!({ "valuee": 5 }))  // typo!
+    .await?;
+```
+
+**With typed contracts:**
+```rust
+#[near_kit::contract]
+pub trait Counter {
+    fn get_count(&self) -> u64;
+    
+    #[call]
+    fn add(&mut self, args: AddArgs);
+}
+
+let counter = near.contract::<Counter>("counter.near");
+let count = counter.get_count().await?;  // Compile-time checked
+counter.add(AddArgs { value: 5 }).await?;  // Compile-time checked
+```
+
+### Basic Usage
+
+```rust
+use near_kit::prelude::*;
+use serde::{Serialize, Deserialize};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Define the contract interface
+// ══════════════════════════════════════════════════════════════════════════════
+
+#[near_kit::contract]
+pub trait Counter {
+    // View methods: use &self (no state mutation)
+    fn get_count(&self) -> u64;
+    
+    // Call methods: use &mut self + #[call] attribute
+    #[call]
+    fn increment(&mut self);
+    
+    // Call with arguments - use a single struct
+    #[call]
+    fn add(&mut self, args: AddArgs);
+    
+    // Payable call method
+    #[call(payable)]
+    fn donate(&mut self);
+}
+
+// Argument structs must implement Serialize (for JSON contracts)
+#[derive(Serialize)]
+pub struct AddArgs {
+    pub value: u64,
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Use the contract
+// ══════════════════════════════════════════════════════════════════════════════
+
+#[tokio::main]
+async fn main() -> Result<(), near_kit::Error> {
+    let near = Near::testnet()
+        .signer(InMemorySigner::new("alice.testnet", "ed25519:...")?)
+        .build();
+    
+    // Create a typed contract client
+    let counter = near.contract::<Counter>("counter.testnet");
+    
+    // View calls - just await
+    let count: u64 = counter.get_count().await?;
+    println!("Current count: {}", count);
+    
+    // Change calls - just await
+    counter.increment().await?;
+    
+    // Change calls with args
+    counter.add(AddArgs { value: 5 }).await?;
+    
+    // Payable calls - chain .deposit() before await
+    counter.donate().deposit("1 NEAR").await?;
+    
+    // Override gas for any call
+    counter.add(AddArgs { value: 10 }).gas("50 Tgas").await?;
+    
+    Ok(())
+}
+```
+
+### View vs Call Methods
+
+The distinction between view and call methods is determined by `&self` vs `&mut self`:
+
+| Receiver | Attribute | Method Type | Description |
+|----------|-----------|-------------|-------------|
+| `&self` | (none) | View | Read-only, no gas cost, no signer needed |
+| `&mut self` | `#[call]` | Call | State change, requires gas and signer |
+| `&mut self` | `#[call(payable)]` | Payable Call | Can receive NEAR deposit |
+
+```rust
+#[near_kit::contract]
+pub trait MyContract {
+    // View method - read only
+    fn get_owner(&self) -> AccountId;
+    
+    // View method with args
+    fn get_balance(&self, args: GetBalanceArgs) -> NearToken;
+    
+    // Call method - changes state
+    #[call]
+    fn set_owner(&mut self, args: SetOwnerArgs);
+    
+    // Payable call - can receive deposit
+    #[call(payable)]
+    fn purchase(&mut self, args: PurchaseArgs);
+}
+```
+
+### Argument Structs
+
+Contract methods that take arguments must use a **single struct** parameter. This struct is serialized to JSON (or Borsh) when calling the contract.
+
+```rust
+use serde::Serialize;
+
+// For JSON contracts (default), args must implement Serialize
+#[derive(Serialize)]
+pub struct TransferArgs {
+    pub receiver_id: AccountId,
+    pub amount: NearToken,
+}
+
+// Optional fields work naturally with serde
+#[derive(Serialize)]
+pub struct MintArgs {
+    pub token_id: String,
+    pub metadata: Option<TokenMetadata>,
+}
+
+#[near_kit::contract]
+pub trait FungibleToken {
+    fn ft_balance_of(&self, args: FtBalanceArgs) -> NearToken;
+    
+    #[call(payable)]
+    fn ft_transfer(&mut self, args: TransferArgs);
+}
+
+#[derive(Serialize)]
+pub struct FtBalanceArgs {
+    pub account_id: AccountId,
+}
+```
+
+**Why single struct instead of multiple parameters?**
+- Explicit field names in serialized JSON
+- Matches how NEAR contracts define their parameters
+- Easier to add optional fields
+- No ambiguity about serialization order
+
+### Return Types
+
+Return types must implement `Deserialize` (for JSON) or `BorshDeserialize` (for Borsh contracts).
+
+```rust
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+pub struct TokenMetadata {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub media: Option<String>,
+}
+
+#[near_kit::contract]
+pub trait NFT {
+    // Simple return type
+    fn nft_total_supply(&self) -> u64;
+    
+    // Complex return type
+    fn nft_token(&self, args: TokenArgs) -> Option<Token>;
+}
+
+#[derive(Deserialize)]
+pub struct Token {
+    pub token_id: String,
+    pub owner_id: AccountId,
+    pub metadata: Option<TokenMetadata>,
+}
+
+#[derive(Serialize)]
+pub struct TokenArgs {
+    pub token_id: String,
+}
+```
+
+### Borsh Serialization
+
+Some NEAR contracts use Borsh instead of JSON for serialization. Use the `borsh` attribute:
+
+```rust
+use borsh::{BorshSerialize, BorshDeserialize};
+
+#[near_kit::contract(borsh)]
+pub trait BorshContract {
+    fn get_data(&self) -> MyData;
+    
+    #[call]
+    fn set_data(&mut self, args: SetDataArgs);
+}
+
+// Args must implement BorshSerialize
+#[derive(BorshSerialize)]
+pub struct SetDataArgs {
+    pub key: String,
+    pub value: Vec<u8>,
+}
+
+// Returns must implement BorshDeserialize
+#[derive(BorshDeserialize)]
+pub struct MyData {
+    pub key: String,
+    pub value: Vec<u8>,
+}
+```
+
+The serialization format applies to all methods in the trait:
+
+| Attribute | Args Requirement | Return Requirement |
+|-----------|------------------|-------------------|
+| `#[near_kit::contract]` | `Serialize` | `DeserializeOwned` |
+| `#[near_kit::contract(json)]` | `Serialize` | `DeserializeOwned` |
+| `#[near_kit::contract(borsh)]` | `BorshSerialize` | `BorshDeserialize` |
+
+### Call Method Options
+
+Call methods return a builder that allows configuring gas and deposit before execution:
+
+```rust
+#[near_kit::contract]
+pub trait MyContract {
+    #[call]
+    fn do_something(&mut self, args: Args);
+    
+    #[call(payable)]
+    fn buy_item(&mut self, args: BuyArgs);
+}
+
+let contract = near.contract::<MyContract>("contract.near");
+
+// Default gas (30 Tgas), no deposit
+contract.do_something(Args { ... }).await?;
+
+// Custom gas
+contract.do_something(Args { ... })
+    .gas("100 Tgas")
+    .await?;
+
+// With deposit (only valid for payable methods)
+contract.buy_item(BuyArgs { ... })
+    .deposit("5 NEAR")
+    .await?;
+
+// Both gas and deposit
+contract.buy_item(BuyArgs { ... })
+    .gas("50 Tgas")
+    .deposit("1 NEAR")
+    .await?;
+
+// Override signer for this call
+contract.do_something(Args { ... })
+    .sign_with(other_signer)
+    .await?;
+
+// Wait for specific finality
+contract.do_something(Args { ... })
+    .wait_until(TxExecutionStatus::Final)
+    .await?;
+```
+
+### View Method Options
+
+View methods can specify which block to query:
+
+```rust
+#[near_kit::contract]
+pub trait Counter {
+    fn get_count(&self) -> u64;
+}
+
+let counter = near.contract::<Counter>("counter.near");
+
+// Default: final block
+let count = counter.get_count().await?;
+
+// Specific block height
+let count = counter.get_count()
+    .at_block(100_000_000)
+    .await?;
+
+// Specific finality
+let count = counter.get_count()
+    .finality(Finality::Optimistic)
+    .await?;
+```
+
+### Complete Example: FT Contract
+
+```rust
+use near_kit::prelude::*;
+use serde::{Serialize, Deserialize};
+
+/// NEP-141 Fungible Token interface
+#[near_kit::contract]
+pub trait FungibleToken {
+    // ─── View Methods ───────────────────────────────────────────────────────
+    
+    fn ft_total_supply(&self) -> NearToken;
+    
+    fn ft_balance_of(&self, args: FtBalanceArgs) -> NearToken;
+    
+    fn ft_metadata(&self) -> FtMetadata;
+    
+    // ─── Call Methods ───────────────────────────────────────────────────────
+    
+    #[call(payable)]
+    fn ft_transfer(&mut self, args: FtTransferArgs);
+    
+    #[call(payable)]
+    fn ft_transfer_call(&mut self, args: FtTransferCallArgs);
+    
+    #[call(payable)]
+    fn storage_deposit(&mut self, args: StorageDepositArgs);
+}
+
+// ─── Argument Structs ─────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct FtBalanceArgs {
+    pub account_id: AccountId,
+}
+
+#[derive(Serialize)]
+pub struct FtTransferArgs {
+    pub receiver_id: AccountId,
+    pub amount: NearToken,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memo: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct FtTransferCallArgs {
+    pub receiver_id: AccountId,
+    pub amount: NearToken,
+    pub msg: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memo: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct StorageDepositArgs {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<AccountId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registration_only: Option<bool>,
+}
+
+// ─── Return Types ─────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct FtMetadata {
+    pub spec: String,
+    pub name: String,
+    pub symbol: String,
+    pub decimals: u8,
+    pub icon: Option<String>,
+}
+
+// ─── Usage ────────────────────────────────────────────────────────────────────
+
+async fn example(near: &Near) -> Result<(), near_kit::Error> {
+    let usdc = near.contract::<FungibleToken>("usdc.near");
+    
+    // Check balance
+    let balance = usdc.ft_balance_of(FtBalanceArgs {
+        account_id: "alice.near".parse()?,
+    }).await?;
+    
+    println!("Balance: {}", balance);
+    
+    // Transfer tokens
+    usdc.ft_transfer(FtTransferArgs {
+        receiver_id: "bob.near".parse()?,
+        amount: "100".parse()?, // Assuming token uses NearToken-like parsing
+        memo: Some("Payment".to_string()),
+    })
+    .deposit("1 yocto")  // Required for ft_transfer
+    .await?;
+    
+    Ok(())
+}
+```
+
+---
+
+### Proc Macro Implementation Details
+
+This section provides implementation guidance for the `#[near_kit::contract]` proc macro.
+
+#### Crate Structure
+
+The proc macro requires a separate crate (Rust limitation):
+
+```
+near-kit-rs/
+├── Cargo.toml                    # Main crate, depends on near-kit-macros
+├── src/
+│   └── ...
+├── near-kit-macros/              # Proc macro crate
+│   ├── Cargo.toml
+│   └── src/
+│       └── lib.rs                # Proc macro implementation
+```
+
+**near-kit-macros/Cargo.toml:**
+```toml
+[package]
+name = "near-kit-macros"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "parsing"] }
+quote = "1"
+proc-macro2 = "1"
+```
+
+**Main crate Cargo.toml addition:**
+```toml
+[dependencies]
+near-kit-macros = { path = "./near-kit-macros" }
+```
+
+#### What the Macro Generates
+
+For this input:
+
+```rust
+#[near_kit::contract]
+pub trait Counter {
+    fn get_count(&self) -> u64;
+    
+    #[call]
+    fn increment(&mut self);
+    
+    #[call]
+    fn add(&mut self, args: AddArgs);
+    
+    #[call(payable)]
+    fn donate(&mut self);
+}
+```
+
+The macro generates:
+
+```rust
+// 1. Keep the original trait (for documentation)
+pub trait Counter {
+    fn get_count(&self) -> u64;
+    fn increment(&mut self);
+    fn add(&mut self, args: AddArgs);
+    fn donate(&mut self);
+}
+
+// 2. Generate a client struct
+pub struct CounterClient<'a> {
+    near: &'a Near,
+    contract_id: AccountId,
+}
+
+// 3. Implement the Contract marker trait
+impl near_kit::Contract for dyn Counter {
+    type Client<'a> = CounterClient<'a>;
+}
+
+// 4. Implement methods on the client
+impl<'a> CounterClient<'a> {
+    pub fn new(near: &'a Near, contract_id: AccountId) -> Self {
+        Self { near, contract_id }
+    }
+    
+    // View method: returns ViewCall<T> which impls IntoFuture
+    pub fn get_count(&self) -> ViewCall<'a, u64> {
+        self.near.view::<u64>(&self.contract_id, "get_count")
+    }
+    
+    // Call method (no args): returns ContractCall
+    pub fn increment(&self) -> ContractCall<'a> {
+        self.near.call(&self.contract_id, "increment")
+    }
+    
+    // Call method (with args): returns ContractCall
+    pub fn add(&self, args: AddArgs) -> ContractCall<'a> {
+        self.near.call(&self.contract_id, "add")
+            .args(args)  // Serializes using serde_json
+    }
+    
+    // Payable call method: same as call, user chains .deposit()
+    pub fn donate(&self) -> ContractCall<'a> {
+        self.near.call(&self.contract_id, "donate")
+    }
+}
+```
+
+#### For Borsh Contracts
+
+When `#[near_kit::contract(borsh)]` is used:
+
+```rust
+// Call method with borsh serialization
+pub fn set_data(&self, args: SetDataArgs) -> ContractCall<'a> {
+    self.near.call(&self.contract_id, "set_data")
+        .args_borsh(args)  // Serializes using borsh
+}
+
+// View method with borsh deserialization
+pub fn get_data(&self) -> ViewCallBorsh<'a, MyData> {
+    self.near.view_borsh::<MyData>(&self.contract_id, "get_data")
+}
+```
+
+#### Method Name Derivation
+
+Method names map 1:1 from Rust to the contract:
+
+| Rust Method | Contract Method |
+|-------------|-----------------|
+| `get_count` | `get_count` |
+| `ft_balance_of` | `ft_balance_of` |
+| `nft_transfer` | `nft_transfer` |
+
+#### Parsing the Trait
+
+The macro needs to parse:
+
+1. **Trait attributes**: `#[near_kit::contract]` or `#[near_kit::contract(borsh)]`
+2. **Method receiver**: `&self` (view) or `&mut self` (call)
+3. **Method attributes**: `#[call]` or `#[call(payable)]`
+4. **Method arguments**: Zero or one struct argument
+5. **Return type**: The type to deserialize into
+
+**Validation rules:**
+- View methods (`&self`) must NOT have `#[call]` attribute
+- Call methods (`&mut self`) MUST have `#[call]` or `#[call(payable)]` attribute
+- Methods can have 0 or 1 argument (if 1, it must be a type, not multiple params)
+- `payable` is only valid on `#[call]` methods
+
+#### The Contract Trait and near.contract::<T>()
+
+The main crate needs:
+
+```rust
+/// Marker trait for contract interfaces.
+/// Implemented by the proc macro for each #[near_kit::contract] trait.
+pub trait Contract {
+    type Client<'a>;
+}
+
+impl Near {
+    /// Create a typed contract client.
+    pub fn contract<T: Contract + ?Sized>(&self, id: impl TryInto<AccountId>) -> T::Client<'_>
+    where
+        T::Client<'_>: ContractClient,
+    {
+        T::Client::new(self, id.try_into().expect("invalid account id"))
+    }
+}
+
+/// Trait for contract client constructors.
+pub trait ContractClient: Sized {
+    fn new(near: &Near, contract_id: AccountId) -> Self;
+}
+```
+
+#### Required Changes to Existing Types
+
+The `ViewCall<T>` and `ContractCall` builders may need minor adjustments:
+
+```rust
+// ViewCall needs to support borsh deserialization
+impl<'a, T> ViewCall<'a, T> {
+    // Existing: JSON deserialization (default)
+    pub async fn json(self) -> Result<T, Error>
+    where
+        T: DeserializeOwned;
+    
+    // New: Borsh deserialization
+    pub async fn borsh(self) -> Result<T, Error>
+    where
+        T: BorshDeserialize;
+}
+
+// Or use a separate type for borsh views:
+pub struct ViewCallBorsh<'a, T> { ... }
+```
+
+---
+
 ## Error Types
 
 ```rust
@@ -1573,6 +2198,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tokens = nft.tokens_for_owner("alice.testnet").await?;
     nft.transfer("bob.testnet", "token-123").await?;
     
+    // ══════════════════════════════════════════════════════════════════
+    // Typed Contract Interfaces
+    // ══════════════════════════════════════════════════════════════════
+    
+    // Define a typed interface for a contract
+    #[near_kit::contract]
+    pub trait Counter {
+        fn get_count(&self) -> u64;
+        
+        #[call]
+        fn increment(&mut self);
+        
+        #[call]
+        fn add(&mut self, args: AddArgs);
+    }
+    
+    #[derive(Serialize)]
+    pub struct AddArgs { value: u64 }
+    
+    // Create typed client
+    let counter = near.contract::<Counter>("counter.testnet");
+    
+    // Compile-time checked method calls
+    let count = counter.get_count().await?;
+    counter.increment().await?;
+    counter.add(AddArgs { value: 5 }).await?;
+    
     Ok(())
 }
 ```
@@ -1628,7 +2280,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - [ ] Account management (`create_account`, `delete_account`, `add_key`, `delete_key`)
 - [ ] `DeployBuilder`
 
-### Phase 8: Polish (Week 4-5)
+### Phase 8: Typed Contract Interfaces (Week 5)
+- [ ] Create `near-kit-macros` proc macro crate
+- [ ] Implement `#[near_kit::contract]` attribute macro
+- [ ] Parse trait definitions (methods, receivers, attributes)
+- [ ] Generate client struct with typed methods
+- [ ] Support `#[call]` and `#[call(payable)]` attributes
+- [ ] Support `#[near_kit::contract(borsh)]` for Borsh serialization
+- [ ] Add `Contract` marker trait and `near.contract::<T>()` method
+- [ ] Add `ViewCallBorsh<T>` for Borsh view deserialization
+- [ ] Unit tests for macro expansion
+- [ ] Integration tests with real contracts
+
+### Phase 9: Polish (Week 5-6)
 - [ ] Comprehensive error messages
 - [ ] Documentation
 - [ ] Examples

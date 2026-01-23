@@ -146,14 +146,27 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 - [ ] `ft().balance_of()`, `ft().transfer()`
 - [ ] `nft().tokens_for_owner()`, `nft().transfer()`
 
-### Phase 8: Advanced Features (TODO)
+### Phase 8: Typed Contract Interfaces (TODO)
+
+- [ ] Create `near-kit-macros` proc macro crate
+- [ ] Implement `#[near_kit::contract]` attribute macro
+- [ ] Parse trait definitions (methods, receivers, attributes)
+- [ ] Generate client struct with typed methods
+- [ ] Support `#[call]` and `#[call(payable)]` attributes
+- [ ] Support `#[near_kit::contract(borsh)]` for Borsh serialization
+- [ ] Add `Contract` marker trait and `near.contract::<T>()` method
+- [ ] Add `ViewCallBorsh<T>` for Borsh view deserialization
+- [ ] Unit tests for macro expansion
+- [ ] Integration tests with real contracts
+
+### Phase 9: Advanced Features (IN PROGRESS)
 
 - [ ] `StakingPool` - Staking operations
 - [ ] Seed phrase / mnemonic support in `SecretKeySigner`
 - [ ] Environment-based configuration (`Near::from_env()`)
-- [ ] Meta-transactions (delegate actions)
+- [x] Meta-transactions (delegate actions)
 
-### Phase 9: Polish (TODO)
+### Phase 10: Polish (TODO)
 
 - [ ] Comprehensive error messages
 - [ ] Full documentation with examples
@@ -173,7 +186,7 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 - `test: add testnet integration tests`
 - `docs: update AGENTS.md checklist`
 
-Run `cargo fmt && cargo clippy && cargo nextest run` before committing to ensure all checks pass.
+Run `cargo fmt && cargo clippy && cargo test` before committing to ensure all checks pass.
 
 ### Conventions
 
@@ -196,26 +209,22 @@ This sets up pre-commit hooks for:
 - **clippy** - Linting with warnings as errors
 
 And pre-push hooks for:
-- **cargo nextest** - Run all tests
+- **cargo test** - Run all tests
 
 ### Testing
 
-We use [cargo-nextest](https://nexte.st/) as our test runner:
-
 ```bash
 # Run all tests
-cargo nextest run
+cargo test
 
 # Run specific test
-cargo nextest run test_name
+cargo test test_name
 
 # Run with output
-cargo nextest run --no-capture
-```
+cargo test -- --nocapture
 
-For doc tests (not supported by nextest):
-```bash
-cargo test --doc
+# Run only sandbox integration tests
+cargo test --features sandbox --test sandbox_integration
 ```
 
 ### Code Quality
@@ -224,7 +233,7 @@ Before committing, ensure:
 ```bash
 cargo fmt          # Format code
 cargo clippy       # Run linter  
-cargo nextest run  # Run tests
+cargo test         # Run tests
 ```
 
 All checks must pass - the pre-commit hook enforces this.
