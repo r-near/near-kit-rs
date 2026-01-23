@@ -12,5 +12,7 @@ pub use near::{Near, NearBuilder, SandboxNetwork, SANDBOX_ROOT_ACCOUNT, SANDBOX_
 pub use query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
 pub use rpc::{RetryConfig, RpcClient};
 pub use signer::{EnvSigner, FileSigner, InMemorySigner, RotatingSigner, Signer};
-pub use transaction::{CallBuilder, TransactionBuilder, TransactionSend};
+pub use transaction::{
+    CallBuilder, DelegateOptions, DelegateResult, TransactionBuilder, TransactionSend,
+};
 pub use tx::{AddKeyCall, ContractCall, DeleteKeyCall, DeployCall, TransferCall};

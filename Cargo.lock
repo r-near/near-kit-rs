@@ -1172,6 +1172,8 @@ dependencies = [
 [[package]]
 name = "near-sandbox"
 version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f372402157a18cf9e98fa35ec3060219462ceae153687061ec98333959580c4"
 dependencies = [
  "binary-install",
  "dirs-next",

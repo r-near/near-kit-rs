@@ -1,9 +1,18 @@
 //! Transaction action types.
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey};
+use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature};
+
+/// NEP-461 prefix for delegate actions (meta-transactions).
+/// Value: 2^30 + 366 = 1073742190
+///
+/// This prefix is prepended to DelegateAction when serializing for signing,
+/// ensuring delegate action signatures are always distinguishable from
+/// regular transaction signatures.
+pub const DELEGATE_ACTION_PREFIX: u32 = 1_073_742_190;
 
 /// Access key permission.
 ///
@@ -298,18 +307,31 @@ pub struct SignedDelegateAction {
 /// since delegate actions cannot contain nested delegate actions.
 ///
 /// IMPORTANT: Variant order matters for Borsh serialization!
+/// The discriminants must match the Action enum (excluding Delegate).
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum NonDelegateAction {
+    /// Create a new account. (discriminant = 0)
     CreateAccount(CreateAccountAction),
+    /// Deploy contract code. (discriminant = 1)
     DeployContract(DeployContractAction),
+    /// Call a contract function. (discriminant = 2)
     FunctionCall(FunctionCallAction),
+    /// Transfer NEAR tokens. (discriminant = 3)
     Transfer(TransferAction),
+    /// Stake NEAR for validation. (discriminant = 4)
     Stake(StakeAction),
+    /// Add an access key. (discriminant = 5)
     AddKey(AddKeyAction),
+    /// Delete an access key. (discriminant = 6)
     DeleteKey(DeleteKeyAction),
+    /// Delete the account. (discriminant = 7)
     DeleteAccount(DeleteAccountAction),
+    /// Publish a contract to global registry. (discriminant = 8)
+    /// Note: This follows after DeleteAccount since Delegate is not included.
     DeployGlobalContract(DeployGlobalContractAction),
+    /// Deploy from a previously published global contract. (discriminant = 9)
     UseGlobalContract(UseGlobalContractAction),
+    /// NEP-616: Deploy with deterministically derived account ID. (discriminant = 10)
     DeterministicStateInit(DeterministicStateInitAction),
 }
 
@@ -396,6 +418,22 @@ impl Action {
     /// * `code` - The WASM code to publish
     /// * `by_hash` - If true, contract is identified by its code hash (immutable).
     ///   If false (default), contract is identified by the signer's account ID (updatable).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Publish updatable contract (identified by your account)
+    /// near.transaction("alice.near")
+    ///     .publish_contract(wasm_code, false)
+    ///     .send()
+    ///     .await?;
+    ///
+    /// // Publish immutable contract (identified by its hash)
+    /// near.transaction("alice.near")
+    ///     .publish_contract(wasm_code, true)
+    ///     .send()
+    ///     .await?;
+    /// ```
     pub fn publish_contract(code: Vec<u8>, by_hash: bool) -> Self {
         Self::DeployGlobalContract(DeployGlobalContractAction {
             code,
@@ -468,6 +506,107 @@ impl Action {
     }
 }
 
+impl DelegateAction {
+    /// Serialize the delegate action for signing.
+    ///
+    /// Per NEP-461, this prepends a u32 prefix (2^30 + 366) before the delegate action,
+    /// ensuring signed delegate actions are never identical to signed transactions.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let bytes = delegate_action.serialize_for_signing();
+    /// let hash = CryptoHash::hash(&bytes);
+    /// let signature = signer.sign(hash.as_bytes()).await?;
+    /// ```
+    pub fn serialize_for_signing(&self) -> Vec<u8> {
+        let prefix_bytes = DELEGATE_ACTION_PREFIX.to_le_bytes();
+        let action_bytes =
+            borsh::to_vec(self).expect("delegate action serialization should never fail");
+
+        let mut result = Vec::with_capacity(prefix_bytes.len() + action_bytes.len());
+        result.extend_from_slice(&prefix_bytes);
+        result.extend_from_slice(&action_bytes);
+        result
+    }
+
+    /// Get the hash of this delegate action (for signing).
+    pub fn get_hash(&self) -> CryptoHash {
+        let bytes = self.serialize_for_signing();
+        CryptoHash::hash(&bytes)
+    }
+
+    /// Sign this delegate action and return a SignedDelegateAction.
+    pub fn sign(self, signature: Signature) -> SignedDelegateAction {
+        SignedDelegateAction {
+            delegate_action: self,
+            signature,
+        }
+    }
+}
+
+impl SignedDelegateAction {
+    /// Encode the signed delegate action to bytes for transport.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        borsh::to_vec(self).expect("signed delegate action serialization should never fail")
+    }
+
+    /// Encode the signed delegate action to base64 for transport.
+    ///
+    /// This is the most common format for sending delegate actions via HTTP/JSON.
+    pub fn to_base64(&self) -> String {
+        STANDARD.encode(self.to_bytes())
+    }
+
+    /// Decode a signed delegate action from bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, borsh::io::Error> {
+        borsh::from_slice(bytes)
+    }
+
+    /// Decode a signed delegate action from base64.
+    pub fn from_base64(s: &str) -> Result<Self, DecodeError> {
+        let bytes = STANDARD.decode(s).map_err(DecodeError::Base64)?;
+        Self::from_bytes(&bytes).map_err(DecodeError::Borsh)
+    }
+
+    /// Get the sender account ID.
+    pub fn sender_id(&self) -> &AccountId {
+        &self.delegate_action.sender_id
+    }
+
+    /// Get the receiver account ID.
+    pub fn receiver_id(&self) -> &AccountId {
+        &self.delegate_action.receiver_id
+    }
+}
+
+/// Error decoding a signed delegate action.
+#[derive(Debug)]
+pub enum DecodeError {
+    /// Base64 decoding failed.
+    Base64(base64::DecodeError),
+    /// Borsh deserialization failed.
+    Borsh(borsh::io::Error),
+}
+
+impl std::fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DecodeError::Base64(e) => write!(f, "base64 decode error: {}", e),
+            DecodeError::Borsh(e) => write!(f, "borsh decode error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for DecodeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            DecodeError::Base64(e) => Some(e),
+            DecodeError::Borsh(e) => Some(e),
+        }
+    }
+}
+
 impl NonDelegateAction {
     /// Convert from an Action, returning None if it's a Delegate action.
     pub fn from_action(action: Action) -> Option<Self> {
@@ -485,5 +624,155 @@ impl NonDelegateAction {
             Action::UseGlobalContract(a) => Some(NonDelegateAction::UseGlobalContract(a)),
             Action::DeterministicStateInit(a) => Some(NonDelegateAction::DeterministicStateInit(a)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Gas, NearToken, SecretKey};
+
+    fn create_test_delegate_action() -> DelegateAction {
+        let sender_id: AccountId = "alice.testnet".parse().unwrap();
+        let receiver_id: AccountId = "bob.testnet".parse().unwrap();
+        let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+            .parse()
+            .unwrap();
+
+        DelegateAction {
+            sender_id,
+            receiver_id,
+            actions: vec![NonDelegateAction::Transfer(TransferAction {
+                deposit: NearToken::from_near(1),
+            })],
+            nonce: 1,
+            max_block_height: 1000,
+            public_key,
+        }
+    }
+
+    #[test]
+    fn test_delegate_action_prefix() {
+        // NEP-461: prefix = 2^30 + 366
+        assert_eq!(DELEGATE_ACTION_PREFIX, 1073742190);
+        assert_eq!(DELEGATE_ACTION_PREFIX, (1 << 30) + 366);
+    }
+
+    #[test]
+    fn test_delegate_action_serialize_for_signing() {
+        let delegate_action = create_test_delegate_action();
+        let bytes = delegate_action.serialize_for_signing();
+
+        // First 4 bytes should be the NEP-461 prefix in little-endian
+        let prefix_bytes = &bytes[0..4];
+        let prefix = u32::from_le_bytes(prefix_bytes.try_into().unwrap());
+        assert_eq!(prefix, DELEGATE_ACTION_PREFIX);
+
+        // Rest should be borsh-serialized DelegateAction
+        let action_bytes = &bytes[4..];
+        let expected_action_bytes = borsh::to_vec(&delegate_action).unwrap();
+        assert_eq!(action_bytes, expected_action_bytes.as_slice());
+    }
+
+    #[test]
+    fn test_delegate_action_get_hash() {
+        let delegate_action = create_test_delegate_action();
+        let hash = delegate_action.get_hash();
+
+        // Hash should be SHA-256 of serialize_for_signing bytes
+        let bytes = delegate_action.serialize_for_signing();
+        let expected_hash = CryptoHash::hash(&bytes);
+        assert_eq!(hash, expected_hash);
+    }
+
+    #[test]
+    fn test_signed_delegate_action_roundtrip_bytes() {
+        let delegate_action = create_test_delegate_action();
+        let secret_key = SecretKey::generate_ed25519();
+        let hash = delegate_action.get_hash();
+        let signature = secret_key.sign(hash.as_bytes());
+        let signed = delegate_action.sign(signature);
+
+        // Roundtrip through bytes
+        let bytes = signed.to_bytes();
+        let decoded = SignedDelegateAction::from_bytes(&bytes).unwrap();
+
+        assert_eq!(decoded.sender_id().as_str(), signed.sender_id().as_str());
+        assert_eq!(
+            decoded.receiver_id().as_str(),
+            signed.receiver_id().as_str()
+        );
+        assert_eq!(decoded.delegate_action.nonce, signed.delegate_action.nonce);
+        assert_eq!(
+            decoded.delegate_action.max_block_height,
+            signed.delegate_action.max_block_height
+        );
+    }
+
+    #[test]
+    fn test_signed_delegate_action_roundtrip_base64() {
+        let delegate_action = create_test_delegate_action();
+        let secret_key = SecretKey::generate_ed25519();
+        let hash = delegate_action.get_hash();
+        let signature = secret_key.sign(hash.as_bytes());
+        let signed = delegate_action.sign(signature);
+
+        // Roundtrip through base64
+        let base64 = signed.to_base64();
+        let decoded = SignedDelegateAction::from_base64(&base64).unwrap();
+
+        assert_eq!(decoded.sender_id().as_str(), signed.sender_id().as_str());
+        assert_eq!(
+            decoded.receiver_id().as_str(),
+            signed.receiver_id().as_str()
+        );
+    }
+
+    #[test]
+    fn test_signed_delegate_action_accessors() {
+        let delegate_action = create_test_delegate_action();
+        let secret_key = SecretKey::generate_ed25519();
+        let hash = delegate_action.get_hash();
+        let signature = secret_key.sign(hash.as_bytes());
+        let signed = delegate_action.sign(signature);
+
+        assert_eq!(signed.sender_id().as_str(), "alice.testnet");
+        assert_eq!(signed.receiver_id().as_str(), "bob.testnet");
+    }
+
+    #[test]
+    fn test_non_delegate_action_from_action() {
+        // Transfer should convert
+        let transfer = Action::Transfer(TransferAction {
+            deposit: NearToken::from_near(1),
+        });
+        assert!(NonDelegateAction::from_action(transfer).is_some());
+
+        // FunctionCall should convert
+        let call = Action::FunctionCall(FunctionCallAction {
+            method_name: "test".to_string(),
+            args: vec![],
+            gas: Gas::default(),
+            deposit: NearToken::ZERO,
+        });
+        assert!(NonDelegateAction::from_action(call).is_some());
+
+        // Delegate should NOT convert (returns None)
+        let delegate_action = create_test_delegate_action();
+        let secret_key = SecretKey::generate_ed25519();
+        let hash = delegate_action.get_hash();
+        let signature = secret_key.sign(hash.as_bytes());
+        let signed = delegate_action.sign(signature);
+        let delegate = Action::delegate(signed);
+        assert!(NonDelegateAction::from_action(delegate).is_none());
+    }
+
+    #[test]
+    fn test_decode_error_display() {
+        // Test that DecodeError has proper Display impl
+        let base64_err = DecodeError::Base64(base64::DecodeError::InvalidLength(5));
+        assert!(format!("{}", base64_err).contains("base64"));
+
+        // Borsh error is harder to construct, but we tested the variant exists
     }
 }

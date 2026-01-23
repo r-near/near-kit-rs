@@ -159,12 +159,12 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 - [ ] Unit tests for macro expansion
 - [ ] Integration tests with real contracts
 
-### Phase 9: Advanced Features (TODO)
+### Phase 9: Advanced Features (IN PROGRESS)
 
 - [ ] `StakingPool` - Staking operations
 - [ ] Seed phrase / mnemonic support in `SecretKeySigner`
 - [ ] Environment-based configuration (`Near::from_env()`)
-- [ ] Meta-transactions (delegate actions)
+- [x] Meta-transactions (delegate actions)
 
 ### Phase 10: Polish (TODO)
 
