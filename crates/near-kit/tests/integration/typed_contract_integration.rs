@@ -25,6 +25,8 @@ pub struct AddMessageArgs {
 }
 
 /// Typed interface for the guestbook contract.
+/// The macro generates a client struct - the trait itself is just for definition.
+#[allow(dead_code)]
 #[near_kit::contract]
 pub trait Guestbook {
     /// Get the total number of messages.
