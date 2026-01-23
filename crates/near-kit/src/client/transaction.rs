@@ -35,9 +35,10 @@ use std::sync::{Arc, OnceLock};
 
 use crate::error::{Error, RpcError};
 use crate::types::{
-    AccountId, Action, BlockReference, CryptoHash, DelegateAction, FinalExecutionOutcome, Finality,
-    Gas, IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey, SignedDelegateAction,
-    Transaction, TxExecutionStatus,
+    AccountId, Action, BlockReference, CryptoHash, DelegateAction, DeterministicAccountStateInit,
+    DeterministicAccountStateInitV1, FinalExecutionOutcome, Finality, Gas,
+    GlobalContractIdentifier, IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey,
+    SignedDelegateAction, Transaction, TxExecutionStatus,
 };
 
 use super::nonce_manager::NonceManager;
@@ -533,7 +534,7 @@ impl TransactionBuilder {
 
     /// Create a NEP-616 deterministic state init action with code hash reference.
     ///
-    /// The account ID is derived from the state init data:
+    /// The receiver_id is automatically set to the deterministically derived account ID:
     /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`
     ///
     /// # Example
@@ -541,7 +542,9 @@ impl TransactionBuilder {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
-    /// near.transaction("alice.testnet")
+    /// // Note: the receiver_id passed to transaction() is ignored for state_init -
+    /// // it will be replaced with the derived deterministic account ID
+    /// let outcome = near.transaction("alice.testnet")
     ///     .state_init_by_hash(code_hash, Default::default(), NearToken::near(1))
     ///     .send()
     ///     .await?;
@@ -555,6 +558,16 @@ impl TransactionBuilder {
         deposit: impl IntoNearToken,
     ) -> Self {
         let deposit = deposit.into_near_token().unwrap_or(NearToken::ZERO);
+
+        // Build the state init to derive the account ID
+        let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::CodeHash(code_hash),
+            data: data.clone(),
+        });
+
+        // Set receiver_id to the derived deterministic account ID
+        self.receiver_id = state_init.derive_account_id();
+
         self.actions
             .push(Action::state_init_by_hash(code_hash, data, deposit));
         self
@@ -562,12 +575,16 @@ impl TransactionBuilder {
 
     /// Create a NEP-616 deterministic state init action with publisher account reference.
     ///
+    /// The receiver_id is automatically set to the deterministically derived account ID.
+    ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
-    /// near.transaction("alice.testnet")
+    /// // Note: the receiver_id passed to transaction() is ignored for state_init -
+    /// // it will be replaced with the derived deterministic account ID
+    /// let outcome = near.transaction("alice.testnet")
     ///     .state_init_by_publisher("contract-publisher.near", Default::default(), NearToken::near(1))
     ///     .send()
     ///     .await?;
@@ -585,6 +602,16 @@ impl TransactionBuilder {
             .parse()
             .unwrap_or_else(|_| AccountId::new_unchecked(publisher_id.as_ref()));
         let deposit = deposit.into_near_token().unwrap_or(NearToken::ZERO);
+
+        // Build the state init to derive the account ID
+        let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::AccountId(publisher_id.clone()),
+            data: data.clone(),
+        });
+
+        // Set receiver_id to the derived deterministic account ID
+        self.receiver_id = state_init.derive_account_id();
+
         self.actions
             .push(Action::state_init_by_account(publisher_id, data, deposit));
         self

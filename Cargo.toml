@@ -30,6 +30,7 @@ base64 = "0.22"
 # Cryptography
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 sha2 = "0.10"
+sha3 = "0.10"
 rand = "0.8"
 
 # Encoding

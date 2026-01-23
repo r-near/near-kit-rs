@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Keccak256};
 
 use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature};
 
@@ -277,6 +278,57 @@ pub struct DeterministicStateInitAction {
     pub state_init: DeterministicAccountStateInit,
     /// Amount to attach for storage costs.
     pub deposit: NearToken,
+}
+
+impl DeterministicAccountStateInit {
+    /// Derive the deterministic account ID from this state init.
+    ///
+    /// The account ID is derived as: `"0s" + hex(keccak256(borsh(state_init))[12..32])`
+    ///
+    /// This produces a 42-character account ID that:
+    /// - Starts with "0s" prefix (distinguishes from Ethereum implicit accounts "0x")
+    /// - Followed by 40 hex characters (20 bytes from the keccak256 hash)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::types::{DeterministicAccountStateInit, DeterministicAccountStateInitV1, GlobalContractIdentifier, CryptoHash};
+    /// use std::collections::BTreeMap;
+    ///
+    /// let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+    ///     code: GlobalContractIdentifier::CodeHash(CryptoHash::default()),
+    ///     data: BTreeMap::new(),
+    /// });
+    ///
+    /// let account_id = state_init.derive_account_id();
+    /// assert!(account_id.as_str().starts_with("0s"));
+    /// assert_eq!(account_id.as_str().len(), 42);
+    /// ```
+    pub fn derive_account_id(&self) -> AccountId {
+        // Borsh-serialize the state init
+        let serialized = borsh::to_vec(self).expect("StateInit serialization should not fail");
+
+        // Compute keccak256 hash
+        let hash = Keccak256::digest(&serialized);
+
+        // Take last 20 bytes (indices 12-32) of the hash
+        let suffix = &hash[12..32];
+
+        // Format as "0s" + hex
+        let account_str = format!("0s{}", hex::encode(suffix));
+
+        // This is a valid deterministic account ID by construction
+        AccountId::new_unchecked(&account_str)
+    }
+}
+
+impl DeterministicStateInitAction {
+    /// Derive the deterministic account ID for this action.
+    ///
+    /// Convenience method that delegates to `DeterministicAccountStateInit::derive_account_id`.
+    pub fn derive_account_id(&self) -> AccountId {
+        self.state_init.derive_account_id()
+    }
 }
 
 /// Delegate action for meta-transactions.
@@ -959,5 +1011,105 @@ mod tests {
         } else {
             panic!("Expected UseGlobalContract");
         }
+    }
+
+    #[test]
+    fn test_derive_account_id_format() {
+        // Test that derived account ID has the correct format
+        let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::CodeHash(CryptoHash::default()),
+            data: BTreeMap::new(),
+        });
+
+        let account_id = state_init.derive_account_id();
+        let account_str = account_id.as_str();
+
+        // Should start with "0s"
+        assert!(
+            account_str.starts_with("0s"),
+            "Derived account should start with '0s', got: {}",
+            account_str
+        );
+
+        // Should be exactly 42 characters: "0s" + 40 hex chars
+        assert_eq!(
+            account_str.len(),
+            42,
+            "Derived account should be 42 chars, got: {}",
+            account_str.len()
+        );
+
+        // Everything after "0s" should be valid lowercase hex
+        let hex_part = &account_str[2..];
+        assert!(
+            hex_part
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "Hex part should be lowercase hex, got: {}",
+            hex_part
+        );
+    }
+
+    #[test]
+    fn test_derive_account_id_deterministic() {
+        // Same input should produce same output
+        let state_init1 = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::AccountId("publisher.near".parse().unwrap()),
+            data: BTreeMap::new(),
+        });
+
+        let state_init2 = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::AccountId("publisher.near".parse().unwrap()),
+            data: BTreeMap::new(),
+        });
+
+        assert_eq!(
+            state_init1.derive_account_id(),
+            state_init2.derive_account_id(),
+            "Same input should produce same account ID"
+        );
+    }
+
+    #[test]
+    fn test_derive_account_id_different_inputs() {
+        // Different code references should produce different account IDs
+        let state_init1 = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::AccountId("publisher1.near".parse().unwrap()),
+            data: BTreeMap::new(),
+        });
+
+        let state_init2 = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::AccountId("publisher2.near".parse().unwrap()),
+            data: BTreeMap::new(),
+        });
+
+        assert_ne!(
+            state_init1.derive_account_id(),
+            state_init2.derive_account_id(),
+            "Different code references should produce different account IDs"
+        );
+    }
+
+    #[test]
+    fn test_derive_account_id_different_data() {
+        // Different data should produce different account IDs
+        let mut data = BTreeMap::new();
+        data.insert(b"key".to_vec(), b"value".to_vec());
+
+        let state_init1 = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::AccountId("publisher.near".parse().unwrap()),
+            data: BTreeMap::new(),
+        });
+
+        let state_init2 = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::AccountId("publisher.near".parse().unwrap()),
+            data,
+        });
+
+        assert_ne!(
+            state_init1.derive_account_id(),
+            state_init2.derive_account_id(),
+            "Different data should produce different account IDs"
+        );
     }
 }
