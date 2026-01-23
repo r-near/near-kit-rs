@@ -1,3 +1,4 @@
+#![cfg(feature = "sandbox")]
 //! Debug tests that print actual RPC responses from sandbox.
 //!
 //! These tests are useful for inspecting actual response structures.

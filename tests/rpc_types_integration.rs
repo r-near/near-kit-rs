@@ -1,3 +1,4 @@
+#![cfg(feature = "sandbox")]
 //! Integration tests for RPC types against near-sandbox.
 //!
 //! These tests verify that all RPC response types correctly deserialize

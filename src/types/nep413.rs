@@ -7,10 +7,9 @@
 //!
 //! ```rust,no_run
 //! use near_kit::prelude::*;
-//! use near_kit::nep413::{generate_nonce, SignMessageParams, verify_signature};
+//! use near_kit::nep413::{generate_nonce, SignMessageParams, verify_signature, VerifyError};
 //!
-//! #[tokio::main]
-//! async fn main() -> Result<(), near_kit::Error> {
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let near = Near::testnet()
 //!         .credentials("ed25519:...", "alice.testnet")?
 //!         .build();
@@ -22,7 +21,7 @@
 //!         nonce,
 //!         callback_url: None,
 //!         state: None,
-//!     }).await?;
+//!     })?;
 //!
 //!     // Verify on server
 //!     let is_valid = verify_signature(&signed, &SignMessageParams {

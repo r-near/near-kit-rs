@@ -1,3 +1,4 @@
+#![cfg(feature = "sandbox")]
 //! Integration tests running against near-sandbox.
 //!
 //! These tests use a shared sandbox instance with unique subaccounts per test,

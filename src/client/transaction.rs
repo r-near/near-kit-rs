@@ -310,7 +310,7 @@ impl TransactionBuilder {
     ///
     /// ```rust,no_run
     /// # use near_kit::prelude::*;
-    /// # async fn example(relayer: Near, payload: &str) -> Result<(), near_kit::Error> {
+    /// # async fn example(relayer: Near, payload: &str) -> Result<(), Box<dyn std::error::Error>> {
     /// // Relayer receives base64 payload from user
     /// let signed_delegate = SignedDelegateAction::from_base64(payload)?;
     ///
@@ -615,6 +615,13 @@ impl CallBuilder {
     /// Send the transaction.
     pub fn send(self) -> TransactionSend {
         self.finish().send()
+    }
+
+    /// Build and sign a delegate action for meta-transactions.
+    ///
+    /// See [`TransactionBuilder::delegate`] for details.
+    pub async fn delegate(self, options: DelegateOptions) -> Result<DelegateResult, Error> {
+        self.finish().delegate(options).await
     }
 }
 

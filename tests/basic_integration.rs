@@ -1,3 +1,4 @@
+#![cfg(feature = "sandbox")]
 //! Basic integration tests against the sandbox.
 //!
 //! These tests verify core Near client functionality using a local sandbox.
