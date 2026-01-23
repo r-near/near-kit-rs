@@ -95,8 +95,10 @@ pub use client::{
 };
 
 // Re-export proc macros
+pub use near_kit_macros::borsh;
 pub use near_kit_macros::call;
 pub use near_kit_macros::contract;
+pub use near_kit_macros::json;
 
 /// Prelude module for convenient imports.
 ///
@@ -118,6 +120,8 @@ pub mod prelude {
     pub use crate::Error;
 
     // Re-export proc macros in prelude
+    pub use near_kit_macros::borsh;
     pub use near_kit_macros::call;
     pub use near_kit_macros::contract;
+    pub use near_kit_macros::json;
 }

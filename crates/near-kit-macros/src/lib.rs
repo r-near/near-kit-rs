@@ -25,6 +25,24 @@
 //!     pub value: u64,
 //! }
 //! ```
+//!
+//! # Per-Method Format Override
+//!
+//! You can override the serialization format for individual methods:
+//!
+//! ```ignore
+//! #[near_kit::contract]  // Default: JSON
+//! pub trait MixedContract {
+//!     fn get_json_data(&self) -> JsonData;  // Uses JSON (default)
+//!     
+//!     #[borsh]  // Override: use Borsh for this method
+//!     fn get_binary_state(&self) -> BinaryState;
+//!     
+//!     #[call]
+//!     #[borsh]  // Override: use Borsh for this call
+//!     fn set_binary_state(&mut self, args: BinaryArgs);
+//! }
+//! ```
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -105,6 +123,8 @@ struct MethodInfo {
     is_call: bool,
     #[allow(dead_code)] // Reserved for payable method handling
     is_payable: bool,
+    /// Per-method format override (if specified via #[json] or #[borsh])
+    format_override: Option<SerializationFormat>,
     arg_name: Option<Ident>,
     arg_type: Option<Type>,
     return_type: Option<Type>,
@@ -151,6 +171,19 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
             (true, args.payable)
         }
         None => (false, false),
+    };
+
+    // Check for #[json] or #[borsh] format override
+    let format_override = if method.attrs.iter().any(|attr| attr.path().is_ident("json")) {
+        Some(SerializationFormat::Json)
+    } else if method
+        .attrs
+        .iter()
+        .any(|attr| attr.path().is_ident("borsh"))
+    {
+        Some(SerializationFormat::Borsh)
+    } else {
+        None
     };
 
     // Validate: view methods should not have #[call]
@@ -203,6 +236,7 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         is_view,
         is_call,
         is_payable,
+        format_override,
         arg_name,
         arg_type,
         return_type,
@@ -210,9 +244,12 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
 }
 
 /// Generate client method for a view function.
-fn generate_view_method(method: &MethodInfo, format: SerializationFormat) -> TokenStream2 {
+fn generate_view_method(method: &MethodInfo, contract_format: SerializationFormat) -> TokenStream2 {
     let method_name = &method.name;
     let method_name_str = method_name.to_string();
+
+    // Use method override if present, otherwise contract default
+    let format = method.format_override.unwrap_or(contract_format);
 
     let return_type = method
         .return_type
@@ -262,9 +299,12 @@ fn generate_view_method(method: &MethodInfo, format: SerializationFormat) -> Tok
 }
 
 /// Generate client method for a call function.
-fn generate_call_method(method: &MethodInfo, format: SerializationFormat) -> TokenStream2 {
+fn generate_call_method(method: &MethodInfo, contract_format: SerializationFormat) -> TokenStream2 {
     let method_name = &method.name;
     let method_name_str = method_name.to_string();
+
+    // Use method override if present, otherwise contract default
+    let format = method.format_override.unwrap_or(contract_format);
 
     if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
         // Call with args
@@ -301,10 +341,14 @@ fn generate_call_method(method: &MethodInfo, format: SerializationFormat) -> Tok
     }
 }
 
-/// Strip the #[call] attribute from a method for the output trait.
-fn strip_call_attr(method: &TraitItemFn) -> TraitItemFn {
+/// Strip internal attributes from a method for the output trait.
+fn strip_internal_attrs(method: &TraitItemFn) -> TraitItemFn {
     let mut method = method.clone();
-    method.attrs.retain(|attr| !attr.path().is_ident("call"));
+    method.attrs.retain(|attr| {
+        !attr.path().is_ident("call")
+            && !attr.path().is_ident("json")
+            && !attr.path().is_ident("borsh")
+    });
     method
 }
 
@@ -345,13 +389,13 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         })
         .collect();
 
-    // Generate the cleaned trait (without #[call] attributes)
+    // Generate the cleaned trait (without internal attributes)
     let cleaned_items: Vec<TraitItem> = input
         .items
         .iter()
         .map(|item| {
             if let TraitItem::Fn(method) = item {
-                TraitItem::Fn(strip_call_attr(method))
+                TraitItem::Fn(strip_internal_attrs(method))
             } else {
                 item.clone()
             }
@@ -364,7 +408,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
 
     // Build the output
     let expanded = quote! {
-        // Original trait (with #[call] attrs stripped for cleaner output)
+        // Original trait (with internal attrs stripped for cleaner output)
         #(#trait_attrs)*
         #vis trait #trait_name #trait_generics : #trait_supertraits {
             #(#cleaned_items)*
@@ -421,6 +465,48 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
 /// ```
 #[proc_macro_attribute]
 pub fn call(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    // This is just a marker attribute - the actual work is done by #[contract]
+    item
+}
+
+/// Attribute macro for specifying JSON serialization format.
+///
+/// Use this to override the contract-level serialization format for a specific method.
+///
+/// # Examples
+///
+/// ```ignore
+/// #[near_kit::contract(borsh)]  // Contract default: Borsh
+/// pub trait MyContract {
+///     #[json]  // Override: this method uses JSON
+///     fn get_json_data(&self) -> JsonData;
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn json(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    // This is just a marker attribute - the actual work is done by #[contract]
+    item
+}
+
+/// Attribute macro for specifying Borsh serialization format.
+///
+/// Use this to override the contract-level serialization format for a specific method.
+///
+/// # Examples
+///
+/// ```ignore
+/// #[near_kit::contract]  // Contract default: JSON
+/// pub trait MyContract {
+///     #[borsh]  // Override: this method uses Borsh
+///     fn get_binary_state(&self) -> BinaryState;
+///     
+///     #[call]
+///     #[borsh]  // Override: this call uses Borsh
+///     fn set_binary_state(&mut self, args: BinaryArgs);
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn borsh(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // This is just a marker attribute - the actual work is done by #[contract]
     item
 }
