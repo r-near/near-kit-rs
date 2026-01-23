@@ -71,7 +71,7 @@ use crate::types::{AccountId, PublicKey, SecretKey, Signature};
 ///         &self.account_id
 ///     }
 ///
-///     fn sign(&self, message: &[u8]) -> SignFuture {
+///     fn sign(&self, message: &[u8]) -> SignFuture<'_> {
 ///         let account_id = self.account_id.clone();
 ///         Box::pin(async move {
 ///             // Your signing logic here
@@ -95,7 +95,7 @@ pub trait Signer: Send + Sync {
     ///
     /// Returning the public key allows signers to use different keys for
     /// different transactions (e.g., key rotation for high-throughput bots).
-    fn sign(&self, message: &[u8]) -> SignFuture;
+    fn sign(&self, message: &[u8]) -> SignFuture<'_>;
 }
 
 /// Future type returned by [`Signer::sign`].
@@ -112,7 +112,7 @@ impl Signer for Arc<dyn Signer> {
         (**self).public_key()
     }
 
-    fn sign(&self, message: &[u8]) -> SignFuture {
+    fn sign(&self, message: &[u8]) -> SignFuture<'_> {
         (**self).sign(message)
     }
 }
@@ -203,7 +203,7 @@ impl Signer for InMemorySigner {
         &self.public_key
     }
 
-    fn sign(&self, message: &[u8]) -> SignFuture {
+    fn sign(&self, message: &[u8]) -> SignFuture<'_> {
         let signature = self.secret_key.sign(message);
         let public_key = self.public_key.clone();
         Box::pin(async move { Ok((signature, public_key)) })
@@ -323,7 +323,7 @@ impl Signer for FileSigner {
         self.inner.public_key()
     }
 
-    fn sign(&self, message: &[u8]) -> SignFuture {
+    fn sign(&self, message: &[u8]) -> SignFuture<'_> {
         self.inner.sign(message)
     }
 }
@@ -406,7 +406,7 @@ impl Signer for EnvSigner {
         self.inner.public_key()
     }
 
-    fn sign(&self, message: &[u8]) -> SignFuture {
+    fn sign(&self, message: &[u8]) -> SignFuture<'_> {
         self.inner.sign(message)
     }
 }
@@ -534,7 +534,7 @@ impl Signer for RotatingSigner {
         &self.keys[idx].1
     }
 
-    fn sign(&self, message: &[u8]) -> SignFuture {
+    fn sign(&self, message: &[u8]) -> SignFuture<'_> {
         // Round-robin key selection (fetch_add returns value BEFORE incrementing)
         let idx = self.counter.fetch_add(1, Ordering::Relaxed) % self.keys.len();
         let (secret_key, public_key) = &self.keys[idx];
