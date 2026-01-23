@@ -774,4 +774,190 @@ mod tests {
 
         // Borsh error is harder to construct, but we tested the variant exists
     }
+
+    // ========================================================================
+    // Global Contract Action Tests
+    // ========================================================================
+
+    #[test]
+    fn test_action_discriminants() {
+        // Verify action discriminants match NEAR protocol specification
+        // 0 = CreateAccount, 1 = DeployContract, 2 = FunctionCall, 3 = Transfer,
+        // 4 = Stake, 5 = AddKey, 6 = DeleteKey, 7 = DeleteAccount, 8 = Delegate,
+        // 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit
+
+        let create_account = Action::create_account();
+        let bytes = borsh::to_vec(&create_account).unwrap();
+        assert_eq!(bytes[0], 0, "CreateAccount should have discriminant 0");
+
+        let deploy = Action::deploy_contract(vec![1, 2, 3]);
+        let bytes = borsh::to_vec(&deploy).unwrap();
+        assert_eq!(bytes[0], 1, "DeployContract should have discriminant 1");
+
+        let transfer = Action::transfer(NearToken::from_near(1));
+        let bytes = borsh::to_vec(&transfer).unwrap();
+        assert_eq!(bytes[0], 3, "Transfer should have discriminant 3");
+
+        // DeployGlobalContract (discriminant = 9)
+        let publish = Action::publish_contract(vec![1, 2, 3], false);
+        let bytes = borsh::to_vec(&publish).unwrap();
+        assert_eq!(
+            bytes[0], 9,
+            "DeployGlobalContract should have discriminant 9"
+        );
+
+        // UseGlobalContract (discriminant = 10)
+        let code_hash = CryptoHash::hash(&[1, 2, 3]);
+        let use_global = Action::deploy_from_hash(code_hash);
+        let bytes = borsh::to_vec(&use_global).unwrap();
+        assert_eq!(
+            bytes[0], 10,
+            "UseGlobalContract should have discriminant 10"
+        );
+
+        // DeterministicStateInit (discriminant = 11)
+        let state_init =
+            Action::state_init_by_hash(code_hash, BTreeMap::new(), NearToken::from_near(1));
+        let bytes = borsh::to_vec(&state_init).unwrap();
+        assert_eq!(
+            bytes[0], 11,
+            "DeterministicStateInit should have discriminant 11"
+        );
+    }
+
+    #[test]
+    fn test_global_contract_deploy_mode_serialization() {
+        // Verify deploy mode serialization
+        let by_hash = GlobalContractDeployMode::CodeHash;
+        let bytes = borsh::to_vec(&by_hash).unwrap();
+        assert_eq!(bytes, vec![0], "CodeHash mode should serialize to 0");
+
+        let by_account = GlobalContractDeployMode::AccountId;
+        let bytes = borsh::to_vec(&by_account).unwrap();
+        assert_eq!(bytes, vec![1], "AccountId mode should serialize to 1");
+    }
+
+    #[test]
+    fn test_global_contract_identifier_serialization() {
+        // Verify identifier serialization
+        let hash = CryptoHash::hash(&[1, 2, 3]);
+        let by_hash = GlobalContractIdentifier::CodeHash(hash);
+        let bytes = borsh::to_vec(&by_hash).unwrap();
+        assert_eq!(
+            bytes[0], 0,
+            "CodeHash identifier should have discriminant 0"
+        );
+        assert_eq!(
+            bytes.len(),
+            1 + 32,
+            "Should be 1 byte discriminant + 32 byte hash"
+        );
+
+        let account_id: AccountId = "test.near".parse().unwrap();
+        let by_account = GlobalContractIdentifier::AccountId(account_id);
+        let bytes = borsh::to_vec(&by_account).unwrap();
+        assert_eq!(
+            bytes[0], 1,
+            "AccountId identifier should have discriminant 1"
+        );
+    }
+
+    #[test]
+    fn test_deploy_global_contract_action_roundtrip() {
+        let code = vec![0, 97, 115, 109]; // WASM magic bytes
+        let action = DeployGlobalContractAction {
+            code: code.clone(),
+            deploy_mode: GlobalContractDeployMode::CodeHash,
+        };
+
+        let bytes = borsh::to_vec(&action).unwrap();
+        let decoded: DeployGlobalContractAction = borsh::from_slice(&bytes).unwrap();
+
+        assert_eq!(decoded.code, code);
+        assert_eq!(decoded.deploy_mode, GlobalContractDeployMode::CodeHash);
+    }
+
+    #[test]
+    fn test_use_global_contract_action_roundtrip() {
+        let hash = CryptoHash::hash(&[1, 2, 3, 4]);
+        let action = UseGlobalContractAction {
+            contract_identifier: GlobalContractIdentifier::CodeHash(hash),
+        };
+
+        let bytes = borsh::to_vec(&action).unwrap();
+        let decoded: UseGlobalContractAction = borsh::from_slice(&bytes).unwrap();
+
+        assert_eq!(
+            decoded.contract_identifier,
+            GlobalContractIdentifier::CodeHash(hash)
+        );
+    }
+
+    #[test]
+    fn test_deterministic_state_init_roundtrip() {
+        let hash = CryptoHash::hash(&[1, 2, 3, 4]);
+        let mut data = BTreeMap::new();
+        data.insert(b"key1".to_vec(), b"value1".to_vec());
+        data.insert(b"key2".to_vec(), b"value2".to_vec());
+
+        let action = DeterministicStateInitAction {
+            state_init: DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+                code: GlobalContractIdentifier::CodeHash(hash),
+                data: data.clone(),
+            }),
+            deposit: NearToken::from_near(5),
+        };
+
+        let bytes = borsh::to_vec(&action).unwrap();
+        let decoded: DeterministicStateInitAction = borsh::from_slice(&bytes).unwrap();
+
+        assert_eq!(decoded.deposit, NearToken::from_near(5));
+        let DeterministicAccountStateInit::V1(v1) = decoded.state_init;
+        assert_eq!(v1.code, GlobalContractIdentifier::CodeHash(hash));
+        assert_eq!(v1.data, data);
+    }
+
+    #[test]
+    fn test_action_helper_constructors() {
+        // Test publish_contract
+        let code = vec![1, 2, 3];
+        let action = Action::publish_contract(code.clone(), true);
+        if let Action::DeployGlobalContract(inner) = action {
+            assert_eq!(inner.code, code);
+            assert_eq!(inner.deploy_mode, GlobalContractDeployMode::CodeHash);
+        } else {
+            panic!("Expected DeployGlobalContract");
+        }
+
+        let action = Action::publish_contract(code.clone(), false);
+        if let Action::DeployGlobalContract(inner) = action {
+            assert_eq!(inner.deploy_mode, GlobalContractDeployMode::AccountId);
+        } else {
+            panic!("Expected DeployGlobalContract");
+        }
+
+        // Test deploy_from_hash
+        let hash = CryptoHash::hash(&code);
+        let action = Action::deploy_from_hash(hash);
+        if let Action::UseGlobalContract(inner) = action {
+            assert_eq!(
+                inner.contract_identifier,
+                GlobalContractIdentifier::CodeHash(hash)
+            );
+        } else {
+            panic!("Expected UseGlobalContract");
+        }
+
+        // Test deploy_from_account
+        let account_id: AccountId = "publisher.near".parse().unwrap();
+        let action = Action::deploy_from_account(account_id.clone());
+        if let Action::UseGlobalContract(inner) = action {
+            assert_eq!(
+                inner.contract_identifier,
+                GlobalContractIdentifier::AccountId(account_id)
+            );
+        } else {
+            panic!("Expected UseGlobalContract");
+        }
+    }
 }
