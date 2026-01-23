@@ -1,5 +1,7 @@
 //! Transaction action types.
 
+use std::collections::BTreeMap;
+
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -260,7 +262,7 @@ pub struct DeterministicAccountStateInitV1 {
     pub code: GlobalContractIdentifier,
     /// Initial key-value pairs to populate in the contract's storage.
     /// Keys and values are Borsh-serialized bytes.
-    pub data: Vec<(Vec<u8>, Vec<u8>)>,
+    pub data: BTreeMap<Vec<u8>, Vec<u8>>,
 }
 
 /// Deploy a contract with a deterministically derived account ID (NEP-616).
@@ -478,7 +480,7 @@ impl Action {
     /// Create a NEP-616 deterministic state init action with code hash reference.
     pub fn state_init_by_hash(
         code_hash: CryptoHash,
-        data: Vec<(Vec<u8>, Vec<u8>)>,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: NearToken,
     ) -> Self {
         Self::DeterministicStateInit(DeterministicStateInitAction {
@@ -493,7 +495,7 @@ impl Action {
     /// Create a NEP-616 deterministic state init action with account reference.
     pub fn state_init_by_account(
         account_id: AccountId,
-        data: Vec<(Vec<u8>, Vec<u8>)>,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: NearToken,
     ) -> Self {
         Self::DeterministicStateInit(DeterministicStateInitAction {

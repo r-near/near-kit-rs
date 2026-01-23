@@ -28,6 +28,7 @@
 //! # }
 //! ```
 
+use std::collections::BTreeMap;
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
@@ -541,7 +542,7 @@ impl TransactionBuilder {
     /// # use near_kit::prelude::*;
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
     /// near.transaction("alice.testnet")
-    ///     .state_init_by_hash(code_hash, vec![], "1 NEAR")
+    ///     .state_init_by_hash(code_hash, Default::default(), "1 NEAR")
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -550,7 +551,7 @@ impl TransactionBuilder {
     pub fn state_init_by_hash(
         mut self,
         code_hash: CryptoHash,
-        data: Vec<(Vec<u8>, Vec<u8>)>,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
     ) -> Self {
         let deposit = deposit.into_near_token().unwrap_or(NearToken::ZERO);
@@ -567,7 +568,7 @@ impl TransactionBuilder {
     /// # use near_kit::prelude::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// near.transaction("alice.testnet")
-    ///     .state_init_by_publisher("contract-publisher.near", vec![], "1 NEAR")
+    ///     .state_init_by_publisher("contract-publisher.near", Default::default(), "1 NEAR")
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -576,7 +577,7 @@ impl TransactionBuilder {
     pub fn state_init_by_publisher(
         mut self,
         publisher_id: impl AsRef<str>,
-        data: Vec<(Vec<u8>, Vec<u8>)>,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
     ) -> Self {
         let publisher_id: AccountId = publisher_id
@@ -770,7 +771,7 @@ impl CallBuilder {
     pub fn state_init_by_hash(
         self,
         code_hash: CryptoHash,
-        data: Vec<(Vec<u8>, Vec<u8>)>,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
     ) -> TransactionBuilder {
         self.finish().state_init_by_hash(code_hash, data, deposit)
@@ -780,7 +781,7 @@ impl CallBuilder {
     pub fn state_init_by_publisher(
         self,
         publisher_id: impl AsRef<str>,
-        data: Vec<(Vec<u8>, Vec<u8>)>,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
     ) -> TransactionBuilder {
         self.finish()
