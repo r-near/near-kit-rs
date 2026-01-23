@@ -152,6 +152,57 @@ impl SharedSandbox {
     pub fn client(&self) -> Near {
         Near::sandbox(self)
     }
+
+    /// Set an account's balance in this sandbox.
+    ///
+    /// This patches the account's balance directly via the sandbox RPC,
+    /// useful for testing scenarios that require specific balances
+    /// (e.g., staking tests that need 1M+ NEAR).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use near_kit::*;
+    /// use near_kit::sandbox::SandboxConfig;
+    ///
+    /// let sandbox = SandboxConfig::shared().await;
+    ///
+    /// // Set account balance to 1M NEAR for staking test
+    /// sandbox.set_balance("validator.sandbox", NearToken::near(1_000_000)).await?;
+    /// ```
+    pub async fn set_balance(
+        &self,
+        account_id: impl AsRef<str>,
+        balance: crate::NearToken,
+    ) -> Result<(), crate::Error> {
+        let near = self.client();
+        let account_id: crate::AccountId = account_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| crate::AccountId::new_unchecked(account_id.as_ref()));
+
+        // Get current account state to preserve other fields
+        let current = near.account(&account_id).await?;
+
+        let records = serde_json::json!([
+            {
+                "Account": {
+                    "account_id": account_id.to_string(),
+                    "account": {
+                        "amount": balance.as_yoctonear().to_string(),
+                        "locked": current.locked.as_yoctonear().to_string(),
+                        "code_hash": current.code_hash.to_string(),
+                        "storage_usage": current.storage_usage
+                    }
+                }
+            }
+        ]);
+
+        near.rpc()
+            .sandbox_patch_state(records)
+            .await
+            .map_err(crate::Error::Rpc)
+    }
 }
 
 impl SandboxNetwork for SharedSandbox {
@@ -215,6 +266,57 @@ impl OwnedSandbox {
     /// This is a convenience method equivalent to `Near::sandbox(self)`.
     pub fn client(&self) -> Near {
         Near::sandbox(self)
+    }
+
+    /// Set an account's balance in this sandbox.
+    ///
+    /// This patches the account's balance directly via the sandbox RPC,
+    /// useful for testing scenarios that require specific balances
+    /// (e.g., staking tests that need 1M+ NEAR).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use near_kit::*;
+    /// use near_kit::sandbox::SandboxConfig;
+    ///
+    /// let sandbox = SandboxConfig::fresh().await;
+    ///
+    /// // Set account balance to 1M NEAR for staking test
+    /// sandbox.set_balance("validator.sandbox", NearToken::near(1_000_000)).await?;
+    /// ```
+    pub async fn set_balance(
+        &self,
+        account_id: impl AsRef<str>,
+        balance: crate::NearToken,
+    ) -> Result<(), crate::Error> {
+        let near = self.client();
+        let account_id: crate::AccountId = account_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| crate::AccountId::new_unchecked(account_id.as_ref()));
+
+        // Get current account state to preserve other fields
+        let current = near.account(&account_id).await?;
+
+        let records = serde_json::json!([
+            {
+                "Account": {
+                    "account_id": account_id.to_string(),
+                    "account": {
+                        "amount": balance.as_yoctonear().to_string(),
+                        "locked": current.locked.as_yoctonear().to_string(),
+                        "code_hash": current.code_hash.to_string(),
+                        "storage_usage": current.storage_usage
+                    }
+                }
+            }
+        ]);
+
+        near.rpc()
+            .sandbox_patch_state(records)
+            .await
+            .map_err(crate::Error::Rpc)
     }
 }
 

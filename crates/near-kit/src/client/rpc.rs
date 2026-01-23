@@ -538,6 +538,61 @@ impl RpcClient {
             }
         }
     }
+
+    // ========================================================================
+    // Sandbox-only methods
+    // ========================================================================
+
+    /// Patch account state in sandbox.
+    ///
+    /// This is a sandbox-only method that allows modifying account state directly,
+    /// useful for testing scenarios that require specific account configurations
+    /// (e.g., setting a high balance for staking tests).
+    ///
+    /// # Arguments
+    ///
+    /// * `records` - State records to patch (Account, Data, Contract, AccessKey, etc.)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Set account balance to 1M NEAR
+    /// rpc.sandbox_patch_state(serde_json::json!([
+    ///     {
+    ///         "Account": {
+    ///             "account_id": "alice.sandbox",
+    ///             "account": {
+    ///                 "amount": "1000000000000000000000000000000",
+    ///                 "locked": "0",
+    ///                 "code_hash": "11111111111111111111111111111111",
+    ///                 "storage_usage": 182
+    ///             }
+    ///         }
+    ///     }
+    /// ])).await?;
+    /// ```
+    pub async fn sandbox_patch_state(&self, records: serde_json::Value) -> Result<(), RpcError> {
+        let params = serde_json::json!({
+            "records": records,
+        });
+
+        // The sandbox_patch_state method returns an empty result on success
+        let _: serde_json::Value = self.call("sandbox_patch_state", params).await?;
+
+        // NOTE: For some reason, patching account-related items sometimes requires
+        // sending the patch twice for it to take effect reliably.
+        // See: https://github.com/near/near-workspaces-rs/commit/2b72b9b8491c3140ff2d30b0c45d09b200cb027b
+        let _: serde_json::Value = self
+            .call(
+                "sandbox_patch_state",
+                serde_json::json!({
+                    "records": records,
+                }),
+            )
+            .await?;
+
+        Ok(())
+    }
 }
 
 impl Clone for RpcClient {

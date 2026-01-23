@@ -456,3 +456,163 @@ async fn test_sandbox_multiple_actions_in_one_transaction() {
     assert!(alice_balance.total > NearToken::from_near(19));
     assert!(bob_balance.total > NearToken::from_near(9));
 }
+
+// =============================================================================
+// Sandbox State Patching Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_sandbox_set_balance() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+
+    // Create a test account with a small balance
+    let account_key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    root_near
+        .transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::near(10))
+        .add_full_access_key(account_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    let initial_balance = root_near.balance(&account_id).await.unwrap();
+    println!("Initial balance: {}", initial_balance.total);
+    assert!(initial_balance.total < NearToken::near(11));
+
+    // Use sandbox state patching to set a much larger balance
+    let target_balance = NearToken::near(1_000_000);
+    sandbox
+        .set_balance(&account_id, target_balance)
+        .await
+        .unwrap();
+
+    // Verify the balance was updated
+    let new_balance = root_near.balance(&account_id).await.unwrap();
+    println!("New balance after patching: {}", new_balance.total);
+    assert_eq!(new_balance.total, target_balance);
+}
+
+#[tokio::test]
+async fn test_sandbox_set_balance_preserves_other_fields() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    // Create an account and deploy a contract to it
+    let account_key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    let wasm_code =
+        std::fs::read("tests/contracts/guestbook.wasm").expect("failed to read test contract");
+
+    root_near
+        .transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::near(50))
+        .add_full_access_key(account_key.public_key())
+        .deploy(wasm_code)
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // Get original account state
+    let original = root_near.account(&account_id).await.unwrap();
+    println!("Original code_hash: {}", original.code_hash);
+    println!("Original storage_usage: {}", original.storage_usage);
+
+    // Patch the balance
+    let target_balance = NearToken::near(500_000);
+    sandbox
+        .set_balance(&account_id, target_balance)
+        .await
+        .unwrap();
+
+    // Verify the balance was updated but other fields preserved
+    let updated = root_near.account(&account_id).await.unwrap();
+    assert_eq!(updated.amount, target_balance);
+    assert_eq!(
+        updated.code_hash, original.code_hash,
+        "code_hash should be preserved"
+    );
+    assert_eq!(
+        updated.storage_usage, original.storage_usage,
+        "storage_usage should be preserved"
+    );
+
+    // Verify the contract still works
+    let account_near = Near::custom(rpc_url)
+        .credentials(account_key.to_string(), account_id.as_str())
+        .unwrap()
+        .build();
+
+    let messages: Vec<serde_json::Value> = account_near
+        .view(&account_id, "get_messages")
+        .args(serde_json::json!({}))
+        .await
+        .unwrap();
+    assert!(messages.is_empty());
+}
+
+#[tokio::test]
+async fn test_sandbox_set_balance_for_staking() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    // Create a validator account with small initial balance
+    let validator_key = SecretKey::generate_ed25519();
+    let validator_id = unique_account();
+
+    root_near
+        .transaction(&validator_id)
+        .create_account()
+        .transfer(NearToken::near(100))
+        .add_full_access_key(validator_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // Patch the balance to 2M NEAR (enough to meet sandbox minimum stake of ~800K)
+    let staking_balance = NearToken::near(2_000_000);
+    sandbox
+        .set_balance(&validator_id, staking_balance)
+        .await
+        .unwrap();
+
+    // Verify the patched balance
+    let balance = root_near.balance(&validator_id).await.unwrap();
+    assert_eq!(balance.total, staking_balance);
+
+    // Now we can actually stake with enough to meet the minimum
+    let validator_near = Near::custom(rpc_url)
+        .credentials(validator_key.to_string(), validator_id.as_str())
+        .unwrap()
+        .build();
+
+    let stake_amount = NearToken::near(1_000_000);
+    let outcome = validator_near
+        .transaction(&validator_id)
+        .stake(stake_amount, validator_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    println!("Stake transaction: {:?}", outcome.transaction_hash());
+    assert!(
+        outcome.is_success(),
+        "Stake action should succeed with sufficient balance"
+    );
+
+    // Verify locked balance reflects the stake
+    let account = root_near.account(&validator_id).await.unwrap();
+    println!("Locked balance after staking: {}", account.locked);
+    assert!(account.locked >= stake_amount);
+}

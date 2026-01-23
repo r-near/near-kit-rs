@@ -580,46 +580,41 @@ async fn test_action_stake() {
     let root_near = sandbox.client();
     let rpc_url = sandbox.rpc_url();
 
-    // Note: Staking requires a minimum stake that varies by network.
-    // In sandbox, the minimum is around 800,000 NEAR which exceeds the default
-    // genesis account balance of 10,000 NEAR. We verify the transaction is
-    // constructed and submitted correctly, even though it will fail with
-    // InsufficientStake at the protocol level.
+    // Create a validator account with small initial balance
     let (staker_near, staker_id, staker_key) =
-        create_funded_account(&root_near, rpc_url, NearToken::near(1000)).await;
+        create_funded_account(&root_near, rpc_url, NearToken::near(100)).await;
 
-    // Stake action - the transaction will be processed but may fail with InsufficientStake
-    // if the amount is below the network's minimum stake requirement
-    let result = staker_near
+    // Patch the balance to 2M NEAR (enough to meet sandbox minimum stake of ~800K)
+    let staking_balance = NearToken::near(2_000_000);
+    sandbox
+        .set_balance(&staker_id, staking_balance)
+        .await
+        .unwrap();
+
+    // Verify the patched balance
+    let balance = root_near.balance(&staker_id).await.unwrap();
+    assert_eq!(balance.total, staking_balance);
+
+    // Now stake with enough to meet the minimum
+    let stake_amount = NearToken::near(1_000_000);
+    let outcome = staker_near
         .transaction(&staker_id)
-        .stake(NearToken::near(500), staker_key.public_key())
+        .stake(stake_amount, staker_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
-        .await;
+        .await
+        .unwrap();
 
-    // The transaction should be processed (not rejected at RPC level)
-    // It may fail at runtime with InsufficientStake, but that's expected in sandbox
-    match result {
-        Ok(outcome) => {
-            println!("Stake action completed: {:?}", outcome.transaction_hash());
-            // If it succeeded, verify locked balance
-            if outcome.is_success() {
-                let account = root_near.account(&staker_id).await.unwrap();
-                println!("Account locked balance: {}", account.locked);
-                assert!(account.locked >= NearToken::near(500));
-            }
-        }
-        Err(e) => {
-            // InsufficientStake is expected in sandbox with limited balance
-            let err_msg = format!("{:?}", e);
-            assert!(
-                err_msg.contains("InsufficientStake"),
-                "Expected InsufficientStake error, got: {}",
-                err_msg
-            );
-            println!("Stake action failed with expected InsufficientStake (sandbox limitation)");
-        }
-    }
+    println!("Stake action completed: {:?}", outcome.transaction_hash());
+    assert!(
+        outcome.is_success(),
+        "Stake action should succeed with sufficient balance"
+    );
+
+    // Verify locked balance reflects the stake
+    let account = root_near.account(&staker_id).await.unwrap();
+    println!("Locked balance after staking: {}", account.locked);
+    assert!(account.locked >= stake_amount);
 }
 
 /// Test multiple actions in a single transaction
