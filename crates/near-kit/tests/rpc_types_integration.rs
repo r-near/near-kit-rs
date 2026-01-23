@@ -7,8 +7,8 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::prelude::*;
 use near_kit::sandbox::{SandboxConfig, ROOT_ACCOUNT};
+use near_kit::*;
 use near_kit::{
     AccessKeyPermissionView, ActionView, FinalExecutionStatus, MerkleDirection, ReceiptContent,
 };

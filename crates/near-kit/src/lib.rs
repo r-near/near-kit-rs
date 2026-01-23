@@ -6,7 +6,7 @@
 //! # Quick Start
 //!
 //! ```rust,no_run
-//! use near_kit::prelude::*;
+//! use near_kit::*;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), near_kit::Error> {
@@ -54,7 +54,7 @@
 //! Use the `#[near_kit::contract]` macro to create type-safe contract clients:
 //!
 //! ```ignore
-//! use near_kit::prelude::*;
+//! use near_kit::*;
 //! use serde::Serialize;
 //!
 //! #[near_kit::contract]
@@ -99,29 +99,3 @@ pub use near_kit_macros::borsh;
 pub use near_kit_macros::call;
 pub use near_kit_macros::contract;
 pub use near_kit_macros::json;
-
-/// Prelude module for convenient imports.
-///
-/// ```
-/// use near_kit::prelude::*;
-/// ```
-pub mod prelude {
-    pub use crate::client::{
-        DelegateOptions, DelegateResult, EnvSigner, FileSigner, InMemorySigner, Near, NearBuilder,
-        RotatingSigner, SandboxNetwork, Signer,
-    };
-    pub use crate::contract::Contract;
-    pub use crate::types::{
-        AccessKeyPermissionView, AccountId, ActionView, BlockReference, CryptoHash,
-        DelegateDecodeError, FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts,
-        FinalExecutionStatus, Finality, Gas, MerkleDirection, NearToken, PublicKey, Receipt,
-        ReceiptContent, SecretKey, SignedDelegateAction, TxExecutionStatus,
-    };
-    pub use crate::Error;
-
-    // Re-export proc macros in prelude
-    pub use near_kit_macros::borsh;
-    pub use near_kit_macros::call;
-    pub use near_kit_macros::contract;
-    pub use near_kit_macros::json;
-}

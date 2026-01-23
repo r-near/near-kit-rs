@@ -6,8 +6,8 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::prelude::*;
 use near_kit::sandbox::{SandboxConfig, ROOT_ACCOUNT};
+use near_kit::*;
 use near_kit::{ActionView, ReceiptContent};
 
 /// Counter for generating unique subaccount names

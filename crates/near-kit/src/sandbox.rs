@@ -18,7 +18,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use near_kit::prelude::*;
+//! use near_kit::*;
 //! use near_kit::sandbox::SandboxConfig;
 //!
 //! #[tokio::test]
@@ -261,7 +261,7 @@ impl Drop for OwnedSandbox {
 /// # Example
 ///
 /// ```rust,ignore
-/// use near_kit::prelude::*;
+/// use near_kit::*;
 /// use near_kit::sandbox::SandboxConfig;
 ///
 /// #[tokio::test]

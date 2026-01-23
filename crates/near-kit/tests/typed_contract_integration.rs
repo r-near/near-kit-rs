@@ -2,8 +2,8 @@
 //!
 //! Tests the `#[near_kit::contract]` macro with the guestbook contract.
 
-use near_kit::prelude::*;
 use near_kit::sandbox::{SandboxConfig, SandboxNetwork};
+use near_kit::*;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================

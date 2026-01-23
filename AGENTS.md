@@ -27,7 +27,7 @@ This document provides context and a task checklist for AI agents working on thi
 near-kit-rs/
 ├── Cargo.toml              # Single crate
 ├── src/
-│   ├── lib.rs              # Main exports and prelude
+│   ├── lib.rs              # Main exports
 │   ├── error.rs            # Error types (Error, RpcError, Parse*Error)
 │   ├── types/
 │   │   ├── mod.rs          # Re-exports all types

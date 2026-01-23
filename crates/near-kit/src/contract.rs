@@ -6,7 +6,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use near_kit::prelude::*;
+//! use near_kit::*;
 //! use serde::Serialize;
 //!
 //! #[near_kit::contract]

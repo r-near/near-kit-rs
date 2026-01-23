@@ -50,7 +50,7 @@ pub trait SandboxNetwork {
 /// # Example
 ///
 /// ```rust,no_run
-/// use near_kit::prelude::*;
+/// use near_kit::*;
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), near_kit::Error> {
@@ -99,7 +99,7 @@ impl Near {
     ///
     /// ```rust,ignore
     /// use near_sandbox::Sandbox;
-    /// use near_kit::prelude::*;
+    /// use near_kit::*;
     ///
     /// let sandbox = Sandbox::start_sandbox().await?;
     /// let near = Near::sandbox(&sandbox);
@@ -152,7 +152,7 @@ impl Near {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
     ///
@@ -185,7 +185,7 @@ impl Near {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
     /// let account = near.account("alice.testnet").await?;
@@ -206,7 +206,7 @@ impl Near {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
     /// if near.account_exists("alice.testnet").await? {
@@ -231,7 +231,7 @@ impl Near {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
     ///
@@ -262,7 +262,7 @@ impl Near {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
     /// let keys = near.access_keys("alice.testnet").await?;
@@ -292,7 +292,7 @@ impl Near {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet()
     ///         .credentials("ed25519:...", "alice.testnet")?
@@ -325,7 +325,7 @@ impl Near {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet()
     ///         .credentials("ed25519:...", "alice.testnet")?
@@ -361,7 +361,7 @@ impl Near {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet()
     ///         .credentials("ed25519:...", "alice.testnet")?
@@ -424,7 +424,7 @@ impl Near {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet()
     ///     .credentials("ed25519:...", "alice.testnet")?
@@ -516,7 +516,7 @@ impl Near {
     /// # Example
     ///
     /// ```ignore
-    /// use near_kit::prelude::*;
+    /// use near_kit::*;
     /// use serde::Serialize;
     ///
     /// #[near_kit::contract]
@@ -574,7 +574,7 @@ impl std::fmt::Debug for Near {
 /// # Example
 ///
 /// ```rust,ignore
-/// use near_kit::prelude::*;
+/// use near_kit::*;
 ///
 /// // Read-only client
 /// let near = Near::testnet().build();

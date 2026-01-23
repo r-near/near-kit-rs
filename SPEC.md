@@ -62,7 +62,7 @@ This is a single crate for simplicity, with a separate proc-macro crate for type
 near-kit-rs/
 ├── Cargo.toml              # Main crate
 ├── src/
-│   ├── lib.rs              # Main exports and prelude
+│   ├── lib.rs              # Main exports
 │   ├── error.rs            # Error types (Error, RpcError, Parse*Error)
 │   ├── types/
 │   │   ├── mod.rs          # Re-exports all types
@@ -1364,7 +1364,7 @@ impl IntoFuture for CallBuilder {
 ### Usage Examples
 
 ```rust
-use near_kit::prelude::*;
+use near_kit::*;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Create a new sub-account with funding and a key
@@ -1451,7 +1451,7 @@ counter.add(AddArgs { value: 5 }).await?;  // Compile-time checked
 ### Basic Usage
 
 ```rust
-use near_kit::prelude::*;
+use near_kit::*;
 use serde::{Serialize, Deserialize};
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1734,7 +1734,7 @@ let count = counter.get_count()
 ### Complete Example: FT Contract
 
 ```rust
-use near_kit::prelude::*;
+use near_kit::*;
 use serde::{Serialize, Deserialize};
 
 /// NEP-141 Fungible Token interface
@@ -2095,7 +2095,7 @@ pub enum Error {
 Here's what the final API should look like:
 
 ```rust
-use near_kit::prelude::*;
+use near_kit::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -2360,7 +2360,7 @@ The `sandbox` module (behind the `sandbox` feature flag) provides ergonomic APIs
 ### API Overview
 
 ```rust
-use near_kit::prelude::*;
+use near_kit::*;
 use near_kit::sandbox::SandboxConfig;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2422,7 +2422,7 @@ let near = sandbox.client();
 ### Full Test Example
 
 ```rust
-use near_kit::prelude::*;
+use near_kit::*;
 use near_kit::sandbox::SandboxConfig;
 
 #[tokio::test]

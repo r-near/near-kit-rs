@@ -24,7 +24,7 @@ use super::signer::Signer;
 /// # Example
 ///
 /// ```rust,no_run
-/// # use near_kit::prelude::*;
+/// # use near_kit::*;
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet()
 ///         .credentials("ed25519:...", "alice.testnet").unwrap()
@@ -151,7 +151,7 @@ impl IntoFuture for TransferCall {
 /// # Example
 ///
 /// ```rust,no_run
-/// # use near_kit::prelude::*;
+/// # use near_kit::*;
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet()
 ///         .credentials("ed25519:...", "alice.testnet").unwrap()
@@ -323,7 +323,7 @@ impl IntoFuture for ContractCall {
 /// # Example
 ///
 /// ```rust,no_run
-/// # use near_kit::prelude::*;
+/// # use near_kit::*;
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet()
 ///         .credentials("ed25519:...", "alice.testnet").unwrap()

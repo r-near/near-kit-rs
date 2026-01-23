@@ -25,7 +25,7 @@ use super::rpc::RpcClient;
 /// # Example
 ///
 /// ```rust,no_run
-/// # use near_kit::prelude::*;
+/// # use near_kit::*;
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet().build();
 ///
@@ -102,7 +102,7 @@ impl IntoFuture for BalanceQuery {
 /// # Example
 ///
 /// ```rust,no_run
-/// # use near_kit::prelude::*;
+/// # use near_kit::*;
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet().build();
 ///
@@ -169,7 +169,7 @@ impl IntoFuture for AccountQuery {
 /// # Example
 ///
 /// ```rust,no_run
-/// # use near_kit::prelude::*;
+/// # use near_kit::*;
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet().build();
 ///
@@ -241,7 +241,7 @@ impl IntoFuture for AccountExistsQuery {
 /// # Example
 ///
 /// ```rust,no_run
-/// # use near_kit::prelude::*;
+/// # use near_kit::*;
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet().build();
 ///
@@ -310,7 +310,7 @@ impl IntoFuture for AccessKeysQuery {
 /// # Example
 ///
 /// ```rust,no_run
-/// # use near_kit::prelude::*;
+/// # use near_kit::*;
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet().build();
 ///

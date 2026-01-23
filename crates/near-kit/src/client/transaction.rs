@@ -6,7 +6,7 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! # use near_kit::prelude::*;
+//! # use near_kit::*;
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let near = Near::testnet()
 //!     .credentials("ed25519:...", "alice.testnet")?
@@ -129,7 +129,7 @@ impl DelegateResult {
 /// # Example
 ///
 /// ```rust,no_run
-/// # use near_kit::prelude::*;
+/// # use near_kit::*;
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet()
 ///     .credentials("ed25519:...", "alice.testnet")?
@@ -197,7 +197,7 @@ impl TransactionBuilder {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// near.transaction("bob.testnet")
     ///     .transfer(NearToken::near(1))
@@ -227,7 +227,7 @@ impl TransactionBuilder {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// near.transaction("contract.testnet")
     ///     .call("set_greeting")
@@ -310,7 +310,7 @@ impl TransactionBuilder {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example(relayer: Near, payload: &str) -> Result<(), near_kit::Error> {
     /// // Relayer receives base64 payload from user
     /// let signed_delegate = SignedDelegateAction::from_base64(payload)?;
@@ -344,7 +344,7 @@ impl TransactionBuilder {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// // User builds and signs a delegate action
     /// let result = near
@@ -460,7 +460,7 @@ impl TransactionBuilder {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// let wasm_code = std::fs::read("contract.wasm")?;
     ///
@@ -491,7 +491,7 @@ impl TransactionBuilder {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
     /// near.transaction("alice.testnet")
     ///     .deploy_from_hash(code_hash)
@@ -513,7 +513,7 @@ impl TransactionBuilder {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// near.transaction("alice.testnet")
     ///     .deploy_from_publisher("contract-publisher.near")
@@ -539,7 +539,7 @@ impl TransactionBuilder {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
     /// near.transaction("alice.testnet")
     ///     .state_init_by_hash(code_hash, Default::default(), NearToken::near(1))
@@ -565,7 +565,7 @@ impl TransactionBuilder {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// near.transaction("alice.testnet")
     ///     .state_init_by_publisher("contract-publisher.near", Default::default(), NearToken::near(1))
@@ -673,7 +673,7 @@ impl CallBuilder {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// near.transaction("contract.testnet")
     ///     .call("method")
@@ -695,7 +695,7 @@ impl CallBuilder {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::prelude::*;
+    /// # use near_kit::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// near.transaction("contract.testnet")
     ///     .call("method")

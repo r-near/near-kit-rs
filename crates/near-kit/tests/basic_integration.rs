@@ -5,8 +5,8 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::prelude::*;
 use near_kit::sandbox::{SandboxConfig, ROOT_ACCOUNT};
+use near_kit::*;
 
 /// Counter for generating unique subaccount names
 static COUNTER: AtomicUsize = AtomicUsize::new(0);

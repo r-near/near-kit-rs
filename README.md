@@ -21,7 +21,7 @@ The existing `near-api-rs` has grown organically and has some pain points:
 ## Quick Example
 
 ```rust
-use near_kit::prelude::*;
+use near_kit::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
