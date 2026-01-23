@@ -8,7 +8,6 @@ mod action;
 mod block_reference;
 mod hash;
 mod key;
-pub mod nep413;
 mod rpc;
 mod transaction;
 mod units;
@@ -17,16 +16,15 @@ pub use account::AccountId;
 pub use action::{
     AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction,
     DecodeError as DelegateDecodeError, DelegateAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, FunctionCallPermission, NonDelegateAction,
-    SignedDelegateAction, StakeAction, TransferAction, DELEGATE_ACTION_PREFIX,
+    DeployContractAction, DeployGlobalContractAction, DeterministicAccountStateInit,
+    DeterministicAccountStateInitV1, DeterministicStateInitAction, FunctionCallAction,
+    FunctionCallPermission, GlobalContractDeployMode, GlobalContractIdentifier, NonDelegateAction,
+    SignedDelegateAction, StakeAction, TransferAction, UseGlobalContractAction,
+    DELEGATE_ACTION_PREFIX,
 };
 pub use block_reference::{BlockReference, Finality, TxExecutionStatus};
 pub use hash::CryptoHash;
 pub use key::{KeyType, PublicKey, SecretKey, Signature};
-pub use nep413::{
-    generate_nonce, serialize_message, sign_message, verify_signature, SignMessageParams,
-    SignedMessage, VerifyError, VerifyOptions, DEFAULT_MAX_AGE, NEP413_TAG,
-};
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountView, ActionReceiptData, ActionView, BlockHeaderView, BlockView,

@@ -28,14 +28,15 @@
 //! # }
 //! ```
 
+use std::collections::BTreeMap;
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
 use crate::error::{Error, RpcError};
 use crate::types::{
-    AccountId, Action, BlockReference, DelegateAction, FinalExecutionOutcome, Finality, Gas,
-    IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey, SignedDelegateAction,
+    AccountId, Action, BlockReference, CryptoHash, DelegateAction, FinalExecutionOutcome, Finality,
+    Gas, IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey, SignedDelegateAction,
     Transaction, TxExecutionStatus,
 };
 
@@ -441,6 +442,155 @@ impl TransactionBuilder {
     }
 
     // ========================================================================
+    // Global Contract Actions
+    // ========================================================================
+
+    /// Publish a contract to the global registry.
+    ///
+    /// Global contracts are deployed once and can be referenced by multiple accounts,
+    /// saving storage costs. Two modes are available:
+    ///
+    /// - `by_hash = false` (default): Contract is identified by the signer's account ID.
+    ///   The signer can update the contract later, and all users will automatically
+    ///   use the updated version.
+    ///
+    /// - `by_hash = true`: Contract is identified by its code hash. This creates
+    ///   an immutable contract that cannot be updated.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// let wasm_code = std::fs::read("contract.wasm")?;
+    ///
+    /// // Publish updatable contract (identified by your account)
+    /// near.transaction("alice.testnet")
+    ///     .publish_contract(wasm_code.clone(), false)
+    ///     .send()
+    ///     .await?;
+    ///
+    /// // Publish immutable contract (identified by its hash)
+    /// near.transaction("alice.testnet")
+    ///     .publish_contract(wasm_code, true)
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn publish_contract(mut self, code: impl Into<Vec<u8>>, by_hash: bool) -> Self {
+        self.actions
+            .push(Action::publish_contract(code.into(), by_hash));
+        self
+    }
+
+    /// Deploy a contract from the global registry by code hash.
+    ///
+    /// References a previously published immutable contract.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
+    /// near.transaction("alice.testnet")
+    ///     .deploy_from_hash(code_hash)
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn deploy_from_hash(mut self, code_hash: CryptoHash) -> Self {
+        self.actions.push(Action::deploy_from_hash(code_hash));
+        self
+    }
+
+    /// Deploy a contract from the global registry by publisher account.
+    ///
+    /// References a contract published by the given account.
+    /// The contract can be updated by the publisher.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// near.transaction("alice.testnet")
+    ///     .deploy_from_publisher("contract-publisher.near")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn deploy_from_publisher(mut self, publisher_id: impl AsRef<str>) -> Self {
+        let publisher_id: AccountId = publisher_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(publisher_id.as_ref()));
+        self.actions.push(Action::deploy_from_account(publisher_id));
+        self
+    }
+
+    /// Create a NEP-616 deterministic state init action with code hash reference.
+    ///
+    /// The account ID is derived from the state init data:
+    /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
+    /// near.transaction("alice.testnet")
+    ///     .state_init_by_hash(code_hash, Default::default(), "1 NEAR")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn state_init_by_hash(
+        mut self,
+        code_hash: CryptoHash,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+        deposit: impl IntoNearToken,
+    ) -> Self {
+        let deposit = deposit.into_near_token().unwrap_or(NearToken::ZERO);
+        self.actions
+            .push(Action::state_init_by_hash(code_hash, data, deposit));
+        self
+    }
+
+    /// Create a NEP-616 deterministic state init action with publisher account reference.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::prelude::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// near.transaction("alice.testnet")
+    ///     .state_init_by_publisher("contract-publisher.near", Default::default(), "1 NEAR")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn state_init_by_publisher(
+        mut self,
+        publisher_id: impl AsRef<str>,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+        deposit: impl IntoNearToken,
+    ) -> Self {
+        let publisher_id: AccountId = publisher_id
+            .as_ref()
+            .parse()
+            .unwrap_or_else(|_| AccountId::new_unchecked(publisher_id.as_ref()));
+        let deposit = deposit.into_near_token().unwrap_or(NearToken::ZERO);
+        self.actions
+            .push(Action::state_init_by_account(publisher_id, data, deposit));
+        self
+    }
+
+    // ========================================================================
     // Configuration methods
     // ========================================================================
 
@@ -600,6 +750,42 @@ impl CallBuilder {
     /// Add a stake action.
     pub fn stake(self, amount: impl IntoNearToken, public_key: PublicKey) -> TransactionBuilder {
         self.finish().stake(amount, public_key)
+    }
+
+    /// Publish a contract to the global registry.
+    pub fn publish_contract(self, code: impl Into<Vec<u8>>, by_hash: bool) -> TransactionBuilder {
+        self.finish().publish_contract(code, by_hash)
+    }
+
+    /// Deploy a contract from the global registry by code hash.
+    pub fn deploy_from_hash(self, code_hash: CryptoHash) -> TransactionBuilder {
+        self.finish().deploy_from_hash(code_hash)
+    }
+
+    /// Deploy a contract from the global registry by publisher account.
+    pub fn deploy_from_publisher(self, publisher_id: impl AsRef<str>) -> TransactionBuilder {
+        self.finish().deploy_from_publisher(publisher_id)
+    }
+
+    /// Create a NEP-616 deterministic state init action with code hash reference.
+    pub fn state_init_by_hash(
+        self,
+        code_hash: CryptoHash,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+        deposit: impl IntoNearToken,
+    ) -> TransactionBuilder {
+        self.finish().state_init_by_hash(code_hash, data, deposit)
+    }
+
+    /// Create a NEP-616 deterministic state init action with publisher account reference.
+    pub fn state_init_by_publisher(
+        self,
+        publisher_id: impl AsRef<str>,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+        deposit: impl IntoNearToken,
+    ) -> TransactionBuilder {
+        self.finish()
+            .state_init_by_publisher(publisher_id, data, deposit)
     }
 
     /// Override the signer.

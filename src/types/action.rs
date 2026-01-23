@@ -1,5 +1,7 @@
 //! Transaction action types.
 
+use std::collections::BTreeMap;
+
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
@@ -208,6 +210,7 @@ pub enum GlobalContractIdentifier {
 ///
 /// Determines how the contract will be identified in the global registry.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[repr(u8)]
 pub enum GlobalContractDeployMode {
     /// Contract is identified by its code hash (immutable).
     /// Other accounts reference it by the hash.
@@ -217,7 +220,7 @@ pub enum GlobalContractDeployMode {
     AccountId,
 }
 
-/// Deploy a contract to the global registry.
+/// Publish a contract to the global registry.
 ///
 /// Global contracts are deployed once and can be referenced by multiple accounts,
 /// saving storage costs. The contract can be identified either by its code hash
@@ -248,6 +251,7 @@ pub struct UseGlobalContractAction {
 ///
 /// The account ID is derived from: `"0s" + hex(keccak256(borsh(state_init))[12..32])`
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[repr(u8)]
 pub enum DeterministicAccountStateInit {
     /// Version 1 of the state init format.
     V1(DeterministicAccountStateInitV1),
@@ -260,7 +264,7 @@ pub struct DeterministicAccountStateInitV1 {
     pub code: GlobalContractIdentifier,
     /// Initial key-value pairs to populate in the contract's storage.
     /// Keys and values are Borsh-serialized bytes.
-    pub data: Vec<(Vec<u8>, Vec<u8>)>,
+    pub data: BTreeMap<Vec<u8>, Vec<u8>>,
 }
 
 /// Deploy a contract with a deterministically derived account ID (NEP-616).
@@ -303,37 +307,14 @@ pub struct SignedDelegateAction {
 
 /// Non-delegate action (for use within DelegateAction).
 ///
-/// This is the same as Action but without the Delegate variant,
-/// since delegate actions cannot contain nested delegate actions.
+/// This is a newtype wrapper around Action that ensures the wrapped action
+/// is not a Delegate variant, since delegate actions cannot contain nested
+/// delegate actions.
 ///
-/// IMPORTANT: Variant order matters for Borsh serialization!
-/// The discriminants must match the Action enum (excluding Delegate).
+/// The newtype wrapper serializes identically to the inner Action, preserving
+/// Borsh compatibility with near-primitives.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub enum NonDelegateAction {
-    /// Create a new account. (discriminant = 0)
-    CreateAccount(CreateAccountAction),
-    /// Deploy contract code. (discriminant = 1)
-    DeployContract(DeployContractAction),
-    /// Call a contract function. (discriminant = 2)
-    FunctionCall(FunctionCallAction),
-    /// Transfer NEAR tokens. (discriminant = 3)
-    Transfer(TransferAction),
-    /// Stake NEAR for validation. (discriminant = 4)
-    Stake(StakeAction),
-    /// Add an access key. (discriminant = 5)
-    AddKey(AddKeyAction),
-    /// Delete an access key. (discriminant = 6)
-    DeleteKey(DeleteKeyAction),
-    /// Delete the account. (discriminant = 7)
-    DeleteAccount(DeleteAccountAction),
-    /// Publish a contract to global registry. (discriminant = 8)
-    /// Note: This follows after DeleteAccount since Delegate is not included.
-    DeployGlobalContract(DeployGlobalContractAction),
-    /// Deploy from a previously published global contract. (discriminant = 9)
-    UseGlobalContract(UseGlobalContractAction),
-    /// NEP-616: Deploy with deterministically derived account ID. (discriminant = 10)
-    DeterministicStateInit(DeterministicStateInitAction),
-}
+pub struct NonDelegateAction(Action);
 
 // Helper constructors for actions
 impl Action {
@@ -474,6 +455,36 @@ impl Action {
             deposit,
         })
     }
+
+    /// Create a NEP-616 deterministic state init action with code hash reference.
+    pub fn state_init_by_hash(
+        code_hash: CryptoHash,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+        deposit: NearToken,
+    ) -> Self {
+        Self::DeterministicStateInit(DeterministicStateInitAction {
+            state_init: DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+                code: GlobalContractIdentifier::CodeHash(code_hash),
+                data,
+            }),
+            deposit,
+        })
+    }
+
+    /// Create a NEP-616 deterministic state init action with account reference.
+    pub fn state_init_by_account(
+        account_id: AccountId,
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
+        deposit: NearToken,
+    ) -> Self {
+        Self::DeterministicStateInit(DeterministicStateInitAction {
+            state_init: DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+                code: GlobalContractIdentifier::AccountId(account_id),
+                data,
+            }),
+            deposit,
+        })
+    }
 }
 
 impl DelegateAction {
@@ -580,20 +591,35 @@ impl std::error::Error for DecodeError {
 impl NonDelegateAction {
     /// Convert from an Action, returning None if it's a Delegate action.
     pub fn from_action(action: Action) -> Option<Self> {
-        match action {
-            Action::CreateAccount(a) => Some(NonDelegateAction::CreateAccount(a)),
-            Action::DeployContract(a) => Some(NonDelegateAction::DeployContract(a)),
-            Action::FunctionCall(a) => Some(NonDelegateAction::FunctionCall(a)),
-            Action::Transfer(a) => Some(NonDelegateAction::Transfer(a)),
-            Action::Stake(a) => Some(NonDelegateAction::Stake(a)),
-            Action::AddKey(a) => Some(NonDelegateAction::AddKey(a)),
-            Action::DeleteKey(a) => Some(NonDelegateAction::DeleteKey(a)),
-            Action::DeleteAccount(a) => Some(NonDelegateAction::DeleteAccount(a)),
-            Action::Delegate(_) => None,
-            Action::DeployGlobalContract(a) => Some(NonDelegateAction::DeployGlobalContract(a)),
-            Action::UseGlobalContract(a) => Some(NonDelegateAction::UseGlobalContract(a)),
-            Action::DeterministicStateInit(a) => Some(NonDelegateAction::DeterministicStateInit(a)),
+        if matches!(action, Action::Delegate(_)) {
+            None
+        } else {
+            Some(Self(action))
         }
+    }
+
+    /// Get a reference to the inner action.
+    pub fn inner(&self) -> &Action {
+        &self.0
+    }
+
+    /// Consume self and return the inner action.
+    pub fn into_inner(self) -> Action {
+        self.0
+    }
+}
+
+impl From<NonDelegateAction> for Action {
+    fn from(action: NonDelegateAction) -> Self {
+        action.0
+    }
+}
+
+impl TryFrom<Action> for NonDelegateAction {
+    type Error = ();
+
+    fn try_from(action: Action) -> Result<Self, Self::Error> {
+        Self::from_action(action).ok_or(())
     }
 }
 
@@ -612,9 +638,12 @@ mod tests {
         DelegateAction {
             sender_id,
             receiver_id,
-            actions: vec![NonDelegateAction::Transfer(TransferAction {
-                deposit: NearToken::from_near(1),
-            })],
+            actions: vec![
+                NonDelegateAction::from_action(Action::Transfer(TransferAction {
+                    deposit: NearToken::from_near(1),
+                }))
+                .unwrap(),
+            ],
             nonce: 1,
             max_block_height: 1000,
             public_key,
