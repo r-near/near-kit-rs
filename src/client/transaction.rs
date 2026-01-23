@@ -798,6 +798,13 @@ impl CallBuilder {
         self.finish().wait_until(status)
     }
 
+    /// Build and sign a delegate action for meta-transactions (NEP-366).
+    ///
+    /// This finishes the current function call and then creates a delegate action.
+    pub async fn delegate(self, options: DelegateOptions) -> Result<DelegateResult, crate::Error> {
+        self.finish().delegate(options).await
+    }
+
     /// Send the transaction.
     pub fn send(self) -> TransactionSend {
         self.finish().send()
