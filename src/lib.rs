@@ -80,10 +80,11 @@ pub mod prelude {
         RotatingSigner, SandboxNetwork, Signer,
     };
     pub use crate::types::{
-        AccessKeyPermissionView, AccountId, ActionView, BlockReference, CryptoHash,
-        DelegateDecodeError, FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts,
-        FinalExecutionStatus, Finality, Gas, MerkleDirection, NearToken, PublicKey, Receipt,
-        ReceiptContent, SecretKey, SignedDelegateAction, TxExecutionStatus,
+        generate_nonce, verify_signature, AccessKeyPermissionView, AccountId, ActionView,
+        BlockReference, CryptoHash, DelegateDecodeError, FinalExecutionOutcome,
+        FinalExecutionOutcomeWithReceipts, FinalExecutionStatus, Finality, Gas, MerkleDirection,
+        NearToken, PublicKey, Receipt, ReceiptContent, SecretKey, SignMessageParams,
+        SignedDelegateAction, SignedMessage, TxExecutionStatus, VerifyOptions,
     };
     pub use crate::Error;
 }

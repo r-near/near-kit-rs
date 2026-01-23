@@ -91,6 +91,18 @@ pub trait Signer: Send + Sync {
     /// (the same one that will be used by the next `sign()` call).
     fn public_key(&self) -> &PublicKey;
 
+    /// Get the secret key (if available).
+    ///
+    /// Returns `Some` for local signers (InMemorySigner, FileSigner, etc.)
+    /// that have access to the raw secret key. Returns `None` for signers
+    /// that don't expose the secret key (hardware wallets, KMS, etc.).
+    ///
+    /// This is used for NEP-413 message signing, which requires access
+    /// to the raw secret key to sign the message hash.
+    fn secret_key(&self) -> Option<&SecretKey> {
+        None
+    }
+
     /// Sign a message, returning the signature and the public key used.
     ///
     /// Returning the public key allows signers to use different keys for
@@ -110,6 +122,10 @@ impl Signer for Arc<dyn Signer> {
 
     fn public_key(&self) -> &PublicKey {
         (**self).public_key()
+    }
+
+    fn secret_key(&self) -> Option<&SecretKey> {
+        (**self).secret_key()
     }
 
     fn sign(&self, message: &[u8]) -> SignFuture {
@@ -201,6 +217,10 @@ impl Signer for InMemorySigner {
 
     fn public_key(&self) -> &PublicKey {
         &self.public_key
+    }
+
+    fn secret_key(&self) -> Option<&SecretKey> {
+        Some(&self.secret_key)
     }
 
     fn sign(&self, message: &[u8]) -> SignFuture {
@@ -323,6 +343,10 @@ impl Signer for FileSigner {
         self.inner.public_key()
     }
 
+    fn secret_key(&self) -> Option<&SecretKey> {
+        self.inner.secret_key()
+    }
+
     fn sign(&self, message: &[u8]) -> SignFuture {
         self.inner.sign(message)
     }
@@ -404,6 +428,10 @@ impl Signer for EnvSigner {
 
     fn public_key(&self) -> &PublicKey {
         self.inner.public_key()
+    }
+
+    fn secret_key(&self) -> Option<&SecretKey> {
+        self.inner.secret_key()
     }
 
     fn sign(&self, message: &[u8]) -> SignFuture {

@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use crate::types::{AccountId, PublicKey};
+use crate::types::{AccountId, KeyType, PublicKey};
 
 /// Error parsing an account ID.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
@@ -315,6 +315,16 @@ impl RpcError {
     }
 }
 
+/// Error during NEP-413 message signing/verification.
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+pub enum Nep413Error {
+    #[error("Unsupported key type for NEP-413: {0:?}. Only Ed25519 is supported.")]
+    UnsupportedKeyType(KeyType),
+
+    #[error("Invalid signature: {0}")]
+    InvalidSignature(String),
+}
+
 // ============================================================================
 // Main Error Type
 // ============================================================================
@@ -371,4 +381,8 @@ pub enum Error {
 
     #[error("Borsh error: {0}")]
     Borsh(String),
+
+    // ─── NEP-413 ───
+    #[error(transparent)]
+    Nep413(#[from] Nep413Error),
 }

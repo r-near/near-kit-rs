@@ -502,6 +502,63 @@ impl Near {
             .deposit(deposit)
             .await
     }
+
+    // ========================================================================
+    // NEP-413 Message Signing
+    // ========================================================================
+
+    /// Sign a message using NEP-413 standard.
+    ///
+    /// NEP-413 enables off-chain message signing for authentication and ownership verification
+    /// without gas fees or blockchain transactions. This is commonly used for:
+    /// - Authentication ("Sign in with NEAR")
+    /// - Proving account ownership
+    /// - Off-chain message verification
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use near_kit::prelude::*;
+    /// use near_kit::{generate_nonce, SignMessageParams};
+    ///
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet()
+    ///     .credentials("ed25519:...", "alice.testnet")?
+    ///     .build();
+    ///
+    /// let nonce = generate_nonce();
+    /// let signed = near.sign_message(SignMessageParams {
+    ///     message: "Login to MyApp".to_string(),
+    ///     recipient: "myapp.com".to_string(),
+    ///     nonce,
+    ///     callback_url: None,
+    ///     state: None,
+    /// })?;
+    ///
+    /// println!("Signed by: {}", signed.account_id);
+    /// println!("Public key: {}", signed.public_key);
+    /// println!("Signature: {}", signed.signature);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// @see <https://github.com/near/NEPs/blob/master/neps/nep-0413.md>
+    pub fn sign_message(
+        &self,
+        params: crate::types::SignMessageParams,
+    ) -> Result<crate::types::SignedMessage, Error> {
+        let signer = self.signer.as_ref().ok_or(Error::NoSigner)?;
+
+        // Get the secret key from the signer
+        let secret_key = signer.secret_key().ok_or_else(|| {
+            Error::Config(
+                "NEP-413 signing requires a signer with access to the secret key".to_string(),
+            )
+        })?;
+        let account_id = signer.account_id();
+
+        crate::types::sign_message(secret_key, account_id, &params).map_err(Error::from)
+    }
 }
 
 impl std::fmt::Debug for Near {
