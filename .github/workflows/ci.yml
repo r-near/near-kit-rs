@@ -44,6 +44,8 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
       - name: Run tests with coverage
         run: cargo llvm-cov --workspace --features sandbox --lcov --output-path lcov.info
+      - name: Run doctests
+        run: cargo test --workspace --doc
       - uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
