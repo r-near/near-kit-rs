@@ -591,6 +591,9 @@ impl RpcClient {
             )
             .await?;
 
+        // Small delay to allow state to propagate - sandbox patch_state has race conditions
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
         Ok(())
     }
 }
