@@ -38,6 +38,28 @@ pub trait Guestbook {
     fn add_message(&mut self, args: AddMessageArgs);
 }
 
+/// Typed interface for the guestbook contract with payable method.
+/// This demonstrates the #[call(payable)] attribute.
+#[near_kit::contract]
+pub trait GuestbookPayable {
+    /// Get all messages.
+    fn get_messages(&self) -> Vec<GuestbookMessage>;
+
+    /// Add a premium message (payable - requires deposit).
+    #[call(payable)]
+    fn add_message(&mut self, args: AddMessageArgs);
+}
+
+/// Typed interface demonstrating no-argument view and call methods.
+#[near_kit::contract]
+pub trait GuestbookNoArgs {
+    /// Get total messages count (view, no args).
+    fn total_messages(&self) -> u32;
+
+    /// Get all messages (view, no args, returns Vec).
+    fn get_messages(&self) -> Vec<GuestbookMessage>;
+}
+
 // ============================================================================
 // Helper to deploy guestbook contract
 // ============================================================================
@@ -257,4 +279,119 @@ async fn test_typed_contract_block_reference() {
     assert_eq!(count, 1);
 
     println!("✓ Block reference on view methods works correctly");
+}
+
+#[tokio::test]
+async fn test_typed_contract_payable_method() {
+    // Start sandbox
+    let sandbox = SandboxConfig::fresh().await;
+    let near = Near::sandbox(&sandbox);
+
+    // Deploy guestbook contract
+    let contract_id = format!("guestbook.{}", sandbox.root_account_id());
+    deploy_guestbook(&near, &contract_id)
+        .await
+        .expect("Failed to deploy guestbook");
+
+    // Create typed contract client with payable interface
+    let guestbook = near.contract::<dyn GuestbookPayable>(&contract_id);
+
+    // Add a message WITHOUT deposit - should be non-premium
+    guestbook
+        .add_message(AddMessageArgs {
+            text: "Regular message".to_string(),
+        })
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .expect("Failed to add regular message");
+
+    // Add a message WITH deposit - should be premium
+    guestbook
+        .add_message(AddMessageArgs {
+            text: "Premium message".to_string(),
+        })
+        .deposit("1 NEAR")
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .expect("Failed to add premium message");
+
+    // Verify the messages
+    let messages = guestbook
+        .get_messages()
+        .await
+        .expect("Failed to get messages");
+
+    assert_eq!(messages.len(), 2, "Should have 2 messages");
+
+    // First message should be non-premium (no deposit)
+    assert_eq!(messages[0].text, "Regular message");
+    assert!(
+        !messages[0].premium,
+        "Message without deposit should not be premium"
+    );
+
+    // Second message should be premium (had deposit)
+    assert_eq!(messages[1].text, "Premium message");
+    assert!(
+        messages[1].premium,
+        "Message with deposit should be premium"
+    );
+
+    println!("✓ Payable method with #[call(payable)] works correctly");
+}
+
+#[tokio::test]
+async fn test_typed_contract_no_args_view() {
+    // Start sandbox
+    let sandbox = SandboxConfig::fresh().await;
+    let near = Near::sandbox(&sandbox);
+
+    // Deploy guestbook contract
+    let contract_id = format!("guestbook.{}", sandbox.root_account_id());
+    deploy_guestbook(&near, &contract_id)
+        .await
+        .expect("Failed to deploy guestbook");
+
+    // Create typed contract client using the no-args interface
+    let guestbook = near.contract::<dyn GuestbookNoArgs>(&contract_id);
+
+    // Test view method without arguments - total_messages
+    let count = guestbook
+        .total_messages()
+        .await
+        .expect("Failed to get total_messages");
+    assert_eq!(count, 0, "Initial message count should be 0");
+
+    // Test view method without arguments - get_messages
+    let messages = guestbook
+        .get_messages()
+        .await
+        .expect("Failed to get messages");
+    assert!(messages.is_empty(), "Initial messages should be empty");
+
+    // Now add a message using the main interface
+    let main_guestbook = near.contract::<dyn Guestbook>(&contract_id);
+    main_guestbook
+        .add_message(AddMessageArgs {
+            text: "Test message".to_string(),
+        })
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .expect("Failed to add message");
+
+    // Verify with no-args interface
+    let count = guestbook
+        .total_messages()
+        .await
+        .expect("Failed to get total_messages");
+    assert_eq!(count, 1, "Message count should be 1");
+
+    let messages = guestbook
+        .get_messages()
+        .await
+        .expect("Failed to get messages");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].text, "Test message");
+
+    println!("✓ No-argument view methods work correctly");
 }
