@@ -13,5 +13,8 @@ mod error_handling_integration;
 mod global_contracts_integration;
 mod rpc_types_integration;
 mod sandbox_integration;
+mod signer_edge_cases_integration;
+mod token_error_integration;
 mod token_integration;
+mod typed_contract_error_integration;
 mod typed_contract_integration;
