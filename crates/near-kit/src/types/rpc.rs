@@ -43,6 +43,12 @@ pub struct AccountView {
 }
 
 impl AccountView {
+    /// Calculate the total NEAR required for storage.
+    fn storage_required(&self) -> NearToken {
+        let yocto = STORAGE_AMOUNT_PER_BYTE.saturating_mul(self.storage_usage as u128);
+        NearToken::from_yoctonear(yocto)
+    }
+
     /// Get available (spendable) balance.
     ///
     /// This accounts for the protocol rule that staked tokens count towards
@@ -52,8 +58,7 @@ impl AccountView {
     /// If staked >= storage cost, all liquid balance is available.
     /// If staked < storage cost, some liquid balance is reserved for storage.
     pub fn available(&self) -> NearToken {
-        let storage_required = STORAGE_AMOUNT_PER_BYTE.saturating_mul(self.storage_usage as u128);
-        let storage_required = NearToken::from_yoctonear(storage_required);
+        let storage_required = self.storage_required();
 
         // If staked covers storage, all liquid is available
         if self.locked >= storage_required {
@@ -69,8 +74,7 @@ impl AccountView {
     ///
     /// This is calculated as: max(0, storage_required - locked)
     pub fn storage_cost(&self) -> NearToken {
-        let storage_required = STORAGE_AMOUNT_PER_BYTE.saturating_mul(self.storage_usage as u128);
-        let storage_required = NearToken::from_yoctonear(storage_required);
+        let storage_required = self.storage_required();
 
         if self.locked >= storage_required {
             NearToken::ZERO
