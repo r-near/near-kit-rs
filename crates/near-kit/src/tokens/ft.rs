@@ -452,8 +452,8 @@ impl StorageDepositCall {
     ///
     /// # Panics
     ///
-    /// Panics if the amount string cannot be parsed. Use [`NearToken::from_str`] for
-    /// fallible parsing of user input.
+    /// Panics if the amount string cannot be parsed. Use [`NearToken`]'s `FromStr`
+    /// impl for fallible parsing of user input.
     pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
         self.deposit = Some(
             amount

@@ -124,7 +124,7 @@ impl DelegateResult {
 
 /// Builder for constructing multi-action transactions.
 ///
-/// Created via [`Near::transaction`]. Supports chaining multiple actions
+/// Created via [`crate::Near::transaction`]. Supports chaining multiple actions
 /// into a single atomic transaction.
 ///
 /// # Example
@@ -760,7 +760,6 @@ impl TransactionBuilder {
     ///
     /// // Transport signed_tx.to_base64() back to online machine
     /// ```
-    /// ```
     pub fn sign_offline(
         self,
         block_hash: CryptoHash,
@@ -876,8 +875,8 @@ impl CallBuilder {
     ///
     /// # Panics
     ///
-    /// Panics if the gas string cannot be parsed. Use [`Gas::from_str`] for
-    /// fallible parsing of user input.
+    /// Panics if the gas string cannot be parsed. Use [`Gas`]'s `FromStr` impl
+    /// for fallible parsing of user input.
     pub fn gas(mut self, gas: impl IntoGas) -> Self {
         self.gas = gas
             .into_gas()
@@ -903,8 +902,8 @@ impl CallBuilder {
     ///
     /// # Panics
     ///
-    /// Panics if the amount string cannot be parsed. Use [`NearToken::from_str`] for
-    /// fallible parsing of user input.
+    /// Panics if the amount string cannot be parsed. Use [`NearToken`]'s `FromStr`
+    /// impl for fallible parsing of user input.
     pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
         self.deposit = amount
             .into_near_token()

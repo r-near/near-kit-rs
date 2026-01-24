@@ -378,10 +378,6 @@ const GAS_PER_GGAS: u64 = 1_000_000_000;
 ///
 /// // For runtime/user input only
 /// let gas: Gas = "30 Tgas".parse().unwrap();
-/// ```
-/// use near_kit::Gas;
-///
-/// let gas: Gas = "30 Tgas".parse().unwrap();
 /// assert_eq!(gas.as_gas(), 30_000_000_000_000);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]

@@ -147,7 +147,7 @@ pub type SignFuture<'a> =
 pub type Nep413SignFuture<'a> =
     Pin<Box<dyn Future<Output = Result<SignedMessage, SignerError>> + Send + 'a>>;
 
-/// Implement Signer for Arc<dyn Signer> for convenience.
+/// Implement `Signer` for `Arc<dyn Signer>` for convenience.
 impl Signer for Arc<dyn Signer> {
     fn account_id(&self) -> &AccountId {
         (**self).account_id()

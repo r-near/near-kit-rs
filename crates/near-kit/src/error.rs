@@ -1,4 +1,48 @@
 //! Error types for near-kit.
+//!
+//! This module provides comprehensive error types for all near-kit operations.
+//!
+//! # Error Hierarchy
+//!
+//! - [`Error`](enum@Error) — Main error type, returned by most operations
+//!   - [`RpcError`] — RPC-specific errors (network, account not found, etc.)
+//!   - [`ParseAccountIdError`] — Invalid account ID format
+//!   - [`ParseAmountError`] — Invalid NEAR amount format
+//!   - [`ParseGasError`] — Invalid gas format
+//!   - [`ParseKeyError`] — Invalid key format
+//!   - [`SignerError`] — Signing operation failures
+//!   - [`KeyStoreError`] — Credential loading failures
+//!
+//! # Error Handling Examples
+//!
+//! ## Pattern Matching on RPC Errors
+//!
+//! ```rust,no_run
+//! use near_kit::*;
+//!
+//! # async fn example() -> Result<(), Error> {
+//! let near = Near::testnet().build();
+//!
+//! match near.balance("maybe-exists.testnet").await {
+//!     Ok(balance) => println!("Balance: {}", balance.available),
+//!     Err(Error::Rpc(RpcError::AccountNotFound(account))) => {
+//!         println!("Account {} doesn't exist", account);
+//!     }
+//!     Err(e) => return Err(e),
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Checking Retryable Errors
+//!
+//! ```rust,no_run
+//! use near_kit::RpcError;
+//!
+//! fn should_retry(err: &RpcError) -> bool {
+//!     err.is_retryable()
+//! }
+//! ```
 
 use thiserror::Error;
 

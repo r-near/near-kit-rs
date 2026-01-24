@@ -35,7 +35,7 @@ impl CryptoHash {
         &self.0
     }
 
-    /// Convert to a Vec<u8>.
+    /// Convert to a `Vec<u8>`.
     pub fn to_vec(&self) -> Vec<u8> {
         self.0.to_vec()
     }
