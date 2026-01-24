@@ -22,7 +22,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: stable
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: false
           cache-on-failure: "true"
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets
@@ -41,6 +41,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           cache-all-crates: "true"
+          workspaces: ". -> target"
       - uses: taiki-e/install-action@cargo-llvm-cov
       - name: Run tests with coverage
         run: cargo llvm-cov --workspace --features sandbox --lcov --output-path lcov.info
