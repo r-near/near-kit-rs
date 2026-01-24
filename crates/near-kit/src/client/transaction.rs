@@ -731,6 +731,75 @@ impl TransactionBuilder {
         })
     }
 
+    /// Sign the transaction offline without network access.
+    ///
+    /// This is useful for air-gapped signing workflows where you need to
+    /// provide the block hash and nonce manually (obtained from a separate
+    /// online machine).
+    ///
+    /// # Arguments
+    ///
+    /// * `block_hash` - A recent block hash (transaction expires ~24h after this block)
+    /// * `nonce` - The next nonce for the signing key (current nonce + 1)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// # use near_kit::*;
+    /// // On online machine: get block hash and nonce
+    /// // let block = near.rpc().block(BlockReference::latest()).await?;
+    /// // let access_key = near.rpc().view_access_key(...).await?;
+    ///
+    /// // On offline machine: sign with pre-fetched values
+    /// let block_hash: CryptoHash = "11111111111111111111111111111111".parse().unwrap();
+    /// let nonce = 12345u64;
+    ///
+    /// let signed = near.transaction("bob.testnet")
+    ///     .transfer(NearToken::near(1))
+    ///     .sign_offline(block_hash, nonce)?;
+    ///
+    /// // Transport signed_tx.to_base64() back to online machine
+    /// ```
+    /// ```
+    pub fn sign_offline(
+        self,
+        block_hash: CryptoHash,
+        nonce: u64,
+    ) -> Result<SignedTransaction, Error> {
+        if self.actions.is_empty() {
+            return Err(Error::InvalidTransaction(
+                "Transaction must have at least one action".to_string(),
+            ));
+        }
+
+        let signer = self
+            .signer_override
+            .or(self.signer)
+            .ok_or(Error::NoSigner)?;
+
+        let signer_id = signer.account_id().clone();
+        let public_key = signer.public_key().clone();
+
+        // Build transaction with provided block_hash and nonce
+        let tx = Transaction::new(
+            signer_id,
+            public_key,
+            nonce,
+            self.receiver_id,
+            block_hash,
+            self.actions,
+        );
+
+        // Sign synchronously - InMemorySigner and similar don't actually need async
+        // We use futures::executor::block_on for compatibility with the async Signer trait
+        let (signature, _) = futures::executor::block_on(signer.sign(tx.get_hash().as_bytes()))?;
+
+        Ok(SignedTransaction {
+            transaction: tx,
+            signature,
+        })
+    }
+
     /// Send the transaction.
     ///
     /// This is equivalent to awaiting the builder directly.
@@ -962,6 +1031,24 @@ impl CallBuilder {
     /// This finishes the current function call and then creates a delegate action.
     pub async fn delegate(self, options: DelegateOptions) -> Result<DelegateResult, crate::Error> {
         self.finish().delegate(options).await
+    }
+
+    /// Sign the transaction offline without network access.
+    ///
+    /// See [`TransactionBuilder::sign_offline`] for details.
+    pub fn sign_offline(
+        self,
+        block_hash: CryptoHash,
+        nonce: u64,
+    ) -> Result<SignedTransaction, Error> {
+        self.finish().sign_offline(block_hash, nonce)
+    }
+
+    /// Sign the transaction without sending it.
+    ///
+    /// See [`TransactionBuilder::sign`] for details.
+    pub async fn sign(self) -> Result<SignedTransaction, Error> {
+        self.finish().sign().await
     }
 
     /// Send the transaction.

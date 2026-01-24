@@ -1743,52 +1743,44 @@ impl RpcClient {
 
 ---
 
-## 12. Presigning / Offline Signing
+## 12. Presigning / Offline Signing ✅ IMPLEMENTED
 
-### Priority: 🟢 Nice-to-Have
+### Status: Implemented
 
-### Description
-Sign transactions without network access, useful for multi-signature workflows.
+Sign transactions without network access, useful for air-gapped signing and multi-signature workflows.
 
-### Reference Implementation
+### Implementation
 
-**near-api-rs** - `api/src/transactions.rs`:
-```rust
-.presign_offline(public_key, block_hash, nonce)
-.presign_with(network)  // Sign but don't send
-```
-
-### Proposed API for near-kit-rs
-
-**File**: `crates/near-kit/src/client/tx.rs` (extend transaction builders)
+**File**: `crates/near-kit/src/client/transaction.rs`
 
 ```rust
-impl TransferCall {
-    /// Sign the transaction without sending
-    pub async fn sign(self) -> Result<SignedTransaction, Error> {
-        // Build and sign but don't send
-    }
-    
-    /// Sign offline with provided block hash and nonce
-    pub fn sign_offline(
-        self,
-        block_hash: CryptoHash,
-        nonce: u64,
-    ) -> Result<SignedTransaction, Error> {
-        // Build transaction with provided values and sign
-    }
-}
+use near_kit::*;
 
-impl ContractCall {
-    pub async fn sign(self) -> Result<SignedTransaction, Error> { ... }
-    pub fn sign_offline(self, block_hash: CryptoHash, nonce: u64) -> Result<SignedTransaction, Error> { ... }
-}
+// Step 1: On online machine - get block_hash and nonce
+let block = near.rpc().block(BlockReference::Finality(Finality::Final)).await?;
+let block_hash = block.header.hash;
 
-impl TransactionBuilder {
-    pub async fn sign(self) -> Result<SignedTransaction, Error> { ... }
-    pub fn sign_offline(self, block_hash: CryptoHash, nonce: u64) -> Result<SignedTransaction, Error> { ... }
-}
+let access_key = near.rpc().view_access_key(&account_id, &public_key, ...).await?;
+let nonce = access_key.nonce + 1;
+
+// Step 2: On offline machine - sign without network
+let signed = near.transaction("receiver.near")
+    .transfer(NearToken::near(1))
+    .sign_offline(block_hash, nonce)?;
+
+// Step 3: Serialize for transport
+let payload = signed.to_base64();
+
+// Step 4: On online machine - deserialize and send
+let received_tx = SignedTransaction::from_base64(&payload)?;
+near.send(&received_tx).await?;
 ```
+
+**Features:**
+- `TransactionBuilder::sign_offline(block_hash, nonce)` - Sign without network access
+- `CallBuilder::sign_offline(block_hash, nonce)` - Sign function calls offline
+- `SignedTransaction::from_bytes()` / `from_base64()` - Deserialize signed transactions
+- Full round-trip serialization support
 
 ---
 

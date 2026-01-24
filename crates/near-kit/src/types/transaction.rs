@@ -89,6 +89,46 @@ impl SignedTransaction {
         use base64::{engine::general_purpose::STANDARD, Engine as _};
         STANDARD.encode(self.to_bytes())
     }
+
+    /// Deserialize from bytes.
+    ///
+    /// Use this to reconstruct a signed transaction that was serialized with [`to_bytes`](Self::to_bytes).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use near_kit::SignedTransaction;
+    /// let bytes: Vec<u8> = /* received from offline signer */;
+    /// let signed_tx = SignedTransaction::from_bytes(&bytes)?;
+    /// ```
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::error::Error> {
+        borsh::from_slice(bytes).map_err(|e| {
+            crate::error::Error::InvalidTransaction(format!(
+                "Failed to deserialize signed transaction: {}",
+                e
+            ))
+        })
+    }
+
+    /// Deserialize from base64.
+    ///
+    /// Use this to reconstruct a signed transaction that was serialized with [`to_base64`](Self::to_base64).
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::SignedTransaction;
+    /// let base64_str = "AgAAAGFsaWNlLnRlc3RuZXQ...";
+    /// let signed_tx = SignedTransaction::from_base64(base64_str)?;
+    /// # Ok::<(), near_kit::Error>(())
+    /// ```
+    pub fn from_base64(s: &str) -> Result<Self, crate::error::Error> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        let bytes = STANDARD.decode(s).map_err(|e| {
+            crate::error::Error::InvalidTransaction(format!("Invalid base64: {}", e))
+        })?;
+        Self::from_bytes(&bytes)
+    }
 }
 
 #[cfg(test)]

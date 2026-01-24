@@ -11,6 +11,7 @@ mod debug_rpc_responses;
 mod delegate_action_integration;
 mod error_handling_integration;
 mod global_contracts_integration;
+mod offline_signing_integration;
 mod rpc_types_integration;
 mod sandbox_integration;
 mod signer_edge_cases_integration;
