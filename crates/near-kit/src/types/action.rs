@@ -614,30 +614,14 @@ impl SignedDelegateAction {
 }
 
 /// Error decoding a signed delegate action.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
     /// Base64 decoding failed.
-    Base64(base64::DecodeError),
+    #[error("base64 decode error: {0}")]
+    Base64(#[from] base64::DecodeError),
     /// Borsh deserialization failed.
-    Borsh(borsh::io::Error),
-}
-
-impl std::fmt::Display for DecodeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DecodeError::Base64(e) => write!(f, "base64 decode error: {}", e),
-            DecodeError::Borsh(e) => write!(f, "borsh decode error: {}", e),
-        }
-    }
-}
-
-impl std::error::Error for DecodeError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            DecodeError::Base64(e) => Some(e),
-            DecodeError::Borsh(e) => Some(e),
-        }
-    }
+    #[error("borsh decode error: {0}")]
+    Borsh(#[from] borsh::io::Error),
 }
 
 impl NonDelegateAction {
