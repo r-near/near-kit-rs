@@ -449,10 +449,17 @@ impl StorageDepositCall {
     }
 
     /// Set a custom deposit amount (overrides automatic minimum).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the amount string cannot be parsed. Use [`NearToken::from_str`] for
+    /// fallible parsing of user input.
     pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
-        if let Ok(a) = amount.into_near_token() {
-            self.deposit = Some(a);
-        }
+        self.deposit = Some(
+            amount
+                .into_near_token()
+                .expect("invalid deposit amount - use NearToken::from_str() for user input"),
+        );
         self
     }
 

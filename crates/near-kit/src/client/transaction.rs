@@ -207,8 +207,14 @@ impl TransactionBuilder {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the amount string cannot be parsed.
     pub fn transfer(mut self, amount: impl IntoNearToken) -> Self {
-        let amount = amount.into_near_token().unwrap_or(NearToken::ZERO);
+        let amount = amount
+            .into_near_token()
+            .expect("invalid transfer amount - use NearToken::from_str() for user input");
         self.actions.push(Action::transfer(amount));
         self
     }
@@ -291,8 +297,14 @@ impl TransactionBuilder {
     }
 
     /// Add a stake action.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the amount string cannot be parsed.
     pub fn stake(mut self, amount: impl IntoNearToken, public_key: PublicKey) -> Self {
-        let amount = amount.into_near_token().unwrap_or(NearToken::ZERO);
+        let amount = amount
+            .into_near_token()
+            .expect("invalid stake amount - use NearToken::from_str() for user input");
         self.actions.push(Action::stake(amount, public_key));
         self
     }
@@ -542,13 +554,19 @@ impl TransactionBuilder {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the deposit amount string cannot be parsed.
     pub fn state_init_by_hash(
         mut self,
         code_hash: CryptoHash,
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
     ) -> Self {
-        let deposit = deposit.into_near_token().unwrap_or(NearToken::ZERO);
+        let deposit = deposit
+            .into_near_token()
+            .expect("invalid deposit amount - use NearToken::from_str() for user input");
 
         // Build the state init to derive the account ID
         let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
@@ -582,6 +600,10 @@ impl TransactionBuilder {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the deposit amount string cannot be parsed.
     pub fn state_init_by_publisher(
         mut self,
         publisher_id: impl AsRef<str>,
@@ -589,7 +611,9 @@ impl TransactionBuilder {
         deposit: impl IntoNearToken,
     ) -> Self {
         let publisher_id = AccountId::parse_lenient(publisher_id);
-        let deposit = deposit.into_near_token().unwrap_or(NearToken::ZERO);
+        let deposit = deposit
+            .into_near_token()
+            .expect("invalid deposit amount - use NearToken::from_str() for user input");
 
         // Build the state init to derive the account ID
         let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
@@ -780,10 +804,15 @@ impl CallBuilder {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the gas string cannot be parsed. Use [`Gas::from_str`] for
+    /// fallible parsing of user input.
     pub fn gas(mut self, gas: impl IntoGas) -> Self {
-        if let Ok(g) = gas.into_gas() {
-            self.gas = g;
-        }
+        self.gas = gas
+            .into_gas()
+            .expect("invalid gas format - use Gas::from_str() for user input");
         self
     }
 
@@ -802,10 +831,15 @@ impl CallBuilder {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the amount string cannot be parsed. Use [`NearToken::from_str`] for
+    /// fallible parsing of user input.
     pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
-        if let Ok(a) = amount.into_near_token() {
-            self.deposit = a;
-        }
+        self.deposit = amount
+            .into_near_token()
+            .expect("invalid deposit amount - use NearToken::from_str() for user input");
         self
     }
 
