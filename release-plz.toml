@@ -1,0 +1,15 @@
+[workspace]
+# Enable changelog updates
+changelog_update = true
+
+# Create git tags for releases
+git_tag_enable = true
+
+# Create GitHub releases
+git_release_enable = true
+
+# Labels for the release PR
+pr_labels = ["release"]
+
+# Run cargo-semver-checks to detect breaking changes
+semver_check = true
