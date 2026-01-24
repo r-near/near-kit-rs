@@ -37,6 +37,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::error::SignerError;
+use crate::types::nep413::{self, SignMessageParams, SignedMessage};
 use crate::types::{AccountId, PublicKey, SecretKey, Signature};
 
 // ============================================================================
@@ -96,11 +97,55 @@ pub trait Signer: Send + Sync {
     /// Returning the public key allows signers to use different keys for
     /// different transactions (e.g., key rotation for high-throughput bots).
     fn sign(&self, message: &[u8]) -> SignFuture<'_>;
+
+    /// Sign a NEP-413 message for off-chain authentication.
+    ///
+    /// The default implementation serializes the message, hashes it, and signs
+    /// using [`sign()`](Signer::sign). Hardware wallet implementations may override
+    /// this to call device-specific NEP-413 signing functions.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use near_kit::{InMemorySigner, Signer, nep413};
+    ///
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let signer = InMemorySigner::new("alice.testnet", "ed25519:...")?;
+    ///
+    /// let params = nep413::SignMessageParams {
+    ///     message: "Login to MyApp".to_string(),
+    ///     recipient: "myapp.com".to_string(),
+    ///     nonce: nep413::generate_nonce(),
+    ///     callback_url: None,
+    ///     state: None,
+    /// };
+    ///
+    /// let signed = signer.sign_nep413(&params).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn sign_nep413<'a>(&'a self, params: &'a SignMessageParams) -> Nep413SignFuture<'a> {
+        Box::pin(async move {
+            let hash = nep413::serialize_message(params);
+            let (signature, public_key) = self.sign(hash.as_bytes()).await?;
+
+            Ok(SignedMessage {
+                account_id: self.account_id().clone(),
+                public_key,
+                signature,
+                state: params.state.clone(),
+            })
+        })
+    }
 }
 
 /// Future type returned by [`Signer::sign`].
 pub type SignFuture<'a> =
     Pin<Box<dyn Future<Output = Result<(Signature, PublicKey), SignerError>> + Send + 'a>>;
+
+/// Future type returned by [`Signer::sign_nep413`].
+pub type Nep413SignFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<SignedMessage, SignerError>> + Send + 'a>>;
 
 /// Implement Signer for Arc<dyn Signer> for convenience.
 impl Signer for Arc<dyn Signer> {
@@ -114,6 +159,10 @@ impl Signer for Arc<dyn Signer> {
 
     fn sign(&self, message: &[u8]) -> SignFuture<'_> {
         (**self).sign(message)
+    }
+
+    fn sign_nep413<'a>(&'a self, params: &'a SignMessageParams) -> Nep413SignFuture<'a> {
+        (**self).sign_nep413(params)
     }
 }
 

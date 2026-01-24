@@ -81,6 +81,7 @@ pub mod sandbox;
 
 // Re-export commonly used types at crate root
 pub use error::{Error, RpcError};
+pub use types::nep413;
 pub use types::*;
 
 // Re-export contract types
@@ -90,8 +91,9 @@ pub use contract::{Contract, ContractClient};
 pub use client::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, AddKeyCall, BalanceQuery, CallBuilder,
     ContractCall, DelegateOptions, DelegateResult, DeleteKeyCall, DeployCall, EnvSigner,
-    FileSigner, InMemorySigner, Near, NearBuilder, RetryConfig, RotatingSigner, RpcClient,
-    SandboxNetwork, Signer, TransactionBuilder, TransactionSend, TransferCall, ViewCall,
+    FileSigner, InMemorySigner, Near, NearBuilder, Nep413SignFuture, RetryConfig, RotatingSigner,
+    RpcClient, SandboxNetwork, SignFuture, Signer, TransactionBuilder, TransactionSend,
+    TransferCall, ViewCall,
 };
 
 // Re-export proc macros

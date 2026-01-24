@@ -281,6 +281,49 @@ impl Near {
     }
 
     // ========================================================================
+    // Off-Chain Signing (NEP-413)
+    // ========================================================================
+
+    /// Sign a message for off-chain authentication (NEP-413).
+    ///
+    /// This enables users to prove account ownership without gas fees
+    /// or blockchain transactions. Commonly used for:
+    /// - Web3 authentication/login
+    /// - Off-chain message signing
+    /// - Proof of account ownership
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet()
+    ///     .credentials("ed25519:...", "alice.testnet")?
+    ///     .build();
+    ///
+    /// let signed = near.sign_message(nep413::SignMessageParams {
+    ///     message: "Login to MyApp".to_string(),
+    ///     recipient: "myapp.com".to_string(),
+    ///     nonce: nep413::generate_nonce(),
+    ///     callback_url: None,
+    ///     state: None,
+    /// }).await?;
+    ///
+    /// println!("Signed by: {}", signed.account_id);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// @see <https://github.com/near/NEPs/blob/master/neps/nep-0413.md>
+    pub async fn sign_message(
+        &self,
+        params: crate::types::nep413::SignMessageParams,
+    ) -> Result<crate::types::nep413::SignedMessage, Error> {
+        let signer = self.signer.as_ref().ok_or(Error::NoSigner)?;
+        signer.sign_nep413(&params).await.map_err(Error::Signing)
+    }
+
+    // ========================================================================
     // Write Operations (Transaction Builders)
     // ========================================================================
 

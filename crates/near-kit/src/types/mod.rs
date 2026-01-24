@@ -8,6 +8,7 @@ mod action;
 mod block_reference;
 mod hash;
 mod key;
+pub mod nep413;
 mod rpc;
 mod transaction;
 mod units;
