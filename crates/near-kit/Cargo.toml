@@ -48,7 +48,7 @@ near-kit-macros.workspace = true
 
 # Optional: Sandbox integration
 near-sandbox = { workspace = true, optional = true }
-serde_with = { version = "3.16.1", features = ["base64"] }
+serde_with = { version = "3.16.1", features = ["hex"] }
 
 [features]
 default = []

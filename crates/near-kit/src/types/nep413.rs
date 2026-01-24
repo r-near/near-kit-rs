@@ -40,9 +40,8 @@
 use std::time::Duration;
 
 use borsh::BorshSerialize;
-use rand::RngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_with::{base64::Base64, serde_as};
+use serde_with::{hex::Hex, serde_as};
 
 use crate::error::Error;
 use crate::types::{AccountId, BlockReference, CryptoHash, PublicKey, Signature};
@@ -105,9 +104,8 @@ pub struct AuthPayload {
     /// The signed message from the client.
     pub signed_message: SignedMessage,
 
-    /// The nonce as a base64-encoded string.
-    /// This is more compact than a byte array in JSON.
-    #[serde_as(as = "Base64")]
+    /// The nonce as a hex-encoded string (64 characters for 32 bytes).
+    #[serde_as(as = "Hex")]
     pub nonce: [u8; 32],
 
     /// The message that was signed (must match what the client signed).
@@ -260,7 +258,7 @@ pub fn generate_nonce() -> [u8; 32] {
     nonce[..8].copy_from_slice(&timestamp.to_be_bytes());
 
     // Remaining 24 bytes: random data
-    rand::rngs::OsRng.fill_bytes(&mut nonce[8..]);
+    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce[8..]);
 
     nonce
 }
@@ -858,8 +856,8 @@ mod tests {
     #[test]
     fn test_deserialize_http_auth_payload() {
         // This is what a TypeScript frontend would send to the backend
-        // nonce is now sent as base64 for compactness
-        let nonce_base64 = "KNV0cOpvJ50D5vfF9pqWom8wo2sliQ4W+Wa7uZ3Uk6Y=";
+        // nonce is sent as hex (64 chars for 32 bytes)
+        let nonce_hex = "28d57470ea6f279d03e6f7c5f69a96a26f30a36b25890e16f966bbb99dd493a6";
 
         // Build the JSON as the TS client would
         let http_payload = serde_json::json!({
@@ -868,7 +866,7 @@ mod tests {
                 "publicKey": "ed25519:2RM3EotCzEiVobm6aMjaup43k8cFffR4KHFtrqbZ79Qy",
                 "signature": "NnJgPU1Ql7ccRTITIoOVsIfElmvH1RV7QAT4a9Vh6ShCOnjIzRwxqX54JzoQ/nK02p7VBMI2vJn48rpImIJwAw=="
             },
-            "nonce": nonce_base64,
+            "nonce": nonce_hex,
             "message": "Hello NEAR!",
             "recipient": "example.near"
         });
@@ -895,14 +893,14 @@ mod tests {
     #[test]
     fn test_full_auth_flow_interop() {
         // Simulate what a real HTTP request body would look like from near-kit TS
-        // Nonce is now base64 encoded for compactness
+        // Nonce is hex encoded (64 chars for 32 bytes)
         let http_body = r#"{
             "signedMessage": {
                 "accountId": "alice.testnet",
                 "publicKey": "ed25519:2RM3EotCzEiVobm6aMjaup43k8cFffR4KHFtrqbZ79Qy",
                 "signature": "NnJgPU1Ql7ccRTITIoOVsIfElmvH1RV7QAT4a9Vh6ShCOnjIzRwxqX54JzoQ/nK02p7VBMI2vJn48rpImIJwAw=="
             },
-            "nonce": "KNV0cOpvJ50D5vfF9pqWom8wo2sliQ4W+Wa7uZ3Uk6Y=",
+            "nonce": "28d57470ea6f279d03e6f7c5f69a96a26f30a36b25890e16f966bbb99dd493a6",
             "message": "Hello NEAR!",
             "recipient": "example.near"
         }"#;
@@ -948,12 +946,12 @@ mod tests {
         // Serialize to JSON
         let json = serde_json::to_string(&payload).unwrap();
 
-        // Verify nonce is base64 (not an array)
+        // Verify nonce is hex (not an array)
         let json_value: serde_json::Value = serde_json::from_str(&json).unwrap();
         let nonce_str = json_value["nonce"].as_str().unwrap();
         assert!(
-            nonce_str.len() == 44, // Base64 of 32 bytes = 44 chars
-            "Nonce should be base64 encoded, got: {}",
+            nonce_str.len() == 64, // Hex of 32 bytes = 64 chars
+            "Nonce should be hex encoded, got: {}",
             nonce_str
         );
 
