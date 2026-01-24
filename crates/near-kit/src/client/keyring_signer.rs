@@ -250,38 +250,6 @@ fn parse_keyring_credential(
 }
 
 // ============================================================================
-// Credential Types (for JSON parsing)
-// ============================================================================
-
-/// Full credential format stored by near-cli-rs when importing from seed phrase.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[allow(dead_code)]
-pub struct KeyPairProperties {
-    /// BIP-32 HD derivation path (e.g., "m/44'/397'/0'")
-    pub seed_phrase_hd_path: String,
-    /// The master seed phrase (12 or 24 words)
-    pub master_seed_phrase: String,
-    /// The implicit account ID derived from the public key
-    pub implicit_account_id: String,
-    /// Public key in string format (e.g., "ed25519:...")
-    #[serde(rename = "public_key")]
-    pub public_key_str: String,
-    /// Private key in string format (e.g., "ed25519:...")
-    #[serde(rename = "private_key")]
-    pub private_key_str: String,
-}
-
-/// Simple credential format stored by near-cli-rs when importing from private key.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[allow(dead_code)]
-pub struct AccountKeyPair {
-    /// Public key
-    pub public_key: String,
-    /// Private key (secret key)
-    pub private_key: String,
-}
-
-// ============================================================================
 // Tests
 // ============================================================================
 
@@ -376,36 +344,5 @@ mod tests {
 
         let result = parse_keyring_credential(json, &account_id, &public_key);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_keypair_properties_deserialization() {
-        let json = r#"{
-            "seed_phrase_hd_path": "m/44'/397'/0'",
-            "master_seed_phrase": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-            "implicit_account_id": "c4f5941e81e071c2fd1dae2e71fd3d859d462484391d9a90bf219211dcbb320f",
-            "public_key": "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847",
-            "private_key": "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
-        }"#;
-
-        let props: KeyPairProperties = serde_json::from_str(json).unwrap();
-
-        assert_eq!(props.seed_phrase_hd_path, "m/44'/397'/0'");
-        assert_eq!(props.master_seed_phrase, "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about");
-        assert!(props.public_key_str.starts_with("ed25519:"));
-        assert!(props.private_key_str.starts_with("ed25519:"));
-    }
-
-    #[test]
-    fn test_account_keypair_deserialization() {
-        let json = r#"{
-            "public_key": "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847",
-            "private_key": "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
-        }"#;
-
-        let pair: AccountKeyPair = serde_json::from_str(json).unwrap();
-
-        assert!(pair.public_key.starts_with("ed25519:"));
-        assert!(pair.private_key.starts_with("ed25519:"));
     }
 }
