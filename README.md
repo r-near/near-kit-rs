@@ -10,7 +10,7 @@
 [![codecov](https://codecov.io/gh/r-near/near-kit-rs/graph/badge.svg)](https://codecov.io/gh/r-near/near-kit-rs)
 [![MSRV](https://img.shields.io/badge/MSRV-1.86-blue.svg)](https://github.com/r-near/near-kit-rs)
 
-[API Docs](https://docs.rs/near-kit) · [Examples](examples/) · [Changelog](CHANGELOG.md)
+[API Docs](https://docs.rs/near-kit) · [Examples](crates/near-kit/examples/) · [Changelog](CHANGELOG.md)
 
 </div>
 

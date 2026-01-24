@@ -689,6 +689,137 @@ pub fn generate_seed_phrase(word_count: usize) -> Result<String, SignerError> {
     Ok(mnemonic.to_string())
 }
 
+// ============================================================================
+// KeyPair
+// ============================================================================
+
+/// A cryptographic key pair (secret key + public key).
+///
+/// This is a convenience type that bundles a [`SecretKey`] with its derived
+/// [`PublicKey`] for situations where you need both (e.g., creating accounts,
+/// adding access keys).
+///
+/// # Example
+///
+/// ```rust
+/// use near_kit::KeyPair;
+///
+/// // Generate a random Ed25519 key pair
+/// let keypair = KeyPair::random();
+/// println!("Public key: {}", keypair.public_key);
+/// println!("Secret key: {}", keypair.secret_key);
+///
+/// // Use with account creation
+/// // near.transaction("new.alice.testnet")
+/// //     .create_account()
+/// //     .add_full_access_key(keypair.public_key)
+/// //     .send()
+/// //     .await?;
+/// ```
+#[derive(Clone)]
+pub struct KeyPair {
+    /// The secret (private) key.
+    pub secret_key: SecretKey,
+    /// The public key derived from the secret key.
+    pub public_key: PublicKey,
+}
+
+impl KeyPair {
+    /// Generate a random Ed25519 key pair.
+    ///
+    /// This is the most common key type for NEAR.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::KeyPair;
+    ///
+    /// let keypair = KeyPair::random();
+    /// ```
+    pub fn random() -> Self {
+        Self::random_ed25519()
+    }
+
+    /// Generate a random Ed25519 key pair.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::KeyPair;
+    ///
+    /// let keypair = KeyPair::random_ed25519();
+    /// assert!(keypair.public_key.to_string().starts_with("ed25519:"));
+    /// ```
+    pub fn random_ed25519() -> Self {
+        let secret_key = SecretKey::generate_ed25519();
+        let public_key = secret_key.public_key();
+        Self {
+            secret_key,
+            public_key,
+        }
+    }
+
+    /// Create a key pair from an existing secret key.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::{KeyPair, SecretKey};
+    ///
+    /// let secret_key: SecretKey = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr".parse().unwrap();
+    /// let keypair = KeyPair::from_secret_key(secret_key);
+    /// ```
+    pub fn from_secret_key(secret_key: SecretKey) -> Self {
+        let public_key = secret_key.public_key();
+        Self {
+            secret_key,
+            public_key,
+        }
+    }
+
+    /// Create a key pair from a seed phrase using the default NEAR HD path.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::KeyPair;
+    ///
+    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    /// let keypair = KeyPair::from_seed_phrase(phrase).unwrap();
+    /// ```
+    pub fn from_seed_phrase(phrase: impl AsRef<str>) -> Result<Self, SignerError> {
+        let secret_key = SecretKey::from_seed_phrase(phrase)?;
+        Ok(Self::from_secret_key(secret_key))
+    }
+
+    /// Generate a new random key pair with a seed phrase for backup.
+    ///
+    /// Returns the seed phrase (for backup) and the key pair.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::KeyPair;
+    ///
+    /// let (phrase, keypair) = KeyPair::random_with_seed_phrase().unwrap();
+    /// println!("Backup your seed phrase: {}", phrase);
+    /// println!("Public key: {}", keypair.public_key);
+    /// ```
+    pub fn random_with_seed_phrase() -> Result<(String, Self), SignerError> {
+        let (phrase, secret_key) = SecretKey::generate_with_seed_phrase()?;
+        Ok((phrase, Self::from_secret_key(secret_key)))
+    }
+}
+
+impl std::fmt::Debug for KeyPair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyPair")
+            .field("public_key", &self.public_key)
+            .field("secret_key", &"***")
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -187,7 +187,7 @@
 //! ```rust,no_run
 //! use near_kit::*;
 //!
-//! # async fn example(near: &Near) -> Result<(), Error> {
+//! # async fn example(near: &Near) -> Result<(), Box<dyn std::error::Error>> {
 //! // Create a sub-account with funding and deploy a contract
 //! let new_key: PublicKey = "ed25519:6E8sCci...".parse()?;
 //! let wasm = std::fs::read("contract.wasm")?;

@@ -67,7 +67,7 @@ pub use action::{
 pub use block_reference::{BlockReference, Finality, TxExecutionStatus};
 pub use hash::CryptoHash;
 pub use key::{
-    generate_seed_phrase, KeyType, PublicKey, SecretKey, Signature, DEFAULT_HD_PATH,
+    generate_seed_phrase, KeyPair, KeyType, PublicKey, SecretKey, Signature, DEFAULT_HD_PATH,
     DEFAULT_WORD_COUNT,
 };
 pub use rpc::{
