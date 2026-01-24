@@ -60,8 +60,8 @@ tempfile = "3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Internal crates
-near-kit = { path = "crates/near-kit" }
-near-kit-macros = { path = "crates/near-kit-macros" }
+near-kit = { path = "crates/near-kit", version = "0.1.0" }
+near-kit-macros = { path = "crates/near-kit-macros", version = "0.1.0" }
 
 [profile.release]
 lto = true
