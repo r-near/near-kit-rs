@@ -641,3 +641,560 @@ fn extract_invalid_nonce(data: &serde_json::Value) -> Option<RpcError> {
 
     Some(RpcError::InvalidNonce { tx_nonce, ak_nonce })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // RetryConfig tests
+    // ========================================================================
+
+    #[test]
+    fn test_retry_config_default() {
+        let config = RetryConfig::default();
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.initial_delay_ms, 500);
+        assert_eq!(config.max_delay_ms, 5000);
+    }
+
+    #[test]
+    fn test_retry_config_clone() {
+        let config = RetryConfig {
+            max_retries: 5,
+            initial_delay_ms: 100,
+            max_delay_ms: 1000,
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.max_retries, 5);
+        assert_eq!(cloned.initial_delay_ms, 100);
+        assert_eq!(cloned.max_delay_ms, 1000);
+    }
+
+    #[test]
+    fn test_retry_config_debug() {
+        let config = RetryConfig::default();
+        let debug = format!("{:?}", config);
+        assert!(debug.contains("RetryConfig"));
+        assert!(debug.contains("max_retries"));
+    }
+
+    // ========================================================================
+    // RpcClient tests
+    // ========================================================================
+
+    #[test]
+    fn test_rpc_client_new() {
+        let client = RpcClient::new("https://rpc.testnet.near.org");
+        assert_eq!(client.url(), "https://rpc.testnet.near.org");
+    }
+
+    #[test]
+    fn test_rpc_client_with_retry_config() {
+        let config = RetryConfig {
+            max_retries: 5,
+            initial_delay_ms: 100,
+            max_delay_ms: 1000,
+        };
+        let client = RpcClient::with_retry_config("https://rpc.example.com", config);
+        assert_eq!(client.url(), "https://rpc.example.com");
+    }
+
+    #[test]
+    fn test_rpc_client_clone() {
+        let client = RpcClient::new("https://rpc.testnet.near.org");
+        let cloned = client.clone();
+        assert_eq!(cloned.url(), client.url());
+    }
+
+    #[test]
+    fn test_rpc_client_debug() {
+        let client = RpcClient::new("https://rpc.testnet.near.org");
+        let debug = format!("{:?}", client);
+        assert!(debug.contains("RpcClient"));
+        assert!(debug.contains("rpc.testnet.near.org"));
+    }
+
+    // ========================================================================
+    // is_retryable_status tests
+    // ========================================================================
+
+    #[test]
+    fn test_is_retryable_status() {
+        // Retryable statuses
+        assert!(is_retryable_status(408)); // Request Timeout
+        assert!(is_retryable_status(429)); // Too Many Requests
+        assert!(is_retryable_status(500)); // Internal Server Error
+        assert!(is_retryable_status(502)); // Bad Gateway
+        assert!(is_retryable_status(503)); // Service Unavailable
+        assert!(is_retryable_status(504)); // Gateway Timeout
+        assert!(is_retryable_status(599)); // Edge of 5xx range
+
+        // Non-retryable statuses
+        assert!(!is_retryable_status(200)); // OK
+        assert!(!is_retryable_status(201)); // Created
+        assert!(!is_retryable_status(400)); // Bad Request
+        assert!(!is_retryable_status(401)); // Unauthorized
+        assert!(!is_retryable_status(403)); // Forbidden
+        assert!(!is_retryable_status(404)); // Not Found
+        assert!(!is_retryable_status(422)); // Unprocessable Entity
+    }
+
+    // ========================================================================
+    // extract_invalid_nonce tests
+    // ========================================================================
+
+    #[test]
+    fn test_extract_invalid_nonce_success() {
+        let data = serde_json::json!({
+            "TxExecutionError": {
+                "InvalidTxError": {
+                    "InvalidNonce": {
+                        "tx_nonce": 5,
+                        "ak_nonce": 10
+                    }
+                }
+            }
+        });
+        let result = extract_invalid_nonce(&data);
+        assert!(result.is_some());
+        match result.unwrap() {
+            RpcError::InvalidNonce { tx_nonce, ak_nonce } => {
+                assert_eq!(tx_nonce, 5);
+                assert_eq!(ak_nonce, 10);
+            }
+            _ => panic!("Expected InvalidNonce error"),
+        }
+    }
+
+    #[test]
+    fn test_extract_invalid_nonce_missing_fields() {
+        // Missing TxExecutionError
+        let data = serde_json::json!({
+            "SomeOtherError": {}
+        });
+        assert!(extract_invalid_nonce(&data).is_none());
+
+        // Missing InvalidTxError
+        let data = serde_json::json!({
+            "TxExecutionError": {
+                "SomeOtherError": {}
+            }
+        });
+        assert!(extract_invalid_nonce(&data).is_none());
+
+        // Missing InvalidNonce
+        let data = serde_json::json!({
+            "TxExecutionError": {
+                "InvalidTxError": {
+                    "SomeOtherError": {}
+                }
+            }
+        });
+        assert!(extract_invalid_nonce(&data).is_none());
+
+        // Missing tx_nonce
+        let data = serde_json::json!({
+            "TxExecutionError": {
+                "InvalidTxError": {
+                    "InvalidNonce": {
+                        "ak_nonce": 10
+                    }
+                }
+            }
+        });
+        assert!(extract_invalid_nonce(&data).is_none());
+
+        // Missing ak_nonce
+        let data = serde_json::json!({
+            "TxExecutionError": {
+                "InvalidTxError": {
+                    "InvalidNonce": {
+                        "tx_nonce": 5
+                    }
+                }
+            }
+        });
+        assert!(extract_invalid_nonce(&data).is_none());
+    }
+
+    // ========================================================================
+    // NetworkConfig tests
+    // ========================================================================
+
+    #[test]
+    fn test_mainnet_config() {
+        assert!(MAINNET.rpc_url.contains("fastnear"));
+        assert_eq!(MAINNET.network_id, "mainnet");
+    }
+
+    #[test]
+    fn test_testnet_config() {
+        assert!(TESTNET.rpc_url.contains("fastnear") || TESTNET.rpc_url.contains("test"));
+        assert_eq!(TESTNET.network_id, "testnet");
+    }
+
+    // ========================================================================
+    // parse_rpc_error tests (via RpcClient)
+    // ========================================================================
+
+    #[test]
+    fn test_parse_rpc_error_unknown_account() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "UNKNOWN_ACCOUNT".to_string(),
+                info: Some(serde_json::json!({
+                    "requested_account_id": "nonexistent.near"
+                })),
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::AccountNotFound(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_invalid_account() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "INVALID_ACCOUNT".to_string(),
+                info: Some(serde_json::json!({
+                    "requested_account_id": "invalid@account"
+                })),
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::InvalidAccount(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_unknown_block() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Block not found".to_string(),
+            data: Some(serde_json::json!("12345")),
+            cause: Some(ErrorCause {
+                name: "UNKNOWN_BLOCK".to_string(),
+                info: None,
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::UnknownBlock(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_unknown_chunk() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Chunk not found".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "UNKNOWN_CHUNK".to_string(),
+                info: Some(serde_json::json!({
+                    "chunk_hash": "abc123"
+                })),
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::UnknownChunk(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_unknown_epoch() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Epoch not found".to_string(),
+            data: Some(serde_json::json!("epoch123")),
+            cause: Some(ErrorCause {
+                name: "UNKNOWN_EPOCH".to_string(),
+                info: None,
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::UnknownEpoch(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_unknown_receipt() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Receipt not found".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "UNKNOWN_RECEIPT".to_string(),
+                info: Some(serde_json::json!({
+                    "receipt_id": "receipt123"
+                })),
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::UnknownReceipt(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_no_contract_code() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "No contract code".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "NO_CONTRACT_CODE".to_string(),
+                info: Some(serde_json::json!({
+                    "contract_account_id": "no-contract.near"
+                })),
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::ContractNotDeployed(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_too_large_contract_state() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Contract state too large".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "TOO_LARGE_CONTRACT_STATE".to_string(),
+                info: Some(serde_json::json!({
+                    "account_id": "large-state.near"
+                })),
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::ContractStateTooLarge(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_unavailable_shard() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Shard unavailable".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "UNAVAILABLE_SHARD".to_string(),
+                info: None,
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::ShardUnavailable(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_not_synced() {
+        let client = RpcClient::new("https://example.com");
+
+        // NO_SYNCED_BLOCKS
+        let error = JsonRpcError {
+            code: -32000,
+            message: "No synced blocks".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "NO_SYNCED_BLOCKS".to_string(),
+                info: None,
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::NodeNotSynced(_)));
+
+        // NOT_SYNCED_YET
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Not synced yet".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "NOT_SYNCED_YET".to_string(),
+                info: None,
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::NodeNotSynced(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_invalid_shard_id() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Invalid shard ID".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "INVALID_SHARD_ID".to_string(),
+                info: Some(serde_json::json!({
+                    "shard_id": 99
+                })),
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::InvalidShardId(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_invalid_transaction() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Invalid transaction".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "INVALID_TRANSACTION".to_string(),
+                info: None,
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::InvalidTransaction { .. }));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_timeout() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Request timed out".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "TIMEOUT_ERROR".to_string(),
+                info: Some(serde_json::json!({
+                    "transaction_hash": "tx123"
+                })),
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::RequestTimeout { .. }));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_parse_error() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32700,
+            message: "Parse error".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "PARSE_ERROR".to_string(),
+                info: None,
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::ParseError(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_internal_error() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32603,
+            message: "Internal error".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "INTERNAL_ERROR".to_string(),
+                info: None,
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::InternalError(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_contract_execution() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Contract execution failed".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "CONTRACT_EXECUTION_ERROR".to_string(),
+                info: Some(serde_json::json!({
+                    "contract_id": "contract.near",
+                    "method_name": "my_method"
+                })),
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::ContractExecution { .. }));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_fallback_account_not_exist() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Error".to_string(),
+            data: Some(serde_json::json!(
+                "account missing.near does not exist while viewing"
+            )),
+            cause: None,
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::AccountNotFound(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_unknown_cause_fallback_to_generic() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Some error".to_string(),
+            data: Some(serde_json::json!("some data")),
+            cause: Some(ErrorCause {
+                name: "UNKNOWN_ERROR_TYPE".to_string(),
+                info: None,
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::Rpc { .. }));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_no_cause_fallback_to_generic() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32600,
+            message: "Invalid request".to_string(),
+            data: None,
+            cause: None,
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        match result {
+            RpcError::Rpc { code, message, .. } => {
+                assert_eq!(code, -32600);
+                assert_eq!(message, "Invalid request");
+            }
+            _ => panic!("Expected generic Rpc error"),
+        }
+    }
+}

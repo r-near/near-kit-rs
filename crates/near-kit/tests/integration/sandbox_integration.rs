@@ -669,3 +669,191 @@ async fn test_sandbox_patch_debug() {
     println!("New balance: {:?}", new_balance);
     println!("Expected: {:?}", target_balance);
 }
+
+// =============================================================================
+// sign_message and send_with_options tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_sign_message_nep413() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    // Create an account with a signer
+    let account_key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    root_near
+        .transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::near(10))
+        .add_full_access_key(account_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    let account_near = Near::custom(rpc_url)
+        .credentials(account_key.to_string(), account_id.as_str())
+        .unwrap()
+        .build();
+
+    // Sign a message using NEP-413
+    let params = nep413::SignMessageParams {
+        message: "Login to MyApp".to_string(),
+        recipient: "myapp.example.com".to_string(),
+        nonce: nep413::generate_nonce(),
+        callback_url: None,
+        state: None,
+    };
+
+    let signed = account_near.sign_message(params.clone()).await.unwrap();
+
+    // Verify the signed message
+    assert_eq!(signed.account_id, account_id);
+    assert_eq!(signed.public_key, account_key.public_key());
+
+    // Verify the signature is valid using the nep413::verify_signature function
+    let is_valid = nep413::verify_signature(&signed, &params, std::time::Duration::MAX);
+    assert!(is_valid, "Signature should be valid");
+
+    println!("Signed message by: {}", signed.account_id);
+    println!("Public key: {}", signed.public_key);
+}
+
+#[tokio::test]
+async fn test_sign_message_without_signer_fails() {
+    let near = Near::testnet().build();
+
+    let params = nep413::SignMessageParams {
+        message: "Login".to_string(),
+        recipient: "example.com".to_string(),
+        nonce: nep413::generate_nonce(),
+        callback_url: None,
+        state: None,
+    };
+
+    let result = near.sign_message(params).await;
+    assert!(result.is_err());
+    match result {
+        Err(Error::NoSigner) => {}
+        _ => panic!("Expected NoSigner error"),
+    }
+}
+
+#[tokio::test]
+async fn test_send_with_options_final() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    // Create sender account
+    let sender_key = SecretKey::generate_ed25519();
+    let sender_id = unique_account();
+
+    root_near
+        .transaction(&sender_id)
+        .create_account()
+        .transfer(NearToken::near(100))
+        .add_full_access_key(sender_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    let sender_near = Near::custom(rpc_url)
+        .credentials(sender_key.to_string(), sender_id.as_str())
+        .unwrap()
+        .build();
+
+    // Create receiver account
+    let receiver_key = SecretKey::generate_ed25519();
+    let receiver_id: AccountId = format!("recv.{}", sender_id).parse().unwrap();
+
+    sender_near
+        .transaction(&receiver_id)
+        .create_account()
+        .transfer(NearToken::near(10))
+        .add_full_access_key(receiver_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // Sign a transaction offline
+    let signed = sender_near
+        .transfer(&receiver_id, NearToken::near(5))
+        .sign()
+        .await
+        .unwrap();
+
+    println!("Signed transaction hash: {}", signed.get_hash());
+
+    // Send with Final wait option
+    let outcome = sender_near
+        .send_with_options(&signed, TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    assert!(outcome.is_success());
+    println!("Transaction succeeded: {:?}", outcome.transaction_hash());
+
+    // Verify the transfer happened
+    let balance = root_near.balance(&receiver_id).await.unwrap();
+    println!("Receiver balance: {}", balance.total);
+    assert!(balance.total > NearToken::near(14));
+}
+
+#[tokio::test]
+async fn test_send_pre_signed_transaction() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    // Create sender account
+    let sender_key = SecretKey::generate_ed25519();
+    let sender_id = unique_account();
+
+    root_near
+        .transaction(&sender_id)
+        .create_account()
+        .transfer(NearToken::near(100))
+        .add_full_access_key(sender_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    let sender_near = Near::custom(rpc_url)
+        .credentials(sender_key.to_string(), sender_id.as_str())
+        .unwrap()
+        .build();
+
+    // Create receiver account
+    let receiver_key = SecretKey::generate_ed25519();
+    let receiver_id: AccountId = format!("recv2.{}", sender_id).parse().unwrap();
+
+    sender_near
+        .transaction(&receiver_id)
+        .create_account()
+        .transfer(NearToken::near(10))
+        .add_full_access_key(receiver_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // Sign a transaction offline
+    let signed = sender_near
+        .transfer(&receiver_id, NearToken::near(2))
+        .sign()
+        .await
+        .unwrap();
+
+    // Use the simple send() method (uses ExecutedOptimistic by default)
+    let outcome = sender_near.send(&signed).await.unwrap();
+
+    assert!(outcome.is_success());
+    println!("Transaction completed: {:?}", outcome.transaction_hash());
+}

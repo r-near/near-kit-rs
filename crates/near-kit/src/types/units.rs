@@ -704,6 +704,10 @@ impl IntoGas for &String {
 mod tests {
     use super::*;
 
+    // ========================================================================
+    // NearToken parsing tests
+    // ========================================================================
+
     #[test]
     fn test_near_token_parsing() {
         assert_eq!(
@@ -758,5 +762,471 @@ mod tests {
     #[test]
     fn test_gas_default() {
         assert_eq!(Gas::DEFAULT.as_tgas(), 30);
+    }
+
+    // ========================================================================
+    // NearToken constructor tests
+    // ========================================================================
+
+    #[test]
+    fn test_near_token_constructors() {
+        // Short aliases
+        assert_eq!(NearToken::near(5).as_yoctonear(), 5 * YOCTO_PER_NEAR);
+        assert_eq!(
+            NearToken::millinear(500).as_yoctonear(),
+            500 * YOCTO_PER_MILLINEAR
+        );
+        assert_eq!(NearToken::yocto(1000).as_yoctonear(), 1000);
+
+        // Full names
+        assert_eq!(NearToken::from_near(5).as_yoctonear(), 5 * YOCTO_PER_NEAR);
+        assert_eq!(
+            NearToken::from_millinear(500).as_yoctonear(),
+            500 * YOCTO_PER_MILLINEAR
+        );
+        assert_eq!(NearToken::from_yoctonear(1000).as_yoctonear(), 1000);
+    }
+
+    #[test]
+    fn test_near_token_constants() {
+        assert_eq!(NearToken::ZERO.as_yoctonear(), 0);
+        assert_eq!(NearToken::ONE_YOCTO.as_yoctonear(), 1);
+        assert_eq!(NearToken::ONE_MILLINEAR.as_yoctonear(), YOCTO_PER_MILLINEAR);
+        assert_eq!(NearToken::ONE_NEAR.as_yoctonear(), YOCTO_PER_NEAR);
+    }
+
+    #[test]
+    fn test_near_token_as_near() {
+        assert_eq!(NearToken::near(5).as_near(), 5);
+        assert_eq!(NearToken::millinear(500).as_near(), 0); // Truncated
+        assert_eq!(NearToken::millinear(1500).as_near(), 1); // Truncated
+    }
+
+    #[test]
+    fn test_near_token_as_near_f64() {
+        let amount = NearToken::millinear(500);
+        let f64_val = amount.as_near_f64();
+        assert!((f64_val - 0.5).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_near_token_is_zero() {
+        assert!(NearToken::ZERO.is_zero());
+        assert!(!NearToken::ONE_YOCTO.is_zero());
+    }
+
+    // ========================================================================
+    // NearToken arithmetic tests
+    // ========================================================================
+
+    #[test]
+    fn test_near_token_add() {
+        let a = NearToken::near(5);
+        let b = NearToken::near(3);
+        assert_eq!((a + b).as_near(), 8);
+    }
+
+    #[test]
+    fn test_near_token_sub() {
+        let a = NearToken::near(5);
+        let b = NearToken::near(3);
+        assert_eq!((a - b).as_near(), 2);
+    }
+
+    #[test]
+    fn test_near_token_checked_add() {
+        let a = NearToken::near(5);
+        let b = NearToken::near(3);
+        assert_eq!(a.checked_add(b).unwrap().as_near(), 8);
+
+        // Overflow
+        let max = NearToken::from_yoctonear(u128::MAX);
+        assert!(max.checked_add(NearToken::ONE_YOCTO).is_none());
+    }
+
+    #[test]
+    fn test_near_token_checked_sub() {
+        let a = NearToken::near(5);
+        let b = NearToken::near(3);
+        assert_eq!(a.checked_sub(b).unwrap().as_near(), 2);
+
+        // Underflow
+        assert!(b.checked_sub(a).is_none());
+    }
+
+    #[test]
+    fn test_near_token_saturating_add() {
+        let a = NearToken::near(5);
+        let b = NearToken::near(3);
+        assert_eq!(a.saturating_add(b).as_near(), 8);
+
+        // Saturates at max
+        let max = NearToken::from_yoctonear(u128::MAX);
+        assert_eq!(max.saturating_add(NearToken::ONE_YOCTO), max);
+    }
+
+    #[test]
+    fn test_near_token_saturating_sub() {
+        let a = NearToken::near(5);
+        let b = NearToken::near(3);
+        assert_eq!(a.saturating_sub(b).as_near(), 2);
+
+        // Saturates at zero
+        assert_eq!(b.saturating_sub(a), NearToken::ZERO);
+    }
+
+    // ========================================================================
+    // NearToken parsing edge cases
+    // ========================================================================
+
+    #[test]
+    fn test_near_token_parse_lowercase() {
+        assert_eq!("5 near".parse::<NearToken>().unwrap().as_near(), 5);
+    }
+
+    #[test]
+    fn test_near_token_parse_mnear() {
+        assert_eq!(
+            "100 mNEAR".parse::<NearToken>().unwrap().as_yoctonear(),
+            100 * YOCTO_PER_MILLINEAR
+        );
+    }
+
+    #[test]
+    fn test_near_token_parse_yoctonear() {
+        assert_eq!(
+            "12345 yoctoNEAR"
+                .parse::<NearToken>()
+                .unwrap()
+                .as_yoctonear(),
+            12345
+        );
+    }
+
+    #[test]
+    fn test_near_token_parse_decimal_near() {
+        assert_eq!(
+            "0.5 NEAR".parse::<NearToken>().unwrap().as_yoctonear(),
+            YOCTO_PER_NEAR / 2
+        );
+        assert_eq!(
+            ".25 NEAR".parse::<NearToken>().unwrap().as_yoctonear(),
+            YOCTO_PER_NEAR / 4
+        );
+    }
+
+    #[test]
+    fn test_near_token_parse_with_whitespace() {
+        assert_eq!("  5 NEAR  ".parse::<NearToken>().unwrap().as_near(), 5);
+    }
+
+    #[test]
+    fn test_near_token_parse_invalid_format() {
+        assert!(matches!(
+            "5 ETH".parse::<NearToken>(),
+            Err(ParseAmountError::InvalidFormat(_))
+        ));
+    }
+
+    #[test]
+    fn test_near_token_parse_invalid_number() {
+        assert!(matches!(
+            "abc NEAR".parse::<NearToken>(),
+            Err(ParseAmountError::InvalidNumber(_))
+        ));
+    }
+
+    #[test]
+    fn test_near_token_try_from_str() {
+        let token = NearToken::try_from("5 NEAR").unwrap();
+        assert_eq!(token.as_near(), 5);
+    }
+
+    // ========================================================================
+    // NearToken serde tests
+    // ========================================================================
+
+    #[test]
+    fn test_near_token_serde_roundtrip() {
+        let amount = NearToken::near(5);
+        let json = serde_json::to_string(&amount).unwrap();
+        // Should serialize as string (yoctoNEAR)
+        assert_eq!(json, format!("\"{}\"", amount.as_yoctonear()));
+
+        let parsed: NearToken = serde_json::from_str(&json).unwrap();
+        assert_eq!(amount, parsed);
+    }
+
+    #[test]
+    fn test_near_token_borsh_roundtrip() {
+        let amount = NearToken::near(10);
+        let bytes = borsh::to_vec(&amount).unwrap();
+        let parsed: NearToken = borsh::from_slice(&bytes).unwrap();
+        assert_eq!(amount, parsed);
+    }
+
+    // ========================================================================
+    // NearToken display tests (fractional)
+    // ========================================================================
+
+    #[test]
+    fn test_near_token_display_fractional() {
+        // 1.5 NEAR
+        let amount = NearToken::from_yoctonear(YOCTO_PER_NEAR + YOCTO_PER_NEAR / 2);
+        let display = amount.to_string();
+        assert!(display.contains("1.5") || display.contains("1."));
+        assert!(display.contains("NEAR"));
+    }
+
+    // ========================================================================
+    // NearToken comparison tests
+    // ========================================================================
+
+    #[test]
+    fn test_near_token_ord() {
+        let small = NearToken::near(1);
+        let large = NearToken::near(10);
+        assert!(small < large);
+        assert!(large > small);
+        assert!(small <= small);
+        assert!(small >= small);
+    }
+
+    #[test]
+    fn test_near_token_eq() {
+        let a = NearToken::near(5);
+        let b = NearToken::millinear(5000);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_near_token_hash() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert(NearToken::near(1));
+        set.insert(NearToken::near(2));
+        assert!(set.contains(&NearToken::near(1)));
+        assert!(!set.contains(&NearToken::near(3)));
+    }
+
+    // ========================================================================
+    // Gas tests
+    // ========================================================================
+
+    #[test]
+    fn test_gas_constructors() {
+        assert_eq!(Gas::tgas(30).as_gas(), 30 * GAS_PER_TGAS);
+        assert_eq!(Gas::ggas(5).as_gas(), 5 * GAS_PER_GGAS);
+        assert_eq!(Gas::from_gas(1000).as_gas(), 1000);
+        assert_eq!(Gas::from_tgas(30).as_gas(), 30 * GAS_PER_TGAS);
+        assert_eq!(Gas::from_ggas(5).as_gas(), 5 * GAS_PER_GGAS);
+    }
+
+    #[test]
+    fn test_gas_constants() {
+        assert_eq!(Gas::ZERO.as_gas(), 0);
+        assert_eq!(Gas::ONE_GGAS.as_gas(), GAS_PER_GGAS);
+        assert_eq!(Gas::ONE_TGAS.as_gas(), GAS_PER_TGAS);
+        assert_eq!(Gas::DEFAULT.as_tgas(), 30);
+        assert_eq!(Gas::MAX.as_tgas(), 300);
+    }
+
+    #[test]
+    fn test_gas_as_accessors() {
+        let gas = Gas::tgas(30);
+        assert_eq!(gas.as_tgas(), 30);
+        assert_eq!(gas.as_ggas(), 30_000);
+        assert_eq!(gas.as_gas(), 30 * GAS_PER_TGAS);
+    }
+
+    #[test]
+    fn test_gas_is_zero() {
+        assert!(Gas::ZERO.is_zero());
+        assert!(!Gas::ONE_GGAS.is_zero());
+    }
+
+    #[test]
+    fn test_gas_add() {
+        let a = Gas::tgas(10);
+        let b = Gas::tgas(20);
+        assert_eq!((a + b).as_tgas(), 30);
+    }
+
+    #[test]
+    fn test_gas_sub() {
+        let a = Gas::tgas(30);
+        let b = Gas::tgas(10);
+        assert_eq!((a - b).as_tgas(), 20);
+    }
+
+    #[test]
+    fn test_gas_checked_add() {
+        let a = Gas::tgas(10);
+        let b = Gas::tgas(20);
+        assert_eq!(a.checked_add(b).unwrap().as_tgas(), 30);
+
+        // Overflow
+        let max = Gas::from_gas(u64::MAX);
+        assert!(max.checked_add(Gas::from_gas(1)).is_none());
+    }
+
+    #[test]
+    fn test_gas_checked_sub() {
+        let a = Gas::tgas(30);
+        let b = Gas::tgas(10);
+        assert_eq!(a.checked_sub(b).unwrap().as_tgas(), 20);
+
+        // Underflow
+        assert!(b.checked_sub(a).is_none());
+    }
+
+    #[test]
+    fn test_gas_parse_tgas_variants() {
+        assert_eq!("30 Tgas".parse::<Gas>().unwrap().as_tgas(), 30);
+        assert_eq!("30 tgas".parse::<Gas>().unwrap().as_tgas(), 30);
+        assert_eq!("30 TGas".parse::<Gas>().unwrap().as_tgas(), 30);
+    }
+
+    #[test]
+    fn test_gas_parse_ggas_variants() {
+        assert_eq!("5 Ggas".parse::<Gas>().unwrap().as_ggas(), 5);
+        assert_eq!("5 ggas".parse::<Gas>().unwrap().as_ggas(), 5);
+        assert_eq!("5 GGas".parse::<Gas>().unwrap().as_ggas(), 5);
+    }
+
+    #[test]
+    fn test_gas_parse_invalid_format() {
+        assert!(matches!(
+            "30 teragas".parse::<Gas>(),
+            Err(ParseGasError::InvalidFormat(_))
+        ));
+    }
+
+    #[test]
+    fn test_gas_parse_invalid_number() {
+        assert!(matches!(
+            "abc Tgas".parse::<Gas>(),
+            Err(ParseGasError::InvalidNumber(_))
+        ));
+    }
+
+    #[test]
+    fn test_gas_try_from_str() {
+        let gas = Gas::try_from("30 Tgas").unwrap();
+        assert_eq!(gas.as_tgas(), 30);
+    }
+
+    #[test]
+    fn test_gas_serde_roundtrip() {
+        let gas = Gas::tgas(30);
+        let json = serde_json::to_string(&gas).unwrap();
+        let parsed: Gas = serde_json::from_str(&json).unwrap();
+        assert_eq!(gas, parsed);
+    }
+
+    #[test]
+    fn test_gas_borsh_roundtrip() {
+        let gas = Gas::tgas(30);
+        let bytes = borsh::to_vec(&gas).unwrap();
+        let parsed: Gas = borsh::from_slice(&bytes).unwrap();
+        assert_eq!(gas, parsed);
+    }
+
+    #[test]
+    fn test_gas_ord() {
+        let small = Gas::tgas(10);
+        let large = Gas::tgas(100);
+        assert!(small < large);
+    }
+
+    // ========================================================================
+    // IntoNearToken tests
+    // ========================================================================
+
+    #[test]
+    fn test_into_near_token_from_near_token() {
+        let token = NearToken::near(5);
+        assert_eq!(token.into_near_token().unwrap(), NearToken::near(5));
+    }
+
+    #[test]
+    fn test_into_near_token_from_str() {
+        assert_eq!("5 NEAR".into_near_token().unwrap(), NearToken::near(5));
+    }
+
+    #[test]
+    fn test_into_near_token_from_string() {
+        let s = String::from("5 NEAR");
+        assert_eq!(s.into_near_token().unwrap(), NearToken::near(5));
+    }
+
+    #[test]
+    fn test_into_near_token_from_string_ref() {
+        let s = String::from("5 NEAR");
+        assert_eq!((&s).into_near_token().unwrap(), NearToken::near(5));
+    }
+
+    // ========================================================================
+    // IntoGas tests
+    // ========================================================================
+
+    #[test]
+    fn test_into_gas_from_gas() {
+        let gas = Gas::tgas(30);
+        assert_eq!(gas.into_gas().unwrap(), Gas::tgas(30));
+    }
+
+    #[test]
+    fn test_into_gas_from_str() {
+        assert_eq!("30 Tgas".into_gas().unwrap(), Gas::tgas(30));
+    }
+
+    #[test]
+    fn test_into_gas_from_string() {
+        let s = String::from("30 Tgas");
+        assert_eq!(s.into_gas().unwrap(), Gas::tgas(30));
+    }
+
+    #[test]
+    fn test_into_gas_from_string_ref() {
+        let s = String::from("30 Tgas");
+        assert_eq!((&s).into_gas().unwrap(), Gas::tgas(30));
+    }
+
+    // ========================================================================
+    // Edge case tests
+    // ========================================================================
+
+    #[test]
+    fn test_near_token_default() {
+        let default = NearToken::default();
+        assert_eq!(default, NearToken::ZERO);
+    }
+
+    #[test]
+    fn test_gas_default_trait() {
+        let default = Gas::default();
+        assert_eq!(default, Gas::ZERO);
+    }
+
+    #[test]
+    fn test_near_token_debug() {
+        let token = NearToken::near(5);
+        let debug = format!("{:?}", token);
+        assert!(debug.contains("NearToken"));
+    }
+
+    #[test]
+    fn test_gas_debug() {
+        let gas = Gas::tgas(30);
+        let debug = format!("{:?}", gas);
+        assert!(debug.contains("Gas"));
+    }
+
+    #[test]
+    fn test_gas_display_non_tgas_multiple() {
+        // When gas is not a clean Tgas multiple
+        let gas = Gas::from_gas(1500);
+        assert_eq!(gas.to_string(), "1500 gas");
     }
 }

@@ -160,4 +160,138 @@ mod tests {
         assert!(CryptoHash::ZERO.is_zero());
         assert!(!CryptoHash::hash(b"x").is_zero());
     }
+
+    #[test]
+    fn test_from_bytes() {
+        let bytes = [42u8; 32];
+        let hash = CryptoHash::from_bytes(bytes);
+        assert_eq!(hash.as_bytes(), &bytes);
+    }
+
+    #[test]
+    fn test_to_vec() {
+        let hash = CryptoHash::hash(b"test");
+        let vec = hash.to_vec();
+        assert_eq!(vec.len(), 32);
+        assert_eq!(vec.as_slice(), hash.as_bytes());
+    }
+
+    #[test]
+    fn test_from_32_byte_array() {
+        let bytes = [1u8; 32];
+        let hash: CryptoHash = bytes.into();
+        assert_eq!(hash.as_bytes(), &bytes);
+    }
+
+    #[test]
+    fn test_try_from_slice_success() {
+        let bytes = [2u8; 32];
+        let hash = CryptoHash::try_from(bytes.as_slice()).unwrap();
+        assert_eq!(hash.as_bytes(), &bytes);
+    }
+
+    #[test]
+    fn test_try_from_slice_wrong_length() {
+        let bytes = [3u8; 16]; // Wrong length
+        let result = CryptoHash::try_from(bytes.as_slice());
+        assert!(matches!(
+            result,
+            Err(crate::error::ParseHashError::InvalidLength(16))
+        ));
+    }
+
+    #[test]
+    fn test_try_from_str() {
+        let hash = CryptoHash::hash(b"test");
+        let s = hash.to_string();
+        let parsed = CryptoHash::try_from(s.as_str()).unwrap();
+        assert_eq!(hash, parsed);
+    }
+
+    #[test]
+    fn test_as_ref() {
+        let hash = CryptoHash::hash(b"test");
+        let slice: &[u8] = hash.as_ref();
+        assert_eq!(slice.len(), 32);
+        assert_eq!(slice, hash.as_bytes());
+    }
+
+    #[test]
+    fn test_debug_format() {
+        let hash = CryptoHash::ZERO;
+        let debug = format!("{:?}", hash);
+        assert!(debug.starts_with("CryptoHash("));
+        assert!(debug.contains("1111111111")); // Zero hash in base58
+    }
+
+    #[test]
+    fn test_parse_invalid_base58() {
+        // Invalid base58 characters
+        let result: Result<CryptoHash, _> = "invalid!@#$%base58".parse();
+        assert!(matches!(
+            result,
+            Err(crate::error::ParseHashError::InvalidBase58(_))
+        ));
+    }
+
+    #[test]
+    fn test_parse_wrong_length() {
+        // Valid base58 but wrong length (too short)
+        let result: Result<CryptoHash, _> = "3xRDxw".parse();
+        assert!(matches!(
+            result,
+            Err(crate::error::ParseHashError::InvalidLength(_))
+        ));
+    }
+
+    #[test]
+    fn test_serde_roundtrip() {
+        let hash = CryptoHash::hash(b"serde test");
+        let json = serde_json::to_string(&hash).unwrap();
+        let parsed: CryptoHash = serde_json::from_str(&json).unwrap();
+        assert_eq!(hash, parsed);
+    }
+
+    #[test]
+    fn test_borsh_roundtrip() {
+        let hash = CryptoHash::hash(b"borsh test");
+        let bytes = borsh::to_vec(&hash).unwrap();
+        assert_eq!(bytes.len(), 32);
+        let parsed: CryptoHash = borsh::from_slice(&bytes).unwrap();
+        assert_eq!(hash, parsed);
+    }
+
+    #[test]
+    fn test_hash_deterministic() {
+        let hash1 = CryptoHash::hash(b"same input");
+        let hash2 = CryptoHash::hash(b"same input");
+        assert_eq!(hash1, hash2);
+
+        let hash3 = CryptoHash::hash(b"different input");
+        assert_ne!(hash1, hash3);
+    }
+
+    #[test]
+    fn test_default() {
+        let hash = CryptoHash::default();
+        assert!(hash.is_zero());
+        assert_eq!(hash, CryptoHash::ZERO);
+    }
+
+    #[test]
+    fn test_clone() {
+        let hash1 = CryptoHash::hash(b"clone test");
+        #[allow(clippy::clone_on_copy)]
+        let hash2 = hash1.clone(); // Intentionally testing Clone impl
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hash_comparison() {
+        let hash1 = CryptoHash::from_bytes([0u8; 32]);
+        let hash2 = CryptoHash::from_bytes([1u8; 32]);
+        // CryptoHash doesn't implement Ord, but we can compare for equality
+        assert_ne!(hash1, hash2);
+        assert_eq!(hash1, CryptoHash::ZERO);
+    }
 }

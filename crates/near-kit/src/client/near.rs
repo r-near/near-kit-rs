@@ -796,3 +796,179 @@ impl SandboxNetwork for near_sandbox::Sandbox {
         SANDBOX_ROOT_PRIVATE_KEY
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // Near client tests
+    // ========================================================================
+
+    #[test]
+    fn test_near_mainnet_builder() {
+        let near = Near::mainnet().build();
+        assert!(near.rpc_url().contains("fastnear") || near.rpc_url().contains("near"));
+        assert!(near.account_id().is_none()); // No signer configured
+    }
+
+    #[test]
+    fn test_near_testnet_builder() {
+        let near = Near::testnet().build();
+        assert!(near.rpc_url().contains("fastnear") || near.rpc_url().contains("test"));
+        assert!(near.account_id().is_none());
+    }
+
+    #[test]
+    fn test_near_custom_builder() {
+        let near = Near::custom("https://custom-rpc.example.com").build();
+        assert_eq!(near.rpc_url(), "https://custom-rpc.example.com");
+    }
+
+    #[test]
+    fn test_near_with_credentials() {
+        let near = Near::testnet()
+            .credentials(
+                "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
+                "alice.testnet",
+            )
+            .unwrap()
+            .build();
+
+        assert!(near.account_id().is_some());
+        assert_eq!(near.account_id().unwrap().as_str(), "alice.testnet");
+    }
+
+    #[test]
+    fn test_near_with_signer() {
+        let signer = InMemorySigner::new(
+            "bob.testnet",
+            "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
+        ).unwrap();
+
+        let near = Near::testnet().signer(signer).build();
+
+        assert!(near.account_id().is_some());
+        assert_eq!(near.account_id().unwrap().as_str(), "bob.testnet");
+    }
+
+    #[test]
+    fn test_near_debug() {
+        let near = Near::testnet().build();
+        let debug = format!("{:?}", near);
+        assert!(debug.contains("Near"));
+        assert!(debug.contains("rpc"));
+    }
+
+    #[test]
+    fn test_near_rpc_accessor() {
+        let near = Near::testnet().build();
+        let rpc = near.rpc();
+        assert!(!rpc.url().is_empty());
+    }
+
+    // ========================================================================
+    // NearBuilder tests
+    // ========================================================================
+
+    #[test]
+    fn test_near_builder_new() {
+        let builder = NearBuilder::new("https://example.com");
+        let near = builder.build();
+        assert_eq!(near.rpc_url(), "https://example.com");
+    }
+
+    #[test]
+    fn test_near_builder_retry_config() {
+        let config = RetryConfig {
+            max_retries: 10,
+            initial_delay_ms: 200,
+            max_delay_ms: 10000,
+        };
+        let near = Near::testnet().retry_config(config).build();
+        // Can't directly test retry config, but we can verify it builds
+        assert!(!near.rpc_url().is_empty());
+    }
+
+    #[test]
+    fn test_near_builder_from_trait() {
+        let builder = Near::testnet();
+        let near: Near = builder.into();
+        assert!(!near.rpc_url().is_empty());
+    }
+
+    #[test]
+    fn test_near_builder_credentials_invalid_key() {
+        let result = Near::testnet().credentials("invalid-key", "alice.testnet");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_near_builder_credentials_invalid_account() {
+        // Empty account ID is invalid
+        let result = Near::testnet().credentials(
+            "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
+            "",
+        );
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // SandboxNetwork trait tests
+    // ========================================================================
+
+    struct MockSandbox {
+        rpc_url: String,
+        root_account: String,
+        root_key: String,
+    }
+
+    impl SandboxNetwork for MockSandbox {
+        fn rpc_url(&self) -> &str {
+            &self.rpc_url
+        }
+
+        fn root_account_id(&self) -> &str {
+            &self.root_account
+        }
+
+        fn root_secret_key(&self) -> &str {
+            &self.root_key
+        }
+    }
+
+    #[test]
+    fn test_sandbox_network_trait() {
+        let mock = MockSandbox {
+            rpc_url: "http://127.0.0.1:3030".to_string(),
+            root_account: "sandbox".to_string(),
+            root_key: SANDBOX_ROOT_PRIVATE_KEY.to_string(),
+        };
+
+        let near = Near::sandbox(&mock);
+        assert_eq!(near.rpc_url(), "http://127.0.0.1:3030");
+        assert!(near.account_id().is_some());
+        assert_eq!(near.account_id().unwrap().as_str(), "sandbox");
+    }
+
+    // ========================================================================
+    // Constant tests
+    // ========================================================================
+
+    #[test]
+    fn test_sandbox_constants() {
+        assert_eq!(SANDBOX_ROOT_ACCOUNT, "sandbox");
+        assert!(SANDBOX_ROOT_PRIVATE_KEY.starts_with("ed25519:"));
+    }
+
+    // ========================================================================
+    // Clone tests
+    // ========================================================================
+
+    #[test]
+    fn test_near_clone() {
+        let near1 = Near::testnet().build();
+        let near2 = near1.clone();
+        assert_eq!(near1.rpc_url(), near2.rpc_url());
+    }
+}

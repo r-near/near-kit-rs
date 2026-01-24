@@ -171,4 +171,134 @@ mod tests {
             "EXECUTED_OPTIMISTIC"
         );
     }
+
+    #[test]
+    fn test_block_reference_hash_to_rpc_params() {
+        let hash = CryptoHash::hash(b"test block");
+        let block_ref = BlockReference::at_hash(hash);
+        let params = block_ref.to_rpc_params();
+        assert_eq!(params["block_id"], hash.to_string());
+    }
+
+    #[test]
+    fn test_block_reference_constructors() {
+        // Test all constructor methods
+        let final_ref = BlockReference::final_();
+        assert!(matches!(
+            final_ref,
+            BlockReference::Finality(Finality::Final)
+        ));
+
+        let optimistic_ref = BlockReference::optimistic();
+        assert!(matches!(
+            optimistic_ref,
+            BlockReference::Finality(Finality::Optimistic)
+        ));
+
+        let near_final_ref = BlockReference::near_final();
+        assert!(matches!(
+            near_final_ref,
+            BlockReference::Finality(Finality::NearFinal)
+        ));
+
+        let height_ref = BlockReference::at_height(12345);
+        assert!(matches!(height_ref, BlockReference::Height(12345)));
+
+        let hash = CryptoHash::hash(b"test");
+        let hash_ref = BlockReference::at_hash(hash);
+        assert!(matches!(hash_ref, BlockReference::Hash(_)));
+    }
+
+    #[test]
+    fn test_block_reference_default() {
+        let default = BlockReference::default();
+        assert_eq!(default, BlockReference::Finality(Finality::Final));
+    }
+
+    #[test]
+    fn test_block_reference_from_finality() {
+        let block_ref: BlockReference = Finality::Optimistic.into();
+        assert_eq!(block_ref, BlockReference::Finality(Finality::Optimistic));
+    }
+
+    #[test]
+    fn test_block_reference_from_height() {
+        let block_ref: BlockReference = 99999u64.into();
+        assert_eq!(block_ref, BlockReference::Height(99999));
+    }
+
+    #[test]
+    fn test_block_reference_from_hash() {
+        let hash = CryptoHash::hash(b"block");
+        let block_ref: BlockReference = hash.into();
+        assert_eq!(block_ref, BlockReference::Hash(hash));
+    }
+
+    #[test]
+    fn test_finality_default() {
+        let default = Finality::default();
+        assert_eq!(default, Finality::Final);
+    }
+
+    #[test]
+    fn test_tx_execution_status_default() {
+        let default = TxExecutionStatus::default();
+        assert_eq!(default, TxExecutionStatus::ExecutedOptimistic);
+    }
+
+    #[test]
+    fn test_tx_execution_status_all_variants() {
+        assert_eq!(TxExecutionStatus::None.as_str(), "NONE");
+        assert_eq!(TxExecutionStatus::Included.as_str(), "INCLUDED");
+        assert_eq!(
+            TxExecutionStatus::ExecutedOptimistic.as_str(),
+            "EXECUTED_OPTIMISTIC"
+        );
+        assert_eq!(TxExecutionStatus::IncludedFinal.as_str(), "INCLUDED_FINAL");
+        assert_eq!(TxExecutionStatus::Executed.as_str(), "EXECUTED");
+        assert_eq!(TxExecutionStatus::Final.as_str(), "FINAL");
+    }
+
+    #[test]
+    fn test_finality_serde_roundtrip() {
+        // Test all variants serialize/deserialize correctly
+        for finality in [Finality::Optimistic, Finality::NearFinal, Finality::Final] {
+            let json = serde_json::to_string(&finality).unwrap();
+            let parsed: Finality = serde_json::from_str(&json).unwrap();
+            assert_eq!(finality, parsed);
+        }
+    }
+
+    #[test]
+    fn test_tx_execution_status_serde_roundtrip() {
+        for status in [
+            TxExecutionStatus::None,
+            TxExecutionStatus::Included,
+            TxExecutionStatus::ExecutedOptimistic,
+            TxExecutionStatus::IncludedFinal,
+            TxExecutionStatus::Executed,
+            TxExecutionStatus::Final,
+        ] {
+            let json = serde_json::to_string(&status).unwrap();
+            let parsed: TxExecutionStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(status, parsed);
+        }
+    }
+
+    #[test]
+    fn test_block_reference_clone_and_eq() {
+        let original = BlockReference::Height(12345);
+        let cloned = original.clone();
+        assert_eq!(original, cloned);
+    }
+
+    #[test]
+    fn test_finality_clone_and_copy() {
+        let f1 = Finality::Optimistic;
+        let f2 = f1; // Copy
+        #[allow(clippy::clone_on_copy)]
+        let f3 = f1.clone(); // Clone (intentionally testing Clone impl)
+        assert_eq!(f1, f2);
+        assert_eq!(f1, f3);
+    }
 }
