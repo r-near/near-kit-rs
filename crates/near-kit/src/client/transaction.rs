@@ -267,10 +267,7 @@ impl TransactionBuilder {
         method_names: Vec<String>,
         allowance: Option<NearToken>,
     ) -> Self {
-        let receiver_id: AccountId = receiver_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(receiver_id.as_ref()));
+        let receiver_id = AccountId::parse_lenient(receiver_id);
         self.actions.push(Action::add_function_call_key(
             public_key,
             receiver_id,
@@ -288,10 +285,7 @@ impl TransactionBuilder {
 
     /// Delete the account and transfer remaining balance to beneficiary.
     pub fn delete_account(mut self, beneficiary_id: impl AsRef<str>) -> Self {
-        let beneficiary_id: AccountId = beneficiary_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(beneficiary_id.as_ref()));
+        let beneficiary_id = AccountId::parse_lenient(beneficiary_id);
         self.actions.push(Action::delete_account(beneficiary_id));
         self
     }
@@ -524,10 +518,7 @@ impl TransactionBuilder {
     /// # }
     /// ```
     pub fn deploy_from_publisher(mut self, publisher_id: impl AsRef<str>) -> Self {
-        let publisher_id: AccountId = publisher_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(publisher_id.as_ref()));
+        let publisher_id = AccountId::parse_lenient(publisher_id);
         self.actions.push(Action::deploy_from_account(publisher_id));
         self
     }
@@ -597,10 +588,7 @@ impl TransactionBuilder {
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
     ) -> Self {
-        let publisher_id: AccountId = publisher_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(publisher_id.as_ref()));
+        let publisher_id = AccountId::parse_lenient(publisher_id);
         let deposit = deposit.into_near_token().unwrap_or(NearToken::ZERO);
 
         // Build the state init to derive the account ID

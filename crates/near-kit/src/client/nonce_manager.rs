@@ -95,13 +95,6 @@ impl NonceManager {
         let mut nonces = self.nonces.lock().unwrap();
         nonces.remove(&key);
     }
-
-    /// Clear all cached nonces.
-    #[allow(dead_code)]
-    pub fn clear(&self) {
-        let mut nonces = self.nonces.lock().unwrap();
-        nonces.clear();
-    }
 }
 
 #[cfg(test)]

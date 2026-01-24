@@ -14,9 +14,12 @@ use crate::types::{
 };
 
 /// Network configuration presets.
-#[allow(dead_code)]
 pub struct NetworkConfig {
+    /// The RPC URL for this network.
     pub rpc_url: &'static str,
+    /// The network identifier (e.g., "mainnet", "testnet").
+    /// Reserved for future use in transaction signing.
+    #[allow(dead_code)]
     pub network_id: &'static str,
 }
 
@@ -30,13 +33,6 @@ pub const MAINNET: NetworkConfig = NetworkConfig {
 pub const TESTNET: NetworkConfig = NetworkConfig {
     rpc_url: "https://test.rpc.fastnear.com",
     network_id: "testnet",
-};
-
-/// Localnet configuration.
-#[allow(dead_code)]
-pub const LOCALNET: NetworkConfig = NetworkConfig {
-    rpc_url: "http://localhost:3030",
-    network_id: "localnet",
 };
 
 /// Retry configuration for RPC calls.
@@ -629,24 +625,6 @@ fn is_retryable_status(status: u16) -> bool {
     // 503 Service Unavailable - retryable
     // 5xx Server Errors - retryable
     status == 408 || status == 429 || status == 503 || (500..600).contains(&status)
-}
-
-/// Extract block reference from error info.
-#[allow(dead_code)]
-fn extract_block_reference(info: Option<&serde_json::Value>, data: &serde_json::Value) -> String {
-    if let Some(info) = info {
-        if let Some(block_ref) = info.get("block_reference") {
-            if let Some(s) = block_ref.as_str() {
-                return s.to_string();
-            }
-            if let Some(obj) = block_ref.as_object() {
-                if let Some(block_id) = obj.get("block_id").or_else(|| obj.get("BlockId")) {
-                    return block_id.to_string();
-                }
-            }
-        }
-    }
-    data.to_string()
 }
 
 /// Extract InvalidNonce error from data.

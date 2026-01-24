@@ -44,6 +44,30 @@ impl AccountId {
         Self(s.into())
     }
 
+    /// Parse an account ID, falling back to unchecked if validation fails.
+    ///
+    /// This is a convenience method for APIs that accept user input where
+    /// we want to be lenient. If parsing fails, the string is used as-is.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use near_kit::AccountId;
+    ///
+    /// // Valid account parses normally
+    /// let valid = AccountId::parse_lenient("alice.near");
+    /// assert_eq!(valid.as_str(), "alice.near");
+    ///
+    /// // Invalid account is used as-is (no error)
+    /// let invalid = AccountId::parse_lenient("INVALID");
+    /// assert_eq!(invalid.as_str(), "INVALID");
+    /// ```
+    pub fn parse_lenient(s: impl AsRef<str>) -> Self {
+        s.as_ref()
+            .parse()
+            .unwrap_or_else(|_| Self::new_unchecked(s.as_ref()))
+    }
+
     /// Validate an account ID string.
     fn validate(s: &str) -> Result<(), ParseAccountIdError> {
         if s.is_empty() {

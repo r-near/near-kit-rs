@@ -173,10 +173,7 @@ impl Near {
     /// # }
     /// ```
     pub fn balance(&self, account_id: impl AsRef<str>) -> BalanceQuery {
-        let account_id = account_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
+        let account_id = AccountId::parse_lenient(account_id);
         BalanceQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -194,10 +191,7 @@ impl Near {
     /// # }
     /// ```
     pub fn account(&self, account_id: impl AsRef<str>) -> AccountQuery {
-        let account_id = account_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
+        let account_id = AccountId::parse_lenient(account_id);
         AccountQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -216,10 +210,7 @@ impl Near {
     /// # }
     /// ```
     pub fn account_exists(&self, account_id: impl AsRef<str>) -> AccountExistsQuery {
-        let account_id = account_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
+        let account_id = AccountId::parse_lenient(account_id);
         AccountExistsQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -250,10 +241,7 @@ impl Near {
         contract_id: impl AsRef<str>,
         method: &str,
     ) -> ViewCall<T> {
-        let contract_id = contract_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(contract_id.as_ref()));
+        let contract_id = AccountId::parse_lenient(contract_id);
         ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
     }
 
@@ -273,10 +261,7 @@ impl Near {
     /// # }
     /// ```
     pub fn access_keys(&self, account_id: impl AsRef<str>) -> AccessKeysQuery {
-        let account_id = account_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
+        let account_id = AccountId::parse_lenient(account_id);
         AccessKeysQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -470,10 +455,7 @@ impl Near {
     /// # }
     /// ```
     pub fn transaction(&self, receiver_id: impl AsRef<str>) -> TransactionBuilder {
-        let receiver_id = receiver_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(receiver_id.as_ref()));
+        let receiver_id = AccountId::parse_lenient(receiver_id);
         TransactionBuilder::new(self.rpc.clone(), self.signer.clone(), receiver_id)
     }
 
@@ -537,10 +519,7 @@ impl Near {
         method: &str,
         args: &A,
     ) -> Result<T, Error> {
-        let contract_id = contract_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(contract_id.as_ref()));
+        let contract_id = AccountId::parse_lenient(contract_id);
         ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
             .args(args)
             .await
@@ -620,10 +599,7 @@ impl Near {
         &self,
         contract_id: impl AsRef<str>,
     ) -> T::Client<'_> {
-        let contract_id: AccountId = contract_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(contract_id.as_ref()));
+        let contract_id = AccountId::parse_lenient(contract_id);
         T::Client::new(self, contract_id)
     }
 
