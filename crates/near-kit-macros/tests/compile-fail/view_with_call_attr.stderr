@@ -1,0 +1,13 @@
+error: view methods (&self) should not have #[call] attribute
+ --> tests/compile-fail/view_with_call_attr.rs:8:5
+  |
+8 |     fn get_value(&self) -> u64;
+  |     ^^
+
+warning: unused import: `near_kit::*`
+ --> tests/compile-fail/view_with_call_attr.rs:3:5
+  |
+3 | use near_kit::*;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

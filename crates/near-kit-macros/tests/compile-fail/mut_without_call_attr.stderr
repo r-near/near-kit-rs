@@ -1,0 +1,13 @@
+error: call methods (&mut self) must have #[call] attribute
+ --> tests/compile-fail/mut_without_call_attr.rs:7:5
+  |
+7 |     fn mutate(&mut self);
+  |     ^^
+
+warning: unused import: `near_kit::*`
+ --> tests/compile-fail/mut_without_call_attr.rs:3:5
+  |
+3 | use near_kit::*;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

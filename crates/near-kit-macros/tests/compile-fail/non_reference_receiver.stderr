@@ -1,0 +1,13 @@
+error: contract methods must take &self or &mut self
+ --> tests/compile-fail/non_reference_receiver.rs:7:16
+  |
+7 |     fn consume(self) -> u64;
+  |                ^^^^
+
+warning: unused import: `near_kit::*`
+ --> tests/compile-fail/non_reference_receiver.rs:3:5
+  |
+3 | use near_kit::*;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

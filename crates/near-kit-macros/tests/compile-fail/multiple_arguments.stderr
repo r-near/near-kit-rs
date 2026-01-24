@@ -1,0 +1,13 @@
+error: contract methods can have at most one argument (use a struct for multiple parameters)
+ --> tests/compile-fail/multiple_arguments.rs:7:27
+  |
+7 |     fn add(&self, a: u64, b: u64) -> u64;
+  |                           ^
+
+warning: unused import: `near_kit::*`
+ --> tests/compile-fail/multiple_arguments.rs:3:5
+  |
+3 | use near_kit::*;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

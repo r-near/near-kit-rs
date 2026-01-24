@@ -1,0 +1,13 @@
+error: contract methods must have a receiver (&self or &mut self)
+ --> tests/compile-fail/missing_receiver.rs:7:5
+  |
+7 |     fn static_method() -> u64;
+  |     ^^
+
+warning: unused import: `near_kit::*`
+ --> tests/compile-fail/missing_receiver.rs:3:5
+  |
+3 | use near_kit::*;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

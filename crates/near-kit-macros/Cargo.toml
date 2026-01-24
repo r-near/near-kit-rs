@@ -18,3 +18,9 @@ proc-macro = true
 syn.workspace = true
 quote.workspace = true
 proc-macro2.workspace = true
+
+[dev-dependencies]
+trybuild = "1.0"
+near-kit = { path = "../near-kit" }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
