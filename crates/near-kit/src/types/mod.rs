@@ -36,7 +36,7 @@ pub use rpc::{
     ExecutionStatus, FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts,
     FinalExecutionStatus, GasPrice, GasProfileEntry, MerkleDirection, MerklePathItem, NodeVersion,
     Receipt, ReceiptContent, StatusResponse, SyncInfo, TransactionView, ValidatorInfo,
-    ValidatorProposal, ViewFunctionResult,
+    ValidatorProposal, ViewFunctionResult, STORAGE_AMOUNT_PER_BYTE,
 };
 pub use transaction::{SignedTransaction, Transaction};
 pub use units::{Gas, IntoGas, IntoNearToken, NearToken};

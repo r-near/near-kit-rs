@@ -6,6 +6,19 @@ use serde::Deserialize;
 use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey};
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/// Cost per byte of storage in yoctoNEAR.
+///
+/// This is a protocol constant (10^19 yoctoNEAR per byte = 0.00001 NEAR/byte).
+/// It has remained unchanged since NEAR genesis and would require a hard fork
+/// to modify. Used for calculating available balance.
+///
+/// See: <https://docs.near.org/concepts/storage/storage-staking>
+pub const STORAGE_AMOUNT_PER_BYTE: u128 = 10_000_000_000_000_000_000; // 10^19 yoctoNEAR
+
+// ============================================================================
 // Account types
 // ============================================================================
 
@@ -30,9 +43,44 @@ pub struct AccountView {
 }
 
 impl AccountView {
-    /// Get available (unlocked) balance.
+    /// Calculate the total NEAR required for storage.
+    fn storage_required(&self) -> NearToken {
+        let yocto = STORAGE_AMOUNT_PER_BYTE.saturating_mul(self.storage_usage as u128);
+        NearToken::from_yoctonear(yocto)
+    }
+
+    /// Get available (spendable) balance.
+    ///
+    /// This accounts for the protocol rule that staked tokens count towards
+    /// the storage requirement:
+    /// - available = amount - max(0, storage_required - locked)
+    ///
+    /// If staked >= storage cost, all liquid balance is available.
+    /// If staked < storage cost, some liquid balance is reserved for storage.
     pub fn available(&self) -> NearToken {
-        self.amount.saturating_sub(self.locked)
+        let storage_required = self.storage_required();
+
+        // If staked covers storage, all liquid is available
+        if self.locked >= storage_required {
+            return self.amount;
+        }
+
+        // Otherwise, reserve the difference from liquid balance
+        let reserved_for_storage = storage_required.saturating_sub(self.locked);
+        self.amount.saturating_sub(reserved_for_storage)
+    }
+
+    /// Get the amount of NEAR reserved for storage costs.
+    ///
+    /// This is calculated as: max(0, storage_required - locked)
+    pub fn storage_cost(&self) -> NearToken {
+        let storage_required = self.storage_required();
+
+        if self.locked >= storage_required {
+            NearToken::ZERO
+        } else {
+            storage_required.saturating_sub(self.locked)
+        }
     }
 
     /// Check if this account has a deployed contract.
@@ -46,10 +94,12 @@ impl AccountView {
 pub struct AccountBalance {
     /// Total balance (available + locked).
     pub total: NearToken,
-    /// Available balance (not locked).
+    /// Available balance (spendable, accounting for storage).
     pub available: NearToken,
     /// Locked balance (staked).
     pub locked: NearToken,
+    /// Amount reserved for storage costs.
+    pub storage_cost: NearToken,
     /// Storage used in bytes.
     pub storage_usage: u64,
 }
@@ -66,6 +116,7 @@ impl From<AccountView> for AccountBalance {
             total: view.amount,
             available: view.available(),
             locked: view.locked,
+            storage_cost: view.storage_cost(),
             storage_usage: view.storage_usage,
         }
     }
@@ -789,4 +840,111 @@ pub struct NodeVersion {
     /// Rust compiler version.
     #[serde(default)]
     pub rustc_version: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_account_view(amount: u128, locked: u128, storage_usage: u64) -> AccountView {
+        AccountView {
+            amount: NearToken::from_yoctonear(amount),
+            locked: NearToken::from_yoctonear(locked),
+            code_hash: CryptoHash::default(),
+            storage_usage,
+            storage_paid_at: 0,
+            block_height: 0,
+            block_hash: CryptoHash::default(),
+        }
+    }
+
+    #[test]
+    fn test_available_balance_no_stake_no_storage() {
+        // No storage, no stake -> all balance is available
+        let view = make_account_view(1_000_000_000_000_000_000_000_000, 0, 0); // 1 NEAR
+        assert_eq!(view.available(), view.amount);
+    }
+
+    #[test]
+    fn test_available_balance_with_storage_no_stake() {
+        // 1000 bytes storage (= 0.00001 NEAR * 1000 = 0.01 NEAR = 10^22 yocto)
+        // Amount: 1 NEAR = 10^24 yocto
+        // Available should be: 1 NEAR - 0.01 NEAR = 0.99 NEAR
+        let amount = 1_000_000_000_000_000_000_000_000u128; // 1 NEAR
+        let storage_usage = 1000u64;
+        let storage_cost = STORAGE_AMOUNT_PER_BYTE * storage_usage as u128; // 10^22
+
+        let view = make_account_view(amount, 0, storage_usage);
+        let expected = NearToken::from_yoctonear(amount - storage_cost);
+        assert_eq!(view.available(), expected);
+    }
+
+    #[test]
+    fn test_available_balance_stake_covers_storage() {
+        // Staked amount >= storage cost -> all liquid balance is available
+        // 1000 bytes storage = 10^22 yocto cost
+        // 1 NEAR staked = 10^24 yocto (more than storage cost)
+        let amount = 1_000_000_000_000_000_000_000_000u128; // 1 NEAR liquid
+        let locked = 1_000_000_000_000_000_000_000_000u128; // 1 NEAR staked
+        let storage_usage = 1000u64;
+
+        let view = make_account_view(amount, locked, storage_usage);
+        // All liquid balance should be available since stake covers storage
+        assert_eq!(view.available(), view.amount);
+    }
+
+    #[test]
+    fn test_available_balance_stake_partially_covers_storage() {
+        // Staked = 0.005 NEAR = 5 * 10^21 yocto
+        // Storage = 1000 bytes = 0.01 NEAR = 10^22 yocto
+        // Reserved = 0.01 - 0.005 = 0.005 NEAR = 5 * 10^21 yocto
+        // Amount = 1 NEAR
+        // Available = 1 NEAR - 0.005 NEAR = 0.995 NEAR
+        let amount = 1_000_000_000_000_000_000_000_000u128; // 1 NEAR
+        let locked = 5_000_000_000_000_000_000_000u128; // 0.005 NEAR
+        let storage_usage = 1000u64;
+        let storage_cost = STORAGE_AMOUNT_PER_BYTE * storage_usage as u128; // 10^22
+        let reserved = storage_cost - locked; // 5 * 10^21
+
+        let view = make_account_view(amount, locked, storage_usage);
+        let expected = NearToken::from_yoctonear(amount - reserved);
+        assert_eq!(view.available(), expected);
+    }
+
+    #[test]
+    fn test_storage_cost_calculation() {
+        let storage_usage = 1000u64;
+        let view = make_account_view(1_000_000_000_000_000_000_000_000, 0, storage_usage);
+
+        let expected_cost = STORAGE_AMOUNT_PER_BYTE * storage_usage as u128;
+        assert_eq!(
+            view.storage_cost(),
+            NearToken::from_yoctonear(expected_cost)
+        );
+    }
+
+    #[test]
+    fn test_storage_cost_zero_when_stake_covers() {
+        // Staked > storage cost -> storage_cost returns 0
+        let locked = 1_000_000_000_000_000_000_000_000u128; // 1 NEAR
+        let view = make_account_view(1_000_000_000_000_000_000_000_000, locked, 1000);
+
+        assert_eq!(view.storage_cost(), NearToken::ZERO);
+    }
+
+    #[test]
+    fn test_account_balance_from_view() {
+        let amount = 1_000_000_000_000_000_000_000_000u128; // 1 NEAR
+        let locked = 500_000_000_000_000_000_000_000u128; // 0.5 NEAR
+        let storage_usage = 1000u64;
+
+        let view = make_account_view(amount, locked, storage_usage);
+        let balance = AccountBalance::from(view.clone());
+
+        assert_eq!(balance.total, view.amount);
+        assert_eq!(balance.available, view.available());
+        assert_eq!(balance.locked, view.locked);
+        assert_eq!(balance.storage_cost, view.storage_cost());
+        assert_eq!(balance.storage_usage, storage_usage);
+    }
 }
