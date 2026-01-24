@@ -139,12 +139,18 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 - [x] `.delete_key()`, `.delete_account()`, `.stake()`
 - [x] `.send()` to execute transaction
 
-### Phase 7: Token Helpers (TODO)
+### Phase 7: Token Helpers ✅
 
-- [ ] `FungibleToken` - FT operations (NEP-141)
-- [ ] `NonFungibleToken` - NFT operations (NEP-171)
-- [ ] `ft().balance_of()`, `ft().transfer()`
-- [ ] `nft().tokens_for_owner()`, `nft().transfer()`
+- [x] `FungibleToken` - FT operations (NEP-141)
+- [x] `NonFungibleToken` - NFT operations (NEP-171)
+- [x] `ft().balance_of()`, `ft().transfer()`, `ft().total_supply()`
+- [x] `ft().storage_deposit()`, `ft().is_registered()`, `ft().storage_balance_of()`
+- [x] `ft().transfer_call()` for cross-contract calls
+- [x] `nft().token()`, `nft().tokens_for_owner()`, `nft().transfer()`
+- [x] `nft().total_supply()`, `nft().supply_for_owner()`
+- [x] `nft().transfer_call()` for cross-contract calls
+- [x] `FtAmount` type with decimals/symbol for formatted display
+- [x] Per-instance metadata caching with `tokio::sync::OnceCell`
 
 ### Phase 8: Typed Contract Interfaces ✅
 

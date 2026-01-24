@@ -12,4 +12,5 @@ mod delegate_action_integration;
 mod global_contracts_integration;
 mod rpc_types_integration;
 mod sandbox_integration;
+mod token_integration;
 mod typed_contract_integration;

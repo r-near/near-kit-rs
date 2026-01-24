@@ -73,6 +73,7 @@
 pub mod client;
 pub mod contract;
 pub mod error;
+pub mod tokens;
 pub mod types;
 
 // Sandbox module - only available with "sandbox" feature
@@ -94,6 +95,13 @@ pub use client::{
     FileSigner, InMemorySigner, Near, NearBuilder, Nep413SignFuture, RetryConfig, RotatingSigner,
     RpcClient, SandboxNetwork, SignFuture, Signer, TransactionBuilder, TransactionSend,
     TransferCall, ViewCall,
+};
+
+// Re-export token types
+pub use tokens::{
+    FtAmount, FtMetadata, FtTransferCall, FtTransferCallCall, FungibleToken, NftContractMetadata,
+    NftToken, NftTokenMetadata, NftTransferCall, NftTransferCallCall, NonFungibleToken,
+    StorageBalance, StorageBalanceBounds, StorageDepositCall,
 };
 
 // Re-export proc macros

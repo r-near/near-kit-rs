@@ -601,6 +601,71 @@ impl Near {
             .unwrap_or_else(|_| AccountId::new_unchecked(contract_id.as_ref()));
         T::Client::new(self, contract_id)
     }
+
+    // ========================================================================
+    // Token Helpers
+    // ========================================================================
+
+    /// Get a fungible token client for a NEP-141 contract.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    /// let usdc = near.ft("usdc.near")?;
+    ///
+    /// // Get metadata
+    /// let meta = usdc.metadata().await?;
+    /// println!("{} ({})", meta.name, meta.symbol);
+    ///
+    /// // Get balance - returns FtAmount for nice formatting
+    /// let balance = usdc.balance_of("alice.near").await?;
+    /// println!("Balance: {}", balance);  // e.g., "1.5 USDC"
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn ft(&self, contract_id: impl AsRef<str>) -> Result<crate::tokens::FungibleToken, Error> {
+        let contract_id: AccountId = contract_id.as_ref().parse()?;
+        Ok(crate::tokens::FungibleToken::new(
+            self.rpc.clone(),
+            self.signer.clone(),
+            contract_id,
+        ))
+    }
+
+    /// Get a non-fungible token client for a NEP-171 contract.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    /// let nft = near.nft("nft-contract.near")?;
+    ///
+    /// // Get a specific token
+    /// if let Some(token) = nft.token("token-123").await? {
+    ///     println!("Owner: {}", token.owner_id);
+    /// }
+    ///
+    /// // List tokens for an owner
+    /// let tokens = nft.tokens_for_owner("alice.near", None, Some(10)).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn nft(
+        &self,
+        contract_id: impl AsRef<str>,
+    ) -> Result<crate::tokens::NonFungibleToken, Error> {
+        let contract_id: AccountId = contract_id.as_ref().parse()?;
+        Ok(crate::tokens::NonFungibleToken::new(
+            self.rpc.clone(),
+            self.signer.clone(),
+            contract_id,
+        ))
+    }
 }
 
 impl std::fmt::Debug for Near {
