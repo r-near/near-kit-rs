@@ -382,3 +382,621 @@ pub enum Error {
     #[error("Delegate action decode error: {0}")]
     DelegateDecode(#[from] DelegateDecodeError),
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // ParseAccountIdError Tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_account_id_error_empty_display() {
+        let err = ParseAccountIdError::Empty;
+        assert_eq!(err.to_string(), "Account ID is empty");
+    }
+
+    #[test]
+    fn test_parse_account_id_error_too_long_display() {
+        let err = ParseAccountIdError::TooLong("a".repeat(65));
+        assert!(err.to_string().contains("too long"));
+        assert!(err.to_string().contains("max 64 characters"));
+    }
+
+    #[test]
+    fn test_parse_account_id_error_too_short_display() {
+        let err = ParseAccountIdError::TooShort("a".to_string());
+        assert!(err.to_string().contains("too short"));
+        assert!(err.to_string().contains("min 2 characters"));
+    }
+
+    #[test]
+    fn test_parse_account_id_error_invalid_char_display() {
+        let err = ParseAccountIdError::InvalidChar("test@account".to_string(), '@');
+        assert!(err.to_string().contains("invalid character"));
+        assert!(err.to_string().contains("@"));
+    }
+
+    #[test]
+    fn test_parse_account_id_error_invalid_format_display() {
+        let err = ParseAccountIdError::InvalidFormat("..invalid".to_string());
+        assert!(err.to_string().contains("invalid format"));
+    }
+
+    #[test]
+    fn test_parse_account_id_error_equality() {
+        assert_eq!(ParseAccountIdError::Empty, ParseAccountIdError::Empty);
+        assert_ne!(
+            ParseAccountIdError::Empty,
+            ParseAccountIdError::TooShort("a".to_string())
+        );
+    }
+
+    // ========================================================================
+    // ParseAmountError Tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_amount_error_ambiguous_display() {
+        let err = ParseAmountError::AmbiguousAmount("100".to_string());
+        assert!(err.to_string().contains("Ambiguous"));
+        assert!(err.to_string().contains("100"));
+        assert!(err.to_string().contains("NEAR"));
+        assert!(err.to_string().contains("yocto"));
+    }
+
+    #[test]
+    fn test_parse_amount_error_invalid_format_display() {
+        let err = ParseAmountError::InvalidFormat("not-a-number".to_string());
+        assert!(err.to_string().contains("Invalid amount format"));
+    }
+
+    #[test]
+    fn test_parse_amount_error_invalid_number_display() {
+        let err = ParseAmountError::InvalidNumber("abc".to_string());
+        assert!(err.to_string().contains("Invalid number"));
+    }
+
+    #[test]
+    fn test_parse_amount_error_overflow_display() {
+        let err = ParseAmountError::Overflow;
+        assert!(err.to_string().contains("overflow"));
+    }
+
+    #[test]
+    fn test_parse_amount_error_equality() {
+        assert_eq!(ParseAmountError::Overflow, ParseAmountError::Overflow);
+        assert_ne!(
+            ParseAmountError::Overflow,
+            ParseAmountError::InvalidFormat("x".to_string())
+        );
+    }
+
+    // ========================================================================
+    // ParseGasError Tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_gas_error_invalid_format_display() {
+        let err = ParseGasError::InvalidFormat("bad".to_string());
+        assert!(err.to_string().contains("Invalid gas format"));
+        assert!(err.to_string().contains("Tgas"));
+    }
+
+    #[test]
+    fn test_parse_gas_error_invalid_number_display() {
+        let err = ParseGasError::InvalidNumber("xyz".to_string());
+        assert!(err.to_string().contains("Invalid number"));
+    }
+
+    #[test]
+    fn test_parse_gas_error_overflow_display() {
+        let err = ParseGasError::Overflow;
+        assert!(err.to_string().contains("overflow"));
+    }
+
+    // ========================================================================
+    // ParseKeyError Tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_key_error_invalid_format_display() {
+        let err = ParseKeyError::InvalidFormat;
+        assert!(err.to_string().contains("ed25519"));
+        assert!(err.to_string().contains("secp256k1"));
+    }
+
+    #[test]
+    fn test_parse_key_error_unknown_key_type_display() {
+        let err = ParseKeyError::UnknownKeyType("rsa".to_string());
+        assert!(err.to_string().contains("Unknown key type"));
+        assert!(err.to_string().contains("rsa"));
+    }
+
+    #[test]
+    fn test_parse_key_error_invalid_base58_display() {
+        let err = ParseKeyError::InvalidBase58("invalid chars".to_string());
+        assert!(err.to_string().contains("Invalid base58"));
+    }
+
+    #[test]
+    fn test_parse_key_error_invalid_length_display() {
+        let err = ParseKeyError::InvalidLength {
+            expected: 32,
+            actual: 16,
+        };
+        assert!(err.to_string().contains("32"));
+        assert!(err.to_string().contains("16"));
+    }
+
+    // ========================================================================
+    // ParseHashError Tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_hash_error_invalid_base58_display() {
+        let err = ParseHashError::InvalidBase58("bad encoding".to_string());
+        assert!(err.to_string().contains("Invalid base58"));
+    }
+
+    #[test]
+    fn test_parse_hash_error_invalid_length_display() {
+        let err = ParseHashError::InvalidLength(16);
+        assert!(err.to_string().contains("32 bytes"));
+        assert!(err.to_string().contains("16"));
+    }
+
+    // ========================================================================
+    // SignerError Tests
+    // ========================================================================
+
+    #[test]
+    fn test_signer_error_invalid_seed_phrase_display() {
+        let err = SignerError::InvalidSeedPhrase;
+        assert!(err.to_string().contains("Invalid seed phrase"));
+    }
+
+    #[test]
+    fn test_signer_error_signing_failed_display() {
+        let err = SignerError::SigningFailed("hardware wallet error".to_string());
+        assert!(err.to_string().contains("Signing failed"));
+        assert!(err.to_string().contains("hardware wallet error"));
+    }
+
+    #[test]
+    fn test_signer_error_key_derivation_failed_display() {
+        let err = SignerError::KeyDerivationFailed("invalid path".to_string());
+        assert!(err.to_string().contains("Key derivation failed"));
+    }
+
+    // ========================================================================
+    // KeyStoreError Tests
+    // ========================================================================
+
+    #[test]
+    fn test_keystore_error_key_not_found_display() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let err = KeyStoreError::KeyNotFound(account_id);
+        assert!(err.to_string().contains("Key not found"));
+        assert!(err.to_string().contains("alice.near"));
+    }
+
+    #[test]
+    fn test_keystore_error_invalid_format_display() {
+        let err = KeyStoreError::InvalidFormat("missing private_key field".to_string());
+        assert!(err.to_string().contains("Invalid credential format"));
+    }
+
+    #[test]
+    fn test_keystore_error_path_error_display() {
+        let err = KeyStoreError::PathError("home directory not found".to_string());
+        assert!(err.to_string().contains("Path error"));
+    }
+
+    #[test]
+    fn test_keystore_error_platform_display() {
+        let err = KeyStoreError::Platform("keychain locked".to_string());
+        assert!(err.to_string().contains("Platform keyring error"));
+    }
+
+    #[test]
+    fn test_keystore_error_from_parse_key_error() {
+        let key_err = ParseKeyError::InvalidFormat;
+        let err: KeyStoreError = key_err.into();
+        assert!(err.to_string().contains("Invalid key"));
+    }
+
+    // ========================================================================
+    // RpcError Tests
+    // ========================================================================
+
+    #[test]
+    fn test_rpc_error_timeout_is_retryable() {
+        let err = RpcError::Timeout(3);
+        assert!(err.is_retryable());
+        assert!(err.to_string().contains("Timeout"));
+        assert!(err.to_string().contains("3"));
+    }
+
+    #[test]
+    fn test_rpc_error_network_retryable() {
+        let err = RpcError::network("connection refused", Some(503), true);
+        assert!(err.is_retryable());
+        assert!(err.to_string().contains("connection refused"));
+    }
+
+    #[test]
+    fn test_rpc_error_network_not_retryable() {
+        let err = RpcError::network("bad request", Some(400), false);
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn test_rpc_error_shard_unavailable_is_retryable() {
+        let err = RpcError::ShardUnavailable("shard 0".to_string());
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn test_rpc_error_node_not_synced_is_retryable() {
+        let err = RpcError::NodeNotSynced("catching up".to_string());
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn test_rpc_error_internal_error_is_retryable() {
+        let err = RpcError::InternalError("database error".to_string());
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn test_rpc_error_request_timeout_is_retryable() {
+        let err = RpcError::RequestTimeout {
+            message: "took too long".to_string(),
+            transaction_hash: Some("abc123".to_string()),
+        };
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn test_rpc_error_invalid_nonce_is_retryable() {
+        let err = RpcError::InvalidNonce {
+            tx_nonce: 5,
+            ak_nonce: 10,
+        };
+        assert!(err.is_retryable());
+        assert!(err.to_string().contains("5"));
+        assert!(err.to_string().contains("10"));
+    }
+
+    #[test]
+    fn test_rpc_error_rpc_retryable_codes() {
+        // -32000 is retryable (server error)
+        let err = RpcError::Rpc {
+            code: -32000,
+            message: "server overloaded".to_string(),
+            data: None,
+        };
+        assert!(err.is_retryable());
+
+        // -32603 is retryable (internal error)
+        let err = RpcError::Rpc {
+            code: -32603,
+            message: "internal error".to_string(),
+            data: None,
+        };
+        assert!(err.is_retryable());
+
+        // Other codes are not retryable
+        let err = RpcError::Rpc {
+            code: -32600,
+            message: "invalid request".to_string(),
+            data: None,
+        };
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn test_rpc_error_invalid_transaction_shard_congested_is_retryable() {
+        let details = serde_json::json!({ "ShardCongested": true });
+        let err = RpcError::invalid_transaction("shard congested", Some(details));
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn test_rpc_error_invalid_transaction_shard_stuck_is_retryable() {
+        let details = serde_json::json!({ "ShardStuck": true });
+        let err = RpcError::invalid_transaction("shard stuck", Some(details));
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn test_rpc_error_invalid_transaction_normal_not_retryable() {
+        let err = RpcError::invalid_transaction("invalid signature", None);
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn test_rpc_error_account_not_found_not_retryable() {
+        let account_id: AccountId = "missing.near".parse().unwrap();
+        let err = RpcError::AccountNotFound(account_id);
+        assert!(!err.is_retryable());
+        assert!(err.to_string().contains("missing.near"));
+    }
+
+    #[test]
+    fn test_rpc_error_access_key_not_found_display() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+            .parse()
+            .unwrap();
+        let err = RpcError::AccessKeyNotFound {
+            account_id,
+            public_key,
+        };
+        assert!(err.to_string().contains("alice.near"));
+        assert!(err.to_string().contains("Access key not found"));
+    }
+
+    #[test]
+    fn test_rpc_error_contract_not_deployed_display() {
+        let account_id: AccountId = "user.near".parse().unwrap();
+        let err = RpcError::ContractNotDeployed(account_id);
+        assert!(err.to_string().contains("Contract not deployed"));
+        assert!(err.to_string().contains("user.near"));
+    }
+
+    #[test]
+    fn test_rpc_error_contract_state_too_large_display() {
+        let account_id: AccountId = "big-contract.near".parse().unwrap();
+        let err = RpcError::ContractStateTooLarge(account_id);
+        assert!(err.to_string().contains("state too large"));
+    }
+
+    #[test]
+    fn test_rpc_error_contract_execution_display() {
+        let account_id: AccountId = "contract.near".parse().unwrap();
+        let err = RpcError::ContractExecution {
+            contract_id: account_id,
+            method_name: Some("do_something".to_string()),
+            message: "assertion failed".to_string(),
+        };
+        assert!(err.to_string().contains("contract.near"));
+        assert!(err.to_string().contains("assertion failed"));
+    }
+
+    #[test]
+    fn test_rpc_error_contract_panic_display() {
+        let err = RpcError::ContractPanic {
+            message: "index out of bounds".to_string(),
+        };
+        assert!(err.to_string().contains("Contract panic"));
+        assert!(err.to_string().contains("index out of bounds"));
+    }
+
+    #[test]
+    fn test_rpc_error_function_call_constructor() {
+        let account_id: AccountId = "contract.near".parse().unwrap();
+        let err = RpcError::function_call(
+            account_id,
+            "my_method",
+            Some("panic message".to_string()),
+            vec!["log1".to_string(), "log2".to_string()],
+        );
+
+        if let RpcError::FunctionCall {
+            contract_id,
+            method_name,
+            panic,
+            logs,
+        } = err
+        {
+            assert_eq!(contract_id.as_str(), "contract.near");
+            assert_eq!(method_name, "my_method");
+            assert_eq!(panic, Some("panic message".to_string()));
+            assert_eq!(logs.len(), 2);
+        } else {
+            panic!("Expected FunctionCall variant");
+        }
+    }
+
+    #[test]
+    fn test_rpc_error_function_call_display() {
+        let account_id: AccountId = "contract.near".parse().unwrap();
+        let err = RpcError::FunctionCall {
+            contract_id: account_id,
+            method_name: "transfer".to_string(),
+            panic: Some("insufficient funds".to_string()),
+            logs: vec![],
+        };
+        assert!(err.to_string().contains("contract.near"));
+        assert!(err.to_string().contains("transfer"));
+        assert!(err.to_string().contains("insufficient funds"));
+    }
+
+    #[test]
+    fn test_rpc_error_function_call_no_panic_display() {
+        let account_id: AccountId = "contract.near".parse().unwrap();
+        let err = RpcError::FunctionCall {
+            contract_id: account_id,
+            method_name: "transfer".to_string(),
+            panic: None,
+            logs: vec![],
+        };
+        assert!(err.to_string().contains("unknown error"));
+    }
+
+    #[test]
+    fn test_rpc_error_unknown_block_display() {
+        let err = RpcError::UnknownBlock("height 12345".to_string());
+        assert!(err.to_string().contains("Block not found"));
+        assert!(err.to_string().contains("garbage-collected"));
+        assert!(err.to_string().contains("archival node"));
+    }
+
+    #[test]
+    fn test_rpc_error_unknown_chunk_display() {
+        let err = RpcError::UnknownChunk("ChunkHash123".to_string());
+        assert!(err.to_string().contains("Chunk not found"));
+    }
+
+    #[test]
+    fn test_rpc_error_unknown_epoch_display() {
+        let err = RpcError::UnknownEpoch("epoch 100".to_string());
+        assert!(err.to_string().contains("Epoch not found"));
+    }
+
+    #[test]
+    fn test_rpc_error_invalid_shard_id_display() {
+        let err = RpcError::InvalidShardId("999".to_string());
+        assert!(err.to_string().contains("Invalid shard ID"));
+        assert!(err.to_string().contains("999"));
+    }
+
+    #[test]
+    fn test_rpc_error_unknown_receipt_display() {
+        let err = RpcError::UnknownReceipt("receipt123".to_string());
+        assert!(err.to_string().contains("Receipt not found"));
+    }
+
+    #[test]
+    fn test_rpc_error_insufficient_balance_display() {
+        let err = RpcError::InsufficientBalance {
+            required: "10 NEAR".to_string(),
+            available: "5 NEAR".to_string(),
+        };
+        assert!(err.to_string().contains("Insufficient balance"));
+        assert!(err.to_string().contains("10 NEAR"));
+        assert!(err.to_string().contains("5 NEAR"));
+    }
+
+    #[test]
+    fn test_rpc_error_gas_limit_exceeded_display() {
+        let err = RpcError::GasLimitExceeded {
+            gas_used: "100 Tgas".to_string(),
+            gas_limit: "50 Tgas".to_string(),
+        };
+        assert!(err.to_string().contains("Gas limit exceeded"));
+    }
+
+    #[test]
+    fn test_rpc_error_parse_error_display() {
+        let err = RpcError::ParseError("invalid JSON".to_string());
+        assert!(err.to_string().contains("Parse error"));
+    }
+
+    #[test]
+    fn test_rpc_error_invalid_response_display() {
+        let err = RpcError::InvalidResponse("missing result field".to_string());
+        assert!(err.to_string().contains("Invalid response"));
+    }
+
+    #[test]
+    fn test_rpc_error_invalid_account_display() {
+        let err = RpcError::InvalidAccount("bad..account".to_string());
+        assert!(err.to_string().contains("Invalid account ID"));
+    }
+
+    // ========================================================================
+    // Main Error Type Tests
+    // ========================================================================
+
+    #[test]
+    fn test_error_no_signer_display() {
+        let err = Error::NoSigner;
+        assert!(err.to_string().contains("No signer configured"));
+        assert!(err.to_string().contains(".signer()"));
+    }
+
+    #[test]
+    fn test_error_no_signer_account_display() {
+        let err = Error::NoSignerAccount;
+        assert!(err.to_string().contains("No signer account ID"));
+    }
+
+    #[test]
+    fn test_error_config_display() {
+        let err = Error::Config("invalid RPC URL".to_string());
+        assert!(err.to_string().contains("Invalid configuration"));
+        assert!(err.to_string().contains("invalid RPC URL"));
+    }
+
+    #[test]
+    fn test_error_transaction_failed_display() {
+        let err = Error::TransactionFailed("execution error".to_string());
+        assert!(err.to_string().contains("Transaction failed"));
+    }
+
+    #[test]
+    fn test_error_invalid_transaction_display() {
+        let err = Error::InvalidTransaction("bad signature".to_string());
+        assert!(err.to_string().contains("Invalid transaction"));
+    }
+
+    #[test]
+    fn test_error_contract_panic_display() {
+        let err = Error::ContractPanic("assertion failed".to_string());
+        assert!(err.to_string().contains("Contract panic"));
+    }
+
+    #[test]
+    fn test_error_borsh_display() {
+        let err = Error::Borsh("deserialization failed".to_string());
+        assert!(err.to_string().contains("Borsh error"));
+    }
+
+    #[test]
+    fn test_error_from_parse_account_id_error() {
+        let parse_err = ParseAccountIdError::Empty;
+        let err: Error = parse_err.into();
+        assert!(err.to_string().contains("empty"));
+    }
+
+    #[test]
+    fn test_error_from_parse_amount_error() {
+        let parse_err = ParseAmountError::Overflow;
+        let err: Error = parse_err.into();
+        assert!(err.to_string().contains("overflow"));
+    }
+
+    #[test]
+    fn test_error_from_parse_gas_error() {
+        let parse_err = ParseGasError::Overflow;
+        let err: Error = parse_err.into();
+        assert!(err.to_string().contains("overflow"));
+    }
+
+    #[test]
+    fn test_error_from_parse_key_error() {
+        let parse_err = ParseKeyError::InvalidFormat;
+        let err: Error = parse_err.into();
+        assert!(err.to_string().contains("ed25519"));
+    }
+
+    #[test]
+    fn test_error_from_rpc_error() {
+        let rpc_err = RpcError::Timeout(5);
+        let err: Error = rpc_err.into();
+        assert!(err.to_string().contains("Timeout"));
+    }
+
+    #[test]
+    fn test_error_from_signer_error() {
+        let signer_err = SignerError::InvalidSeedPhrase;
+        let err: Error = signer_err.into();
+        assert!(err.to_string().contains("seed phrase"));
+    }
+
+    #[test]
+    fn test_error_from_keystore_error() {
+        let account_id: AccountId = "test.near".parse().unwrap();
+        let keystore_err = KeyStoreError::KeyNotFound(account_id);
+        let err: Error = keystore_err.into();
+        assert!(err.to_string().contains("Key not found"));
+    }
+}
