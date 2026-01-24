@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.1.0...near-kit-v0.2.0) - 2026-01-24
+
+### Added
+
+- add KeyPair type and runnable examples
+- add offline signing support for air-gapped workflows
+- add KeyringSigner for system keyring integration
+- add token helpers for FT (NEP-141) and NFT (NEP-171)
+- add seed phrase / mnemonic support for key derivation
+
+### Fixed
+
+- *(types)* validate public keys are on the curve when parsing
+- *(types)* fix available balance calculation to account for storage ([#10](https://github.com/r-near/near-kit-rs/pull/10))
+- correct test expectation for access_keys on non-existent accounts
+- panic on invalid gas/deposit parsing instead of silent failure
+
+### Other
+
+- improve rustdoc with comprehensive guides and fix warnings
+- add comprehensive unit tests for core types and client modules
+- add integration tests for macro features
+- add transaction failure integration tests
+- add comprehensive integration tests for error paths
+- remove unit tests from error.rs and rpc.rs
+- add comprehensive integration tests for error handling
+- add comprehensive unit tests for error.rs and client/rpc.rs
+- use thiserror for DecodeError
+- add AccountId::parse_lenient and remove dead code
+- consolidate transaction builders into TransactionBuilder
+- remove unused KeyPairProperties and AccountKeyPair structs
+
 ## [0.1.0](https://github.com/r-near/near-kit-rs/releases/tag/near-kit-v0.1.0) - 2026-01-24
 
 ### Added

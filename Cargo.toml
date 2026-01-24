@@ -7,7 +7,7 @@ members = [
 
 # Shared workspace metadata
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/r-near/near-kit-rs"
@@ -67,8 +67,8 @@ tempfile = "3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Internal crates
-near-kit = { path = "crates/near-kit", version = "0.1.0" }
-near-kit-macros = { path = "crates/near-kit-macros", version = "0.1.0" }
+near-kit = { path = "crates/near-kit", version = "0.2.0" }
+near-kit-macros = { path = "crates/near-kit-macros", version = "0.2.0" }
 
 [profile.release]
 lto = true
