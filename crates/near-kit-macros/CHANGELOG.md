@@ -1,0 +1,23 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.1.0](https://github.com/r-near/near-kit-rs/releases/tag/near-kit-macros-v0.1.0) - 2026-01-24
+
+### Added
+
+- add per-method serialization format override
+
+### Fixed
+
+- add allow(dead_code) to macro-generated trait
+
+### Other
+
+- remove prelude module, use direct imports
+- convert to Cargo workspace structure
