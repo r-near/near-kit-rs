@@ -90,11 +90,10 @@ pub use contract::{Contract, ContractClient};
 
 // Re-export client types
 pub use client::{
-    AccessKeysQuery, AccountExistsQuery, AccountQuery, AddKeyCall, BalanceQuery, CallBuilder,
-    ContractCall, DelegateOptions, DelegateResult, DeleteKeyCall, DeployCall, EnvSigner,
-    FileSigner, InMemorySigner, Near, NearBuilder, Nep413SignFuture, RetryConfig, RotatingSigner,
-    RpcClient, SandboxNetwork, SignFuture, Signer, TransactionBuilder, TransactionSend,
-    TransferCall, ViewCall,
+    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, CallBuilder, DelegateOptions,
+    DelegateResult, EnvSigner, FileSigner, InMemorySigner, Near, NearBuilder, Nep413SignFuture,
+    RetryConfig, RotatingSigner, RpcClient, SandboxNetwork, SignFuture, Signer, TransactionBuilder,
+    TransactionSend, ViewCall,
 };
 
 #[cfg(feature = "keyring")]
@@ -102,9 +101,8 @@ pub use client::KeyringSigner;
 
 // Re-export token types
 pub use tokens::{
-    FtAmount, FtMetadata, FtTransferCall, FtTransferCallCall, FungibleToken, NftContractMetadata,
-    NftToken, NftTokenMetadata, NftTransferCall, NftTransferCallCall, NonFungibleToken,
-    StorageBalance, StorageBalanceBounds, StorageDepositCall,
+    FtAmount, FtMetadata, FungibleToken, NftContractMetadata, NftToken, NftTokenMetadata,
+    NonFungibleToken, StorageBalance, StorageBalanceBounds, StorageDepositCall,
 };
 
 // Re-export proc macros

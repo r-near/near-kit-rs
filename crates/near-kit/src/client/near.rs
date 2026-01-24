@@ -11,8 +11,8 @@ use crate::types::{AccountId, Gas, IntoNearToken, NearToken, PublicKey, SecretKe
 use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
 use super::rpc::{RetryConfig, RpcClient, MAINNET, TESTNET};
 use super::signer::{InMemorySigner, Signer};
-use super::transaction::TransactionBuilder;
-use super::tx::{AddKeyCall, ContractCall, DeleteKeyCall, DeployCall, TransferCall};
+use super::transaction::{CallBuilder, TransactionBuilder};
+use crate::types::TxExecutionStatus;
 
 /// Trait for sandbox network configuration.
 ///
@@ -351,13 +351,12 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn transfer(&self, receiver: impl AsRef<str>, amount: impl IntoNearToken) -> TransferCall {
-        let receiver_id = receiver
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(receiver.as_ref()));
-        let amount = amount.into_near_token().unwrap_or(NearToken::ZERO);
-        TransferCall::new(self.rpc.clone(), self.signer.clone(), receiver_id, amount)
+    pub fn transfer(
+        &self,
+        receiver: impl AsRef<str>,
+        amount: impl IntoNearToken,
+    ) -> TransactionBuilder {
+        self.transaction(receiver).transfer(amount)
     }
 
     /// Call a function on a contract.
@@ -386,17 +385,8 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn call(&self, contract_id: impl AsRef<str>, method: &str) -> ContractCall {
-        let contract_id = contract_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(contract_id.as_ref()));
-        ContractCall::new(
-            self.rpc.clone(),
-            self.signer.clone(),
-            contract_id,
-            method.to_string(),
-        )
+    pub fn call(&self, contract_id: impl AsRef<str>, method: &str) -> CallBuilder {
+        self.transaction(contract_id).call(method)
     }
 
     /// Deploy a contract.
@@ -415,12 +405,12 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn deploy(&self, account_id: impl AsRef<str>, code: Vec<u8>) -> DeployCall {
-        let account_id = account_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
-        DeployCall::new(self.rpc.clone(), self.signer.clone(), account_id, code)
+    pub fn deploy(
+        &self,
+        account_id: impl AsRef<str>,
+        code: impl Into<Vec<u8>>,
+    ) -> TransactionBuilder {
+        self.transaction(account_id).deploy(code)
     }
 
     /// Add a full access key to an account.
@@ -428,31 +418,17 @@ impl Near {
         &self,
         account_id: impl AsRef<str>,
         public_key: PublicKey,
-    ) -> AddKeyCall {
-        let account_id = account_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
-        AddKeyCall::new(
-            self.rpc.clone(),
-            self.signer.clone(),
-            account_id,
-            public_key,
-        )
+    ) -> TransactionBuilder {
+        self.transaction(account_id).add_full_access_key(public_key)
     }
 
     /// Delete an access key from an account.
-    pub fn delete_key(&self, account_id: impl AsRef<str>, public_key: PublicKey) -> DeleteKeyCall {
-        let account_id = account_id
-            .as_ref()
-            .parse()
-            .unwrap_or_else(|_| AccountId::new_unchecked(account_id.as_ref()));
-        DeleteKeyCall::new(
-            self.rpc.clone(),
-            self.signer.clone(),
-            account_id,
-            public_key,
-        )
+    pub fn delete_key(
+        &self,
+        account_id: impl AsRef<str>,
+        public_key: PublicKey,
+    ) -> TransactionBuilder {
+        self.transaction(account_id).delete_key(public_key)
     }
 
     // ========================================================================
@@ -499,6 +475,55 @@ impl Near {
             .parse()
             .unwrap_or_else(|_| AccountId::new_unchecked(receiver_id.as_ref()));
         TransactionBuilder::new(self.rpc.clone(), self.signer.clone(), receiver_id)
+    }
+
+    /// Send a pre-signed transaction.
+    ///
+    /// Use this with transactions signed via `.sign()` for offline signing
+    /// or inspection before sending.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet()
+    ///     .credentials("ed25519:...", "alice.testnet")?
+    ///     .build();
+    ///
+    /// // Sign offline
+    /// let signed = near.transfer("bob.testnet", NearToken::near(1))
+    ///     .sign()
+    ///     .await?;
+    ///
+    /// // Send later
+    /// let outcome = near.send(&signed).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn send(
+        &self,
+        signed_tx: &crate::types::SignedTransaction,
+    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
+        self.send_with_options(signed_tx, TxExecutionStatus::ExecutedOptimistic)
+            .await
+    }
+
+    /// Send a pre-signed transaction with custom wait options.
+    pub async fn send_with_options(
+        &self,
+        signed_tx: &crate::types::SignedTransaction,
+        wait_until: TxExecutionStatus,
+    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
+        let outcome = self.rpc.send_tx(signed_tx, wait_until).await?;
+
+        if outcome.is_failure() {
+            return Err(Error::TransactionFailed(
+                outcome.failure_message().unwrap_or_default(),
+            ));
+        }
+
+        Ok(outcome)
     }
 
     // ========================================================================

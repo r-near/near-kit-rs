@@ -314,7 +314,7 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
         };
 
         quote! {
-            pub fn #method_name(&self, #arg_name: #arg_type) -> near_kit::ContractCall {
+            pub fn #method_name(&self, #arg_name: #arg_type) -> near_kit::CallBuilder {
                 self.near.call(&self.contract_id, #method_name_str)
                     #args_method
             }
@@ -324,7 +324,7 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
         match format {
             SerializationFormat::Json => {
                 quote! {
-                    pub fn #method_name(&self) -> near_kit::ContractCall {
+                    pub fn #method_name(&self) -> near_kit::CallBuilder {
                         self.near.call(&self.contract_id, #method_name_str)
                             .args(serde_json::json!({}))
                     }
@@ -332,7 +332,7 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
             }
             SerializationFormat::Borsh => {
                 quote! {
-                    pub fn #method_name(&self) -> near_kit::ContractCall {
+                    pub fn #method_name(&self) -> near_kit::CallBuilder {
                         self.near.call(&self.contract_id, #method_name_str)
                     }
                 }

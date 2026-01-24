@@ -38,7 +38,7 @@ use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, DeterministicAccountStateInit,
     DeterministicAccountStateInitV1, FinalExecutionOutcome, Finality, Gas,
     GlobalContractIdentifier, IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey,
-    SignedDelegateAction, Transaction, TxExecutionStatus,
+    SignedDelegateAction, SignedTransaction, Transaction, TxExecutionStatus,
 };
 
 use super::nonce_manager::NonceManager;
@@ -636,6 +636,88 @@ impl TransactionBuilder {
     // ========================================================================
     // Execution
     // ========================================================================
+
+    /// Sign the transaction without sending it.
+    ///
+    /// Returns a `SignedTransaction` that can be inspected or sent later.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// let signed = near.transaction("bob.testnet")
+    ///     .transfer(NearToken::near(1))
+    ///     .sign()
+    ///     .await?;
+    ///
+    /// // Inspect the transaction
+    /// println!("Hash: {}", signed.transaction.get_hash());
+    /// println!("Actions: {:?}", signed.transaction.actions);
+    ///
+    /// // Send it later
+    /// let outcome = near.send(&signed).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn sign(self) -> Result<SignedTransaction, Error> {
+        if self.actions.is_empty() {
+            return Err(Error::InvalidTransaction(
+                "Transaction must have at least one action".to_string(),
+            ));
+        }
+
+        let signer = self
+            .signer_override
+            .or(self.signer)
+            .ok_or(Error::NoSigner)?;
+
+        let signer_id = signer.account_id().clone();
+        let public_key = signer.public_key().clone();
+        let public_key_str = public_key.to_string();
+
+        // Get nonce
+        let rpc = self.rpc.clone();
+        let signer_id_clone = signer_id.clone();
+        let public_key_clone = public_key.clone();
+
+        let nonce = nonce_manager()
+            .get_next_nonce(signer_id.as_ref(), &public_key_str, || async {
+                let access_key = rpc
+                    .view_access_key(
+                        &signer_id_clone,
+                        &public_key_clone,
+                        BlockReference::Finality(Finality::Optimistic),
+                    )
+                    .await?;
+                Ok(access_key.nonce)
+            })
+            .await?;
+
+        // Get recent block hash
+        let block = self
+            .rpc
+            .block(BlockReference::Finality(Finality::Final))
+            .await?;
+
+        // Build transaction
+        let tx = Transaction::new(
+            signer_id,
+            public_key,
+            nonce,
+            self.receiver_id,
+            block.header.hash,
+            self.actions,
+        );
+
+        // Sign
+        let (signature, _) = signer.sign(tx.get_hash().as_bytes()).await?;
+
+        Ok(SignedTransaction {
+            transaction: tx,
+            signature,
+        })
+    }
 
     /// Send the transaction.
     ///

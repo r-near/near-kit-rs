@@ -236,8 +236,7 @@ async fn test_ft_transfer() {
     // Transfer tokens
     let transfer_amount = 100_000_000_000_000_000_000_u128; // 100 tokens (18 decimals)
 
-    ft.transfer(&receiver_id, transfer_amount)
-        .memo("Test transfer")
+    ft.transfer_with_memo(&receiver_id, transfer_amount, "Test transfer")
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
@@ -598,8 +597,7 @@ async fn test_nft_transfer() {
     // Transfer the token
     let nft_with_signer = owner_near.nft(&nft_id).unwrap();
     nft_with_signer
-        .transfer(&receiver_id, "transfer-test")
-        .memo("Gift for you!")
+        .transfer_with_memo(&receiver_id, "transfer-test", "Gift for you!")
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();

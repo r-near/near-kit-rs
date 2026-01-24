@@ -7,11 +7,11 @@ use std::sync::Arc;
 use serde::Serialize;
 use tokio::sync::OnceCell;
 
-use crate::client::{RpcClient, Signer};
+use crate::client::{CallBuilder, RpcClient, Signer, TransactionBuilder};
 use crate::error::Error;
 use crate::types::{
-    AccountId, Action, BlockReference, FinalExecutionOutcome, Finality, Gas, IntoGas,
-    IntoNearToken, NearToken, Transaction, TxExecutionStatus,
+    AccountId, Action, BlockReference, Finality, Gas, IntoNearToken, NearToken, Transaction,
+    TxExecutionStatus,
 };
 
 use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
@@ -75,6 +75,15 @@ impl FungibleToken {
     /// Get the contract ID.
     pub fn contract_id(&self) -> &AccountId {
         &self.contract_id
+    }
+
+    /// Create a transaction builder for this contract.
+    fn transaction(&self) -> TransactionBuilder {
+        TransactionBuilder::new(
+            self.rpc.clone(),
+            self.signer.clone(),
+            self.contract_id.clone(),
+        )
     }
 
     // =========================================================================
@@ -277,9 +286,7 @@ impl FungibleToken {
     /// let usdc = near.ft("usdc.near")?;
     ///
     /// // Transfer 1.5 USDC (raw amount for 6 decimals)
-    /// usdc.transfer("bob.near", 1_500_000_u128)
-    ///     .memo("Payment")
-    ///     .await?;
+    /// usdc.transfer("bob.near", 1_500_000_u128).await?;
     ///
     /// // Or use an FtAmount from a query
     /// let balance = usdc.balance_of("alice.near").await?;
@@ -287,22 +294,48 @@ impl FungibleToken {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn transfer(
+    pub fn transfer(&self, receiver_id: impl AsRef<str>, amount: impl Into<u128>) -> CallBuilder {
+        #[derive(Serialize)]
+        struct TransferArgs {
+            receiver_id: String,
+            amount: String,
+        }
+
+        self.transaction()
+            .call("ft_transfer")
+            .args(TransferArgs {
+                receiver_id: receiver_id.as_ref().to_string(),
+                amount: amount.into().to_string(),
+            })
+            .deposit(NearToken::yocto(1))
+            .gas(Gas::tgas(30))
+    }
+
+    /// Transfer tokens with a memo (ft_transfer).
+    ///
+    /// Same as [`transfer`](Self::transfer) but with an optional memo field.
+    pub fn transfer_with_memo(
         &self,
         receiver_id: impl AsRef<str>,
         amount: impl Into<u128>,
-    ) -> FtTransferCall {
-        FtTransferCall {
-            rpc: self.rpc.clone(),
-            signer: self.signer.clone(),
-            contract_id: self.contract_id.clone(),
-            receiver_id: receiver_id.as_ref().to_string(),
-            amount: amount.into(),
-            memo: None,
-            gas: Gas::tgas(30),
-            signer_override: None,
-            wait_until: TxExecutionStatus::ExecutedOptimistic,
+        memo: impl Into<String>,
+    ) -> CallBuilder {
+        #[derive(Serialize)]
+        struct TransferArgs {
+            receiver_id: String,
+            amount: String,
+            memo: String,
         }
+
+        self.transaction()
+            .call("ft_transfer")
+            .args(TransferArgs {
+                receiver_id: receiver_id.as_ref().to_string(),
+                amount: amount.into().to_string(),
+                memo: memo.into(),
+            })
+            .deposit(NearToken::yocto(1))
+            .gas(Gas::tgas(30))
     }
 
     /// Transfer tokens with a callback to the receiver (ft_transfer_call).
@@ -333,19 +366,23 @@ impl FungibleToken {
         receiver_id: impl AsRef<str>,
         amount: impl Into<u128>,
         msg: impl Into<String>,
-    ) -> FtTransferCallCall {
-        FtTransferCallCall {
-            rpc: self.rpc.clone(),
-            signer: self.signer.clone(),
-            contract_id: self.contract_id.clone(),
-            receiver_id: receiver_id.as_ref().to_string(),
-            amount: amount.into(),
-            msg: msg.into(),
-            memo: None,
-            gas: Gas::tgas(100),
-            signer_override: None,
-            wait_until: TxExecutionStatus::ExecutedOptimistic,
+    ) -> CallBuilder {
+        #[derive(Serialize)]
+        struct TransferCallArgs {
+            receiver_id: String,
+            amount: String,
+            msg: String,
         }
+
+        self.transaction()
+            .call("ft_transfer_call")
+            .args(TransferCallArgs {
+                receiver_id: receiver_id.as_ref().to_string(),
+                amount: amount.into().to_string(),
+                msg: msg.into(),
+            })
+            .deposit(NearToken::yocto(1))
+            .gas(Gas::tgas(100))
     }
 }
 
@@ -371,265 +408,13 @@ impl std::fmt::Debug for FungibleToken {
 }
 
 // =============================================================================
-// FtTransferCall Builder
-// =============================================================================
-
-/// Builder for FT transfer transactions.
-pub struct FtTransferCall {
-    rpc: Arc<RpcClient>,
-    signer: Option<Arc<dyn Signer>>,
-    contract_id: AccountId,
-    receiver_id: String,
-    amount: u128,
-    memo: Option<String>,
-    gas: Gas,
-    signer_override: Option<Arc<dyn Signer>>,
-    wait_until: TxExecutionStatus,
-}
-
-impl FtTransferCall {
-    /// Add an optional memo to the transfer.
-    pub fn memo(mut self, memo: impl Into<String>) -> Self {
-        self.memo = Some(memo.into());
-        self
-    }
-
-    /// Set the gas limit for the transaction.
-    pub fn gas(mut self, gas: impl IntoGas) -> Self {
-        if let Ok(g) = gas.into_gas() {
-            self.gas = g;
-        }
-        self
-    }
-
-    /// Override the signer for this transaction.
-    pub fn sign_with(mut self, signer: impl Signer + 'static) -> Self {
-        self.signer_override = Some(Arc::new(signer));
-        self
-    }
-
-    /// Set the execution wait level.
-    pub fn wait_until(mut self, status: TxExecutionStatus) -> Self {
-        self.wait_until = status;
-        self
-    }
-}
-
-impl IntoFuture for FtTransferCall {
-    type Output = Result<FinalExecutionOutcome, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move {
-            let signer = self
-                .signer_override
-                .as_ref()
-                .or(self.signer.as_ref())
-                .ok_or(Error::NoSigner)?;
-
-            let signer_id = signer.account_id().clone();
-
-            // Build args
-            #[derive(Serialize)]
-            struct TransferArgs {
-                receiver_id: String,
-                amount: String,
-                #[serde(skip_serializing_if = "Option::is_none")]
-                memo: Option<String>,
-            }
-
-            let args = serde_json::to_vec(&TransferArgs {
-                receiver_id: self.receiver_id,
-                amount: self.amount.to_string(),
-                memo: self.memo,
-            })?;
-
-            // Get access key for nonce
-            let access_key = self
-                .rpc
-                .view_access_key(
-                    &signer_id,
-                    signer.public_key(),
-                    BlockReference::Finality(Finality::Optimistic),
-                )
-                .await?;
-
-            // Get recent block hash
-            let block = self
-                .rpc
-                .block(BlockReference::Finality(Finality::Final))
-                .await?;
-
-            // Build transaction
-            let tx = Transaction::new(
-                signer_id,
-                signer.public_key().clone(),
-                access_key.nonce + 1,
-                self.contract_id,
-                block.header.hash,
-                vec![Action::function_call(
-                    "ft_transfer".to_string(),
-                    args,
-                    self.gas,
-                    NearToken::yocto(1), // Required 1 yocto deposit
-                )],
-            );
-
-            // Sign
-            let (signature, _) = signer.sign(tx.get_hash().as_bytes()).await?;
-            let signed_tx = crate::types::SignedTransaction {
-                transaction: tx,
-                signature,
-            };
-
-            // Send
-            let outcome = self.rpc.send_tx(&signed_tx, self.wait_until).await?;
-
-            if outcome.is_failure() {
-                return Err(Error::TransactionFailed(
-                    outcome.failure_message().unwrap_or_default(),
-                ));
-            }
-
-            Ok(outcome)
-        })
-    }
-}
-
-// =============================================================================
-// FtTransferCallCall Builder (for ft_transfer_call)
-// =============================================================================
-
-/// Builder for FT transfer_call transactions (cross-contract).
-pub struct FtTransferCallCall {
-    rpc: Arc<RpcClient>,
-    signer: Option<Arc<dyn Signer>>,
-    contract_id: AccountId,
-    receiver_id: String,
-    amount: u128,
-    msg: String,
-    memo: Option<String>,
-    gas: Gas,
-    signer_override: Option<Arc<dyn Signer>>,
-    wait_until: TxExecutionStatus,
-}
-
-impl FtTransferCallCall {
-    /// Add an optional memo to the transfer.
-    pub fn memo(mut self, memo: impl Into<String>) -> Self {
-        self.memo = Some(memo.into());
-        self
-    }
-
-    /// Set the gas limit for the transaction.
-    pub fn gas(mut self, gas: impl IntoGas) -> Self {
-        if let Ok(g) = gas.into_gas() {
-            self.gas = g;
-        }
-        self
-    }
-
-    /// Override the signer for this transaction.
-    pub fn sign_with(mut self, signer: impl Signer + 'static) -> Self {
-        self.signer_override = Some(Arc::new(signer));
-        self
-    }
-
-    /// Set the execution wait level.
-    pub fn wait_until(mut self, status: TxExecutionStatus) -> Self {
-        self.wait_until = status;
-        self
-    }
-}
-
-impl IntoFuture for FtTransferCallCall {
-    type Output = Result<FinalExecutionOutcome, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move {
-            let signer = self
-                .signer_override
-                .as_ref()
-                .or(self.signer.as_ref())
-                .ok_or(Error::NoSigner)?;
-
-            let signer_id = signer.account_id().clone();
-
-            // Build args
-            #[derive(Serialize)]
-            struct TransferCallArgs {
-                receiver_id: String,
-                amount: String,
-                msg: String,
-                #[serde(skip_serializing_if = "Option::is_none")]
-                memo: Option<String>,
-            }
-
-            let args = serde_json::to_vec(&TransferCallArgs {
-                receiver_id: self.receiver_id,
-                amount: self.amount.to_string(),
-                msg: self.msg,
-                memo: self.memo,
-            })?;
-
-            // Get access key for nonce
-            let access_key = self
-                .rpc
-                .view_access_key(
-                    &signer_id,
-                    signer.public_key(),
-                    BlockReference::Finality(Finality::Optimistic),
-                )
-                .await?;
-
-            // Get recent block hash
-            let block = self
-                .rpc
-                .block(BlockReference::Finality(Finality::Final))
-                .await?;
-
-            // Build transaction
-            let tx = Transaction::new(
-                signer_id,
-                signer.public_key().clone(),
-                access_key.nonce + 1,
-                self.contract_id,
-                block.header.hash,
-                vec![Action::function_call(
-                    "ft_transfer_call".to_string(),
-                    args,
-                    self.gas,
-                    NearToken::yocto(1), // Required 1 yocto deposit
-                )],
-            );
-
-            // Sign
-            let (signature, _) = signer.sign(tx.get_hash().as_bytes()).await?;
-            let signed_tx = crate::types::SignedTransaction {
-                transaction: tx,
-                signature,
-            };
-
-            // Send
-            let outcome = self.rpc.send_tx(&signed_tx, self.wait_until).await?;
-
-            if outcome.is_failure() {
-                return Err(Error::TransactionFailed(
-                    outcome.failure_message().unwrap_or_default(),
-                ));
-            }
-
-            Ok(outcome)
-        })
-    }
-}
-
-// =============================================================================
 // StorageDepositCall Builder
 // =============================================================================
 
 /// Builder for storage deposit transactions.
+///
+/// This builder needs special handling because it fetches storage bounds
+/// to determine the deposit amount, which requires async prep work.
 pub struct StorageDepositCall {
     rpc: Arc<RpcClient>,
     signer: Option<Arc<dyn Signer>>,

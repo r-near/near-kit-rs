@@ -6,7 +6,6 @@ mod query;
 mod rpc;
 mod signer;
 mod transaction;
-mod tx;
 
 #[cfg(feature = "keyring")]
 mod keyring_signer;
@@ -20,7 +19,6 @@ pub use signer::{
 pub use transaction::{
     CallBuilder, DelegateOptions, DelegateResult, TransactionBuilder, TransactionSend,
 };
-pub use tx::{AddKeyCall, ContractCall, DeleteKeyCall, DeployCall, TransferCall};
 
 #[cfg(feature = "keyring")]
 pub use keyring_signer::KeyringSigner;

@@ -27,9 +27,10 @@
 //!     .build();
 //! let usdc = near.ft("usdc.near")?;
 //!
-//! usdc.transfer("bob.near", 1_500_000_u128)
-//!     .memo("Payment for services")
-//!     .await?;
+//! usdc.transfer("bob.near", 1_500_000_u128).await?;
+//!
+//! // Or with a memo
+//! usdc.transfer_with_memo("bob.near", 1_500_000_u128, "Payment").await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -62,11 +63,13 @@
 //!     .build();
 //! let nft = near.nft("nft-contract.near")?;
 //!
-//! nft.transfer("bob.near", "token-123")
-//!     .memo("Gift")
-//!     .await?;
+//! nft.transfer("bob.near", "token-123").await?;
+//!
+//! // Or with a memo
+//! nft.transfer_with_memo("bob.near", "token-123", "Gift").await?;
 //! # Ok(())
 //! # }
+//! ```
 //! ```
 
 mod ft;
