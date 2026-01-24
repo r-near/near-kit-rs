@@ -6,6 +6,7 @@ use std::str::FromStr;
 use bip39::Mnemonic;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
+use k256::elliptic_curve::sec1::FromEncodedPoint;
 use rand::rngs::OsRng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use slipped10::{BIP32Path, Curve};
@@ -119,6 +120,28 @@ impl FromStr for PublicKey {
             });
         }
 
+        // Validate that the key is actually on the curve
+        match key_type {
+            KeyType::Ed25519 => {
+                // Validate Ed25519 public key is a valid curve point
+                let bytes: [u8; 32] = data
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
+                VerifyingKey::from_bytes(&bytes).map_err(|_| ParseKeyError::InvalidCurvePoint)?;
+            }
+            KeyType::Secp256k1 => {
+                // Validate secp256k1 public key is on the curve
+                // The key is 33 bytes (compressed SEC1 format)
+                let encoded = k256::EncodedPoint::from_bytes(&data)
+                    .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
+                let point = k256::AffinePoint::from_encoded_point(&encoded);
+                if point.is_none().into() {
+                    return Err(ParseKeyError::InvalidCurvePoint);
+                }
+            }
+        }
+
         Ok(Self { key_type, data })
     }
 }
@@ -177,6 +200,39 @@ impl BorshDeserialize for PublicKey {
 
         let mut data = vec![0u8; key_type.key_len()];
         reader.read_exact(&mut data)?;
+
+        // Validate that the key is actually on the curve
+        match key_type {
+            KeyType::Ed25519 => {
+                let bytes: [u8; 32] = data.as_slice().try_into().map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "invalid ed25519 key length",
+                    )
+                })?;
+                VerifyingKey::from_bytes(&bytes).map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "invalid ed25519 curve point",
+                    )
+                })?;
+            }
+            KeyType::Secp256k1 => {
+                let encoded = k256::EncodedPoint::from_bytes(&data).map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "invalid secp256k1 encoding",
+                    )
+                })?;
+                let point = k256::AffinePoint::from_encoded_point(&encoded);
+                if point.is_none().into() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "invalid secp256k1 curve point",
+                    ));
+                }
+            }
+        }
 
         Ok(Self { key_type, data })
     }
@@ -782,5 +838,67 @@ mod tests {
         let public_key = secret_key.public_key();
 
         assert!(signature.verify(message, &public_key));
+    }
+
+    // ========================================================================
+    // Curve Point Validation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_secp256k1_invalid_curve_point_rejected() {
+        // This is the invalid key from the NEAR SDK docs that was identified as not being
+        // on the secp256k1 curve. See: https://github.com/near/near-sdk-rs/pull/1469
+        let invalid_key = "secp256k1:qMoRgcoXai4mBPsdbHi1wfyxF9TdbPCF4qSDQTRP3TfescSRoUdSx6nmeQoN3aiwGzwMyGXAb1gUjBTv5AY8DXj";
+        let result: Result<PublicKey, _> = invalid_key.parse();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ParseKeyError::InvalidCurvePoint | ParseKeyError::InvalidLength { .. }
+        ));
+    }
+
+    #[test]
+    fn test_secp256k1_valid_curve_point_accepted() {
+        // Valid secp256k1 key from near-sdk-js (verified to be on the curve)
+        let valid_key = "secp256k1:5r22SrjrDvgY3wdQsnjgxkeAbU1VcM71FYvALEQWihjM3Xk4Be1CpETTqFccChQr4iJwDroSDVmgaWZv2AcXvYeL";
+        let result: Result<PublicKey, _> = valid_key.parse();
+        // This key is 64 bytes (uncompressed), but we expect 33 bytes (compressed)
+        // So it should fail with InvalidLength, not InvalidCurvePoint
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ed25519_valid_key_accepted() {
+        // Valid ed25519 public key
+        let valid_key = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";
+        let result: Result<PublicKey, _> = valid_key.parse();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ed25519_invalid_curve_point_rejected() {
+        // 32 bytes of zeros is not a valid ed25519 public key point
+        // (the identity point is not valid for ed25519)
+        let zero_bytes = [0u8; 32];
+        let encoded = bs58::encode(&zero_bytes).into_string();
+        let invalid_key = format!("ed25519:{}", encoded);
+        let result: Result<PublicKey, _> = invalid_key.parse();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ParseKeyError::InvalidCurvePoint
+        ));
+    }
+
+    #[test]
+    fn test_borsh_deserialize_validates_curve_point() {
+        use borsh::BorshDeserialize;
+
+        // Construct invalid ed25519 key bytes: key_type (0) + 32 zero bytes
+        let mut invalid_bytes = vec![0u8]; // KeyType::Ed25519
+        invalid_bytes.extend_from_slice(&[0u8; 32]); // Invalid curve point
+
+        let result = PublicKey::try_from_slice(&invalid_bytes);
+        assert!(result.is_err());
     }
 }
