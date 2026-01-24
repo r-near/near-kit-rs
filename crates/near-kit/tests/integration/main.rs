@@ -16,5 +16,6 @@ mod sandbox_integration;
 mod signer_edge_cases_integration;
 mod token_error_integration;
 mod token_integration;
+mod transaction_failure_integration;
 mod typed_contract_error_integration;
 mod typed_contract_integration;
