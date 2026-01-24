@@ -3,6 +3,7 @@ name = "near-kit"
 description = "A clean, ergonomic Rust client for NEAR Protocol"
 keywords = ["near", "blockchain", "crypto", "web3"]
 categories = ["api-bindings", "cryptography::cryptocurrencies"]
+readme = "../../README.md"
 
 # Inherit from workspace
 version.workspace = true
