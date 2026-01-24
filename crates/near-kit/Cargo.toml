@@ -39,6 +39,9 @@ hex.workspace = true
 # Filesystem
 dirs.workspace = true
 
+# System keyring (optional)
+keyring = { workspace = true, optional = true }
+
 # Error handling
 thiserror.workspace = true
 
@@ -53,8 +56,9 @@ near-sandbox = { workspace = true, optional = true }
 serde_with = { version = "3.16.1", features = ["hex"] }
 
 [features]
-default = []
+default = ["keyring"]
 sandbox = ["near-sandbox"]
+keyring = ["dep:keyring"]
 
 [dev-dependencies]
 tokio-test.workspace = true

@@ -42,6 +42,9 @@ hex = "0.4"
 # Filesystem
 dirs = "6"
 
+# System keyring (optional)
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }
+
 # Error handling
 thiserror = "2"
 

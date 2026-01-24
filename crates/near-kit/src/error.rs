@@ -111,6 +111,9 @@ pub enum KeyStoreError {
 
     #[error("Path error: {0}")]
     PathError(String),
+
+    #[error("Platform keyring error: {0}")]
+    Platform(String),
 }
 
 // ============================================================================
@@ -364,6 +367,10 @@ pub enum Error {
     // ─── Signing ───
     #[error("Signing failed: {0}")]
     Signing(#[from] SignerError),
+
+    // ─── KeyStore ───
+    #[error(transparent)]
+    KeyStore(#[from] KeyStoreError),
 
     // ─── Serialization ───
     #[error("JSON error: {0}")]

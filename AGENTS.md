@@ -105,6 +105,7 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 - [x] `FileSigner` - Load from ~/.near-credentials
 - [x] `EnvSigner` - Load from environment variables
 - [x] `RotatingSigner` - Multiple keys, round-robin rotation
+- [x] `KeyringSigner` - Load from system keyring (near-cli-rs compatible)
 - [x] Network presets (mainnet, testnet)
 - [x] `balance()` - Get account balance
 - [x] `account()` - Get full account info

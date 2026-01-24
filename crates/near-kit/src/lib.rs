@@ -97,6 +97,9 @@ pub use client::{
     TransferCall, ViewCall,
 };
 
+#[cfg(feature = "keyring")]
+pub use client::KeyringSigner;
+
 // Re-export token types
 pub use tokens::{
     FtAmount, FtMetadata, FtTransferCall, FtTransferCallCall, FungibleToken, NftContractMetadata,
