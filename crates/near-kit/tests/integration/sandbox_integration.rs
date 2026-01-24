@@ -616,3 +616,56 @@ async fn test_sandbox_set_balance_for_staking() {
     println!("Locked balance after staking: {}", account.locked);
     assert!(account.locked >= stake_amount);
 }
+
+#[tokio::test]
+async fn test_sandbox_patch_debug() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+
+    // Create a test account
+    let account_key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    root_near
+        .transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::near(10))
+        .add_full_access_key(account_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // Get current state
+    let current = root_near.account(&account_id).await.unwrap();
+    println!("Current account: {:?}", current);
+
+    // Build the records JSON manually
+    let target_balance = NearToken::near(1_000_000);
+    let records = serde_json::json!([
+        {
+            "Account": {
+                "account_id": account_id.to_string(),
+                "account": {
+                    "amount": target_balance.as_yoctonear().to_string(),
+                    "locked": current.locked.as_yoctonear().to_string(),
+                    "code_hash": current.code_hash.to_string(),
+                    "storage_usage": current.storage_usage
+                }
+            }
+        }
+    ]);
+    println!(
+        "Sending records: {}",
+        serde_json::to_string_pretty(&records).unwrap()
+    );
+
+    // Call patch directly
+    let result = root_near.rpc().sandbox_patch_state(records.clone()).await;
+    println!("Patch result: {:?}", result);
+
+    // Check balance
+    let new_balance = root_near.balance(&account_id).await.unwrap();
+    println!("New balance: {:?}", new_balance);
+    println!("Expected: {:?}", target_balance);
+}

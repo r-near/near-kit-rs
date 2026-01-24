@@ -181,19 +181,33 @@ impl SharedSandbox {
             .parse()
             .unwrap_or_else(|_| crate::AccountId::new_unchecked(account_id.as_ref()));
 
-        // Get current account state to preserve other fields
-        let current = near.account(&account_id).await?;
+        // Fetch raw account data from RPC - this includes all fields the sandbox expects
+        let mut account_response: serde_json::Value = near
+            .rpc()
+            .call(
+                "query",
+                serde_json::json!({
+                    "finality": "optimistic",
+                    "request_type": "view_account",
+                    "account_id": account_id.to_string()
+                }),
+            )
+            .await
+            .map_err(crate::Error::Rpc)?;
+
+        // Modify the amount field in the response
+        if let Some(obj) = account_response.as_object_mut() {
+            obj.insert(
+                "amount".to_string(),
+                serde_json::Value::String(balance.as_yoctonear().to_string()),
+            );
+        }
 
         let records = serde_json::json!([
             {
                 "Account": {
                     "account_id": account_id.to_string(),
-                    "account": {
-                        "amount": balance.as_yoctonear().to_string(),
-                        "locked": current.locked.as_yoctonear().to_string(),
-                        "code_hash": current.code_hash.to_string(),
-                        "storage_usage": current.storage_usage
-                    }
+                    "account": account_response
                 }
             }
         ]);
@@ -296,19 +310,33 @@ impl OwnedSandbox {
             .parse()
             .unwrap_or_else(|_| crate::AccountId::new_unchecked(account_id.as_ref()));
 
-        // Get current account state to preserve other fields
-        let current = near.account(&account_id).await?;
+        // Fetch raw account data from RPC - this includes all fields the sandbox expects
+        let mut account_response: serde_json::Value = near
+            .rpc()
+            .call(
+                "query",
+                serde_json::json!({
+                    "finality": "optimistic",
+                    "request_type": "view_account",
+                    "account_id": account_id.to_string()
+                }),
+            )
+            .await
+            .map_err(crate::Error::Rpc)?;
+
+        // Modify the amount field in the response
+        if let Some(obj) = account_response.as_object_mut() {
+            obj.insert(
+                "amount".to_string(),
+                serde_json::Value::String(balance.as_yoctonear().to_string()),
+            );
+        }
 
         let records = serde_json::json!([
             {
                 "Account": {
                     "account_id": account_id.to_string(),
-                    "account": {
-                        "amount": balance.as_yoctonear().to_string(),
-                        "locked": current.locked.as_yoctonear().to_string(),
-                        "code_hash": current.code_hash.to_string(),
-                        "storage_usage": current.storage_usage
-                    }
+                    "account": account_response
                 }
             }
         ]);

@@ -462,7 +462,7 @@ impl TransactionBuilder {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// # async fn example(near: Near) -> Result<(), Box<dyn std::error::Error>> {
     /// let wasm_code = std::fs::read("contract.wasm")?;
     ///
     /// // Publish updatable contract (identified by your account)

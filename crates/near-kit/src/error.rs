@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use crate::types::{AccountId, PublicKey};
+use crate::types::{AccountId, DelegateDecodeError, PublicKey};
 
 /// Error parsing an account ID.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
@@ -371,4 +371,7 @@ pub enum Error {
 
     #[error("Borsh error: {0}")]
     Borsh(String),
+
+    #[error("Delegate action decode error: {0}")]
+    DelegateDecode(#[from] DelegateDecodeError),
 }
