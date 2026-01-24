@@ -228,6 +228,63 @@ impl InMemorySigner {
         }
     }
 
+    /// Create a signer from a BIP-39 seed phrase.
+    ///
+    /// Uses SLIP-10 derivation with the default NEAR HD path (`m/44'/397'/0'`).
+    ///
+    /// # Arguments
+    ///
+    /// * `account_id` - The NEAR account ID (e.g., "alice.testnet")
+    /// * `phrase` - BIP-39 mnemonic phrase (12, 15, 18, 21, or 24 words)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::InMemorySigner;
+    ///
+    /// let signer = InMemorySigner::from_seed_phrase(
+    ///     "alice.testnet",
+    ///     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+    /// ).unwrap();
+    /// ```
+    pub fn from_seed_phrase(
+        account_id: impl AsRef<str>,
+        phrase: impl AsRef<str>,
+    ) -> Result<Self, crate::error::Error> {
+        let account_id: AccountId = account_id.as_ref().parse()?;
+        let secret_key = SecretKey::from_seed_phrase(phrase)?;
+        Ok(Self::from_secret_key(account_id, secret_key))
+    }
+
+    /// Create a signer from a BIP-39 seed phrase with custom HD path.
+    ///
+    /// # Arguments
+    ///
+    /// * `account_id` - The NEAR account ID
+    /// * `phrase` - BIP-39 mnemonic phrase
+    /// * `hd_path` - BIP-32 derivation path (e.g., `"m/44'/397'/0'"`)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::InMemorySigner;
+    ///
+    /// let signer = InMemorySigner::from_seed_phrase_with_path(
+    ///     "alice.testnet",
+    ///     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    ///     "m/44'/397'/1'"
+    /// ).unwrap();
+    /// ```
+    pub fn from_seed_phrase_with_path(
+        account_id: impl AsRef<str>,
+        phrase: impl AsRef<str>,
+        hd_path: impl AsRef<str>,
+    ) -> Result<Self, crate::error::Error> {
+        let account_id: AccountId = account_id.as_ref().parse()?;
+        let secret_key = SecretKey::from_seed_phrase_with_path(phrase, hd_path)?;
+        Ok(Self::from_secret_key(account_id, secret_key))
+    }
+
     /// Get the public key.
     pub fn public_key(&self) -> &PublicKey {
         &self.public_key

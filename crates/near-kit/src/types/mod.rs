@@ -25,7 +25,10 @@ pub use action::{
 };
 pub use block_reference::{BlockReference, Finality, TxExecutionStatus};
 pub use hash::CryptoHash;
-pub use key::{KeyType, PublicKey, SecretKey, Signature};
+pub use key::{
+    generate_seed_phrase, KeyType, PublicKey, SecretKey, Signature, DEFAULT_HD_PATH,
+    DEFAULT_WORD_COUNT,
+};
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountView, ActionReceiptData, ActionView, BlockHeaderView, BlockView,

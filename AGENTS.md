@@ -162,7 +162,7 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 ### Phase 9: Advanced Features (IN PROGRESS)
 
 - [ ] `StakingPool` - Staking operations
-- [ ] Seed phrase / mnemonic support in `SecretKeySigner`
+- [x] Seed phrase / mnemonic support in `SecretKey` and `InMemorySigner`
 - [ ] Environment-based configuration (`Near::from_env()`)
 - [x] Meta-transactions (delegate actions)
 

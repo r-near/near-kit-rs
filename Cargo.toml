@@ -32,6 +32,8 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 sha2 = "0.10"
 sha3 = "0.10"
 rand = "0.8"
+bip39 = "2"
+slipped10 = "0.4"
 
 # Encoding
 bs58 = "0.5"
