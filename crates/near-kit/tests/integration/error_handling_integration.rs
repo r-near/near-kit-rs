@@ -68,14 +68,19 @@ async fn test_error_account_info_nonexistent() {
 }
 
 #[tokio::test]
-async fn test_error_access_keys_nonexistent_account() {
+async fn test_access_keys_nonexistent_account_returns_empty() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
+    // Note: Unlike view_account, the NEAR RPC returns an empty list for
+    // access_keys on non-existent accounts rather than an error
     let nonexistent: AccountId = "no-such-account.sandbox".parse().unwrap();
-    let result = near.access_keys(&nonexistent).await;
+    let result = near.access_keys(&nonexistent).await.unwrap();
 
-    assert!(result.is_err());
+    assert!(
+        result.keys.is_empty(),
+        "Non-existent account should have no keys"
+    );
 }
 
 #[tokio::test]
