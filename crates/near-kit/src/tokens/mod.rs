@@ -2,16 +2,56 @@
 //!
 //! This module provides ergonomic APIs for interacting with standard NEAR token contracts.
 //!
+//! # Known Token Constants
+//!
+//! For common tokens like USDC, USDT, and wNEAR, use the provided constants to avoid
+//! copy-pasting addresses. These automatically resolve to the correct address based
+//! on the network your client is connected to:
+//!
+//! ```rust,no_run
+//! use near_kit::*;
+//!
+//! # async fn example() -> Result<(), near_kit::Error> {
+//! // Mainnet client - USDC resolves to the mainnet address
+//! let near = Near::mainnet().build();
+//! let usdc = near.ft(tokens::USDC)?;
+//! let balance = usdc.balance_of("alice.near").await?;
+//!
+//! // Testnet client - USDC resolves to the testnet address
+//! let near = Near::testnet().build();
+//! let usdc = near.ft(tokens::USDC)?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Available tokens:
+//!
+//! | Constant | Token | Mainnet | Testnet |
+//! |----------|-------|---------|---------|
+//! | [`USDC`] | Circle USD Coin | ✓ | ✓ |
+//! | [`USDT`] | Tether USD | ✓ | ✗ |
+//! | [`W_NEAR`] | Wrapped NEAR | ✓ | ✓ |
+//!
+//! You can still use raw addresses for any token:
+//!
+//! ```rust,no_run
+//! # use near_kit::*;
+//! # fn example(near: &Near) -> Result<(), near_kit::Error> {
+//! let custom = near.ft("my-token.near")?;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! # Fungible Tokens (NEP-141)
 //!
 //! ```rust,no_run
 //! use near_kit::*;
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
-//! let near = Near::testnet().build();
+//! let near = Near::mainnet().build();
 //!
-//! // Get a fungible token client
-//! let usdc = near.ft("usdc.near")?;
+//! // Get a fungible token client using a known token
+//! let usdc = near.ft(tokens::USDC)?;
 //!
 //! // Query metadata (cached after first call)
 //! let metadata = usdc.metadata().await?;
@@ -22,10 +62,10 @@
 //! println!("Balance: {}", balance);  // e.g., "1.5 USDC"
 //!
 //! // Transfer tokens (requires signer)
-//! let near = Near::testnet()
+//! let near = Near::mainnet()
 //!     .credentials("ed25519:...", "alice.near")?
 //!     .build();
-//! let usdc = near.ft("usdc.near")?;
+//! let usdc = near.ft(tokens::USDC)?;
 //!
 //! usdc.transfer("bob.near", 1_500_000_u128).await?;
 //!
@@ -72,9 +112,11 @@
 //! ```
 
 mod ft;
+mod known;
 mod nft;
 mod types;
 
 pub use ft::*;
+pub use known::{IntoContractId, KnownToken, USDC, USDT, W_NEAR};
 pub use nft::*;
 pub use types::*;

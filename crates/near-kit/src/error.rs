@@ -440,6 +440,10 @@ pub enum Error {
 
     #[error("Delegate action decode error: {0}")]
     DelegateDecode(#[from] DelegateDecodeError),
+
+    // ─── Tokens ───
+    #[error("Token {token} is not available on {network}")]
+    TokenNotAvailable { token: String, network: String },
 }
 
 #[cfg(test)]

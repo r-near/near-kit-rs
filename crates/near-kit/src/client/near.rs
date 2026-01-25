@@ -6,7 +6,7 @@ use serde::de::DeserializeOwned;
 
 use crate::contract::ContractClient;
 use crate::error::Error;
-use crate::types::{AccountId, Gas, IntoNearToken, NearToken, PublicKey, SecretKey};
+use crate::types::{AccountId, Gas, IntoNearToken, NearToken, Network, PublicKey, SecretKey};
 
 use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
 use super::rpc::{RetryConfig, RpcClient, MAINNET, TESTNET};
@@ -72,22 +72,23 @@ pub trait SandboxNetwork {
 pub struct Near {
     rpc: Arc<RpcClient>,
     signer: Option<Arc<dyn Signer>>,
+    network: Network,
 }
 
 impl Near {
     /// Create a builder for mainnet.
     pub fn mainnet() -> NearBuilder {
-        NearBuilder::new(MAINNET.rpc_url)
+        NearBuilder::new(MAINNET.rpc_url, Network::Mainnet)
     }
 
     /// Create a builder for testnet.
     pub fn testnet() -> NearBuilder {
-        NearBuilder::new(TESTNET.rpc_url)
+        NearBuilder::new(TESTNET.rpc_url, Network::Testnet)
     }
 
     /// Create a builder with a custom RPC URL.
     pub fn custom(rpc_url: impl Into<String>) -> NearBuilder {
-        NearBuilder::new(rpc_url)
+        NearBuilder::new(rpc_url, Network::Custom)
     }
 
     /// Create a builder configured for a sandbox network.
@@ -122,6 +123,7 @@ impl Near {
         Near {
             rpc: Arc::new(RpcClient::new(network.rpc_url())),
             signer: Some(Arc::new(signer)),
+            network: Network::Sandbox,
         }
     }
 
@@ -138,6 +140,11 @@ impl Near {
     /// Get the signer's account ID, if a signer is configured.
     pub fn account_id(&self) -> Option<&AccountId> {
         self.signer.as_ref().map(|s| s.account_id())
+    }
+
+    /// Get the network this client is connected to.
+    pub fn network(&self) -> Network {
+        self.network
     }
 
     // ========================================================================
@@ -609,13 +616,24 @@ impl Near {
 
     /// Get a fungible token client for a NEP-141 contract.
     ///
+    /// Accepts either a string/`AccountId` for raw addresses, or a [`KnownToken`]
+    /// constant (like [`tokens::USDC`]) which auto-resolves based on the network.
+    ///
+    /// [`KnownToken`]: crate::tokens::KnownToken
+    /// [`tokens::USDC`]: crate::tokens::USDC
+    ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    /// let usdc = near.ft("usdc.near")?;
+    /// let near = Near::mainnet().build();
+    ///
+    /// // Use a known token - auto-resolves based on network
+    /// let usdc = near.ft(tokens::USDC)?;
+    ///
+    /// // Or use a raw address
+    /// let custom = near.ft("custom-token.near")?;
     ///
     /// // Get metadata
     /// let meta = usdc.metadata().await?;
@@ -627,8 +645,11 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn ft(&self, contract_id: impl AsRef<str>) -> Result<crate::tokens::FungibleToken, Error> {
-        let contract_id: AccountId = contract_id.as_ref().parse()?;
+    pub fn ft(
+        &self,
+        contract: impl crate::tokens::IntoContractId,
+    ) -> Result<crate::tokens::FungibleToken, Error> {
+        let contract_id = contract.into_contract_id(self.network)?;
         Ok(crate::tokens::FungibleToken::new(
             self.rpc.clone(),
             self.signer.clone(),
@@ -637,6 +658,11 @@ impl Near {
     }
 
     /// Get a non-fungible token client for a NEP-171 contract.
+    ///
+    /// Accepts either a string/`AccountId` for raw addresses, or a contract
+    /// identifier that implements [`IntoContractId`].
+    ///
+    /// [`IntoContractId`]: crate::tokens::IntoContractId
     ///
     /// # Example
     ///
@@ -658,9 +684,9 @@ impl Near {
     /// ```
     pub fn nft(
         &self,
-        contract_id: impl AsRef<str>,
+        contract: impl crate::tokens::IntoContractId,
     ) -> Result<crate::tokens::NonFungibleToken, Error> {
-        let contract_id: AccountId = contract_id.as_ref().parse()?;
+        let contract_id = contract.into_contract_id(self.network)?;
         Ok(crate::tokens::NonFungibleToken::new(
             self.rpc.clone(),
             self.signer.clone(),
@@ -704,15 +730,17 @@ pub struct NearBuilder {
     rpc_url: String,
     signer: Option<Arc<dyn Signer>>,
     retry_config: RetryConfig,
+    network: Network,
 }
 
 impl NearBuilder {
     /// Create a new builder with the given RPC URL.
-    pub fn new(rpc_url: impl Into<String>) -> Self {
+    fn new(rpc_url: impl Into<String>, network: Network) -> Self {
         Self {
             rpc_url: rpc_url.into(),
             signer: None,
             retry_config: RetryConfig::default(),
+            network,
         }
     }
 
@@ -761,6 +789,7 @@ impl NearBuilder {
                 self.retry_config,
             )),
             signer: self.signer,
+            network: self.network,
         }
     }
 }
@@ -873,7 +902,7 @@ mod tests {
 
     #[test]
     fn test_near_builder_new() {
-        let builder = NearBuilder::new("https://example.com");
+        let builder = NearBuilder::new("https://example.com", Network::Custom);
         let near = builder.build();
         assert_eq!(near.rpc_url(), "https://example.com");
     }

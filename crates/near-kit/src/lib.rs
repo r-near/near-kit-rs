@@ -207,18 +207,25 @@
 //!
 //! ## Token Helpers
 //!
-//! Built-in support for fungible (NEP-141) and non-fungible (NEP-171) tokens:
+//! Built-in support for fungible (NEP-141) and non-fungible (NEP-171) tokens.
+//!
+//! For common tokens like USDC, USDT, and wNEAR, use the provided [`tokens`] constants
+//! to avoid copy-pasting addresses. They automatically resolve to the correct address
+//! based on the network:
 //!
 //! ```rust,no_run
 //! use near_kit::*;
 //!
 //! # async fn example() -> Result<(), Error> {
-//! let near = Near::testnet().build();
+//! let near = Near::mainnet().build();
 //!
-//! // Fungible tokens (NEP-141)
-//! let usdc = near.ft("usdc.testnet")?;
-//! let balance = usdc.balance_of("alice.testnet").await?;
+//! // Known tokens auto-resolve based on network
+//! let usdc = near.ft(tokens::USDC)?;
+//! let balance = usdc.balance_of("alice.near").await?;
 //! println!("Balance: {}", balance);  // "1.50 USDC"
+//!
+//! // Or use raw addresses for any token
+//! let custom = near.ft("my-token.near")?;
 //!
 //! // NFTs (NEP-171)
 //! let nft = near.nft("nft.testnet")?;
@@ -226,6 +233,8 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! Available known tokens: [`tokens::USDC`], [`tokens::USDT`], [`tokens::W_NEAR`]
 //!
 //! ## Typed Contract Interfaces
 //!
@@ -384,8 +393,9 @@ pub use client::KeyringSigner;
 
 // Re-export token types
 pub use tokens::{
-    FtAmount, FtMetadata, FungibleToken, NftContractMetadata, NftToken, NftTokenMetadata,
-    NonFungibleToken, StorageBalance, StorageBalanceBounds, StorageDepositCall,
+    FtAmount, FtMetadata, FungibleToken, IntoContractId, KnownToken, NftContractMetadata, NftToken,
+    NftTokenMetadata, NonFungibleToken, StorageBalance, StorageBalanceBounds, StorageDepositCall,
+    USDC, USDT, W_NEAR,
 };
 
 // Re-export proc macros

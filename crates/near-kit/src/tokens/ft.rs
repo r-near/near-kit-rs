@@ -35,8 +35,8 @@ use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 /// use near_kit::*;
 ///
 /// # async fn example() -> Result<(), near_kit::Error> {
-/// let near = Near::testnet().build();
-/// let usdc = near.ft("usdc.near")?;
+/// let near = Near::mainnet().build();
+/// let usdc = near.ft(tokens::USDC)?;
 ///
 /// // Get metadata
 /// let meta = usdc.metadata().await?;
@@ -120,8 +120,8 @@ impl FungibleToken {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    /// let usdc = near.ft("usdc.near")?;
+    /// let near = Near::mainnet().build();
+    /// let usdc = near.ft(tokens::USDC)?;
     ///
     /// let balance = usdc.balance_of("alice.near").await?;
     /// println!("Balance: {}", balance);  // "1.5 USDC"
@@ -241,10 +241,10 @@ impl FungibleToken {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
+    /// let near = Near::mainnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let usdc = near.ft("usdc.near")?;
+    /// let usdc = near.ft(tokens::USDC)?;
     ///
     /// // Register bob to receive USDC
     /// usdc.storage_deposit("bob.near").await?;
@@ -280,10 +280,10 @@ impl FungibleToken {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
+    /// let near = Near::mainnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let usdc = near.ft("usdc.near")?;
+    /// let usdc = near.ft(tokens::USDC)?;
     ///
     /// // Transfer 1.5 USDC (raw amount for 6 decimals)
     /// usdc.transfer("bob.near", 1_500_000_u128).await?;
@@ -350,10 +350,10 @@ impl FungibleToken {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
+    /// let near = Near::mainnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let usdc = near.ft("usdc.near")?;
+    /// let usdc = near.ft(tokens::USDC)?;
     ///
     /// // Deposit USDC into a DeFi contract
     /// usdc.transfer_call("defi.near", 1_000_000_u128, r#"{"action":"deposit"}"#)

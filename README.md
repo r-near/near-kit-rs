@@ -131,20 +131,28 @@ Different situations call for different key management. near-kit supports severa
 
 ## Token Standards
 
-Working with fungible or non-fungible tokens? near-kit includes helpers for NEP-141 and NEP-171:
+Working with fungible or non-fungible tokens? near-kit includes helpers for NEP-141 and NEP-171.
+
+For common tokens like USDC, USDT, and wNEAR, use the provided constants to avoid copy-pasting addresses. They automatically resolve to the correct address based on the network:
 
 ```rust
-// Fungible tokens
-let usdc = near.ft("usdc.testnet")?;
-let balance = usdc.balance_of("alice.testnet").await?;
+// Known tokens auto-resolve based on network
+let near = Near::mainnet().build();
+let usdc = near.ft(tokens::USDC)?;
+let balance = usdc.balance_of("alice.near").await?;
 println!("Balance: {}", balance);  // "1.50 USDC"
 
+// Or use raw addresses for any token
+let custom = near.ft("my-custom-token.near")?;
+
 // Non-fungible tokens
-let nft = near.nft("nft.testnet")?;
+let nft = near.nft("nft.near")?;
 if let Some(token) = nft.token("token-123").await? {
     println!("Owner: {}", token.owner_id);
 }
 ```
+
+Available known tokens: `tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`
 
 ## Feature Flags
 

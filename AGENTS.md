@@ -152,6 +152,9 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 - [x] `nft().transfer_call()` for cross-contract calls
 - [x] `FtAmount` type with decimals/symbol for formatted display
 - [x] Per-instance metadata caching with `tokio::sync::OnceCell`
+- [x] Known token constants (`tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`)
+- [x] `Network` enum and network-aware contract address resolution
+- [x] `IntoContractId` trait for `ft()` and `nft()` methods
 
 ### Phase 8: Typed Contract Interfaces ✅
 

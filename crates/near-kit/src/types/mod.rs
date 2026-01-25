@@ -50,6 +50,7 @@ mod block_reference;
 mod hash;
 mod key;
 pub mod nep413;
+mod network;
 mod rpc;
 mod transaction;
 mod units;
@@ -70,6 +71,7 @@ pub use key::{
     generate_seed_phrase, KeyPair, KeyType, PublicKey, SecretKey, Signature, DEFAULT_HD_PATH,
     DEFAULT_WORD_COUNT,
 };
+pub use network::Network;
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountView, ActionReceiptData, ActionView, BlockHeaderView, BlockView,
