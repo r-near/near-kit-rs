@@ -183,6 +183,10 @@ impl Signer for KeyringSigner {
         self.inner.sign(message)
     }
 
+    fn claim_key(&self) -> (crate::PublicKey, Box<dyn super::signer::ClaimedKey + Send>) {
+        self.inner.claim_key()
+    }
+
     fn sign_nep413<'a>(
         &'a self,
         params: &'a crate::types::nep413::SignMessageParams,

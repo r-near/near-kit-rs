@@ -90,6 +90,11 @@ pub trait Signer: Send + Sync {
     /// For single-key signers, this always returns the same key.
     /// For rotating signers, this returns the next key in the rotation
     /// (the same one that will be used by the next `sign()` call).
+    ///
+    /// **Warning:** For `RotatingSigner`, there is no guarantee that this key
+    /// will still be used by `sign()` if other threads/tasks call methods on
+    /// the signer between your `public_key()` and `sign()` calls.
+    /// Use [`claim_key`](Signer::claim_key) for atomic key claiming.
     fn public_key(&self) -> &PublicKey;
 
     /// Sign a message, returning the signature and the public key used.
@@ -97,6 +102,33 @@ pub trait Signer: Send + Sync {
     /// Returning the public key allows signers to use different keys for
     /// different transactions (e.g., key rotation for high-throughput bots).
     fn sign(&self, message: &[u8]) -> SignFuture<'_>;
+
+    /// Atomically claim a key for exclusive use.
+    ///
+    /// This returns the public key that will be used AND a handle that will
+    /// sign with that exact key. This solves the race condition in rotating
+    /// signers where concurrent callers could interleave their `public_key()`
+    /// and `sign()` calls.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of:
+    /// - `PublicKey` - The claimed key's public key
+    /// - `Box<dyn ClaimedKey>` - A handle to sign with that specific key
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Claim a key atomically
+    /// let (public_key, claimed) = signer.claim_key();
+    ///
+    /// // Build transaction with the claimed key
+    /// let tx = Transaction::new(signer_id, public_key, nonce, ...);
+    ///
+    /// // Sign with the same key (guaranteed, even with concurrent access)
+    /// let signature = claimed.sign(tx.get_hash().as_bytes());
+    /// ```
+    fn claim_key(&self) -> (PublicKey, Box<dyn ClaimedKey + Send>);
 
     /// Sign a NEP-413 message for off-chain authentication.
     ///
@@ -139,6 +171,27 @@ pub trait Signer: Send + Sync {
     }
 }
 
+/// A claimed key handle for signing.
+///
+/// This represents an atomically claimed key from a signer.
+/// The `sign` method is guaranteed to use the same key that was
+/// returned from [`Signer::claim_key`].
+pub trait ClaimedKey {
+    /// Sign a message with the claimed key.
+    fn sign(&self, message: &[u8]) -> Signature;
+}
+
+/// A claimed key backed by a secret key.
+struct SecretKeyClaimedKey {
+    secret_key: SecretKey,
+}
+
+impl ClaimedKey for SecretKeyClaimedKey {
+    fn sign(&self, message: &[u8]) -> Signature {
+        self.secret_key.sign(message)
+    }
+}
+
 /// Future type returned by [`Signer::sign`].
 pub type SignFuture<'a> =
     Pin<Box<dyn Future<Output = Result<(Signature, PublicKey), SignerError>> + Send + 'a>>;
@@ -159,6 +212,10 @@ impl Signer for Arc<dyn Signer> {
 
     fn sign(&self, message: &[u8]) -> SignFuture<'_> {
         (**self).sign(message)
+    }
+
+    fn claim_key(&self) -> (PublicKey, Box<dyn ClaimedKey + Send>) {
+        (**self).claim_key()
     }
 
     fn sign_nep413<'a>(&'a self, params: &'a SignMessageParams) -> Nep413SignFuture<'a> {
@@ -314,6 +371,15 @@ impl Signer for InMemorySigner {
         let public_key = self.public_key.clone();
         Box::pin(async move { Ok((signature, public_key)) })
     }
+
+    fn claim_key(&self) -> (PublicKey, Box<dyn ClaimedKey + Send>) {
+        (
+            self.public_key.clone(),
+            Box::new(SecretKeyClaimedKey {
+                secret_key: self.secret_key.clone(),
+            }),
+        )
+    }
 }
 
 // ============================================================================
@@ -432,6 +498,10 @@ impl Signer for FileSigner {
     fn sign(&self, message: &[u8]) -> SignFuture<'_> {
         self.inner.sign(message)
     }
+
+    fn claim_key(&self) -> (PublicKey, Box<dyn ClaimedKey + Send>) {
+        self.inner.claim_key()
+    }
 }
 
 // ============================================================================
@@ -514,6 +584,10 @@ impl Signer for EnvSigner {
 
     fn sign(&self, message: &[u8]) -> SignFuture<'_> {
         self.inner.sign(message)
+    }
+
+    fn claim_key(&self) -> (PublicKey, Box<dyn ClaimedKey + Send>) {
+        self.inner.claim_key()
     }
 }
 
@@ -636,6 +710,8 @@ impl Signer for RotatingSigner {
     fn public_key(&self) -> &PublicKey {
         // Return the key that will be used by the next sign() call
         // (load returns current value, fetch_add in sign() returns value before incrementing)
+        //
+        // WARNING: This is racy for concurrent use! Use claim_key() instead.
         let idx = self.counter.load(Ordering::Relaxed) % self.keys.len();
         &self.keys[idx].1
     }
@@ -649,6 +725,19 @@ impl Signer for RotatingSigner {
         let public_key = public_key.clone();
 
         Box::pin(async move { Ok((signature, public_key)) })
+    }
+
+    fn claim_key(&self) -> (PublicKey, Box<dyn ClaimedKey + Send>) {
+        // Atomically claim a key - this is the safe way to get a consistent key
+        let idx = self.counter.fetch_add(1, Ordering::Relaxed) % self.keys.len();
+        let (secret_key, public_key) = &self.keys[idx];
+
+        (
+            public_key.clone(),
+            Box::new(SecretKeyClaimedKey {
+                secret_key: secret_key.clone(),
+            }),
+        )
     }
 }
 

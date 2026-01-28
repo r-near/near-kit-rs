@@ -48,7 +48,8 @@ pub use near::{Near, NearBuilder, SandboxNetwork, SANDBOX_ROOT_ACCOUNT, SANDBOX_
 pub use query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
 pub use rpc::{RetryConfig, RpcClient};
 pub use signer::{
-    EnvSigner, FileSigner, InMemorySigner, Nep413SignFuture, RotatingSigner, SignFuture, Signer,
+    ClaimedKey, EnvSigner, FileSigner, InMemorySigner, Nep413SignFuture, RotatingSigner,
+    SignFuture, Signer,
 };
 pub use transaction::{
     CallBuilder, DelegateOptions, DelegateResult, TransactionBuilder, TransactionSend,
