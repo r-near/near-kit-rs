@@ -392,8 +392,9 @@ impl TransactionBuilder {
 
         let sender_id = signer.account_id().clone();
 
-        // Use claim_key() for atomic key claiming
-        let (public_key, claimed_key) = signer.claim_key();
+        // Get a signing key atomically
+        let key = signer.key();
+        let public_key = key.public_key().clone();
 
         // Get nonce
         let nonce = if let Some(n) = options.nonce {
@@ -436,9 +437,9 @@ impl TransactionBuilder {
             public_key: public_key.clone(),
         };
 
-        // Sign the delegate action with the claimed key
+        // Sign the delegate action
         let hash = delegate_action.get_hash();
-        let signature = claimed_key.sign(hash.as_bytes());
+        let signature = key.sign(hash.as_bytes()).await?;
 
         // Create signed delegate action
         let signed_delegate_action = delegate_action.sign(signature);
@@ -688,13 +689,13 @@ impl TransactionBuilder {
 
         let signer_id = signer.account_id().clone();
 
-        // Use claim_key() to atomically claim a key for this transaction.
-        // This prevents race conditions with RotatingSigner where concurrent
-        // transactions could get different keys between public_key() and sign().
-        let (public_key, claimed_key) = signer.claim_key();
+        // Get a signing key atomically. For RotatingSigner, this claims the next
+        // key in rotation. The key contains both the public key and signing capability.
+        let key = signer.key();
+        let public_key = key.public_key().clone();
         let public_key_str = public_key.to_string();
 
-        // Get nonce for the claimed key
+        // Get nonce for the key
         let rpc = self.rpc.clone();
         let signer_id_clone = signer_id.clone();
         let public_key_clone = public_key.clone();
@@ -718,7 +719,7 @@ impl TransactionBuilder {
             .block(BlockReference::Finality(Finality::Final))
             .await?;
 
-        // Build transaction with the claimed public key
+        // Build transaction
         let tx = Transaction::new(
             signer_id,
             public_key,
@@ -728,8 +729,8 @@ impl TransactionBuilder {
             self.actions,
         );
 
-        // Sign with the claimed key (guaranteed to be the same key)
-        let signature = claimed_key.sign(tx.get_hash().as_bytes());
+        // Sign with the key
+        let signature = key.sign(tx.get_hash().as_bytes()).await?;
 
         Ok(SignedTransaction {
             transaction: tx,
@@ -762,11 +763,12 @@ impl TransactionBuilder {
     ///
     /// let signed = near.transaction("bob.testnet")
     ///     .transfer(NearToken::near(1))
-    ///     .sign_offline(block_hash, nonce)?;
+    ///     .sign_offline(block_hash, nonce)
+    ///     .await?;
     ///
     /// // Transport signed_tx.to_base64() back to online machine
     /// ```
-    pub fn sign_offline(
+    pub async fn sign_offline(
         self,
         block_hash: CryptoHash,
         nonce: u64,
@@ -784,8 +786,9 @@ impl TransactionBuilder {
 
         let signer_id = signer.account_id().clone();
 
-        // Use claim_key() for atomic key claiming
-        let (public_key, claimed_key) = signer.claim_key();
+        // Get a signing key atomically
+        let key = signer.key();
+        let public_key = key.public_key().clone();
 
         // Build transaction with provided block_hash and nonce
         let tx = Transaction::new(
@@ -797,8 +800,8 @@ impl TransactionBuilder {
             self.actions,
         );
 
-        // Sign with the claimed key
-        let signature = claimed_key.sign(tx.get_hash().as_bytes());
+        // Sign
+        let signature = key.sign(tx.get_hash().as_bytes()).await?;
 
         Ok(SignedTransaction {
             transaction: tx,
@@ -1042,12 +1045,12 @@ impl CallBuilder {
     /// Sign the transaction offline without network access.
     ///
     /// See [`TransactionBuilder::sign_offline`] for details.
-    pub fn sign_offline(
+    pub async fn sign_offline(
         self,
         block_hash: CryptoHash,
         nonce: u64,
     ) -> Result<SignedTransaction, Error> {
-        self.finish().sign_offline(block_hash, nonce)
+        self.finish().sign_offline(block_hash, nonce).await
     }
 
     /// Sign the transaction without sending it.
@@ -1116,8 +1119,9 @@ impl IntoFuture for TransactionSend {
             let mut last_error: Option<Error> = None;
 
             for attempt in 0..MAX_NONCE_RETRIES {
-                // Claim a key atomically for this attempt
-                let (public_key, claimed_key) = signer.claim_key();
+                // Get a signing key atomically for this attempt
+                let key = signer.key();
+                let public_key = key.public_key().clone();
                 let public_key_str = public_key.to_string();
 
                 // Get nonce from manager (fetches from blockchain on first call, then increments locally)
@@ -1171,8 +1175,11 @@ impl IntoFuture for TransactionSend {
                     builder.actions.clone(),
                 );
 
-                // Sign with the claimed key
-                let signature = claimed_key.sign(tx.get_hash().as_bytes());
+                // Sign with the key
+                let signature = match key.sign(tx.get_hash().as_bytes()).await {
+                    Ok(sig) => sig,
+                    Err(e) => return Err(Error::Signing(e)),
+                };
                 let signed_tx = crate::types::SignedTransaction {
                     transaction: tx,
                     signature,

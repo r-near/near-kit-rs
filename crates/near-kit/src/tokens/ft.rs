@@ -537,12 +537,16 @@ impl IntoFuture for StorageDepositCall {
                 registration_only: self.registration_only,
             })?;
 
+            // Get a signing key atomically
+            let key = signer.key();
+            let public_key = key.public_key().clone();
+
             // Get access key for nonce
             let access_key = self
                 .rpc
                 .view_access_key(
                     &signer_id,
-                    signer.public_key(),
+                    &public_key,
                     BlockReference::Finality(Finality::Optimistic),
                 )
                 .await?;
@@ -556,7 +560,7 @@ impl IntoFuture for StorageDepositCall {
             // Build transaction
             let tx = Transaction::new(
                 signer_id,
-                signer.public_key().clone(),
+                public_key,
                 access_key.nonce + 1,
                 self.contract_id,
                 block.header.hash,
@@ -569,7 +573,7 @@ impl IntoFuture for StorageDepositCall {
             );
 
             // Sign
-            let (signature, _) = signer.sign(tx.get_hash().as_bytes()).await?;
+            let signature = key.sign(tx.get_hash().as_bytes()).await?;
             let signed_tx = crate::types::SignedTransaction {
                 transaction: tx,
                 signature,

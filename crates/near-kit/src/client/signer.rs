@@ -1,7 +1,8 @@
 //! Signer trait and implementations.
 //!
-//! A `Signer` knows which account it signs for and can sign arbitrary messages.
-//! The trait uses async signing to support remote signers (hardware wallets, cloud KMS, etc.).
+//! A `Signer` knows which account it signs for and provides keys for signing.
+//! The `key()` method returns a `SigningKey` that bundles together the public key
+//! and signing capability, ensuring atomic key claiming for rotating signers.
 //!
 //! # Implementations
 //!
@@ -46,25 +47,18 @@ use crate::types::{AccountId, PublicKey, SecretKey, Signature};
 
 /// Trait for signing transactions.
 ///
-/// A signer knows which account it signs for and can sign arbitrary messages.
-/// The `sign` method returns both the signature and the public key used,
-/// which enables key rotation (where different calls may use different keys).
-///
-/// # Async Signing
-///
-/// The trait uses async signing to support:
-/// - Hardware wallets (user confirmation)
-/// - Cloud KMS (network requests)
-/// - Remote signing services
+/// A signer knows which account it signs for and provides keys for signing.
+/// The `key()` method returns a [`SigningKey`] that bundles together the public
+/// key and signing capability, ensuring atomic key claiming.
 ///
 /// # Example Implementation
 ///
 /// ```rust,ignore
-/// use near_kit::{Signer, SignerError, AccountId, PublicKey, Signature};
+/// use near_kit::{Signer, SigningKey, AccountId, SecretKey};
 ///
 /// struct MyCustomSigner {
 ///     account_id: AccountId,
-///     // ... your signing backend
+///     secret_key: SecretKey,
 /// }
 ///
 /// impl Signer for MyCustomSigner {
@@ -72,12 +66,8 @@ use crate::types::{AccountId, PublicKey, SecretKey, Signature};
 ///         &self.account_id
 ///     }
 ///
-///     fn sign(&self, message: &[u8]) -> SignFuture<'_> {
-///         let account_id = self.account_id.clone();
-///         Box::pin(async move {
-///             // Your signing logic here
-///             todo!()
-///         })
+///     fn key(&self) -> SigningKey {
+///         SigningKey::new(self.secret_key.clone())
 ///     }
 /// }
 /// ```
@@ -85,64 +75,92 @@ pub trait Signer: Send + Sync {
     /// The account this signer signs for.
     fn account_id(&self) -> &AccountId;
 
-    /// Get the public key that will be used for the next signing operation.
+    /// Get a key for signing.
+    ///
+    /// Returns a [`SigningKey`] that contains both the public key and the
+    /// capability to sign with the corresponding private key.
     ///
     /// For single-key signers, this always returns the same key.
-    /// For rotating signers, this returns the next key in the rotation
-    /// (the same one that will be used by the next `sign()` call).
-    ///
-    /// **Warning:** For `RotatingSigner`, there is no guarantee that this key
-    /// will still be used by `sign()` if other threads/tasks call methods on
-    /// the signer between your `public_key()` and `sign()` calls.
-    /// Use [`claim_key`](Signer::claim_key) for atomic key claiming.
-    fn public_key(&self) -> &PublicKey;
+    /// For rotating signers, this atomically claims the next key in rotation.
+    fn key(&self) -> SigningKey;
+}
 
-    /// Sign a message, returning the signature and the public key used.
-    ///
-    /// Returning the public key allows signers to use different keys for
-    /// different transactions (e.g., key rotation for high-throughput bots).
-    fn sign(&self, message: &[u8]) -> SignFuture<'_>;
+/// Implement `Signer` for `Arc<dyn Signer>` for convenience.
+impl Signer for Arc<dyn Signer> {
+    fn account_id(&self) -> &AccountId {
+        (**self).account_id()
+    }
 
-    /// Atomically claim a key for exclusive use.
+    fn key(&self) -> SigningKey {
+        (**self).key()
+    }
+}
+
+// ============================================================================
+// SigningKey
+// ============================================================================
+
+/// A key that can sign messages.
+///
+/// This bundles together a public key and the ability to sign with the
+/// corresponding private key. For in-memory keys, signing is instant.
+/// For hardware wallets or KMS, signing may involve async operations.
+///
+/// # Example
+///
+/// ```rust
+/// use near_kit::{InMemorySigner, Signer};
+///
+/// # async fn example() -> Result<(), near_kit::Error> {
+/// let signer = InMemorySigner::new("alice.testnet", "ed25519:...")?;
+///
+/// let key = signer.key();
+/// println!("Public key: {}", key.public_key());
+///
+/// let signature = key.sign(b"message").await?;
+/// # Ok(())
+/// # }
+/// ```
+pub struct SigningKey {
+    /// The public key.
+    public_key: PublicKey,
+    /// The signing backend.
+    backend: Arc<dyn SigningBackend>,
+}
+
+impl SigningKey {
+    /// Create a new signing key from a secret key.
+    pub fn new(secret_key: SecretKey) -> Self {
+        let public_key = secret_key.public_key();
+        Self {
+            public_key,
+            backend: Arc::new(SecretKeyBackend { secret_key }),
+        }
+    }
+
+    /// Get the public key.
+    pub fn public_key(&self) -> &PublicKey {
+        &self.public_key
+    }
+
+    /// Sign a message.
     ///
-    /// This returns the public key that will be used AND a handle that will
-    /// sign with that exact key. This solves the race condition in rotating
-    /// signers where concurrent callers could interleave their `public_key()`
-    /// and `sign()` calls.
-    ///
-    /// # Returns
-    ///
-    /// A tuple of:
-    /// - `PublicKey` - The claimed key's public key
-    /// - `Box<dyn ClaimedKey>` - A handle to sign with that specific key
+    /// For in-memory keys, this returns immediately.
+    /// For hardware wallets or KMS, this may involve user confirmation or
+    /// network requests.
+    pub async fn sign(&self, message: &[u8]) -> Result<Signature, SignerError> {
+        self.backend.sign(message).await
+    }
+
+    /// Sign a NEP-413 message for off-chain authentication.
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// // Claim a key atomically
-    /// let (public_key, claimed) = signer.claim_key();
-    ///
-    /// // Build transaction with the claimed key
-    /// let tx = Transaction::new(signer_id, public_key, nonce, ...);
-    ///
-    /// // Sign with the same key (guaranteed, even with concurrent access)
-    /// let signature = claimed.sign(tx.get_hash().as_bytes());
-    /// ```
-    fn claim_key(&self) -> (PublicKey, Box<dyn ClaimedKey + Send>);
-
-    /// Sign a NEP-413 message for off-chain authentication.
-    ///
-    /// The default implementation serializes the message, hashes it, and signs
-    /// using [`sign()`](Signer::sign). Hardware wallet implementations may override
-    /// this to call device-specific NEP-413 signing functions.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
     /// use near_kit::{InMemorySigner, Signer, nep413};
     ///
-    /// # async fn example() -> Result<(), near_kit::Error> {
     /// let signer = InMemorySigner::new("alice.testnet", "ed25519:...")?;
+    /// let key = signer.key();
     ///
     /// let params = nep413::SignMessageParams {
     ///     message: "Login to MyApp".to_string(),
@@ -152,74 +170,69 @@ pub trait Signer: Send + Sync {
     ///     state: None,
     /// };
     ///
-    /// let signed = signer.sign_nep413(&params).await?;
-    /// # Ok(())
-    /// # }
+    /// let signed = key.sign_nep413(&signer.account_id(), &params).await?;
     /// ```
-    fn sign_nep413<'a>(&'a self, params: &'a SignMessageParams) -> Nep413SignFuture<'a> {
-        Box::pin(async move {
-            let hash = nep413::serialize_message(params);
-            let (signature, public_key) = self.sign(hash.as_bytes()).await?;
+    pub async fn sign_nep413(
+        &self,
+        account_id: &AccountId,
+        params: &SignMessageParams,
+    ) -> Result<SignedMessage, SignerError> {
+        let hash = nep413::serialize_message(params);
+        let signature = self.sign(hash.as_bytes()).await?;
 
-            Ok(SignedMessage {
-                account_id: self.account_id().clone(),
-                public_key,
-                signature,
-                state: params.state.clone(),
-            })
+        Ok(SignedMessage {
+            account_id: account_id.clone(),
+            public_key: self.public_key.clone(),
+            signature,
+            state: params.state.clone(),
         })
     }
 }
 
-/// A claimed key handle for signing.
-///
-/// This represents an atomically claimed key from a signer.
-/// The `sign` method is guaranteed to use the same key that was
-/// returned from [`Signer::claim_key`].
-pub trait ClaimedKey {
-    /// Sign a message with the claimed key.
-    fn sign(&self, message: &[u8]) -> Signature;
+impl Clone for SigningKey {
+    fn clone(&self) -> Self {
+        Self {
+            public_key: self.public_key.clone(),
+            backend: self.backend.clone(),
+        }
+    }
 }
 
-/// A claimed key backed by a secret key.
-struct SecretKeyClaimedKey {
+impl std::fmt::Debug for SigningKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SigningKey")
+            .field("public_key", &self.public_key)
+            .finish()
+    }
+}
+
+// ============================================================================
+// SigningBackend (internal)
+// ============================================================================
+
+/// Internal trait for signing backends.
+///
+/// This allows different implementations (in-memory, hardware wallet, KMS)
+/// to provide signing capability.
+trait SigningBackend: Send + Sync {
+    fn sign(
+        &self,
+        message: &[u8],
+    ) -> Pin<Box<dyn Future<Output = Result<Signature, SignerError>> + Send + '_>>;
+}
+
+/// In-memory signing backend using a secret key.
+struct SecretKeyBackend {
     secret_key: SecretKey,
 }
 
-impl ClaimedKey for SecretKeyClaimedKey {
-    fn sign(&self, message: &[u8]) -> Signature {
-        self.secret_key.sign(message)
-    }
-}
-
-/// Future type returned by [`Signer::sign`].
-pub type SignFuture<'a> =
-    Pin<Box<dyn Future<Output = Result<(Signature, PublicKey), SignerError>> + Send + 'a>>;
-
-/// Future type returned by [`Signer::sign_nep413`].
-pub type Nep413SignFuture<'a> =
-    Pin<Box<dyn Future<Output = Result<SignedMessage, SignerError>> + Send + 'a>>;
-
-/// Implement `Signer` for `Arc<dyn Signer>` for convenience.
-impl Signer for Arc<dyn Signer> {
-    fn account_id(&self) -> &AccountId {
-        (**self).account_id()
-    }
-
-    fn public_key(&self) -> &PublicKey {
-        (**self).public_key()
-    }
-
-    fn sign(&self, message: &[u8]) -> SignFuture<'_> {
-        (**self).sign(message)
-    }
-
-    fn claim_key(&self) -> (PublicKey, Box<dyn ClaimedKey + Send>) {
-        (**self).claim_key()
-    }
-
-    fn sign_nep413<'a>(&'a self, params: &'a SignMessageParams) -> Nep413SignFuture<'a> {
-        (**self).sign_nep413(params)
+impl SigningBackend for SecretKeyBackend {
+    fn sign(
+        &self,
+        message: &[u8],
+    ) -> Pin<Box<dyn Future<Output = Result<Signature, SignerError>> + Send + '_>> {
+        let sig = self.secret_key.sign(message);
+        Box::pin(async move { Ok(sig) })
     }
 }
 
@@ -362,23 +375,8 @@ impl Signer for InMemorySigner {
         &self.account_id
     }
 
-    fn public_key(&self) -> &PublicKey {
-        &self.public_key
-    }
-
-    fn sign(&self, message: &[u8]) -> SignFuture<'_> {
-        let signature = self.secret_key.sign(message);
-        let public_key = self.public_key.clone();
-        Box::pin(async move { Ok((signature, public_key)) })
-    }
-
-    fn claim_key(&self) -> (PublicKey, Box<dyn ClaimedKey + Send>) {
-        (
-            self.public_key.clone(),
-            Box::new(SecretKeyClaimedKey {
-                secret_key: self.secret_key.clone(),
-            }),
-        )
+    fn key(&self) -> SigningKey {
+        SigningKey::new(self.secret_key.clone())
     }
 }
 
@@ -491,16 +489,8 @@ impl Signer for FileSigner {
         self.inner.account_id()
     }
 
-    fn public_key(&self) -> &PublicKey {
-        self.inner.public_key()
-    }
-
-    fn sign(&self, message: &[u8]) -> SignFuture<'_> {
-        self.inner.sign(message)
-    }
-
-    fn claim_key(&self) -> (PublicKey, Box<dyn ClaimedKey + Send>) {
-        self.inner.claim_key()
+    fn key(&self) -> SigningKey {
+        self.inner.key()
     }
 }
 
@@ -578,16 +568,8 @@ impl Signer for EnvSigner {
         self.inner.account_id()
     }
 
-    fn public_key(&self) -> &PublicKey {
-        self.inner.public_key()
-    }
-
-    fn sign(&self, message: &[u8]) -> SignFuture<'_> {
-        self.inner.sign(message)
-    }
-
-    fn claim_key(&self) -> (PublicKey, Box<dyn ClaimedKey + Send>) {
-        self.inner.claim_key()
+    fn key(&self) -> SigningKey {
+        self.inner.key()
     }
 }
 
@@ -598,7 +580,7 @@ impl Signer for EnvSigner {
 /// A signer that rotates through multiple keys for the same account.
 ///
 /// This solves the nonce collision problem for high-throughput applications.
-/// Each call to `sign()` uses the next key in round-robin order.
+/// Each call to `key()` atomically claims the next key in round-robin order.
 ///
 /// # Use Case
 ///
@@ -609,7 +591,7 @@ impl Signer for EnvSigner {
 /// # Example
 ///
 /// ```rust
-/// use near_kit::{RotatingSigner, SecretKey};
+/// use near_kit::{RotatingSigner, SecretKey, Signer};
 ///
 /// let keys = vec![
 ///     SecretKey::generate_ed25519(),
@@ -619,11 +601,16 @@ impl Signer for EnvSigner {
 ///
 /// let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
 ///
-/// // Each sign() call uses the next key in sequence
+/// // Each key() call atomically claims the next key in sequence
+/// let key1 = signer.key();
+/// let key2 = signer.key();
+/// let key3 = signer.key();
+/// // key4 wraps back to the first key
+/// let key4 = signer.key();
 /// ```
 pub struct RotatingSigner {
     account_id: AccountId,
-    keys: Vec<(SecretKey, PublicKey)>,
+    keys: Vec<SecretKey>,
     counter: AtomicUsize,
 }
 
@@ -651,13 +638,6 @@ impl RotatingSigner {
         }
 
         let account_id: AccountId = account_id.as_ref().parse()?;
-        let keys: Vec<_> = keys
-            .into_iter()
-            .map(|sk| {
-                let pk = sk.public_key();
-                (sk, pk)
-            })
-            .collect();
 
         Ok(Self {
             account_id,
@@ -687,8 +667,8 @@ impl RotatingSigner {
     }
 
     /// Get all public keys.
-    pub fn public_keys(&self) -> Vec<&PublicKey> {
-        self.keys.iter().map(|(_, pk)| pk).collect()
+    pub fn public_keys(&self) -> Vec<PublicKey> {
+        self.keys.iter().map(|sk| sk.public_key()).collect()
     }
 }
 
@@ -707,37 +687,10 @@ impl Signer for RotatingSigner {
         &self.account_id
     }
 
-    fn public_key(&self) -> &PublicKey {
-        // Return the key that will be used by the next sign() call
-        // (load returns current value, fetch_add in sign() returns value before incrementing)
-        //
-        // WARNING: This is racy for concurrent use! Use claim_key() instead.
-        let idx = self.counter.load(Ordering::Relaxed) % self.keys.len();
-        &self.keys[idx].1
-    }
-
-    fn sign(&self, message: &[u8]) -> SignFuture<'_> {
-        // Round-robin key selection (fetch_add returns value BEFORE incrementing)
+    fn key(&self) -> SigningKey {
+        // Atomically claim the next key in rotation
         let idx = self.counter.fetch_add(1, Ordering::Relaxed) % self.keys.len();
-        let (secret_key, public_key) = &self.keys[idx];
-
-        let signature = secret_key.sign(message);
-        let public_key = public_key.clone();
-
-        Box::pin(async move { Ok((signature, public_key)) })
-    }
-
-    fn claim_key(&self) -> (PublicKey, Box<dyn ClaimedKey + Send>) {
-        // Atomically claim a key - this is the safe way to get a consistent key
-        let idx = self.counter.fetch_add(1, Ordering::Relaxed) % self.keys.len();
-        let (secret_key, public_key) = &self.keys[idx];
-
-        (
-            public_key.clone(),
-            Box::new(SecretKeyClaimedKey {
-                secret_key: secret_key.clone(),
-            }),
-        )
+        SigningKey::new(self.keys[idx].clone())
     }
 }
 
@@ -760,11 +713,12 @@ mod tests {
 
         assert_eq!(signer.account_id().as_str(), "alice.testnet");
 
+        let key = signer.key();
         let message = b"test message";
-        let (signature, public_key) = signer.sign(message).await.unwrap();
+        let signature = key.sign(message).await.unwrap();
 
-        // Verify the signature matches the public key
-        assert_eq!(&public_key, signer.public_key());
+        // Verify the key matches
+        assert_eq!(key.public_key(), signer.public_key());
         assert!(!signature.as_bytes().is_empty());
     }
 
@@ -777,12 +731,12 @@ mod tests {
         )
         .unwrap();
 
+        let key = signer.key();
         let message = b"test message";
-        let (sig1, pk1) = signer.sign(message).await.unwrap();
-        let (sig2, pk2) = signer.sign(message).await.unwrap();
+        let sig1 = key.sign(message).await.unwrap();
+        let sig2 = key.sign(message).await.unwrap();
 
         assert_eq!(sig1.as_bytes(), sig2.as_bytes());
-        assert_eq!(pk1, pk2);
     }
 
     #[tokio::test]
@@ -793,8 +747,9 @@ mod tests {
         )
         .unwrap();
 
-        let (sig1, _) = signer.sign(b"message 1").await.unwrap();
-        let (sig2, _) = signer.sign(b"message 2").await.unwrap();
+        let key = signer.key();
+        let sig1 = key.sign(b"message 1").await.unwrap();
+        let sig2 = key.sign(b"message 2").await.unwrap();
 
         assert_ne!(sig1.as_bytes(), sig2.as_bytes());
     }
@@ -804,22 +759,22 @@ mod tests {
         let secret_key = SecretKey::generate_ed25519();
         let signer = InMemorySigner::from_secret_key("alice.testnet".parse().unwrap(), secret_key);
 
+        // Get a key for signing
+        let key = signer.key();
+
         // Build a transaction
         let tx = Transaction::new(
             signer.account_id().clone(),
-            signer.public_key().clone(),
+            key.public_key().clone(),
             1,
             "bob.testnet".parse().unwrap(),
             CryptoHash::ZERO,
             vec![Action::transfer(NearToken::from_near(1))],
         );
 
-        // Sign using the Signer trait (async)
+        // Sign using the key
         let tx_hash = tx.get_hash();
-        let (signature, returned_pk) = signer.sign(tx_hash.as_bytes()).await.unwrap();
-
-        // Verify the returned public key matches
-        assert_eq!(&returned_pk, signer.public_key());
+        let signature = key.sign(tx_hash.as_bytes()).await.unwrap();
 
         // Verify signature is 64 bytes (Ed25519)
         assert_eq!(signature.as_bytes().len(), 64);
@@ -851,70 +806,43 @@ mod tests {
         let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
 
         // Verify round-robin rotation
-        let message = b"test";
+        let key1 = signer.key();
+        assert_eq!(key1.public_key(), &expected_public_keys[0]);
 
-        let (_, pk1) = signer.sign(message).await.unwrap();
-        assert_eq!(pk1, expected_public_keys[0]);
+        let key2 = signer.key();
+        assert_eq!(key2.public_key(), &expected_public_keys[1]);
 
-        let (_, pk2) = signer.sign(message).await.unwrap();
-        assert_eq!(pk2, expected_public_keys[1]);
-
-        let (_, pk3) = signer.sign(message).await.unwrap();
-        assert_eq!(pk3, expected_public_keys[2]);
+        let key3 = signer.key();
+        assert_eq!(key3.public_key(), &expected_public_keys[2]);
 
         // Wraps around
-        let (_, pk4) = signer.sign(message).await.unwrap();
-        assert_eq!(pk4, expected_public_keys[0]);
+        let key4 = signer.key();
+        assert_eq!(key4.public_key(), &expected_public_keys[0]);
     }
 
     #[tokio::test]
-    async fn test_rotating_signer_public_key_sign_consistency() {
-        // Verify that public_key() returns the key that sign() will use
+    async fn test_rotating_signer_atomic_key_claiming() {
+        // Verify that key() atomically claims a key that can be used for signing
         let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
-        let expected_public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
-
-        let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
-        let message = b"test";
-
-        // First iteration: public_key should match what sign returns
-        let pk_before_sign = signer.public_key().clone();
-        let (_, pk_from_sign) = signer.sign(message).await.unwrap();
-        assert_eq!(pk_before_sign, pk_from_sign);
-        assert_eq!(pk_from_sign, expected_public_keys[0]);
-
-        // Second iteration
-        let pk_before_sign = signer.public_key().clone();
-        let (_, pk_from_sign) = signer.sign(message).await.unwrap();
-        assert_eq!(pk_before_sign, pk_from_sign);
-        assert_eq!(pk_from_sign, expected_public_keys[1]);
-
-        // Third iteration (wraps to first key)
-        let pk_before_sign = signer.public_key().clone();
-        let (_, pk_from_sign) = signer.sign(message).await.unwrap();
-        assert_eq!(pk_before_sign, pk_from_sign);
-        assert_eq!(pk_from_sign, expected_public_keys[0]);
-    }
-
-    #[tokio::test]
-    async fn test_rotating_signer_each_key_signs_correctly() {
-        // Verify each key in rotation produces valid signatures
-        let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
+        let expected_pks: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
 
         let signer = RotatingSigner::new("bot.testnet", keys.clone()).unwrap();
-        let message = b"test message";
+        let message = b"test";
 
-        // Sign with first key
-        let (sig1, pk1) = signer.sign(message).await.unwrap();
-        // Verify it matches what the raw key would produce
+        // Claim first key and sign
+        let key1 = signer.key();
+        assert_eq!(key1.public_key(), &expected_pks[0]);
+        let sig1 = key1.sign(message).await.unwrap();
+        // Verify signature matches what the raw key would produce
         let expected_sig1 = keys[0].sign(message);
         assert_eq!(sig1.as_bytes(), expected_sig1.as_bytes());
-        assert_eq!(pk1, keys[0].public_key());
 
-        // Sign with second key
-        let (sig2, pk2) = signer.sign(message).await.unwrap();
+        // Claim second key and sign
+        let key2 = signer.key();
+        assert_eq!(key2.public_key(), &expected_pks[1]);
+        let sig2 = key2.sign(message).await.unwrap();
         let expected_sig2 = keys[1].sign(message);
         assert_eq!(sig2.as_bytes(), expected_sig2.as_bytes());
-        assert_eq!(pk2, keys[1].public_key());
 
         // Different keys produce different signatures
         assert_ne!(sig1.as_bytes(), sig2.as_bytes());
@@ -986,5 +914,19 @@ mod tests {
         assert!(debug_str.contains("public_key"));
         assert!(!debug_str.contains("secret_key"));
         assert!(!debug_str.contains("3D4YudUahN1nawWogh"));
+    }
+
+    #[test]
+    fn test_signing_key_is_clone() {
+        let signer = InMemorySigner::new(
+            "alice.testnet",
+            "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
+        )
+        .unwrap();
+
+        let key = signer.key();
+        let key_clone = key.clone();
+
+        assert_eq!(key.public_key(), key_clone.public_key());
     }
 }

@@ -86,11 +86,12 @@ async fn test_sign_offline_transfer() {
         .unwrap();
     let nonce = access_key.nonce + 1;
 
-    // Step 2: Sign offline (this is synchronous - no network required)
+    // Step 2: Sign offline (signing is async but no network is required)
     let signed = sender_near
         .transaction(&receiver_id)
         .transfer(NearToken::near(5))
         .sign_offline(block_hash, nonce)
+        .await
         .unwrap();
 
     println!("Signed offline transaction hash: {}", signed.get_hash());
@@ -164,6 +165,7 @@ async fn test_sign_offline_function_call() {
         .args(serde_json::json!({ "text": "Hello from offline!" }))
         .gas(Gas::tgas(30))
         .sign_offline(block_hash, nonce)
+        .await
         .unwrap();
 
     // Send
@@ -391,6 +393,7 @@ async fn test_offline_sign_and_transport_simulation() {
         .transaction(&receiver_id)
         .transfer(NearToken::near(3))
         .sign_offline(block_hash, nonce)
+        .await
         .unwrap();
 
     // Serialize for transport
@@ -417,8 +420,8 @@ async fn test_offline_sign_and_transport_simulation() {
 // Error Cases
 // =============================================================================
 
-#[test]
-fn test_sign_offline_without_signer_fails() {
+#[tokio::test]
+async fn test_sign_offline_without_signer_fails() {
     // Create a Near client without a signer
     let near = Near::testnet().build();
 
@@ -428,7 +431,8 @@ fn test_sign_offline_without_signer_fails() {
     let result = near
         .transaction("bob.testnet")
         .transfer(NearToken::near(1))
-        .sign_offline(block_hash, nonce);
+        .sign_offline(block_hash, nonce)
+        .await;
 
     assert!(result.is_err());
     match result {
@@ -437,8 +441,8 @@ fn test_sign_offline_without_signer_fails() {
     }
 }
 
-#[test]
-fn test_sign_offline_empty_transaction_fails() {
+#[tokio::test]
+async fn test_sign_offline_empty_transaction_fails() {
     let near = Near::testnet()
         .credentials(
             "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
@@ -453,7 +457,8 @@ fn test_sign_offline_empty_transaction_fails() {
     // Empty transaction (no actions)
     let result = near
         .transaction("bob.testnet")
-        .sign_offline(block_hash, nonce);
+        .sign_offline(block_hash, nonce)
+        .await;
 
     assert!(result.is_err());
     match result {

@@ -312,7 +312,10 @@ impl Near {
         params: crate::types::nep413::SignMessageParams,
     ) -> Result<crate::types::nep413::SignedMessage, Error> {
         let signer = self.signer.as_ref().ok_or(Error::NoSigner)?;
-        signer.sign_nep413(&params).await.map_err(Error::Signing)
+        let key = signer.key();
+        key.sign_nep413(signer.account_id(), &params)
+            .await
+            .map_err(Error::Signing)
     }
 
     // ========================================================================

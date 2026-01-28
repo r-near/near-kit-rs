@@ -44,7 +44,7 @@
 //!   network-config testnet
 //! ```
 
-use crate::client::signer::{InMemorySigner, Nep413SignFuture, SignFuture, Signer};
+use crate::client::signer::{InMemorySigner, Signer, SigningKey};
 use crate::error::{Error, KeyStoreError, ParseKeyError};
 use crate::types::{AccountId, PublicKey, SecretKey};
 
@@ -175,23 +175,8 @@ impl Signer for KeyringSigner {
         self.inner.account_id()
     }
 
-    fn public_key(&self) -> &PublicKey {
-        self.inner.public_key()
-    }
-
-    fn sign(&self, message: &[u8]) -> SignFuture<'_> {
-        self.inner.sign(message)
-    }
-
-    fn claim_key(&self) -> (crate::PublicKey, Box<dyn super::signer::ClaimedKey + Send>) {
-        self.inner.claim_key()
-    }
-
-    fn sign_nep413<'a>(
-        &'a self,
-        params: &'a crate::types::nep413::SignMessageParams,
-    ) -> Nep413SignFuture<'a> {
-        self.inner.sign_nep413(params)
+    fn key(&self) -> SigningKey {
+        self.inner.key()
     }
 }
 

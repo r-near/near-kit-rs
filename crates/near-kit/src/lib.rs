@@ -383,8 +383,8 @@ pub use contract::{Contract, ContractClient};
 // Re-export client types
 pub use client::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, CallBuilder, DelegateOptions,
-    DelegateResult, EnvSigner, FileSigner, InMemorySigner, Near, NearBuilder, Nep413SignFuture,
-    RetryConfig, RotatingSigner, RpcClient, SandboxNetwork, SignFuture, Signer, TransactionBuilder,
+    DelegateResult, EnvSigner, FileSigner, InMemorySigner, Near, NearBuilder, RetryConfig,
+    RotatingSigner, RpcClient, SandboxNetwork, Signer, SigningKey, TransactionBuilder,
     TransactionSend, ViewCall,
 };
 
