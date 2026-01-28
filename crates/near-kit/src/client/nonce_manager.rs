@@ -90,10 +90,54 @@ impl NonceManager {
     ///
     /// Call this when an InvalidNonceError occurs to force a fresh fetch
     /// from the blockchain on the next transaction.
+    #[allow(dead_code)]
     pub fn invalidate(&self, account_id: &str, public_key: &str) {
         let key = format!("{}:{}", account_id, public_key);
         let mut nonces = self.nonces.lock().unwrap();
         nonces.remove(&key);
+    }
+
+    /// Update the cached nonce to a known value.
+    ///
+    /// Use this when you receive an InvalidNonce error with `ak_nonce` -
+    /// instead of invalidating and refetching, directly set the nonce
+    /// to avoid thundering herd on retry.
+    ///
+    /// # Arguments
+    ///
+    /// * `account_id` - Account ID
+    /// * `public_key` - Public key string (e.g., "ed25519:...")
+    /// * `current_nonce` - The current nonce on chain (ak_nonce from error)
+    ///
+    /// # Returns
+    ///
+    /// The next nonce to use (current_nonce + 1)
+    pub fn update_and_get_next(
+        &self,
+        account_id: &str,
+        public_key: &str,
+        current_nonce: u64,
+    ) -> u64 {
+        let key = format!("{}:{}", account_id, public_key);
+        let next_nonce = current_nonce + 1;
+
+        let mut nonces = self.nonces.lock().unwrap();
+        if let Some(atomic) = nonces.get(&key) {
+            // Update to max of current cached value and new value
+            // This handles case where another worker already advanced past this nonce
+            let cached = atomic.load(Ordering::SeqCst);
+            if next_nonce > cached {
+                atomic.store(next_nonce + 1, Ordering::SeqCst);
+                return next_nonce;
+            } else {
+                // Cached value is already higher, use it
+                return atomic.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        // No entry, create one
+        nonces.insert(key, AtomicU64::new(next_nonce + 1));
+        next_nonce
     }
 }
 
@@ -177,5 +221,60 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(nonce_alice2, 12);
+    }
+
+    #[tokio::test]
+    async fn test_nonce_manager_update_and_get_next() {
+        let manager = NonceManager::new();
+
+        // First call - no entry exists
+        let nonce1 = manager.update_and_get_next("alice.testnet", "ed25519:abc", 100);
+        assert_eq!(nonce1, 101); // current_nonce + 1
+
+        // Second call - entry exists, should increment
+        let nonce2 = manager.update_and_get_next("alice.testnet", "ed25519:abc", 100);
+        // Should use cached value (102) since it's higher than 101
+        assert_eq!(nonce2, 102);
+
+        // Third call with higher ak_nonce - should update cache
+        let nonce3 = manager.update_and_get_next("alice.testnet", "ed25519:abc", 110);
+        assert_eq!(nonce3, 111); // New current_nonce + 1
+
+        // Fourth call - should use updated cache
+        let nonce4 = manager
+            .get_next_nonce("alice.testnet", "ed25519:abc", || async {
+                panic!("Should not fetch!")
+            })
+            .await
+            .unwrap();
+        assert_eq!(nonce4, 112); // Incremented from 112
+    }
+
+    #[tokio::test]
+    async fn test_nonce_manager_update_respects_higher_cached() {
+        let manager = NonceManager::new();
+
+        // Setup: get some nonces to advance the cache
+        let _ = manager
+            .get_next_nonce("alice.testnet", "ed25519:abc", || async { Ok(100) })
+            .await
+            .unwrap(); // Returns 101, cache has 102
+        let _ = manager
+            .get_next_nonce("alice.testnet", "ed25519:abc", || async {
+                panic!("no fetch")
+            })
+            .await
+            .unwrap(); // Returns 102, cache has 103
+        let _ = manager
+            .get_next_nonce("alice.testnet", "ed25519:abc", || async {
+                panic!("no fetch")
+            })
+            .await
+            .unwrap(); // Returns 103, cache has 104
+
+        // Now update with a LOWER ak_nonce - should use cached value
+        let nonce = manager.update_and_get_next("alice.testnet", "ed25519:abc", 100);
+        // Cache had 104, which is higher than 101, so use cached
+        assert_eq!(nonce, 104);
     }
 }

@@ -1117,6 +1117,7 @@ impl IntoFuture for TransactionSend {
             // Retry loop for InvalidNonceError
             const MAX_NONCE_RETRIES: u32 = 3;
             let mut last_error: Option<Error> = None;
+            let mut last_ak_nonce: Option<u64> = None;
 
             for attempt in 0..MAX_NONCE_RETRIES {
                 // Get a signing key atomically for this attempt
@@ -1129,21 +1130,13 @@ impl IntoFuture for TransactionSend {
                 let signer_id_clone = signer_id.clone();
                 let public_key_clone = public_key.clone();
 
-                let nonce = if attempt > 0 {
-                    // Invalidate on retry to get fresh nonce
-                    nonce_manager().invalidate(signer_id.as_ref(), &public_key_str);
-                    nonce_manager()
-                        .get_next_nonce(signer_id.as_ref(), &public_key_str, || async {
-                            let access_key = rpc
-                                .view_access_key(
-                                    &signer_id_clone,
-                                    &public_key_clone,
-                                    BlockReference::Finality(Finality::Optimistic),
-                                )
-                                .await?;
-                            Ok(access_key.nonce)
-                        })
-                        .await?
+                let nonce = if let Some(ak_nonce) = last_ak_nonce.take() {
+                    // Use the ak_nonce from the error directly - avoids refetching
+                    nonce_manager().update_and_get_next(
+                        signer_id.as_ref(),
+                        &public_key_str,
+                        ak_nonce,
+                    )
                 } else {
                     nonce_manager()
                         .get_next_nonce(signer_id.as_ref(), &public_key_str, || async {
@@ -1195,12 +1188,13 @@ impl IntoFuture for TransactionSend {
                         }
                         return Ok(outcome);
                     }
-                    Err(RpcError::InvalidNonce { .. }) if attempt < MAX_NONCE_RETRIES - 1 => {
-                        // Retry with fresh nonce
-                        last_error = Some(Error::Rpc(RpcError::InvalidNonce {
-                            tx_nonce: nonce,
-                            ak_nonce: 0,
-                        }));
+                    Err(RpcError::InvalidNonce { tx_nonce, ak_nonce })
+                        if attempt < MAX_NONCE_RETRIES - 1 =>
+                    {
+                        // Store ak_nonce for next iteration to avoid refetching
+                        last_ak_nonce = Some(ak_nonce);
+                        last_error =
+                            Some(Error::Rpc(RpcError::InvalidNonce { tx_nonce, ak_nonce }));
                         continue;
                     }
                     Err(e) => return Err(Error::Rpc(e)),
