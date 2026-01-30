@@ -1080,62 +1080,60 @@ mod tests {
     // from_env tests
     // ========================================================================
 
+    // NOTE: Environment variable tests are consolidated into a single test
+    // because they modify global state and would race with each other if
+    // run in parallel. Each scenario is tested sequentially within this test.
     #[test]
-    fn test_from_env_no_vars() {
-        // Clear any existing env vars
-        // SAFETY: This is a test and we're the only thread accessing these vars
-        unsafe {
-            std::env::remove_var("NEAR_NETWORK");
-            std::env::remove_var("NEAR_ACCOUNT_ID");
-            std::env::remove_var("NEAR_PRIVATE_KEY");
+    fn test_from_env_scenarios() {
+        // Helper to clean up env vars
+        fn clear_env() {
+            // SAFETY: This is a test and we control the execution
+            unsafe {
+                std::env::remove_var("NEAR_NETWORK");
+                std::env::remove_var("NEAR_ACCOUNT_ID");
+                std::env::remove_var("NEAR_PRIVATE_KEY");
+            }
         }
 
-        // Should default to testnet with no signer
-        let near = Near::from_env().unwrap();
-        assert!(near.rpc_url().contains("test") || near.rpc_url().contains("fastnear"));
-        assert!(near.account_id().is_none());
-    }
+        // Scenario 1: No vars - defaults to testnet, read-only
+        clear_env();
+        {
+            let near = Near::from_env().unwrap();
+            assert!(
+                near.rpc_url().contains("test") || near.rpc_url().contains("fastnear"),
+                "Expected testnet URL, got: {}",
+                near.rpc_url()
+            );
+            assert!(near.account_id().is_none());
+        }
 
-    #[test]
-    fn test_from_env_mainnet() {
-        // SAFETY: This is a test and we're the only thread accessing these vars
+        // Scenario 2: Mainnet network
+        clear_env();
         unsafe {
             std::env::set_var("NEAR_NETWORK", "mainnet");
-            std::env::remove_var("NEAR_ACCOUNT_ID");
-            std::env::remove_var("NEAR_PRIVATE_KEY");
+        }
+        {
+            let near = Near::from_env().unwrap();
+            assert!(
+                near.rpc_url().contains("mainnet") || near.rpc_url().contains("fastnear"),
+                "Expected mainnet URL, got: {}",
+                near.rpc_url()
+            );
+            assert!(near.account_id().is_none());
         }
 
-        let near = Near::from_env().unwrap();
-        assert!(near.rpc_url().contains("mainnet") || near.rpc_url().contains("fastnear"));
-        assert!(near.account_id().is_none());
-
-        // SAFETY: Cleanup
-        unsafe {
-            std::env::remove_var("NEAR_NETWORK");
-        }
-    }
-
-    #[test]
-    fn test_from_env_custom_url() {
-        // SAFETY: This is a test and we're the only thread accessing these vars
+        // Scenario 3: Custom URL
+        clear_env();
         unsafe {
             std::env::set_var("NEAR_NETWORK", "https://custom-rpc.example.com");
-            std::env::remove_var("NEAR_ACCOUNT_ID");
-            std::env::remove_var("NEAR_PRIVATE_KEY");
+        }
+        {
+            let near = Near::from_env().unwrap();
+            assert_eq!(near.rpc_url(), "https://custom-rpc.example.com");
         }
 
-        let near = Near::from_env().unwrap();
-        assert_eq!(near.rpc_url(), "https://custom-rpc.example.com");
-
-        // SAFETY: Cleanup
-        unsafe {
-            std::env::remove_var("NEAR_NETWORK");
-        }
-    }
-
-    #[test]
-    fn test_from_env_with_credentials() {
-        // SAFETY: This is a test and we're the only thread accessing these vars
+        // Scenario 4: Full credentials
+        clear_env();
         unsafe {
             std::env::set_var("NEAR_NETWORK", "testnet");
             std::env::set_var("NEAR_ACCOUNT_ID", "alice.testnet");
@@ -1144,59 +1142,54 @@ mod tests {
                 "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
             );
         }
-
-        let near = Near::from_env().unwrap();
-        assert!(near.account_id().is_some());
-        assert_eq!(near.account_id().unwrap().as_str(), "alice.testnet");
-
-        // SAFETY: Cleanup
-        unsafe {
-            std::env::remove_var("NEAR_NETWORK");
-            std::env::remove_var("NEAR_ACCOUNT_ID");
-            std::env::remove_var("NEAR_PRIVATE_KEY");
+        {
+            let near = Near::from_env().unwrap();
+            assert!(near.account_id().is_some());
+            assert_eq!(near.account_id().unwrap().as_str(), "alice.testnet");
         }
-    }
 
-    #[test]
-    fn test_from_env_account_without_key() {
-        // SAFETY: This is a test and we're the only thread accessing these vars
+        // Scenario 5: Account without key - should error
+        clear_env();
         unsafe {
-            std::env::remove_var("NEAR_NETWORK");
             std::env::set_var("NEAR_ACCOUNT_ID", "alice.testnet");
-            std::env::remove_var("NEAR_PRIVATE_KEY");
+        }
+        {
+            let result = Near::from_env();
+            assert!(
+                result.is_err(),
+                "Expected error when account set without key"
+            );
+            let err = result.unwrap_err();
+            assert!(
+                err.to_string().contains("NEAR_PRIVATE_KEY"),
+                "Error should mention NEAR_PRIVATE_KEY: {}",
+                err
+            );
         }
 
-        let result = Near::from_env();
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("NEAR_PRIVATE_KEY"));
-
-        // SAFETY: Cleanup
+        // Scenario 6: Key without account - should error
+        clear_env();
         unsafe {
-            std::env::remove_var("NEAR_ACCOUNT_ID");
-        }
-    }
-
-    #[test]
-    fn test_from_env_key_without_account() {
-        // SAFETY: This is a test and we're the only thread accessing these vars
-        unsafe {
-            std::env::remove_var("NEAR_NETWORK");
-            std::env::remove_var("NEAR_ACCOUNT_ID");
             std::env::set_var(
                 "NEAR_PRIVATE_KEY",
                 "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
             );
         }
-
-        let result = Near::from_env();
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("NEAR_ACCOUNT_ID"));
-
-        // SAFETY: Cleanup
-        unsafe {
-            std::env::remove_var("NEAR_PRIVATE_KEY");
+        {
+            let result = Near::from_env();
+            assert!(
+                result.is_err(),
+                "Expected error when key set without account"
+            );
+            let err = result.unwrap_err();
+            assert!(
+                err.to_string().contains("NEAR_ACCOUNT_ID"),
+                "Error should mention NEAR_ACCOUNT_ID: {}",
+                err
+            );
         }
+
+        // Final cleanup
+        clear_env();
     }
 }
