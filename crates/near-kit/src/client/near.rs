@@ -315,11 +315,7 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn view<T: DeserializeOwned + Send + 'static>(
-        &self,
-        contract_id: impl AsRef<str>,
-        method: &str,
-    ) -> ViewCall<T> {
+    pub fn view<T>(&self, contract_id: impl AsRef<str>, method: &str) -> ViewCall<T> {
         let contract_id = AccountId::parse_lenient(contract_id);
         ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
     }

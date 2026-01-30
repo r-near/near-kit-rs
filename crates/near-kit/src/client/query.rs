@@ -338,7 +338,7 @@ pub struct ViewCall<T> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: DeserializeOwned + Send + 'static> ViewCall<T> {
+impl<T> ViewCall<T> {
     pub(crate) fn new(rpc: Arc<RpcClient>, contract_id: AccountId, method: String) -> Self {
         Self {
             rpc,
@@ -397,19 +397,21 @@ impl<T: DeserializeOwned + Send + 'static> ViewCall<T> {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # use borsh::BorshDeserialize;
-    /// # #[derive(BorshDeserialize)]
-    /// # struct ContractState { count: u64 }
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
+    /// use near_kit::*;
+    /// use borsh::BorshDeserialize;
     ///
-    /// // Borsh response deserialization
-    /// let state: ContractState = near.view("contract.testnet", "get_state")
-    ///     .borsh()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
+    /// #[derive(BorshDeserialize)]
+    /// struct ContractState { count: u64 }
+    ///
+    /// async fn example() -> Result<(), near_kit::Error> {
+    ///     let near = Near::testnet().build();
+    ///
+    ///     // Borsh response deserialization
+    ///     let state: ContractState = near.view("contract.testnet", "get_state")
+    ///         .borsh()
+    ///         .await?;
+    ///     Ok(())
+    /// }
     /// ```
     pub fn borsh(self) -> ViewCallBorsh<T> {
         ViewCallBorsh {
@@ -450,28 +452,31 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for ViewCall<T> {
 /// # Example
 ///
 /// ```rust,no_run
-/// # use near_kit::*;
-/// # use borsh::BorshDeserialize;
-/// # #[derive(BorshDeserialize)]
-/// # struct ContractState { count: u64 }
-/// # async fn example() -> Result<(), near_kit::Error> {
-/// let near = Near::testnet().build();
+/// use near_kit::*;
+/// use borsh::BorshDeserialize;
 ///
-/// // JSON args, Borsh response
-/// let state: ContractState = near.view("contract.testnet", "get_state")
-///     .args(serde_json::json!({ "key": "value" }))
-///     .borsh()
-///     .await?;
+/// #[derive(BorshDeserialize)]
+/// struct ContractState { count: u64 }
 ///
-/// // Borsh args, Borsh response  
-/// let state: ContractState = near.view("contract.testnet", "get_state")
-///     .args_borsh(MyArgs { key: 123 })
-///     .borsh()
-///     .await?;
-/// # Ok(())
-/// # }
-/// # #[derive(borsh::BorshSerialize)]
-/// # struct MyArgs { key: u64 }
+/// #[derive(borsh::BorshSerialize)]
+/// struct MyArgs { key: u64 }
+///
+/// async fn example() -> Result<(), near_kit::Error> {
+///     let near = Near::testnet().build();
+///
+///     // JSON args, Borsh response
+///     let state: ContractState = near.view("contract.testnet", "get_state")
+///         .args(serde_json::json!({ "key": "value" }))
+///         .borsh()
+///         .await?;
+///
+///     // Borsh args, Borsh response  
+///     let state: ContractState = near.view("contract.testnet", "get_state")
+///         .args_borsh(MyArgs { key: 123 })
+///         .borsh()
+///         .await?;
+///     Ok(())
+/// }
 /// ```
 pub struct ViewCallBorsh<T> {
     rpc: Arc<RpcClient>,
