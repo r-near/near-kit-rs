@@ -72,6 +72,13 @@ near.call("counter.testnet", "increment")
     .await?;
 ```
 
+For CI/CD, configure via environment variables:
+
+```rust
+// Reads NEAR_NETWORK, NEAR_ACCOUNT_ID, NEAR_PRIVATE_KEY
+let near = Near::from_env()?;
+```
+
 Need to pass arguments or attach a deposit? Chain the builders:
 
 ```rust
