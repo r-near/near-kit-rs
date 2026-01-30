@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.2.0...near-kit-v0.3.0) - 2026-01-30
+
+### Added
+
+- add Near::from_env() and ViewCall::borsh() ([#13](https://github.com/r-near/near-kit-rs/pull/13))
+- add known token constants with network-aware resolution
+
+### Fixed
+
+- use ak_nonce from InvalidNonce error for smarter retry
+- add claim_key() for atomic key claiming in RotatingSigner
+
+### Other
+
+- simplify Signer trait to minimal key() interface
+- add readme path for crates.io
+
 ## [0.2.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.1.0...near-kit-v0.2.0) - 2026-01-24
 
 ### Added
