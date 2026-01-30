@@ -165,7 +165,7 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 - [x] Support `#[call]` and `#[call(payable)]` attributes
 - [x] Support `#[near_kit::contract(borsh)]` for Borsh serialization
 - [x] Add `Contract` marker trait and `near.contract::<T>()` method
-- [ ] Add `ViewCallBorsh<T>` for Borsh view deserialization
+- [x] Add `ViewCallBorsh<T>` for Borsh view deserialization
 - [ ] Unit tests for macro expansion
 - [x] Integration tests with real contracts
 
@@ -173,7 +173,7 @@ Use this checklist to track progress. Mark items with `[x]` when complete.
 
 - [ ] `StakingPool` - Staking operations
 - [x] Seed phrase / mnemonic support in `SecretKey` and `InMemorySigner`
-- [ ] Environment-based configuration (`Near::from_env()`)
+- [x] Environment-based configuration (`Near::from_env()`)
 - [x] Meta-transactions (delegate actions)
 
 ### Phase 10: Polish (TODO)

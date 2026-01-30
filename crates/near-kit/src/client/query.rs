@@ -387,6 +387,40 @@ impl<T: DeserializeOwned + Send + 'static> ViewCall<T> {
         self.block_ref = BlockReference::Finality(finality);
         self
     }
+
+    /// Switch to Borsh deserialization for the response.
+    ///
+    /// By default, `ViewCall` deserializes responses as JSON. Call this method
+    /// to deserialize as Borsh instead. This is useful for contracts that return
+    /// Borsh-encoded data.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # use borsh::BorshDeserialize;
+    /// # #[derive(BorshDeserialize)]
+    /// # struct ContractState { count: u64 }
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    ///
+    /// // Borsh response deserialization
+    /// let state: ContractState = near.view("contract.testnet", "get_state")
+    ///     .borsh()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn borsh(self) -> ViewCallBorsh<T> {
+        ViewCallBorsh {
+            rpc: self.rpc,
+            contract_id: self.contract_id,
+            method: self.method,
+            args: self.args,
+            block_ref: self.block_ref,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<T: DeserializeOwned + Send + 'static> IntoFuture for ViewCall<T> {
@@ -400,6 +434,65 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for ViewCall<T> {
                 .view_function(&self.contract_id, &self.method, &self.args, self.block_ref)
                 .await?;
             Ok(result.json()?)
+        })
+    }
+}
+
+// ============================================================================
+// ViewCallBorsh
+// ============================================================================
+
+/// Query builder for view functions with Borsh deserialization.
+///
+/// Created by calling [`.borsh()`](ViewCall::borsh) on a `ViewCall`.
+/// This variant deserializes the response as Borsh instead of JSON.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// # use borsh::BorshDeserialize;
+/// # #[derive(BorshDeserialize)]
+/// # struct ContractState { count: u64 }
+/// # async fn example() -> Result<(), near_kit::Error> {
+/// let near = Near::testnet().build();
+///
+/// // JSON args, Borsh response
+/// let state: ContractState = near.view("contract.testnet", "get_state")
+///     .args(serde_json::json!({ "key": "value" }))
+///     .borsh()
+///     .await?;
+///
+/// // Borsh args, Borsh response  
+/// let state: ContractState = near.view("contract.testnet", "get_state")
+///     .args_borsh(MyArgs { key: 123 })
+///     .borsh()
+///     .await?;
+/// # Ok(())
+/// # }
+/// # #[derive(borsh::BorshSerialize)]
+/// # struct MyArgs { key: u64 }
+/// ```
+pub struct ViewCallBorsh<T> {
+    rpc: Arc<RpcClient>,
+    contract_id: AccountId,
+    method: String,
+    args: Vec<u8>,
+    block_ref: BlockReference,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: borsh::BorshDeserialize + Send + 'static> IntoFuture for ViewCallBorsh<T> {
+    type Output = Result<T, Error>;
+    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            let result = self
+                .rpc
+                .view_function(&self.contract_id, &self.method, &self.args, self.block_ref)
+                .await?;
+            result.borsh().map_err(|e| Error::Borsh(e.to_string()))
         })
     }
 }

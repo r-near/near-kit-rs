@@ -633,14 +633,40 @@ pub struct ViewFunctionResult {
 }
 
 impl ViewFunctionResult {
+    /// Get the result as raw bytes.
+    pub fn bytes(&self) -> &[u8] {
+        &self.result
+    }
+
     /// Get the result as a string.
     pub fn as_string(&self) -> Result<String, std::string::FromUtf8Error> {
         String::from_utf8(self.result.clone())
     }
 
     /// Deserialize the result as JSON.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let result = rpc.view_function(&contract, "get_data", &[], block).await?;
+    /// let data: MyData = result.json()?;
+    /// ```
     pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
         serde_json::from_slice(&self.result)
+    }
+
+    /// Deserialize the result as Borsh.
+    ///
+    /// Use this for contracts that return Borsh-encoded data instead of JSON.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let result = rpc.view_function(&contract, "get_state", &args, block).await?;
+    /// let state: ContractState = result.borsh()?;
+    /// ```
+    pub fn borsh<T: borsh::BorshDeserialize>(&self) -> Result<T, borsh::io::Error> {
+        borsh::from_slice(&self.result)
     }
 }
 
