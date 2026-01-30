@@ -470,7 +470,7 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for ViewCall<T> {
 ///         .borsh()
 ///         .await?;
 ///
-///     // Borsh args, Borsh response  
+///     // Borsh args, Borsh response
 ///     let state: ContractState = near.view("contract.testnet", "get_state")
 ///         .args_borsh(MyArgs { key: 123 })
 ///         .borsh()
