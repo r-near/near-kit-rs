@@ -1,5 +1,0 @@
-- way more tests
-- unit tests, integration tests, e2e tests
-- full test coverage
-- documentation
-- examples
