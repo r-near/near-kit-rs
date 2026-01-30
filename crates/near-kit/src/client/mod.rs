@@ -45,7 +45,9 @@ mod transaction;
 mod keyring_signer;
 
 pub use near::{Near, NearBuilder, SandboxNetwork, SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_PRIVATE_KEY};
-pub use query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
+pub use query::{
+    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall, ViewCallBorsh,
+};
 pub use rpc::{RetryConfig, RpcClient};
 pub use signer::{EnvSigner, FileSigner, InMemorySigner, RotatingSigner, Signer, SigningKey};
 pub use transaction::{

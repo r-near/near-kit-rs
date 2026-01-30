@@ -385,7 +385,7 @@ pub use client::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, CallBuilder, DelegateOptions,
     DelegateResult, EnvSigner, FileSigner, InMemorySigner, Near, NearBuilder, RetryConfig,
     RotatingSigner, RpcClient, SandboxNetwork, Signer, SigningKey, TransactionBuilder,
-    TransactionSend, ViewCall,
+    TransactionSend, ViewCall, ViewCallBorsh,
 };
 
 #[cfg(feature = "keyring")]

@@ -633,14 +633,40 @@ pub struct ViewFunctionResult {
 }
 
 impl ViewFunctionResult {
+    /// Get the result as raw bytes.
+    pub fn bytes(&self) -> &[u8] {
+        &self.result
+    }
+
     /// Get the result as a string.
     pub fn as_string(&self) -> Result<String, std::string::FromUtf8Error> {
         String::from_utf8(self.result.clone())
     }
 
     /// Deserialize the result as JSON.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let result = rpc.view_function(&contract, "get_data", &[], block).await?;
+    /// let data: MyData = result.json()?;
+    /// ```
     pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
         serde_json::from_slice(&self.result)
+    }
+
+    /// Deserialize the result as Borsh.
+    ///
+    /// Use this for contracts that return Borsh-encoded data instead of JSON.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let result = rpc.view_function(&contract, "get_state", &args, block).await?;
+    /// let state: ContractState = result.borsh()?;
+    /// ```
+    pub fn borsh<T: borsh::BorshDeserialize>(&self) -> Result<T, borsh::io::Error> {
+        borsh::from_slice(&self.result)
     }
 }
 
@@ -946,5 +972,83 @@ mod tests {
         assert_eq!(balance.locked, view.locked);
         assert_eq!(balance.storage_cost, view.storage_cost());
         assert_eq!(balance.storage_usage, storage_usage);
+    }
+
+    // ========================================================================
+    // ViewFunctionResult tests
+    // ========================================================================
+
+    fn make_view_result(result: Vec<u8>) -> ViewFunctionResult {
+        ViewFunctionResult {
+            result,
+            logs: vec![],
+            block_height: 12345,
+            block_hash: CryptoHash::default(),
+        }
+    }
+
+    #[test]
+    fn test_view_function_result_bytes() {
+        let data = vec![1, 2, 3, 4, 5];
+        let result = make_view_result(data.clone());
+        assert_eq!(result.bytes(), &data[..]);
+    }
+
+    #[test]
+    fn test_view_function_result_as_string() {
+        let result = make_view_result(b"hello world".to_vec());
+        assert_eq!(result.as_string().unwrap(), "hello world");
+    }
+
+    #[test]
+    fn test_view_function_result_json() {
+        let result = make_view_result(b"42".to_vec());
+        let value: u64 = result.json().unwrap();
+        assert_eq!(value, 42);
+    }
+
+    #[test]
+    fn test_view_function_result_json_object() {
+        let result = make_view_result(b"{\"count\":123}".to_vec());
+        let value: serde_json::Value = result.json().unwrap();
+        assert_eq!(value["count"], 123);
+    }
+
+    #[test]
+    fn test_view_function_result_borsh() {
+        // Borsh-encode a u64 value
+        let original: u64 = 42;
+        let encoded = borsh::to_vec(&original).unwrap();
+        let result = make_view_result(encoded);
+
+        let decoded: u64 = result.borsh().unwrap();
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn test_view_function_result_borsh_struct() {
+        #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Debug)]
+        struct TestStruct {
+            value: u64,
+            name: String,
+        }
+
+        let original = TestStruct {
+            value: 123,
+            name: "test".to_string(),
+        };
+        let encoded = borsh::to_vec(&original).unwrap();
+        let result = make_view_result(encoded);
+
+        let decoded: TestStruct = result.borsh().unwrap();
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn test_view_function_result_borsh_error() {
+        // Invalid Borsh data for a u64 (too short)
+        let result = make_view_result(vec![1, 2, 3]);
+        let decoded: Result<u64, _> = result.borsh();
+        assert!(decoded.is_err());
     }
 }

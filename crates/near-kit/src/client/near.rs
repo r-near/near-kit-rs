@@ -91,6 +91,78 @@ impl Near {
         NearBuilder::new(rpc_url, Network::Custom)
     }
 
+    /// Create a configured client from environment variables.
+    ///
+    /// Reads the following environment variables:
+    /// - `NEAR_NETWORK` (optional): `"mainnet"`, `"testnet"`, or a custom RPC URL.
+    ///   Defaults to `"testnet"` if not set.
+    /// - `NEAR_ACCOUNT_ID` (optional): Account ID for signing transactions.
+    /// - `NEAR_PRIVATE_KEY` (optional): Private key for signing (e.g., `"ed25519:..."`).
+    ///
+    /// If `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` are both set, the client will
+    /// be configured with signing capability. Otherwise, it will be read-only.
+    ///
+    /// # Example
+    ///
+    /// ```bash
+    /// # Environment variables
+    /// export NEAR_NETWORK=testnet
+    /// export NEAR_ACCOUNT_ID=alice.testnet
+    /// export NEAR_PRIVATE_KEY=ed25519:...
+    /// ```
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// // Auto-configures from environment
+    /// let near = Near::from_env()?;
+    ///
+    /// // If credentials are set, transactions work
+    /// near.transfer("bob.testnet", "1 NEAR").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - `NEAR_ACCOUNT_ID` is set without `NEAR_PRIVATE_KEY` (or vice versa)
+    /// - `NEAR_PRIVATE_KEY` contains an invalid key format
+    pub fn from_env() -> Result<Near, Error> {
+        let network = std::env::var("NEAR_NETWORK").ok();
+        let account_id = std::env::var("NEAR_ACCOUNT_ID").ok();
+        let private_key = std::env::var("NEAR_PRIVATE_KEY").ok();
+
+        // Determine builder based on network
+        let mut builder = match network.as_deref() {
+            Some("mainnet") => Near::mainnet(),
+            Some("testnet") | None => Near::testnet(),
+            Some(url) => Near::custom(url),
+        };
+
+        // Configure signer if both account and key are provided
+        match (account_id, private_key) {
+            (Some(account), Some(key)) => {
+                builder = builder.credentials(&key, &account)?;
+            }
+            (Some(_), None) => {
+                return Err(Error::Config(
+                    "NEAR_ACCOUNT_ID is set but NEAR_PRIVATE_KEY is missing".into(),
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(Error::Config(
+                    "NEAR_PRIVATE_KEY is set but NEAR_ACCOUNT_ID is missing".into(),
+                ));
+            }
+            (None, None) => {
+                // Read-only client, no credentials
+            }
+        }
+
+        Ok(builder.build())
+    }
+
     /// Create a builder configured for a sandbox network.
     ///
     /// This automatically configures the client with the sandbox's RPC URL
@@ -243,11 +315,7 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn view<T: DeserializeOwned + Send + 'static>(
-        &self,
-        contract_id: impl AsRef<str>,
-        method: &str,
-    ) -> ViewCall<T> {
+    pub fn view<T>(&self, contract_id: impl AsRef<str>, method: &str) -> ViewCall<T> {
         let contract_id = AccountId::parse_lenient(contract_id);
         ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
     }
@@ -1002,5 +1070,122 @@ mod tests {
         let near1 = Near::testnet().build();
         let near2 = near1.clone();
         assert_eq!(near1.rpc_url(), near2.rpc_url());
+    }
+
+    // ========================================================================
+    // from_env tests
+    // ========================================================================
+
+    // NOTE: Environment variable tests are consolidated into a single test
+    // because they modify global state and would race with each other if
+    // run in parallel. Each scenario is tested sequentially within this test.
+    #[test]
+    fn test_from_env_scenarios() {
+        // Helper to clean up env vars
+        fn clear_env() {
+            // SAFETY: This is a test and we control the execution
+            unsafe {
+                std::env::remove_var("NEAR_NETWORK");
+                std::env::remove_var("NEAR_ACCOUNT_ID");
+                std::env::remove_var("NEAR_PRIVATE_KEY");
+            }
+        }
+
+        // Scenario 1: No vars - defaults to testnet, read-only
+        clear_env();
+        {
+            let near = Near::from_env().unwrap();
+            assert!(
+                near.rpc_url().contains("test") || near.rpc_url().contains("fastnear"),
+                "Expected testnet URL, got: {}",
+                near.rpc_url()
+            );
+            assert!(near.account_id().is_none());
+        }
+
+        // Scenario 2: Mainnet network
+        clear_env();
+        unsafe {
+            std::env::set_var("NEAR_NETWORK", "mainnet");
+        }
+        {
+            let near = Near::from_env().unwrap();
+            assert!(
+                near.rpc_url().contains("mainnet") || near.rpc_url().contains("fastnear"),
+                "Expected mainnet URL, got: {}",
+                near.rpc_url()
+            );
+            assert!(near.account_id().is_none());
+        }
+
+        // Scenario 3: Custom URL
+        clear_env();
+        unsafe {
+            std::env::set_var("NEAR_NETWORK", "https://custom-rpc.example.com");
+        }
+        {
+            let near = Near::from_env().unwrap();
+            assert_eq!(near.rpc_url(), "https://custom-rpc.example.com");
+        }
+
+        // Scenario 4: Full credentials
+        clear_env();
+        unsafe {
+            std::env::set_var("NEAR_NETWORK", "testnet");
+            std::env::set_var("NEAR_ACCOUNT_ID", "alice.testnet");
+            std::env::set_var(
+                "NEAR_PRIVATE_KEY",
+                "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
+            );
+        }
+        {
+            let near = Near::from_env().unwrap();
+            assert!(near.account_id().is_some());
+            assert_eq!(near.account_id().unwrap().as_str(), "alice.testnet");
+        }
+
+        // Scenario 5: Account without key - should error
+        clear_env();
+        unsafe {
+            std::env::set_var("NEAR_ACCOUNT_ID", "alice.testnet");
+        }
+        {
+            let result = Near::from_env();
+            assert!(
+                result.is_err(),
+                "Expected error when account set without key"
+            );
+            let err = result.unwrap_err();
+            assert!(
+                err.to_string().contains("NEAR_PRIVATE_KEY"),
+                "Error should mention NEAR_PRIVATE_KEY: {}",
+                err
+            );
+        }
+
+        // Scenario 6: Key without account - should error
+        clear_env();
+        unsafe {
+            std::env::set_var(
+                "NEAR_PRIVATE_KEY",
+                "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
+            );
+        }
+        {
+            let result = Near::from_env();
+            assert!(
+                result.is_err(),
+                "Expected error when key set without account"
+            );
+            let err = result.unwrap_err();
+            assert!(
+                err.to_string().contains("NEAR_ACCOUNT_ID"),
+                "Error should mention NEAR_ACCOUNT_ID: {}",
+                err
+            );
+        }
+
+        // Final cleanup
+        clear_env();
     }
 }

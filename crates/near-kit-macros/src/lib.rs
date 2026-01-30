@@ -257,10 +257,16 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
         .map(|t| quote! { #t })
         .unwrap_or_else(|| quote! { () });
 
-    // Determine which view method to use based on format
-    let view_call = match format {
-        SerializationFormat::Json => quote! { self.near.view },
-        SerializationFormat::Borsh => quote! { self.near.view_borsh },
+    // For Borsh format, chain .borsh() to switch to Borsh deserialization
+    let borsh_suffix = match format {
+        SerializationFormat::Json => quote! {},
+        SerializationFormat::Borsh => quote! { .borsh() },
+    };
+
+    // Return type differs based on format
+    let view_return_type = match format {
+        SerializationFormat::Json => quote! { near_kit::ViewCall<#return_type> },
+        SerializationFormat::Borsh => quote! { near_kit::ViewCallBorsh<#return_type> },
     };
 
     if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
@@ -271,9 +277,10 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
         };
 
         quote! {
-            pub fn #method_name(&self, #arg_name: #arg_type) -> near_kit::ViewCall<#return_type> {
-                #view_call::<#return_type>(&self.contract_id, #method_name_str)
+            pub fn #method_name(&self, #arg_name: #arg_type) -> #view_return_type {
+                self.near.view::<#return_type>(&self.contract_id, #method_name_str)
                     #args_method
+                    #borsh_suffix
             }
         }
     } else {
@@ -281,16 +288,17 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
         match format {
             SerializationFormat::Json => {
                 quote! {
-                    pub fn #method_name(&self) -> near_kit::ViewCall<#return_type> {
-                        #view_call::<#return_type>(&self.contract_id, #method_name_str)
+                    pub fn #method_name(&self) -> #view_return_type {
+                        self.near.view::<#return_type>(&self.contract_id, #method_name_str)
                             .args(serde_json::json!({}))
                     }
                 }
             }
             SerializationFormat::Borsh => {
                 quote! {
-                    pub fn #method_name(&self) -> near_kit::ViewCall<#return_type> {
-                        #view_call::<#return_type>(&self.contract_id, #method_name_str)
+                    pub fn #method_name(&self) -> #view_return_type {
+                        self.near.view::<#return_type>(&self.contract_id, #method_name_str)
+                            .borsh()
                     }
                 }
             }
