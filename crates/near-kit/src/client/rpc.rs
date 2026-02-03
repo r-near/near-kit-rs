@@ -3,8 +3,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::error::RpcError;
 use crate::types::{

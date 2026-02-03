@@ -86,7 +86,7 @@ impl SignedTransaction {
 
     /// Serialize to base64 for RPC submission.
     pub fn to_base64(&self) -> String {
-        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
         STANDARD.encode(self.to_bytes())
     }
 
@@ -123,7 +123,7 @@ impl SignedTransaction {
     /// # Ok::<(), near_kit::Error>(())
     /// ```
     pub fn from_base64(s: &str) -> Result<Self, crate::error::Error> {
-        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
         let bytes = STANDARD.decode(s).map_err(|e| {
             crate::error::Error::InvalidTransaction(format!("Invalid base64: {}", e))
         })?;

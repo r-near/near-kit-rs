@@ -9,7 +9,7 @@ use crate::error::Error;
 use crate::types::{AccountId, Gas, IntoNearToken, NearToken, Network, PublicKey, SecretKey};
 
 use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
-use super::rpc::{RetryConfig, RpcClient, MAINNET, TESTNET};
+use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
 use super::signer::{InMemorySigner, Signer};
 use super::transaction::{CallBuilder, TransactionBuilder};
 use crate::types::TxExecutionStatus;
@@ -879,8 +879,7 @@ impl From<NearBuilder> for Near {
 pub const SANDBOX_ROOT_ACCOUNT: &str = "sandbox";
 
 /// Default sandbox root account private key.
-pub const SANDBOX_ROOT_PRIVATE_KEY: &str =
-    "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
+pub const SANDBOX_ROOT_PRIVATE_KEY: &str = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
 
 #[cfg(feature = "sandbox")]
 impl SandboxNetwork for near_sandbox::Sandbox {

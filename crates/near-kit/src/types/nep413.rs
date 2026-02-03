@@ -43,9 +43,9 @@ use borsh::BorshSerialize;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{hex::Hex, serde_as};
 
+use crate::Near;
 use crate::error::Error;
 use crate::types::{AccountId, BlockReference, CryptoHash, PublicKey, Signature};
-use crate::Near;
 
 /// NEP-413 tag prefix: 2^31 + 413 = 2147484061
 ///
@@ -714,8 +714,7 @@ mod tests {
             state: None,
         };
 
-        let expected_sig_no_callback =
-            "NnJgPU1Ql7ccRTITIoOVsIfElmvH1RV7QAT4a9Vh6ShCOnjIzRwxqX54JzoQ/nK02p7VBMI2vJn48rpImIJwAw==";
+        let expected_sig_no_callback = "NnJgPU1Ql7ccRTITIoOVsIfElmvH1RV7QAT4a9Vh6ShCOnjIzRwxqX54JzoQ/nK02p7VBMI2vJn48rpImIJwAw==";
 
         // Verify our serialization produces the same hash that the TS impl would sign
         let hash = serialize_message(&params_no_callback);
@@ -747,8 +746,7 @@ mod tests {
             state: None,
         };
 
-        let expected_sig_with_callback =
-            "zzZQ/GwAjrZVrTIFlvmmQbDQHllfzrr8urVWHaRt5cPfcXaCSZo35c5LDpPpTKivR6BxLyb3lcPM0FfCW5lcBQ==";
+        let expected_sig_with_callback = "zzZQ/GwAjrZVrTIFlvmmQbDQHllfzrr8urVWHaRt5cPfcXaCSZo35c5LDpPpTKivR6BxLyb3lcPM0FfCW5lcBQ==";
 
         let hash = serialize_message(&params_with_callback);
         let sig_bytes = BASE64_STANDARD.decode(expected_sig_with_callback).unwrap();

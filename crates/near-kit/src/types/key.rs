@@ -875,8 +875,7 @@ mod tests {
     }
 
     // Valid BIP-39 test vector (from official test vectors)
-    const TEST_PHRASE: &str =
-        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    const TEST_PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
     #[test]
     fn test_from_seed_phrase_known_vector() {
@@ -891,8 +890,7 @@ mod tests {
     #[test]
     fn test_from_seed_phrase_whitespace_normalization() {
         let phrase1 = TEST_PHRASE;
-        let phrase2 =
-            "  abandon   abandon  abandon abandon abandon abandon abandon abandon abandon abandon abandon about  ";
+        let phrase2 = "  abandon   abandon  abandon abandon abandon abandon abandon abandon abandon abandon abandon about  ";
         let phrase3 = "ABANDON ABANDON ABANDON ABANDON ABANDON ABANDON ABANDON ABANDON ABANDON ABANDON ABANDON ABOUT";
 
         let key1 = SecretKey::from_seed_phrase(phrase1).unwrap();
@@ -1028,7 +1026,9 @@ mod tests {
             assert!(matches!(err, ParseKeyError::InvalidCurvePoint));
         } else {
             // If ed25519_dalek accepts this, we should skip this test case
-            eprintln!("Note: ed25519 point decompression accepted test bytes - validation may be too lenient");
+            eprintln!(
+                "Note: ed25519 point decompression accepted test bytes - validation may be too lenient"
+            );
         }
     }
 

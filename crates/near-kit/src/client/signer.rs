@@ -34,8 +34,8 @@
 use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::error::SignerError;
 use crate::types::nep413::{self, SignMessageParams, SignedMessage};

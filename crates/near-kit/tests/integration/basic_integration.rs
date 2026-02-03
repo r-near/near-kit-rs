@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::sandbox::{SandboxConfig, ROOT_ACCOUNT};
+use near_kit::sandbox::{ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
 
 /// Counter for generating unique subaccount names
@@ -53,10 +53,12 @@ async fn test_account_exists() {
     assert!(near.account_exists(ROOT_ACCOUNT).await.unwrap());
 
     // This random account should not exist
-    assert!(!near
-        .account_exists("definitely-does-not-exist-12345.sandbox")
-        .await
-        .unwrap());
+    assert!(
+        !near
+            .account_exists("definitely-does-not-exist-12345.sandbox")
+            .await
+            .unwrap()
+    );
 }
 
 /// Test access keys query.

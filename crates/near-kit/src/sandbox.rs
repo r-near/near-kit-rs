@@ -84,8 +84,7 @@ pub fn sandbox_instance_count() -> usize {
 pub const ROOT_ACCOUNT: &str = "sandbox";
 
 /// Root account secret key for the sandbox.
-pub const ROOT_SECRET_KEY: &str =
-    "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
+pub const ROOT_SECRET_KEY: &str = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
 
 // Re-export SandboxNetwork trait
 pub use crate::client::SandboxNetwork;
