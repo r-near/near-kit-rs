@@ -3,8 +3,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::error::RpcError;
 use crate::types::{
@@ -529,7 +529,7 @@ impl RpcClient {
     /// Merge block reference parameters into a JSON object.
     fn merge_block_reference(&self, params: &mut serde_json::Value, block: &BlockReference) {
         if let serde_json::Value::Object(block_params) = block.to_rpc_params() {
-            if let serde_json::Value::Object(ref mut map) = params {
+            if let serde_json::Value::Object(map) = params {
                 map.extend(block_params);
             }
         }

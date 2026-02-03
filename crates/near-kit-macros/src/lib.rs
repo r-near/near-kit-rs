@@ -48,10 +48,10 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
+    FnArg, Ident, ItemTrait, Pat, ReturnType, TraitItem, TraitItemFn, Type,
     parse::{Parse, ParseStream},
     parse_macro_input,
     spanned::Spanned,
-    FnArg, Ident, ItemTrait, Pat, ReturnType, TraitItem, TraitItemFn, Type,
 };
 
 /// Serialization format for contract methods.
@@ -82,7 +82,7 @@ impl Parse for ContractArgs {
                 return Err(syn::Error::new(
                     ident.span(),
                     format!("unknown format '{}', expected 'json' or 'borsh'", other),
-                ))
+                ));
             }
         };
 
@@ -151,7 +151,7 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
             return Err(syn::Error::new(
                 method.sig.span(),
                 "contract methods must have a receiver (&self or &mut self)",
-            ))
+            ));
         }
     };
 

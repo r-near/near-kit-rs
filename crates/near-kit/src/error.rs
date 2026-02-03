@@ -237,13 +237,17 @@ pub enum RpcError {
     },
 
     // ─── Block/Chunk Errors ───
-    #[error("Block not found: {0}. It may have been garbage-collected. Try an archival node for blocks older than 5 epochs.")]
+    #[error(
+        "Block not found: {0}. It may have been garbage-collected. Try an archival node for blocks older than 5 epochs."
+    )]
     UnknownBlock(String),
 
     #[error("Chunk not found: {0}. It may have been garbage-collected. Try an archival node.")]
     UnknownChunk(String),
 
-    #[error("Epoch not found for block: {0}. The block may be invalid or too old. Try an archival node.")]
+    #[error(
+        "Epoch not found for block: {0}. The block may be invalid or too old. Try an archival node."
+    )]
     UnknownEpoch(String),
 
     #[error("Invalid shard ID: {0}")]
@@ -262,7 +266,9 @@ pub enum RpcError {
         shard_stuck: bool,
     },
 
-    #[error("Invalid nonce: transaction nonce {tx_nonce} must be greater than access key nonce {ak_nonce}")]
+    #[error(
+        "Invalid nonce: transaction nonce {tx_nonce} must be greater than access key nonce {ak_nonce}"
+    )]
     InvalidNonce { tx_nonce: u64, ak_nonce: u64 },
 
     #[error("Insufficient balance: required {required}, available {available}")]
@@ -390,7 +396,9 @@ pub enum Error {
     )]
     NoSigner,
 
-    #[error("No signer account ID. Call .default_account() on NearBuilder or use a signer with an account ID.")]
+    #[error(
+        "No signer account ID. Call .default_account() on NearBuilder or use a signer with an account ID."
+    )]
     NoSignerAccount,
 
     #[error("Invalid configuration: {0}")]
@@ -692,41 +700,53 @@ mod tests {
         assert!(RpcError::ShardUnavailable("shard 0".to_string()).is_retryable());
         assert!(RpcError::NodeNotSynced("syncing".to_string()).is_retryable());
         assert!(RpcError::InternalError("db error".to_string()).is_retryable());
-        assert!(RpcError::RequestTimeout {
-            message: "timeout".to_string(),
-            transaction_hash: None,
-        }
-        .is_retryable());
-        assert!(RpcError::InvalidNonce {
-            tx_nonce: 5,
-            ak_nonce: 10
-        }
-        .is_retryable());
-        assert!(RpcError::Network {
-            message: "connection reset".to_string(),
-            status_code: Some(503),
-            retryable: true,
-        }
-        .is_retryable());
-        assert!(RpcError::InvalidTransaction {
-            message: "shard congested".to_string(),
-            details: None,
-            shard_congested: true,
-            shard_stuck: false,
-        }
-        .is_retryable());
-        assert!(RpcError::Rpc {
-            code: -32000,
-            message: "server error".to_string(),
-            data: None,
-        }
-        .is_retryable());
-        assert!(RpcError::Rpc {
-            code: -32603,
-            message: "internal error".to_string(),
-            data: None,
-        }
-        .is_retryable());
+        assert!(
+            RpcError::RequestTimeout {
+                message: "timeout".to_string(),
+                transaction_hash: None,
+            }
+            .is_retryable()
+        );
+        assert!(
+            RpcError::InvalidNonce {
+                tx_nonce: 5,
+                ak_nonce: 10
+            }
+            .is_retryable()
+        );
+        assert!(
+            RpcError::Network {
+                message: "connection reset".to_string(),
+                status_code: Some(503),
+                retryable: true,
+            }
+            .is_retryable()
+        );
+        assert!(
+            RpcError::InvalidTransaction {
+                message: "shard congested".to_string(),
+                details: None,
+                shard_congested: true,
+                shard_stuck: false,
+            }
+            .is_retryable()
+        );
+        assert!(
+            RpcError::Rpc {
+                code: -32000,
+                message: "server error".to_string(),
+                data: None,
+            }
+            .is_retryable()
+        );
+        assert!(
+            RpcError::Rpc {
+                code: -32603,
+                message: "internal error".to_string(),
+                data: None,
+            }
+            .is_retryable()
+        );
 
         // Non-retryable errors
         let account_id: AccountId = "alice.near".parse().unwrap();
@@ -735,25 +755,31 @@ mod tests {
         assert!(!RpcError::InvalidAccount("bad".to_string()).is_retryable());
         assert!(!RpcError::UnknownBlock("12345".to_string()).is_retryable());
         assert!(!RpcError::ParseError("bad json".to_string()).is_retryable());
-        assert!(!RpcError::Network {
-            message: "not found".to_string(),
-            status_code: Some(404),
-            retryable: false,
-        }
-        .is_retryable());
-        assert!(!RpcError::InvalidTransaction {
-            message: "invalid".to_string(),
-            details: None,
-            shard_congested: false,
-            shard_stuck: false,
-        }
-        .is_retryable());
-        assert!(!RpcError::Rpc {
-            code: -32600,
-            message: "invalid request".to_string(),
-            data: None,
-        }
-        .is_retryable());
+        assert!(
+            !RpcError::Network {
+                message: "not found".to_string(),
+                status_code: Some(404),
+                retryable: false,
+            }
+            .is_retryable()
+        );
+        assert!(
+            !RpcError::InvalidTransaction {
+                message: "invalid".to_string(),
+                details: None,
+                shard_congested: false,
+                shard_stuck: false,
+            }
+            .is_retryable()
+        );
+        assert!(
+            !RpcError::Rpc {
+                code: -32600,
+                message: "invalid request".to_string(),
+                data: None,
+            }
+            .is_retryable()
+        );
     }
 
     #[test]

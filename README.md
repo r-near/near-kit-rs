@@ -29,10 +29,8 @@ It's a ground-up implementation focused on developer experience:
 
 ## Quick Start
 
-```toml
-[dependencies]
-near-kit = "0.1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+```bash
+cargo add near-kit
 ```
 
 Reading from the blockchain doesn't require any credentials:

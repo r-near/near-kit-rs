@@ -56,7 +56,7 @@ impl KnownToken {
                 return Err(Error::TokenNotAvailable {
                     token: self.name.to_string(),
                     network: network.to_string(),
-                })
+                });
             }
         };
         address.parse().map_err(Into::into)
