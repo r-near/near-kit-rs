@@ -10,10 +10,8 @@
 //!
 //! Add `near-kit` to your `Cargo.toml`:
 //!
-//! ```toml
-//! [dependencies]
-//! near-kit = "0.1"
-//! tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+//! ```bash
+//! cargo add near-kit
 //! ```
 //!
 //! ### Read-Only Operations

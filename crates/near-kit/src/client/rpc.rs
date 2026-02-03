@@ -529,7 +529,7 @@ impl RpcClient {
     /// Merge block reference parameters into a JSON object.
     fn merge_block_reference(&self, params: &mut serde_json::Value, block: &BlockReference) {
         if let serde_json::Value::Object(block_params) = block.to_rpc_params() {
-            if let serde_json::Value::Object(ref mut map) = params {
+            if let serde_json::Value::Object(map) = params {
                 map.extend(block_params);
             }
         }
