@@ -343,6 +343,8 @@ impl BorshDeserialize for NearToken {
 // Gas
 // ============================================================================
 
+/// Gas per petagas.
+const GAS_PER_PGAS: u64 = 1_000_000_000_000_000;
 /// Gas per teragas.
 const GAS_PER_TGAS: u64 = 1_000_000_000_000;
 /// Gas per gigagas.
@@ -363,7 +365,7 @@ const GAS_PER_GGAS: u64 = 1_000_000_000;
 ///
 /// // Common constants
 /// let default = Gas::DEFAULT;  // 30 Tgas
-/// let max = Gas::MAX;          // 300 Tgas
+/// let max = Gas::MAX;          // 1 Pgas (1000 Tgas)
 /// ```
 ///
 /// # Parsing from Strings
@@ -390,12 +392,14 @@ impl Gas {
     pub const ONE_GGAS: Self = Self(GAS_PER_GGAS);
     /// One teragas (10^12).
     pub const ONE_TGAS: Self = Self(GAS_PER_TGAS);
+    /// One petagas (10^15).
+    pub const ONE_PGAS: Self = Self(GAS_PER_PGAS);
 
     /// Default gas for function calls (30 Tgas).
     pub const DEFAULT: Self = Self::from_tgas(30);
 
-    /// Maximum gas per transaction (300 Tgas).
-    pub const MAX: Self = Self::from_tgas(300);
+    /// Maximum gas per transaction (1 Pgas / 1000 Tgas).
+    pub const MAX: Self = Self::from_tgas(1_000);
 
     // ========================================================================
     // Short alias constructors (preferred)
@@ -1023,8 +1027,9 @@ mod tests {
         assert_eq!(Gas::ZERO.as_gas(), 0);
         assert_eq!(Gas::ONE_GGAS.as_gas(), GAS_PER_GGAS);
         assert_eq!(Gas::ONE_TGAS.as_gas(), GAS_PER_TGAS);
+        assert_eq!(Gas::ONE_PGAS.as_gas(), GAS_PER_PGAS);
         assert_eq!(Gas::DEFAULT.as_tgas(), 30);
-        assert_eq!(Gas::MAX.as_tgas(), 300);
+        assert_eq!(Gas::MAX.as_tgas(), 1_000);
     }
 
     #[test]
