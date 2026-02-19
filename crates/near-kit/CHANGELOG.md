@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.3.1...near-kit-v0.3.2) - 2026-02-19
+
+### Added
+
+- update max gas from 300 TGas to 1 PGas ([#23](https://github.com/r-near/near-kit-rs/pull/23))
+
 ## [0.3.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.3.0...near-kit-v0.3.1) - 2026-02-03
 
 ### Other
