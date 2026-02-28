@@ -210,7 +210,7 @@ pub struct AccessKeyInfoView {
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlockView {
     /// Block author (validator account ID).
-    pub author: String,
+    pub author: AccountId,
     /// Block header.
     pub header: BlockHeaderView,
     /// List of chunks in the block.
@@ -251,20 +251,20 @@ pub struct BlockHeaderView {
     pub random_value: CryptoHash,
     /// Validator proposals.
     #[serde(default)]
-    pub validator_proposals: Vec<ValidatorProposal>,
+    pub validator_proposals: Vec<ValidatorStakeView>,
     /// Chunk mask (which shards have chunks).
     #[serde(default)]
     pub chunk_mask: Vec<bool>,
     /// Gas price for this block.
-    pub gas_price: String,
+    pub gas_price: NearToken,
     /// Block ordinal (may be None).
     #[serde(default)]
     pub block_ordinal: Option<u64>,
     /// Total supply of NEAR tokens.
-    pub total_supply: String,
+    pub total_supply: NearToken,
     /// Challenges result.
     #[serde(default)]
-    pub challenges_result: Vec<serde_json::Value>,
+    pub challenges_result: Vec<SlashedValidator>,
     /// Last final block hash.
     pub last_final_block: CryptoHash,
     /// Last DS final block hash.
@@ -279,7 +279,7 @@ pub struct BlockHeaderView {
     pub block_merkle_root: CryptoHash,
     /// Epoch sync data hash (optional).
     #[serde(default)]
-    pub epoch_sync_data_hash: Option<String>,
+    pub epoch_sync_data_hash: Option<CryptoHash>,
     /// Block approvals (nullable signatures).
     #[serde(default)]
     pub approvals: Vec<Option<String>>,
@@ -289,15 +289,58 @@ pub struct BlockHeaderView {
     pub latest_protocol_version: u32,
 }
 
-/// Validator proposal in block header.
+/// Validator stake (versioned).
+///
+/// Used for validator proposals in block/chunk headers.
 #[derive(Debug, Clone, Deserialize)]
-pub struct ValidatorProposal {
+#[serde(untagged)]
+pub enum ValidatorStakeView {
+    /// Version 1 (current).
+    V1(ValidatorStakeViewV1),
+}
+
+/// Validator stake data.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ValidatorStakeViewV1 {
     /// Validator account ID.
-    pub account_id: String,
+    pub account_id: AccountId,
     /// Public key.
-    pub public_key: String,
+    pub public_key: PublicKey,
     /// Stake amount.
-    pub stake: String,
+    #[serde(alias = "stake")]
+    pub stake: NearToken,
+}
+
+impl ValidatorStakeView {
+    /// Get the inner V1 data.
+    pub fn into_v1(self) -> ValidatorStakeViewV1 {
+        match self {
+            Self::V1(v) => v,
+        }
+    }
+
+    /// Get the account ID.
+    pub fn account_id(&self) -> &AccountId {
+        match self {
+            Self::V1(v) => &v.account_id,
+        }
+    }
+
+    /// Get the stake amount.
+    pub fn stake(&self) -> NearToken {
+        match self {
+            Self::V1(v) => v.stake,
+        }
+    }
+}
+
+/// Slashed validator from challenge results.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SlashedValidator {
+    /// Validator account ID.
+    pub account_id: AccountId,
+    /// Whether this was a double sign.
+    pub is_double_sign: bool,
 }
 
 /// Chunk header with full details.
@@ -326,16 +369,16 @@ pub struct ChunkHeaderView {
     /// Gas limit for this chunk.
     pub gas_limit: u64,
     /// Validator reward.
-    pub validator_reward: String,
+    pub validator_reward: NearToken,
     /// Balance burnt.
-    pub balance_burnt: String,
+    pub balance_burnt: NearToken,
     /// Outgoing receipts root.
     pub outgoing_receipts_root: CryptoHash,
     /// Transaction root.
     pub tx_root: CryptoHash,
     /// Validator proposals.
     #[serde(default)]
-    pub validator_proposals: Vec<ValidatorProposal>,
+    pub validator_proposals: Vec<ValidatorStakeView>,
     /// Chunk signature.
     pub signature: String,
 }
@@ -344,13 +387,13 @@ pub struct ChunkHeaderView {
 #[derive(Debug, Clone, Deserialize)]
 pub struct GasPrice {
     /// Gas price in yoctoNEAR.
-    pub gas_price: String,
+    pub gas_price: NearToken,
 }
 
 impl GasPrice {
     /// Get gas price as u128.
     pub fn as_u128(&self) -> u128 {
-        self.gas_price.parse().unwrap_or(0)
+        self.gas_price.as_yoctonear()
     }
 }
 
@@ -499,7 +542,7 @@ pub struct TransactionView {
     /// Signer account.
     pub signer_id: AccountId,
     /// Signer public key.
-    pub public_key: String,
+    pub public_key: PublicKey,
     /// Transaction nonce.
     pub nonce: u64,
     /// Receiver account.
@@ -536,14 +579,14 @@ pub enum ActionView {
     },
     Stake {
         stake: NearToken,
-        public_key: String,
+        public_key: PublicKey,
     },
     AddKey {
-        public_key: String,
-        access_key: serde_json::Value,
+        public_key: PublicKey,
+        access_key: AccessKeyDetails,
     },
     DeleteKey {
-        public_key: String,
+        public_key: PublicKey,
     },
     DeleteAccount {
         beneficiary_id: AccountId,
@@ -562,11 +605,11 @@ pub enum ActionView {
     },
     #[serde(rename = "UseGlobalContract")]
     UseGlobalContract {
-        code_hash: String,
+        code_hash: CryptoHash,
     },
     #[serde(rename = "UseGlobalContractByAccountId")]
     UseGlobalContractByAccountId {
-        account_id: String,
+        account_id: AccountId,
     },
     #[serde(rename = "DeterministicStateInit")]
     DeterministicStateInit {
@@ -736,21 +779,30 @@ pub enum ReceiptContent {
     Data(DataReceiptData),
 }
 
+/// Data receiver for output data in action receipts.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DataReceiverView {
+    /// Data ID.
+    pub data_id: CryptoHash,
+    /// Receiver account ID.
+    pub receiver_id: AccountId,
+}
+
 /// Action receipt data.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ActionReceiptData {
     /// Signer account ID.
     pub signer_id: AccountId,
     /// Signer public key.
-    pub signer_public_key: String,
+    pub signer_public_key: PublicKey,
     /// Gas price for this receipt.
-    pub gas_price: String,
+    pub gas_price: NearToken,
     /// Output data receivers.
     #[serde(default)]
-    pub output_data_receivers: Vec<serde_json::Value>,
+    pub output_data_receivers: Vec<DataReceiverView>,
     /// Input data IDs.
     #[serde(default)]
-    pub input_data_ids: Vec<String>,
+    pub input_data_ids: Vec<CryptoHash>,
     /// Actions in this receipt.
     pub actions: Vec<ActionView>,
     /// Whether this is a promise yield.
@@ -762,7 +814,7 @@ pub struct ActionReceiptData {
 #[derive(Debug, Clone, Deserialize)]
 pub struct DataReceiptData {
     /// Data ID.
-    pub data_id: String,
+    pub data_id: CryptoHash,
     /// Data content (optional).
     #[serde(default)]
     pub data: Option<String>,
@@ -836,7 +888,7 @@ pub struct StatusResponse {
     pub node_key: Option<String>,
     /// Validator account ID (if validating).
     #[serde(default)]
-    pub validator_account_id: Option<String>,
+    pub validator_account_id: Option<AccountId>,
     /// Validator public key (if validating).
     #[serde(default)]
     pub validator_public_key: Option<String>,
@@ -856,7 +908,7 @@ pub struct StatusResponse {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ValidatorInfo {
     /// Validator account ID.
-    pub account_id: String,
+    pub account_id: AccountId,
 }
 
 /// Sync information.

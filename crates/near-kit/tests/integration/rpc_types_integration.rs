@@ -35,7 +35,10 @@ async fn test_block_view_full_fields() {
     let block = near.rpc().block(BlockReference::final_()).await.unwrap();
 
     // Verify BlockView fields
-    assert!(!block.author.is_empty(), "Block should have an author");
+    assert!(
+        !block.author.as_str().is_empty(),
+        "Block should have an author"
+    );
 
     // Verify BlockHeaderView fields - note that genesis block may have height 0
     let header = &block.header;
@@ -44,8 +47,14 @@ async fn test_block_view_full_fields() {
         !header.timestamp_nanosec.is_empty(),
         "Timestamp nanosec should exist"
     );
-    assert!(!header.gas_price.is_empty(), "Gas price should exist");
-    assert!(!header.total_supply.is_empty(), "Total supply should exist");
+    assert!(
+        header.gas_price.as_yoctonear() > 0,
+        "Gas price should exist"
+    );
+    assert!(
+        header.total_supply.as_yoctonear() > 0,
+        "Total supply should exist"
+    );
     assert!(!header.signature.is_empty(), "Signature should exist");
     assert!(
         header.latest_protocol_version > 0,
@@ -455,10 +464,16 @@ async fn test_gas_price() {
 
     let gas_price = near.rpc().gas_price(None).await.unwrap();
 
-    assert!(!gas_price.gas_price.is_empty(), "Gas price should exist");
+    assert!(
+        gas_price.gas_price.as_yoctonear() > 0,
+        "Gas price should exist"
+    );
     assert!(gas_price.as_u128() > 0, "Gas price should be positive");
 
-    println!("Current gas price: {} yoctoNEAR", gas_price.gas_price);
+    println!(
+        "Current gas price: {} yoctoNEAR",
+        gas_price.gas_price.as_yoctonear()
+    );
 }
 
 // ============================================================================

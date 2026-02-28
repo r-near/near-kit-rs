@@ -623,7 +623,10 @@ async fn test_block_query_returns_valid_data() {
 
     let block = near.rpc().block(BlockReference::final_()).await.unwrap();
 
-    assert!(!block.author.is_empty(), "Block author should exist");
+    assert!(
+        !block.author.as_str().is_empty(),
+        "Block author should exist"
+    );
     assert!(!block.header.hash.is_zero(), "Block hash should exist");
     assert!(block.header.latest_protocol_version > 0);
 

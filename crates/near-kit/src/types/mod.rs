@@ -82,11 +82,12 @@ pub use network::Network;
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountView, ActionReceiptData, ActionView, BlockHeaderView, BlockView,
-    ChunkHeaderView, DataReceiptData, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId,
-    ExecutionStatus, FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts,
-    FinalExecutionStatus, GasPrice, GasProfileEntry, MerkleDirection, MerklePathItem, NodeVersion,
-    Receipt, ReceiptContent, STORAGE_AMOUNT_PER_BYTE, StatusResponse, SyncInfo, TransactionView,
-    ValidatorInfo, ValidatorProposal, ViewFunctionResult,
+    ChunkHeaderView, DataReceiptData, DataReceiverView, ExecutionMetadata, ExecutionOutcome,
+    ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
+    FinalExecutionOutcomeWithReceipts, FinalExecutionStatus, GasPrice, GasProfileEntry,
+    MerkleDirection, MerklePathItem, NodeVersion, Receipt, ReceiptContent, STORAGE_AMOUNT_PER_BYTE,
+    SlashedValidator, StatusResponse, SyncInfo, TransactionView, ValidatorInfo, ValidatorStakeView,
+    ValidatorStakeViewV1, ViewFunctionResult,
 };
 pub use transaction::{SignedTransaction, Transaction};
 pub use units::{Gas, IntoGas, IntoNearToken, NearToken};
