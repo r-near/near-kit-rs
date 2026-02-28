@@ -297,6 +297,9 @@ async fn debug_transaction_receipts() {
                 println!("    Data ID: {}", data_receipt.data_id);
                 println!("    Data: {:?}", data_receipt.data);
             }
+            ReceiptContent::GlobalContractDistribution { .. } => {
+                println!("    Type: GLOBAL_CONTRACT_DISTRIBUTION");
+            }
         }
     }
 

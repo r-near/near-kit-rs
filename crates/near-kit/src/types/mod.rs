@@ -66,7 +66,7 @@ pub use action::{
     GlobalContractIdentifier, NonDelegateAction, SignedDelegateAction, StakeAction, TransferAction,
     TransferToGasKeyAction, UseGlobalContractAction, WithdrawFromGasKeyAction,
 };
-pub use block_reference::{BlockReference, Finality, TxExecutionStatus};
+pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{
     ActionError, ActionErrorKind, ActionsValidationError, CompilationError,
     DepositCostFailureReason, FunctionCallError, HostError, InvalidAccessKeyError, InvalidTxError,
@@ -82,8 +82,8 @@ pub use network::Network;
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountView, ActionReceiptData, ActionView, BlockHeaderView, BlockView,
-    ChunkHeaderView, DataReceiptData, DataReceiverView, ExecutionMetadata, ExecutionOutcome,
-    ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
+    ChunkHeaderView, CongestionInfoView, DataReceiptData, DataReceiverView, ExecutionMetadata,
+    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
     FinalExecutionOutcomeWithReceipts, FinalExecutionStatus, GasPrice, GasProfileEntry,
     MerkleDirection, MerklePathItem, NodeVersion, Receipt, ReceiptContent, STORAGE_AMOUNT_PER_BYTE,
     SlashedValidator, StatusResponse, SyncInfo, TransactionView, ValidatorInfo, ValidatorStakeView,

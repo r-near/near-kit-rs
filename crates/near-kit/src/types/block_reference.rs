@@ -4,6 +4,16 @@ use serde::{Deserialize, Serialize};
 
 use super::CryptoHash;
 
+/// Sync checkpoint for block references.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncCheckpoint {
+    /// Genesis block.
+    Genesis,
+    /// Earliest available block.
+    EarliestAvailable,
+}
+
 /// Reference to a specific block for RPC queries.
 ///
 /// Every NEAR RPC query operates on state at a specific block.
@@ -15,6 +25,8 @@ pub enum BlockReference {
     Height(u64),
     /// Query at specific block hash.
     Hash(CryptoHash),
+    /// Query at a sync checkpoint (genesis or earliest available).
+    SyncCheckpoint(SyncCheckpoint),
 }
 
 impl Default for BlockReference {
@@ -49,6 +61,16 @@ impl BlockReference {
         Self::Hash(hash)
     }
 
+    /// Query at genesis block.
+    pub fn genesis() -> Self {
+        Self::SyncCheckpoint(SyncCheckpoint::Genesis)
+    }
+
+    /// Query at earliest available block.
+    pub fn earliest_available() -> Self {
+        Self::SyncCheckpoint(SyncCheckpoint::EarliestAvailable)
+    }
+
     /// Convert to JSON for RPC requests.
     pub fn to_rpc_params(&self) -> serde_json::Value {
         match self {
@@ -60,6 +82,13 @@ impl BlockReference {
             }
             BlockReference::Hash(h) => {
                 serde_json::json!({ "block_id": h.to_string() })
+            }
+            BlockReference::SyncCheckpoint(cp) => {
+                let cp_str = match cp {
+                    SyncCheckpoint::Genesis => "genesis",
+                    SyncCheckpoint::EarliestAvailable => "earliest_available",
+                };
+                serde_json::json!({ "sync_checkpoint": cp_str })
             }
         }
     }
@@ -300,5 +329,40 @@ mod tests {
         let f3 = f1.clone(); // Clone (intentionally testing Clone impl)
         assert_eq!(f1, f2);
         assert_eq!(f1, f3);
+    }
+
+    #[test]
+    fn test_sync_checkpoint_constructors() {
+        let genesis = BlockReference::genesis();
+        assert!(matches!(
+            genesis,
+            BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis)
+        ));
+
+        let earliest = BlockReference::earliest_available();
+        assert!(matches!(
+            earliest,
+            BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable)
+        ));
+    }
+
+    #[test]
+    fn test_sync_checkpoint_rpc_params() {
+        let genesis = BlockReference::genesis();
+        let params = genesis.to_rpc_params();
+        assert_eq!(params["sync_checkpoint"], "genesis");
+
+        let earliest = BlockReference::earliest_available();
+        let params = earliest.to_rpc_params();
+        assert_eq!(params["sync_checkpoint"], "earliest_available");
+    }
+
+    #[test]
+    fn test_sync_checkpoint_serde_roundtrip() {
+        for cp in [SyncCheckpoint::Genesis, SyncCheckpoint::EarliestAvailable] {
+            let json = serde_json::to_string(&cp).unwrap();
+            let parsed: SyncCheckpoint = serde_json::from_str(&json).unwrap();
+            assert_eq!(cp, parsed);
+        }
     }
 }
