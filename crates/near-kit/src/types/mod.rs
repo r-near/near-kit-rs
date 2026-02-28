@@ -47,6 +47,7 @@
 mod account;
 mod action;
 mod block_reference;
+mod error;
 mod hash;
 mod key;
 pub mod nep413;
@@ -65,6 +66,12 @@ pub use action::{
     NonDelegateAction, SignedDelegateAction, StakeAction, TransferAction, UseGlobalContractAction,
 };
 pub use block_reference::{BlockReference, Finality, TxExecutionStatus};
+pub use error::{
+    ActionError, ActionErrorKind, ActionsValidationError, CompilationError,
+    DepositCostFailureReason, FunctionCallError, HostError, InvalidAccessKeyError, InvalidTxError,
+    MethodResolveError, PrepareError, ReceiptValidationError, StorageError, TxExecutionError,
+    WasmTrap,
+};
 pub use hash::CryptoHash;
 pub use key::{
     DEFAULT_HD_PATH, DEFAULT_WORD_COUNT, KeyPair, KeyType, PublicKey, SecretKey, Signature,
