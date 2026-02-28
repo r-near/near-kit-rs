@@ -359,6 +359,12 @@ async fn debug_access_key_details() {
                 println!("      Allowance: {:?}", allowance);
                 println!("      Method names: {:?}", method_names);
             }
+            near_kit::AccessKeyPermissionView::GasKeyFunctionCall { balance, .. } => {
+                println!("    Permission: GasKeyFunctionCall (balance: {})", balance);
+            }
+            near_kit::AccessKeyPermissionView::GasKeyFullAccess { balance, .. } => {
+                println!("    Permission: GasKeyFullAccess (balance: {})", balance);
+            }
         }
     }
 

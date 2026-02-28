@@ -62,8 +62,9 @@ pub use action::{
     DELEGATE_ACTION_PREFIX, DecodeError as DelegateDecodeError, DelegateAction,
     DeleteAccountAction, DeleteKeyAction, DeployContractAction, DeployGlobalContractAction,
     DeterministicAccountStateInit, DeterministicAccountStateInitV1, DeterministicStateInitAction,
-    FunctionCallAction, FunctionCallPermission, GlobalContractDeployMode, GlobalContractIdentifier,
-    NonDelegateAction, SignedDelegateAction, StakeAction, TransferAction, UseGlobalContractAction,
+    FunctionCallAction, FunctionCallPermission, GasKeyInfo, GlobalContractDeployMode,
+    GlobalContractIdentifier, NonDelegateAction, SignedDelegateAction, StakeAction, TransferAction,
+    TransferToGasKeyAction, UseGlobalContractAction, WithdrawFromGasKeyAction,
 };
 pub use block_reference::{BlockReference, Finality, TxExecutionStatus};
 pub use error::{

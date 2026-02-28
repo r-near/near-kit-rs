@@ -17,16 +17,34 @@ use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature};
 /// regular transaction signatures.
 pub const DELEGATE_ACTION_PREFIX: u32 = 1_073_742_190;
 
+/// Gas key information.
+///
+/// Gas keys are access keys with a prepaid balance to pay for gas costs.
+#[derive(
+    Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+pub struct GasKeyInfo {
+    /// Prepaid gas balance in yoctoNEAR.
+    pub balance: NearToken,
+    /// Number of nonces allocated for this gas key.
+    pub num_nonces: u16,
+}
+
 /// Access key permission.
 ///
 /// IMPORTANT: Variant order matters for Borsh serialization!
-/// NEAR Protocol defines: 0 = FunctionCall, 1 = FullAccess
+/// NEAR Protocol defines: 0 = FunctionCall, 1 = FullAccess,
+/// 2 = GasKeyFunctionCall, 3 = GasKeyFullAccess
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum AccessKeyPermission {
     /// Function call access with restrictions. (discriminant = 0)
     FunctionCall(FunctionCallPermission),
     /// Full access to the account. (discriminant = 1)
     FullAccess,
+    /// Gas key with function call access. (discriminant = 2)
+    GasKeyFunctionCall(GasKeyInfo, FunctionCallPermission),
+    /// Gas key with full access. (discriminant = 3)
+    GasKeyFullAccess(GasKeyInfo),
 }
 
 impl AccessKeyPermission {
@@ -97,7 +115,8 @@ impl AccessKey {
 /// The discriminants match NEAR Protocol specification:
 /// 0 = CreateAccount, 1 = DeployContract, 2 = FunctionCall, 3 = Transfer,
 /// 4 = Stake, 5 = AddKey, 6 = DeleteKey, 7 = DeleteAccount, 8 = Delegate,
-/// 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit
+/// 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit,
+/// 12 = TransferToGasKey, 13 = WithdrawFromGasKey
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Action {
     /// Create a new account. (discriminant = 0)
@@ -124,6 +143,10 @@ pub enum Action {
     UseGlobalContract(UseGlobalContractAction),
     /// NEP-616: Deploy with deterministically derived account ID. (discriminant = 11)
     DeterministicStateInit(DeterministicStateInitAction),
+    /// Transfer NEAR to a gas key. (discriminant = 12)
+    TransferToGasKey(TransferToGasKeyAction),
+    /// Withdraw NEAR from a gas key. (discriminant = 13)
+    WithdrawFromGasKey(WithdrawFromGasKeyAction),
 }
 
 /// Create a new account.
@@ -331,6 +354,24 @@ impl DeterministicStateInitAction {
     }
 }
 
+/// Transfer NEAR to a gas key.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct TransferToGasKeyAction {
+    /// Public key of the gas key to fund.
+    pub public_key: PublicKey,
+    /// Amount of NEAR to transfer.
+    pub deposit: NearToken,
+}
+
+/// Withdraw NEAR from a gas key.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct WithdrawFromGasKeyAction {
+    /// Public key of the gas key to withdraw from.
+    pub public_key: PublicKey,
+    /// Amount of NEAR to withdraw.
+    pub amount: NearToken,
+}
+
 /// Delegate action for meta-transactions.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct DelegateAction {
@@ -536,6 +577,19 @@ impl Action {
             }),
             deposit,
         })
+    }
+
+    /// Transfer NEAR to a gas key.
+    pub fn transfer_to_gas_key(public_key: PublicKey, deposit: NearToken) -> Self {
+        Self::TransferToGasKey(TransferToGasKeyAction {
+            public_key,
+            deposit,
+        })
+    }
+
+    /// Withdraw NEAR from a gas key.
+    pub fn withdraw_from_gas_key(public_key: PublicKey, amount: NearToken) -> Self {
+        Self::WithdrawFromGasKey(WithdrawFromGasKeyAction { public_key, amount })
     }
 }
 
@@ -820,7 +874,8 @@ mod tests {
         // Verify action discriminants match NEAR protocol specification
         // 0 = CreateAccount, 1 = DeployContract, 2 = FunctionCall, 3 = Transfer,
         // 4 = Stake, 5 = AddKey, 6 = DeleteKey, 7 = DeleteAccount, 8 = Delegate,
-        // 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit
+        // 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit,
+        // 12 = TransferToGasKey, 13 = WithdrawFromGasKey
 
         let create_account = Action::create_account();
         let bytes = borsh::to_vec(&create_account).unwrap();
@@ -858,6 +913,22 @@ mod tests {
         assert_eq!(
             bytes[0], 11,
             "DeterministicStateInit should have discriminant 11"
+        );
+
+        // TransferToGasKey (discriminant = 12)
+        let pk: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+            .parse()
+            .unwrap();
+        let transfer_gas = Action::transfer_to_gas_key(pk.clone(), NearToken::from_near(1));
+        let bytes = borsh::to_vec(&transfer_gas).unwrap();
+        assert_eq!(bytes[0], 12, "TransferToGasKey should have discriminant 12");
+
+        // WithdrawFromGasKey (discriminant = 13)
+        let withdraw_gas = Action::withdraw_from_gas_key(pk, NearToken::from_near(1));
+        let bytes = borsh::to_vec(&withdraw_gas).unwrap();
+        assert_eq!(
+            bytes[0], 13,
+            "WithdrawFromGasKey should have discriminant 13"
         );
     }
 
@@ -1072,6 +1143,42 @@ mod tests {
             state_init2.derive_account_id(),
             "Different code references should produce different account IDs"
         );
+    }
+
+    #[test]
+    fn test_access_key_permission_discriminants() {
+        let fc = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: None,
+            receiver_id: "test.near".parse().unwrap(),
+            method_names: vec![],
+        });
+        let bytes = borsh::to_vec(&fc).unwrap();
+        assert_eq!(bytes[0], 0, "FunctionCall should have discriminant 0");
+
+        let fa = AccessKeyPermission::FullAccess;
+        let bytes = borsh::to_vec(&fa).unwrap();
+        assert_eq!(bytes[0], 1, "FullAccess should have discriminant 1");
+
+        let gkfc = AccessKeyPermission::GasKeyFunctionCall(
+            GasKeyInfo {
+                balance: NearToken::from_near(1),
+                num_nonces: 5,
+            },
+            FunctionCallPermission {
+                allowance: None,
+                receiver_id: "test.near".parse().unwrap(),
+                method_names: vec![],
+            },
+        );
+        let bytes = borsh::to_vec(&gkfc).unwrap();
+        assert_eq!(bytes[0], 2, "GasKeyFunctionCall should have discriminant 2");
+
+        let gkfa = AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
+            balance: NearToken::from_near(1),
+            num_nonces: 5,
+        });
+        let bytes = borsh::to_vec(&gkfa).unwrap();
+        assert_eq!(bytes[0], 3, "GasKeyFullAccess should have discriminant 3");
     }
 
     #[test]

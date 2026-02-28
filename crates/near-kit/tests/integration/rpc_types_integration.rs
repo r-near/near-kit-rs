@@ -219,6 +219,12 @@ async fn test_access_key_list_view() {
                 println!("    Allowance: {:?}", allowance);
                 println!("    Methods: {:?}", method_names);
             }
+            AccessKeyPermissionView::GasKeyFunctionCall { balance, .. } => {
+                println!("  Permission: GasKeyFunctionCall (balance: {})", balance);
+            }
+            AccessKeyPermissionView::GasKeyFullAccess { balance, .. } => {
+                println!("  Permission: GasKeyFullAccess (balance: {})", balance);
+            }
         }
     }
 }
