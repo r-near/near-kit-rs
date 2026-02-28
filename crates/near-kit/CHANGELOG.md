@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.3.1...near-kit-v0.4.0) - 2026-02-28
+
+### Added
+
+- add validator, light client, and state change types ([#34](https://github.com/r-near/near-kit-rs/pull/34))
+- add missing fields and new type variants ([#33](https://github.com/r-near/near-kit-rs/pull/33))
+- replace String/Value fields with proper types ([#32](https://github.com/r-near/near-kit-rs/pull/32))
+- add gas key types ([#31](https://github.com/r-near/near-kit-rs/pull/31))
+- typed error types for transaction execution failures ([#29](https://github.com/r-near/near-kit-rs/pull/29))
+- add `Near::with_signer` for multi-account usage ([#28](https://github.com/r-near/near-kit-rs/pull/28))
+- update max gas from 300 TGas to 1 PGas ([#23](https://github.com/r-near/near-kit-rs/pull/23))
+
+### Fixed
+
+- replace all serde_json::Value with strict types ([#37](https://github.com/r-near/near-kit-rs/pull/37))
+- close critical type parity gaps with nearcore ([#36](https://github.com/r-near/near-kit-rs/pull/36))
+- align FinalExecutionStatus and ExecutionStatus with nearcore ([#35](https://github.com/r-near/near-kit-rs/pull/35))
+
+### Other
+
+- add sandbox integration tests for typed error deserialization ([#30](https://github.com/r-near/near-kit-rs/pull/30))
+- *(deps)* bump serde_with from 3.16.1 to 3.17.0 ([#26](https://github.com/r-near/near-kit-rs/pull/26))
+
 ## [0.3.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.3.0...near-kit-v0.3.1) - 2026-02-03
 
 ### Other
