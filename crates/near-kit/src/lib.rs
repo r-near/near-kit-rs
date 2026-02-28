@@ -307,6 +307,32 @@
 //! # }
 //! ```
 //!
+//! ### Multiple Accounts
+//!
+//! For production apps that manage multiple accounts, use [`Near::with_signer`] to
+//! derive clients that share the same RPC connection but sign as different accounts:
+//!
+//! ```rust,no_run
+//! use near_kit::*;
+//!
+//! # fn example() -> Result<(), Error> {
+//! let near = Near::testnet().build();
+//!
+//! let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
+//! let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
+//!
+//! // Both share the same connection, no overhead
+//! // alice.transfer("carol.testnet", NearToken::near(1)).await?;
+//! // bob.transfer("carol.testnet", NearToken::near(2)).await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Use [`with_signer`](Near::with_signer) for multi-account management and
+//! [`RotatingSigner`] for high-throughput single-account usage (multiple keys to
+//! avoid nonce collisions). For one-off overrides on a single transaction, use
+//! [`.sign_with()`](TransactionBuilder::sign_with) on the transaction builder.
+//!
 //! ## Sandbox Testing
 //!
 //! Enable the `sandbox` feature for local testing with [`near-sandbox`](https://crates.io/crates/near-sandbox):

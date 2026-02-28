@@ -77,6 +77,22 @@ For CI/CD, configure via environment variables:
 let near = Near::from_env()?;
 ```
 
+## Multiple Accounts
+
+Transport and signing are separate concerns. Set up the connection once, then derive clients for different accounts with `with_signer`. They share the same RPC connection, so there's no overhead:
+
+```rust
+let near = Near::testnet().build(); // read-only, shared connection
+
+let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
+let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
+
+alice.transfer("carol.testnet", NearToken::near(1)).await?;
+bob.transfer("carol.testnet", NearToken::near(2)).await?;
+```
+
+For single-account scripts, the `credentials` builder is still the simplest path. Use `with_signer` when you need to manage multiple accounts or want explicit separation between connection setup and signing.
+
 Need to pass arguments or attach a deposit? Chain the builders:
 
 ```rust
