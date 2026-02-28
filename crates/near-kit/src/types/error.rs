@@ -215,11 +215,11 @@ pub enum InvalidTxError {
     StorageError(StorageError),
     ShardCongested {
         congestion_level: f64,
-        shard_id: u32,
+        shard_id: u64,
     },
     ShardStuck {
         missed_chunks: u64,
-        shard_id: u32,
+        shard_id: u64,
     },
     InvalidNonceIndex {
         num_nonces: u16,
