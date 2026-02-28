@@ -598,9 +598,7 @@ impl Signature {
                 let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes);
                 verifying_key.verify_strict(message, &signature).is_ok()
             }
-            KeyType::Secp256k1 => {
-                unimplemented!("secp256k1 not yet supported")
-            }
+            KeyType::Secp256k1 => false, // not yet implemented
         }
     }
 }
