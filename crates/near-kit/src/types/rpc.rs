@@ -891,7 +891,7 @@ pub struct StatusResponse {
     pub validator_account_id: Option<AccountId>,
     /// Validator public key (if validating).
     #[serde(default)]
-    pub validator_public_key: Option<String>,
+    pub validator_public_key: Option<PublicKey>,
     /// List of current validators.
     #[serde(default)]
     pub validators: Vec<ValidatorInfo>,
