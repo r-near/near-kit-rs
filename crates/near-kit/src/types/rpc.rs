@@ -3,6 +3,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 
+use super::block_reference::TxExecutionStatus;
 use super::error::TxExecutionError;
 use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey};
 
@@ -464,34 +465,31 @@ impl GasPrice {
 // Transaction outcome types
 // ============================================================================
 
-/// Transaction execution status levels.
+/// Overall transaction execution status.
 ///
-/// Determines when the RPC should return a response after submitting a transaction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+/// Represents the final result of a transaction, matching nearcore's `FinalExecutionStatus`.
+/// This is the `status` field in `FinalExecutionOutcome`.
+#[derive(Debug, Clone, Default, Deserialize)]
 pub enum FinalExecutionStatus {
-    /// Don't wait - returns immediately after basic validation.
-    None,
-    /// Wait until transaction is included in a block.
-    Included,
-    /// Wait until transaction execution completes (fast, works well for sandbox/testnet).
-    ExecutedOptimistic,
-    /// Wait until the block containing the transaction is finalized.
-    IncludedFinal,
-    /// Wait until both INCLUDED_FINAL and EXECUTED_OPTIMISTIC conditions are met.
-    Executed,
-    /// Wait until the block with the last non-refund receipt is finalized (full finality).
-    Final,
+    /// The transaction has not yet started execution.
+    #[default]
+    NotStarted,
+    /// The transaction has started but the first receipt hasn't completed.
+    Started,
+    /// The transaction execution failed.
+    Failure(TxExecutionError),
+    /// The transaction execution succeeded (base64-encoded return value).
+    SuccessValue(String),
 }
 
 /// Final execution outcome from send_tx RPC.
 #[derive(Debug, Clone, Deserialize)]
 pub struct FinalExecutionOutcome {
-    /// The execution status level that was reached.
-    pub final_execution_status: FinalExecutionStatus,
-    /// Overall transaction status (only present for executed transactions).
+    /// The wait level that was reached (e.g. `EXECUTED_OPTIMISTIC`, `FINAL`).
+    pub final_execution_status: TxExecutionStatus,
+    /// Overall transaction execution result.
     #[serde(default)]
-    pub status: Option<ExecutionStatus>,
+    pub status: FinalExecutionStatus,
     /// The transaction that was executed (full details for executed, minimal for pending).
     #[serde(default)]
     pub transaction: Option<TransactionView>,
@@ -506,31 +504,26 @@ pub struct FinalExecutionOutcome {
 impl FinalExecutionOutcome {
     /// Check if the transaction succeeded.
     pub fn is_success(&self) -> bool {
-        matches!(
-            &self.status,
-            Some(ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_))
-        )
+        matches!(&self.status, FinalExecutionStatus::SuccessValue(_))
     }
 
     /// Check if the transaction failed.
     pub fn is_failure(&self) -> bool {
-        matches!(&self.status, Some(ExecutionStatus::Failure(_)))
+        matches!(&self.status, FinalExecutionStatus::Failure(_))
     }
 
-    /// Check if the transaction is still pending.
+    /// Check if the transaction is still pending (not yet started or still executing).
     pub fn is_pending(&self) -> bool {
         matches!(
-            self.final_execution_status,
-            FinalExecutionStatus::None
-                | FinalExecutionStatus::Included
-                | FinalExecutionStatus::IncludedFinal
+            self.status,
+            FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started
         )
     }
 
     /// Get the success value if present (base64 decoded).
     pub fn success_value(&self) -> Option<Vec<u8>> {
         match &self.status {
-            Some(ExecutionStatus::SuccessValue(s)) => STANDARD.decode(s).ok(),
+            FinalExecutionStatus::SuccessValue(s) => STANDARD.decode(s).ok(),
             _ => None,
         }
     }
@@ -549,7 +542,7 @@ impl FinalExecutionOutcome {
     /// Get the failure message if present.
     pub fn failure_message(&self) -> Option<String> {
         match &self.status {
-            Some(ExecutionStatus::Failure(err)) => Some(err.to_string()),
+            FinalExecutionStatus::Failure(err) => Some(err.to_string()),
             _ => None,
         }
     }
@@ -557,7 +550,7 @@ impl FinalExecutionOutcome {
     /// Get the typed execution error if present.
     pub fn failure_error(&self) -> Option<&TxExecutionError> {
         match &self.status {
-            Some(ExecutionStatus::Failure(err)) => Some(err),
+            FinalExecutionStatus::Failure(err) => Some(err),
             _ => None,
         }
     }
@@ -583,19 +576,18 @@ impl FinalExecutionOutcome {
     }
 }
 
-/// Execution status.
+/// Per-receipt execution status.
+///
+/// Matches nearcore's `ExecutionStatusView`. Used in [`ExecutionOutcome`].
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "PascalCase")]
 pub enum ExecutionStatus {
-    /// Unknown status.
+    /// The execution is pending or unknown.
     Unknown,
-    /// Execution is pending.
-    Pending,
     /// Execution failed.
     Failure(TxExecutionError),
-    /// Execution succeeded with a value (base64 encoded).
+    /// Execution succeeded with a return value (base64 encoded).
     SuccessValue(String),
-    /// Execution succeeded with a receipt ID.
+    /// Execution succeeded, producing a receipt.
     SuccessReceiptId(CryptoHash),
 }
 
@@ -901,11 +893,11 @@ pub struct DataReceiptData {
 /// Final execution outcome with receipts (from EXPERIMENTAL_tx_status).
 #[derive(Debug, Clone, Deserialize)]
 pub struct FinalExecutionOutcomeWithReceipts {
-    /// The execution status level that was reached.
-    pub final_execution_status: FinalExecutionStatus,
-    /// Overall transaction status (only present for executed transactions).
+    /// The wait level that was reached (e.g. `EXECUTED_OPTIMISTIC`, `FINAL`).
+    pub final_execution_status: TxExecutionStatus,
+    /// Overall transaction execution result.
     #[serde(default)]
-    pub status: Option<ExecutionStatus>,
+    pub status: FinalExecutionStatus,
     /// The transaction that was executed.
     #[serde(default)]
     pub transaction: Option<TransactionView>,
@@ -923,15 +915,12 @@ pub struct FinalExecutionOutcomeWithReceipts {
 impl FinalExecutionOutcomeWithReceipts {
     /// Check if the transaction succeeded.
     pub fn is_success(&self) -> bool {
-        matches!(
-            &self.status,
-            Some(ExecutionStatus::SuccessValue(_) | ExecutionStatus::SuccessReceiptId(_))
-        )
+        matches!(&self.status, FinalExecutionStatus::SuccessValue(_))
     }
 
     /// Check if the transaction failed.
     pub fn is_failure(&self) -> bool {
-        matches!(&self.status, Some(ExecutionStatus::Failure(_)))
+        matches!(&self.status, FinalExecutionStatus::Failure(_))
     }
 
     /// Get the transaction hash.
@@ -1276,5 +1265,155 @@ mod tests {
         });
         let action: ActionView = serde_json::from_value(json).unwrap();
         assert!(matches!(action, ActionView::WithdrawFromGasKey { .. }));
+    }
+
+    // ========================================================================
+    // FinalExecutionStatus tests
+    // ========================================================================
+
+    #[test]
+    fn test_final_execution_status_default() {
+        let status = FinalExecutionStatus::default();
+        assert!(matches!(status, FinalExecutionStatus::NotStarted));
+    }
+
+    #[test]
+    fn test_final_execution_status_not_started() {
+        let json = serde_json::json!("NotStarted");
+        let status: FinalExecutionStatus = serde_json::from_value(json).unwrap();
+        assert!(matches!(status, FinalExecutionStatus::NotStarted));
+    }
+
+    #[test]
+    fn test_final_execution_status_started() {
+        let json = serde_json::json!("Started");
+        let status: FinalExecutionStatus = serde_json::from_value(json).unwrap();
+        assert!(matches!(status, FinalExecutionStatus::Started));
+    }
+
+    #[test]
+    fn test_final_execution_status_success_value() {
+        let json = serde_json::json!({"SuccessValue": "aGVsbG8="});
+        let status: FinalExecutionStatus = serde_json::from_value(json).unwrap();
+        assert!(matches!(status, FinalExecutionStatus::SuccessValue(ref s) if s == "aGVsbG8="));
+    }
+
+    #[test]
+    fn test_final_execution_status_failure() {
+        let json = serde_json::json!({
+            "Failure": {
+                "ActionError": {
+                    "index": 0,
+                    "kind": {
+                        "FunctionCallError": {
+                            "ExecutionError": "Smart contract panicked"
+                        }
+                    }
+                }
+            }
+        });
+        let status: FinalExecutionStatus = serde_json::from_value(json).unwrap();
+        assert!(matches!(status, FinalExecutionStatus::Failure(_)));
+    }
+
+    // ========================================================================
+    // FinalExecutionOutcome helper tests
+    // ========================================================================
+
+    #[test]
+    fn test_final_execution_outcome_deserialization() {
+        let json = serde_json::json!({
+            "final_execution_status": "FINAL",
+            "status": {"SuccessValue": ""},
+            "transaction": {
+                "signer_id": "alice.near",
+                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "nonce": 1,
+                "receiver_id": "bob.near",
+                "actions": [{"Transfer": {"deposit": "1000000000000000000000000"}}],
+                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+            },
+            "transaction_outcome": {
+                "id": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+                "outcome": {
+                    "executor_id": "alice.near",
+                    "gas_burnt": 223182562500_i64,
+                    "tokens_burnt": "22318256250000000000",
+                    "logs": [],
+                    "receipt_ids": ["3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"],
+                    "status": {"SuccessReceiptId": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"}
+                },
+                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
+                "proof": []
+            },
+            "receipts_outcome": []
+        });
+        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+        assert_eq!(outcome.final_execution_status, TxExecutionStatus::Final);
+        assert!(outcome.is_success());
+        assert!(!outcome.is_failure());
+        assert!(!outcome.is_pending());
+    }
+
+    #[test]
+    fn test_final_execution_outcome_pending() {
+        let json = serde_json::json!({
+            "final_execution_status": "NONE"
+        });
+        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+        assert_eq!(outcome.final_execution_status, TxExecutionStatus::None);
+        assert!(matches!(outcome.status, FinalExecutionStatus::NotStarted));
+        assert!(outcome.is_pending());
+        assert!(!outcome.is_success());
+    }
+
+    #[test]
+    fn test_final_execution_outcome_failure() {
+        let json = serde_json::json!({
+            "final_execution_status": "EXECUTED_OPTIMISTIC",
+            "status": {
+                "Failure": {
+                    "ActionError": {
+                        "index": 0,
+                        "kind": {
+                            "FunctionCallError": {
+                                "ExecutionError": "Smart contract panicked"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+        assert!(outcome.is_failure());
+        assert!(!outcome.is_success());
+        assert!(outcome.failure_message().is_some());
+        assert!(outcome.failure_error().is_some());
+    }
+
+    // ========================================================================
+    // ExecutionStatus tests (per-receipt)
+    // ========================================================================
+
+    #[test]
+    fn test_execution_status_unknown() {
+        let json = serde_json::json!("Unknown");
+        let status: ExecutionStatus = serde_json::from_value(json).unwrap();
+        assert!(matches!(status, ExecutionStatus::Unknown));
+    }
+
+    #[test]
+    fn test_execution_status_success_value() {
+        let json = serde_json::json!({"SuccessValue": "aGVsbG8="});
+        let status: ExecutionStatus = serde_json::from_value(json).unwrap();
+        assert!(matches!(status, ExecutionStatus::SuccessValue(_)));
+    }
+
+    #[test]
+    fn test_execution_status_success_receipt_id() {
+        let json =
+            serde_json::json!({"SuccessReceiptId": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"});
+        let status: ExecutionStatus = serde_json::from_value(json).unwrap();
+        assert!(matches!(status, ExecutionStatus::SuccessReceiptId(_)));
     }
 }

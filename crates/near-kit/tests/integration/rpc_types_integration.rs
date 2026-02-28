@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use near_kit::sandbox::{ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
 use near_kit::{
-    AccessKeyPermissionView, ActionView, FinalExecutionStatus, MerkleDirection, ReceiptContent,
+    AccessKeyPermissionView, ActionView, MerkleDirection, ReceiptContent, TxExecutionStatus,
 };
 
 /// Counter for generating unique subaccount names
@@ -267,14 +267,13 @@ async fn test_final_execution_outcome_full_fields() {
     assert!(
         matches!(
             outcome.final_execution_status,
-            FinalExecutionStatus::Final | FinalExecutionStatus::Executed
+            TxExecutionStatus::Final | TxExecutionStatus::Executed
         ),
         "Should have final execution status, got {:?}",
         outcome.final_execution_status
     );
     assert!(outcome.is_success(), "Transaction should succeed");
     assert!(!outcome.is_pending(), "Transaction should not be pending");
-    assert!(outcome.status.is_some(), "Status should be present");
     assert!(
         outcome.transaction.is_some(),
         "Transaction should be present"
