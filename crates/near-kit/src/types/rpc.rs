@@ -307,7 +307,6 @@ pub struct ValidatorStakeViewV1 {
     /// Public key.
     pub public_key: PublicKey,
     /// Stake amount.
-    #[serde(alias = "stake")]
     pub stake: NearToken,
 }
 
