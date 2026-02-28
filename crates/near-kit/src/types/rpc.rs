@@ -37,6 +37,12 @@ pub struct AccountView {
     /// Storage paid at block height (deprecated, always 0).
     #[serde(default)]
     pub storage_paid_at: u64,
+    /// Global contract code hash (if using a global contract).
+    #[serde(default)]
+    pub global_contract_hash: Option<CryptoHash>,
+    /// Global contract account ID (if using a global contract by account).
+    #[serde(default)]
+    pub global_contract_account_id: Option<AccountId>,
     /// Block height of the query.
     pub block_height: u64,
     /// Block hash of the query.
@@ -280,6 +286,9 @@ pub struct BlockHeaderView {
     /// Epoch sync data hash (optional).
     #[serde(default)]
     pub epoch_sync_data_hash: Option<CryptoHash>,
+    /// Block body hash (optional, added in later protocol versions).
+    #[serde(default)]
+    pub block_body_hash: Option<CryptoHash>,
     /// Block approvals (nullable signatures).
     #[serde(default)]
     pub approvals: Vec<Option<String>>,
@@ -287,6 +296,18 @@ pub struct BlockHeaderView {
     pub signature: String,
     /// Latest protocol version.
     pub latest_protocol_version: u32,
+    /// Rent paid (deprecated, always 0).
+    #[serde(default)]
+    pub rent_paid: Option<NearToken>,
+    /// Validator reward (deprecated, always 0).
+    #[serde(default)]
+    pub validator_reward: Option<NearToken>,
+    /// Chunk endorsements (optional).
+    #[serde(default)]
+    pub chunk_endorsements: Option<Vec<Vec<u8>>>,
+    /// Shard split info (optional).
+    #[serde(default)]
+    pub shard_split: Option<serde_json::Value>,
 }
 
 /// Validator stake (versioned).
@@ -378,8 +399,37 @@ pub struct ChunkHeaderView {
     /// Validator proposals.
     #[serde(default)]
     pub validator_proposals: Vec<ValidatorStakeView>,
+    /// Congestion info (optional, added in later protocol versions).
+    #[serde(default)]
+    pub congestion_info: Option<CongestionInfoView>,
+    /// Bandwidth requests (optional, added in later protocol versions).
+    #[serde(default)]
+    pub bandwidth_requests: Option<serde_json::Value>,
+    /// Rent paid (deprecated, always 0).
+    #[serde(default)]
+    pub rent_paid: Option<NearToken>,
+    /// Proposed split (optional).
+    #[serde(default)]
+    pub proposed_split: Option<serde_json::Value>,
     /// Chunk signature.
     pub signature: String,
+}
+
+/// Congestion information for a shard.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CongestionInfoView {
+    /// Gas used by delayed receipts.
+    #[serde(default)]
+    pub delayed_receipts_gas: u128,
+    /// Gas used by buffered receipts.
+    #[serde(default)]
+    pub buffered_receipts_gas: u128,
+    /// Bytes used by receipts.
+    #[serde(default)]
+    pub receipt_bytes: u64,
+    /// Allowed shard.
+    #[serde(default)]
+    pub allowed_shard: u16,
 }
 
 /// Gas price response.
@@ -557,6 +607,9 @@ pub struct TransactionView {
     /// Priority fee (optional, for congestion pricing).
     #[serde(default)]
     pub priority_fee: Option<u64>,
+    /// Nonce index (for gas key multi-nonce support).
+    #[serde(default)]
+    pub nonce_index: Option<u16>,
 }
 
 /// Action view in transaction.
@@ -769,13 +822,25 @@ pub struct Receipt {
     pub priority: Option<u64>,
 }
 
-/// Receipt content - either action or data.
+/// Receipt content - action, data, or global contract distribution.
 #[derive(Debug, Clone, Deserialize)]
 pub enum ReceiptContent {
     /// Action receipt.
     Action(ActionReceiptData),
     /// Data receipt.
     Data(DataReceiptData),
+    /// Global contract distribution receipt.
+    GlobalContractDistribution {
+        /// Global contract identifier.
+        #[serde(default)]
+        id: Option<serde_json::Value>,
+        /// Target shard.
+        #[serde(default)]
+        target_shard: Option<u64>,
+        /// Code bytes (base64).
+        #[serde(default)]
+        code: Option<String>,
+    },
 }
 
 /// Data receiver for output data in action receipts.
@@ -967,6 +1032,8 @@ mod tests {
             code_hash: CryptoHash::default(),
             storage_usage,
             storage_paid_at: 0,
+            global_contract_hash: None,
+            global_contract_account_id: None,
             block_height: 0,
             block_hash: CryptoHash::default(),
         }

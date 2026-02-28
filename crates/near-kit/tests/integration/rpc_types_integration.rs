@@ -449,6 +449,9 @@ async fn test_tx_status_with_receipts() {
                 println!("  Type: Data receipt");
                 println!("  Data ID: {}", data_receipt.data_id);
             }
+            ReceiptContent::GlobalContractDistribution { .. } => {
+                println!("  Type: Global contract distribution");
+            }
         }
     }
 }
