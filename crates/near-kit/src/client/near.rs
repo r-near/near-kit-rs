@@ -47,6 +47,10 @@ pub trait SandboxNetwork {
 /// It can be configured with a signer for write operations, or used
 /// without a signer for read-only operations.
 ///
+/// Transport (RPC connection) and signing are separate concerns — the client
+/// holds a shared `Arc<RpcClient>` and an optional signer. Use [`with_signer`](Near::with_signer)
+/// to derive new clients that share the same connection but sign as different accounts.
+///
 /// # Example
 ///
 /// ```rust,no_run
@@ -58,15 +62,33 @@ pub trait SandboxNetwork {
 ///     let near = Near::testnet().build();
 ///     let balance = near.balance("alice.testnet").await?;
 ///     println!("Balance: {}", balance);
-///     
+///
 ///     // Client with signer for transactions
 ///     let near = Near::testnet()
 ///         .credentials("ed25519:...", "alice.testnet")?
 ///         .build();
 ///     near.transfer("bob.testnet", "1 NEAR").await?;
-///     
+///
 ///     Ok(())
 /// }
+/// ```
+///
+/// # Multiple Accounts
+///
+/// For production apps that manage multiple accounts, set up the connection once
+/// and derive signing contexts with [`with_signer`](Near::with_signer):
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// # fn example() -> Result<(), Error> {
+/// let near = Near::testnet().build();
+///
+/// let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
+/// let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
+///
+/// // Both share the same RPC connection, sign as different accounts
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone)]
 pub struct Near {
@@ -217,6 +239,37 @@ impl Near {
     /// Get the network this client is connected to.
     pub fn network(&self) -> Network {
         self.network
+    }
+
+    /// Create a new client that shares this client's transport but uses a different signer.
+    ///
+    /// This is the recommended way to manage multiple accounts. The RPC connection
+    /// is shared (via `Arc`), so there's no overhead from creating multiple clients.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # fn example() -> Result<(), Error> {
+    /// // Set up a shared connection
+    /// let near = Near::testnet().build();
+    ///
+    /// // Derive signing contexts for different accounts
+    /// let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
+    /// let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
+    ///
+    /// // Both share the same RPC connection
+    /// // alice.transfer("carol.testnet", NearToken::near(1)).await?;
+    /// // bob.transfer("carol.testnet", NearToken::near(2)).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_signer(&self, signer: impl Signer + 'static) -> Near {
+        Near {
+            rpc: self.rpc.clone(),
+            signer: Some(Arc::new(signer)),
+            network: self.network,
+        }
     }
 
     // ========================================================================
@@ -1069,6 +1122,41 @@ mod tests {
         let near1 = Near::testnet().build();
         let near2 = near1.clone();
         assert_eq!(near1.rpc_url(), near2.rpc_url());
+    }
+
+    #[test]
+    fn test_near_with_signer_derived() {
+        let near = Near::testnet().build();
+        assert!(near.account_id().is_none());
+
+        let signer = InMemorySigner::new(
+            "alice.testnet",
+            "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
+        ).unwrap();
+
+        let alice = near.with_signer(signer);
+        assert_eq!(alice.account_id().unwrap().as_str(), "alice.testnet");
+        assert_eq!(alice.rpc_url(), near.rpc_url()); // Same transport
+        assert!(near.account_id().is_none()); // Original unchanged
+    }
+
+    #[test]
+    fn test_near_with_signer_multiple_accounts() {
+        let near = Near::testnet().build();
+
+        let alice = near.with_signer(InMemorySigner::new(
+            "alice.testnet",
+            "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
+        ).unwrap());
+
+        let bob = near.with_signer(InMemorySigner::new(
+            "bob.testnet",
+            "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
+        ).unwrap());
+
+        assert_eq!(alice.account_id().unwrap().as_str(), "alice.testnet");
+        assert_eq!(bob.account_id().unwrap().as_str(), "bob.testnet");
+        assert_eq!(alice.rpc_url(), bob.rpc_url()); // Shared transport
     }
 
     // ========================================================================

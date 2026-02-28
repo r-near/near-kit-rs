@@ -392,7 +392,7 @@ impl RpcError {
 pub enum Error {
     // ─── Configuration ───
     #[error(
-        "No signer configured. Call .signer() on NearBuilder or .sign_with() on the operation."
+        "No signer configured. Use .credentials()/.signer() on NearBuilder, .with_signer() on the client, or .sign_with() on the transaction."
     )]
     NoSigner,
 
@@ -964,7 +964,7 @@ mod tests {
     fn test_error_no_signer_display() {
         assert_eq!(
             Error::NoSigner.to_string(),
-            "No signer configured. Call .signer() on NearBuilder or .sign_with() on the operation."
+            "No signer configured. Use .credentials()/.signer() on NearBuilder, .with_signer() on the client, or .sign_with() on the transaction."
         );
     }
 
