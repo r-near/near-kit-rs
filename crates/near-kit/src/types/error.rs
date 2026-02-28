@@ -591,6 +591,7 @@ pub struct MissingTrieValue {
 
 /// Context in which a trie value was missing.
 #[derive(Debug, Clone, Deserialize)]
+#[allow(clippy::enum_variant_names)] // Matches nearcore naming
 pub enum MissingTrieValueContext {
     TrieIterator,
     TriePrefetchingStorage,
