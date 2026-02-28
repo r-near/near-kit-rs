@@ -419,10 +419,10 @@ pub struct ChunkHeaderView {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CongestionInfoView {
     /// Gas used by delayed receipts.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "dec_format")]
     pub delayed_receipts_gas: u128,
     /// Gas used by buffered receipts.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "dec_format")]
     pub buffered_receipts_gas: u128,
     /// Bytes used by receipts.
     #[serde(default)]
@@ -430,6 +430,20 @@ pub struct CongestionInfoView {
     /// Allowed shard.
     #[serde(default)]
     pub allowed_shard: u16,
+}
+
+/// Deserialize a u128 from a decimal string (NEAR RPC sends u128 as strings).
+fn dec_format<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u128, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrNum {
+        String(String),
+        Num(u128),
+    }
+    match StringOrNum::deserialize(deserializer)? {
+        StringOrNum::String(s) => s.parse().map_err(serde::de::Error::custom),
+        StringOrNum::Num(n) => Ok(n),
+    }
 }
 
 /// Gas price response.
