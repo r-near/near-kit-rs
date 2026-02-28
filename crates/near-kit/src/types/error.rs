@@ -5,6 +5,7 @@
 
 use serde::Deserialize;
 
+use super::rpc::GlobalContractIdentifierView;
 use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey};
 
 // ============================================================================
@@ -130,7 +131,7 @@ pub enum ActionErrorKind {
         upper_bound: u64,
     },
     GlobalContractDoesNotExist {
-        identifier: serde_json::Value,
+        identifier: GlobalContractIdentifierView,
     },
     GasKeyDoesNotExist {
         account_id: AccountId,

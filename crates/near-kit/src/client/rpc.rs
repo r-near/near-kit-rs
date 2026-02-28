@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::error::RpcError;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockReference, BlockView,
-    CryptoHash, FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts, GasPrice, PublicKey,
-    SignedTransaction, StatusResponse, TxExecutionStatus, ViewFunctionResult,
+    CryptoHash, GasPrice, PublicKey, SendTxResponse, SendTxWithReceiptsResponse, SignedTransaction,
+    StatusResponse, TxExecutionStatus, ViewFunctionResult,
 };
 
 /// Network configuration presets.
@@ -246,7 +246,21 @@ impl RpcClient {
                     return RpcError::InvalidAccount(account_id.to_string());
                 }
                 "UNKNOWN_ACCESS_KEY" => {
-                    // Could extract account_id and public_key here
+                    if let (Some(account_id), Some(public_key)) = (
+                        info.and_then(|i| i.get("requested_account_id"))
+                            .and_then(|a| a.as_str()),
+                        info.and_then(|i| i.get("public_key"))
+                            .and_then(|k| k.as_str()),
+                    ) {
+                        if let (Ok(account_id), Ok(public_key)) =
+                            (account_id.parse(), public_key.parse())
+                        {
+                            return RpcError::AccessKeyNotFound {
+                                account_id,
+                                public_key,
+                            };
+                        }
+                    }
                 }
                 "UNKNOWN_BLOCK" => {
                     let block_ref = data
@@ -501,12 +515,15 @@ impl RpcClient {
         &self,
         signed_tx: &SignedTransaction,
         wait_until: TxExecutionStatus,
-    ) -> Result<FinalExecutionOutcome, RpcError> {
+    ) -> Result<SendTxResponse, RpcError> {
+        let tx_hash = signed_tx.get_hash();
         let params = serde_json::json!({
             "signed_tx_base64": signed_tx.to_base64(),
             "wait_until": wait_until.as_str(),
         });
-        self.call("send_tx", params).await
+        let mut response: SendTxResponse = self.call("send_tx", params).await?;
+        response.transaction_hash = tx_hash;
+        Ok(response)
     }
 
     /// Get transaction status with full receipt details.
@@ -517,7 +534,7 @@ impl RpcClient {
         tx_hash: &CryptoHash,
         sender_id: &AccountId,
         wait_until: TxExecutionStatus,
-    ) -> Result<FinalExecutionOutcomeWithReceipts, RpcError> {
+    ) -> Result<SendTxWithReceiptsResponse, RpcError> {
         let params = serde_json::json!({
             "tx_hash": tx_hash.to_string(),
             "sender_account_id": sender_id.to_string(),
@@ -855,6 +872,35 @@ mod tests {
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::AccountNotFound(_)));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_unknown_access_key() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "UNKNOWN_ACCESS_KEY".to_string(),
+                info: Some(serde_json::json!({
+                    "requested_account_id": "alice.near",
+                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                })),
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        match result {
+            RpcError::AccessKeyNotFound {
+                account_id,
+                public_key,
+            } => {
+                assert_eq!(account_id.as_ref(), "alice.near");
+                assert!(public_key.to_string().contains("ed25519:"));
+            }
+            _ => panic!("Expected AccessKeyNotFound error, got {:?}", result),
+        }
     }
 
     #[test]

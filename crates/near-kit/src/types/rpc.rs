@@ -310,7 +310,7 @@ pub struct BlockHeaderView {
     pub chunk_endorsements: Option<Vec<Vec<u8>>>,
     /// Shard split info (optional).
     #[serde(default)]
-    pub shard_split: Option<serde_json::Value>,
+    pub shard_split: Option<(u64, AccountId)>,
 }
 
 /// Validator stake (versioned).
@@ -407,15 +407,60 @@ pub struct ChunkHeaderView {
     pub congestion_info: Option<CongestionInfoView>,
     /// Bandwidth requests (optional, added in later protocol versions).
     #[serde(default)]
-    pub bandwidth_requests: Option<serde_json::Value>,
+    pub bandwidth_requests: Option<BandwidthRequests>,
     /// Rent paid (deprecated; when present, always 0).
     #[serde(default)]
     pub rent_paid: Option<NearToken>,
-    /// Proposed split (optional).
+    /// Proposed trie split for resharding.
+    ///
+    /// - `None` — field absent (older protocol versions)
+    /// - `Some(None)` — field present as JSON `null` (no split proposed)
+    /// - `Some(Some(split))` — active split proposal
     #[serde(default)]
-    pub proposed_split: Option<serde_json::Value>,
+    pub proposed_split: Option<Option<TrieSplit>>,
     /// Chunk signature.
     pub signature: Signature,
+}
+
+/// Bandwidth requests for a chunk (versioned).
+#[derive(Debug, Clone, Deserialize)]
+pub enum BandwidthRequests {
+    /// Version 1.
+    V1(BandwidthRequestsV1),
+}
+
+/// Bandwidth requests data (V1).
+#[derive(Debug, Clone, Deserialize)]
+pub struct BandwidthRequestsV1 {
+    /// List of bandwidth requests.
+    pub requests: Vec<BandwidthRequest>,
+}
+
+/// A single bandwidth request to a target shard.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BandwidthRequest {
+    /// Target shard index.
+    pub to_shard: u16,
+    /// Bitmap of requested values.
+    pub requested_values_bitmap: BandwidthRequestBitmap,
+}
+
+/// Bitmap for bandwidth request values.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BandwidthRequestBitmap {
+    /// Raw bitmap data.
+    pub data: [u8; 5],
+}
+
+/// Trie split information for resharding.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TrieSplit {
+    /// Account boundary for the split.
+    pub boundary_account: AccountId,
+    /// Memory usage of the left child.
+    pub left_memory: u64,
+    /// Memory usage of the right child.
+    pub right_memory: u64,
 }
 
 /// Congestion information for a shard.
@@ -447,6 +492,21 @@ fn dec_format<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u128,
         StringOrNum::String(s) => s.parse().map_err(serde::de::Error::custom),
         StringOrNum::Num(n) => Ok(n),
     }
+}
+
+/// Deserialize a Gas (u64) from a decimal string or number.
+fn gas_dec_format<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Gas, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrNum {
+        String(String),
+        Num(u64),
+    }
+    let raw = match StringOrNum::deserialize(deserializer)? {
+        StringOrNum::String(s) => s.parse::<u64>().map_err(serde::de::Error::custom)?,
+        StringOrNum::Num(n) => n,
+    };
+    Ok(Gas::from_gas(raw))
 }
 
 /// Gas price response.
@@ -484,22 +544,38 @@ pub enum FinalExecutionStatus {
     SuccessValue(String),
 }
 
+/// Response from `send_tx` RPC.
+///
+/// When `wait_until=NONE`, the outcome is absent and only `final_execution_status`
+/// is populated. For all other wait levels the outcome is present.
+///
+/// The `transaction_hash` is always available regardless of wait level,
+/// populated from the signed transaction before sending.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SendTxResponse {
+    /// Hash of the submitted transaction. Always present.
+    #[serde(skip)]
+    pub transaction_hash: CryptoHash,
+    /// The wait level that was reached (e.g. `NONE`, `EXECUTED_OPTIMISTIC`, `FINAL`).
+    pub final_execution_status: TxExecutionStatus,
+    /// The execution outcome, present when the transaction has been executed.
+    #[serde(flatten)]
+    pub outcome: Option<FinalExecutionOutcome>,
+}
+
 /// Final execution outcome from send_tx RPC.
+///
+/// All fields are required — this type only appears when a transaction has actually
+/// been executed (not for `wait_until=NONE` responses).
 #[derive(Debug, Clone, Deserialize)]
 pub struct FinalExecutionOutcome {
-    /// The wait level that was reached (e.g. `EXECUTED_OPTIMISTIC`, `FINAL`).
-    pub final_execution_status: TxExecutionStatus,
     /// Overall transaction execution result.
-    #[serde(default)]
     pub status: FinalExecutionStatus,
-    /// The transaction that was executed (full details for executed, minimal for pending).
-    #[serde(default)]
-    pub transaction: Option<TransactionView>,
-    /// Outcome of the transaction itself (only for executed transactions).
-    #[serde(default)]
-    pub transaction_outcome: Option<ExecutionOutcomeWithId>,
-    /// Outcomes of all receipts spawned by the transaction (only for executed transactions).
-    #[serde(default)]
+    /// The transaction that was executed.
+    pub transaction: TransactionView,
+    /// Outcome of the transaction itself.
+    pub transaction_outcome: ExecutionOutcomeWithId,
+    /// Outcomes of all receipts spawned by the transaction.
     pub receipts_outcome: Vec<ExecutionOutcomeWithId>,
 }
 
@@ -512,14 +588,6 @@ impl FinalExecutionOutcome {
     /// Check if the transaction failed.
     pub fn is_failure(&self) -> bool {
         matches!(&self.status, FinalExecutionStatus::Failure(_))
-    }
-
-    /// Check if the transaction is still pending (not yet started or still executing).
-    pub fn is_pending(&self) -> bool {
-        matches!(
-            self.status,
-            FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started
-        )
     }
 
     /// Get the success value if present (base64 decoded).
@@ -558,17 +626,13 @@ impl FinalExecutionOutcome {
     }
 
     /// Get the transaction hash.
-    pub fn transaction_hash(&self) -> Option<&CryptoHash> {
-        self.transaction_outcome.as_ref().map(|o| &o.id)
+    pub fn transaction_hash(&self) -> &CryptoHash {
+        &self.transaction_outcome.id
     }
 
     /// Get total gas used across all receipts.
     pub fn total_gas_used(&self) -> Gas {
-        let tx_gas = self
-            .transaction_outcome
-            .as_ref()
-            .map(|o| o.outcome.gas_burnt.as_gas())
-            .unwrap_or(0);
+        let tx_gas = self.transaction_outcome.outcome.gas_burnt.as_gas();
         let receipt_gas: u64 = self
             .receipts_outcome
             .iter()
@@ -667,6 +731,23 @@ impl From<GlobalContractIdCompat> for GlobalContractIdentifierView {
 // Action view
 // ============================================================================
 
+/// View of a delegate action in RPC responses.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DelegateActionView {
+    /// The account that signed the delegate action.
+    pub sender_id: AccountId,
+    /// The intended receiver of the inner actions.
+    pub receiver_id: AccountId,
+    /// The actions to execute.
+    pub actions: Vec<ActionView>,
+    /// Nonce for replay protection.
+    pub nonce: u64,
+    /// Maximum block height before this delegate action expires.
+    pub max_block_height: u64,
+    /// Public key of the signer.
+    pub public_key: PublicKey,
+}
+
 /// Action view in transaction.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -699,7 +780,7 @@ pub enum ActionView {
         beneficiary_id: AccountId,
     },
     Delegate {
-        delegate_action: serde_json::Value,
+        delegate_action: DelegateActionView,
         signature: Signature,
     },
     #[serde(rename = "DeployGlobalContract")]
@@ -802,8 +883,9 @@ pub struct GasProfileEntry {
     pub cost_category: String,
     /// Cost name.
     pub cost: String,
-    /// Gas used for this cost (decimal string).
-    pub gas_used: String,
+    /// Gas used for this cost.
+    #[serde(deserialize_with = "gas_dec_format")]
+    pub gas_used: Gas,
 }
 
 /// View function result from call_function RPC.
@@ -942,22 +1024,31 @@ pub struct DataReceiptData {
     pub data: Option<String>,
 }
 
+/// Response from `EXPERIMENTAL_tx_status` RPC.
+///
+/// Same pattern as [`SendTxResponse`] but includes full receipt details.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SendTxWithReceiptsResponse {
+    /// The wait level that was reached.
+    pub final_execution_status: TxExecutionStatus,
+    /// The execution outcome, present when the transaction has been executed.
+    #[serde(flatten)]
+    pub outcome: Option<FinalExecutionOutcomeWithReceipts>,
+}
+
 /// Final execution outcome with receipts (from EXPERIMENTAL_tx_status).
+///
+/// All fields are required — this type only appears when a transaction has actually
+/// been executed.
 #[derive(Debug, Clone, Deserialize)]
 pub struct FinalExecutionOutcomeWithReceipts {
-    /// The wait level that was reached (e.g. `EXECUTED_OPTIMISTIC`, `FINAL`).
-    pub final_execution_status: TxExecutionStatus,
     /// Overall transaction execution result.
-    #[serde(default)]
     pub status: FinalExecutionStatus,
     /// The transaction that was executed.
-    #[serde(default)]
-    pub transaction: Option<TransactionView>,
+    pub transaction: TransactionView,
     /// Outcome of the transaction itself.
-    #[serde(default)]
-    pub transaction_outcome: Option<ExecutionOutcomeWithId>,
+    pub transaction_outcome: ExecutionOutcomeWithId,
     /// Outcomes of all receipts spawned by the transaction.
-    #[serde(default)]
     pub receipts_outcome: Vec<ExecutionOutcomeWithId>,
     /// Full receipt details.
     #[serde(default)]
@@ -976,8 +1067,8 @@ impl FinalExecutionOutcomeWithReceipts {
     }
 
     /// Get the transaction hash.
-    pub fn transaction_hash(&self) -> Option<&CryptoHash> {
-        self.transaction_outcome.as_ref().map(|o| &o.id)
+    pub fn transaction_hash(&self) -> &CryptoHash {
+        &self.transaction_outcome.id
     }
 }
 
@@ -1262,6 +1353,32 @@ mod tests {
         assert!(decoded.is_err());
     }
 
+    // ========================================================================
+    // GasProfileEntry tests
+    // ========================================================================
+
+    #[test]
+    fn test_gas_profile_entry_string_gas_used() {
+        let json = serde_json::json!({
+            "cost_category": "WASM_HOST_COST",
+            "cost": "BASE",
+            "gas_used": "123456789"
+        });
+        let entry: GasProfileEntry = serde_json::from_value(json).unwrap();
+        assert_eq!(entry.gas_used.as_gas(), 123456789);
+    }
+
+    #[test]
+    fn test_gas_profile_entry_numeric_gas_used() {
+        let json = serde_json::json!({
+            "cost_category": "ACTION_COST",
+            "cost": "FUNCTION_CALL",
+            "gas_used": 999000000
+        });
+        let entry: GasProfileEntry = serde_json::from_value(json).unwrap();
+        assert_eq!(entry.gas_used.as_gas(), 999000000);
+    }
+
     #[test]
     fn test_gas_key_function_call_deserialization() {
         let json = serde_json::json!({
@@ -1305,6 +1422,45 @@ mod tests {
         });
         let action: ActionView = serde_json::from_value(json).unwrap();
         assert!(matches!(action, ActionView::TransferToGasKey { .. }));
+    }
+
+    #[test]
+    fn test_delegate_action_view_deserialization() {
+        let json = serde_json::json!({
+            "Delegate": {
+                "delegate_action": {
+                    "sender_id": "alice.near",
+                    "receiver_id": "contract.near",
+                    "actions": [
+                        {"FunctionCall": {
+                            "method_name": "do_something",
+                            "args": "e30=",
+                            "gas": 30000000000000_u64,
+                            "deposit": "0"
+                        }}
+                    ],
+                    "nonce": 42,
+                    "max_block_height": 100000,
+                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                },
+                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5"
+            }
+        });
+        let action: ActionView = serde_json::from_value(json).unwrap();
+        match action {
+            ActionView::Delegate {
+                delegate_action,
+                signature,
+            } => {
+                assert_eq!(delegate_action.sender_id.as_ref(), "alice.near");
+                assert_eq!(delegate_action.receiver_id.as_ref(), "contract.near");
+                assert_eq!(delegate_action.nonce, 42);
+                assert_eq!(delegate_action.max_block_height, 100000);
+                assert_eq!(delegate_action.actions.len(), 1);
+                assert!(signature.to_string().starts_with("ed25519:"));
+            }
+            _ => panic!("Expected Delegate action"),
+        }
     }
 
     #[test]
@@ -1373,7 +1529,7 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_final_execution_outcome_deserialization() {
+    fn test_send_tx_response_with_outcome() {
         let json = serde_json::json!({
             "final_execution_status": "FINAL",
             "status": {"SuccessValue": ""},
@@ -1401,23 +1557,23 @@ mod tests {
             },
             "receipts_outcome": []
         });
-        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
-        assert_eq!(outcome.final_execution_status, TxExecutionStatus::Final);
+        let response: SendTxResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(response.final_execution_status, TxExecutionStatus::Final);
+        let outcome = response.outcome.unwrap();
         assert!(outcome.is_success());
         assert!(!outcome.is_failure());
-        assert!(!outcome.is_pending());
     }
 
     #[test]
-    fn test_final_execution_outcome_pending() {
+    fn test_send_tx_response_pending_none() {
         let json = serde_json::json!({
             "final_execution_status": "NONE"
         });
-        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
-        assert_eq!(outcome.final_execution_status, TxExecutionStatus::None);
-        assert!(matches!(outcome.status, FinalExecutionStatus::NotStarted));
-        assert!(outcome.is_pending());
-        assert!(!outcome.is_success());
+        let response: SendTxResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(response.final_execution_status, TxExecutionStatus::None);
+        assert!(response.outcome.is_none());
+        // transaction_hash is serde(skip) — populated by rpc.send_tx(), not deserialization
+        assert!(response.transaction_hash.is_zero());
     }
 
     #[test]
@@ -1435,9 +1591,33 @@ mod tests {
                         }
                     }
                 }
-            }
+            },
+            "transaction": {
+                "signer_id": "alice.near",
+                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "nonce": 1,
+                "receiver_id": "bob.near",
+                "actions": [],
+                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
+                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+            },
+            "transaction_outcome": {
+                "id": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+                "outcome": {
+                    "executor_id": "alice.near",
+                    "gas_burnt": 0,
+                    "tokens_burnt": "0",
+                    "logs": [],
+                    "receipt_ids": [],
+                    "status": "Unknown"
+                },
+                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
+                "proof": []
+            },
+            "receipts_outcome": []
         });
-        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+        let response: SendTxResponse = serde_json::from_value(json).unwrap();
+        let outcome = response.outcome.unwrap();
         assert!(outcome.is_failure());
         assert!(!outcome.is_success());
         assert!(outcome.failure_message().is_some());
@@ -1612,7 +1792,7 @@ mod tests {
         let entry: GasProfileEntry = serde_json::from_value(json).unwrap();
         assert_eq!(entry.cost_category, "WASM_HOST_COST");
         assert_eq!(entry.cost, "BASE");
-        assert_eq!(entry.gas_used, "2646228750");
+        assert_eq!(entry.gas_used, Gas::from_gas(2646228750));
     }
 
     #[test]

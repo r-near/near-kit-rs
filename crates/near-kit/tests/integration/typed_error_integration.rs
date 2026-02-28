@@ -74,6 +74,8 @@ async fn send_raw_tx(
     rpc.send_tx(&tx.sign(key), TxExecutionStatus::Final)
         .await
         .unwrap()
+        .outcome
+        .expect("expected execution outcome")
 }
 
 // =============================================================================
