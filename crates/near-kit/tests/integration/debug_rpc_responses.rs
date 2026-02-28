@@ -165,15 +165,11 @@ async fn debug_transaction_receipts() {
     println!("\n========================================");
     println!("TRANSACTION OUTCOME");
     println!("========================================");
-    println!(
-        "Final execution status: {:?}",
-        outcome.final_execution_status
-    );
     println!("Is success: {}", outcome.is_success());
-    println!("Is pending: {}", outcome.is_pending());
     println!("Status: {:?}", outcome.status);
 
-    if let Some(tx) = &outcome.transaction {
+    {
+        let tx = &outcome.transaction;
         println!("\n--- Transaction ---");
         println!("Hash: {}", tx.hash);
         println!("Signer: {}", tx.signer_id);
@@ -188,7 +184,8 @@ async fn debug_transaction_receipts() {
         }
     }
 
-    if let Some(tx_outcome) = &outcome.transaction_outcome {
+    {
+        let tx_outcome = &outcome.transaction_outcome;
         println!("\n--- Transaction Outcome ---");
         println!("ID: {}", tx_outcome.id);
         println!("Block hash: {}", tx_outcome.block_hash);
@@ -232,19 +229,21 @@ async fn debug_transaction_receipts() {
     }
 
     // Now get full receipt details via EXPERIMENTAL_tx_status
-    let tx_hash = outcome.transaction_hash().unwrap();
+    let tx_hash = outcome.transaction_hash();
     let full_status = near
         .rpc()
         .tx_status(tx_hash, &root_account, TxExecutionStatus::Final)
         .await
         .unwrap();
 
+    let full_outcome = full_status.outcome.expect("expected outcome with receipts");
+
     println!("\n========================================");
     println!("FULL RECEIPTS (via EXPERIMENTAL_tx_status)");
     println!("========================================");
-    println!("Receipt count: {}", full_status.receipts.len());
+    println!("Receipt count: {}", full_outcome.receipts.len());
 
-    for (i, receipt) in full_status.receipts.iter().enumerate() {
+    for (i, receipt) in full_outcome.receipts.iter().enumerate() {
         println!("\n  Receipt [{}]:", i);
         println!("    Receipt ID: {}", receipt.receipt_id);
         println!("    Predecessor: {}", receipt.predecessor_id);

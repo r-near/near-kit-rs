@@ -270,39 +270,22 @@ async fn test_final_execution_outcome_full_fields() {
         .unwrap();
 
     // Verify FinalExecutionOutcome fields
-    assert!(
-        matches!(
-            outcome.final_execution_status,
-            TxExecutionStatus::Final | TxExecutionStatus::Executed
-        ),
-        "Should have final execution status, got {:?}",
-        outcome.final_execution_status
-    );
     assert!(outcome.is_success(), "Transaction should succeed");
-    assert!(!outcome.is_pending(), "Transaction should not be pending");
-    assert!(
-        outcome.transaction.is_some(),
-        "Transaction should be present"
-    );
-    assert!(
-        outcome.transaction_outcome.is_some(),
-        "Transaction outcome should be present"
-    );
     assert!(
         !outcome.receipts_outcome.is_empty(),
         "Should have receipt outcomes"
     );
 
-    // Check transaction view
-    let tx = outcome.transaction.as_ref().unwrap();
+    // Check transaction view (now a required field)
+    let tx = &outcome.transaction;
     assert_eq!(tx.signer_id, root_account);
     assert_eq!(tx.receiver_id, receiver_id);
     assert!(tx.nonce > 0, "Nonce should be positive");
     assert!(!tx.hash.is_zero(), "Transaction hash should exist");
     assert!(!tx.actions.is_empty(), "Should have actions");
 
-    // Check transaction outcome
-    let tx_outcome = outcome.transaction_outcome.as_ref().unwrap();
+    // Check transaction outcome (now a required field)
+    let tx_outcome = &outcome.transaction_outcome;
     assert!(!tx_outcome.id.is_zero(), "Outcome ID should exist");
     assert!(!tx_outcome.block_hash.is_zero(), "Block hash should exist");
     assert_eq!(tx_outcome.outcome.executor_id, root_account);
@@ -334,7 +317,6 @@ async fn test_final_execution_outcome_full_fields() {
     }
 
     println!("Transaction outcome:");
-    println!("  Status: {:?}", outcome.final_execution_status);
     println!("  Hash: {:?}", outcome.transaction_hash());
     println!("  Gas used: {}", outcome.total_gas_used());
     println!("  Receipt outcomes: {}", outcome.receipts_outcome.len());
@@ -407,7 +389,7 @@ async fn test_tx_status_with_receipts() {
         .await
         .unwrap();
 
-    let tx_hash = outcome.transaction_hash().unwrap();
+    let tx_hash = outcome.transaction_hash();
 
     // Now get the full transaction status with receipts
     let status = near
@@ -416,25 +398,19 @@ async fn test_tx_status_with_receipts() {
         .await
         .unwrap();
 
+    let status_outcome = status.outcome.expect("expected outcome with receipts");
+
     // Verify FinalExecutionOutcomeWithReceipts fields
-    assert!(status.is_success(), "Transaction should succeed");
-    assert!(
-        status.transaction.is_some(),
-        "Transaction should be present"
-    );
-    assert!(
-        status.transaction_outcome.is_some(),
-        "Transaction outcome should be present"
-    );
+    assert!(status_outcome.is_success(), "Transaction should succeed");
 
     // Check receipts array
     println!(
         "Transaction {} has {} receipts",
         tx_hash,
-        status.receipts.len()
+        status_outcome.receipts.len()
     );
 
-    for receipt in &status.receipts {
+    for receipt in &status_outcome.receipts {
         println!("Receipt {}:", receipt.receipt_id);
         println!(
             "  From: {} -> To: {}",
@@ -507,7 +483,7 @@ async fn test_action_view_variants() {
         .await
         .unwrap();
 
-    let tx = outcome.transaction.as_ref().unwrap();
+    let tx = &outcome.transaction;
     println!("Transaction actions:");
     for action in &tx.actions {
         match action {

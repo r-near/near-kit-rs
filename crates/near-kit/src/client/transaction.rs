@@ -1180,7 +1180,13 @@ impl IntoFuture for TransactionSend {
 
                 // Send
                 match builder.rpc.send_tx(&signed_tx, builder.wait_until).await {
-                    Ok(outcome) => {
+                    Ok(response) => {
+                        let outcome = response.outcome.ok_or_else(|| {
+                            Error::InvalidTransaction(
+                                "Transaction submitted but no execution outcome returned"
+                                    .to_string(),
+                            )
+                        })?;
                         if outcome.is_failure() {
                             return Err(Error::TransactionFailed(
                                 outcome.failure_message().unwrap_or_default(),

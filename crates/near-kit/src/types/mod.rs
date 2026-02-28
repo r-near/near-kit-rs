@@ -82,13 +82,15 @@ pub use key::{
 pub use network::Network;
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
-    AccountBalance, AccountView, ActionReceiptData, ActionView, BlockHeaderView, BlockView,
-    ChunkHeaderView, CongestionInfoView, DataReceiptData, DataReceiverView, ExecutionMetadata,
-    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
-    FinalExecutionOutcomeWithReceipts, FinalExecutionStatus, GasPrice, GasProfileEntry,
-    GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NodeVersion, Receipt,
-    ReceiptContent, STORAGE_AMOUNT_PER_BYTE, SlashedValidator, StatusResponse, SyncInfo,
-    TransactionView, ValidatorInfo, ValidatorStakeView, ValidatorStakeViewV1, ViewFunctionResult,
+    AccountBalance, AccountView, ActionReceiptData, ActionView, BandwidthRequest,
+    BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1, BlockHeaderView, BlockView,
+    ChunkHeaderView, CongestionInfoView, DataReceiptData, DataReceiverView, DelegateActionView,
+    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
+    FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts, FinalExecutionStatus, GasPrice,
+    GasProfileEntry, GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NodeVersion,
+    Receipt, ReceiptContent, STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SendTxWithReceiptsResponse,
+    SlashedValidator, StatusResponse, SyncInfo, TransactionView, TrieSplit, ValidatorInfo,
+    ValidatorStakeView, ValidatorStakeViewV1, ViewFunctionResult,
 };
 pub use rpc_extra::{
     BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,

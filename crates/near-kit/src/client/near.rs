@@ -628,7 +628,12 @@ impl Near {
         signed_tx: &crate::types::SignedTransaction,
         wait_until: TxExecutionStatus,
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        let outcome = self.rpc.send_tx(signed_tx, wait_until).await?;
+        let response = self.rpc.send_tx(signed_tx, wait_until).await?;
+        let outcome = response.outcome.ok_or_else(|| {
+            Error::InvalidTransaction(
+                "Transaction submitted but no execution outcome returned".to_string(),
+            )
+        })?;
 
         if outcome.is_failure() {
             return Err(Error::TransactionFailed(
