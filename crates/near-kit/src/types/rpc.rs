@@ -3,6 +3,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 
+use super::error::TxExecutionError;
 use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey};
 
 // ============================================================================
@@ -422,7 +423,15 @@ impl FinalExecutionOutcome {
     /// Get the failure message if present.
     pub fn failure_message(&self) -> Option<String> {
         match &self.status {
-            Some(ExecutionStatus::Failure(err)) => Some(format!("{:?}", err)),
+            Some(ExecutionStatus::Failure(err)) => Some(err.to_string()),
+            _ => None,
+        }
+    }
+
+    /// Get the typed execution error if present.
+    pub fn failure_error(&self) -> Option<&TxExecutionError> {
+        match &self.status {
+            Some(ExecutionStatus::Failure(err)) => Some(err),
             _ => None,
         }
     }
@@ -457,7 +466,7 @@ pub enum ExecutionStatus {
     /// Execution is pending.
     Pending,
     /// Execution failed.
-    Failure(serde_json::Value),
+    Failure(TxExecutionError),
     /// Execution succeeded with a value (base64 encoded).
     SuccessValue(String),
     /// Execution succeeded with a receipt ID.
