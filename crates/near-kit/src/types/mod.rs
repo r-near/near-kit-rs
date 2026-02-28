@@ -53,6 +53,7 @@ mod key;
 pub mod nep413;
 mod network;
 mod rpc;
+mod rpc_extra;
 mod transaction;
 mod units;
 
@@ -88,6 +89,12 @@ pub use rpc::{
     MerkleDirection, MerklePathItem, NodeVersion, Receipt, ReceiptContent, STORAGE_AMOUNT_PER_BYTE,
     SlashedValidator, StatusResponse, SyncInfo, TransactionView, ValidatorInfo, ValidatorStakeView,
     ValidatorStakeViewV1, ViewFunctionResult,
+};
+pub use rpc_extra::{
+    AccessKeyDetailsForStateChange, BlockHeaderInnerLiteView, CurrentEpochValidatorInfo,
+    EpochValidatorInfo, LightClientBlockLiteView, LightClientBlockView, NextEpochValidatorInfo,
+    StateChangeCauseView, StateChangeValueView, StateChangeWithCauseView, ValidatorKickoutReason,
+    ValidatorKickoutView,
 };
 pub use transaction::{SignedTransaction, Transaction};
 pub use units::{Gas, IntoGas, IntoNearToken, NearToken};
