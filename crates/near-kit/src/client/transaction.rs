@@ -1182,10 +1182,12 @@ impl IntoFuture for TransactionSend {
                 match builder.rpc.send_tx(&signed_tx, builder.wait_until).await {
                     Ok(response) => {
                         let outcome = response.outcome.ok_or_else(|| {
-                            Error::InvalidTransaction(
-                                "Transaction submitted but no execution outcome returned"
-                                    .to_string(),
-                            )
+                            Error::InvalidTransaction(format!(
+                                "Transaction {} submitted with wait_until={:?} but no execution \
+                                 outcome was returned. Use rpc().send_tx() for fire-and-forget \
+                                 submission.",
+                                response.transaction_hash, builder.wait_until,
+                            ))
                         })?;
                         if outcome.is_failure() {
                             return Err(Error::TransactionFailed(

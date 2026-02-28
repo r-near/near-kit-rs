@@ -411,7 +411,11 @@ pub struct ChunkHeaderView {
     /// Rent paid (deprecated; when present, always 0).
     #[serde(default)]
     pub rent_paid: Option<NearToken>,
-    /// Proposed split (optional).
+    /// Proposed trie split for resharding.
+    ///
+    /// - `None` — field absent (older protocol versions)
+    /// - `Some(None)` — field present as JSON `null` (no split proposed)
+    /// - `Some(Some(split))` — active split proposal
     #[serde(default)]
     pub proposed_split: Option<Option<TrieSplit>>,
     /// Chunk signature.
@@ -544,8 +548,14 @@ pub enum FinalExecutionStatus {
 ///
 /// When `wait_until=NONE`, the outcome is absent and only `final_execution_status`
 /// is populated. For all other wait levels the outcome is present.
+///
+/// The `transaction_hash` is always available regardless of wait level,
+/// populated from the signed transaction before sending.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendTxResponse {
+    /// Hash of the submitted transaction. Always present.
+    #[serde(skip)]
+    pub transaction_hash: CryptoHash,
     /// The wait level that was reached (e.g. `NONE`, `EXECUTED_OPTIMISTIC`, `FINAL`).
     pub final_execution_status: TxExecutionStatus,
     /// The execution outcome, present when the transaction has been executed.
@@ -1562,6 +1572,8 @@ mod tests {
         let response: SendTxResponse = serde_json::from_value(json).unwrap();
         assert_eq!(response.final_execution_status, TxExecutionStatus::None);
         assert!(response.outcome.is_none());
+        // transaction_hash is serde(skip) — populated by rpc.send_tx(), not deserialization
+        assert!(response.transaction_hash.is_zero());
     }
 
     #[test]

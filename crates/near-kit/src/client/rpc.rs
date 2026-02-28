@@ -516,11 +516,14 @@ impl RpcClient {
         signed_tx: &SignedTransaction,
         wait_until: TxExecutionStatus,
     ) -> Result<SendTxResponse, RpcError> {
+        let tx_hash = signed_tx.get_hash();
         let params = serde_json::json!({
             "signed_tx_base64": signed_tx.to_base64(),
             "wait_until": wait_until.as_str(),
         });
-        self.call("send_tx", params).await
+        let mut response: SendTxResponse = self.call("send_tx", params).await?;
+        response.transaction_hash = tx_hash;
+        Ok(response)
     }
 
     /// Get transaction status with full receipt details.

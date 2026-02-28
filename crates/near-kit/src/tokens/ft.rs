@@ -582,9 +582,12 @@ impl IntoFuture for StorageDepositCall {
             // Send
             let response = self.rpc.send_tx(&signed_tx, self.wait_until).await?;
             let outcome = response.outcome.ok_or_else(|| {
-                Error::InvalidTransaction(
-                    "Transaction submitted but no execution outcome returned".to_string(),
-                )
+                Error::InvalidTransaction(format!(
+                    "Transaction {} submitted with wait_until={:?} but no execution \
+                     outcome was returned. Use rpc().send_tx() for fire-and-forget \
+                     submission.",
+                    response.transaction_hash, self.wait_until,
+                ))
             })?;
 
             if outcome.is_failure() {
