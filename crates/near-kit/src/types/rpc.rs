@@ -296,10 +296,10 @@ pub struct BlockHeaderView {
     pub signature: String,
     /// Latest protocol version.
     pub latest_protocol_version: u32,
-    /// Rent paid (deprecated, always 0).
+    /// Rent paid (deprecated; when present, always 0).
     #[serde(default)]
     pub rent_paid: Option<NearToken>,
-    /// Validator reward (deprecated, always 0).
+    /// Validator reward (deprecated; when present, always 0).
     #[serde(default)]
     pub validator_reward: Option<NearToken>,
     /// Chunk endorsements (optional).
@@ -405,7 +405,7 @@ pub struct ChunkHeaderView {
     /// Bandwidth requests (optional, added in later protocol versions).
     #[serde(default)]
     pub bandwidth_requests: Option<serde_json::Value>,
-    /// Rent paid (deprecated, always 0).
+    /// Rent paid (deprecated; when present, always 0).
     #[serde(default)]
     pub rent_paid: Option<NearToken>,
     /// Proposed split (optional).

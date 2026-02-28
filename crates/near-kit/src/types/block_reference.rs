@@ -330,4 +330,39 @@ mod tests {
         assert_eq!(f1, f2);
         assert_eq!(f1, f3);
     }
+
+    #[test]
+    fn test_sync_checkpoint_constructors() {
+        let genesis = BlockReference::genesis();
+        assert!(matches!(
+            genesis,
+            BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis)
+        ));
+
+        let earliest = BlockReference::earliest_available();
+        assert!(matches!(
+            earliest,
+            BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable)
+        ));
+    }
+
+    #[test]
+    fn test_sync_checkpoint_rpc_params() {
+        let genesis = BlockReference::genesis();
+        let params = genesis.to_rpc_params();
+        assert_eq!(params["sync_checkpoint"], "genesis");
+
+        let earliest = BlockReference::earliest_available();
+        let params = earliest.to_rpc_params();
+        assert_eq!(params["sync_checkpoint"], "earliest_available");
+    }
+
+    #[test]
+    fn test_sync_checkpoint_serde_roundtrip() {
+        for cp in [SyncCheckpoint::Genesis, SyncCheckpoint::EarliestAvailable] {
+            let json = serde_json::to_string(&cp).unwrap();
+            let parsed: SyncCheckpoint = serde_json::from_str(&json).unwrap();
+            assert_eq!(cp, parsed);
+        }
+    }
 }
