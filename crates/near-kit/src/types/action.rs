@@ -1145,6 +1145,42 @@ mod tests {
     }
 
     #[test]
+    fn test_access_key_permission_discriminants() {
+        let fc = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+            allowance: None,
+            receiver_id: "test.near".parse().unwrap(),
+            method_names: vec![],
+        });
+        let bytes = borsh::to_vec(&fc).unwrap();
+        assert_eq!(bytes[0], 0, "FunctionCall should have discriminant 0");
+
+        let fa = AccessKeyPermission::FullAccess;
+        let bytes = borsh::to_vec(&fa).unwrap();
+        assert_eq!(bytes[0], 1, "FullAccess should have discriminant 1");
+
+        let gkfc = AccessKeyPermission::GasKeyFunctionCall(
+            GasKeyInfo {
+                balance: NearToken::from_near(1),
+                num_nonces: 5,
+            },
+            FunctionCallPermission {
+                allowance: None,
+                receiver_id: "test.near".parse().unwrap(),
+                method_names: vec![],
+            },
+        );
+        let bytes = borsh::to_vec(&gkfc).unwrap();
+        assert_eq!(bytes[0], 2, "GasKeyFunctionCall should have discriminant 2");
+
+        let gkfa = AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
+            balance: NearToken::from_near(1),
+            num_nonces: 5,
+        });
+        let bytes = borsh::to_vec(&gkfa).unwrap();
+        assert_eq!(bytes[0], 3, "GasKeyFullAccess should have discriminant 3");
+    }
+
+    #[test]
     fn test_derive_account_id_different_data() {
         // Different data should produce different account IDs
         let mut data = BTreeMap::new();

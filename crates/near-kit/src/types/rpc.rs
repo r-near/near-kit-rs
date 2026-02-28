@@ -169,7 +169,7 @@ pub enum AccessKeyPermissionView {
         /// Maximum amount this key can spend.
         allowance: Option<NearToken>,
         /// Contract that can be called.
-        receiver_id: String,
+        receiver_id: AccountId,
         /// Methods that can be called (empty = all).
         method_names: Vec<String>,
     },
