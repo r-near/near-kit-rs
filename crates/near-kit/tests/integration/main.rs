@@ -20,3 +20,4 @@ mod token_integration;
 mod transaction_failure_integration;
 mod typed_contract_error_integration;
 mod typed_contract_integration;
+mod typed_error_integration;
