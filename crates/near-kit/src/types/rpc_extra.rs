@@ -3,7 +3,7 @@
 use serde::Deserialize;
 
 use super::rpc::{AccessKeyDetails, ValidatorStakeView};
-use super::{AccountId, CryptoHash, NearToken, PublicKey};
+use super::{AccountId, CryptoHash, NearToken, PublicKey, Signature};
 
 // ============================================================================
 // Validators / Epoch types
@@ -171,7 +171,7 @@ pub struct LightClientBlockView {
     pub next_bps: Option<Vec<ValidatorStakeView>>,
     /// Approvals after next block.
     #[serde(default)]
-    pub approvals_after_next: Vec<Option<String>>,
+    pub approvals_after_next: Vec<Option<Signature>>,
 }
 
 /// Light client block lite view.
@@ -223,6 +223,7 @@ pub struct StateChangeWithCauseView {
 
 /// Cause of a state change.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
 pub enum StateChangeCauseView {
     /// State not writable to disk.
     NotWritableToDisk,
@@ -265,13 +266,14 @@ pub enum StateChangeCauseView {
 
 /// State change value.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", tag = "type", content = "change")]
 pub enum StateChangeValueView {
     /// Account updated.
     AccountUpdate {
         /// Account ID.
         account_id: AccountId,
-        /// New account state (as JSON value to avoid circular dependency).
+        /// Account state fields (flattened: amount, locked, code_hash, etc.).
+        #[serde(flatten)]
         account: serde_json::Value,
     },
     /// Account deleted.
@@ -295,27 +297,42 @@ pub enum StateChangeValueView {
         /// Public key.
         public_key: PublicKey,
     },
+    /// Gas key nonce updated.
+    GasKeyNonceUpdate {
+        /// Account ID.
+        account_id: AccountId,
+        /// Public key.
+        public_key: PublicKey,
+        /// Nonce index.
+        index: u16,
+        /// Nonce value.
+        nonce: u64,
+    },
     /// Data updated.
     DataUpdate {
         /// Account ID.
         account_id: AccountId,
-        /// Key (base64).
+        /// Key (base64-encoded).
+        #[serde(rename = "key_base64")]
         key: String,
-        /// Value (base64).
+        /// Value (base64-encoded).
+        #[serde(rename = "value_base64")]
         value: String,
     },
     /// Data deleted.
     DataDeletion {
         /// Account ID.
         account_id: AccountId,
-        /// Key (base64).
+        /// Key (base64-encoded).
+        #[serde(rename = "key_base64")]
         key: String,
     },
     /// Contract code updated.
     ContractCodeUpdate {
         /// Account ID.
         account_id: AccountId,
-        /// Code (base64).
+        /// Code (base64-encoded).
+        #[serde(rename = "code_base64")]
         code: String,
     },
     /// Contract code deleted.
@@ -323,4 +340,160 @@ pub enum StateChangeValueView {
         /// Account ID.
         account_id: AccountId,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gas_key_nonce_update_deserialization() {
+        let json = serde_json::json!({
+            "type": "gas_key_nonce_update",
+            "change": {
+                "account_id": "alice.near",
+                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "index": 3,
+                "nonce": 42
+            }
+        });
+        let change: StateChangeValueView = serde_json::from_value(json).unwrap();
+        match change {
+            StateChangeValueView::GasKeyNonceUpdate {
+                account_id,
+                public_key,
+                index,
+                nonce,
+            } => {
+                assert_eq!(account_id.as_str(), "alice.near");
+                assert!(public_key.to_string().starts_with("ed25519:"));
+                assert_eq!(index, 3);
+                assert_eq!(nonce, 42);
+            }
+            _ => panic!("Expected GasKeyNonceUpdate"),
+        }
+    }
+
+    #[test]
+    fn test_state_change_with_cause_deserialization() {
+        let json = serde_json::json!({
+            "cause": {
+                "type": "transaction_processing",
+                "tx_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+            },
+            "value": {
+                "type": "gas_key_nonce_update",
+                "change": {
+                    "account_id": "alice.near",
+                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                    "index": 0,
+                    "nonce": 100
+                }
+            }
+        });
+        let change: StateChangeWithCauseView = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            change.value,
+            StateChangeValueView::GasKeyNonceUpdate { .. }
+        ));
+    }
+
+    #[test]
+    fn test_state_change_cause_deserialization() {
+        let json = serde_json::json!({
+            "type": "transaction_processing",
+            "tx_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+        });
+        let cause: StateChangeCauseView = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            cause,
+            StateChangeCauseView::TransactionProcessing { .. }
+        ));
+    }
+
+    #[test]
+    fn test_account_update_flattened_deserialization() {
+        let json = serde_json::json!({
+            "type": "account_update",
+            "change": {
+                "account_id": "alice.near",
+                "amount": "1000000000000000000000000",
+                "locked": "0",
+                "code_hash": "11111111111111111111111111111111",
+                "storage_usage": 100,
+                "storage_paid_at": 0
+            }
+        });
+        let change: StateChangeValueView = serde_json::from_value(json).unwrap();
+        match change {
+            StateChangeValueView::AccountUpdate {
+                account_id,
+                account,
+            } => {
+                assert_eq!(account_id.as_str(), "alice.near");
+                assert_eq!(account["amount"], "1000000000000000000000000");
+                assert_eq!(account["storage_usage"], 100);
+            }
+            _ => panic!("expected AccountUpdate"),
+        }
+    }
+
+    #[test]
+    fn test_data_update_base64_field_names() {
+        let json = serde_json::json!({
+            "type": "data_update",
+            "change": {
+                "account_id": "alice.near",
+                "key_base64": "c3RhdGU=",
+                "value_base64": "dGVzdA=="
+            }
+        });
+        let change: StateChangeValueView = serde_json::from_value(json).unwrap();
+        match change {
+            StateChangeValueView::DataUpdate {
+                account_id,
+                key,
+                value,
+            } => {
+                assert_eq!(account_id.as_str(), "alice.near");
+                assert_eq!(key, "c3RhdGU=");
+                assert_eq!(value, "dGVzdA==");
+            }
+            _ => panic!("expected DataUpdate"),
+        }
+    }
+
+    #[test]
+    fn test_data_deletion_base64_field_name() {
+        let json = serde_json::json!({
+            "type": "data_deletion",
+            "change": {
+                "account_id": "alice.near",
+                "key_base64": "c3RhdGU="
+            }
+        });
+        let change: StateChangeValueView = serde_json::from_value(json).unwrap();
+        assert!(matches!(change, StateChangeValueView::DataDeletion { .. }));
+    }
+
+    #[test]
+    fn test_contract_code_update_base64_field_name() {
+        let json = serde_json::json!({
+            "type": "contract_code_update",
+            "change": {
+                "account_id": "alice.near",
+                "code_base64": "AGFzbQEAAAA="
+            }
+        });
+        let change: StateChangeValueView = serde_json::from_value(json).unwrap();
+        match change {
+            StateChangeValueView::ContractCodeUpdate {
+                account_id, code, ..
+            } => {
+                assert_eq!(account_id.as_str(), "alice.near");
+                assert_eq!(code, "AGFzbQEAAAA=");
+            }
+            _ => panic!("expected ContractCodeUpdate"),
+        }
+    }
 }

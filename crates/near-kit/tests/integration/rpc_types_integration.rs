@@ -55,7 +55,10 @@ async fn test_block_view_full_fields() {
         header.total_supply.as_yoctonear() > 0,
         "Total supply should exist"
     );
-    assert!(!header.signature.is_empty(), "Signature should exist");
+    assert!(
+        !header.signature.as_bytes().is_empty(),
+        "Signature should exist"
+    );
     assert!(
         header.latest_protocol_version > 0,
         "Protocol version should be positive"
@@ -92,7 +95,10 @@ async fn test_chunk_header_view_full_fields() {
     for chunk in &block.chunks {
         assert!(!chunk.chunk_hash.is_zero(), "Chunk hash should not be zero");
         assert!(chunk.gas_limit > 0, "Gas limit should be positive");
-        assert!(!chunk.signature.is_empty(), "Chunk signature should exist");
+        assert!(
+            !chunk.signature.as_bytes().is_empty(),
+            "Chunk signature should exist"
+        );
 
         println!(
             "Chunk {} for shard {} - gas used: {}/{}",

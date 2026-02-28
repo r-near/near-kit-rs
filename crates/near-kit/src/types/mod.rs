@@ -86,9 +86,9 @@ pub use rpc::{
     ChunkHeaderView, CongestionInfoView, DataReceiptData, DataReceiverView, ExecutionMetadata,
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
     FinalExecutionOutcomeWithReceipts, FinalExecutionStatus, GasPrice, GasProfileEntry,
-    MerkleDirection, MerklePathItem, NodeVersion, Receipt, ReceiptContent, STORAGE_AMOUNT_PER_BYTE,
-    SlashedValidator, StatusResponse, SyncInfo, TransactionView, ValidatorInfo, ValidatorStakeView,
-    ValidatorStakeViewV1, ViewFunctionResult,
+    GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NodeVersion, Receipt,
+    ReceiptContent, STORAGE_AMOUNT_PER_BYTE, SlashedValidator, StatusResponse, SyncInfo,
+    TransactionView, ValidatorInfo, ValidatorStakeView, ValidatorStakeViewV1, ViewFunctionResult,
 };
 pub use rpc_extra::{
     BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,

@@ -1,11 +1,13 @@
 //! RPC response types.
 
+use std::collections::BTreeMap;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 
 use super::block_reference::TxExecutionStatus;
 use super::error::TxExecutionError;
-use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey};
+use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature};
 
 // ============================================================================
 // Constants
@@ -292,9 +294,9 @@ pub struct BlockHeaderView {
     pub block_body_hash: Option<CryptoHash>,
     /// Block approvals (nullable signatures).
     #[serde(default)]
-    pub approvals: Vec<Option<String>>,
+    pub approvals: Vec<Option<Signature>>,
     /// Block signature.
-    pub signature: String,
+    pub signature: Signature,
     /// Latest protocol version.
     pub latest_protocol_version: u32,
     /// Rent paid (deprecated; when present, always 0).
@@ -413,7 +415,7 @@ pub struct ChunkHeaderView {
     #[serde(default)]
     pub proposed_split: Option<serde_json::Value>,
     /// Chunk signature.
-    pub signature: String,
+    pub signature: Signature,
 }
 
 /// Congestion information for a shard.
@@ -608,8 +610,7 @@ pub struct TransactionView {
     #[serde(default)]
     pub actions: Vec<ActionView>,
     /// Transaction signature.
-    #[serde(default)]
-    pub signature: Option<String>,
+    pub signature: Signature,
     /// Priority fee (optional, for congestion pricing).
     #[serde(default)]
     pub priority_fee: Option<u64>,
@@ -617,6 +618,54 @@ pub struct TransactionView {
     #[serde(default)]
     pub nonce_index: Option<u16>,
 }
+
+// ============================================================================
+// Global contract identifier view
+// ============================================================================
+
+/// Backward-compatible deserialization helper for `GlobalContractIdentifierView`.
+///
+/// Handles both the new format (`{"hash": "<base58>"}` / `{"account_id": "alice.near"}`)
+/// and the deprecated format (bare string `"<base58>"` / `"alice.near"`).
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum GlobalContractIdCompat {
+    CodeHash { hash: CryptoHash },
+    AccountId { account_id: AccountId },
+    DeprecatedCodeHash(CryptoHash),
+    DeprecatedAccountId(AccountId),
+}
+
+/// Global contract identifier in RPC view responses.
+///
+/// Identifies a global contract either by its code hash (immutable) or by the
+/// publishing account ID (updatable). Supports both the current and deprecated
+/// JSON serialization formats from nearcore.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(from = "GlobalContractIdCompat")]
+pub enum GlobalContractIdentifierView {
+    /// Referenced by code hash.
+    CodeHash(CryptoHash),
+    /// Referenced by publisher account ID.
+    AccountId(AccountId),
+}
+
+impl From<GlobalContractIdCompat> for GlobalContractIdentifierView {
+    fn from(compat: GlobalContractIdCompat) -> Self {
+        match compat {
+            GlobalContractIdCompat::CodeHash { hash }
+            | GlobalContractIdCompat::DeprecatedCodeHash(hash) => Self::CodeHash(hash),
+            GlobalContractIdCompat::AccountId { account_id }
+            | GlobalContractIdCompat::DeprecatedAccountId(account_id) => {
+                Self::AccountId(account_id)
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Action view
+// ============================================================================
 
 /// Action view in transaction.
 #[derive(Debug, Clone, Deserialize)]
@@ -651,7 +700,7 @@ pub enum ActionView {
     },
     Delegate {
         delegate_action: serde_json::Value,
-        signature: String,
+        signature: Signature,
     },
     #[serde(rename = "DeployGlobalContract")]
     DeployGlobalContract {
@@ -671,14 +720,17 @@ pub enum ActionView {
     },
     #[serde(rename = "DeterministicStateInit")]
     DeterministicStateInit {
+        code: GlobalContractIdentifierView,
+        #[serde(default)]
+        data: BTreeMap<String, String>,
         deposit: NearToken,
     },
     TransferToGasKey {
-        public_key: String,
+        public_key: PublicKey,
         deposit: NearToken,
     },
     WithdrawFromGasKey {
-        public_key: String,
+        public_key: PublicKey,
         amount: NearToken,
     },
 }
@@ -746,15 +798,12 @@ pub struct ExecutionMetadata {
 /// Gas profile entry for detailed gas accounting.
 #[derive(Debug, Clone, Deserialize)]
 pub struct GasProfileEntry {
+    /// Cost category (ACTION_COST or WASM_HOST_COST).
+    pub cost_category: String,
     /// Cost name.
-    #[serde(default)]
-    pub cost: Option<String>,
-    /// Cost category.
-    #[serde(default)]
-    pub cost_category: Option<String>,
-    /// Gas used for this cost.
-    #[serde(default)]
-    pub gas_used: Option<String>,
+    pub cost: String,
+    /// Gas used for this cost (decimal string).
+    pub gas_used: String,
 }
 
 /// View function result from call_function RPC.
@@ -838,14 +887,17 @@ pub enum ReceiptContent {
     /// Global contract distribution receipt.
     GlobalContractDistribution {
         /// Global contract identifier.
+        id: GlobalContractIdentifierView,
+        /// Target shard ID.
+        target_shard: u64,
+        /// Shards that have already received this contract.
         #[serde(default)]
-        id: Option<serde_json::Value>,
-        /// Target shard.
-        #[serde(default)]
-        target_shard: Option<u64>,
+        already_delivered_shards: Vec<u64>,
         /// Code bytes (base64).
+        code: String,
+        /// Nonce (present in v2 receipts).
         #[serde(default)]
-        code: Option<String>,
+        nonce: Option<u64>,
     },
 }
 
@@ -1331,6 +1383,7 @@ mod tests {
                 "nonce": 1,
                 "receiver_id": "bob.near",
                 "actions": [{"Transfer": {"deposit": "1000000000000000000000000"}}],
+                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
                 "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
             },
             "transaction_outcome": {
@@ -1415,5 +1468,166 @@ mod tests {
             serde_json::json!({"SuccessReceiptId": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"});
         let status: ExecutionStatus = serde_json::from_value(json).unwrap();
         assert!(matches!(status, ExecutionStatus::SuccessReceiptId(_)));
+    }
+
+    // ========================================================================
+    // GlobalContractIdentifierView tests
+    // ========================================================================
+
+    #[test]
+    fn test_global_contract_id_view_new_format_hash() {
+        let json = serde_json::json!({"hash": "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K"});
+        let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
+        assert!(matches!(id, GlobalContractIdentifierView::CodeHash(_)));
+    }
+
+    #[test]
+    fn test_global_contract_id_view_new_format_account() {
+        let json = serde_json::json!({"account_id": "alice.near"});
+        let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
+        assert!(matches!(id, GlobalContractIdentifierView::AccountId(_)));
+    }
+
+    #[test]
+    fn test_global_contract_id_view_deprecated_hash() {
+        let json = serde_json::json!("9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K");
+        let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
+        assert!(matches!(id, GlobalContractIdentifierView::CodeHash(_)));
+    }
+
+    #[test]
+    fn test_global_contract_id_view_deprecated_account() {
+        let json = serde_json::json!("alice.near");
+        let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
+        assert!(matches!(id, GlobalContractIdentifierView::AccountId(_)));
+    }
+
+    // ========================================================================
+    // DeterministicStateInit ActionView tests
+    // ========================================================================
+
+    #[test]
+    fn test_action_view_deterministic_state_init() {
+        let json = serde_json::json!({
+            "DeterministicStateInit": {
+                "code": {"hash": "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K"},
+                "data": {"a2V5": "dmFsdWU="},
+                "deposit": "1000000000000000000000000"
+            }
+        });
+        let action: ActionView = serde_json::from_value(json).unwrap();
+        match action {
+            ActionView::DeterministicStateInit {
+                code,
+                data,
+                deposit,
+            } => {
+                assert!(matches!(code, GlobalContractIdentifierView::CodeHash(_)));
+                assert_eq!(data.len(), 1);
+                assert_eq!(data.get("a2V5").unwrap(), "dmFsdWU=");
+                assert_eq!(deposit, NearToken::from_near(1));
+            }
+            _ => panic!("Expected DeterministicStateInit"),
+        }
+    }
+
+    #[test]
+    fn test_action_view_deterministic_state_init_empty_data() {
+        let json = serde_json::json!({
+            "DeterministicStateInit": {
+                "code": {"account_id": "publisher.near"},
+                "deposit": "0"
+            }
+        });
+        let action: ActionView = serde_json::from_value(json).unwrap();
+        match action {
+            ActionView::DeterministicStateInit { code, data, .. } => {
+                assert!(matches!(code, GlobalContractIdentifierView::AccountId(_)));
+                assert!(data.is_empty());
+            }
+            _ => panic!("Expected DeterministicStateInit"),
+        }
+    }
+
+    // ========================================================================
+    // GlobalContractDistribution receipt tests
+    // ========================================================================
+
+    #[test]
+    fn test_receipt_global_contract_distribution() {
+        let json = serde_json::json!({
+            "GlobalContractDistribution": {
+                "id": {"hash": "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K"},
+                "target_shard": 3,
+                "already_delivered_shards": [0, 1, 2],
+                "code": "AGFzbQ==",
+                "nonce": 42
+            }
+        });
+        let content: ReceiptContent = serde_json::from_value(json).unwrap();
+        match content {
+            ReceiptContent::GlobalContractDistribution {
+                id,
+                target_shard,
+                already_delivered_shards,
+                code,
+                nonce,
+            } => {
+                assert!(matches!(id, GlobalContractIdentifierView::CodeHash(_)));
+                assert_eq!(target_shard, 3);
+                assert_eq!(already_delivered_shards, vec![0, 1, 2]);
+                assert_eq!(code, "AGFzbQ==");
+                assert_eq!(nonce, Some(42));
+            }
+            _ => panic!("Expected GlobalContractDistribution"),
+        }
+    }
+
+    #[test]
+    fn test_receipt_global_contract_distribution_without_nonce() {
+        let json = serde_json::json!({
+            "GlobalContractDistribution": {
+                "id": {"account_id": "publisher.near"},
+                "target_shard": 0,
+                "already_delivered_shards": [],
+                "code": "AGFzbQ=="
+            }
+        });
+        let content: ReceiptContent = serde_json::from_value(json).unwrap();
+        match content {
+            ReceiptContent::GlobalContractDistribution { nonce, .. } => {
+                assert_eq!(nonce, None);
+            }
+            _ => panic!("Expected GlobalContractDistribution"),
+        }
+    }
+
+    #[test]
+    fn test_gas_profile_entry_deserialization() {
+        let json = serde_json::json!({
+            "cost_category": "WASM_HOST_COST",
+            "cost": "BASE",
+            "gas_used": "2646228750"
+        });
+        let entry: GasProfileEntry = serde_json::from_value(json).unwrap();
+        assert_eq!(entry.cost_category, "WASM_HOST_COST");
+        assert_eq!(entry.cost, "BASE");
+        assert_eq!(entry.gas_used, "2646228750");
+    }
+
+    #[test]
+    fn test_transaction_view_with_signature() {
+        let json = serde_json::json!({
+            "signer_id": "alice.near",
+            "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+            "nonce": 1,
+            "receiver_id": "bob.near",
+            "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+            "actions": [{"Transfer": {"deposit": "1000000000000000000000000"}}],
+            "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5"
+        });
+        let tx: TransactionView = serde_json::from_value(json).unwrap();
+        assert_eq!(tx.signer_id.as_str(), "alice.near");
+        assert!(tx.signature.to_string().starts_with("ed25519:"));
     }
 }
