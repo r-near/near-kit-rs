@@ -874,7 +874,8 @@ mod tests {
         // Verify action discriminants match NEAR protocol specification
         // 0 = CreateAccount, 1 = DeployContract, 2 = FunctionCall, 3 = Transfer,
         // 4 = Stake, 5 = AddKey, 6 = DeleteKey, 7 = DeleteAccount, 8 = Delegate,
-        // 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit
+        // 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit,
+        // 12 = TransferToGasKey, 13 = WithdrawFromGasKey
 
         let create_account = Action::create_account();
         let bytes = borsh::to_vec(&create_account).unwrap();

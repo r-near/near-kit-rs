@@ -1088,4 +1088,61 @@ mod tests {
         let decoded: Result<u64, _> = result.borsh();
         assert!(decoded.is_err());
     }
+
+    #[test]
+    fn test_gas_key_function_call_deserialization() {
+        let json = serde_json::json!({
+            "GasKeyFunctionCall": {
+                "balance": "1000000000000000000000000",
+                "num_nonces": 5,
+                "allowance": "500000000000000000000000",
+                "receiver_id": "app.near",
+                "method_names": ["call_method"]
+            }
+        });
+        let perm: AccessKeyPermissionView = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            perm,
+            AccessKeyPermissionView::GasKeyFunctionCall { .. }
+        ));
+    }
+
+    #[test]
+    fn test_gas_key_full_access_deserialization() {
+        let json = serde_json::json!({
+            "GasKeyFullAccess": {
+                "balance": "1000000000000000000000000",
+                "num_nonces": 10
+            }
+        });
+        let perm: AccessKeyPermissionView = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            perm,
+            AccessKeyPermissionView::GasKeyFullAccess { .. }
+        ));
+    }
+
+    #[test]
+    fn test_transfer_to_gas_key_action_view_deserialization() {
+        let json = serde_json::json!({
+            "TransferToGasKey": {
+                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "deposit": "1000000000000000000000000"
+            }
+        });
+        let action: ActionView = serde_json::from_value(json).unwrap();
+        assert!(matches!(action, ActionView::TransferToGasKey { .. }));
+    }
+
+    #[test]
+    fn test_withdraw_from_gas_key_action_view_deserialization() {
+        let json = serde_json::json!({
+            "WithdrawFromGasKey": {
+                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "amount": "500000000000000000000000"
+            }
+        });
+        let action: ActionView = serde_json::from_value(json).unwrap();
+        assert!(matches!(action, ActionView::WithdrawFromGasKey { .. }));
+    }
 }
