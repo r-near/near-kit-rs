@@ -160,6 +160,26 @@ pub enum AccessKeyPermissionView {
         /// Methods that can be called (empty = all).
         method_names: Vec<String>,
     },
+    /// Gas key with function call access.
+    GasKeyFunctionCall {
+        /// Gas key balance.
+        balance: NearToken,
+        /// Number of nonces.
+        num_nonces: u16,
+        /// Maximum amount this key can spend.
+        allowance: Option<NearToken>,
+        /// Contract that can be called.
+        receiver_id: String,
+        /// Methods that can be called (empty = all).
+        method_names: Vec<String>,
+    },
+    /// Gas key with full access.
+    GasKeyFullAccess {
+        /// Gas key balance.
+        balance: NearToken,
+        /// Number of nonces.
+        num_nonces: u16,
+    },
 }
 
 /// Access key list from view_access_key_list RPC.
@@ -551,6 +571,14 @@ pub enum ActionView {
     #[serde(rename = "DeterministicStateInit")]
     DeterministicStateInit {
         deposit: NearToken,
+    },
+    TransferToGasKey {
+        public_key: String,
+        deposit: NearToken,
+    },
+    WithdrawFromGasKey {
+        public_key: String,
+        amount: NearToken,
     },
 }
 
