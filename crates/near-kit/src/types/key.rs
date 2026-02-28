@@ -598,10 +598,35 @@ impl Signature {
                 let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes);
                 verifying_key.verify_strict(message, &signature).is_ok()
             }
-            KeyType::Secp256k1 => {
-                unimplemented!("secp256k1 not yet supported")
-            }
+            KeyType::Secp256k1 => false, // not yet implemented
         }
+    }
+}
+
+impl FromStr for Signature {
+    type Err = ParseKeyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (key_type, data_str) = s.split_once(':').ok_or(ParseKeyError::InvalidFormat)?;
+
+        let key_type = match key_type {
+            "ed25519" => KeyType::Ed25519,
+            "secp256k1" => KeyType::Secp256k1,
+            other => return Err(ParseKeyError::UnknownKeyType(other.to_string())),
+        };
+
+        let data = bs58::decode(data_str)
+            .into_vec()
+            .map_err(|e| ParseKeyError::InvalidBase58(e.to_string()))?;
+
+        if data.len() != key_type.signature_len() {
+            return Err(ParseKeyError::InvalidLength {
+                expected: key_type.signature_len(),
+                actual: data.len(),
+            });
+        }
+
+        Ok(Self { key_type, data })
     }
 }
 
@@ -619,6 +644,19 @@ impl Display for Signature {
 impl Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Signature({})", self)
+    }
+}
+
+impl Serialize for Signature {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Signature {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s: String = serde::Deserialize::deserialize(d)?;
+        s.parse().map_err(serde::de::Error::custom)
     }
 }
 
@@ -1043,5 +1081,32 @@ mod tests {
 
         let result = PublicKey::try_from_slice(&invalid_bytes);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_signature_from_str_roundtrip() {
+        let sig_str = "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5";
+        let sig: Signature = sig_str.parse().unwrap();
+        assert_eq!(sig.key_type(), KeyType::Ed25519);
+        assert_eq!(sig.as_bytes().len(), 64);
+        assert_eq!(sig.to_string(), sig_str);
+    }
+
+    #[test]
+    fn test_signature_from_str_invalid_format() {
+        assert!("no_colon".parse::<Signature>().is_err());
+        assert!("unknown:abc".parse::<Signature>().is_err());
+        assert!("ed25519:invalid!!!".parse::<Signature>().is_err());
+        assert!("ed25519:AAAA".parse::<Signature>().is_err()); // too short
+    }
+
+    #[test]
+    fn test_signature_serde_roundtrip() {
+        let sig_str = "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5";
+        let sig: Signature = sig_str.parse().unwrap();
+        let json = serde_json::to_value(&sig).unwrap();
+        assert_eq!(json.as_str().unwrap(), sig_str);
+        let parsed: Signature = serde_json::from_value(json).unwrap();
+        assert_eq!(sig, parsed);
     }
 }
