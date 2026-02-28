@@ -91,10 +91,9 @@ pub use rpc::{
     ValidatorStakeViewV1, ViewFunctionResult,
 };
 pub use rpc_extra::{
-    AccessKeyDetailsForStateChange, BlockHeaderInnerLiteView, CurrentEpochValidatorInfo,
-    EpochValidatorInfo, LightClientBlockLiteView, LightClientBlockView, NextEpochValidatorInfo,
-    StateChangeCauseView, StateChangeValueView, StateChangeWithCauseView, ValidatorKickoutReason,
-    ValidatorKickoutView,
+    BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,
+    LightClientBlockLiteView, LightClientBlockView, NextEpochValidatorInfo, StateChangeCauseView,
+    StateChangeValueView, StateChangeWithCauseView, ValidatorKickoutReason, ValidatorKickoutView,
 };
 pub use transaction::{SignedTransaction, Transaction};
 pub use units::{Gas, IntoGas, IntoNearToken, NearToken};

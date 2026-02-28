@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 
-use super::rpc::{AccessKeyPermissionView, ValidatorStakeView};
+use super::rpc::{AccessKeyDetails, ValidatorStakeView};
 use super::{AccountId, CryptoHash, NearToken, PublicKey};
 
 // ============================================================================
@@ -286,7 +286,7 @@ pub enum StateChangeValueView {
         /// Public key.
         public_key: PublicKey,
         /// New access key.
-        access_key: AccessKeyDetailsForStateChange,
+        access_key: AccessKeyDetails,
     },
     /// Access key deleted.
     AccessKeyDeletion {
@@ -323,13 +323,4 @@ pub enum StateChangeValueView {
         /// Account ID.
         account_id: AccountId,
     },
-}
-
-/// Access key details in state changes (nonce + permission).
-#[derive(Debug, Clone, Deserialize)]
-pub struct AccessKeyDetailsForStateChange {
-    /// Nonce for replay protection.
-    pub nonce: u64,
-    /// Permission level.
-    pub permission: AccessKeyPermissionView,
 }
