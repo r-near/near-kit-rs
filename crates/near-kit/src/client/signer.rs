@@ -473,6 +473,11 @@ impl FileSigner {
     pub fn public_key(&self) -> &PublicKey {
         self.inner.public_key()
     }
+
+    /// Unwrap into the underlying [`InMemorySigner`].
+    pub fn into_inner(self) -> InMemorySigner {
+        self.inner
+    }
 }
 
 impl std::fmt::Debug for FileSigner {
@@ -552,6 +557,11 @@ impl EnvSigner {
     pub fn public_key(&self) -> &PublicKey {
         self.inner.public_key()
     }
+
+    /// Unwrap into the underlying [`InMemorySigner`].
+    pub fn into_inner(self) -> InMemorySigner {
+        self.inner
+    }
 }
 
 impl std::fmt::Debug for EnvSigner {
@@ -587,6 +597,26 @@ impl Signer for EnvSigner {
 /// NEAR uses per-key nonces. When sending concurrent transactions with a single key,
 /// they can collide on nonce values. By rotating through multiple keys, each
 /// concurrent transaction uses a different key with its own nonce sequence.
+///
+/// # Loading Keys from Other Sources
+///
+/// Keys can be loaded from any storage backend (file, keyring, env) via
+/// [`from_signers()`](Self::from_signers):
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// let rotating = RotatingSigner::from_signers(vec![
+///     FileSigner::from_file("keys/bot-key-0.json", "bot.testnet")?.into_inner(),
+///     FileSigner::from_file("keys/bot-key-1.json", "bot.testnet")?.into_inner(),
+/// ])?;
+/// # Ok::<(), near_kit::Error>(())
+/// ```
+///
+/// # Sequential Sends
+///
+/// Use [`into_per_key_signers()`](Self::into_per_key_signers) to split into
+/// per-key [`InMemorySigner`] instances for building sequential send queues.
+/// See the `sequential_sends` example.
 ///
 /// # Example
 ///
@@ -639,6 +669,50 @@ impl RotatingSigner {
 
         let account_id: AccountId = account_id.as_ref().parse()?;
 
+        Ok(Self {
+            account_id,
+            keys,
+            counter: AtomicUsize::new(0),
+        })
+    }
+
+    /// Create a rotating signer from [`InMemorySigner`] instances.
+    ///
+    /// This accepts signers loaded from any source (keyring, file, env, etc.)
+    /// via their `into_inner()` method. All signers must share the same account ID.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use near_kit::{RotatingSigner, FileSigner};
+    ///
+    /// // Load keys from separate credential files for the same account
+    /// let signers = vec![
+    ///     FileSigner::from_file("keys/bot-key-0.json", "bot.testnet")?.into_inner(),
+    ///     FileSigner::from_file("keys/bot-key-1.json", "bot.testnet")?.into_inner(),
+    /// ];
+    /// let rotating = RotatingSigner::from_signers(signers)?;
+    /// # Ok::<(), near_kit::Error>(())
+    /// ```
+    pub fn from_signers(signers: Vec<InMemorySigner>) -> Result<Self, crate::error::Error> {
+        if signers.is_empty() {
+            return Err(crate::error::Error::Config(
+                "RotatingSigner requires at least one signer".to_string(),
+            ));
+        }
+
+        let account_id = signers[0].account_id().clone();
+        for signer in &signers[1..] {
+            if signer.account_id() != &account_id {
+                return Err(crate::error::Error::Config(format!(
+                    "All signers must share the same account ID, got {} and {}",
+                    account_id,
+                    signer.account_id()
+                )));
+            }
+        }
+
+        let keys = signers.into_iter().map(|s| s.secret_key).collect();
         Ok(Self {
             account_id,
             keys,
@@ -952,6 +1026,38 @@ mod tests {
         assert!(debug_str.contains("public_key"));
         assert!(!debug_str.contains("secret_key"));
         assert!(!debug_str.contains("3D4YudUahN1nawWogh"));
+    }
+
+    #[test]
+    fn test_rotating_signer_from_signers() {
+        let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
+        let expected_public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
+
+        let signers: Vec<InMemorySigner> = keys
+            .into_iter()
+            .map(|sk| InMemorySigner::from_secret_key("bot.testnet".parse().unwrap(), sk))
+            .collect();
+
+        let rotating = RotatingSigner::from_signers(signers).unwrap();
+        assert_eq!(rotating.key_count(), 2);
+        assert_eq!(rotating.public_keys(), expected_public_keys);
+    }
+
+    #[test]
+    fn test_rotating_signer_from_signers_mismatched_accounts() {
+        let signers = vec![
+            InMemorySigner::from_secret_key(
+                "alice.testnet".parse().unwrap(),
+                SecretKey::generate_ed25519(),
+            ),
+            InMemorySigner::from_secret_key(
+                "bob.testnet".parse().unwrap(),
+                SecretKey::generate_ed25519(),
+            ),
+        ];
+
+        let result = RotatingSigner::from_signers(signers);
+        assert!(result.is_err());
     }
 
     #[test]
