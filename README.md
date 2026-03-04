@@ -147,7 +147,7 @@ Different situations call for different key management. near-kit supports severa
 | `InMemorySigner` | Scripts and bots with a hardcoded or loaded key |
 | `FileSigner` | Local development — reads from `~/.near-credentials` |
 | `EnvSigner` | CI/CD pipelines via `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` |
-| `RotatingSigner` | High-throughput apps that need multiple keys to avoid nonce conflicts |
+| `RotatingSigner` | High-throughput apps that need multiple keys to avoid nonce conflicts. Use `into_per_key_signers()` to split into per-key signers for sequential send queues |
 | `KeyringSigner` | Desktop apps using the system keychain (requires `keyring` feature) |
 
 ## Token Standards
