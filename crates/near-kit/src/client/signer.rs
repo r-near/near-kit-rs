@@ -670,6 +670,43 @@ impl RotatingSigner {
     pub fn public_keys(&self) -> Vec<PublicKey> {
         self.keys.iter().map(|sk| sk.public_key()).collect()
     }
+
+    /// Get all signing keys without advancing the rotation counter.
+    ///
+    /// Useful for building per-key data structures like sequential send queues.
+    /// Unlike [`key()`](Signer::key), calling this does not affect the rotation.
+    pub fn signing_keys(&self) -> Vec<SigningKey> {
+        self.keys
+            .iter()
+            .map(|sk| SigningKey::new(sk.clone()))
+            .collect()
+    }
+
+    /// Split into per-key [`InMemorySigner`] instances.
+    ///
+    /// Each signer uses a single key from the rotation pool, allowing
+    /// independent send ordering per key. The global nonce manager
+    /// automatically tracks nonces per `(account_id, public_key)`,
+    /// so per-key signers coordinate correctly without extra setup.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::{RotatingSigner, SecretKey};
+    ///
+    /// let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
+    /// let rotating = RotatingSigner::new("bot.testnet", keys).unwrap();
+    ///
+    /// // Create per-key signers for sequential queue workers
+    /// let per_key: Vec<_> = rotating.into_per_key_signers();
+    /// assert_eq!(per_key.len(), 2);
+    /// ```
+    pub fn into_per_key_signers(self) -> Vec<InMemorySigner> {
+        self.keys
+            .into_iter()
+            .map(|sk| InMemorySigner::from_secret_key(self.account_id.clone(), sk))
+            .collect()
+    }
 }
 
 impl std::fmt::Debug for RotatingSigner {
@@ -914,6 +951,45 @@ mod tests {
         assert!(debug_str.contains("public_key"));
         assert!(!debug_str.contains("secret_key"));
         assert!(!debug_str.contains("3D4YudUahN1nawWogh"));
+    }
+
+    #[test]
+    fn test_rotating_signer_signing_keys() {
+        let keys = vec![
+            SecretKey::generate_ed25519(),
+            SecretKey::generate_ed25519(),
+            SecretKey::generate_ed25519(),
+        ];
+        let expected_public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
+
+        let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+
+        // signing_keys() should not advance the counter
+        let counter_before = signer.counter.load(Ordering::Relaxed);
+        let signing_keys = signer.signing_keys();
+        let counter_after = signer.counter.load(Ordering::Relaxed);
+        assert_eq!(counter_before, counter_after);
+
+        // Should return all keys with matching public keys
+        assert_eq!(signing_keys.len(), 3);
+        for (sk, expected_pk) in signing_keys.iter().zip(&expected_public_keys) {
+            assert_eq!(sk.public_key(), expected_pk);
+        }
+    }
+
+    #[test]
+    fn test_rotating_signer_into_per_key_signers() {
+        let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
+        let expected_public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
+
+        let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+        let per_key = signer.into_per_key_signers();
+
+        assert_eq!(per_key.len(), 2);
+        for (ims, expected_pk) in per_key.iter().zip(&expected_public_keys) {
+            assert_eq!(ims.account_id().as_str(), "bot.testnet");
+            assert_eq!(ims.public_key(), expected_pk);
+        }
     }
 
     #[test]
