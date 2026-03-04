@@ -666,9 +666,10 @@ impl RotatingSigner {
     /// ```rust,no_run
     /// use near_kit::{RotatingSigner, FileSigner};
     ///
+    /// // Load keys from separate credential files for the same account
     /// let signers = vec![
-    ///     FileSigner::new("testnet", "bot.testnet")?.into_inner(),
-    ///     FileSigner::new("testnet", "bot.testnet")?.into_inner(),
+    ///     FileSigner::from_file("keys/bot-key-0.json", "bot.testnet")?.into_inner(),
+    ///     FileSigner::from_file("keys/bot-key-1.json", "bot.testnet")?.into_inner(),
     /// ];
     /// let rotating = RotatingSigner::from_signers(signers)?;
     /// # Ok::<(), near_kit::Error>(())
