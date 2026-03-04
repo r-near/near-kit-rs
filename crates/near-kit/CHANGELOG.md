@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.4.1...near-kit-v0.4.2) - 2026-03-04
+
+### Added
+
+- add RotatingSigner::from_signers() and into_inner() on storage signers ([#43](https://github.com/r-near/near-kit-rs/pull/43))
+
 ## [0.4.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.4.0...near-kit-v0.4.1) - 2026-03-04
 
 ### Added
