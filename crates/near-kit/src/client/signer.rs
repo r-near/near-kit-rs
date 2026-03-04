@@ -598,6 +598,26 @@ impl Signer for EnvSigner {
 /// they can collide on nonce values. By rotating through multiple keys, each
 /// concurrent transaction uses a different key with its own nonce sequence.
 ///
+/// # Loading Keys from Other Sources
+///
+/// Keys can be loaded from any storage backend (file, keyring, env) via
+/// [`from_signers()`](Self::from_signers):
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// let rotating = RotatingSigner::from_signers(vec![
+///     FileSigner::from_file("keys/bot-key-0.json", "bot.testnet")?.into_inner(),
+///     FileSigner::from_file("keys/bot-key-1.json", "bot.testnet")?.into_inner(),
+/// ])?;
+/// # Ok::<(), near_kit::Error>(())
+/// ```
+///
+/// # Sequential Sends
+///
+/// Use [`into_per_key_signers()`](Self::into_per_key_signers) to split into
+/// per-key [`InMemorySigner`] instances for building sequential send queues.
+/// See the `sequential_sends` example.
+///
 /// # Example
 ///
 /// ```rust
