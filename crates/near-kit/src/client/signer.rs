@@ -702,9 +702,10 @@ impl RotatingSigner {
     /// assert_eq!(per_key.len(), 2);
     /// ```
     pub fn into_per_key_signers(self) -> Vec<InMemorySigner> {
+        let account_id = self.account_id;
         self.keys
             .into_iter()
-            .map(|sk| InMemorySigner::from_secret_key(self.account_id.clone(), sk))
+            .map(|sk| InMemorySigner::from_secret_key(account_id.clone(), sk))
             .collect()
     }
 }
