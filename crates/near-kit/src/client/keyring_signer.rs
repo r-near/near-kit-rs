@@ -159,6 +159,11 @@ impl KeyringSigner {
     pub fn public_key(&self) -> &PublicKey {
         self.inner.public_key()
     }
+
+    /// Unwrap into the underlying [`InMemorySigner`].
+    pub fn into_inner(self) -> InMemorySigner {
+        self.inner
+    }
 }
 
 impl std::fmt::Debug for KeyringSigner {
