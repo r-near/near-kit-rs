@@ -95,6 +95,7 @@ pub struct Near {
     rpc: Arc<RpcClient>,
     signer: Option<Arc<dyn Signer>>,
     network: Network,
+    max_nonce_retries: u32,
 }
 
 impl Near {
@@ -218,6 +219,7 @@ impl Near {
             rpc: Arc::new(RpcClient::new(network.rpc_url())),
             signer: Some(Arc::new(signer)),
             network: Network::Sandbox,
+            max_nonce_retries: 3,
         }
     }
 
@@ -269,6 +271,7 @@ impl Near {
             rpc: self.rpc.clone(),
             signer: Some(Arc::new(signer)),
             network: self.network,
+            max_nonce_retries: self.max_nonce_retries,
         }
     }
 
@@ -587,7 +590,12 @@ impl Near {
     /// ```
     pub fn transaction(&self, receiver_id: impl AsRef<str>) -> TransactionBuilder {
         let receiver_id = AccountId::parse_lenient(receiver_id);
-        TransactionBuilder::new(self.rpc.clone(), self.signer.clone(), receiver_id)
+        TransactionBuilder::new(
+            self.rpc.clone(),
+            self.signer.clone(),
+            receiver_id,
+            self.max_nonce_retries,
+        )
     }
 
     /// Send a pre-signed transaction.
@@ -785,6 +793,7 @@ impl Near {
             self.rpc.clone(),
             self.signer.clone(),
             contract_id,
+            self.max_nonce_retries,
         ))
     }
 
@@ -822,6 +831,7 @@ impl Near {
             self.rpc.clone(),
             self.signer.clone(),
             contract_id,
+            self.max_nonce_retries,
         ))
     }
 }
@@ -862,6 +872,7 @@ pub struct NearBuilder {
     signer: Option<Arc<dyn Signer>>,
     retry_config: RetryConfig,
     network: Network,
+    max_nonce_retries: u32,
 }
 
 impl NearBuilder {
@@ -872,6 +883,7 @@ impl NearBuilder {
             signer: None,
             retry_config: RetryConfig::default(),
             network,
+            max_nonce_retries: 3,
         }
     }
 
@@ -912,6 +924,25 @@ impl NearBuilder {
         self
     }
 
+    /// Set the maximum number of transaction send attempts on `InvalidNonce` errors.
+    ///
+    /// When a transaction fails with `InvalidNonce`, the client automatically
+    /// retries with the corrected nonce from the error response. This controls
+    /// the total number of send attempts (including the initial one) before
+    /// giving up. A value of `1` means no retries (only the initial attempt).
+    ///
+    /// Defaults to `3`. For high-contention relayer scenarios, consider setting
+    /// this higher (e.g., `u32::MAX`) and wrapping sends in `tokio::timeout`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `attempts` is `0`.
+    pub fn max_nonce_retries(mut self, attempts: u32) -> Self {
+        assert!(attempts > 0, "max_nonce_retries must be at least 1");
+        self.max_nonce_retries = attempts;
+        self
+    }
+
     /// Build the client.
     pub fn build(self) -> Near {
         Near {
@@ -921,6 +952,7 @@ impl NearBuilder {
             )),
             signer: self.signer,
             network: self.network,
+            max_nonce_retries: self.max_nonce_retries,
         }
     }
 }

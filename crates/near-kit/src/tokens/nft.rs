@@ -51,6 +51,7 @@ pub struct NonFungibleToken {
     signer: Option<Arc<dyn Signer>>,
     contract_id: AccountId,
     metadata: OnceCell<NftContractMetadata>,
+    max_nonce_retries: u32,
 }
 
 impl NonFungibleToken {
@@ -59,12 +60,14 @@ impl NonFungibleToken {
         rpc: Arc<RpcClient>,
         signer: Option<Arc<dyn Signer>>,
         contract_id: AccountId,
+        max_nonce_retries: u32,
     ) -> Self {
         Self {
             rpc,
             signer,
             contract_id,
             metadata: OnceCell::new(),
+            max_nonce_retries,
         }
     }
 
@@ -79,6 +82,7 @@ impl NonFungibleToken {
             self.rpc.clone(),
             self.signer.clone(),
             self.contract_id.clone(),
+            self.max_nonce_retries,
         )
     }
 
@@ -406,6 +410,7 @@ impl Clone for NonFungibleToken {
             signer: self.signer.clone(),
             contract_id: self.contract_id.clone(),
             metadata: OnceCell::new(),
+            max_nonce_retries: self.max_nonce_retries,
         }
     }
 }

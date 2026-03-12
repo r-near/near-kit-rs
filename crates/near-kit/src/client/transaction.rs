@@ -160,6 +160,7 @@ pub struct TransactionBuilder {
     actions: Vec<Action>,
     signer_override: Option<Arc<dyn Signer>>,
     wait_until: TxExecutionStatus,
+    max_nonce_retries: u32,
 }
 
 impl TransactionBuilder {
@@ -167,6 +168,7 @@ impl TransactionBuilder {
         rpc: Arc<RpcClient>,
         signer: Option<Arc<dyn Signer>>,
         receiver_id: AccountId,
+        max_nonce_retries: u32,
     ) -> Self {
         Self {
             rpc,
@@ -175,6 +177,7 @@ impl TransactionBuilder {
             actions: Vec::new(),
             signer_override: None,
             wait_until: TxExecutionStatus::ExecutedOptimistic,
+            max_nonce_retries,
         }
     }
 
@@ -697,11 +700,12 @@ impl TransactionBuilder {
 
         // Get nonce for the key
         let rpc = self.rpc.clone();
+        let network = rpc.url().to_string();
         let signer_id_clone = signer_id.clone();
         let public_key_clone = public_key.clone();
 
         let nonce = nonce_manager()
-            .get_next_nonce(signer_id.as_ref(), &public_key_str, || async {
+            .get_next_nonce(&network, signer_id.as_ref(), &public_key_str, || async {
                 let access_key = rpc
                     .view_access_key(
                         &signer_id_clone,
@@ -1115,11 +1119,12 @@ impl IntoFuture for TransactionSend {
             let signer_id = signer.account_id().clone();
 
             // Retry loop for InvalidNonceError
-            const MAX_NONCE_RETRIES: u32 = 3;
+            let max_nonce_retries = builder.max_nonce_retries;
+            let network = builder.rpc.url().to_string();
             let mut last_error: Option<Error> = None;
             let mut last_ak_nonce: Option<u64> = None;
 
-            for attempt in 0..MAX_NONCE_RETRIES {
+            for attempt in 0..max_nonce_retries {
                 // Get a signing key atomically for this attempt
                 let key = signer.key();
                 let public_key = key.public_key().clone();
@@ -1133,13 +1138,14 @@ impl IntoFuture for TransactionSend {
                 let nonce = if let Some(ak_nonce) = last_ak_nonce.take() {
                     // Use the ak_nonce from the error directly - avoids refetching
                     nonce_manager().update_and_get_next(
+                        &network,
                         signer_id.as_ref(),
                         &public_key_str,
                         ak_nonce,
                     )
                 } else {
                     nonce_manager()
-                        .get_next_nonce(signer_id.as_ref(), &public_key_str, || async {
+                        .get_next_nonce(&network, signer_id.as_ref(), &public_key_str, || async {
                             let access_key = rpc
                                 .view_access_key(
                                     &signer_id_clone,
@@ -1197,7 +1203,7 @@ impl IntoFuture for TransactionSend {
                         return Ok(outcome);
                     }
                     Err(RpcError::InvalidNonce { tx_nonce, ak_nonce })
-                        if attempt < MAX_NONCE_RETRIES - 1 =>
+                        if attempt < max_nonce_retries - 1 =>
                     {
                         // Store ak_nonce for next iteration to avoid refetching
                         last_ak_nonce = Some(ak_nonce);

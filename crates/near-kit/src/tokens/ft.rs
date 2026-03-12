@@ -54,6 +54,7 @@ pub struct FungibleToken {
     contract_id: AccountId,
     metadata: OnceCell<FtMetadata>,
     storage_bounds: OnceCell<StorageBalanceBounds>,
+    max_nonce_retries: u32,
 }
 
 impl FungibleToken {
@@ -62,6 +63,7 @@ impl FungibleToken {
         rpc: Arc<RpcClient>,
         signer: Option<Arc<dyn Signer>>,
         contract_id: AccountId,
+        max_nonce_retries: u32,
     ) -> Self {
         Self {
             rpc,
@@ -69,6 +71,7 @@ impl FungibleToken {
             contract_id,
             metadata: OnceCell::new(),
             storage_bounds: OnceCell::new(),
+            max_nonce_retries,
         }
     }
 
@@ -83,6 +86,7 @@ impl FungibleToken {
             self.rpc.clone(),
             self.signer.clone(),
             self.contract_id.clone(),
+            self.max_nonce_retries,
         )
     }
 
@@ -394,6 +398,7 @@ impl Clone for FungibleToken {
             contract_id: self.contract_id.clone(),
             metadata: OnceCell::new(),
             storage_bounds: OnceCell::new(),
+            max_nonce_retries: self.max_nonce_retries,
         }
     }
 }
