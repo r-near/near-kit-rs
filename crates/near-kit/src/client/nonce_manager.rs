@@ -33,12 +33,15 @@ impl NonceManager {
         }
     }
 
-    /// Get the next nonce for an account and public key.
+    /// Get the next nonce for an account and public key on a specific network.
     ///
     /// Fetches from blockchain on first call, then increments atomically.
+    /// Nonces are cached per `(network, account_id, public_key)` tuple so the
+    /// same signer used against different RPC endpoints won't share state.
     ///
     /// # Arguments
     ///
+    /// * `network` - Network identifier (typically the RPC URL) used to scope the cache
     /// * `account_id` - Account ID to get nonce for
     /// * `public_key` - Public key string (e.g., "ed25519:...")
     /// * `fetch_from_blockchain` - Callback to fetch current nonce from blockchain
@@ -87,10 +90,11 @@ impl NonceManager {
         Ok(next_nonce)
     }
 
-    /// Invalidate cached nonce for an account and public key.
+    /// Invalidate cached nonce for an account and public key on a specific network.
     ///
     /// Call this when an InvalidNonceError occurs to force a fresh fetch
-    /// from the blockchain on the next transaction.
+    /// from the blockchain on the next transaction. The `network` parameter
+    /// must match the value used when the nonce was originally cached.
     #[allow(dead_code)]
     pub fn invalidate(&self, network: &str, account_id: &str, public_key: &str) {
         let key = format!("{}:{}:{}", network, account_id, public_key);
@@ -98,7 +102,7 @@ impl NonceManager {
         nonces.remove(&key);
     }
 
-    /// Update the cached nonce to a known value.
+    /// Update the cached nonce to a known value on a specific network.
     ///
     /// Use this when you receive an InvalidNonce error with `ak_nonce` -
     /// instead of invalidating and refetching, directly set the nonce
@@ -106,6 +110,7 @@ impl NonceManager {
     ///
     /// # Arguments
     ///
+    /// * `network` - Network identifier (typically the RPC URL) used to scope the cache
     /// * `account_id` - Account ID
     /// * `public_key` - Public key string (e.g., "ed25519:...")
     /// * `current_nonce` - The current nonce on chain (ak_nonce from error)
