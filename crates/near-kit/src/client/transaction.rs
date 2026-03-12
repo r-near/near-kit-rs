@@ -168,6 +168,7 @@ impl TransactionBuilder {
         rpc: Arc<RpcClient>,
         signer: Option<Arc<dyn Signer>>,
         receiver_id: AccountId,
+        max_nonce_retries: u32,
     ) -> Self {
         Self {
             rpc,
@@ -176,7 +177,7 @@ impl TransactionBuilder {
             actions: Vec::new(),
             signer_override: None,
             wait_until: TxExecutionStatus::ExecutedOptimistic,
-            max_nonce_retries: 3,
+            max_nonce_retries,
         }
     }
 
@@ -650,19 +651,6 @@ impl TransactionBuilder {
         self
     }
 
-    /// Set the maximum number of nonce retries on `InvalidNonce` errors.
-    ///
-    /// When a transaction fails with `InvalidNonce`, the builder automatically
-    /// retries with the corrected nonce from the error response. This controls
-    /// how many times that retry is attempted before giving up.
-    ///
-    /// Defaults to `3`. For high-contention relayer scenarios, consider setting
-    /// this higher (e.g., `u32::MAX`) and wrapping in `tokio::timeout` instead.
-    pub fn max_nonce_retries(mut self, retries: u32) -> Self {
-        self.max_nonce_retries = retries;
-        self
-    }
-
     // ========================================================================
     // Execution
     // ========================================================================
@@ -1051,13 +1039,6 @@ impl CallBuilder {
         self.finish().wait_until(status)
     }
 
-    /// Set the maximum number of nonce retries on `InvalidNonce` errors.
-    ///
-    /// See [`TransactionBuilder::max_nonce_retries`] for details.
-    pub fn max_nonce_retries(self, retries: u32) -> TransactionBuilder {
-        self.finish().max_nonce_retries(retries)
-    }
-
     /// Build and sign a delegate action for meta-transactions (NEP-366).
     ///
     /// This finishes the current function call and then creates a delegate action.
@@ -1111,14 +1092,6 @@ impl TransactionSend {
     /// Set the execution wait level.
     pub fn wait_until(mut self, status: TxExecutionStatus) -> Self {
         self.builder.wait_until = status;
-        self
-    }
-
-    /// Set the maximum number of nonce retries on `InvalidNonce` errors.
-    ///
-    /// See [`TransactionBuilder::max_nonce_retries`] for details.
-    pub fn max_nonce_retries(mut self, retries: u32) -> Self {
-        self.builder.max_nonce_retries = retries;
         self
     }
 }
