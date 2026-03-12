@@ -924,16 +924,22 @@ impl NearBuilder {
         self
     }
 
-    /// Set the maximum number of nonce retries on `InvalidNonce` errors.
+    /// Set the maximum number of transaction send attempts on `InvalidNonce` errors.
     ///
     /// When a transaction fails with `InvalidNonce`, the client automatically
     /// retries with the corrected nonce from the error response. This controls
-    /// how many times that retry is attempted before giving up.
+    /// the total number of send attempts (including the initial one) before
+    /// giving up. A value of `1` means no retries (only the initial attempt).
     ///
     /// Defaults to `3`. For high-contention relayer scenarios, consider setting
     /// this higher (e.g., `u32::MAX`) and wrapping sends in `tokio::timeout`.
-    pub fn max_nonce_retries(mut self, retries: u32) -> Self {
-        self.max_nonce_retries = retries;
+    ///
+    /// # Panics
+    ///
+    /// Panics if `attempts` is `0`.
+    pub fn max_nonce_retries(mut self, attempts: u32) -> Self {
+        assert!(attempts > 0, "max_nonce_retries must be at least 1");
+        self.max_nonce_retries = attempts;
         self
     }
 
