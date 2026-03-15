@@ -926,7 +926,11 @@ impl CallBuilder {
     }
 
     /// Finish this call and return to the transaction builder.
-    fn finish(self) -> TransactionBuilder {
+    ///
+    /// This is useful when you need to conditionally add actions to a
+    /// transaction, since it gives back the [`TransactionBuilder`] so you can
+    /// branch on runtime state before starting the next action.
+    pub fn finish(self) -> TransactionBuilder {
         let mut builder = self.builder;
         builder.push_action(Action::function_call(
             self.method,
