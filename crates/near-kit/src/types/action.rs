@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use serde_with::base64::Base64;
+use serde_with::serde_as;
 use sha3::{Digest, Keccak256};
 
 use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature};
@@ -220,7 +222,7 @@ pub struct DeleteAccountAction {
 ///
 /// Global contracts can be referenced either by their code hash (immutable)
 /// or by the account that published them (updatable).
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum GlobalContractIdentifier {
     /// Reference by code hash (32-byte SHA-256 hash of the WASM code).
     /// This creates an immutable reference - the contract cannot be updated.
@@ -233,7 +235,7 @@ pub enum GlobalContractIdentifier {
 /// Deploy mode for global contracts.
 ///
 /// Determines how the contract will be identified in the global registry.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[repr(u8)]
 pub enum GlobalContractDeployMode {
     /// Contract is identified by its code hash (immutable).
@@ -249,7 +251,7 @@ pub enum GlobalContractDeployMode {
 /// Global contracts are deployed once and can be referenced by multiple accounts,
 /// saving storage costs. The contract can be identified either by its code hash
 /// (immutable) or by the publishing account (updatable).
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct DeployGlobalContractAction {
     /// The WASM code to publish.
     pub code: Vec<u8>,
@@ -261,7 +263,7 @@ pub struct DeployGlobalContractAction {
 ///
 /// Instead of uploading the WASM code, this action references a previously
 /// published contract in the global registry.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct UseGlobalContractAction {
     /// Reference to the published contract.
     pub contract_identifier: GlobalContractIdentifier,
@@ -274,7 +276,7 @@ pub struct UseGlobalContractAction {
 /// State initialization data for NEP-616 deterministic accounts.
 ///
 /// The account ID is derived from: `"0s" + hex(keccak256(borsh(state_init))[12..32])`
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 #[repr(u8)]
 pub enum DeterministicAccountStateInit {
     /// Version 1 of the state init format.
@@ -282,12 +284,14 @@ pub enum DeterministicAccountStateInit {
 }
 
 /// Version 1 of deterministic account state initialization.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct DeterministicAccountStateInitV1 {
     /// Reference to the contract code (from global registry).
     pub code: GlobalContractIdentifier,
     /// Initial key-value pairs to populate in the contract's storage.
     /// Keys and values are Borsh-serialized bytes.
+    #[serde_as(as = "BTreeMap<Base64, Base64>")]
     pub data: BTreeMap<Vec<u8>, Vec<u8>>,
 }
 
@@ -295,7 +299,7 @@ pub struct DeterministicAccountStateInitV1 {
 ///
 /// This enables creating accounts where the account ID is derived from the
 /// contract code and initial state, making them predictable and reproducible.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct DeterministicStateInitAction {
     /// The state initialization data.
     pub state_init: DeterministicAccountStateInit,
@@ -1202,5 +1206,82 @@ mod tests {
             state_init2.derive_account_id(),
             "Different data should produce different account IDs"
         );
+    }
+
+    // ========================================================================
+    // Deterministic Types JSON Serialization Tests
+    // ========================================================================
+
+    #[test]
+    fn test_deterministic_state_init_json_roundtrip() {
+        // Build a DeterministicAccountStateInit with non-trivial data
+        let hash = CryptoHash::hash(&[1, 2, 3, 4]);
+        let mut data = BTreeMap::new();
+        data.insert(b"key1".to_vec(), b"value1".to_vec());
+        data.insert(b"key2".to_vec(), b"value2".to_vec());
+
+        let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::CodeHash(hash),
+            data: data.clone(),
+        });
+
+        // Serialize to JSON
+        let json = serde_json::to_value(&state_init).unwrap();
+
+        // Verify adjacently-tagged format: {"V1": {...}} (matching nearcore)
+        assert!(
+            json.get("V1").is_some(),
+            "Expected adjacently-tagged 'V1' key, got: {json}"
+        );
+        let v1 = json.get("V1").unwrap();
+        assert!(v1.get("code").is_some(), "Expected 'code' field in V1");
+        assert!(v1.get("data").is_some(), "Expected 'data' field in V1");
+
+        // Verify data keys/values are base64-encoded
+        let data_obj = v1.get("data").unwrap().as_object().unwrap();
+        // "key1" in base64 is "a2V5MQ=="
+        assert!(
+            data_obj.contains_key("a2V5MQ=="),
+            "Expected base64-encoded key 'a2V5MQ==', got keys: {:?}",
+            data_obj.keys().collect::<Vec<_>>()
+        );
+
+        // Round-trip back
+        let deserialized: DeterministicAccountStateInit = serde_json::from_value(json).unwrap();
+        let DeterministicAccountStateInit::V1(v1_decoded) = deserialized;
+        assert_eq!(v1_decoded.code, GlobalContractIdentifier::CodeHash(hash));
+        assert_eq!(v1_decoded.data, data);
+    }
+
+    #[test]
+    fn test_global_contract_identifier_json_roundtrip() {
+        // CodeHash variant
+        let hash = CryptoHash::hash(&[1, 2, 3]);
+        let id = GlobalContractIdentifier::CodeHash(hash);
+        let json = serde_json::to_string(&id).unwrap();
+        let decoded: GlobalContractIdentifier = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, id);
+
+        // AccountId variant
+        let account_id: AccountId = "test.near".parse().unwrap();
+        let id = GlobalContractIdentifier::AccountId(account_id);
+        let json = serde_json::to_string(&id).unwrap();
+        let decoded: GlobalContractIdentifier = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, id);
+    }
+
+    #[test]
+    fn test_deterministic_state_init_action_json_roundtrip() {
+        let action = DeterministicStateInitAction {
+            state_init: DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+                code: GlobalContractIdentifier::AccountId("publisher.near".parse().unwrap()),
+                data: BTreeMap::new(),
+            }),
+            deposit: NearToken::from_near(5),
+        };
+
+        let json = serde_json::to_string(&action).unwrap();
+        let decoded: DeterministicStateInitAction = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, action);
     }
 }
