@@ -1228,10 +1228,10 @@ mod tests {
         // Serialize to JSON
         let json = serde_json::to_value(&state_init).unwrap();
 
-        // Verify adjacently-tagged format: {"V1": {...}} (matching nearcore)
+        // Verify externally-tagged format: {"V1": {...}} (matching nearcore)
         assert!(
             json.get("V1").is_some(),
-            "Expected adjacently-tagged 'V1' key, got: {json}"
+            "Expected externally-tagged 'V1' key, got: {json}"
         );
         let v1 = json.get("V1").unwrap();
         assert!(v1.get("code").is_some(), "Expected 'code' field in V1");
