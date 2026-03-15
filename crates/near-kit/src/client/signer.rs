@@ -274,10 +274,10 @@ impl InMemorySigner {
     ///
     /// Returns an error if the account ID or secret key cannot be parsed.
     pub fn new(
-        account_id: impl AsRef<str>,
+        account_id: impl TryInto<AccountId, Error = impl Into<crate::error::Error>>,
         secret_key: impl AsRef<str>,
     ) -> Result<Self, crate::error::Error> {
-        let account_id: AccountId = account_id.as_ref().parse()?;
+        let account_id: AccountId = account_id.try_into().map_err(Into::into)?;
         let secret_key: SecretKey = secret_key.as_ref().parse()?;
         let public_key = secret_key.public_key();
 
@@ -318,10 +318,10 @@ impl InMemorySigner {
     /// ).unwrap();
     /// ```
     pub fn from_seed_phrase(
-        account_id: impl AsRef<str>,
+        account_id: impl TryInto<AccountId, Error = impl Into<crate::error::Error>>,
         phrase: impl AsRef<str>,
     ) -> Result<Self, crate::error::Error> {
-        let account_id: AccountId = account_id.as_ref().parse()?;
+        let account_id: AccountId = account_id.try_into().map_err(Into::into)?;
         let secret_key = SecretKey::from_seed_phrase(phrase)?;
         Ok(Self::from_secret_key(account_id, secret_key))
     }
@@ -346,11 +346,11 @@ impl InMemorySigner {
     /// ).unwrap();
     /// ```
     pub fn from_seed_phrase_with_path(
-        account_id: impl AsRef<str>,
+        account_id: impl TryInto<AccountId, Error = impl Into<crate::error::Error>>,
         phrase: impl AsRef<str>,
         hd_path: impl AsRef<str>,
     ) -> Result<Self, crate::error::Error> {
-        let account_id: AccountId = account_id.as_ref().parse()?;
+        let account_id: AccountId = account_id.try_into().map_err(Into::into)?;
         let secret_key = SecretKey::from_seed_phrase_with_path(phrase, hd_path)?;
         Ok(Self::from_secret_key(account_id, secret_key))
     }
@@ -426,15 +426,16 @@ impl FileSigner {
     /// - The file cannot be parsed
     pub fn new(
         network: impl AsRef<str>,
-        account_id: impl AsRef<str>,
+        account_id: impl TryInto<AccountId, Error = impl Into<crate::error::Error>>,
     ) -> Result<Self, crate::error::Error> {
+        let account_id: AccountId = account_id.try_into().map_err(Into::into)?;
         let home = dirs::home_dir().ok_or_else(|| {
             crate::error::Error::Config("Could not determine home directory".to_string())
         })?;
         let path = home
             .join(".near-credentials")
             .join(network.as_ref())
-            .join(format!("{}.json", account_id.as_ref()));
+            .join(format!("{}.json", account_id.as_str()));
 
         Self::from_file(&path, account_id)
     }
@@ -447,7 +448,7 @@ impl FileSigner {
     /// * `account_id` - The NEAR account ID
     pub fn from_file(
         path: impl AsRef<Path>,
-        account_id: impl AsRef<str>,
+        account_id: impl TryInto<AccountId, Error = impl Into<crate::error::Error>>,
     ) -> Result<Self, crate::error::Error> {
         let content = std::fs::read_to_string(path.as_ref()).map_err(|e| {
             crate::error::Error::Config(format!(
@@ -465,6 +466,7 @@ impl FileSigner {
             ))
         })?;
 
+        let account_id: AccountId = account_id.try_into().map_err(Into::into)?;
         let inner = InMemorySigner::new(account_id, &cred.private_key)?;
         Ok(Self { inner })
     }
@@ -658,7 +660,7 @@ impl RotatingSigner {
     /// - The account ID cannot be parsed
     /// - The keys vector is empty
     pub fn new(
-        account_id: impl AsRef<str>,
+        account_id: impl TryInto<AccountId, Error = impl Into<crate::error::Error>>,
         keys: Vec<SecretKey>,
     ) -> Result<Self, crate::error::Error> {
         if keys.is_empty() {
@@ -667,7 +669,7 @@ impl RotatingSigner {
             ));
         }
 
-        let account_id: AccountId = account_id.as_ref().parse()?;
+        let account_id: AccountId = account_id.try_into().map_err(Into::into)?;
 
         Ok(Self {
             account_id,
@@ -727,7 +729,7 @@ impl RotatingSigner {
     /// * `account_id` - The NEAR account ID
     /// * `keys` - Slice of secret keys in string format (e.g., "ed25519:...")
     pub fn from_key_strings(
-        account_id: impl AsRef<str>,
+        account_id: impl TryInto<AccountId, Error = impl Into<crate::error::Error>>,
         keys: &[impl AsRef<str>],
     ) -> Result<Self, crate::error::Error> {
         let parsed_keys: Result<Vec<SecretKey>, _> =

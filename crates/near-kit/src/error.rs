@@ -454,6 +454,12 @@ pub enum Error {
     TokenNotAvailable { token: String, network: String },
 }
 
+impl From<std::convert::Infallible> for Error {
+    fn from(e: std::convert::Infallible) -> Self {
+        match e {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

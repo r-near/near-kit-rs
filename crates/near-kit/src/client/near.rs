@@ -307,9 +307,12 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn balance(&self, account_id: impl AsRef<str>) -> BalanceQuery {
-        let account_id = AccountId::parse_lenient(account_id);
-        BalanceQuery::new(self.rpc.clone(), account_id)
+    pub fn balance(
+        &self,
+        account_id: impl TryInto<AccountId, Error = impl Into<Error>>,
+    ) -> Result<BalanceQuery, Error> {
+        let account_id = account_id.try_into().map_err(Into::into)?;
+        Ok(BalanceQuery::new(self.rpc.clone(), account_id))
     }
 
     /// Get full account information.
@@ -325,9 +328,12 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn account(&self, account_id: impl AsRef<str>) -> AccountQuery {
-        let account_id = AccountId::parse_lenient(account_id);
-        AccountQuery::new(self.rpc.clone(), account_id)
+    pub fn account(
+        &self,
+        account_id: impl TryInto<AccountId, Error = impl Into<Error>>,
+    ) -> Result<AccountQuery, Error> {
+        let account_id = account_id.try_into().map_err(Into::into)?;
+        Ok(AccountQuery::new(self.rpc.clone(), account_id))
     }
 
     /// Check if an account exists.
@@ -344,9 +350,12 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn account_exists(&self, account_id: impl AsRef<str>) -> AccountExistsQuery {
-        let account_id = AccountId::parse_lenient(account_id);
-        AccountExistsQuery::new(self.rpc.clone(), account_id)
+    pub fn account_exists(
+        &self,
+        account_id: impl TryInto<AccountId, Error = impl Into<Error>>,
+    ) -> Result<AccountExistsQuery, Error> {
+        let account_id = account_id.try_into().map_err(Into::into)?;
+        Ok(AccountExistsQuery::new(self.rpc.clone(), account_id))
     }
 
     /// Call a view function on a contract.
@@ -371,9 +380,17 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn view<T>(&self, contract_id: impl AsRef<str>, method: &str) -> ViewCall<T> {
-        let contract_id = AccountId::parse_lenient(contract_id);
-        ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
+    pub fn view<T>(
+        &self,
+        contract_id: impl TryInto<AccountId, Error = impl Into<Error>>,
+        method: &str,
+    ) -> Result<ViewCall<T>, Error> {
+        let contract_id = contract_id.try_into().map_err(Into::into)?;
+        Ok(ViewCall::new(
+            self.rpc.clone(),
+            contract_id,
+            method.to_string(),
+        ))
     }
 
     /// Get all access keys for an account.
@@ -391,9 +408,12 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn access_keys(&self, account_id: impl AsRef<str>) -> AccessKeysQuery {
-        let account_id = AccountId::parse_lenient(account_id);
-        AccessKeysQuery::new(self.rpc.clone(), account_id)
+    pub fn access_keys(
+        &self,
+        account_id: impl TryInto<AccountId, Error = impl Into<Error>>,
+    ) -> Result<AccessKeysQuery, Error> {
+        let account_id = account_id.try_into().map_err(Into::into)?;
+        Ok(AccessKeysQuery::new(self.rpc.clone(), account_id))
     }
 
     // ========================================================================
@@ -472,10 +492,10 @@ impl Near {
     /// ```
     pub fn transfer(
         &self,
-        receiver: impl AsRef<str>,
+        receiver: impl TryInto<AccountId, Error = impl Into<Error>>,
         amount: impl IntoNearToken,
-    ) -> TransactionBuilder {
-        self.transaction(receiver).transfer(amount)
+    ) -> Result<TransactionBuilder, Error> {
+        Ok(self.transaction(receiver)?.transfer(amount))
     }
 
     /// Call a function on a contract.
@@ -504,8 +524,12 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn call(&self, contract_id: impl AsRef<str>, method: &str) -> CallBuilder {
-        self.transaction(contract_id).call(method)
+    pub fn call(
+        &self,
+        contract_id: impl TryInto<AccountId, Error = impl Into<Error>>,
+        method: &str,
+    ) -> Result<CallBuilder, Error> {
+        Ok(self.transaction(contract_id)?.call(method))
     }
 
     /// Deploy a contract.
@@ -526,28 +550,30 @@ impl Near {
     /// ```
     pub fn deploy(
         &self,
-        account_id: impl AsRef<str>,
+        account_id: impl TryInto<AccountId, Error = impl Into<Error>>,
         code: impl Into<Vec<u8>>,
-    ) -> TransactionBuilder {
-        self.transaction(account_id).deploy(code)
+    ) -> Result<TransactionBuilder, Error> {
+        Ok(self.transaction(account_id)?.deploy(code))
     }
 
     /// Add a full access key to an account.
     pub fn add_full_access_key(
         &self,
-        account_id: impl AsRef<str>,
+        account_id: impl TryInto<AccountId, Error = impl Into<Error>>,
         public_key: PublicKey,
-    ) -> TransactionBuilder {
-        self.transaction(account_id).add_full_access_key(public_key)
+    ) -> Result<TransactionBuilder, Error> {
+        Ok(self
+            .transaction(account_id)?
+            .add_full_access_key(public_key))
     }
 
     /// Delete an access key from an account.
     pub fn delete_key(
         &self,
-        account_id: impl AsRef<str>,
+        account_id: impl TryInto<AccountId, Error = impl Into<Error>>,
         public_key: PublicKey,
-    ) -> TransactionBuilder {
-        self.transaction(account_id).delete_key(public_key)
+    ) -> Result<TransactionBuilder, Error> {
+        Ok(self.transaction(account_id)?.delete_key(public_key))
     }
 
     // ========================================================================
@@ -588,14 +614,17 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn transaction(&self, receiver_id: impl AsRef<str>) -> TransactionBuilder {
-        let receiver_id = AccountId::parse_lenient(receiver_id);
-        TransactionBuilder::new(
+    pub fn transaction(
+        &self,
+        receiver_id: impl TryInto<AccountId, Error = impl Into<Error>>,
+    ) -> Result<TransactionBuilder, Error> {
+        let receiver_id = receiver_id.try_into().map_err(Into::into)?;
+        Ok(TransactionBuilder::new(
             self.rpc.clone(),
             self.signer.clone(),
             receiver_id,
             self.max_nonce_retries,
-        )
+        ))
     }
 
     /// Send a pre-signed transaction.
@@ -661,36 +690,33 @@ impl Near {
     /// Call a view function with arguments (convenience method).
     pub async fn view_with_args<T: DeserializeOwned + Send + 'static, A: serde::Serialize>(
         &self,
-        contract_id: impl AsRef<str>,
+        contract_id: impl TryInto<AccountId, Error = impl Into<Error>>,
         method: &str,
         args: &A,
     ) -> Result<T, Error> {
-        let contract_id = AccountId::parse_lenient(contract_id);
-        ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
-            .args(args)
-            .await
+        self.view(contract_id, method)?.args(args).await
     }
 
     /// Call a function with arguments (convenience method).
     pub async fn call_with_args<A: serde::Serialize>(
         &self,
-        contract_id: impl AsRef<str>,
+        contract_id: impl TryInto<AccountId, Error = impl Into<Error>>,
         method: &str,
         args: &A,
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        self.call(contract_id, method).args(args).await
+        self.call(contract_id, method)?.args(args).await
     }
 
     /// Call a function with full options (convenience method).
     pub async fn call_with_options<A: serde::Serialize>(
         &self,
-        contract_id: impl AsRef<str>,
+        contract_id: impl TryInto<AccountId, Error = impl Into<Error>>,
         method: &str,
         args: &A,
         gas: Gas,
         deposit: NearToken,
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        self.call(contract_id, method)
+        self.call(contract_id, method)?
             .args(args)
             .gas(gas)
             .deposit(deposit)
@@ -743,10 +769,10 @@ impl Near {
     /// ```
     pub fn contract<T: crate::Contract + ?Sized>(
         &self,
-        contract_id: impl AsRef<str>,
-    ) -> T::Client<'_> {
-        let contract_id = AccountId::parse_lenient(contract_id);
-        T::Client::new(self, contract_id)
+        contract_id: impl TryInto<AccountId, Error = impl Into<Error>>,
+    ) -> Result<T::Client<'_>, Error> {
+        let contract_id = contract_id.try_into().map_err(Into::into)?;
+        Ok(T::Client::new(self, contract_id))
     }
 
     // ========================================================================
@@ -911,7 +937,7 @@ impl NearBuilder {
     pub fn credentials(
         mut self,
         private_key: impl AsRef<str>,
-        account_id: impl AsRef<str>,
+        account_id: impl TryInto<AccountId, Error = impl Into<Error>>,
     ) -> Result<Self, Error> {
         let signer = InMemorySigner::new(account_id, private_key)?;
         self.signer = Some(Arc::new(signer));

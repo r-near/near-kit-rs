@@ -272,18 +272,18 @@ impl TransactionBuilder {
     pub fn add_function_call_key(
         mut self,
         public_key: PublicKey,
-        receiver_id: impl AsRef<str>,
+        receiver_id: impl TryInto<AccountId, Error = impl Into<Error>>,
         method_names: Vec<String>,
         allowance: Option<NearToken>,
-    ) -> Self {
-        let receiver_id = AccountId::parse_lenient(receiver_id);
+    ) -> Result<Self, Error> {
+        let receiver_id = receiver_id.try_into().map_err(Into::into)?;
         self.actions.push(Action::add_function_call_key(
             public_key,
             receiver_id,
             method_names,
             allowance,
         ));
-        self
+        Ok(self)
     }
 
     /// Delete an access key from the account.
@@ -293,10 +293,13 @@ impl TransactionBuilder {
     }
 
     /// Delete the account and transfer remaining balance to beneficiary.
-    pub fn delete_account(mut self, beneficiary_id: impl AsRef<str>) -> Self {
-        let beneficiary_id = AccountId::parse_lenient(beneficiary_id);
+    pub fn delete_account(
+        mut self,
+        beneficiary_id: impl TryInto<AccountId, Error = impl Into<Error>>,
+    ) -> Result<Self, Error> {
+        let beneficiary_id = beneficiary_id.try_into().map_err(Into::into)?;
         self.actions.push(Action::delete_account(beneficiary_id));
-        self
+        Ok(self)
     }
 
     /// Add a stake action.
@@ -535,10 +538,13 @@ impl TransactionBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn deploy_from_publisher(mut self, publisher_id: impl AsRef<str>) -> Self {
-        let publisher_id = AccountId::parse_lenient(publisher_id);
+    pub fn deploy_from_publisher(
+        mut self,
+        publisher_id: impl TryInto<AccountId, Error = impl Into<Error>>,
+    ) -> Result<Self, Error> {
+        let publisher_id = publisher_id.try_into().map_err(Into::into)?;
         self.actions.push(Action::deploy_from_account(publisher_id));
-        self
+        Ok(self)
     }
 
     /// Create a NEP-616 deterministic state init action with code hash reference.
@@ -612,11 +618,11 @@ impl TransactionBuilder {
     /// Panics if the deposit amount string cannot be parsed.
     pub fn state_init_by_publisher(
         mut self,
-        publisher_id: impl AsRef<str>,
+        publisher_id: impl TryInto<AccountId, Error = impl Into<Error>>,
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
-    ) -> Self {
-        let publisher_id = AccountId::parse_lenient(publisher_id);
+    ) -> Result<Self, Error> {
+        let publisher_id = publisher_id.try_into().map_err(Into::into)?;
         let deposit = deposit
             .into_near_token()
             .expect("invalid deposit amount - use NearToken::from_str() for user input");
@@ -632,7 +638,7 @@ impl TransactionBuilder {
 
         self.actions
             .push(Action::state_init_by_account(publisher_id, data, deposit));
-        self
+        Ok(self)
     }
 
     // ========================================================================
@@ -970,10 +976,10 @@ impl CallBuilder {
     pub fn add_function_call_key(
         self,
         public_key: PublicKey,
-        receiver_id: impl AsRef<str>,
+        receiver_id: impl TryInto<AccountId, Error = impl Into<Error>>,
         method_names: Vec<String>,
         allowance: Option<NearToken>,
-    ) -> TransactionBuilder {
+    ) -> Result<TransactionBuilder, Error> {
         self.finish()
             .add_function_call_key(public_key, receiver_id, method_names, allowance)
     }
@@ -984,7 +990,10 @@ impl CallBuilder {
     }
 
     /// Delete the account.
-    pub fn delete_account(self, beneficiary_id: impl AsRef<str>) -> TransactionBuilder {
+    pub fn delete_account(
+        self,
+        beneficiary_id: impl TryInto<AccountId, Error = impl Into<Error>>,
+    ) -> Result<TransactionBuilder, Error> {
         self.finish().delete_account(beneficiary_id)
     }
 
@@ -1004,7 +1013,10 @@ impl CallBuilder {
     }
 
     /// Deploy a contract from the global registry by publisher account.
-    pub fn deploy_from_publisher(self, publisher_id: impl AsRef<str>) -> TransactionBuilder {
+    pub fn deploy_from_publisher(
+        self,
+        publisher_id: impl TryInto<AccountId, Error = impl Into<Error>>,
+    ) -> Result<TransactionBuilder, Error> {
         self.finish().deploy_from_publisher(publisher_id)
     }
 
@@ -1021,10 +1033,10 @@ impl CallBuilder {
     /// Create a NEP-616 deterministic state init action with publisher account reference.
     pub fn state_init_by_publisher(
         self,
-        publisher_id: impl AsRef<str>,
+        publisher_id: impl TryInto<AccountId, Error = impl Into<Error>>,
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
-    ) -> TransactionBuilder {
+    ) -> Result<TransactionBuilder, Error> {
         self.finish()
             .state_init_by_publisher(publisher_id, data, deposit)
     }

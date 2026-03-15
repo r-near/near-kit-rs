@@ -277,10 +277,10 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
         };
 
         quote! {
-            pub fn #method_name(&self, #arg_name: #arg_type) -> #view_return_type {
-                self.near.view::<#return_type>(&self.contract_id, #method_name_str)
+            pub fn #method_name(&self, #arg_name: #arg_type) -> Result<#view_return_type, near_kit::Error> {
+                Ok(self.near.view::<#return_type>(&self.contract_id, #method_name_str)?
                     #args_method
-                    #borsh_suffix
+                    #borsh_suffix)
             }
         }
     } else {
@@ -288,17 +288,17 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
         match format {
             SerializationFormat::Json => {
                 quote! {
-                    pub fn #method_name(&self) -> #view_return_type {
-                        self.near.view::<#return_type>(&self.contract_id, #method_name_str)
-                            .args(serde_json::json!({}))
+                    pub fn #method_name(&self) -> Result<#view_return_type, near_kit::Error> {
+                        Ok(self.near.view::<#return_type>(&self.contract_id, #method_name_str)?
+                            .args(serde_json::json!({})))
                     }
                 }
             }
             SerializationFormat::Borsh => {
                 quote! {
-                    pub fn #method_name(&self) -> #view_return_type {
-                        self.near.view::<#return_type>(&self.contract_id, #method_name_str)
-                            .borsh()
+                    pub fn #method_name(&self) -> Result<#view_return_type, near_kit::Error> {
+                        Ok(self.near.view::<#return_type>(&self.contract_id, #method_name_str)?
+                            .borsh())
                     }
                 }
             }
@@ -322,9 +322,9 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
         };
 
         quote! {
-            pub fn #method_name(&self, #arg_name: #arg_type) -> near_kit::CallBuilder {
-                self.near.call(&self.contract_id, #method_name_str)
-                    #args_method
+            pub fn #method_name(&self, #arg_name: #arg_type) -> Result<near_kit::CallBuilder, near_kit::Error> {
+                Ok(self.near.call(&self.contract_id, #method_name_str)?
+                    #args_method)
             }
         }
     } else {
@@ -332,16 +332,16 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
         match format {
             SerializationFormat::Json => {
                 quote! {
-                    pub fn #method_name(&self) -> near_kit::CallBuilder {
-                        self.near.call(&self.contract_id, #method_name_str)
-                            .args(serde_json::json!({}))
+                    pub fn #method_name(&self) -> Result<near_kit::CallBuilder, near_kit::Error> {
+                        Ok(self.near.call(&self.contract_id, #method_name_str)?
+                            .args(serde_json::json!({})))
                     }
                 }
             }
             SerializationFormat::Borsh => {
                 quote! {
-                    pub fn #method_name(&self) -> near_kit::CallBuilder {
-                        self.near.call(&self.contract_id, #method_name_str)
+                    pub fn #method_name(&self) -> Result<near_kit::CallBuilder, near_kit::Error> {
+                        Ok(self.near.call(&self.contract_id, #method_name_str)?)
                     }
                 }
             }

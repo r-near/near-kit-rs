@@ -198,6 +198,20 @@ impl TryFrom<String> for AccountId {
     }
 }
 
+impl TryFrom<&String> for AccountId {
+    type Error = ParseAccountIdError;
+
+    fn try_from(s: &String) -> Result<Self, Self::Error> {
+        Self::new(s.as_str())
+    }
+}
+
+impl From<&AccountId> for AccountId {
+    fn from(id: &AccountId) -> Self {
+        id.clone()
+    }
+}
+
 impl Display for AccountId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
