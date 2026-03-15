@@ -565,27 +565,16 @@ impl TransactionBuilder {
     ///
     /// Panics if the deposit amount string cannot be parsed.
     pub fn state_init_by_hash(
-        mut self,
+        self,
         code_hash: CryptoHash,
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
     ) -> Self {
-        let deposit = deposit
-            .into_near_token()
-            .expect("invalid deposit amount - use NearToken::from_str() for user input");
-
-        // Build the state init to derive the account ID
         let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
             code: GlobalContractIdentifier::CodeHash(code_hash),
-            data: data.clone(),
+            data,
         });
-
-        // Set receiver_id to the derived deterministic account ID
-        self.receiver_id = state_init.derive_account_id();
-
-        self.actions
-            .push(Action::state_init_by_hash(code_hash, data, deposit));
-        self
+        self.state_init(state_init, deposit)
     }
 
     /// Create a NEP-616 deterministic state init action with publisher account reference.
@@ -611,27 +600,40 @@ impl TransactionBuilder {
     ///
     /// Panics if the deposit amount string cannot be parsed.
     pub fn state_init_by_publisher(
-        mut self,
+        self,
         publisher_id: impl AsRef<str>,
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
     ) -> Self {
         let publisher_id = AccountId::parse_lenient(publisher_id);
+        let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::AccountId(publisher_id),
+            data,
+        });
+        self.state_init(state_init, deposit)
+    }
+
+    /// Create a NEP-616 deterministic state init action from a pre-built state init.
+    ///
+    /// This is a convenience method that accepts a [`DeterministicAccountStateInit`] directly,
+    /// avoiding the need to branch on [`GlobalContractIdentifier`] variants.
+    ///
+    /// The receiver_id is automatically set to the deterministically derived account ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the deposit amount string cannot be parsed.
+    pub fn state_init(
+        mut self,
+        state_init: DeterministicAccountStateInit,
+        deposit: impl IntoNearToken,
+    ) -> Self {
         let deposit = deposit
             .into_near_token()
             .expect("invalid deposit amount - use NearToken::from_str() for user input");
 
-        // Build the state init to derive the account ID
-        let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
-            code: GlobalContractIdentifier::AccountId(publisher_id.clone()),
-            data: data.clone(),
-        });
-
-        // Set receiver_id to the derived deterministic account ID
         self.receiver_id = state_init.derive_account_id();
-
-        self.actions
-            .push(Action::state_init_by_account(publisher_id, data, deposit));
+        self.actions.push(Action::state_init(state_init, deposit));
         self
     }
 
@@ -1027,6 +1029,15 @@ impl CallBuilder {
     ) -> TransactionBuilder {
         self.finish()
             .state_init_by_publisher(publisher_id, data, deposit)
+    }
+
+    /// Create a NEP-616 deterministic state init action from a pre-built state init.
+    pub fn state_init(
+        self,
+        state_init: DeterministicAccountStateInit,
+        deposit: impl IntoNearToken,
+    ) -> TransactionBuilder {
+        self.finish().state_init(state_init, deposit)
     }
 
     /// Override the signer.
