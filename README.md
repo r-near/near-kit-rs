@@ -119,6 +119,24 @@ near.transaction("sub.alice.testnet")
     .await?;
 ```
 
+For more dynamic use cases, you can conditionally add actions or work with pre-built actions directly:
+
+```rust
+let mut tx = near.transaction("contract.testnet");
+
+if needs_funding {
+    tx = tx.transfer(NearToken::near(1));
+}
+
+tx = tx.call("setup")
+    .args(serde_json::json!({ "admin": "alice.testnet" }))
+    .finish(); // return to TransactionBuilder for more chaining
+
+// Or add pre-built actions
+let action = Action::function_call("notify", b"{}".to_vec(), Gas::tgas(5), NearToken::ZERO);
+tx.add_action(action).send().await?;
+```
+
 ## Typed Contract Interfaces
 
 Tired of stringly-typed method names and `serde_json::json!` everywhere? Define a trait for your contract and get compile-time checking:
