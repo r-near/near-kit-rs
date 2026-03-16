@@ -6,9 +6,10 @@ use std::str::FromStr;
 use bip39::Mnemonic;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
-use k256::elliptic_curve::sec1::FromEncodedPoint;
+use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha2::Digest;
 use slipped10::{BIP32Path, Curve};
 
 use crate::error::{ParseKeyError, SignerError};
@@ -77,6 +78,52 @@ impl PublicKey {
         }
     }
 
+    /// Create a Secp256k1 public key from compressed 33-byte SEC1 encoding.
+    ///
+    /// Validates that the point is on the secp256k1 curve.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the bytes do not represent a valid point on the secp256k1 curve.
+    pub fn secp256k1_from_bytes(bytes: [u8; 33]) -> Self {
+        // Validate the point is on the curve
+        let encoded = k256::EncodedPoint::from_bytes(bytes.as_ref())
+            .expect("invalid secp256k1 SEC1 encoding");
+        let point = k256::AffinePoint::from_encoded_point(&encoded);
+        assert!(bool::from(point.is_some()), "invalid secp256k1 curve point");
+
+        Self {
+            key_type: KeyType::Secp256k1,
+            data: bytes.to_vec(),
+        }
+    }
+
+    /// Create a Secp256k1 public key from an uncompressed 65-byte SEC1 encoding.
+    ///
+    /// The key is validated and stored internally in compressed (33-byte) format.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the bytes do not represent a valid point on the secp256k1 curve.
+    pub fn secp256k1_from_uncompressed(bytes: [u8; 65]) -> Self {
+        let encoded = k256::EncodedPoint::from_bytes(bytes.as_ref())
+            .expect("invalid secp256k1 SEC1 encoding");
+        let point = k256::AffinePoint::from_encoded_point(&encoded);
+        let point: k256::AffinePoint = Option::from(point).expect("invalid secp256k1 curve point");
+
+        // Re-encode as compressed
+        let compressed = point.to_encoded_point(true);
+        let compressed_bytes: [u8; 33] = compressed
+            .as_bytes()
+            .try_into()
+            .expect("compressed point should be 33 bytes");
+
+        Self {
+            key_type: KeyType::Secp256k1,
+            data: compressed_bytes.to_vec(),
+        }
+    }
+
     /// Get the key type.
     pub fn key_type(&self) -> KeyType {
         self.key_type
@@ -90,6 +137,15 @@ impl PublicKey {
     /// Get the key data as a fixed-size array for Ed25519 keys.
     pub fn as_ed25519_bytes(&self) -> Option<&[u8; 32]> {
         if self.key_type == KeyType::Ed25519 && self.data.len() == 32 {
+            Some(self.data.as_slice().try_into().unwrap())
+        } else {
+            None
+        }
+    }
+
+    /// Get the key data as a fixed-size array for Secp256k1 keys (compressed SEC1 format).
+    pub fn as_secp256k1_bytes(&self) -> Option<&[u8; 33]> {
+        if self.key_type == KeyType::Secp256k1 && self.data.len() == 33 {
             Some(self.data.as_slice().try_into().unwrap())
         } else {
             None
@@ -270,6 +326,23 @@ impl SecretKey {
         }
     }
 
+    /// Generate a new random Secp256k1 key pair.
+    pub fn generate_secp256k1() -> Self {
+        let secret_key = k256::SecretKey::random(&mut OsRng);
+        Self {
+            key_type: KeyType::Secp256k1,
+            data: secret_key.to_bytes().to_vec(),
+        }
+    }
+
+    /// Create a Secp256k1 secret key from raw 32 bytes.
+    pub fn secp256k1_from_bytes(bytes: [u8; 32]) -> Self {
+        Self {
+            key_type: KeyType::Secp256k1,
+            data: bytes.to_vec(),
+        }
+    }
+
     /// Get the key type.
     pub fn key_type(&self) -> KeyType {
         self.key_type
@@ -294,7 +367,20 @@ impl SecretKey {
                 PublicKey::ed25519_from_bytes(verifying_key.to_bytes())
             }
             KeyType::Secp256k1 => {
-                unimplemented!("secp256k1 not yet supported")
+                let bytes: [u8; 32] = self
+                    .data
+                    .as_slice()
+                    .try_into()
+                    .expect("invalid secp256k1 key");
+                let secret_key =
+                    k256::SecretKey::from_bytes((&bytes).into()).expect("invalid secp256k1 key");
+                let public_key = secret_key.public_key();
+                let compressed = public_key.to_encoded_point(true);
+                let pk_bytes: [u8; 33] = compressed
+                    .as_bytes()
+                    .try_into()
+                    .expect("compressed point should be 33 bytes");
+                PublicKey::secp256k1_from_bytes(pk_bytes)
             }
         }
     }
@@ -316,7 +402,29 @@ impl SecretKey {
                 }
             }
             KeyType::Secp256k1 => {
-                unimplemented!("secp256k1 not yet supported")
+                let bytes: [u8; 32] = self
+                    .data
+                    .as_slice()
+                    .try_into()
+                    .expect("invalid secp256k1 key");
+                let signing_key = k256::ecdsa::SigningKey::from_bytes((&bytes).into())
+                    .expect("invalid secp256k1 key");
+
+                // NEAR protocol: hash message with SHA-256 before signing
+                let hash = sha2::Sha256::digest(message);
+                let (signature, recovery_id) = signing_key
+                    .sign_prehash_recoverable(&hash)
+                    .expect("secp256k1 signing failed");
+
+                // NEAR format: [r (32) | s (32) | v (1)]
+                let mut sig_bytes = [0u8; 65];
+                sig_bytes[..64].copy_from_slice(&signature.to_bytes());
+                sig_bytes[64] = recovery_id.to_byte();
+
+                Signature {
+                    key_type: KeyType::Secp256k1,
+                    data: sig_bytes.to_vec(),
+                }
             }
         }
     }
@@ -567,6 +675,17 @@ impl Signature {
         }
     }
 
+    /// Create a Secp256k1 signature from raw 65 bytes.
+    ///
+    /// The format is `[r (32 bytes) | s (32 bytes) | v (1 byte recovery id)]`,
+    /// matching the NEAR protocol's secp256k1 signature format.
+    pub fn secp256k1_from_bytes(bytes: [u8; 65]) -> Self {
+        Self {
+            key_type: KeyType::Secp256k1,
+            data: bytes.to_vec(),
+        }
+    }
+
     /// Get the key type.
     pub fn key_type(&self) -> KeyType {
         self.key_type
@@ -598,7 +717,31 @@ impl Signature {
                 let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes);
                 verifying_key.verify_strict(message, &signature).is_ok()
             }
-            KeyType::Secp256k1 => false, // not yet implemented
+            KeyType::Secp256k1 => {
+                let Some(pk_bytes) = public_key.as_secp256k1_bytes() else {
+                    return false;
+                };
+                let Ok(verifying_key) =
+                    k256::ecdsa::VerifyingKey::from_sec1_bytes(pk_bytes.as_ref())
+                else {
+                    return false;
+                };
+
+                // Signature must be 65 bytes: [r (32) | s (32) | v (1)]
+                if self.data.len() != 65 {
+                    return false;
+                }
+
+                let Ok(signature) = k256::ecdsa::Signature::from_bytes((&self.data[..64]).into())
+                else {
+                    return false;
+                };
+
+                // NEAR protocol: verify against SHA-256 hash of the message
+                let hash = sha2::Sha256::digest(message);
+                use k256::ecdsa::signature::hazmat::PrehashVerifier;
+                verifying_key.verify_prehash(&hash, &signature).is_ok()
+            }
         }
     }
 }
@@ -790,6 +933,25 @@ impl KeyPair {
     /// ```
     pub fn random_ed25519() -> Self {
         let secret_key = SecretKey::generate_ed25519();
+        let public_key = secret_key.public_key();
+        Self {
+            secret_key,
+            public_key,
+        }
+    }
+
+    /// Generate a random Secp256k1 key pair.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::KeyPair;
+    ///
+    /// let keypair = KeyPair::random_secp256k1();
+    /// assert!(keypair.public_key.to_string().starts_with("secp256k1:"));
+    /// ```
+    pub fn random_secp256k1() -> Self {
+        let secret_key = SecretKey::generate_secp256k1();
         let public_key = secret_key.public_key();
         Self {
             secret_key,
@@ -1108,5 +1270,111 @@ mod tests {
         assert_eq!(json.as_str().unwrap(), sig_str);
         let parsed: Signature = serde_json::from_value(json).unwrap();
         assert_eq!(sig, parsed);
+    }
+
+    // ========================================================================
+    // Secp256k1 Tests
+    // ========================================================================
+
+    #[test]
+    fn test_secp256k1_generate_and_sign_verify() {
+        let secret = SecretKey::generate_secp256k1();
+        let public = secret.public_key();
+        let message = b"hello world";
+
+        assert_eq!(secret.key_type(), KeyType::Secp256k1);
+        assert_eq!(public.key_type(), KeyType::Secp256k1);
+
+        let signature = secret.sign(message);
+        assert_eq!(signature.key_type(), KeyType::Secp256k1);
+        assert_eq!(signature.as_bytes().len(), 65);
+
+        assert!(signature.verify(message, &public));
+        assert!(!signature.verify(b"wrong message", &public));
+    }
+
+    #[test]
+    fn test_secp256k1_public_key_compressed_uncompressed_conversion() {
+        let secret = SecretKey::generate_secp256k1();
+        let public = secret.public_key();
+
+        // Get compressed bytes
+        let compressed = public.as_secp256k1_bytes().unwrap();
+        assert_eq!(compressed.len(), 33);
+        // First byte should be 0x02 or 0x03 (compressed point prefix)
+        assert!(compressed[0] == 0x02 || compressed[0] == 0x03);
+
+        // Decompress to uncompressed, then re-compress via constructor
+        let encoded =
+            k256::EncodedPoint::from_bytes(compressed.as_ref()).expect("valid encoded point");
+        let point = k256::AffinePoint::from_encoded_point(&encoded).expect("valid point on curve");
+        let uncompressed = point.to_encoded_point(false);
+        let uncompressed_bytes: [u8; 65] = uncompressed
+            .as_bytes()
+            .try_into()
+            .expect("uncompressed should be 65 bytes");
+
+        let public2 = PublicKey::secp256k1_from_uncompressed(uncompressed_bytes);
+        assert_eq!(public, public2);
+    }
+
+    #[test]
+    fn test_secp256k1_secret_key_to_public_key_derivation() {
+        // Deterministic: same secret key bytes should always produce the same public key
+        let bytes = [42u8; 32];
+        let sk1 = SecretKey::secp256k1_from_bytes(bytes);
+        let sk2 = SecretKey::secp256k1_from_bytes(bytes);
+        assert_eq!(sk1.public_key(), sk2.public_key());
+
+        // Different secret keys produce different public keys
+        let bytes2 = [43u8; 32];
+        let sk3 = SecretKey::secp256k1_from_bytes(bytes2);
+        assert_ne!(sk1.public_key(), sk3.public_key());
+    }
+
+    #[test]
+    fn test_secp256k1_public_key_string_roundtrip() {
+        let secret = SecretKey::generate_secp256k1();
+        let public = secret.public_key();
+        let s = public.to_string();
+        assert!(s.starts_with("secp256k1:"));
+        let parsed: PublicKey = s.parse().unwrap();
+        assert_eq!(public, parsed);
+    }
+
+    #[test]
+    fn test_secp256k1_secret_key_string_roundtrip() {
+        let secret = SecretKey::generate_secp256k1();
+        let s = secret.to_string();
+        assert!(s.starts_with("secp256k1:"));
+        let parsed: SecretKey = s.parse().unwrap();
+        assert_eq!(secret.public_key(), parsed.public_key());
+    }
+
+    #[test]
+    fn test_secp256k1_keypair_random() {
+        let keypair = KeyPair::random_secp256k1();
+        assert_eq!(keypair.public_key.key_type(), KeyType::Secp256k1);
+        assert_eq!(keypair.secret_key.key_type(), KeyType::Secp256k1);
+        assert!(keypair.public_key.to_string().starts_with("secp256k1:"));
+
+        // Sign/verify through keypair
+        let message = b"keypair test";
+        let signature = keypair.secret_key.sign(message);
+        assert!(signature.verify(message, &keypair.public_key));
+    }
+
+    #[test]
+    fn test_secp256k1_cross_type_verify_fails() {
+        // Ed25519 signature should not verify against secp256k1 key
+        let ed_secret = SecretKey::generate_ed25519();
+        let secp_secret = SecretKey::generate_secp256k1();
+
+        let message = b"cross type test";
+        let ed_sig = ed_secret.sign(message);
+        let secp_sig = secp_secret.sign(message);
+
+        assert!(!ed_sig.verify(message, &secp_secret.public_key()));
+        assert!(!secp_sig.verify(message, &ed_secret.public_key()));
     }
 }
