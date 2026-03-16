@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.4.3...near-kit-v0.5.0) - 2026-03-16
+
+### Added
+
+- add secp256k1 support for SecretKey, PublicKey, and Signature ([#56](https://github.com/r-near/near-kit-rs/pull/56))
+- expose TransactionBuilder::add_action() for flexible action composition ([#55](https://github.com/r-near/near-kit-rs/pull/55))
+- add TransactionBuilder::state_init() convenience method ([#49](https://github.com/r-near/near-kit-rs/pull/49))
+- add Serialize/Deserialize for Deterministic* and GlobalContract* types ([#50](https://github.com/r-near/near-kit-rs/pull/50))
+
+### Fixed
+
+- address Copilot review feedback on PRs #55 and #56 ([#57](https://github.com/r-near/near-kit-rs/pull/57))
+
+### Other
+
+- add conditional actions and add_action examples to README ([#58](https://github.com/r-near/near-kit-rs/pull/58))
+- replace impl AsRef<str> with impl Into<AccountId> for account ID params ([#54](https://github.com/r-near/near-kit-rs/pull/54))
+- Make CallBuilder::finish() public for conditional action building ([#48](https://github.com/r-near/near-kit-rs/pull/48))
+
 ## [0.4.3](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.4.2...near-kit-v0.4.3) - 2026-03-12
 
 ### Added
