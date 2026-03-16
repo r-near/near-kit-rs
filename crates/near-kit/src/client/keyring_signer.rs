@@ -102,22 +102,21 @@ impl KeyringSigner {
     /// ```
     pub fn new(
         network: impl AsRef<str>,
-        account_id: impl AsRef<str>,
+        account_id: impl Into<AccountId>,
         public_key: impl AsRef<str>,
     ) -> Result<Self, Error> {
         let network = network.as_ref();
-        let account_id_str = account_id.as_ref();
+        let account_id: AccountId = account_id.into();
         let public_key_str = public_key.as_ref();
 
-        // Parse account ID and public key for validation
-        let account_id: AccountId = account_id_str.parse()?;
+        // Parse public key for validation
         let public_key: PublicKey = public_key_str.parse()?;
 
         // Construct keyring entry using near-cli-rs format
         // Service: "near-{network}-{account_id}"
         // Username: "{account_id}:{public_key}"
-        let service_name = format!("near-{}-{}", network, account_id_str);
-        let username = format!("{}:{}", account_id_str, public_key_str);
+        let service_name = format!("near-{}-{}", network, account_id);
+        let username = format!("{}:{}", account_id, public_key_str);
 
         let entry = keyring::Entry::new(&service_name, &username).map_err(|e| {
             Error::KeyStore(KeyStoreError::Platform(format!(

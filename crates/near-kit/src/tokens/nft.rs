@@ -180,10 +180,12 @@ impl NonFungibleToken {
     /// ```
     pub async fn tokens_for_owner(
         &self,
-        account_id: impl AsRef<str>,
+        account_id: impl Into<AccountId>,
         from_index: Option<u64>,
         limit: Option<u64>,
     ) -> Result<Vec<NftToken>, Error> {
+        let account_id: AccountId = account_id.into();
+
         #[derive(Serialize)]
         struct Args<'a> {
             account_id: &'a str,
@@ -194,7 +196,7 @@ impl NonFungibleToken {
         }
 
         let args = serde_json::to_vec(&Args {
-            account_id: account_id.as_ref(),
+            account_id: account_id.as_str(),
             from_index: from_index.map(|i| i.to_string()),
             limit,
         })?;
@@ -235,14 +237,16 @@ impl NonFungibleToken {
     }
 
     /// Get token supply for an owner (nft_supply_for_owner).
-    pub async fn supply_for_owner(&self, account_id: impl AsRef<str>) -> Result<u64, Error> {
+    pub async fn supply_for_owner(&self, account_id: impl Into<AccountId>) -> Result<u64, Error> {
+        let account_id: AccountId = account_id.into();
+
         #[derive(Serialize)]
         struct Args<'a> {
             account_id: &'a str,
         }
 
         let args = serde_json::to_vec(&Args {
-            account_id: account_id.as_ref(),
+            account_id: account_id.as_str(),
         })?;
 
         let result = self
@@ -290,7 +294,11 @@ impl NonFungibleToken {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn transfer(&self, receiver_id: impl AsRef<str>, token_id: impl AsRef<str>) -> CallBuilder {
+    pub fn transfer(
+        &self,
+        receiver_id: impl Into<AccountId>,
+        token_id: impl AsRef<str>,
+    ) -> CallBuilder {
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -300,7 +308,7 @@ impl NonFungibleToken {
         self.transaction()
             .call("nft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.as_ref().to_string(),
+                receiver_id: receiver_id.into().to_string(),
                 token_id: token_id.as_ref().to_string(),
             })
             .deposit(NearToken::yocto(1))
@@ -312,7 +320,7 @@ impl NonFungibleToken {
     /// Same as [`transfer`](Self::transfer) but with an optional memo field.
     pub fn transfer_with_memo(
         &self,
-        receiver_id: impl AsRef<str>,
+        receiver_id: impl Into<AccountId>,
         token_id: impl AsRef<str>,
         memo: impl Into<String>,
     ) -> CallBuilder {
@@ -326,7 +334,7 @@ impl NonFungibleToken {
         self.transaction()
             .call("nft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.as_ref().to_string(),
+                receiver_id: receiver_id.into().to_string(),
                 token_id: token_id.as_ref().to_string(),
                 memo: memo.into(),
             })
@@ -337,7 +345,7 @@ impl NonFungibleToken {
     /// Transfer an NFT with approval ID (for approved transfers).
     pub fn transfer_with_approval(
         &self,
-        receiver_id: impl AsRef<str>,
+        receiver_id: impl Into<AccountId>,
         token_id: impl AsRef<str>,
         approval_id: u64,
     ) -> CallBuilder {
@@ -351,7 +359,7 @@ impl NonFungibleToken {
         self.transaction()
             .call("nft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.as_ref().to_string(),
+                receiver_id: receiver_id.into().to_string(),
                 token_id: token_id.as_ref().to_string(),
                 approval_id,
             })
@@ -380,7 +388,7 @@ impl NonFungibleToken {
     /// ```
     pub fn transfer_call(
         &self,
-        receiver_id: impl AsRef<str>,
+        receiver_id: impl Into<AccountId>,
         token_id: impl AsRef<str>,
         msg: impl Into<String>,
     ) -> CallBuilder {
@@ -394,7 +402,7 @@ impl NonFungibleToken {
         self.transaction()
             .call("nft_transfer_call")
             .args(TransferCallArgs {
-                receiver_id: receiver_id.as_ref().to_string(),
+                receiver_id: receiver_id.into().to_string(),
                 token_id: token_id.as_ref().to_string(),
                 msg: msg.into(),
             })

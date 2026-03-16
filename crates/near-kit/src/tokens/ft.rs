@@ -133,7 +133,8 @@ impl FungibleToken {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn balance_of(&self, account_id: impl AsRef<str>) -> Result<FtAmount, Error> {
+    pub async fn balance_of(&self, account_id: impl Into<AccountId>) -> Result<FtAmount, Error> {
+        let account_id: AccountId = account_id.into();
         let metadata = self.metadata().await?;
 
         #[derive(Serialize)]
@@ -142,7 +143,7 @@ impl FungibleToken {
         }
 
         let args = serde_json::to_vec(&Args {
-            account_id: account_id.as_ref(),
+            account_id: account_id.as_str(),
         })?;
 
         let result = self
@@ -201,7 +202,7 @@ impl FungibleToken {
     ///
     /// An account must be registered (via `storage_deposit`) before it can
     /// receive tokens.
-    pub async fn is_registered(&self, account_id: impl AsRef<str>) -> Result<bool, Error> {
+    pub async fn is_registered(&self, account_id: impl Into<AccountId>) -> Result<bool, Error> {
         let balance = self.storage_balance_of(account_id).await?;
         Ok(balance.is_some())
     }
@@ -211,15 +212,17 @@ impl FungibleToken {
     /// Returns `None` if the account is not registered.
     pub async fn storage_balance_of(
         &self,
-        account_id: impl AsRef<str>,
+        account_id: impl Into<AccountId>,
     ) -> Result<Option<StorageBalance>, Error> {
+        let account_id: AccountId = account_id.into();
+
         #[derive(Serialize)]
         struct Args<'a> {
             account_id: &'a str,
         }
 
         let args = serde_json::to_vec(&Args {
-            account_id: account_id.as_ref(),
+            account_id: account_id.as_str(),
         })?;
 
         let result = self
@@ -255,12 +258,13 @@ impl FungibleToken {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn storage_deposit(&self, account_id: impl AsRef<str>) -> StorageDepositCall {
+    pub fn storage_deposit(&self, account_id: impl Into<AccountId>) -> StorageDepositCall {
+        let account_id: AccountId = account_id.into();
         StorageDepositCall::new(
             self.rpc.clone(),
             self.signer.clone(),
             self.contract_id.clone(),
-            Some(account_id.as_ref().to_string()),
+            Some(account_id.to_string()),
             self.storage_bounds.clone(),
         )
     }
@@ -298,7 +302,13 @@ impl FungibleToken {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn transfer(&self, receiver_id: impl AsRef<str>, amount: impl Into<u128>) -> CallBuilder {
+    pub fn transfer(
+        &self,
+        receiver_id: impl Into<AccountId>,
+        amount: impl Into<u128>,
+    ) -> CallBuilder {
+        let receiver_id: AccountId = receiver_id.into();
+
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -308,7 +318,7 @@ impl FungibleToken {
         self.transaction()
             .call("ft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.as_ref().to_string(),
+                receiver_id: receiver_id.to_string(),
                 amount: amount.into().to_string(),
             })
             .deposit(NearToken::yocto(1))
@@ -320,10 +330,12 @@ impl FungibleToken {
     /// Same as [`transfer`](Self::transfer) but with an optional memo field.
     pub fn transfer_with_memo(
         &self,
-        receiver_id: impl AsRef<str>,
+        receiver_id: impl Into<AccountId>,
         amount: impl Into<u128>,
         memo: impl Into<String>,
     ) -> CallBuilder {
+        let receiver_id: AccountId = receiver_id.into();
+
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -334,7 +346,7 @@ impl FungibleToken {
         self.transaction()
             .call("ft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.as_ref().to_string(),
+                receiver_id: receiver_id.to_string(),
                 amount: amount.into().to_string(),
                 memo: memo.into(),
             })
@@ -367,10 +379,12 @@ impl FungibleToken {
     /// ```
     pub fn transfer_call(
         &self,
-        receiver_id: impl AsRef<str>,
+        receiver_id: impl Into<AccountId>,
         amount: impl Into<u128>,
         msg: impl Into<String>,
     ) -> CallBuilder {
+        let receiver_id: AccountId = receiver_id.into();
+
         #[derive(Serialize)]
         struct TransferCallArgs {
             receiver_id: String,
@@ -381,7 +395,7 @@ impl FungibleToken {
         self.transaction()
             .call("ft_transfer_call")
             .args(TransferCallArgs {
-                receiver_id: receiver_id.as_ref().to_string(),
+                receiver_id: receiver_id.to_string(),
                 amount: amount.into().to_string(),
                 msg: msg.into(),
             })

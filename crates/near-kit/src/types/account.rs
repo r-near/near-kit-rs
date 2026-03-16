@@ -182,19 +182,27 @@ impl FromStr for AccountId {
     }
 }
 
-impl TryFrom<&str> for AccountId {
-    type Error = ParseAccountIdError;
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        Self::new(s)
+impl From<&str> for AccountId {
+    fn from(s: &str) -> Self {
+        Self::parse_lenient(s)
     }
 }
 
-impl TryFrom<String> for AccountId {
-    type Error = ParseAccountIdError;
+impl From<String> for AccountId {
+    fn from(s: String) -> Self {
+        Self::parse_lenient(s)
+    }
+}
 
-    fn try_from(s: String) -> Result<Self, Self::Error> {
-        Self::new(s)
+impl From<&AccountId> for AccountId {
+    fn from(id: &AccountId) -> Self {
+        id.clone()
+    }
+}
+
+impl From<&String> for AccountId {
+    fn from(s: &String) -> Self {
+        Self::parse_lenient(s.as_str())
     }
 }
 
