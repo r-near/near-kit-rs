@@ -637,6 +637,38 @@ impl TransactionBuilder {
         self
     }
 
+    /// Add a pre-built action to the transaction.
+    ///
+    /// This is the most flexible way to add actions, since it accepts any
+    /// [`Action`] variant directly. It's especially useful when you want to
+    /// build function call actions independently and attach them later, or
+    /// when working with action types that don't have dedicated builder
+    /// methods.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// let action = Action::function_call(
+    ///     "transfer",
+    ///     serde_json::to_vec(&serde_json::json!({ "receiver": "bob.testnet" }))?,
+    ///     Gas::tgas(30),
+    ///     NearToken::ZERO,
+    /// );
+    ///
+    /// near.transaction("contract.testnet")
+    ///     .add_action(action)
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn add_action(mut self, action: Action) -> Self {
+        self.actions.push(action);
+        self
+    }
+
     // ========================================================================
     // Configuration methods
     // ========================================================================
@@ -820,38 +852,6 @@ impl TransactionBuilder {
     /// This is equivalent to awaiting the builder directly.
     pub fn send(self) -> TransactionSend {
         TransactionSend { builder: self }
-    }
-
-    /// Add a pre-built action to the transaction.
-    ///
-    /// This is the most flexible way to add actions, since it accepts any
-    /// [`Action`] variant directly. It's especially useful when you want to
-    /// build function call actions independently and attach them later, or
-    /// when working with action types that don't have dedicated builder
-    /// methods.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
-    /// let action = Action::function_call(
-    ///     "transfer",
-    ///     serde_json::to_vec(&serde_json::json!({ "receiver": "bob.testnet" }))?,
-    ///     Gas::tgas(30),
-    ///     NearToken::ZERO,
-    /// );
-    ///
-    /// near.transaction("contract.testnet")
-    ///     .add_action(action)
-    ///     .send()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn add_action(mut self, action: Action) -> Self {
-        self.actions.push(action);
-        self
     }
 }
 

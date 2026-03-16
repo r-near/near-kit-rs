@@ -336,11 +336,17 @@ impl SecretKey {
     }
 
     /// Create a Secp256k1 secret key from raw 32 bytes.
-    pub fn secp256k1_from_bytes(bytes: [u8; 32]) -> Self {
-        Self {
+    ///
+    /// Validates that the bytes represent a valid secp256k1 scalar
+    /// (non-zero and less than the curve order).
+    pub fn secp256k1_from_bytes(bytes: [u8; 32]) -> Result<Self, ParseKeyError> {
+        // Validate the scalar is valid for secp256k1
+        k256::SecretKey::from_bytes((&bytes).into())
+            .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
+        Ok(Self {
             key_type: KeyType::Secp256k1,
             data: bytes.to_vec(),
-        }
+        })
     }
 
     /// Get the key type.
@@ -729,6 +735,12 @@ impl Signature {
 
                 // Signature must be 65 bytes: [r (32) | s (32) | v (1)]
                 if self.data.len() != 65 {
+                    return false;
+                }
+
+                // Validate recovery id byte is in expected range (0..=3)
+                let v = self.data[64];
+                if v > 3 {
                     return false;
                 }
 
@@ -1322,13 +1334,13 @@ mod tests {
     fn test_secp256k1_secret_key_to_public_key_derivation() {
         // Deterministic: same secret key bytes should always produce the same public key
         let bytes = [42u8; 32];
-        let sk1 = SecretKey::secp256k1_from_bytes(bytes);
-        let sk2 = SecretKey::secp256k1_from_bytes(bytes);
+        let sk1 = SecretKey::secp256k1_from_bytes(bytes).unwrap();
+        let sk2 = SecretKey::secp256k1_from_bytes(bytes).unwrap();
         assert_eq!(sk1.public_key(), sk2.public_key());
 
         // Different secret keys produce different public keys
         let bytes2 = [43u8; 32];
-        let sk3 = SecretKey::secp256k1_from_bytes(bytes2);
+        let sk3 = SecretKey::secp256k1_from_bytes(bytes2).unwrap();
         assert_ne!(sk1.public_key(), sk3.public_key());
     }
 
