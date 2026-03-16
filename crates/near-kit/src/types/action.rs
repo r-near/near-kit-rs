@@ -226,9 +226,11 @@ pub struct DeleteAccountAction {
 pub enum GlobalContractIdentifier {
     /// Reference by code hash (32-byte SHA-256 hash of the WASM code).
     /// This creates an immutable reference - the contract cannot be updated.
+    #[serde(rename = "hash")]
     CodeHash(CryptoHash),
     /// Reference by the account ID that published the contract.
     /// The publisher can update the contract, and all users will get the new version.
+    #[serde(rename = "account_id")]
     AccountId(AccountId),
 }
 
