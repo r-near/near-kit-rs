@@ -272,11 +272,11 @@ impl TransactionBuilder {
     pub fn add_function_call_key(
         mut self,
         public_key: PublicKey,
-        receiver_id: impl AsRef<str>,
+        receiver_id: impl Into<AccountId>,
         method_names: Vec<String>,
         allowance: Option<NearToken>,
     ) -> Self {
-        let receiver_id = AccountId::parse_lenient(receiver_id);
+        let receiver_id = receiver_id.into();
         self.actions.push(Action::add_function_call_key(
             public_key,
             receiver_id,
@@ -293,8 +293,8 @@ impl TransactionBuilder {
     }
 
     /// Delete the account and transfer remaining balance to beneficiary.
-    pub fn delete_account(mut self, beneficiary_id: impl AsRef<str>) -> Self {
-        let beneficiary_id = AccountId::parse_lenient(beneficiary_id);
+    pub fn delete_account(mut self, beneficiary_id: impl Into<AccountId>) -> Self {
+        let beneficiary_id = beneficiary_id.into();
         self.actions.push(Action::delete_account(beneficiary_id));
         self
     }
@@ -535,8 +535,8 @@ impl TransactionBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn deploy_from_publisher(mut self, publisher_id: impl AsRef<str>) -> Self {
-        let publisher_id = AccountId::parse_lenient(publisher_id);
+    pub fn deploy_from_publisher(mut self, publisher_id: impl Into<AccountId>) -> Self {
+        let publisher_id = publisher_id.into();
         self.actions.push(Action::deploy_from_account(publisher_id));
         self
     }
@@ -601,11 +601,11 @@ impl TransactionBuilder {
     /// Panics if the deposit amount string cannot be parsed.
     pub fn state_init_by_publisher(
         self,
-        publisher_id: impl AsRef<str>,
+        publisher_id: impl Into<AccountId>,
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
     ) -> Self {
-        let publisher_id = AccountId::parse_lenient(publisher_id);
+        let publisher_id = publisher_id.into();
         let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
             code: GlobalContractIdentifier::AccountId(publisher_id),
             data,
@@ -976,7 +976,7 @@ impl CallBuilder {
     pub fn add_function_call_key(
         self,
         public_key: PublicKey,
-        receiver_id: impl AsRef<str>,
+        receiver_id: impl Into<AccountId>,
         method_names: Vec<String>,
         allowance: Option<NearToken>,
     ) -> TransactionBuilder {
@@ -990,7 +990,7 @@ impl CallBuilder {
     }
 
     /// Delete the account.
-    pub fn delete_account(self, beneficiary_id: impl AsRef<str>) -> TransactionBuilder {
+    pub fn delete_account(self, beneficiary_id: impl Into<AccountId>) -> TransactionBuilder {
         self.finish().delete_account(beneficiary_id)
     }
 
@@ -1010,7 +1010,7 @@ impl CallBuilder {
     }
 
     /// Deploy a contract from the global registry by publisher account.
-    pub fn deploy_from_publisher(self, publisher_id: impl AsRef<str>) -> TransactionBuilder {
+    pub fn deploy_from_publisher(self, publisher_id: impl Into<AccountId>) -> TransactionBuilder {
         self.finish().deploy_from_publisher(publisher_id)
     }
 
@@ -1027,7 +1027,7 @@ impl CallBuilder {
     /// Create a NEP-616 deterministic state init action with publisher account reference.
     pub fn state_init_by_publisher(
         self,
-        publisher_id: impl AsRef<str>,
+        publisher_id: impl Into<AccountId>,
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
     ) -> TransactionBuilder {

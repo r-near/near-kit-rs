@@ -171,11 +171,11 @@ impl SharedSandbox {
     /// ```
     pub async fn set_balance(
         &self,
-        account_id: impl AsRef<str>,
+        account_id: impl Into<crate::AccountId>,
         balance: crate::NearToken,
     ) -> Result<(), crate::Error> {
         let near = self.client();
-        let account_id = crate::AccountId::parse_lenient(account_id);
+        let account_id: crate::AccountId = account_id.into();
 
         // Fetch raw account data from RPC - this includes all fields the sandbox expects
         let mut account_response: serde_json::Value = near
@@ -297,11 +297,11 @@ impl OwnedSandbox {
     /// ```
     pub async fn set_balance(
         &self,
-        account_id: impl AsRef<str>,
+        account_id: impl Into<crate::AccountId>,
         balance: crate::NearToken,
     ) -> Result<(), crate::Error> {
         let near = self.client();
-        let account_id = crate::AccountId::parse_lenient(account_id);
+        let account_id: crate::AccountId = account_id.into();
 
         // Fetch raw account data from RPC - this includes all fields the sandbox expects
         let mut account_response: serde_json::Value = near
