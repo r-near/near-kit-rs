@@ -113,6 +113,9 @@ pub enum ParseKeyError {
 
     #[error("Invalid curve point: key bytes do not represent a valid point on the curve")]
     InvalidCurvePoint,
+
+    #[error("Invalid scalar: secret key bytes are not a valid scalar for this curve")]
+    InvalidScalar,
 }
 
 /// Error parsing a crypto hash.
