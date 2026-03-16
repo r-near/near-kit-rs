@@ -822,9 +822,36 @@ impl TransactionBuilder {
         TransactionSend { builder: self }
     }
 
-    /// Internal method to add an action (used by CallBuilder).
-    fn push_action(&mut self, action: Action) {
+    /// Add a pre-built action to the transaction.
+    ///
+    /// This is the most flexible way to add actions, since it accepts any
+    /// [`Action`] variant directly. It's especially useful when you want to
+    /// build function call actions independently and attach them later, or
+    /// when working with action types that don't have dedicated builder
+    /// methods.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// let action = Action::function_call(
+    ///     "transfer",
+    ///     serde_json::to_vec(&serde_json::json!({ "receiver": "bob.testnet" }))?,
+    ///     Gas::tgas(30),
+    ///     NearToken::ZERO,
+    /// );
+    ///
+    /// near.transaction("contract.testnet")
+    ///     .add_action(action)
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn add_action(mut self, action: Action) -> Self {
         self.actions.push(action);
+        self
     }
 }
 
@@ -933,19 +960,25 @@ impl CallBuilder {
     /// transaction, since it gives back the [`TransactionBuilder`] so you can
     /// branch on runtime state before starting the next action.
     pub fn finish(self) -> TransactionBuilder {
-        let mut builder = self.builder;
-        builder.push_action(Action::function_call(
+        self.builder.add_action(Action::function_call(
             self.method,
             self.args,
             self.gas,
             self.deposit,
-        ));
-        builder
+        ))
     }
 
     // ========================================================================
     // Chaining methods (delegate to TransactionBuilder after finishing)
     // ========================================================================
+
+    /// Add a pre-built action to the transaction.
+    ///
+    /// Finishes this function call, then adds the given action.
+    /// See [`TransactionBuilder::add_action`] for details.
+    pub fn add_action(self, action: Action) -> TransactionBuilder {
+        self.finish().add_action(action)
+    }
 
     /// Add another function call.
     pub fn call(self, method: &str) -> CallBuilder {
@@ -1243,5 +1276,56 @@ impl IntoFuture for TransactionBuilder {
 
     fn into_future(self) -> Self::IntoFuture {
         self.send().into_future()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Create a TransactionBuilder for unit tests (no real network needed).
+    fn test_builder() -> TransactionBuilder {
+        let rpc = Arc::new(RpcClient::new("https://rpc.testnet.near.org"));
+        let receiver: AccountId = "contract.testnet".parse().unwrap();
+        TransactionBuilder::new(rpc, None, receiver, 0)
+    }
+
+    #[test]
+    fn add_action_appends_to_transaction() {
+        let action = Action::function_call(
+            "do_something",
+            serde_json::to_vec(&serde_json::json!({ "key": "value" })).unwrap(),
+            Gas::tgas(30),
+            NearToken::ZERO,
+        );
+
+        let builder = test_builder().add_action(action);
+        assert_eq!(builder.actions.len(), 1);
+    }
+
+    #[test]
+    fn add_action_chains_with_other_actions() {
+        let call_action = Action::function_call("init", Vec::new(), Gas::tgas(10), NearToken::ZERO);
+
+        let builder = test_builder()
+            .create_account()
+            .transfer(NearToken::near(5))
+            .add_action(call_action);
+
+        assert_eq!(builder.actions.len(), 3);
+    }
+
+    #[test]
+    fn add_action_works_after_call_builder() {
+        let extra_action = Action::transfer(NearToken::near(1));
+
+        let builder = test_builder()
+            .call("setup")
+            .args(serde_json::json!({ "admin": "alice.testnet" }))
+            .gas(Gas::tgas(50))
+            .add_action(extra_action);
+
+        // Should have two actions: the function call from CallBuilder + the transfer
+        assert_eq!(builder.actions.len(), 2);
     }
 }
