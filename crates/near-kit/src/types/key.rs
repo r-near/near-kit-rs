@@ -340,9 +340,8 @@ impl SecretKey {
     /// Validates that the bytes represent a valid secp256k1 scalar
     /// (non-zero and less than the curve order).
     pub fn secp256k1_from_bytes(bytes: [u8; 32]) -> Result<Self, ParseKeyError> {
-        // Validate the scalar is valid for secp256k1
-        k256::SecretKey::from_bytes((&bytes).into())
-            .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
+        // Validate the scalar is valid for secp256k1 (non-zero and < curve order)
+        k256::SecretKey::from_bytes((&bytes).into()).map_err(|_| ParseKeyError::InvalidScalar)?;
         Ok(Self {
             key_type: KeyType::Secp256k1,
             data: bytes.to_vec(),
@@ -635,6 +634,12 @@ impl FromStr for SecretKey {
         } else {
             data
         };
+
+        // Validate secp256k1 scalar (non-zero and < curve order)
+        if key_type == KeyType::Secp256k1 {
+            k256::SecretKey::from_bytes(data.as_slice().into())
+                .map_err(|_| ParseKeyError::InvalidScalar)?;
+        }
 
         Ok(Self { key_type, data })
     }
@@ -1388,5 +1393,40 @@ mod tests {
 
         assert!(!ed_sig.verify(message, &secp_secret.public_key()));
         assert!(!secp_sig.verify(message, &ed_secret.public_key()));
+    }
+
+    #[test]
+    fn test_secp256k1_invalid_scalar_rejected() {
+        // Zero scalar is invalid for secp256k1
+        let zero_bytes = [0u8; 32];
+        let result = SecretKey::secp256k1_from_bytes(zero_bytes);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ParseKeyError::InvalidScalar));
+    }
+
+    #[test]
+    fn test_secp256k1_invalid_scalar_rejected_from_str() {
+        // Construct a secp256k1 secret key string with zero bytes (invalid scalar)
+        let zero_bytes = [0u8; 32];
+        let encoded = bs58::encode(&zero_bytes).into_string();
+        let key_str = format!("secp256k1:{}", encoded);
+        let result: Result<SecretKey, _> = key_str.parse();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ParseKeyError::InvalidScalar));
+    }
+
+    #[test]
+    fn test_secp256k1_invalid_recovery_id_rejected() {
+        let secret = SecretKey::generate_secp256k1();
+        let public = secret.public_key();
+        let message = b"test message";
+        let mut signature = secret.sign(message);
+
+        // Tamper with the recovery id byte (last byte) to an invalid value
+        signature.data[64] = 4; // valid range is 0..=3
+        assert!(!signature.verify(message, &public));
+
+        signature.data[64] = 255;
+        assert!(!signature.verify(message, &public));
     }
 }
