@@ -172,14 +172,25 @@ impl RpcClient {
                         self.retry_config.initial_delay_ms * 2u64.pow(attempt),
                         self.retry_config.max_delay_ms,
                     );
+                    tracing::warn!(
+                        rpc.method = method,
+                        attempt = attempt + 1,
+                        max_attempts = total_attempts,
+                        delay_ms = delay,
+                        error = %e,
+                        "RPC request failed, retrying"
+                    );
                     tokio::time::sleep(Duration::from_millis(delay)).await;
                     continue;
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    tracing::error!(rpc.method = method, error = %e, "RPC request failed");
+                    return Err(e);
+                }
             }
         }
 
-        Err(RpcError::Timeout(total_attempts))
+        unreachable!("all loop iterations return")
     }
 
     /// Single attempt to make an RPC call.
@@ -402,6 +413,7 @@ impl RpcClient {
         account_id: &AccountId,
         block: BlockReference,
     ) -> Result<AccountView, RpcError> {
+        tracing::debug!(account_id = %account_id, "view_account");
         let mut params = serde_json::json!({
             "request_type": "view_account",
             "account_id": account_id.to_string(),
@@ -418,6 +430,7 @@ impl RpcClient {
         public_key: &PublicKey,
         block: BlockReference,
     ) -> Result<AccessKeyView, RpcError> {
+        tracing::debug!(account_id = %account_id, public_key = %public_key, "view_access_key");
         let mut params = serde_json::json!({
             "request_type": "view_access_key",
             "account_id": account_id.to_string(),
@@ -434,6 +447,7 @@ impl RpcClient {
         account_id: &AccountId,
         block: BlockReference,
     ) -> Result<AccessKeyListView, RpcError> {
+        tracing::debug!(account_id = %account_id, "view_access_key_list");
         let mut params = serde_json::json!({
             "request_type": "view_access_key_list",
             "account_id": account_id.to_string(),
@@ -451,6 +465,7 @@ impl RpcClient {
         args: &[u8],
         block: BlockReference,
     ) -> Result<ViewFunctionResult, RpcError> {
+        tracing::debug!(contract_id = %account_id, method = method_name, "view_function");
         let mut params = serde_json::json!({
             "request_type": "call_function",
             "account_id": account_id.to_string(),
@@ -492,17 +507,20 @@ impl RpcClient {
 
     /// Get block information.
     pub async fn block(&self, block: BlockReference) -> Result<BlockView, RpcError> {
+        tracing::debug!("block");
         let params = block.to_rpc_params();
         self.call("block", params).await
     }
 
     /// Get node status.
     pub async fn status(&self) -> Result<StatusResponse, RpcError> {
+        tracing::debug!("status");
         self.call("status", serde_json::json!([])).await
     }
 
     /// Get current gas price.
     pub async fn gas_price(&self, block_hash: Option<&CryptoHash>) -> Result<GasPrice, RpcError> {
+        tracing::debug!("gas_price");
         let params = match block_hash {
             Some(hash) => serde_json::json!([hash.to_string()]),
             None => serde_json::json!([serde_json::Value::Null]),
@@ -517,6 +535,13 @@ impl RpcClient {
         wait_until: TxExecutionStatus,
     ) -> Result<SendTxResponse, RpcError> {
         let tx_hash = signed_tx.get_hash();
+        tracing::info!(
+            tx_hash = %tx_hash,
+            sender = %signed_tx.transaction.signer_id,
+            receiver = %signed_tx.transaction.receiver_id,
+            wait_until = ?wait_until,
+            "Sending transaction"
+        );
         let params = serde_json::json!({
             "signed_tx_base64": signed_tx.to_base64(),
             "wait_until": wait_until.as_str(),
@@ -535,6 +560,7 @@ impl RpcClient {
         sender_id: &AccountId,
         wait_until: TxExecutionStatus,
     ) -> Result<SendTxWithReceiptsResponse, RpcError> {
+        tracing::debug!(tx_hash = %tx_hash, sender = %sender_id, "tx_status");
         let params = serde_json::json!({
             "tx_hash": tx_hash.to_string(),
             "sender_account_id": sender_id.to_string(),
