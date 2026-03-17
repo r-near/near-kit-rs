@@ -83,6 +83,16 @@ pub trait Signer: Send + Sync {
     /// For single-key signers, this always returns the same key.
     /// For rotating signers, this atomically claims the next key in rotation.
     fn key(&self) -> SigningKey;
+
+    /// Get the signer's public key without side effects.
+    ///
+    /// The default implementation calls `key().public_key().clone()`,
+    /// which is correct for single-key signers. Implementors where `key()`
+    /// has side effects (e.g. advancing a rotation counter) **must** override
+    /// this method to avoid unintended state changes.
+    fn public_key(&self) -> PublicKey {
+        self.key().public_key().clone()
+    }
 }
 
 /// Implement `Signer` for `Arc<dyn Signer>` for convenience.
@@ -93,6 +103,10 @@ impl Signer for Arc<dyn Signer> {
 
     fn key(&self) -> SigningKey {
         (**self).key()
+    }
+
+    fn public_key(&self) -> PublicKey {
+        (**self).public_key()
     }
 }
 
@@ -805,6 +819,12 @@ impl Signer for RotatingSigner {
         let idx = self.counter.fetch_add(1, Ordering::Relaxed) % self.keys.len();
         SigningKey::new(self.keys[idx].clone())
     }
+
+    fn public_key(&self) -> PublicKey {
+        // Peek at whichever key will be claimed next, without advancing the counter
+        let idx = self.counter.load(Ordering::Relaxed) % self.keys.len();
+        self.keys[idx].public_key()
+    }
 }
 
 // ============================================================================
@@ -1098,6 +1118,40 @@ mod tests {
             assert_eq!(ims.account_id().as_str(), "bot.testnet");
             assert_eq!(ims.public_key(), expected_pk);
         }
+    }
+
+    #[test]
+    fn test_rotating_signer_public_key_no_side_effect() {
+        let keys = vec![
+            SecretKey::generate_ed25519(),
+            SecretKey::generate_ed25519(),
+            SecretKey::generate_ed25519(),
+        ];
+        let pks: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
+
+        let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+
+        // public_key() peeks at the next key without advancing the counter
+        assert_eq!(signer.public_key(), pks[0]);
+        assert_eq!(signer.public_key(), pks[0]);
+        assert_eq!(signer.public_key(), pks[0]);
+
+        // key() should still start from the first key (counter wasn't advanced)
+        let claimed = signer.key();
+        assert_eq!(claimed.public_key(), &pks[0]);
+
+        // After one key() call, public_key() should now reflect the second key
+        assert_eq!(signer.public_key(), pks[1]);
+
+        // Claim the second key, public_key() should reflect the third
+        let claimed = signer.key();
+        assert_eq!(claimed.public_key(), &pks[1]);
+        assert_eq!(signer.public_key(), pks[2]);
+
+        // Claim the third key, counter wraps around to the first
+        let claimed = signer.key();
+        assert_eq!(claimed.public_key(), &pks[2]);
+        assert_eq!(signer.public_key(), pks[0]);
     }
 
     #[test]

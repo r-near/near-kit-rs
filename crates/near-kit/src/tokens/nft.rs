@@ -76,11 +76,9 @@ impl NonFungibleToken {
         &self.contract_id
     }
 
-    /// Create a new client with a different signer, sharing the same RPC connection
-    /// and cached metadata.
+    /// Create a new client with a different signer, sharing the same RPC connection.
     ///
-    /// This is useful for reusing a token client across multiple signers without
-    /// re-fetching metadata.
+    /// Metadata will be re-fetched on first access.
     pub fn with_signer(&self, signer: impl Signer + 'static) -> Self {
         Self {
             rpc: self.rpc.clone(),

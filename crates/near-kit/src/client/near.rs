@@ -239,8 +239,18 @@ impl Near {
     }
 
     /// Get the signer's public key, if a signer is configured.
+    ///
+    /// This does not advance the rotation counter on [`RotatingSigner`](crate::RotatingSigner).
     pub fn public_key(&self) -> Option<PublicKey> {
-        self.signer.as_ref().map(|s| s.key().public_key().clone())
+        self.signer.as_ref().map(|s| s.public_key())
+    }
+
+    /// Get the signer, if one is configured.
+    ///
+    /// This is useful when you need to pass the signer to another system
+    /// or construct clients manually.
+    pub fn signer(&self) -> Option<Arc<dyn Signer>> {
+        self.signer.clone()
     }
 
     /// Get the network this client is connected to.
