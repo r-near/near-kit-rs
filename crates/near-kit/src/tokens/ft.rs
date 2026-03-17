@@ -80,6 +80,37 @@ impl FungibleToken {
         &self.contract_id
     }
 
+    /// Create a new client with a different signer, sharing the same RPC connection
+    /// and cached metadata.
+    ///
+    /// This is useful for reusing a token client across multiple signers without
+    /// re-fetching metadata.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().credentials("ed25519:...", "alice.testnet")?.build();
+    /// let ft = near.ft("wrap.testnet")?;
+    ///
+    /// // Reuse the same client with a different signer
+    /// let bob_signer = InMemorySigner::new("bob.testnet", "ed25519:...")?;
+    /// let ft_bob = ft.with_signer(bob_signer);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_signer(&self, signer: impl Signer + 'static) -> Self {
+        Self {
+            rpc: self.rpc.clone(),
+            signer: Some(Arc::new(signer)),
+            contract_id: self.contract_id.clone(),
+            metadata: OnceCell::new(),
+            storage_bounds: OnceCell::new(),
+            max_nonce_retries: self.max_nonce_retries,
+        }
+    }
+
     /// Create a transaction builder for this contract.
     fn transaction(&self) -> TransactionBuilder {
         TransactionBuilder::new(
