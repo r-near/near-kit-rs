@@ -10,8 +10,8 @@ use tokio::sync::OnceCell;
 use crate::client::{CallBuilder, RpcClient, Signer, TransactionBuilder};
 use crate::error::Error;
 use crate::types::{
-    AccountId, Action, BlockReference, Finality, Gas, IntoNearToken, NearToken, Transaction,
-    TxExecutionStatus,
+    AccountId, Action, BlockReference, Finality, Gas, GasExt, IntoNearToken, NearToken,
+    NearTokenExt, Transaction, TryIntoAccountId, TxExecutionStatus,
 };
 
 use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
@@ -162,8 +162,8 @@ impl FungibleToken {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn balance_of(&self, account_id: impl Into<AccountId>) -> Result<FtAmount, Error> {
-        let account_id: AccountId = account_id.into();
+    pub async fn balance_of(&self, account_id: impl TryIntoAccountId) -> Result<FtAmount, Error> {
+        let account_id: AccountId = account_id.try_into_account_id()?;
         tracing::debug!(contract = %self.contract_id, account = %account_id, "Querying FT balance");
         let metadata = self.metadata().await?;
 
@@ -232,7 +232,7 @@ impl FungibleToken {
     ///
     /// An account must be registered (via `storage_deposit`) before it can
     /// receive tokens.
-    pub async fn is_registered(&self, account_id: impl Into<AccountId>) -> Result<bool, Error> {
+    pub async fn is_registered(&self, account_id: impl TryIntoAccountId) -> Result<bool, Error> {
         let balance = self.storage_balance_of(account_id).await?;
         Ok(balance.is_some())
     }
@@ -242,9 +242,9 @@ impl FungibleToken {
     /// Returns `None` if the account is not registered.
     pub async fn storage_balance_of(
         &self,
-        account_id: impl Into<AccountId>,
+        account_id: impl TryIntoAccountId,
     ) -> Result<Option<StorageBalance>, Error> {
-        let account_id: AccountId = account_id.into();
+        let account_id: AccountId = account_id.try_into_account_id()?;
 
         #[derive(Serialize)]
         struct Args<'a> {
@@ -288,8 +288,10 @@ impl FungibleToken {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn storage_deposit(&self, account_id: impl Into<AccountId>) -> StorageDepositCall {
-        let account_id: AccountId = account_id.into();
+    pub fn storage_deposit(&self, account_id: impl TryIntoAccountId) -> StorageDepositCall {
+        let account_id: AccountId = account_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         StorageDepositCall::new(
             self.rpc.clone(),
             self.signer.clone(),
@@ -334,10 +336,12 @@ impl FungibleToken {
     /// ```
     pub fn transfer(
         &self,
-        receiver_id: impl Into<AccountId>,
+        receiver_id: impl TryIntoAccountId,
         amount: impl Into<u128>,
     ) -> CallBuilder {
-        let receiver_id: AccountId = receiver_id.into();
+        let receiver_id: AccountId = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         tracing::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer");
         #[derive(Serialize)]
         struct TransferArgs {
@@ -360,11 +364,13 @@ impl FungibleToken {
     /// Same as [`transfer`](Self::transfer) but with an optional memo field.
     pub fn transfer_with_memo(
         &self,
-        receiver_id: impl Into<AccountId>,
+        receiver_id: impl TryIntoAccountId,
         amount: impl Into<u128>,
         memo: impl Into<String>,
     ) -> CallBuilder {
-        let receiver_id: AccountId = receiver_id.into();
+        let receiver_id: AccountId = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
 
         #[derive(Serialize)]
         struct TransferArgs {
@@ -409,11 +415,13 @@ impl FungibleToken {
     /// ```
     pub fn transfer_call(
         &self,
-        receiver_id: impl Into<AccountId>,
+        receiver_id: impl TryIntoAccountId,
         amount: impl Into<u128>,
         msg: impl Into<String>,
     ) -> CallBuilder {
-        let receiver_id: AccountId = receiver_id.into();
+        let receiver_id: AccountId = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         tracing::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer_call");
 
         #[derive(Serialize)]

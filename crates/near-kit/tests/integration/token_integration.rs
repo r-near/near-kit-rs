@@ -201,7 +201,7 @@ async fn test_ft_transfer() {
         .build();
 
     owner_near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(receiver_key.public_key())
@@ -291,7 +291,7 @@ async fn test_ft_storage_deposit() {
     let user_id: AccountId = format!("user.{}", owner_id).parse().unwrap();
 
     owner_near
-        .transaction(&user_id)
+        .transaction(user_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(user_key.public_key())
@@ -572,7 +572,7 @@ async fn test_nft_transfer() {
     let receiver_id: AccountId = format!("receiver.{}", owner_id).parse().unwrap();
 
     owner_near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(receiver_key.public_key())

@@ -30,7 +30,7 @@ async fn test_ft_metadata_on_non_contract_account() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(key.public_key())
@@ -40,7 +40,7 @@ async fn test_ft_metadata_on_non_contract_account() {
         .unwrap();
 
     // Try to get FT metadata from non-contract account
-    let ft = near.ft(&account_id).unwrap();
+    let ft = near.ft(account_id.as_str()).unwrap();
     let result = ft.metadata().await;
 
     assert!(result.is_err(), "Should error for account without contract");
@@ -81,7 +81,7 @@ async fn test_ft_balance_of_on_non_contract() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(key.public_key())
@@ -91,7 +91,7 @@ async fn test_ft_balance_of_on_non_contract() {
         .unwrap();
 
     // Try to get balance from non-contract account
-    let ft = near.ft(&account_id).unwrap();
+    let ft = near.ft(account_id.as_str()).unwrap();
     let result = ft.balance_of("alice.near").await;
 
     assert!(
@@ -123,7 +123,7 @@ async fn test_ft_transfer_without_signer() {
     let no_signer_near = Near::custom(sandbox.rpc_url()).build();
 
     // Try to transfer without a signer configured
-    let ft = no_signer_near.ft(&owner_id).unwrap();
+    let ft = no_signer_near.ft(owner_id.as_str()).unwrap();
     let result = ft.transfer("bob.near", 100_u128).await;
 
     assert!(result.is_err(), "Should error when no signer configured");
@@ -166,7 +166,7 @@ async fn test_ft_on_wrong_contract_type() {
 
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
 
-    near.transaction(&contract_id)
+    near.transaction(contract_id.as_str())
         .create_account()
         .transfer(NearToken::near(50))
         .add_full_access_key(key.public_key())
@@ -177,7 +177,7 @@ async fn test_ft_on_wrong_contract_type() {
         .unwrap();
 
     // Try to use FT methods on non-FT contract (no init needed)
-    let ft = near.ft(&contract_id).unwrap();
+    let ft = near.ft(contract_id.as_str()).unwrap();
     let result = ft.metadata().await;
 
     assert!(result.is_err(), "Should error for non-FT contract");
@@ -205,7 +205,7 @@ async fn test_nft_metadata_on_non_contract() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(key.public_key())
@@ -214,7 +214,7 @@ async fn test_nft_metadata_on_non_contract() {
         .await
         .unwrap();
 
-    let nft = near.nft(&account_id).unwrap();
+    let nft = near.nft(account_id.as_str()).unwrap();
     let result = nft.metadata().await;
 
     assert!(result.is_err(), "Should error for account without contract");
@@ -229,7 +229,7 @@ async fn test_nft_token_on_non_contract() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(key.public_key())
@@ -238,7 +238,7 @@ async fn test_nft_token_on_non_contract() {
         .await
         .unwrap();
 
-    let nft = near.nft(&account_id).unwrap();
+    let nft = near.nft(account_id.as_str()).unwrap();
     let result = nft.token("any-token").await;
 
     assert!(result.is_err(), "Should error for account without contract");
@@ -272,7 +272,7 @@ async fn test_nft_on_wrong_contract_type() {
 
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
 
-    near.transaction(&contract_id)
+    near.transaction(contract_id.as_str())
         .create_account()
         .transfer(NearToken::near(50))
         .add_full_access_key(key.public_key())
@@ -283,7 +283,7 @@ async fn test_nft_on_wrong_contract_type() {
         .unwrap();
 
     // Try to use NFT methods on non-NFT contract (no init needed)
-    let nft = near.nft(&contract_id).unwrap();
+    let nft = near.nft(contract_id.as_str()).unwrap();
     let result = nft.metadata().await;
 
     assert!(result.is_err(), "Should error for non-NFT contract");

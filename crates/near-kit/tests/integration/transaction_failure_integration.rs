@@ -30,7 +30,7 @@ async fn test_deploy_invalid_wasm() {
     let account_id = unique_account();
 
     // Create account
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(key.public_key())
@@ -47,7 +47,7 @@ async fn test_deploy_invalid_wasm() {
     // Try to deploy invalid WASM (random bytes)
     let invalid_wasm = vec![0u8; 100]; // Not valid WASM
 
-    let result = account_near.deploy(&account_id, invalid_wasm).await;
+    let result = account_near.deploy(account_id.as_str(), invalid_wasm).await;
 
     // Note: NEAR allows deploying any bytes, but calling methods will fail
     // The deploy itself may succeed
@@ -62,7 +62,7 @@ async fn test_deploy_empty_wasm() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(key.public_key())
@@ -79,7 +79,7 @@ async fn test_deploy_empty_wasm() {
     // Try to deploy empty WASM
     let empty_wasm: Vec<u8> = vec![];
 
-    let result = account_near.deploy(&account_id, empty_wasm).await;
+    let result = account_near.deploy(account_id.as_str(), empty_wasm).await;
 
     // Empty deploys may succeed (effectively removes contract)
     println!("Empty WASM deploy result: {:?}", result);
@@ -115,7 +115,7 @@ async fn test_add_duplicate_key() {
     let account_id = unique_account();
 
     // Create account with key
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(key.public_key())
@@ -131,7 +131,7 @@ async fn test_add_duplicate_key() {
 
     // Try to add the same key again
     let result = account_near
-        .add_full_access_key(&account_id, key.public_key())
+        .add_full_access_key(account_id.as_str(), key.public_key())
         .await;
 
     assert!(result.is_err(), "Should fail when adding duplicate key");
@@ -146,7 +146,7 @@ async fn test_delete_last_full_access_key() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(key.public_key())
@@ -162,7 +162,9 @@ async fn test_delete_last_full_access_key() {
 
     // Delete the only key - this should succeed but leave the account inaccessible
     // Note: NEAR protocol allows this
-    let result = account_near.delete_key(&account_id, key.public_key()).await;
+    let result = account_near
+        .delete_key(account_id.as_str(), key.public_key())
+        .await;
 
     // This may succeed - depends on protocol rules about last key
     println!("Delete last key result: {:?}", result);
@@ -183,7 +185,7 @@ async fn test_create_subaccount_of_nonexistent_parent() {
     let key = SecretKey::generate_ed25519();
 
     let result = near
-        .transaction(&sub_id)
+        .transaction(sub_id.as_str())
         .create_account()
         .transfer(NearToken::near(1))
         .add_full_access_key(key.public_key())
@@ -205,7 +207,7 @@ async fn test_create_account_without_initial_balance() {
 
     // Create account without transferring any balance
     let result = near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .create_account()
         .add_full_access_key(key.public_key())
         // No .transfer() call
@@ -229,7 +231,7 @@ async fn test_create_account_with_insufficient_balance() {
 
     // Create account with very small balance (not enough for storage)
     let result = near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::yocto(1)) // Way too small
         .add_full_access_key(key.public_key())
@@ -253,7 +255,7 @@ async fn test_transaction_with_failing_action_in_middle() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(key.public_key())
@@ -274,7 +276,7 @@ async fn test_transaction_with_failing_action_in_middle() {
     let fake_key = SecretKey::generate_ed25519();
 
     let result = account_near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .delete_key(fake_key.public_key()) // This key doesn't exist
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -315,7 +317,7 @@ async fn test_delete_account_to_nonexistent_beneficiary() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(5))
         .add_full_access_key(key.public_key())
@@ -333,7 +335,7 @@ async fn test_delete_account_to_nonexistent_beneficiary() {
     let nonexistent_beneficiary: AccountId = "nonexistent-beneficiary.sandbox".parse().unwrap();
 
     let result = account_near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .delete_account(&nonexistent_beneficiary)
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -355,7 +357,7 @@ async fn test_stake_with_insufficient_balance() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(1)) // Small balance
         .add_full_access_key(key.public_key())
@@ -371,7 +373,7 @@ async fn test_stake_with_insufficient_balance() {
 
     // Try to stake more than available
     let result = account_near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .stake(NearToken::near(1000), key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -396,7 +398,7 @@ async fn test_transfer_zero_amount() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(key.public_key())
@@ -439,7 +441,7 @@ async fn test_transfer_max_amount() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(key.public_key())

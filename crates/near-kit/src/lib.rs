@@ -88,7 +88,7 @@
 //! For compile-time safety, use the typed constructors:
 //!
 //! ```rust
-//! use near_kit::{NearToken, Gas};
+//! use near_kit::{NearToken, NearTokenExt, Gas, GasExt};
 //!
 //! // NEAR amounts
 //! let five_near = NearToken::near(5);
@@ -107,10 +107,10 @@
 //! ```rust
 //! use near_kit::{NearToken, Gas};
 //!
-//! // Parse NEAR amounts
+//! // Parse NEAR amounts (upstream format)
 //! let amount: NearToken = "5 NEAR".parse().unwrap();
 //! let small: NearToken = "100 milliNEAR".parse().unwrap();
-//! let tiny: NearToken = "1000 yocto".parse().unwrap();
+//! let tiny: NearToken = "1000 yoctoNEAR".parse().unwrap();
 //!
 //! // Parse gas
 //! let gas: Gas = "30 Tgas".parse().unwrap();

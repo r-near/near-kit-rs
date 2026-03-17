@@ -33,7 +33,7 @@ async fn test_sandbox_balance() {
     let account_id = unique_account();
 
     root_near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(1000))
         .add_full_access_key(account_key.public_key())
@@ -42,7 +42,7 @@ async fn test_sandbox_balance() {
         .await
         .unwrap();
 
-    let balance = root_near.balance(&account_id).await.unwrap();
+    let balance = root_near.balance(account_id.as_str()).await.unwrap();
     println!("Test account balance: {}", balance);
 
     // Should have approximately 1000 NEAR (minus account creation costs)
@@ -60,7 +60,7 @@ async fn test_sandbox_transfer() {
     let sender_id = unique_account();
 
     root_near
-        .transaction(&sender_id)
+        .transaction(sender_id.as_str())
         .create_account()
         .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
@@ -81,7 +81,7 @@ async fn test_sandbox_transfer() {
 
     // Create the receiver account
     let outcome = sender_near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(receiver_key.public_key())
@@ -97,7 +97,7 @@ async fn test_sandbox_transfer() {
     );
 
     // Check the receiver's balance
-    let balance = root_near.balance(&receiver_id).await.unwrap();
+    let balance = root_near.balance(receiver_id.as_str()).await.unwrap();
     println!("Receiver balance: {}", balance);
 
     // Should have approximately 10 NEAR (minus storage costs)
@@ -116,7 +116,7 @@ async fn test_sandbox_multiple_transfers() {
     let sender_id = unique_account();
 
     root_near
-        .transaction(&sender_id)
+        .transaction(sender_id.as_str())
         .create_account()
         .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
@@ -181,7 +181,7 @@ async fn test_sandbox_simple_transfer() {
     let sender_id = unique_account();
 
     root_near
-        .transaction(&sender_id)
+        .transaction(sender_id.as_str())
         .create_account()
         .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
@@ -200,7 +200,7 @@ async fn test_sandbox_simple_transfer() {
     let receiver_id: AccountId = format!("bob.{}", sender_id).parse().unwrap();
 
     sender_near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .create_account()
         .transfer(NearToken::near(5))
         .add_full_access_key(receiver_key.public_key())
@@ -209,7 +209,7 @@ async fn test_sandbox_simple_transfer() {
         .await
         .unwrap();
 
-    let initial_balance = root_near.balance(&receiver_id).await.unwrap();
+    let initial_balance = root_near.balance(receiver_id.as_str()).await.unwrap();
 
     // Now do a simple transfer using the convenience method
     sender_near
@@ -218,7 +218,7 @@ async fn test_sandbox_simple_transfer() {
         .await
         .unwrap();
 
-    let final_balance = root_near.balance(&receiver_id).await.unwrap();
+    let final_balance = root_near.balance(receiver_id.as_str()).await.unwrap();
 
     println!("Initial: {}, Final: {}", initial_balance, final_balance);
 
@@ -239,7 +239,7 @@ async fn test_sandbox_create_account_outcome() {
     let sender_id = unique_account();
 
     root_near
-        .transaction(&sender_id)
+        .transaction(sender_id.as_str())
         .create_account()
         .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
@@ -259,7 +259,7 @@ async fn test_sandbox_create_account_outcome() {
 
     // Create account with funding
     let outcome = sender_near
-        .transaction(&contract_id)
+        .transaction(contract_id.as_str())
         .create_account()
         .transfer(NearToken::near(50))
         .add_full_access_key(contract_key.public_key())
@@ -346,7 +346,7 @@ async fn test_sandbox_add_and_delete_key() {
     let account_id = unique_account();
 
     root_near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(5))
         .add_full_access_key(account_key.public_key())
@@ -365,7 +365,7 @@ async fn test_sandbox_add_and_delete_key() {
     let second_key = SecretKey::generate_ed25519();
 
     account_near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .add_full_access_key(second_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -373,12 +373,12 @@ async fn test_sandbox_add_and_delete_key() {
         .unwrap();
 
     // Check that both keys exist
-    let keys = account_near.access_keys(&account_id).await.unwrap();
+    let keys = account_near.access_keys(account_id.as_str()).await.unwrap();
     assert_eq!(keys.keys.len(), 2);
 
     // Delete the second key
     account_near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .delete_key(second_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -386,7 +386,7 @@ async fn test_sandbox_add_and_delete_key() {
         .unwrap();
 
     // Check that only one key remains
-    let keys = account_near.access_keys(&account_id).await.unwrap();
+    let keys = account_near.access_keys(account_id.as_str()).await.unwrap();
     assert_eq!(keys.keys.len(), 1);
 }
 
@@ -471,7 +471,7 @@ async fn test_sandbox_set_balance() {
     let account_id = unique_account();
 
     root_near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(account_key.public_key())
@@ -480,7 +480,7 @@ async fn test_sandbox_set_balance() {
         .await
         .unwrap();
 
-    let initial_balance = root_near.balance(&account_id).await.unwrap();
+    let initial_balance = root_near.balance(account_id.as_str()).await.unwrap();
     println!("Initial balance: {}", initial_balance.total);
     assert!(initial_balance.total < NearToken::near(11));
 
@@ -492,7 +492,7 @@ async fn test_sandbox_set_balance() {
         .unwrap();
 
     // Verify the balance was updated
-    let new_balance = root_near.balance(&account_id).await.unwrap();
+    let new_balance = root_near.balance(account_id.as_str()).await.unwrap();
     println!("New balance after patching: {}", new_balance.total);
     assert_eq!(new_balance.total, target_balance);
 }
@@ -511,7 +511,7 @@ async fn test_sandbox_set_balance_preserves_other_fields() {
         std::fs::read("tests/contracts/guestbook.wasm").expect("failed to read test contract");
 
     root_near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(50))
         .add_full_access_key(account_key.public_key())
@@ -522,7 +522,7 @@ async fn test_sandbox_set_balance_preserves_other_fields() {
         .unwrap();
 
     // Get original account state
-    let original = root_near.account(&account_id).await.unwrap();
+    let original = root_near.account(account_id.as_str()).await.unwrap();
     println!("Original code_hash: {}", original.code_hash);
     println!("Original storage_usage: {}", original.storage_usage);
 
@@ -534,7 +534,7 @@ async fn test_sandbox_set_balance_preserves_other_fields() {
         .unwrap();
 
     // Verify the balance was updated but other fields preserved
-    let updated = root_near.account(&account_id).await.unwrap();
+    let updated = root_near.account(account_id.as_str()).await.unwrap();
     assert_eq!(updated.amount, target_balance);
     assert_eq!(
         updated.code_hash, original.code_hash,
@@ -552,7 +552,7 @@ async fn test_sandbox_set_balance_preserves_other_fields() {
         .build();
 
     let messages: Vec<serde_json::Value> = account_near
-        .view(&account_id, "get_messages")
+        .view(account_id.as_str(), "get_messages")
         .args(serde_json::json!({}))
         .await
         .unwrap();
@@ -627,7 +627,7 @@ async fn test_sandbox_patch_debug() {
     let account_id = unique_account();
 
     root_near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(account_key.public_key())
@@ -637,7 +637,7 @@ async fn test_sandbox_patch_debug() {
         .unwrap();
 
     // Get current state
-    let current = root_near.account(&account_id).await.unwrap();
+    let current = root_near.account(account_id.as_str()).await.unwrap();
     println!("Current account: {:?}", current);
 
     // Build the records JSON manually
@@ -665,7 +665,7 @@ async fn test_sandbox_patch_debug() {
     println!("Patch result: {:?}", result);
 
     // Check balance
-    let new_balance = root_near.balance(&account_id).await.unwrap();
+    let new_balance = root_near.balance(account_id.as_str()).await.unwrap();
     println!("New balance: {:?}", new_balance);
     println!("Expected: {:?}", target_balance);
 }
@@ -685,7 +685,7 @@ async fn test_sign_message_nep413() {
     let account_id = unique_account();
 
     root_near
-        .transaction(&account_id)
+        .transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(account_key.public_key())
@@ -753,7 +753,7 @@ async fn test_send_with_options_final() {
     let sender_id = unique_account();
 
     root_near
-        .transaction(&sender_id)
+        .transaction(sender_id.as_str())
         .create_account()
         .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
@@ -772,7 +772,7 @@ async fn test_send_with_options_final() {
     let receiver_id: AccountId = format!("recv.{}", sender_id).parse().unwrap();
 
     sender_near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(receiver_key.public_key())
@@ -800,7 +800,7 @@ async fn test_send_with_options_final() {
     println!("Transaction succeeded: {:?}", outcome.transaction_hash());
 
     // Verify the transfer happened
-    let balance = root_near.balance(&receiver_id).await.unwrap();
+    let balance = root_near.balance(receiver_id.as_str()).await.unwrap();
     println!("Receiver balance: {}", balance.total);
     assert!(balance.total > NearToken::near(14));
 }
@@ -816,7 +816,7 @@ async fn test_send_pre_signed_transaction() {
     let sender_id = unique_account();
 
     root_near
-        .transaction(&sender_id)
+        .transaction(sender_id.as_str())
         .create_account()
         .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
@@ -835,7 +835,7 @@ async fn test_send_pre_signed_transaction() {
     let receiver_id: AccountId = format!("recv2.{}", sender_id).parse().unwrap();
 
     sender_near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(receiver_key.public_key())

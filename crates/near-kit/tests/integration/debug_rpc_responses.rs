@@ -153,7 +153,7 @@ async fn debug_transaction_receipts() {
     let receiver_id = unique_account();
 
     let outcome = near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .create_account()
         .transfer(NearToken::near(5))
         .add_full_access_key(receiver_key.public_key())
@@ -319,7 +319,7 @@ async fn debug_access_key_details() {
     let account_id = unique_account();
 
     // Create account and add a function call key
-    near.transaction(&account_id)
+    near.transaction(account_id.as_str())
         .create_account()
         .transfer(NearToken::near(5))
         .add_full_access_key(account_key.public_key())
@@ -334,7 +334,7 @@ async fn debug_access_key_details() {
         .await
         .unwrap();
 
-    let keys = near.access_keys(&account_id).await.unwrap();
+    let keys = near.access_keys(account_id.as_str()).await.unwrap();
 
     println!("\n========================================");
     println!("ACCESS KEYS");
@@ -446,7 +446,7 @@ async fn test_error_invalid_method() {
     let contract_id = unique_account();
 
     let wasm = get_test_contract_wasm();
-    near.transaction(&contract_id)
+    near.transaction(contract_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(contract_key.public_key())

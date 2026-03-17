@@ -95,11 +95,11 @@ async fn main() -> Result<(), Error> {
         (Some(user_key), Some(relayer_key)) => {
             // Set up both clients
             let user_near = Near::testnet()
-                .credentials(&user_key, &user_account)?
+                .credentials(&user_key, user_account.as_str())?
                 .build();
 
             let relayer_near = Near::testnet()
-                .credentials(&relayer_key, &relayer_account)?
+                .credentials(&relayer_key, relayer_account.as_str())?
                 .build();
 
             // Step 1: User signs the action off-chain

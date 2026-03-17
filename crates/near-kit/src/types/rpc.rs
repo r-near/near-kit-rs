@@ -1452,8 +1452,8 @@ mod tests {
                 delegate_action,
                 signature,
             } => {
-                assert_eq!(delegate_action.sender_id.as_ref(), "alice.near");
-                assert_eq!(delegate_action.receiver_id.as_ref(), "contract.near");
+                assert_eq!(delegate_action.sender_id.as_str(), "alice.near");
+                assert_eq!(delegate_action.receiver_id.as_str(), "contract.near");
                 assert_eq!(delegate_action.nonce, 42);
                 assert_eq!(delegate_action.max_block_height, 100000);
                 assert_eq!(delegate_action.actions.len(), 1);

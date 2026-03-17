@@ -922,7 +922,7 @@ mod tests {
                 account_id,
                 public_key,
             } => {
-                assert_eq!(account_id.as_ref(), "alice.near");
+                assert_eq!(account_id.as_str(), "alice.near");
                 assert!(public_key.to_string().contains("ed25519:"));
             }
             _ => panic!("Expected AccessKeyNotFound error, got {:?}", result),

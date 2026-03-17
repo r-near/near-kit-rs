@@ -49,23 +49,9 @@ use thiserror::Error;
 use crate::types::{AccountId, DelegateDecodeError, PublicKey};
 
 /// Error parsing an account ID.
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
-pub enum ParseAccountIdError {
-    #[error("Account ID is empty")]
-    Empty,
-
-    #[error("Account ID '{0}' is too long (max 64 characters)")]
-    TooLong(String),
-
-    #[error("Account ID '{0}' is too short (min 2 characters for named accounts)")]
-    TooShort(String),
-
-    #[error("Account ID '{0}' contains invalid character '{1}'")]
-    InvalidChar(String, char),
-
-    #[error("Account ID '{0}' has invalid format")]
-    InvalidFormat(String),
-}
+///
+/// This is a re-export of the upstream [`near_account_id::ParseAccountError`].
+pub type ParseAccountIdError = near_account_id::ParseAccountError;
 
 /// Error parsing a NEAR token amount.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
@@ -467,29 +453,19 @@ mod tests {
 
     #[test]
     fn test_parse_account_id_error_display() {
-        assert_eq!(
-            ParseAccountIdError::Empty.to_string(),
-            "Account ID is empty"
-        );
-        assert_eq!(
-            ParseAccountIdError::TooLong("a".repeat(65)).to_string(),
-            format!(
-                "Account ID '{}' is too long (max 64 characters)",
-                "a".repeat(65)
-            )
-        );
-        assert_eq!(
-            ParseAccountIdError::TooShort("a".to_string()).to_string(),
-            "Account ID 'a' is too short (min 2 characters for named accounts)"
-        );
-        assert_eq!(
-            ParseAccountIdError::InvalidChar("test@acc".to_string(), '@').to_string(),
-            "Account ID 'test@acc' contains invalid character '@'"
-        );
-        assert_eq!(
-            ParseAccountIdError::InvalidFormat("bad..account".to_string()).to_string(),
-            "Account ID 'bad..account' has invalid format"
-        );
+        // Upstream ParseAccountError has different variants.
+        // Test via parsing invalid strings.
+        let err = "".parse::<AccountId>().unwrap_err();
+        assert!(err.to_string().contains("too short"));
+
+        let err = "a".parse::<AccountId>().unwrap_err();
+        assert!(err.to_string().contains("too short"));
+
+        let err = "A.near".parse::<AccountId>().unwrap_err();
+        assert!(err.to_string().contains("invalid character"));
+
+        let err = "bad..account".parse::<AccountId>().unwrap_err();
+        assert!(err.to_string().contains("redundant separator"));
     }
 
     // ========================================================================
@@ -1006,7 +982,7 @@ mod tests {
     #[test]
     fn test_error_from_parse_errors() {
         // ParseAccountIdError -> Error
-        let parse_err = ParseAccountIdError::Empty;
+        let parse_err = "".parse::<AccountId>().unwrap_err();
         let err: Error = parse_err.into();
         assert!(matches!(err, Error::ParseAccountId(_)));
 

@@ -32,7 +32,7 @@ async fn test_sign_offline_transfer() {
     let sender_id = unique_account();
 
     root_near
-        .transaction(&sender_id)
+        .transaction(sender_id.as_str())
         .create_account()
         .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
@@ -51,7 +51,7 @@ async fn test_sign_offline_transfer() {
     let receiver_id: AccountId = format!("recv.{}", sender_id).parse().unwrap();
 
     sender_near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(receiver_key.public_key())
@@ -88,7 +88,7 @@ async fn test_sign_offline_transfer() {
 
     // Step 2: Sign offline (signing is async but no network is required)
     let signed = sender_near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .transfer(NearToken::near(5))
         .sign_offline(block_hash, nonce)
         .await
@@ -105,7 +105,7 @@ async fn test_sign_offline_transfer() {
     println!("Transaction succeeded: {:?}", outcome.transaction_hash());
 
     // Verify the transfer happened
-    let balance = root_near.balance(&receiver_id).await.unwrap();
+    let balance = root_near.balance(receiver_id.as_str()).await.unwrap();
     // Receiver had ~10 NEAR (minus storage) + 5 NEAR transfer
     // Storage costs reduce initial 10 NEAR significantly, so just verify we got the 5 NEAR transfer
     assert!(balance.total > NearToken::from_millinear(9000)); // At least 9 NEAR
@@ -125,7 +125,7 @@ async fn test_sign_offline_function_call() {
         std::fs::read("tests/contracts/guestbook.wasm").expect("failed to read test contract");
 
     root_near
-        .transaction(&contract_id)
+        .transaction(contract_id.as_str())
         .create_account()
         .transfer(NearToken::near(50))
         .add_full_access_key(contract_key.public_key())
@@ -151,7 +151,7 @@ async fn test_sign_offline_function_call() {
     let access_key = contract_near
         .rpc()
         .view_access_key(
-            &contract_id,
+            &contract_id.as_str().parse::<near_kit::AccountId>().unwrap(),
             &contract_key.public_key(),
             BlockReference::Finality(Finality::Optimistic),
         )
@@ -161,7 +161,7 @@ async fn test_sign_offline_function_call() {
 
     // Sign offline using CallBuilder
     let signed = contract_near
-        .call(&contract_id, "add_message")
+        .call(contract_id.as_str(), "add_message")
         .args(serde_json::json!({ "text": "Hello from offline!" }))
         .gas(Gas::tgas(30))
         .sign_offline(block_hash, nonce)
@@ -174,7 +174,7 @@ async fn test_sign_offline_function_call() {
 
     // Verify the message was added
     let messages: Vec<serde_json::Value> = contract_near
-        .view(&contract_id, "get_messages")
+        .view(contract_id.as_str(), "get_messages")
         .args(serde_json::json!({}))
         .await
         .unwrap();
@@ -198,7 +198,7 @@ async fn test_signed_transaction_roundtrip_bytes() {
     let sender_id = unique_account();
 
     root_near
-        .transaction(&sender_id)
+        .transaction(sender_id.as_str())
         .create_account()
         .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
@@ -217,7 +217,7 @@ async fn test_signed_transaction_roundtrip_bytes() {
     let receiver_id: AccountId = format!("recv.{}", sender_id).parse().unwrap();
 
     sender_near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(receiver_key.public_key())
@@ -272,7 +272,7 @@ async fn test_signed_transaction_roundtrip_base64() {
     let sender_id = unique_account();
 
     root_near
-        .transaction(&sender_id)
+        .transaction(sender_id.as_str())
         .create_account()
         .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
@@ -291,7 +291,7 @@ async fn test_signed_transaction_roundtrip_base64() {
     let receiver_id: AccountId = format!("recv.{}", sender_id).parse().unwrap();
 
     sender_near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(receiver_key.public_key())
@@ -338,7 +338,7 @@ async fn test_offline_sign_and_transport_simulation() {
     let sender_id = unique_account();
 
     root_near
-        .transaction(&sender_id)
+        .transaction(sender_id.as_str())
         .create_account()
         .transfer(NearToken::near(100))
         .add_full_access_key(sender_key.public_key())
@@ -358,7 +358,7 @@ async fn test_offline_sign_and_transport_simulation() {
     let receiver_id: AccountId = format!("recv.{}", sender_id).parse().unwrap();
 
     sender_near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .create_account()
         .transfer(NearToken::near(10))
         .add_full_access_key(receiver_key.public_key())
@@ -390,7 +390,7 @@ async fn test_offline_sign_and_transport_simulation() {
     // --- OFFLINE MACHINE ---
     // (In reality, sender_key would be stored on the offline machine)
     let signed = sender_near
-        .transaction(&receiver_id)
+        .transaction(receiver_id.as_str())
         .transfer(NearToken::near(3))
         .sign_offline(block_hash, nonce)
         .await
@@ -411,7 +411,7 @@ async fn test_offline_sign_and_transport_simulation() {
     println!("Online: transaction confirmed!");
 
     // Verify
-    let balance = root_near.balance(&receiver_id).await.unwrap();
+    let balance = root_near.balance(receiver_id.as_str()).await.unwrap();
     // Receiver had ~10 NEAR (minus storage) + 3 NEAR transfer
     assert!(balance.total > NearToken::from_millinear(8000)); // At least 8 NEAR
 }

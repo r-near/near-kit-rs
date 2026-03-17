@@ -99,7 +99,7 @@ async fn test_typed_contract_view_methods() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client
-    let guestbook = near.contract::<dyn Guestbook>(&contract_id);
+    let guestbook = near.contract::<dyn Guestbook>(contract_id.as_str());
 
     // Test view method - total_messages
     let count = guestbook
@@ -131,7 +131,7 @@ async fn test_typed_contract_call_methods() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client
-    let guestbook = near.contract::<dyn Guestbook>(&contract_id);
+    let guestbook = near.contract::<dyn Guestbook>(contract_id.as_str());
 
     // Add a message using typed call method
     guestbook
@@ -174,7 +174,7 @@ async fn test_typed_contract_multiple_messages() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client
-    let guestbook = near.contract::<dyn Guestbook>(&contract_id);
+    let guestbook = near.contract::<dyn Guestbook>(contract_id.as_str());
 
     // Add multiple messages
     let test_messages = vec!["First message", "Second message", "Third message"];
@@ -223,7 +223,7 @@ async fn test_typed_contract_with_custom_gas() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client
-    let guestbook = near.contract::<dyn Guestbook>(&contract_id);
+    let guestbook = near.contract::<dyn Guestbook>(contract_id.as_str());
 
     // Add message with custom gas
     guestbook
@@ -258,7 +258,7 @@ async fn test_typed_contract_block_reference() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client
-    let guestbook = near.contract::<dyn Guestbook>(&contract_id);
+    let guestbook = near.contract::<dyn Guestbook>(contract_id.as_str());
 
     // Add a message
     guestbook
@@ -294,7 +294,7 @@ async fn test_typed_contract_payable_method() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client with payable interface
-    let guestbook = near.contract::<dyn GuestbookPayable>(&contract_id);
+    let guestbook = near.contract::<dyn GuestbookPayable>(contract_id.as_str());
 
     // Add a message WITHOUT deposit - should be non-premium
     guestbook
@@ -353,7 +353,7 @@ async fn test_typed_contract_no_args_view() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client using the no-args interface
-    let guestbook = near.contract::<dyn GuestbookNoArgs>(&contract_id);
+    let guestbook = near.contract::<dyn GuestbookNoArgs>(contract_id.as_str());
 
     // Test view method without arguments - total_messages
     let count = guestbook
@@ -370,7 +370,7 @@ async fn test_typed_contract_no_args_view() {
     assert!(messages.is_empty(), "Initial messages should be empty");
 
     // Now add a message using the main interface
-    let main_guestbook = near.contract::<dyn Guestbook>(&contract_id);
+    let main_guestbook = near.contract::<dyn Guestbook>(contract_id.as_str());
     main_guestbook
         .add_message(AddMessageArgs {
             text: "Test message".to_string(),

@@ -205,7 +205,7 @@ async fn main() -> Result<(), Error> {
 
     match (account_id, private_key) {
         (Some(account), Some(key)) => {
-            let near = Near::testnet().credentials(&key, &account)?.build();
+            let near = Near::testnet().credentials(&key, account.as_str())?.build();
 
             call_example(&near).await?;
             transfer_example(&near).await?;

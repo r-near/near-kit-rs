@@ -347,7 +347,9 @@ impl DeterministicAccountStateInit {
         let account_str = format!("0s{}", hex::encode(suffix));
 
         // This is a valid deterministic account ID by construction
-        AccountId::new_unchecked(&account_str)
+        account_str
+            .parse()
+            .expect("deterministic account ID should always be valid")
     }
 }
 

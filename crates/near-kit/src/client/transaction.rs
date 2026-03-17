@@ -36,9 +36,9 @@ use std::sync::{Arc, OnceLock};
 use crate::error::{Error, RpcError};
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, DeterministicAccountStateInit,
-    DeterministicAccountStateInitV1, FinalExecutionOutcome, Finality, Gas,
+    DeterministicAccountStateInitV1, FinalExecutionOutcome, Finality, Gas, GasExt,
     GlobalContractIdentifier, IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey,
-    SignedDelegateAction, SignedTransaction, Transaction, TxExecutionStatus,
+    SignedDelegateAction, SignedTransaction, Transaction, TryIntoAccountId, TxExecutionStatus,
 };
 
 use super::nonce_manager::NonceManager;
@@ -272,11 +272,13 @@ impl TransactionBuilder {
     pub fn add_function_call_key(
         mut self,
         public_key: PublicKey,
-        receiver_id: impl Into<AccountId>,
+        receiver_id: impl TryIntoAccountId,
         method_names: Vec<String>,
         allowance: Option<NearToken>,
     ) -> Self {
-        let receiver_id = receiver_id.into();
+        let receiver_id = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         self.actions.push(Action::add_function_call_key(
             public_key,
             receiver_id,
@@ -293,8 +295,10 @@ impl TransactionBuilder {
     }
 
     /// Delete the account and transfer remaining balance to beneficiary.
-    pub fn delete_account(mut self, beneficiary_id: impl Into<AccountId>) -> Self {
-        let beneficiary_id = beneficiary_id.into();
+    pub fn delete_account(mut self, beneficiary_id: impl TryIntoAccountId) -> Self {
+        let beneficiary_id = beneficiary_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         self.actions.push(Action::delete_account(beneficiary_id));
         self
     }
@@ -535,8 +539,10 @@ impl TransactionBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn deploy_from_publisher(mut self, publisher_id: impl Into<AccountId>) -> Self {
-        let publisher_id = publisher_id.into();
+    pub fn deploy_from_publisher(mut self, publisher_id: impl TryIntoAccountId) -> Self {
+        let publisher_id = publisher_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         self.actions.push(Action::deploy_from_account(publisher_id));
         self
     }
@@ -601,11 +607,13 @@ impl TransactionBuilder {
     /// Panics if the deposit amount string cannot be parsed.
     pub fn state_init_by_publisher(
         self,
-        publisher_id: impl Into<AccountId>,
+        publisher_id: impl TryIntoAccountId,
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
     ) -> Self {
-        let publisher_id = publisher_id.into();
+        let publisher_id = publisher_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
             code: GlobalContractIdentifier::AccountId(publisher_id),
             data,
@@ -1024,7 +1032,7 @@ impl CallBuilder {
     pub fn add_function_call_key(
         self,
         public_key: PublicKey,
-        receiver_id: impl Into<AccountId>,
+        receiver_id: impl TryIntoAccountId,
         method_names: Vec<String>,
         allowance: Option<NearToken>,
     ) -> TransactionBuilder {
@@ -1038,7 +1046,7 @@ impl CallBuilder {
     }
 
     /// Delete the account.
-    pub fn delete_account(self, beneficiary_id: impl Into<AccountId>) -> TransactionBuilder {
+    pub fn delete_account(self, beneficiary_id: impl TryIntoAccountId) -> TransactionBuilder {
         self.finish().delete_account(beneficiary_id)
     }
 
@@ -1058,7 +1066,7 @@ impl CallBuilder {
     }
 
     /// Deploy a contract from the global registry by publisher account.
-    pub fn deploy_from_publisher(self, publisher_id: impl Into<AccountId>) -> TransactionBuilder {
+    pub fn deploy_from_publisher(self, publisher_id: impl TryIntoAccountId) -> TransactionBuilder {
         self.finish().deploy_from_publisher(publisher_id)
     }
 
@@ -1075,7 +1083,7 @@ impl CallBuilder {
     /// Create a NEP-616 deterministic state init action with publisher account reference.
     pub fn state_init_by_publisher(
         self,
-        publisher_id: impl Into<AccountId>,
+        publisher_id: impl TryIntoAccountId,
         data: BTreeMap<Vec<u8>, Vec<u8>>,
         deposit: impl IntoNearToken,
     ) -> TransactionBuilder {
@@ -1313,6 +1321,7 @@ impl IntoFuture for TransactionBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{GasExt, NearTokenExt};
 
     /// Create a TransactionBuilder for unit tests (no real network needed).
     fn test_builder() -> TransactionBuilder {
