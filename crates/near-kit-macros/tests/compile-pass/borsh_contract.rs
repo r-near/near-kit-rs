@@ -18,7 +18,7 @@ pub trait BorshContract {
 fn main() {
     // Verify the generated client can be constructed
     let near = Near::testnet().build();
-    let client = BorshContractClient::new(&near, "contract.testnet".parse().unwrap());
+    let client = BorshContractClient::new(near.clone(), "contract.testnet".parse().unwrap());
 
     // Verify methods exist and have correct return types
     // Borsh view methods should return ViewCallBorsh, not ViewCall
