@@ -725,6 +725,14 @@ impl TransactionBuilder {
             .ok_or(Error::NoSigner)?;
 
         let signer_id = signer.account_id().clone();
+        let action_count = self.actions.len();
+
+        tracing::info!(
+            sender = %signer_id,
+            receiver = %self.receiver_id,
+            action_count = action_count,
+            "Signing transaction"
+        );
 
         // Get a signing key atomically. For RotatingSigner, this claims the next
         // key in rotation. The key contains both the public key and signing capability.
@@ -769,6 +777,13 @@ impl TransactionBuilder {
 
         // Sign with the key
         let signature = key.sign(tx.get_hash().as_bytes()).await?;
+        let tx_hash = tx.get_hash();
+
+        tracing::info!(
+            tx_hash = %tx_hash,
+            nonce = nonce,
+            "Transaction signed"
+        );
 
         Ok(SignedTransaction {
             transaction: tx,
@@ -1166,6 +1181,13 @@ impl IntoFuture for TransactionSend {
 
             let signer_id = signer.account_id().clone();
 
+            tracing::info!(
+                sender = %signer_id,
+                receiver = %builder.receiver_id,
+                action_count = builder.actions.len(),
+                "Sending transaction"
+            );
+
             // Retry loop for InvalidNonceError
             let max_nonce_retries = builder.max_nonce_retries;
             let network = builder.rpc.url().to_string();
@@ -1253,13 +1275,22 @@ impl IntoFuture for TransactionSend {
                     Err(RpcError::InvalidNonce { tx_nonce, ak_nonce })
                         if attempt < max_nonce_retries - 1 =>
                     {
+                        tracing::warn!(
+                            tx_nonce = tx_nonce,
+                            ak_nonce = ak_nonce,
+                            attempt = attempt + 1,
+                            "Invalid nonce, retrying"
+                        );
                         // Store ak_nonce for next iteration to avoid refetching
                         last_ak_nonce = Some(ak_nonce);
                         last_error =
                             Some(Error::Rpc(RpcError::InvalidNonce { tx_nonce, ak_nonce }));
                         continue;
                     }
-                    Err(e) => return Err(Error::Rpc(e)),
+                    Err(e) => {
+                        tracing::error!(error = %e, "Transaction send failed");
+                        return Err(Error::Rpc(e));
+                    }
                 }
             }
 

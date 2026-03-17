@@ -135,6 +135,7 @@ impl FungibleToken {
     /// ```
     pub async fn balance_of(&self, account_id: impl Into<AccountId>) -> Result<FtAmount, Error> {
         let account_id: AccountId = account_id.into();
+        tracing::debug!(contract = %self.contract_id, account = %account_id, "Querying FT balance");
         let metadata = self.metadata().await?;
 
         #[derive(Serialize)]
@@ -308,6 +309,7 @@ impl FungibleToken {
         amount: impl Into<u128>,
     ) -> CallBuilder {
         let receiver_id: AccountId = receiver_id.into();
+        tracing::info!(contract = %self.contract_id, receiver = %receiver_id, "FT transfer");
 
         #[derive(Serialize)]
         struct TransferArgs {
@@ -384,6 +386,7 @@ impl FungibleToken {
         msg: impl Into<String>,
     ) -> CallBuilder {
         let receiver_id: AccountId = receiver_id.into();
+        tracing::info!(contract = %self.contract_id, receiver = %receiver_id, "FT transfer_call");
 
         #[derive(Serialize)]
         struct TransferCallArgs {

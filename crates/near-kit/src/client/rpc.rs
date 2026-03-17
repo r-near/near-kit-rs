@@ -155,6 +155,8 @@ impl RpcClient {
     ) -> Result<R, RpcError> {
         let total_attempts = self.retry_config.max_retries + 1;
 
+        tracing::debug!(rpc.method = method, rpc.url = %self.url, "RPC request");
+
         for attempt in 0..total_attempts {
             let request_id = self.request_id.fetch_add(1, Ordering::Relaxed);
 
@@ -166,19 +168,38 @@ impl RpcClient {
             };
 
             match self.try_call::<R>(&request).await {
-                Ok(result) => return Ok(result),
+                Ok(result) => {
+                    tracing::debug!(rpc.method = method, "RPC request succeeded");
+                    return Ok(result);
+                }
                 Err(e) if e.is_retryable() && attempt < total_attempts - 1 => {
                     let delay = std::cmp::min(
                         self.retry_config.initial_delay_ms * 2u64.pow(attempt),
                         self.retry_config.max_delay_ms,
                     );
+                    tracing::warn!(
+                        rpc.method = method,
+                        attempt = attempt + 1,
+                        max_attempts = total_attempts,
+                        delay_ms = delay,
+                        error = %e,
+                        "RPC request failed, retrying"
+                    );
                     tokio::time::sleep(Duration::from_millis(delay)).await;
                     continue;
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    tracing::error!(rpc.method = method, error = %e, "RPC request failed");
+                    return Err(e);
+                }
             }
         }
 
+        tracing::error!(
+            rpc.method = method,
+            attempts = total_attempts,
+            "RPC request timed out after all retries"
+        );
         Err(RpcError::Timeout(total_attempts))
     }
 
@@ -397,6 +418,7 @@ impl RpcClient {
     // ========================================================================
 
     /// View account information.
+    #[tracing::instrument(skip(self, block), fields(account_id = %account_id))]
     pub async fn view_account(
         &self,
         account_id: &AccountId,
@@ -412,6 +434,7 @@ impl RpcClient {
     }
 
     /// View access key information.
+    #[tracing::instrument(skip(self, block), fields(account_id = %account_id, public_key = %public_key))]
     pub async fn view_access_key(
         &self,
         account_id: &AccountId,
@@ -429,6 +452,7 @@ impl RpcClient {
     }
 
     /// View all access keys for an account.
+    #[tracing::instrument(skip(self, block), fields(account_id = %account_id))]
     pub async fn view_access_key_list(
         &self,
         account_id: &AccountId,
@@ -444,6 +468,7 @@ impl RpcClient {
     }
 
     /// Call a view function on a contract.
+    #[tracing::instrument(skip(self, args, block), fields(contract_id = %account_id, method = method_name))]
     pub async fn view_function(
         &self,
         account_id: &AccountId,
@@ -517,12 +542,20 @@ impl RpcClient {
         wait_until: TxExecutionStatus,
     ) -> Result<SendTxResponse, RpcError> {
         let tx_hash = signed_tx.get_hash();
+        tracing::info!(
+            tx_hash = %tx_hash,
+            sender = %signed_tx.transaction.signer_id,
+            receiver = %signed_tx.transaction.receiver_id,
+            wait_until = ?wait_until,
+            "Sending transaction"
+        );
         let params = serde_json::json!({
             "signed_tx_base64": signed_tx.to_base64(),
             "wait_until": wait_until.as_str(),
         });
         let mut response: SendTxResponse = self.call("send_tx", params).await?;
         response.transaction_hash = tx_hash;
+        tracing::info!(tx_hash = %response.transaction_hash, "Transaction sent successfully");
         Ok(response)
     }
 

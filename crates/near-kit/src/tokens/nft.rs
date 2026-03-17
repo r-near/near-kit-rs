@@ -133,6 +133,7 @@ impl NonFungibleToken {
     /// # }
     /// ```
     pub async fn token(&self, token_id: impl AsRef<str>) -> Result<Option<NftToken>, Error> {
+        tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), "Querying NFT token");
         #[derive(Serialize)]
         struct Args<'a> {
             token_id: &'a str,
@@ -185,6 +186,7 @@ impl NonFungibleToken {
         limit: Option<u64>,
     ) -> Result<Vec<NftToken>, Error> {
         let account_id: AccountId = account_id.into();
+        tracing::debug!(contract = %self.contract_id, account = %account_id, "Querying NFT tokens for owner");
 
         #[derive(Serialize)]
         struct Args<'a> {
@@ -299,6 +301,7 @@ impl NonFungibleToken {
         receiver_id: impl Into<AccountId>,
         token_id: impl AsRef<str>,
     ) -> CallBuilder {
+        tracing::info!(contract = %self.contract_id, token_id = token_id.as_ref(), "NFT transfer");
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -392,6 +395,7 @@ impl NonFungibleToken {
         token_id: impl AsRef<str>,
         msg: impl Into<String>,
     ) -> CallBuilder {
+        tracing::info!(contract = %self.contract_id, token_id = token_id.as_ref(), "NFT transfer_call");
         #[derive(Serialize)]
         struct TransferCallArgs {
             receiver_id: String,
