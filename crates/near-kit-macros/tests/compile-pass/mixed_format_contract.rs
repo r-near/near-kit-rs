@@ -49,7 +49,7 @@ fn main() {
 
     // Test MixedContract (JSON default)
     {
-        let client = MixedContractClient::new(&near, "contract.testnet".parse().unwrap());
+        let client = MixedContractClient::new(near.clone(), "contract.testnet".parse().unwrap());
 
         // JSON methods return ViewCall
         let _: ViewCall<u64> = client.get_json_value();
@@ -63,7 +63,7 @@ fn main() {
     // Test MixedContractBorshDefault (Borsh default)
     {
         let client =
-            MixedContractBorshDefaultClient::new(&near, "contract.testnet".parse().unwrap());
+            MixedContractBorshDefaultClient::new(near.clone(), "contract.testnet".parse().unwrap());
 
         // Borsh methods return ViewCallBorsh
         let _: ViewCallBorsh<u64> = client.get_borsh_value();

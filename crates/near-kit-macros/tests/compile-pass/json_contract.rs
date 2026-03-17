@@ -26,7 +26,7 @@ pub trait JsonGuestbook {
 fn main() {
     // Verify the generated client can be constructed
     let near = Near::testnet().build();
-    let client = JsonGuestbookClient::new(&near, "guestbook.testnet".parse().unwrap());
+    let client = JsonGuestbookClient::new(near.clone(), "guestbook.testnet".parse().unwrap());
 
     // Verify methods exist and have correct return types
     let _view: ViewCall<Vec<Message>> = client.get_messages();

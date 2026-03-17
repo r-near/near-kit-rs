@@ -104,19 +104,19 @@ use crate::types::AccountId;
 ///
 /// ```ignore
 /// impl Contract for dyn MyContract {
-///     type Client<'a> = MyContractClient<'a>;
+///     type Client = MyContractClient;
 /// }
 /// ```
 pub trait Contract {
     /// The generated client type for this contract interface.
-    type Client<'a>: ContractClient<'a>;
+    type Client: ContractClient;
 }
 
 /// Trait for contract client constructors.
 ///
 /// This trait is implemented by the generated client structs to enable
 /// construction via [`Near::contract`](crate::Near::contract).
-pub trait ContractClient<'a>: Sized {
+pub trait ContractClient: Sized {
     /// Create a new contract client.
-    fn new(near: &'a Near, contract_id: AccountId) -> Self;
+    fn new(near: Near, contract_id: AccountId) -> Self;
 }

@@ -426,14 +426,14 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         }
 
         // Generated client struct
-        #vis struct #client_name<'a> {
-            near: &'a near_kit::Near,
+        #vis struct #client_name {
+            near: near_kit::Near,
             contract_id: near_kit::AccountId,
         }
 
-        impl<'a> #client_name<'a> {
+        impl #client_name {
             /// Create a new contract client.
-            pub fn new(near: &'a near_kit::Near, contract_id: near_kit::AccountId) -> Self {
+            pub fn new(near: near_kit::Near, contract_id: near_kit::AccountId) -> Self {
                 Self { near, contract_id }
             }
 
@@ -442,19 +442,27 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
                 &self.contract_id
             }
 
+            /// Return a new client that uses the given signer for transactions.
+            pub fn with_signer(&self, signer: impl near_kit::Signer + 'static) -> Self {
+                Self {
+                    near: self.near.with_signer(signer),
+                    contract_id: self.contract_id.clone(),
+                }
+            }
+
             #(#client_methods)*
         }
 
         // Implement ContractClient trait for construction via near.contract::<T>()
-        impl<'a> near_kit::contract::ContractClient<'a> for #client_name<'a> {
-            fn new(near: &'a near_kit::Near, contract_id: near_kit::AccountId) -> Self {
+        impl near_kit::contract::ContractClient for #client_name {
+            fn new(near: near_kit::Near, contract_id: near_kit::AccountId) -> Self {
                 Self { near, contract_id }
             }
         }
 
         // Implement Contract marker trait
         impl near_kit::Contract for dyn #trait_name {
-            type Client<'a> = #client_name<'a>;
+            type Client = #client_name;
         }
     };
 

@@ -744,9 +744,9 @@ impl Near {
     pub fn contract<T: crate::Contract + ?Sized>(
         &self,
         contract_id: impl Into<AccountId>,
-    ) -> T::Client<'_> {
+    ) -> T::Client {
         let contract_id = contract_id.into();
-        T::Client::new(self, contract_id)
+        T::Client::new(self.clone(), contract_id)
     }
 
     // ========================================================================
