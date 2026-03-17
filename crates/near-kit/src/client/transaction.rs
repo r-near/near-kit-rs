@@ -776,8 +776,8 @@ impl TransactionBuilder {
         );
 
         // Sign with the key
-        let signature = key.sign(tx.get_hash().as_bytes()).await?;
         let tx_hash = tx.get_hash();
+        let signature = key.sign(tx_hash.as_bytes()).await?;
 
         tracing::info!(
             tx_hash = %tx_hash,

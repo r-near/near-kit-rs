@@ -195,12 +195,7 @@ impl RpcClient {
             }
         }
 
-        tracing::error!(
-            rpc.method = method,
-            attempts = total_attempts,
-            "RPC request timed out after all retries"
-        );
-        Err(RpcError::Timeout(total_attempts))
+        unreachable!("all loop iterations return")
     }
 
     /// Single attempt to make an RPC call.
@@ -418,7 +413,6 @@ impl RpcClient {
     // ========================================================================
 
     /// View account information.
-    #[tracing::instrument(skip(self, block), fields(account_id = %account_id))]
     pub async fn view_account(
         &self,
         account_id: &AccountId,
@@ -434,7 +428,6 @@ impl RpcClient {
     }
 
     /// View access key information.
-    #[tracing::instrument(skip(self, block), fields(account_id = %account_id, public_key = %public_key))]
     pub async fn view_access_key(
         &self,
         account_id: &AccountId,
@@ -452,7 +445,6 @@ impl RpcClient {
     }
 
     /// View all access keys for an account.
-    #[tracing::instrument(skip(self, block), fields(account_id = %account_id))]
     pub async fn view_access_key_list(
         &self,
         account_id: &AccountId,
@@ -468,7 +460,6 @@ impl RpcClient {
     }
 
     /// Call a view function on a contract.
-    #[tracing::instrument(skip(self, args, block), fields(contract_id = %account_id, method = method_name))]
     pub async fn view_function(
         &self,
         account_id: &AccountId,
