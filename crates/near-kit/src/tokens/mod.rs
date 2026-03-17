@@ -113,10 +113,12 @@
 
 mod ft;
 mod known;
+mod mt;
 mod nft;
 mod types;
 
 pub use ft::*;
 pub use known::{IntoContractId, KnownToken, USDC, USDT, W_NEAR};
+pub use mt::*;
 pub use nft::*;
 pub use types::*;

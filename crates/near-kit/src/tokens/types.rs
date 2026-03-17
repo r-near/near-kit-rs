@@ -356,6 +356,95 @@ pub struct NftToken {
 }
 
 // =============================================================================
+// Multi Token Types (NEP-245)
+// =============================================================================
+
+/// NEP-245 Multi Token metadata for an individual token.
+///
+/// This is part of the token info returned by `mt_token` on NEP-245 contracts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MtTokenMetadata {
+    /// Token title
+    pub title: Option<String>,
+
+    /// Token description
+    pub description: Option<String>,
+
+    /// URL to media file
+    pub media: Option<String>,
+
+    /// Base64-encoded SHA-256 hash of the media content
+    pub media_hash: Option<String>,
+
+    /// Number of copies (for limited editions)
+    pub copies: Option<u64>,
+
+    /// ISO 8601 datetime when issued
+    pub issued_at: Option<String>,
+
+    /// ISO 8601 datetime when expires
+    pub expires_at: Option<String>,
+
+    /// ISO 8601 datetime when starts being valid
+    pub starts_at: Option<String>,
+
+    /// ISO 8601 datetime when last updated
+    pub updated_at: Option<String>,
+
+    /// Extra arbitrary data (JSON string)
+    pub extra: Option<String>,
+
+    /// URL to off-chain JSON metadata
+    pub reference: Option<String>,
+
+    /// Base64-encoded SHA-256 hash of the reference content
+    pub reference_hash: Option<String>,
+}
+
+/// NEP-245 Multi Token base metadata for a token type.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MtBaseTokenMetadata {
+    /// Human-readable token name
+    pub name: String,
+
+    /// Unique identifier for this token type
+    pub id: String,
+
+    /// Token symbol (e.g., "SWORD", "GOLD")
+    pub symbol: Option<String>,
+
+    /// Number of decimal places for display
+    pub decimals: Option<u8>,
+
+    /// Optional icon as a data URI
+    pub icon: Option<String>,
+
+    /// Optional base URI for token metadata references
+    pub base_uri: Option<String>,
+
+    /// Optional URL to off-chain JSON metadata
+    pub reference: Option<String>,
+
+    /// Optional base64-encoded SHA-256 hash of the reference content
+    pub reference_hash: Option<String>,
+}
+
+/// NEP-245 Multi Token.
+///
+/// A single token entry within a multi-token contract.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MtToken {
+    /// Unique token identifier within this contract
+    pub token_id: String,
+
+    /// Current owner of the token (if applicable)
+    pub owner_id: Option<String>,
+
+    /// Optional token metadata
+    pub metadata: Option<MtTokenMetadata>,
+}
+
+// =============================================================================
 // Helper Functions
 // =============================================================================
 
