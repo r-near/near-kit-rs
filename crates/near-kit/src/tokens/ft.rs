@@ -80,11 +80,9 @@ impl FungibleToken {
         &self.contract_id
     }
 
-    /// Create a new client with a different signer, sharing the same RPC connection
-    /// and cached metadata.
+    /// Create a new client with a different signer, sharing the same RPC connection.
     ///
-    /// This is useful for reusing a token client across multiple signers without
-    /// re-fetching metadata.
+    /// Note: metadata is **not** shared and will be re-fetched on first use.
     ///
     /// # Example
     ///

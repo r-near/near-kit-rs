@@ -83,6 +83,15 @@ pub trait Signer: Send + Sync {
     /// For single-key signers, this always returns the same key.
     /// For rotating signers, this atomically claims the next key in rotation.
     fn key(&self) -> SigningKey;
+
+    /// Get the public key without side effects.
+    ///
+    /// For single-key signers, this returns the same key as `key().public_key()`.
+    /// For rotating signers, this peeks at the first key without advancing
+    /// the rotation counter.
+    fn public_key(&self) -> PublicKey {
+        self.key().public_key().clone()
+    }
 }
 
 /// Implement `Signer` for `Arc<dyn Signer>` for convenience.
@@ -93,6 +102,10 @@ impl Signer for Arc<dyn Signer> {
 
     fn key(&self) -> SigningKey {
         (**self).key()
+    }
+
+    fn public_key(&self) -> PublicKey {
+        (**self).public_key()
     }
 }
 
@@ -804,6 +817,11 @@ impl Signer for RotatingSigner {
         // Atomically claim the next key in rotation
         let idx = self.counter.fetch_add(1, Ordering::Relaxed) % self.keys.len();
         SigningKey::new(self.keys[idx].clone())
+    }
+
+    fn public_key(&self) -> PublicKey {
+        // Peek at the first key without advancing the rotation counter
+        self.keys[0].public_key()
     }
 }
 

@@ -239,8 +239,10 @@ impl Near {
     }
 
     /// Get the signer's public key, if a signer is configured.
+    ///
+    /// This does not advance the rotation counter on [`RotatingSigner`](crate::RotatingSigner).
     pub fn public_key(&self) -> Option<PublicKey> {
-        self.signer.as_ref().map(|s| s.key().public_key().clone())
+        self.signer.as_ref().map(|s| s.public_key())
     }
 
     /// Get the network this client is connected to.
@@ -1319,5 +1321,30 @@ mod tests {
 
         // Final cleanup
         clear_env();
+    }
+
+    // ========================================================================
+    // public_key tests
+    // ========================================================================
+
+    #[test]
+    fn test_public_key_none_without_signer() {
+        let near = Near::testnet().build();
+        assert!(near.public_key().is_none());
+    }
+
+    #[test]
+    fn test_public_key_returns_expected_key() {
+        let secret_key: crate::types::SecretKey = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB"
+            .parse()
+            .unwrap();
+        let expected_pk = secret_key.public_key();
+
+        let signer = InMemorySigner::from_secret_key("alice.testnet".parse().unwrap(), secret_key);
+        let near = Near::testnet().signer(signer).build();
+
+        let pk = near.public_key();
+        assert!(pk.is_some());
+        assert_eq!(pk.unwrap(), expected_pk);
     }
 }
