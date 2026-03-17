@@ -238,6 +238,11 @@ impl Near {
         self.signer.as_ref().map(|s| s.account_id())
     }
 
+    /// Get the signer's public key, if a signer is configured.
+    pub fn public_key(&self) -> Option<PublicKey> {
+        self.signer.as_ref().map(|s| s.key().public_key().clone())
+    }
+
     /// Get the network this client is connected to.
     pub fn network(&self) -> Network {
         self.network
