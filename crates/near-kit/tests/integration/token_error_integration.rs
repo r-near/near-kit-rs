@@ -32,7 +32,7 @@ async fn test_ft_metadata_on_non_contract_account() {
 
     near.transaction(account_id.as_str())
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -83,7 +83,7 @@ async fn test_ft_balance_of_on_non_contract() {
 
     near.transaction(account_id.as_str())
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -112,7 +112,7 @@ async fn test_ft_transfer_without_signer() {
 
     near.transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -168,7 +168,7 @@ async fn test_ft_on_wrong_contract_type() {
 
     near.transaction(contract_id.as_str())
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
@@ -207,7 +207,7 @@ async fn test_nft_metadata_on_non_contract() {
 
     near.transaction(account_id.as_str())
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -231,7 +231,7 @@ async fn test_nft_token_on_non_contract() {
 
     near.transaction(account_id.as_str())
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -274,7 +274,7 @@ async fn test_nft_on_wrong_contract_type() {
 
     near.transaction(contract_id.as_str())
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()

@@ -10,8 +10,8 @@ use tokio::sync::OnceCell;
 use crate::client::{CallBuilder, RpcClient, Signer, TransactionBuilder};
 use crate::error::Error;
 use crate::types::{
-    AccountId, Action, BlockReference, Finality, Gas, GasExt, IntoNearToken, NearToken,
-    NearTokenExt, Transaction, TryIntoAccountId, TxExecutionStatus,
+    AccountId, Action, BlockReference, Finality, Gas, IntoNearToken, NearToken, Transaction,
+    TryIntoAccountId, TxExecutionStatus,
 };
 
 use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
@@ -355,8 +355,8 @@ impl FungibleToken {
                 receiver_id: receiver_id.to_string(),
                 amount: amount.into().to_string(),
             })
-            .deposit(NearToken::yocto(1))
-            .gas(Gas::tgas(30))
+            .deposit(NearToken::from_yoctonear(1))
+            .gas(Gas::from_tgas(30))
     }
 
     /// Transfer tokens with a memo (ft_transfer).
@@ -386,8 +386,8 @@ impl FungibleToken {
                 amount: amount.into().to_string(),
                 memo: memo.into(),
             })
-            .deposit(NearToken::yocto(1))
-            .gas(Gas::tgas(30))
+            .deposit(NearToken::from_yoctonear(1))
+            .gas(Gas::from_tgas(30))
     }
 
     /// Transfer tokens with a callback to the receiver (ft_transfer_call).
@@ -438,8 +438,8 @@ impl FungibleToken {
                 amount: amount.into().to_string(),
                 msg: msg.into(),
             })
-            .deposit(NearToken::yocto(1))
-            .gas(Gas::tgas(100))
+            .deposit(NearToken::from_yoctonear(1))
+            .gas(Gas::from_tgas(100))
     }
 }
 
@@ -625,7 +625,7 @@ impl IntoFuture for StorageDepositCall {
                 vec![Action::function_call(
                     "storage_deposit".to_string(),
                     args,
-                    Gas::tgas(30),
+                    Gas::from_tgas(30),
                     deposit,
                 )],
             );

@@ -89,7 +89,7 @@ async fn test_typed_contract_view_on_account_without_contract() {
 
     near.transaction(account_id.as_str())
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -124,7 +124,7 @@ async fn test_typed_contract_call_without_signer() {
 
     near.transaction(contract_id.as_str())
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
@@ -164,7 +164,7 @@ async fn test_typed_contract_view_on_wrong_contract_type() {
 
     near.transaction(contract_id.as_str())
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
@@ -201,7 +201,7 @@ async fn test_typed_contract_call_with_insufficient_gas() {
 
     near.transaction(contract_id.as_str())
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
@@ -216,7 +216,7 @@ async fn test_typed_contract_call_with_insufficient_gas() {
         .add_message(AddMessageArgs {
             text: "Test message".to_string(),
         })
-        .gas(Gas::ggas(1)) // Way too little gas
+        .gas(Gas::from_ggas(1)) // Way too little gas
         .await;
 
     assert!(result.is_err(), "Should error with insufficient gas");
@@ -244,7 +244,7 @@ async fn test_typed_contract_view_returns_wrong_type() {
 
     near.transaction(contract_id.as_str())
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
@@ -290,7 +290,7 @@ async fn test_typed_contract_query_at_invalid_block() {
 
     near.transaction(contract_id.as_str())
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
@@ -331,7 +331,7 @@ async fn test_typed_contract_view_methods_still_work_without_signer() {
 
     near.transaction(contract_id.as_str())
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()

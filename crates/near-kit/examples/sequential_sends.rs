@@ -35,7 +35,7 @@ async fn sequential_example() -> Result<(), Error> {
     root_near
         .transaction(bot_account.as_str())
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(keypairs[0].public_key.clone())
         .send()
         .await?;
@@ -61,7 +61,7 @@ async fn sequential_example() -> Result<(), Error> {
     root_near
         .transaction(recipient.as_str())
         .create_account()
-        .transfer(NearToken::millinear(100))
+        .transfer(NearToken::from_millinear(100))
         .send()
         .await?;
 
@@ -93,7 +93,7 @@ async fn sequential_example() -> Result<(), Error> {
             tokio::spawn(async move {
                 let near = Near::custom(&rpc_url).signer(signer).build();
                 for tx_idx in 0..txs_per_key {
-                    near.transfer(recipient.as_str(), NearToken::millinear(1))
+                    near.transfer(recipient.as_str(), NearToken::from_millinear(1))
                         .send()
                         .wait_until(TxExecutionStatus::Included)
                         .await

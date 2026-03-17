@@ -31,7 +31,7 @@ async fn high_throughput_example() -> Result<(), Error> {
     root_near
         .transaction(bot_account.as_str())
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(keypairs[0].public_key.clone())
         .send()
         .await?;
@@ -72,7 +72,7 @@ async fn high_throughput_example() -> Result<(), Error> {
         root_near
             .transaction(recipient.as_str())
             .create_account()
-            .transfer(NearToken::millinear(100))
+            .transfer(NearToken::from_millinear(100))
             .send()
             .await?;
     }
@@ -86,7 +86,10 @@ async fn high_throughput_example() -> Result<(), Error> {
         .map(|i| {
             let recipient = format!("recipient-{i}.{root_account_clone}");
             let near = near.clone();
-            async move { near.transfer(recipient.as_str(), NearToken::near(1)).await }
+            async move {
+                near.transfer(recipient.as_str(), NearToken::from_near(1))
+                    .await
+            }
         })
         .collect();
 

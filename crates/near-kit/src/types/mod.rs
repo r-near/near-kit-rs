@@ -19,11 +19,11 @@
 //! [`NearToken`] and [`Gas`] support both typed constructors and string parsing:
 //!
 //! ```
-//! use near_kit::{NearToken, NearTokenExt, Gas, GasExt};
+//! use near_kit::{NearToken, Gas};
 //!
 //! // Typed constructors (compile-time safe, zero-cost)
-//! let amount = NearToken::near(5);
-//! let gas = Gas::tgas(30);
+//! let amount = NearToken::from_near(5);
+//! let gas = Gas::from_tgas(30);
 //!
 //! // String parsing (for runtime input)
 //! let amount: NearToken = "5 NEAR".parse().unwrap();
@@ -98,4 +98,4 @@ pub use rpc_extra::{
     StateChangeValueView, StateChangeWithCauseView, ValidatorKickoutReason, ValidatorKickoutView,
 };
 pub use transaction::{SignedTransaction, Transaction};
-pub use units::{Gas, GasExt, IntoGas, IntoNearToken, NearToken, NearTokenExt};
+pub use units::{Gas, IntoGas, IntoNearToken, NearToken};

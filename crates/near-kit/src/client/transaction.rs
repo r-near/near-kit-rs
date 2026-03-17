@@ -17,7 +17,7 @@
 //! let wasm_code = std::fs::read("contract.wasm").expect("failed to read wasm");
 //! near.transaction("new.alice.testnet")
 //!     .create_account()
-//!     .transfer(NearToken::near(5))
+//!     .transfer(NearToken::from_near(5))
 //!     .add_full_access_key(new_public_key)
 //!     .deploy(wasm_code)
 //!     .call("init")
@@ -36,7 +36,7 @@ use std::sync::{Arc, OnceLock};
 use crate::error::{Error, RpcError};
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, DeterministicAccountStateInit,
-    DeterministicAccountStateInitV1, FinalExecutionOutcome, Finality, Gas, GasExt,
+    DeterministicAccountStateInitV1, FinalExecutionOutcome, Finality, Gas,
     GlobalContractIdentifier, IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey,
     SignedDelegateAction, SignedTransaction, Transaction, TryIntoAccountId, TxExecutionStatus,
 };
@@ -138,7 +138,7 @@ impl DelegateResult {
 ///
 /// // Single action
 /// near.transaction("bob.testnet")
-///     .transfer(NearToken::near(1))
+///     .transfer(NearToken::from_near(1))
 ///     .send()
 ///     .await?;
 ///
@@ -146,7 +146,7 @@ impl DelegateResult {
 /// let key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
 /// near.transaction("new.alice.testnet")
 ///     .create_account()
-///     .transfer(NearToken::near(5))
+///     .transfer(NearToken::from_near(5))
 ///     .add_full_access_key(key)
 ///     .send()
 ///     .await?;
@@ -204,7 +204,7 @@ impl TransactionBuilder {
     /// # use near_kit::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// near.transaction("bob.testnet")
-    ///     .transfer(NearToken::near(1))
+    ///     .transfer(NearToken::from_near(1))
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -242,7 +242,7 @@ impl TransactionBuilder {
     /// near.transaction("contract.testnet")
     ///     .call("set_greeting")
     ///         .args(serde_json::json!({ "greeting": "Hello" }))
-    ///         .gas(Gas::tgas(10))
+    ///         .gas(Gas::from_tgas(10))
     ///         .deposit(NearToken::ZERO)
     ///     .call("another_method")
     ///         .args(serde_json::json!({ "value": 42 }))
@@ -365,7 +365,7 @@ impl TransactionBuilder {
     ///     .transaction("contract.testnet")
     ///     .call("add_message")
     ///         .args(serde_json::json!({ "text": "Hello!" }))
-    ///         .gas(Gas::tgas(30))
+    ///         .gas(Gas::from_tgas(30))
     ///     .delegate(Default::default())
     ///     .await?;
     ///
@@ -560,7 +560,7 @@ impl TransactionBuilder {
     /// // Note: the receiver_id passed to transaction() is ignored for state_init -
     /// // it will be replaced with the derived deterministic account ID
     /// let outcome = near.transaction("alice.testnet")
-    ///     .state_init_by_hash(code_hash, Default::default(), NearToken::near(1))
+    ///     .state_init_by_hash(code_hash, Default::default(), NearToken::from_near(1))
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -595,7 +595,7 @@ impl TransactionBuilder {
     /// // Note: the receiver_id passed to transaction() is ignored for state_init -
     /// // it will be replaced with the derived deterministic account ID
     /// let outcome = near.transaction("alice.testnet")
-    ///     .state_init_by_publisher("contract-publisher.near", Default::default(), NearToken::near(1))
+    ///     .state_init_by_publisher("contract-publisher.near", Default::default(), NearToken::from_near(1))
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -661,7 +661,7 @@ impl TransactionBuilder {
     /// let action = Action::function_call(
     ///     "transfer",
     ///     serde_json::to_vec(&serde_json::json!({ "receiver": "bob.testnet" }))?,
-    ///     Gas::tgas(30),
+    ///     Gas::from_tgas(30),
     ///     NearToken::ZERO,
     /// );
     ///
@@ -707,7 +707,7 @@ impl TransactionBuilder {
     /// # use near_kit::*;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// let signed = near.transaction("bob.testnet")
-    ///     .transfer(NearToken::near(1))
+    ///     .transfer(NearToken::from_near(1))
     ///     .sign()
     ///     .await?;
     ///
@@ -823,7 +823,7 @@ impl TransactionBuilder {
     /// let nonce = 12345u64;
     ///
     /// let signed = near.transaction("bob.testnet")
-    ///     .transfer(NearToken::near(1))
+    ///     .transfer(NearToken::from_near(1))
     ///     .sign_offline(block_hash, nonce)
     ///     .await?;
     ///
@@ -900,7 +900,7 @@ impl CallBuilder {
             builder,
             method,
             args: Vec::new(),
-            gas: Gas::DEFAULT,
+            gas: Gas::from_tgas(30),
             deposit: NearToken::ZERO,
         }
     }
@@ -932,7 +932,7 @@ impl CallBuilder {
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// near.transaction("contract.testnet")
     ///     .call("method")
-    ///         .gas(Gas::tgas(50))
+    ///         .gas(Gas::from_tgas(50))
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -959,7 +959,7 @@ impl CallBuilder {
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// near.transaction("contract.testnet")
     ///     .call("method")
-    ///         .deposit(NearToken::near(1))
+    ///         .deposit(NearToken::from_near(1))
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -1321,7 +1321,6 @@ impl IntoFuture for TransactionBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{GasExt, NearTokenExt};
 
     /// Create a TransactionBuilder for unit tests (no real network needed).
     fn test_builder() -> TransactionBuilder {
@@ -1335,7 +1334,7 @@ mod tests {
         let action = Action::function_call(
             "do_something",
             serde_json::to_vec(&serde_json::json!({ "key": "value" })).unwrap(),
-            Gas::tgas(30),
+            Gas::from_tgas(30),
             NearToken::ZERO,
         );
 
@@ -1345,11 +1344,12 @@ mod tests {
 
     #[test]
     fn add_action_chains_with_other_actions() {
-        let call_action = Action::function_call("init", Vec::new(), Gas::tgas(10), NearToken::ZERO);
+        let call_action =
+            Action::function_call("init", Vec::new(), Gas::from_tgas(10), NearToken::ZERO);
 
         let builder = test_builder()
             .create_account()
-            .transfer(NearToken::near(5))
+            .transfer(NearToken::from_near(5))
             .add_action(call_action);
 
         assert_eq!(builder.actions.len(), 3);
@@ -1357,12 +1357,12 @@ mod tests {
 
     #[test]
     fn add_action_works_after_call_builder() {
-        let extra_action = Action::transfer(NearToken::near(1));
+        let extra_action = Action::transfer(NearToken::from_near(1));
 
         let builder = test_builder()
             .call("setup")
             .args(serde_json::json!({ "admin": "alice.testnet" }))
-            .gas(Gas::tgas(50))
+            .gas(Gas::from_tgas(50))
             .add_action(extra_action);
 
         // Should have two actions: the function call from CallBuilder + the transfer

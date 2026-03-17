@@ -49,7 +49,7 @@ async fn call_example(near: &Near) -> Result<(), Error> {
     let outcome = near
         .call("guestbook.near-examples.testnet", "add_message")
         .args(serde_json::json!({ "text": "Hello from near-kit-rs!" }))
-        .gas(Gas::tgas(30))
+        .gas(Gas::from_tgas(30))
         .await?;
 
     println!("Transaction: {:?}", outcome.transaction_hash());
@@ -66,7 +66,7 @@ async fn transfer_example(near: &Near) -> Result<(), Error> {
 
     // Transfer using typed amount
     let outcome = near
-        .transfer("friend.testnet", NearToken::millinear(100))
+        .transfer("friend.testnet", NearToken::from_millinear(100))
         .await?;
 
     println!("Sent 0.1 NEAR: {:?}", outcome.transaction_hash());
@@ -91,7 +91,7 @@ async fn transaction_example(near: &Near, new_account: &str) -> Result<(), Error
     let outcome = near
         .transaction(new_account)
         .create_account()
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .add_full_access_key(keypair.public_key)
         .send()
         .await?;
@@ -157,7 +157,7 @@ async fn typed_contract_example(near: &Near) -> Result<(), Error> {
         .add_message(AddMessageArgs {
             text: "Type-safe message!".to_string(),
         })
-        .gas(Gas::tgas(30))
+        .gas(Gas::from_tgas(30))
         .await?;
 
     println!("Added message via typed interface");

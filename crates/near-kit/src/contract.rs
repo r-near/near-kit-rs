@@ -69,10 +69,10 @@
 //!     counter.add(AddArgs { value: 5 }).await?;
 //!
 //!     // Payable calls with deposit
-//!     counter.donate().deposit(NearToken::near(1)).await?;
+//!     counter.donate().deposit(NearToken::from_near(1)).await?;
 //!
 //!     // Override gas
-//!     counter.add(AddArgs { value: 10 }).gas(Gas::tgas(50)).await?;
+//!     counter.add(AddArgs { value: 10 }).gas(Gas::from_tgas(50)).await?;
 //!
 //!     Ok(())
 //! }

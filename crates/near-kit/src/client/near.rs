@@ -278,8 +278,8 @@ impl Near {
     /// let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
     ///
     /// // Both share the same RPC connection
-    /// // alice.transfer("carol.testnet", NearToken::near(1)).await?;
-    /// // bob.transfer("carol.testnet", NearToken::near(2)).await?;
+    /// // alice.transfer("carol.testnet", NearToken::from_near(1)).await?;
+    /// // bob.transfer("carol.testnet", NearToken::from_near(2)).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -488,10 +488,10 @@ impl Near {
     ///     .build();
     ///
     /// // Preferred: typed constructor
-    /// near.transfer("bob.testnet", NearToken::near(1)).await?;
+    /// near.transfer("bob.testnet", NearToken::from_near(1)).await?;
     ///
     /// // Transfer with wait for finality
-    /// near.transfer("bob.testnet", NearToken::near(1000))
+    /// near.transfer("bob.testnet", NearToken::from_near(1000))
     ///     .wait_until(TxExecutionStatus::Final)
     ///     .await?;
     /// # Ok(())
@@ -642,7 +642,7 @@ impl Near {
     ///     .build();
     ///
     /// // Sign offline
-    /// let signed = near.transfer("bob.testnet", NearToken::near(1))
+    /// let signed = near.transfer("bob.testnet", NearToken::from_near(1))
     ///     .sign()
     ///     .await?;
     ///

@@ -51,7 +51,7 @@
 //!         .build();
 //!
 //!     // Transfer NEAR
-//!     near.transfer("bob.testnet", NearToken::near(1)).await?;
+//!     near.transfer("bob.testnet", NearToken::from_near(1)).await?;
 //!
 //!     // Call a contract function
 //!     near.call("counter.testnet", "increment")
@@ -88,16 +88,16 @@
 //! For compile-time safety, use the typed constructors:
 //!
 //! ```rust
-//! use near_kit::{NearToken, NearTokenExt, Gas, GasExt};
+//! use near_kit::{NearToken, Gas};
 //!
 //! // NEAR amounts
-//! let five_near = NearToken::near(5);
-//! let half_near = NearToken::millinear(500);
-//! let one_yocto = NearToken::yocto(1);
+//! let five_near = NearToken::from_near(5);
+//! let half_near = NearToken::from_millinear(500);
+//! let one_yocto = NearToken::from_yoctonear(1);
 //!
 //! // Gas amounts
-//! let gas = Gas::tgas(30);      // 30 teragas
-//! let more_gas = Gas::ggas(5);  // 5 gigagas
+//! let gas = Gas::from_tgas(30);      // 30 teragas
+//! let more_gas = Gas::from_ggas(5);  // 5 gigagas
 //! ```
 //!
 //! ### String Parsing (Runtime Input)
@@ -171,7 +171,7 @@
 //!     .await?;
 //!
 //! // Wait for different execution levels
-//! near.transfer("bob.testnet", NearToken::near(1))
+//! near.transfer("bob.testnet", NearToken::from_near(1))
 //!     .wait_until(TxExecutionStatus::Final)
 //!     .await?;
 //! # Ok(())
@@ -192,7 +192,7 @@
 //!
 //! near.transaction("sub.alice.testnet")
 //!     .create_account()
-//!     .transfer(NearToken::near(10))
+//!     .transfer(NearToken::from_near(10))
 //!     .add_full_access_key(new_key)
 //!     .deploy(wasm)
 //!     .call("new")
@@ -322,8 +322,8 @@
 //! let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
 //!
 //! // Both share the same connection, no overhead
-//! // alice.transfer("carol.testnet", NearToken::near(1)).await?;
-//! // bob.transfer("carol.testnet", NearToken::near(2)).await?;
+//! // alice.transfer("carol.testnet", NearToken::from_near(1)).await?;
+//! // bob.transfer("carol.testnet", NearToken::from_near(2)).await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -353,7 +353,7 @@
 //!     let near = Near::sandbox(&sandbox);
 //!
 //!     // Root account is pre-configured with credentials
-//!     near.transfer("alice.sandbox", NearToken::near(10)).await.unwrap();
+//!     near.transfer("alice.sandbox", NearToken::from_near(10)).await.unwrap();
 //! }
 //! ```
 //!

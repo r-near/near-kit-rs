@@ -7,9 +7,7 @@ use tokio::sync::OnceCell;
 
 use crate::client::{CallBuilder, RpcClient, Signer, TransactionBuilder};
 use crate::error::Error;
-use crate::types::{
-    AccountId, BlockReference, Finality, Gas, GasExt, NearToken, NearTokenExt, TryIntoAccountId,
-};
+use crate::types::{AccountId, BlockReference, Finality, Gas, NearToken, TryIntoAccountId};
 
 use super::types::{NftContractMetadata, NftToken};
 
@@ -329,8 +327,8 @@ impl NonFungibleToken {
                 receiver_id: receiver_id.as_str().to_string(),
                 token_id: token_id.as_ref().to_string(),
             })
-            .deposit(NearToken::yocto(1))
-            .gas(Gas::tgas(30))
+            .deposit(NearToken::from_yoctonear(1))
+            .gas(Gas::from_tgas(30))
     }
 
     /// Transfer an NFT with a memo (nft_transfer).
@@ -356,8 +354,8 @@ impl NonFungibleToken {
                 token_id: token_id.as_ref().to_string(),
                 memo: memo.into(),
             })
-            .deposit(NearToken::yocto(1))
-            .gas(Gas::tgas(30))
+            .deposit(NearToken::from_yoctonear(1))
+            .gas(Gas::from_tgas(30))
     }
 
     /// Transfer an NFT with approval ID (for approved transfers).
@@ -381,8 +379,8 @@ impl NonFungibleToken {
                 token_id: token_id.as_ref().to_string(),
                 approval_id,
             })
-            .deposit(NearToken::yocto(1))
-            .gas(Gas::tgas(30))
+            .deposit(NearToken::from_yoctonear(1))
+            .gas(Gas::from_tgas(30))
     }
 
     /// Transfer an NFT with a callback to the receiver (nft_transfer_call).
@@ -425,8 +423,8 @@ impl NonFungibleToken {
                 token_id: token_id.as_ref().to_string(),
                 msg: msg.into(),
             })
-            .deposit(NearToken::yocto(1))
-            .gas(Gas::tgas(100))
+            .deposit(NearToken::from_yoctonear(1))
+            .gas(Gas::from_tgas(100))
     }
 }
 

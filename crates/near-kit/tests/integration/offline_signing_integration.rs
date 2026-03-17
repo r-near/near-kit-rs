@@ -34,7 +34,7 @@ async fn test_sign_offline_transfer() {
     root_near
         .transaction(sender_id.as_str())
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -53,7 +53,7 @@ async fn test_sign_offline_transfer() {
     sender_near
         .transaction(receiver_id.as_str())
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -89,7 +89,7 @@ async fn test_sign_offline_transfer() {
     // Step 2: Sign offline (signing is async but no network is required)
     let signed = sender_near
         .transaction(receiver_id.as_str())
-        .transfer(NearToken::near(5))
+        .transfer(NearToken::from_near(5))
         .sign_offline(block_hash, nonce)
         .await
         .unwrap();
@@ -127,7 +127,7 @@ async fn test_sign_offline_function_call() {
     root_near
         .transaction(contract_id.as_str())
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm_code)
         .send()
@@ -163,7 +163,7 @@ async fn test_sign_offline_function_call() {
     let signed = contract_near
         .call(contract_id.as_str(), "add_message")
         .args(serde_json::json!({ "text": "Hello from offline!" }))
-        .gas(Gas::tgas(30))
+        .gas(Gas::from_tgas(30))
         .sign_offline(block_hash, nonce)
         .await
         .unwrap();
@@ -200,7 +200,7 @@ async fn test_signed_transaction_roundtrip_bytes() {
     root_near
         .transaction(sender_id.as_str())
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -219,7 +219,7 @@ async fn test_signed_transaction_roundtrip_bytes() {
     sender_near
         .transaction(receiver_id.as_str())
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -228,7 +228,7 @@ async fn test_signed_transaction_roundtrip_bytes() {
 
     // Sign a transaction
     let original = sender_near
-        .transfer(&receiver_id, NearToken::near(1))
+        .transfer(&receiver_id, NearToken::from_near(1))
         .sign()
         .await
         .unwrap();
@@ -274,7 +274,7 @@ async fn test_signed_transaction_roundtrip_base64() {
     root_near
         .transaction(sender_id.as_str())
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -293,7 +293,7 @@ async fn test_signed_transaction_roundtrip_base64() {
     sender_near
         .transaction(receiver_id.as_str())
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -302,7 +302,7 @@ async fn test_signed_transaction_roundtrip_base64() {
 
     // Sign a transaction
     let original = sender_near
-        .transfer(&receiver_id, NearToken::near(1))
+        .transfer(&receiver_id, NearToken::from_near(1))
         .sign()
         .await
         .unwrap();
@@ -340,7 +340,7 @@ async fn test_offline_sign_and_transport_simulation() {
     root_near
         .transaction(sender_id.as_str())
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -360,7 +360,7 @@ async fn test_offline_sign_and_transport_simulation() {
     sender_near
         .transaction(receiver_id.as_str())
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -391,7 +391,7 @@ async fn test_offline_sign_and_transport_simulation() {
     // (In reality, sender_key would be stored on the offline machine)
     let signed = sender_near
         .transaction(receiver_id.as_str())
-        .transfer(NearToken::near(3))
+        .transfer(NearToken::from_near(3))
         .sign_offline(block_hash, nonce)
         .await
         .unwrap();
@@ -430,7 +430,7 @@ async fn test_sign_offline_without_signer_fails() {
 
     let result = near
         .transaction("bob.testnet")
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .sign_offline(block_hash, nonce)
         .await;
 

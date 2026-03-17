@@ -85,7 +85,7 @@ async fn send_raw_tx(
 #[tokio::test]
 async fn test_delete_nonexistent_key_deserializes_as_typed_error() {
     let sandbox = SandboxConfig::shared().await;
-    let (near, id, key) = funded_account(sandbox, NearToken::near(10)).await;
+    let (near, id, key) = funded_account(sandbox, NearToken::from_near(10)).await;
 
     let fake_key = SecretKey::generate_ed25519();
     let outcome = send_raw_tx(
@@ -120,7 +120,7 @@ async fn test_delete_nonexistent_key_deserializes_as_typed_error() {
 #[tokio::test]
 async fn test_add_duplicate_key_deserializes_as_typed_error() {
     let sandbox = SandboxConfig::shared().await;
-    let (near, id, key) = funded_account(sandbox, NearToken::near(10)).await;
+    let (near, id, key) = funded_account(sandbox, NearToken::from_near(10)).await;
 
     let outcome = send_raw_tx(
         &near,
@@ -155,7 +155,7 @@ async fn test_add_duplicate_key_deserializes_as_typed_error() {
 #[tokio::test]
 async fn test_stake_insufficient_balance_deserializes_as_typed_error() {
     let sandbox = SandboxConfig::shared().await;
-    let (near, id, key) = funded_account(sandbox, NearToken::near(1)).await;
+    let (near, id, key) = funded_account(sandbox, NearToken::from_near(1)).await;
 
     let outcome = send_raw_tx(
         &near,
@@ -163,7 +163,7 @@ async fn test_stake_insufficient_balance_deserializes_as_typed_error() {
         &key,
         &id,
         vec![Action::Stake(StakeAction {
-            stake: NearToken::near(1000),
+            stake: NearToken::from_near(1000),
             public_key: key.public_key(),
         })],
     )
@@ -181,7 +181,7 @@ async fn test_stake_insufficient_balance_deserializes_as_typed_error() {
                 ..
             } => {
                 assert_eq!(account_id, &id);
-                assert_eq!(*stake, NearToken::near(1000));
+                assert_eq!(*stake, NearToken::from_near(1000));
                 assert!(balance.as_yoctonear() > 0);
             }
             other => panic!("expected TriesToStake, got: {other:?}"),
@@ -197,7 +197,7 @@ async fn test_stake_insufficient_balance_deserializes_as_typed_error() {
 #[tokio::test]
 async fn test_call_nonexistent_method_deserializes_as_typed_error() {
     let sandbox = SandboxConfig::shared().await;
-    let (near, id, key) = funded_account(sandbox, NearToken::near(50)).await;
+    let (near, id, key) = funded_account(sandbox, NearToken::from_near(50)).await;
 
     // Deploy a contract first
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").unwrap();
@@ -212,8 +212,8 @@ async fn test_call_nonexistent_method_deserializes_as_typed_error() {
         vec![Action::FunctionCall(FunctionCallAction {
             method_name: "nonexistent_method".to_string(),
             args: vec![],
-            gas: Gas::tgas(30),
-            deposit: NearToken::yocto(0),
+            gas: Gas::from_tgas(30),
+            deposit: NearToken::from_yoctonear(0),
         })],
     )
     .await;
@@ -245,7 +245,7 @@ async fn test_call_nonexistent_method_deserializes_as_typed_error() {
 #[tokio::test]
 async fn test_failure_message_is_human_readable_not_json() {
     let sandbox = SandboxConfig::shared().await;
-    let (near, id, key) = funded_account(sandbox, NearToken::near(10)).await;
+    let (near, id, key) = funded_account(sandbox, NearToken::from_near(10)).await;
 
     let fake_key = SecretKey::generate_ed25519();
     let outcome = send_raw_tx(

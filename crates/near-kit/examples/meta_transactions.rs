@@ -27,7 +27,7 @@ async fn user_creates_delegate(
         .transaction("guestbook.near-examples.testnet")
         .call("add_message")
         .args(serde_json::json!({ "text": "Gasless transaction from near-kit-rs!" }))
-        .gas(Gas::tgas(30))
+        .gas(Gas::from_tgas(30))
         .delegate(DelegateOptions::default())
         .await?;
 
