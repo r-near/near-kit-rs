@@ -820,7 +820,9 @@ impl Signer for RotatingSigner {
     }
 
     fn public_key(&self) -> PublicKey {
-        self.keys[0].public_key()
+        // Peek at whichever key will be claimed next, without advancing the counter
+        let idx = self.counter.load(Ordering::Relaxed) % self.keys.len();
+        self.keys[idx].public_key()
     }
 }
 
@@ -1124,23 +1126,31 @@ mod tests {
             SecretKey::generate_ed25519(),
             SecretKey::generate_ed25519(),
         ];
-        let first_pk = keys[0].public_key();
+        let pks: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
 
         let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
 
-        // Calling public_key() multiple times should always return the first key
-        // and should NOT advance the rotation counter
-        assert_eq!(signer.public_key(), first_pk);
-        assert_eq!(signer.public_key(), first_pk);
-        assert_eq!(signer.public_key(), first_pk);
+        // public_key() peeks at the next key without advancing the counter
+        assert_eq!(signer.public_key(), pks[0]);
+        assert_eq!(signer.public_key(), pks[0]);
+        assert_eq!(signer.public_key(), pks[0]);
 
         // key() should still start from the first key (counter wasn't advanced)
         let claimed = signer.key();
-        assert_eq!(claimed.public_key(), &first_pk);
+        assert_eq!(claimed.public_key(), &pks[0]);
 
-        // Now the counter has advanced, next key() should be the second
-        let second_pk = signer.key();
-        assert_ne!(second_pk.public_key(), &first_pk);
+        // After one key() call, public_key() should now reflect the second key
+        assert_eq!(signer.public_key(), pks[1]);
+
+        // Claim the second key, public_key() should reflect the third
+        let claimed = signer.key();
+        assert_eq!(claimed.public_key(), &pks[1]);
+        assert_eq!(signer.public_key(), pks[2]);
+
+        // Claim the third key, counter wraps around to the first
+        let claimed = signer.key();
+        assert_eq!(claimed.public_key(), &pks[2]);
+        assert_eq!(signer.public_key(), pks[0]);
     }
 
     #[test]
