@@ -61,18 +61,26 @@ impl NonceManager {
         Fut: Future<Output = Result<u64, crate::Error>>,
     {
         let key = format!("{}:{}:{}", network, account_id, public_key);
+        let span = tracing::debug_span!("nonce", account_id = account_id, public_key = public_key);
+        let _enter = span.enter();
 
         // Fast path: check if we already have a cached nonce
         {
             let nonces = self.nonces.lock().unwrap();
             if let Some(atomic) = nonces.get(&key) {
                 // Atomically increment and return the previous value
-                return Ok(atomic.fetch_add(1, Ordering::SeqCst));
+                let nonce = atomic.fetch_add(1, Ordering::SeqCst);
+                tracing::debug!(nonce = nonce, "Nonce from cache");
+                return Ok(nonce);
             }
         }
 
         // Slow path: need to fetch from blockchain
+        tracing::debug!("Fetching nonce from RPC");
+        // Drop the span guard before the async call
+        drop(_enter);
         let blockchain_nonce = fetch_from_blockchain().await?;
+        let _enter = span.enter();
         let next_nonce = blockchain_nonce + 1;
 
         // Store the nonce (next_nonce + 1 for future calls)
@@ -81,12 +89,15 @@ impl NonceManager {
             // Check again in case another task beat us to it
             if let Some(atomic) = nonces.get(&key) {
                 // Someone else already inserted, use theirs
-                return Ok(atomic.fetch_add(1, Ordering::SeqCst));
+                let nonce = atomic.fetch_add(1, Ordering::SeqCst);
+                tracing::debug!(nonce = nonce, "Nonce from cache (race)");
+                return Ok(nonce);
             }
             // Insert with value = next_nonce + 1 (what the NEXT caller should get)
             nonces.insert(key, AtomicU64::new(next_nonce + 1));
         }
 
+        tracing::debug!(nonce = next_nonce, "Nonce acquired from RPC");
         Ok(next_nonce)
     }
 
@@ -127,6 +138,11 @@ impl NonceManager {
     ) -> u64 {
         let key = format!("{}:{}:{}", network, account_id, public_key);
         let next_nonce = current_nonce + 1;
+        tracing::debug!(
+            account_id = account_id,
+            nonce = next_nonce,
+            "Nonce updated from error"
+        );
 
         let mut nonces = self.nonces.lock().unwrap();
         if let Some(atomic) = nonces.get(&key) {

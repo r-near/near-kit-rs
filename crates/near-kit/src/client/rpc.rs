@@ -155,8 +155,6 @@ impl RpcClient {
     ) -> Result<R, RpcError> {
         let total_attempts = self.retry_config.max_retries + 1;
 
-        tracing::debug!(rpc.method = method, rpc.url = %self.url, "RPC request");
-
         for attempt in 0..total_attempts {
             let request_id = self.request_id.fetch_add(1, Ordering::Relaxed);
 
@@ -168,10 +166,7 @@ impl RpcClient {
             };
 
             match self.try_call::<R>(&request).await {
-                Ok(result) => {
-                    tracing::debug!(rpc.method = method, "RPC request succeeded");
-                    return Ok(result);
-                }
+                Ok(result) => return Ok(result),
                 Err(e) if e.is_retryable() && attempt < total_attempts - 1 => {
                     let delay = std::cmp::min(
                         self.retry_config.initial_delay_ms * 2u64.pow(attempt),
@@ -418,6 +413,7 @@ impl RpcClient {
         account_id: &AccountId,
         block: BlockReference,
     ) -> Result<AccountView, RpcError> {
+        tracing::debug!(account_id = %account_id, "view_account");
         let mut params = serde_json::json!({
             "request_type": "view_account",
             "account_id": account_id.to_string(),
@@ -434,6 +430,7 @@ impl RpcClient {
         public_key: &PublicKey,
         block: BlockReference,
     ) -> Result<AccessKeyView, RpcError> {
+        tracing::debug!(account_id = %account_id, public_key = %public_key, "view_access_key");
         let mut params = serde_json::json!({
             "request_type": "view_access_key",
             "account_id": account_id.to_string(),
@@ -450,6 +447,7 @@ impl RpcClient {
         account_id: &AccountId,
         block: BlockReference,
     ) -> Result<AccessKeyListView, RpcError> {
+        tracing::debug!(account_id = %account_id, "view_access_key_list");
         let mut params = serde_json::json!({
             "request_type": "view_access_key_list",
             "account_id": account_id.to_string(),
@@ -467,6 +465,7 @@ impl RpcClient {
         args: &[u8],
         block: BlockReference,
     ) -> Result<ViewFunctionResult, RpcError> {
+        tracing::debug!(contract_id = %account_id, method = method_name, "view_function");
         let mut params = serde_json::json!({
             "request_type": "call_function",
             "account_id": account_id.to_string(),
@@ -508,17 +507,20 @@ impl RpcClient {
 
     /// Get block information.
     pub async fn block(&self, block: BlockReference) -> Result<BlockView, RpcError> {
+        tracing::debug!("block");
         let params = block.to_rpc_params();
         self.call("block", params).await
     }
 
     /// Get node status.
     pub async fn status(&self) -> Result<StatusResponse, RpcError> {
+        tracing::debug!("status");
         self.call("status", serde_json::json!([])).await
     }
 
     /// Get current gas price.
     pub async fn gas_price(&self, block_hash: Option<&CryptoHash>) -> Result<GasPrice, RpcError> {
+        tracing::debug!("gas_price");
         let params = match block_hash {
             Some(hash) => serde_json::json!([hash.to_string()]),
             None => serde_json::json!([serde_json::Value::Null]),
@@ -546,7 +548,6 @@ impl RpcClient {
         });
         let mut response: SendTxResponse = self.call("send_tx", params).await?;
         response.transaction_hash = tx_hash;
-        tracing::info!(tx_hash = %response.transaction_hash, "Transaction sent successfully");
         Ok(response)
     }
 
@@ -559,6 +560,7 @@ impl RpcClient {
         sender_id: &AccountId,
         wait_until: TxExecutionStatus,
     ) -> Result<SendTxWithReceiptsResponse, RpcError> {
+        tracing::debug!(tx_hash = %tx_hash, sender = %sender_id, "tx_status");
         let params = serde_json::json!({
             "tx_hash": tx_hash.to_string(),
             "sender_account_id": sender_id.to_string(),
