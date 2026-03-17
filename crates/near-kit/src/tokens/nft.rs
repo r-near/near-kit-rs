@@ -301,7 +301,7 @@ impl NonFungibleToken {
         receiver_id: impl Into<AccountId>,
         token_id: impl AsRef<str>,
     ) -> CallBuilder {
-        tracing::info!(contract = %self.contract_id, token_id = token_id.as_ref(), "NFT transfer");
+        tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), "nft_transfer");
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -395,7 +395,7 @@ impl NonFungibleToken {
         token_id: impl AsRef<str>,
         msg: impl Into<String>,
     ) -> CallBuilder {
-        tracing::info!(contract = %self.contract_id, token_id = token_id.as_ref(), "NFT transfer_call");
+        tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), "nft_transfer_call");
         #[derive(Serialize)]
         struct TransferCallArgs {
             receiver_id: String,

@@ -309,8 +309,7 @@ impl FungibleToken {
         amount: impl Into<u128>,
     ) -> CallBuilder {
         let receiver_id: AccountId = receiver_id.into();
-        tracing::info!(contract = %self.contract_id, receiver = %receiver_id, "FT transfer");
-
+        tracing::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer");
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -386,7 +385,7 @@ impl FungibleToken {
         msg: impl Into<String>,
     ) -> CallBuilder {
         let receiver_id: AccountId = receiver_id.into();
-        tracing::info!(contract = %self.contract_id, receiver = %receiver_id, "FT transfer_call");
+        tracing::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer_call");
 
         #[derive(Serialize)]
         struct TransferCallArgs {
