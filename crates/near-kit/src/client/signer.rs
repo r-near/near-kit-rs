@@ -86,9 +86,10 @@ pub trait Signer: Send + Sync {
 
     /// Get the signer's public key without side effects.
     ///
-    /// Unlike [`key()`](Signer::key), this does not advance the rotation counter
-    /// on [`RotatingSigner`]. The default implementation calls `key().public_key().clone()`,
-    /// which is correct for single-key signers.
+    /// The default implementation calls `key().public_key().clone()`,
+    /// which is correct for single-key signers. Implementors where `key()`
+    /// has side effects (e.g. advancing a rotation counter) **must** override
+    /// this method to avoid unintended state changes.
     fn public_key(&self) -> PublicKey {
         self.key().public_key().clone()
     }
