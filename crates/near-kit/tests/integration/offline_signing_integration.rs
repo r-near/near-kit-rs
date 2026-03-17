@@ -151,7 +151,7 @@ async fn test_sign_offline_function_call() {
     let access_key = contract_near
         .rpc()
         .view_access_key(
-            &contract_id.as_str().parse::<near_kit::AccountId>().unwrap(),
+            &contract_id,
             &contract_key.public_key(),
             BlockReference::Finality(Finality::Optimistic),
         )

@@ -314,6 +314,9 @@ impl NonFungibleToken {
         receiver_id: impl TryIntoAccountId,
         token_id: impl AsRef<str>,
     ) -> CallBuilder {
+        let receiver_id: AccountId = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), "nft_transfer");
         #[derive(Serialize)]
         struct TransferArgs {
@@ -324,7 +327,7 @@ impl NonFungibleToken {
         self.transaction()
             .call("nft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.as_str().to_string(),
+                receiver_id: receiver_id.to_string(),
                 token_id: token_id.as_ref().to_string(),
             })
             .deposit(NearToken::from_yoctonear(1))
@@ -340,6 +343,9 @@ impl NonFungibleToken {
         token_id: impl AsRef<str>,
         memo: impl Into<String>,
     ) -> CallBuilder {
+        let receiver_id: AccountId = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -350,7 +356,7 @@ impl NonFungibleToken {
         self.transaction()
             .call("nft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.as_str().to_string(),
+                receiver_id: receiver_id.to_string(),
                 token_id: token_id.as_ref().to_string(),
                 memo: memo.into(),
             })
@@ -365,6 +371,9 @@ impl NonFungibleToken {
         token_id: impl AsRef<str>,
         approval_id: u64,
     ) -> CallBuilder {
+        let receiver_id: AccountId = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -375,7 +384,7 @@ impl NonFungibleToken {
         self.transaction()
             .call("nft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.as_str().to_string(),
+                receiver_id: receiver_id.to_string(),
                 token_id: token_id.as_ref().to_string(),
                 approval_id,
             })
@@ -408,6 +417,9 @@ impl NonFungibleToken {
         token_id: impl AsRef<str>,
         msg: impl Into<String>,
     ) -> CallBuilder {
+        let receiver_id: AccountId = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), "nft_transfer_call");
         #[derive(Serialize)]
         struct TransferCallArgs {
@@ -419,7 +431,7 @@ impl NonFungibleToken {
         self.transaction()
             .call("nft_transfer_call")
             .args(TransferCallArgs {
-                receiver_id: receiver_id.as_str().to_string(),
+                receiver_id: receiver_id.to_string(),
                 token_id: token_id.as_ref().to_string(),
                 msg: msg.into(),
             })
