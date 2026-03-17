@@ -456,7 +456,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         // Implement ContractClient trait for construction via near.contract::<T>()
         impl near_kit::contract::ContractClient for #client_name {
             fn new(near: near_kit::Near, contract_id: near_kit::AccountId) -> Self {
-                Self { near, contract_id }
+                #client_name::new(near, contract_id)
             }
         }
 
