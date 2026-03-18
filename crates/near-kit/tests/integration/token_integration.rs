@@ -34,7 +34,7 @@ async fn deploy_ft_contract(
     // Create FT contract account with wasm deployed
     near.transaction(&ft_id)
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(ft_key.public_key())
         .deploy(wasm)
         .send()
@@ -44,7 +44,7 @@ async fn deploy_ft_contract(
     // Initialize the FT contract
     // The near-sdk-rs example FT uses "new" with owner_id, total_supply, metadata
     let ft_near = Near::custom(near.rpc_url())
-        .credentials(ft_key.to_string(), ft_id.as_str())?
+        .credentials(ft_key.to_string(), &ft_id)?
         .build();
 
     ft_near
@@ -59,7 +59,7 @@ async fn deploy_ft_contract(
                 "decimals": 18
             }
         }))
-        .gas(Gas::tgas(50))
+        .gas(Gas::from_tgas(50))
         .await?;
 
     Ok((ft_id, ft_key))
@@ -77,7 +77,7 @@ async fn test_ft_metadata() {
     root_near
         .transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -111,7 +111,7 @@ async fn test_ft_balance_of() {
     root_near
         .transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -153,7 +153,7 @@ async fn test_ft_total_supply() {
     root_near
         .transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -184,7 +184,7 @@ async fn test_ft_transfer() {
     root_near
         .transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -196,14 +196,14 @@ async fn test_ft_transfer() {
     let receiver_id: AccountId = format!("receiver.{}", owner_id).parse().unwrap();
 
     let owner_near = Near::custom(rpc_url)
-        .credentials(owner_key.to_string(), owner_id.as_str())
+        .credentials(owner_key.to_string(), &owner_id)
         .unwrap()
         .build();
 
     owner_near
         .transaction(&receiver_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -273,7 +273,7 @@ async fn test_ft_storage_deposit() {
     root_near
         .transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -282,7 +282,7 @@ async fn test_ft_storage_deposit() {
 
     // Create owner's near client for signing
     let owner_near = Near::custom(rpc_url)
-        .credentials(owner_key.to_string(), owner_id.as_str())
+        .credentials(owner_key.to_string(), &owner_id)
         .unwrap()
         .build();
 
@@ -293,7 +293,7 @@ async fn test_ft_storage_deposit() {
     owner_near
         .transaction(&user_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(user_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -343,7 +343,7 @@ async fn deploy_nft_contract(
     // Create NFT contract account with wasm deployed
     near.transaction(&nft_id)
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(nft_key.public_key())
         .deploy(wasm)
         .send()
@@ -352,7 +352,7 @@ async fn deploy_nft_contract(
 
     // Initialize the NFT contract
     let nft_near = Near::custom(near.rpc_url())
-        .credentials(nft_key.to_string(), nft_id.as_str())?
+        .credentials(nft_key.to_string(), &nft_id)?
         .build();
 
     nft_near
@@ -365,7 +365,7 @@ async fn deploy_nft_contract(
                 "symbol": "TNFT"
             }
         }))
-        .gas(Gas::tgas(50))
+        .gas(Gas::from_tgas(50))
         .await?;
 
     Ok((nft_id, nft_key))
@@ -380,7 +380,7 @@ async fn mint_nft(
     owner_id: &AccountId,
 ) -> Result<(), Error> {
     let nft_near = Near::custom(near.rpc_url())
-        .credentials(nft_key.to_string(), nft_id.as_str())?
+        .credentials(nft_key.to_string(), nft_id)?
         .build();
 
     nft_near
@@ -394,8 +394,8 @@ async fn mint_nft(
                 "media": null
             }
         }))
-        .gas(Gas::tgas(50))
-        .deposit(NearToken::millinear(10)) // Storage deposit for minting
+        .gas(Gas::from_tgas(50))
+        .deposit(NearToken::from_millinear(10)) // Storage deposit for minting
         .await?;
 
     Ok(())
@@ -413,7 +413,7 @@ async fn test_nft_metadata() {
     root_near
         .transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -446,7 +446,7 @@ async fn test_nft_token_query() {
     root_near
         .transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -493,7 +493,7 @@ async fn test_nft_tokens_for_owner() {
     root_near
         .transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -554,7 +554,7 @@ async fn test_nft_transfer() {
     root_near
         .transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -563,7 +563,7 @@ async fn test_nft_transfer() {
 
     // Create owner's client for signing
     let owner_near = Near::custom(rpc_url)
-        .credentials(owner_key.to_string(), owner_id.as_str())
+        .credentials(owner_key.to_string(), &owner_id)
         .unwrap()
         .build();
 
@@ -574,7 +574,7 @@ async fn test_nft_transfer() {
     owner_near
         .transaction(&receiver_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -621,7 +621,7 @@ async fn test_nft_total_supply() {
     root_near
         .transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -670,7 +670,7 @@ async fn test_nft_supply_for_owner() {
     root_near
         .transaction(&owner1_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner1_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -679,7 +679,7 @@ async fn test_nft_supply_for_owner() {
 
     // Create owner1's client for signing
     let owner1_near = Near::custom(rpc_url)
-        .credentials(owner1_key.to_string(), owner1_id.as_str())
+        .credentials(owner1_key.to_string(), &owner1_id)
         .unwrap()
         .build();
 
@@ -690,7 +690,7 @@ async fn test_nft_supply_for_owner() {
     owner1_near
         .transaction(&owner2_id)
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(owner2_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -756,7 +756,7 @@ async fn test_ft_amount_arithmetic_from_real_balances() {
     root_near
         .transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -799,7 +799,7 @@ async fn test_ft_metadata_caching() {
     root_near
         .transaction(&owner_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)

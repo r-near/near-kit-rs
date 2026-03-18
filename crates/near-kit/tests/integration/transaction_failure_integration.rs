@@ -32,7 +32,7 @@ async fn test_deploy_invalid_wasm() {
     // Create account
     near.transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -40,7 +40,7 @@ async fn test_deploy_invalid_wasm() {
         .unwrap();
 
     let account_near = Near::custom(sandbox.rpc_url())
-        .credentials(key.to_string(), account_id.as_str())
+        .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
 
@@ -64,7 +64,7 @@ async fn test_deploy_empty_wasm() {
 
     near.transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -72,7 +72,7 @@ async fn test_deploy_empty_wasm() {
         .unwrap();
 
     let account_near = Near::custom(sandbox.rpc_url())
-        .credentials(key.to_string(), account_id.as_str())
+        .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
 
@@ -117,7 +117,7 @@ async fn test_add_duplicate_key() {
     // Create account with key
     near.transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -125,7 +125,7 @@ async fn test_add_duplicate_key() {
         .unwrap();
 
     let account_near = Near::custom(sandbox.rpc_url())
-        .credentials(key.to_string(), account_id.as_str())
+        .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
 
@@ -148,7 +148,7 @@ async fn test_delete_last_full_access_key() {
 
     near.transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -156,7 +156,7 @@ async fn test_delete_last_full_access_key() {
         .unwrap();
 
     let account_near = Near::custom(sandbox.rpc_url())
-        .credentials(key.to_string(), account_id.as_str())
+        .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
 
@@ -185,7 +185,7 @@ async fn test_create_subaccount_of_nonexistent_parent() {
     let result = near
         .transaction(&sub_id)
         .create_account()
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -231,7 +231,7 @@ async fn test_create_account_with_insufficient_balance() {
     let result = near
         .transaction(&account_id)
         .create_account()
-        .transfer(NearToken::yocto(1)) // Way too small
+        .transfer(NearToken::from_yoctonear(1)) // Way too small
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -255,7 +255,7 @@ async fn test_transaction_with_failing_action_in_middle() {
 
     near.transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -263,7 +263,7 @@ async fn test_transaction_with_failing_action_in_middle() {
         .unwrap();
 
     let account_near = Near::custom(sandbox.rpc_url())
-        .credentials(key.to_string(), account_id.as_str())
+        .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
 
@@ -317,7 +317,7 @@ async fn test_delete_account_to_nonexistent_beneficiary() {
 
     near.transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(5))
+        .transfer(NearToken::from_near(5))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -325,7 +325,7 @@ async fn test_delete_account_to_nonexistent_beneficiary() {
         .unwrap();
 
     let account_near = Near::custom(sandbox.rpc_url())
-        .credentials(key.to_string(), account_id.as_str())
+        .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
 
@@ -357,7 +357,7 @@ async fn test_stake_with_insufficient_balance() {
 
     near.transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(1)) // Small balance
+        .transfer(NearToken::from_near(1)) // Small balance
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -365,14 +365,14 @@ async fn test_stake_with_insufficient_balance() {
         .unwrap();
 
     let account_near = Near::custom(sandbox.rpc_url())
-        .credentials(key.to_string(), account_id.as_str())
+        .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
 
     // Try to stake more than available
     let result = account_near
         .transaction(&account_id)
-        .stake(NearToken::near(1000), key.public_key())
+        .stake(NearToken::from_near(1000), key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await;
@@ -398,7 +398,7 @@ async fn test_transfer_zero_amount() {
 
     near.transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -406,7 +406,7 @@ async fn test_transfer_zero_amount() {
         .unwrap();
 
     let account_near = Near::custom(sandbox.rpc_url())
-        .credentials(key.to_string(), account_id.as_str())
+        .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
 
@@ -417,7 +417,7 @@ async fn test_transfer_zero_amount() {
     account_near
         .transaction(&receiver)
         .create_account()
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -425,7 +425,9 @@ async fn test_transfer_zero_amount() {
         .unwrap();
 
     // Transfer zero
-    let result = account_near.transfer(&receiver, NearToken::yocto(0)).await;
+    let result = account_near
+        .transfer(&receiver, NearToken::from_yoctonear(0))
+        .await;
 
     // Zero transfers may or may not be allowed
     println!("Zero transfer result: {:?}", result);
@@ -441,7 +443,7 @@ async fn test_transfer_max_amount() {
 
     near.transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -449,13 +451,13 @@ async fn test_transfer_max_amount() {
         .unwrap();
 
     let account_near = Near::custom(sandbox.rpc_url())
-        .credentials(key.to_string(), account_id.as_str())
+        .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
 
     // Transfer max u128 (way more than balance)
     let result = account_near
-        .transfer(ROOT_ACCOUNT, NearToken::yocto(u128::MAX))
+        .transfer(ROOT_ACCOUNT, NearToken::from_yoctonear(u128::MAX))
         .await;
 
     assert!(result.is_err(), "Should fail with max amount");

@@ -15,6 +15,11 @@ rust-version = "1.86"
 
 # Shared dependencies - crates can use `workspace = true` to inherit these
 [workspace.dependencies]
+# NEAR ecosystem types
+near-account-id = { version = "2.6", features = ["serde", "borsh"] }
+near-token = { version = "0.3", features = ["serde", "borsh"] }
+near-gas = { version = "0.3", features = ["serde", "borsh"] }
+
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 futures = "0.3"

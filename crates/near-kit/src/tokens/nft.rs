@@ -7,7 +7,7 @@ use tokio::sync::OnceCell;
 
 use crate::client::{CallBuilder, RpcClient, Signer, TransactionBuilder};
 use crate::error::Error;
-use crate::types::{AccountId, BlockReference, Finality, Gas, NearToken};
+use crate::types::{AccountId, BlockReference, Finality, Gas, NearToken, TryIntoAccountId};
 
 use super::types::{NftContractMetadata, NftToken};
 
@@ -194,11 +194,11 @@ impl NonFungibleToken {
     /// ```
     pub async fn tokens_for_owner(
         &self,
-        account_id: impl Into<AccountId>,
+        account_id: impl TryIntoAccountId,
         from_index: Option<u64>,
         limit: Option<u64>,
     ) -> Result<Vec<NftToken>, Error> {
-        let account_id: AccountId = account_id.into();
+        let account_id: AccountId = account_id.try_into_account_id()?;
         tracing::debug!(contract = %self.contract_id, account = %account_id, "Querying NFT tokens for owner");
 
         #[derive(Serialize)]
@@ -252,8 +252,8 @@ impl NonFungibleToken {
     }
 
     /// Get token supply for an owner (nft_supply_for_owner).
-    pub async fn supply_for_owner(&self, account_id: impl Into<AccountId>) -> Result<u64, Error> {
-        let account_id: AccountId = account_id.into();
+    pub async fn supply_for_owner(&self, account_id: impl TryIntoAccountId) -> Result<u64, Error> {
+        let account_id: AccountId = account_id.try_into_account_id()?;
 
         #[derive(Serialize)]
         struct Args<'a> {
@@ -311,9 +311,12 @@ impl NonFungibleToken {
     /// ```
     pub fn transfer(
         &self,
-        receiver_id: impl Into<AccountId>,
+        receiver_id: impl TryIntoAccountId,
         token_id: impl AsRef<str>,
     ) -> CallBuilder {
+        let receiver_id: AccountId = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), "nft_transfer");
         #[derive(Serialize)]
         struct TransferArgs {
@@ -324,11 +327,11 @@ impl NonFungibleToken {
         self.transaction()
             .call("nft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.into().to_string(),
+                receiver_id: receiver_id.to_string(),
                 token_id: token_id.as_ref().to_string(),
             })
-            .deposit(NearToken::yocto(1))
-            .gas(Gas::tgas(30))
+            .deposit(NearToken::from_yoctonear(1))
+            .gas(Gas::from_tgas(30))
     }
 
     /// Transfer an NFT with a memo (nft_transfer).
@@ -336,10 +339,13 @@ impl NonFungibleToken {
     /// Same as [`transfer`](Self::transfer) but with an optional memo field.
     pub fn transfer_with_memo(
         &self,
-        receiver_id: impl Into<AccountId>,
+        receiver_id: impl TryIntoAccountId,
         token_id: impl AsRef<str>,
         memo: impl Into<String>,
     ) -> CallBuilder {
+        let receiver_id: AccountId = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -350,21 +356,24 @@ impl NonFungibleToken {
         self.transaction()
             .call("nft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.into().to_string(),
+                receiver_id: receiver_id.to_string(),
                 token_id: token_id.as_ref().to_string(),
                 memo: memo.into(),
             })
-            .deposit(NearToken::yocto(1))
-            .gas(Gas::tgas(30))
+            .deposit(NearToken::from_yoctonear(1))
+            .gas(Gas::from_tgas(30))
     }
 
     /// Transfer an NFT with approval ID (for approved transfers).
     pub fn transfer_with_approval(
         &self,
-        receiver_id: impl Into<AccountId>,
+        receiver_id: impl TryIntoAccountId,
         token_id: impl AsRef<str>,
         approval_id: u64,
     ) -> CallBuilder {
+        let receiver_id: AccountId = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -375,12 +384,12 @@ impl NonFungibleToken {
         self.transaction()
             .call("nft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.into().to_string(),
+                receiver_id: receiver_id.to_string(),
                 token_id: token_id.as_ref().to_string(),
                 approval_id,
             })
-            .deposit(NearToken::yocto(1))
-            .gas(Gas::tgas(30))
+            .deposit(NearToken::from_yoctonear(1))
+            .gas(Gas::from_tgas(30))
     }
 
     /// Transfer an NFT with a callback to the receiver (nft_transfer_call).
@@ -404,10 +413,13 @@ impl NonFungibleToken {
     /// ```
     pub fn transfer_call(
         &self,
-        receiver_id: impl Into<AccountId>,
+        receiver_id: impl TryIntoAccountId,
         token_id: impl AsRef<str>,
         msg: impl Into<String>,
     ) -> CallBuilder {
+        let receiver_id: AccountId = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), "nft_transfer_call");
         #[derive(Serialize)]
         struct TransferCallArgs {
@@ -419,12 +431,12 @@ impl NonFungibleToken {
         self.transaction()
             .call("nft_transfer_call")
             .args(TransferCallArgs {
-                receiver_id: receiver_id.into().to_string(),
+                receiver_id: receiver_id.to_string(),
                 token_id: token_id.as_ref().to_string(),
                 msg: msg.into(),
             })
-            .deposit(NearToken::yocto(1))
-            .gas(Gas::tgas(100))
+            .deposit(NearToken::from_yoctonear(1))
+            .gas(Gas::from_tgas(100))
     }
 }
 

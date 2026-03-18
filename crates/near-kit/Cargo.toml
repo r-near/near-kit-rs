@@ -13,6 +13,11 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+# NEAR ecosystem types
+near-account-id.workspace = true
+near-token.workspace = true
+near-gas.workspace = true
+
 # Async runtime
 tokio.workspace = true
 futures.workspace = true

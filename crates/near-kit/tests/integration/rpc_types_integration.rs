@@ -262,7 +262,7 @@ async fn test_final_execution_outcome_full_fields() {
     let outcome = near
         .transaction(&receiver_id)
         .create_account()
-        .transfer(NearToken::near(5))
+        .transfer(NearToken::from_near(5))
         .add_full_access_key(receiver_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -334,7 +334,7 @@ async fn test_execution_metadata_and_gas_profile() {
     let outcome = near
         .transaction(&receiver_id)
         .create_account()
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .add_full_access_key(receiver_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -382,7 +382,7 @@ async fn test_tx_status_with_receipts() {
     let outcome = near
         .transaction(&receiver_id)
         .create_account()
-        .transfer(NearToken::near(2))
+        .transfer(NearToken::from_near(2))
         .add_full_access_key(receiver_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -476,7 +476,7 @@ async fn test_action_view_variants() {
     let outcome = near
         .transaction(&account1_id)
         .create_account()
-        .transfer(NearToken::near(3))
+        .transfer(NearToken::from_near(3))
         .add_full_access_key(account1_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)

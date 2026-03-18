@@ -33,7 +33,7 @@ async fn test_in_memory_signer_from_secret_key() {
     root_near
         .transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -42,7 +42,7 @@ async fn test_in_memory_signer_from_secret_key() {
 
     // Create client with InMemorySigner from secret key
     let near = Near::custom(sandbox.rpc_url())
-        .credentials(key.to_string(), account_id.as_str())
+        .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
 
@@ -50,7 +50,7 @@ async fn test_in_memory_signer_from_secret_key() {
     let receiver_id: AccountId = format!("recv.{}", account_id).parse().unwrap();
     near.transaction(&receiver_id)
         .create_account()
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -75,7 +75,7 @@ async fn test_in_memory_signer_from_seed_phrase() {
     root_near
         .transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -116,7 +116,7 @@ async fn test_rotating_signer_uses_multiple_keys() {
     root_near
         .transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(100))
+        .transfer(NearToken::from_near(100))
         .add_full_access_key(key1.public_key())
         .add_full_access_key(key2.public_key())
         .add_full_access_key(key3.public_key())
@@ -135,7 +135,7 @@ async fn test_rotating_signer_uses_multiple_keys() {
         let sub_id: AccountId = format!("sub{}.{}", i, account_id).parse().unwrap();
         near.transaction(&sub_id)
             .create_account()
-            .transfer(NearToken::near(1))
+            .transfer(NearToken::from_near(1))
             .add_full_access_key(SecretKey::generate_ed25519().public_key())
             .send()
             .wait_until(TxExecutionStatus::Final)
@@ -162,7 +162,7 @@ async fn test_rotating_signer_with_single_key() {
     root_near
         .transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -178,7 +178,7 @@ async fn test_rotating_signer_with_single_key() {
     let sub_id: AccountId = format!("single.{}", account_id).parse().unwrap();
     near.transaction(&sub_id)
         .create_account()
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -227,7 +227,7 @@ async fn test_sign_with_override() {
     root_near
         .transaction(&account1_id)
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key1.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -237,7 +237,7 @@ async fn test_sign_with_override() {
     root_near
         .transaction(&account2_id)
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key2.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -246,7 +246,7 @@ async fn test_sign_with_override() {
 
     // Create client with account1's signer
     let near = Near::custom(sandbox.rpc_url())
-        .credentials(key1.to_string(), account1_id.as_str())
+        .credentials(key1.to_string(), &account1_id)
         .unwrap()
         .build();
 
@@ -256,7 +256,7 @@ async fn test_sign_with_override() {
     let sub_id: AccountId = format!("signwith.{}", account2_id).parse().unwrap();
     near.transaction(&sub_id)
         .create_account()
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .sign_with(signer2)
         .send()
@@ -286,7 +286,7 @@ async fn test_wrong_key_for_account() {
     root_near
         .transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(correct_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -295,7 +295,7 @@ async fn test_wrong_key_for_account() {
 
     // Create client with the WRONG key
     let near = Near::custom(sandbox.rpc_url())
-        .credentials(wrong_key.to_string(), account_id.as_str())
+        .credentials(wrong_key.to_string(), &account_id)
         .unwrap()
         .build();
 
@@ -304,7 +304,7 @@ async fn test_wrong_key_for_account() {
     let result = near
         .transaction(&sub_id)
         .create_account()
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -336,7 +336,7 @@ async fn test_deleted_key_fails() {
     root_near
         .transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(key1.public_key())
         .add_full_access_key(key2.public_key())
         .send()
@@ -346,13 +346,13 @@ async fn test_deleted_key_fails() {
 
     // Create client with key1
     let near = Near::custom(sandbox.rpc_url())
-        .credentials(key1.to_string(), account_id.as_str())
+        .credentials(key1.to_string(), &account_id)
         .unwrap()
         .build();
 
     // Delete key1 using key2
     let near2 = Near::custom(sandbox.rpc_url())
-        .credentials(key2.to_string(), account_id.as_str())
+        .credentials(key2.to_string(), &account_id)
         .unwrap()
         .build();
 
@@ -367,7 +367,7 @@ async fn test_deleted_key_fails() {
     let result = near
         .transaction(&sub_id)
         .create_account()
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -389,7 +389,7 @@ async fn test_signing_with_ed25519_key() {
     root_near
         .transaction(&ed_account)
         .create_account()
-        .transfer(NearToken::near(50))
+        .transfer(NearToken::from_near(50))
         .add_full_access_key(ed_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -397,7 +397,7 @@ async fn test_signing_with_ed25519_key() {
         .unwrap();
 
     let ed_near = Near::custom(sandbox.rpc_url())
-        .credentials(ed_key.to_string(), ed_account.as_str())
+        .credentials(ed_key.to_string(), &ed_account)
         .unwrap()
         .build();
 
@@ -406,7 +406,7 @@ async fn test_signing_with_ed25519_key() {
     ed_near
         .transaction(&sub_id)
         .create_account()
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)

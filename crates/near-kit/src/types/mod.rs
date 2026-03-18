@@ -22,8 +22,8 @@
 //! use near_kit::{NearToken, Gas};
 //!
 //! // Typed constructors (compile-time safe, zero-cost)
-//! let amount = NearToken::near(5);
-//! let gas = Gas::tgas(30);
+//! let amount = NearToken::from_near(5);
+//! let gas = Gas::from_tgas(30);
 //!
 //! // String parsing (for runtime input)
 //! let amount: NearToken = "5 NEAR".parse().unwrap();
@@ -57,7 +57,7 @@ mod rpc_extra;
 mod transaction;
 mod units;
 
-pub use account::AccountId;
+pub use account::{AccountId, AccountIdExt, AccountIdRef, AccountType, TryIntoAccountId};
 pub use action::{
     AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction,
     DELEGATE_ACTION_PREFIX, DecodeError as DelegateDecodeError, DelegateAction,

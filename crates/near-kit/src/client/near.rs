@@ -6,7 +6,9 @@ use serde::de::DeserializeOwned;
 
 use crate::contract::ContractClient;
 use crate::error::Error;
-use crate::types::{AccountId, Gas, IntoNearToken, NearToken, Network, PublicKey, SecretKey};
+use crate::types::{
+    AccountId, Gas, IntoNearToken, NearToken, Network, PublicKey, SecretKey, TryIntoAccountId,
+};
 
 use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
@@ -276,8 +278,8 @@ impl Near {
     /// let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
     ///
     /// // Both share the same RPC connection
-    /// // alice.transfer("carol.testnet", NearToken::near(1)).await?;
-    /// // bob.transfer("carol.testnet", NearToken::near(2)).await?;
+    /// // alice.transfer("carol.testnet", NearToken::from_near(1)).await?;
+    /// // bob.transfer("carol.testnet", NearToken::from_near(2)).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -322,8 +324,10 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn balance(&self, account_id: impl Into<AccountId>) -> BalanceQuery {
-        let account_id = account_id.into();
+    pub fn balance(&self, account_id: impl TryIntoAccountId) -> BalanceQuery {
+        let account_id = account_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         BalanceQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -340,8 +344,10 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn account(&self, account_id: impl Into<AccountId>) -> AccountQuery {
-        let account_id = account_id.into();
+    pub fn account(&self, account_id: impl TryIntoAccountId) -> AccountQuery {
+        let account_id = account_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         AccountQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -359,8 +365,10 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn account_exists(&self, account_id: impl Into<AccountId>) -> AccountExistsQuery {
-        let account_id = account_id.into();
+    pub fn account_exists(&self, account_id: impl TryIntoAccountId) -> AccountExistsQuery {
+        let account_id = account_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         AccountExistsQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -386,8 +394,10 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn view<T>(&self, contract_id: impl Into<AccountId>, method: &str) -> ViewCall<T> {
-        let contract_id = contract_id.into();
+    pub fn view<T>(&self, contract_id: impl TryIntoAccountId, method: &str) -> ViewCall<T> {
+        let contract_id = contract_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
     }
 
@@ -406,8 +416,10 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn access_keys(&self, account_id: impl Into<AccountId>) -> AccessKeysQuery {
-        let account_id = account_id.into();
+    pub fn access_keys(&self, account_id: impl TryIntoAccountId) -> AccessKeysQuery {
+        let account_id = account_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         AccessKeysQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -476,10 +488,10 @@ impl Near {
     ///     .build();
     ///
     /// // Preferred: typed constructor
-    /// near.transfer("bob.testnet", NearToken::near(1)).await?;
+    /// near.transfer("bob.testnet", NearToken::from_near(1)).await?;
     ///
     /// // Transfer with wait for finality
-    /// near.transfer("bob.testnet", NearToken::near(1000))
+    /// near.transfer("bob.testnet", NearToken::from_near(1000))
     ///     .wait_until(TxExecutionStatus::Final)
     ///     .await?;
     /// # Ok(())
@@ -487,7 +499,7 @@ impl Near {
     /// ```
     pub fn transfer(
         &self,
-        receiver: impl Into<AccountId>,
+        receiver: impl TryIntoAccountId,
         amount: impl IntoNearToken,
     ) -> TransactionBuilder {
         self.transaction(receiver).transfer(amount)
@@ -519,7 +531,7 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn call(&self, contract_id: impl Into<AccountId>, method: &str) -> CallBuilder {
+    pub fn call(&self, contract_id: impl TryIntoAccountId, method: &str) -> CallBuilder {
         self.transaction(contract_id).call(method)
     }
 
@@ -541,7 +553,7 @@ impl Near {
     /// ```
     pub fn deploy(
         &self,
-        account_id: impl Into<AccountId>,
+        account_id: impl TryIntoAccountId,
         code: impl Into<Vec<u8>>,
     ) -> TransactionBuilder {
         self.transaction(account_id).deploy(code)
@@ -550,7 +562,7 @@ impl Near {
     /// Add a full access key to an account.
     pub fn add_full_access_key(
         &self,
-        account_id: impl Into<AccountId>,
+        account_id: impl TryIntoAccountId,
         public_key: PublicKey,
     ) -> TransactionBuilder {
         self.transaction(account_id).add_full_access_key(public_key)
@@ -559,7 +571,7 @@ impl Near {
     /// Delete an access key from an account.
     pub fn delete_key(
         &self,
-        account_id: impl Into<AccountId>,
+        account_id: impl TryIntoAccountId,
         public_key: PublicKey,
     ) -> TransactionBuilder {
         self.transaction(account_id).delete_key(public_key)
@@ -603,8 +615,10 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn transaction(&self, receiver_id: impl Into<AccountId>) -> TransactionBuilder {
-        let receiver_id = receiver_id.into();
+    pub fn transaction(&self, receiver_id: impl TryIntoAccountId) -> TransactionBuilder {
+        let receiver_id = receiver_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         TransactionBuilder::new(
             self.rpc.clone(),
             self.signer.clone(),
@@ -628,7 +642,7 @@ impl Near {
     ///     .build();
     ///
     /// // Sign offline
-    /// let signed = near.transfer("bob.testnet", NearToken::near(1))
+    /// let signed = near.transfer("bob.testnet", NearToken::from_near(1))
     ///     .sign()
     ///     .await?;
     ///
@@ -676,11 +690,11 @@ impl Near {
     /// Call a view function with arguments (convenience method).
     pub async fn view_with_args<T: DeserializeOwned + Send + 'static, A: serde::Serialize>(
         &self,
-        contract_id: impl Into<AccountId>,
+        contract_id: impl TryIntoAccountId,
         method: &str,
         args: &A,
     ) -> Result<T, Error> {
-        let contract_id = contract_id.into();
+        let contract_id = contract_id.try_into_account_id()?;
         ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
             .args(args)
             .await
@@ -689,7 +703,7 @@ impl Near {
     /// Call a function with arguments (convenience method).
     pub async fn call_with_args<A: serde::Serialize>(
         &self,
-        contract_id: impl Into<AccountId>,
+        contract_id: impl TryIntoAccountId,
         method: &str,
         args: &A,
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
@@ -699,7 +713,7 @@ impl Near {
     /// Call a function with full options (convenience method).
     pub async fn call_with_options<A: serde::Serialize>(
         &self,
-        contract_id: impl Into<AccountId>,
+        contract_id: impl TryIntoAccountId,
         method: &str,
         args: &A,
         gas: Gas,
@@ -758,9 +772,11 @@ impl Near {
     /// ```
     pub fn contract<T: crate::Contract + ?Sized>(
         &self,
-        contract_id: impl Into<AccountId>,
+        contract_id: impl TryIntoAccountId,
     ) -> T::Client {
-        let contract_id = contract_id.into();
+        let contract_id = contract_id
+            .try_into_account_id()
+            .expect("invalid account ID");
         T::Client::new(self.clone(), contract_id)
     }
 
@@ -926,7 +942,7 @@ impl NearBuilder {
     pub fn credentials(
         mut self,
         private_key: impl AsRef<str>,
-        account_id: impl Into<AccountId>,
+        account_id: impl TryIntoAccountId,
     ) -> Result<Self, Error> {
         let signer = InMemorySigner::new(account_id, private_key)?;
         self.signer = Some(Arc::new(signer));
@@ -1111,13 +1127,12 @@ mod tests {
 
     #[test]
     fn test_near_builder_credentials_invalid_account() {
-        // Empty account ID is accepted leniently (parse_lenient via From<&str>),
-        // matching the behavior of all other account-accepting methods.
+        // Empty account ID is now rejected by the upstream AccountId parser.
         let result = Near::testnet().credentials(
             "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
             "",
         );
-        assert!(result.is_ok());
+        assert!(result.is_err());
     }
 
     // ========================================================================

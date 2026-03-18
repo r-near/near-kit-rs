@@ -167,7 +167,7 @@ impl SharedSandbox {
     /// let sandbox = SandboxConfig::shared().await;
     ///
     /// // Set account balance to 1M NEAR for staking test
-    /// sandbox.set_balance("validator.sandbox", NearToken::near(1_000_000)).await?;
+    /// sandbox.set_balance("validator.sandbox", NearToken::from_near(1_000_000)).await?;
     /// ```
     pub async fn set_balance(
         &self,
@@ -293,7 +293,7 @@ impl OwnedSandbox {
     /// let sandbox = SandboxConfig::fresh().await;
     ///
     /// // Set account balance to 1M NEAR for staking test
-    /// sandbox.set_balance("validator.sandbox", NearToken::near(1_000_000)).await?;
+    /// sandbox.set_balance("validator.sandbox", NearToken::from_near(1_000_000)).await?;
     /// ```
     pub async fn set_balance(
         &self,

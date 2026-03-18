@@ -144,7 +144,7 @@ async fn test_error_view_on_newly_created_account() {
 
     near.transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(5))
+        .transfer(NearToken::from_near(5))
         .add_full_access_key(account_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -177,7 +177,7 @@ async fn test_error_view_nonexistent_method() {
 
     near.transaction(&contract_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm)
         .send()
@@ -228,7 +228,7 @@ async fn test_error_view_with_invalid_args() {
 
     near.transaction(&contract_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm)
         .send()
@@ -263,7 +263,7 @@ async fn test_error_transfer_to_nonexistent_implicit_account() {
 
     near.transaction(&sender_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -271,7 +271,7 @@ async fn test_error_transfer_to_nonexistent_implicit_account() {
         .unwrap();
 
     let sender_near = Near::custom(rpc_url)
-        .credentials(sender_key.to_string(), sender_id.as_str())
+        .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
 
@@ -283,7 +283,7 @@ async fn test_error_transfer_to_nonexistent_implicit_account() {
     // Note: transferring to a truly non-existent account may or may not fail
     // depending on NEAR protocol rules. Let's test creating a subaccount that doesn't exist.
     let result = sender_near
-        .transfer(&nonexistent_named, NearToken::near(1))
+        .transfer(&nonexistent_named, NearToken::from_near(1))
         .await;
 
     // This should fail because the parent "nonexistent.sandbox" doesn't exist
@@ -302,7 +302,7 @@ async fn test_error_insufficient_balance_transfer() {
 
     near.transaction(&sender_id)
         .create_account()
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .add_full_access_key(sender_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -310,7 +310,7 @@ async fn test_error_insufficient_balance_transfer() {
         .unwrap();
 
     let sender_near = Near::custom(rpc_url)
-        .credentials(sender_key.to_string(), sender_id.as_str())
+        .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
 
@@ -321,7 +321,7 @@ async fn test_error_insufficient_balance_transfer() {
     sender_near
         .transaction(&receiver_id)
         .create_account()
-        .transfer(NearToken::millinear(100))
+        .transfer(NearToken::from_millinear(100))
         .add_full_access_key(receiver_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -330,7 +330,7 @@ async fn test_error_insufficient_balance_transfer() {
 
     // Try to transfer more than available
     let result = sender_near
-        .transfer(&receiver_id, NearToken::near(1000))
+        .transfer(&receiver_id, NearToken::from_near(1000))
         .await;
 
     assert!(result.is_err(), "Should fail with insufficient balance");
@@ -349,7 +349,7 @@ async fn test_error_create_account_that_already_exists() {
 
     near.transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(5))
+        .transfer(NearToken::from_near(5))
         .add_full_access_key(account_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -367,7 +367,7 @@ async fn test_error_create_account_that_already_exists() {
     let result = parent_near
         .transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(1))
+        .transfer(NearToken::from_near(1))
         .add_full_access_key(new_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -392,7 +392,7 @@ async fn test_error_delete_nonexistent_key() {
 
     near.transaction(&account_id)
         .create_account()
-        .transfer(NearToken::near(5))
+        .transfer(NearToken::from_near(5))
         .add_full_access_key(account_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -400,7 +400,7 @@ async fn test_error_delete_nonexistent_key() {
         .unwrap();
 
     let account_near = Near::custom(rpc_url)
-        .credentials(account_key.to_string(), account_id.as_str())
+        .credentials(account_key.to_string(), &account_id)
         .unwrap()
         .build();
 
@@ -438,7 +438,7 @@ async fn test_error_function_call_panic() {
 
     near.transaction(&contract_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm)
         .send()
@@ -447,7 +447,7 @@ async fn test_error_function_call_panic() {
         .unwrap();
 
     let contract_near = Near::custom(rpc_url)
-        .credentials(contract_key.to_string(), contract_id.as_str())
+        .credentials(contract_key.to_string(), &contract_id)
         .unwrap()
         .build();
 
@@ -455,7 +455,7 @@ async fn test_error_function_call_panic() {
     let result = contract_near
         .call(&contract_id, "nonexistent_method")
         .args(serde_json::json!({}))
-        .gas(Gas::tgas(30))
+        .gas(Gas::from_tgas(30))
         .await;
 
     assert!(
@@ -479,7 +479,7 @@ async fn test_error_function_call_insufficient_gas() {
 
     near.transaction(&contract_id)
         .create_account()
-        .transfer(NearToken::near(10))
+        .transfer(NearToken::from_near(10))
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm)
         .send()
@@ -488,7 +488,7 @@ async fn test_error_function_call_insufficient_gas() {
         .unwrap();
 
     let contract_near = Near::custom(rpc_url)
-        .credentials(contract_key.to_string(), contract_id.as_str())
+        .credentials(contract_key.to_string(), &contract_id)
         .unwrap()
         .build();
 
@@ -557,7 +557,7 @@ async fn test_error_transaction_without_signer() {
 
     // Try to send a transaction
     let receiver: AccountId = "some-receiver.sandbox".parse().unwrap();
-    let result = near.transfer(&receiver, NearToken::near(1)).await;
+    let result = near.transfer(&receiver, NearToken::from_near(1)).await;
 
     assert!(result.is_err(), "Should fail without signer");
     let err = result.unwrap_err();

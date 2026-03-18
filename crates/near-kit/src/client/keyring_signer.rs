@@ -46,7 +46,7 @@
 
 use crate::client::signer::{InMemorySigner, Signer, SigningKey};
 use crate::error::{Error, KeyStoreError, ParseKeyError};
-use crate::types::{AccountId, PublicKey, SecretKey};
+use crate::types::{AccountId, PublicKey, SecretKey, TryIntoAccountId};
 
 /// Signer that loads keys from the system keyring.
 ///
@@ -102,11 +102,11 @@ impl KeyringSigner {
     /// ```
     pub fn new(
         network: impl AsRef<str>,
-        account_id: impl Into<AccountId>,
+        account_id: impl TryIntoAccountId,
         public_key: impl AsRef<str>,
     ) -> Result<Self, Error> {
         let network = network.as_ref();
-        let account_id: AccountId = account_id.into();
+        let account_id: AccountId = account_id.try_into_account_id()?;
         let public_key_str = public_key.as_ref();
 
         // Parse public key for validation
