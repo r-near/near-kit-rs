@@ -146,7 +146,11 @@ async fn test_ft_storage_deposit_without_signer() {
     let no_signer_near = Near::custom(sandbox.rpc_url()).build();
 
     let ft = no_signer_near.ft("any-token.sandbox").unwrap();
-    let result = ft.storage_deposit("alice.near").await;
+
+    // storage_deposit builds a CallBuilder synchronously, NoSigner surfaces at send time
+    let result = ft
+        .storage_deposit("alice.near", NearToken::from_millinear(50))
+        .await;
 
     assert!(result.is_err(), "Should error when no signer configured");
     match result.unwrap_err() {
