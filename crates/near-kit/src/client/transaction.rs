@@ -1273,16 +1273,7 @@ impl IntoFuture for TransactionSend {
                                 response.transaction_hash, builder.wait_until,
                             ))
                         })?;
-                        if let Some(err) = outcome.failure_error() {
-                            return Err(Error::TransactionFailed(err.clone()));
-                        }
-                        if !outcome.is_success() {
-                            return Err(Error::InvalidTransaction(format!(
-                                "Transaction executed but status is {:?}, expected SuccessValue",
-                                outcome.status,
-                            )));
-                        }
-                        return Ok(TransactionOutcome::new(outcome));
+                        return outcome.try_into();
                     }
                     Err(RpcError::InvalidNonce { tx_nonce, ak_nonce })
                         if attempt < max_nonce_retries - 1 =>

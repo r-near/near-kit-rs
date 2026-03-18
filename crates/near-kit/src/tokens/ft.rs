@@ -648,18 +648,8 @@ impl IntoFuture for StorageDepositCall {
                 ))
             })?;
 
-            if let Some(err) = outcome.failure_error() {
-                return Err(Error::TransactionFailed(err.clone()));
-            }
-            if !outcome.is_success() {
-                return Err(Error::InvalidTransaction(format!(
-                    "Transaction executed but status is {:?}, expected SuccessValue",
-                    outcome.status,
-                )));
-            }
-
             // Parse return value
-            let tx_outcome = crate::types::TransactionOutcome::new(outcome);
+            let tx_outcome: crate::types::TransactionOutcome = outcome.try_into()?;
             let storage_balance: StorageBalance = tx_outcome.json()?;
             Ok(storage_balance)
         })

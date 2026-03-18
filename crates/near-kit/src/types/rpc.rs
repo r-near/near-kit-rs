@@ -654,19 +654,27 @@ impl FinalExecutionOutcome {
 #[derive(Debug, Clone)]
 pub struct TransactionOutcome(FinalExecutionOutcome);
 
-impl TransactionOutcome {
-    /// Create from a known-successful `FinalExecutionOutcome`.
-    ///
-    /// In debug builds, asserts that the outcome status is `SuccessValue`.
-    pub(crate) fn new(outcome: FinalExecutionOutcome) -> Self {
-        debug_assert!(
-            outcome.is_success(),
-            "TransactionOutcome constructed from non-success status: {:?}",
-            outcome.status,
-        );
-        Self(outcome)
-    }
+impl TryFrom<FinalExecutionOutcome> for TransactionOutcome {
+    type Error = crate::error::Error;
 
+    /// Convert a [`FinalExecutionOutcome`] into a [`TransactionOutcome`].
+    ///
+    /// Returns `Err` if the transaction failed or has not reached `SuccessValue` status.
+    fn try_from(outcome: FinalExecutionOutcome) -> Result<Self, Self::Error> {
+        if let Some(err) = outcome.failure_error() {
+            return Err(crate::error::Error::TransactionFailed(err.clone()));
+        }
+        if !outcome.is_success() {
+            return Err(crate::error::Error::InvalidTransaction(format!(
+                "Transaction executed but status is {:?}, expected SuccessValue",
+                outcome.status,
+            )));
+        }
+        Ok(Self(outcome))
+    }
+}
+
+impl TransactionOutcome {
     /// Get the return value as raw bytes (base64-decoded).
     ///
     /// This is infallible because the transaction is guaranteed to have succeeded.
@@ -1724,20 +1732,20 @@ mod tests {
     #[test]
     fn test_transaction_outcome_value() {
         // "hello" in base64
-        let outcome = TransactionOutcome::new(make_success_outcome("aGVsbG8="));
+        let outcome = TransactionOutcome::try_from(make_success_outcome("aGVsbG8=")).unwrap();
         assert_eq!(outcome.value(), b"hello");
     }
 
     #[test]
     fn test_transaction_outcome_value_empty() {
-        let outcome = TransactionOutcome::new(make_success_outcome(""));
+        let outcome = TransactionOutcome::try_from(make_success_outcome("")).unwrap();
         assert_eq!(outcome.value(), b"");
     }
 
     #[test]
     fn test_transaction_outcome_json() {
         // JSON `42` in base64
-        let outcome = TransactionOutcome::new(make_success_outcome("NDI="));
+        let outcome = TransactionOutcome::try_from(make_success_outcome("NDI=")).unwrap();
         let val: u64 = outcome.json().unwrap();
         assert_eq!(val, 42);
     }
@@ -1745,7 +1753,7 @@ mod tests {
     #[test]
     fn test_transaction_outcome_json_bad_data() {
         // "hello" is not valid JSON
-        let outcome = TransactionOutcome::new(make_success_outcome("aGVsbG8="));
+        let outcome = TransactionOutcome::try_from(make_success_outcome("aGVsbG8=")).unwrap();
         let result: Result<u64, _> = outcome.json();
         assert!(result.is_err());
     }
@@ -1754,25 +1762,26 @@ mod tests {
     fn test_transaction_outcome_value_invalid_base64_returns_empty() {
         // If the RPC somehow returns invalid base64 (protocol bug),
         // value() returns empty bytes rather than panicking.
-        let outcome = TransactionOutcome::new(make_success_outcome("not-valid-base64!!!"));
+        let outcome =
+            TransactionOutcome::try_from(make_success_outcome("not-valid-base64!!!")).unwrap();
         assert_eq!(outcome.value(), b"");
     }
 
     #[test]
     fn test_transaction_outcome_transaction_hash() {
-        let outcome = TransactionOutcome::new(make_success_outcome(""));
+        let outcome = TransactionOutcome::try_from(make_success_outcome("")).unwrap();
         assert!(!outcome.transaction_hash().is_zero());
     }
 
     #[test]
     fn test_transaction_outcome_total_gas_used() {
-        let outcome = TransactionOutcome::new(make_success_outcome(""));
+        let outcome = TransactionOutcome::try_from(make_success_outcome("")).unwrap();
         assert!(outcome.total_gas_used().as_gas() > 0);
     }
 
     #[test]
     fn test_transaction_outcome_raw() {
-        let outcome = TransactionOutcome::new(make_success_outcome(""));
+        let outcome = TransactionOutcome::try_from(make_success_outcome("")).unwrap();
         assert!(outcome.raw().is_success());
     }
 
