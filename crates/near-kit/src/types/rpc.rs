@@ -1751,6 +1751,14 @@ mod tests {
     }
 
     #[test]
+    fn test_transaction_outcome_value_invalid_base64_returns_empty() {
+        // If the RPC somehow returns invalid base64 (protocol bug),
+        // value() returns empty bytes rather than panicking.
+        let outcome = TransactionOutcome::new(make_success_outcome("not-valid-base64!!!"));
+        assert_eq!(outcome.value(), b"");
+    }
+
+    #[test]
     fn test_transaction_outcome_transaction_hash() {
         let outcome = TransactionOutcome::new(make_success_outcome(""));
         assert!(!outcome.transaction_hash().is_zero());
