@@ -39,7 +39,7 @@ async fn create_funded_account(
     let account_id = unique_account();
 
     root_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .create_account()
         .transfer(funding)
         .add_full_access_key(account_key.public_key())
@@ -49,7 +49,7 @@ async fn create_funded_account(
         .unwrap();
 
     let near = Near::custom(rpc_url)
-        .credentials(account_key.to_string(), account_id.as_str())
+        .credentials(account_key.to_string(), &account_id)
         .unwrap()
         .build();
 
@@ -75,7 +75,7 @@ async fn test_publish_contract_by_account() {
 
     // Publish the contract (by_hash = false means identified by account)
     let outcome = publisher_near
-        .transaction(publisher_id.as_str())
+        .transaction(&publisher_id)
         .publish_contract(wasm_code, false)
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -104,7 +104,7 @@ async fn test_publish_contract_by_hash() {
 
     // Publish the contract (by_hash = true means identified by code hash, immutable)
     let outcome = publisher_near
-        .transaction(publisher_id.as_str())
+        .transaction(&publisher_id)
         .publish_contract(wasm_code, true)
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -133,7 +133,7 @@ async fn test_deploy_from_publisher() {
 
     // First, publish the contract
     publisher_near
-        .transaction(publisher_id.as_str())
+        .transaction(&publisher_id)
         .publish_contract(wasm_code, false)
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -146,8 +146,8 @@ async fn test_deploy_from_publisher() {
 
     // Deploy from the publisher's global contract
     let outcome = user_near
-        .transaction(user_id.as_str())
-        .deploy_from_publisher(publisher_id.as_str())
+        .transaction(&user_id)
+        .deploy_from_publisher(&publisher_id)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -189,7 +189,7 @@ async fn test_deploy_from_hash() {
 
     // Publish the contract by hash (immutable)
     publisher_near
-        .transaction(publisher_id.as_str())
+        .transaction(&publisher_id)
         .publish_contract(wasm_code, true)
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -202,7 +202,7 @@ async fn test_deploy_from_hash() {
 
     // Deploy from the code hash
     let outcome = user_near
-        .transaction(user_id.as_str())
+        .transaction(&user_id)
         .deploy_from_hash(code_hash)
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -242,7 +242,7 @@ async fn test_state_init_by_hash() {
 
     // First, publish the contract by hash
     publisher_near
-        .transaction(publisher_id.as_str())
+        .transaction(&publisher_id)
         .publish_contract(wasm_code, true)
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -255,7 +255,7 @@ async fn test_state_init_by_hash() {
     // Use state_init to create a deterministic account
     // Note: The receiver_id doesn't matter for state_init - the account ID is derived
     let outcome = publisher_near
-        .transaction(publisher_id.as_str())
+        .transaction(&publisher_id)
         .state_init_by_hash(code_hash, initial_data, NearToken::from_near(5))
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -284,7 +284,7 @@ async fn test_state_init_by_publisher() {
 
     // First, publish the contract by account
     publisher_near
-        .transaction(publisher_id.as_str())
+        .transaction(&publisher_id)
         .publish_contract(wasm_code, false)
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -297,7 +297,7 @@ async fn test_state_init_by_publisher() {
 
     // Use state_init to create a deterministic account
     let outcome = publisher_near
-        .transaction(publisher_id.as_str())
+        .transaction(&publisher_id)
         .state_init_by_publisher(&publisher_id, initial_data, NearToken::from_near(5))
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -354,17 +354,17 @@ async fn test_action_transfer() {
     let (_, receiver_id, _) =
         create_funded_account(&root_near, rpc_url, NearToken::from_near(5)).await;
 
-    let initial_balance = root_near.balance(receiver_id.as_str()).await.unwrap();
+    let initial_balance = root_near.balance(&receiver_id).await.unwrap();
 
     sender_near
-        .transaction(receiver_id.as_str())
+        .transaction(&receiver_id)
         .transfer(NearToken::from_near(3))
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
 
-    let final_balance = root_near.balance(receiver_id.as_str()).await.unwrap();
+    let final_balance = root_near.balance(&receiver_id).await.unwrap();
     let diff = final_balance.total.as_yoctonear() - initial_balance.total.as_yoctonear();
 
     assert_eq!(diff, NearToken::from_near(3).as_yoctonear());
@@ -383,7 +383,7 @@ async fn test_action_deploy_contract() {
     let wasm_code = load_test_contract();
 
     let outcome = contract_near
-        .transaction(contract_id.as_str())
+        .transaction(&contract_id)
         .deploy(wasm_code)
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -393,7 +393,7 @@ async fn test_action_deploy_contract() {
     assert!(outcome.is_success());
 
     // Verify contract was deployed
-    let account = root_near.account(contract_id.as_str()).await.unwrap();
+    let account = root_near.account(&contract_id).await.unwrap();
     assert!(*account.code_hash.as_bytes() != [0u8; 32]);
 }
 
@@ -411,7 +411,7 @@ async fn test_action_function_call() {
 
     // Deploy the contract
     contract_near
-        .transaction(contract_id.as_str())
+        .transaction(&contract_id)
         .deploy(wasm_code)
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -420,7 +420,7 @@ async fn test_action_function_call() {
 
     // Call a method on the contract
     let outcome = contract_near
-        .transaction(contract_id.as_str())
+        .transaction(&contract_id)
         .call("add_message")
         .args(serde_json::json!({ "text": "Hello from test!" }))
         .gas(Gas::from_tgas(30))
@@ -446,7 +446,7 @@ async fn test_action_add_full_access_key() {
     let new_key = SecretKey::generate_ed25519();
 
     let outcome = account_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .add_full_access_key(new_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -456,7 +456,7 @@ async fn test_action_add_full_access_key() {
     assert!(outcome.is_success());
 
     // Verify the key was added
-    let keys = root_near.access_keys(account_id.as_str()).await.unwrap();
+    let keys = root_near.access_keys(&account_id).await.unwrap();
     assert_eq!(keys.keys.len(), 2);
 }
 
@@ -474,7 +474,7 @@ async fn test_action_add_function_call_key() {
     let receiver_contract: AccountId = "some-contract.sandbox".parse().unwrap();
 
     let outcome = account_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .add_function_call_key(
             fc_key.public_key(),
             &receiver_contract,
@@ -489,7 +489,7 @@ async fn test_action_add_function_call_key() {
     assert!(outcome.is_success());
 
     // Verify the key was added
-    let keys = root_near.access_keys(account_id.as_str()).await.unwrap();
+    let keys = root_near.access_keys(&account_id).await.unwrap();
     assert_eq!(keys.keys.len(), 2);
 }
 
@@ -507,7 +507,7 @@ async fn test_action_delete_key() {
     let second_key = SecretKey::generate_ed25519();
 
     account_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .add_full_access_key(second_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -515,12 +515,12 @@ async fn test_action_delete_key() {
         .unwrap();
 
     // Verify 2 keys
-    let keys = root_near.access_keys(account_id.as_str()).await.unwrap();
+    let keys = root_near.access_keys(&account_id).await.unwrap();
     assert_eq!(keys.keys.len(), 2);
 
     // Delete the second key
     account_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .delete_key(second_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -528,7 +528,7 @@ async fn test_action_delete_key() {
         .unwrap();
 
     // Verify 1 key remains
-    let keys = root_near.access_keys(account_id.as_str()).await.unwrap();
+    let keys = root_near.access_keys(&account_id).await.unwrap();
     assert_eq!(keys.keys.len(), 1);
 }
 
@@ -560,7 +560,7 @@ async fn test_action_delete_account() {
 
     // Delete the account
     let to_delete_near = Near::custom(rpc_url)
-        .credentials(to_delete_key.to_string(), to_delete_id.as_str())
+        .credentials(to_delete_key.to_string(), &to_delete_id)
         .unwrap()
         .build();
 
@@ -673,7 +673,7 @@ async fn test_multiple_function_calls() {
 
     // Deploy the contract
     contract_near
-        .transaction(contract_id.as_str())
+        .transaction(&contract_id)
         .deploy(wasm_code)
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -682,7 +682,7 @@ async fn test_multiple_function_calls() {
 
     // Call multiple methods in one transaction
     let outcome = contract_near
-        .transaction(contract_id.as_str())
+        .transaction(&contract_id)
         .call("add_message")
         .args(serde_json::json!({ "text": "First message" }))
         .gas(Gas::from_tgas(15))

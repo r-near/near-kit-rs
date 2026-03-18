@@ -31,7 +31,7 @@ async fn test_in_memory_signer_from_secret_key() {
     let account_id = unique_account();
 
     root_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
@@ -42,13 +42,13 @@ async fn test_in_memory_signer_from_secret_key() {
 
     // Create client with InMemorySigner from secret key
     let near = Near::custom(sandbox.rpc_url())
-        .credentials(key.to_string(), account_id.as_str())
+        .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
 
     // Should be able to sign transactions
     let receiver_id: AccountId = format!("recv.{}", account_id).parse().unwrap();
-    near.transaction(receiver_id.as_str())
+    near.transaction(&receiver_id)
         .create_account()
         .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
@@ -73,7 +73,7 @@ async fn test_in_memory_signer_from_seed_phrase() {
 
     // Create account with the key derived from seed phrase
     root_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
@@ -93,7 +93,7 @@ async fn test_in_memory_signer_from_seed_phrase() {
     let near = Near::custom(sandbox.rpc_url()).signer(signer).build();
 
     // Should be able to query account
-    let balance = near.balance(account_id.as_str()).await.unwrap();
+    let balance = near.balance(&account_id).await.unwrap();
     println!("Balance for seed-phrase account: {}", balance);
     assert!(balance.total.as_near() > 40, "Should have NEAR balance");
 }
@@ -114,7 +114,7 @@ async fn test_rotating_signer_uses_multiple_keys() {
     let account_id = unique_account();
 
     root_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(100))
         .add_full_access_key(key1.public_key())
@@ -126,14 +126,14 @@ async fn test_rotating_signer_uses_multiple_keys() {
         .unwrap();
 
     // Create a rotating signer with all three keys
-    let signer = RotatingSigner::new(account_id.as_str(), vec![key1, key2, key3]).unwrap();
+    let signer = RotatingSigner::new(&account_id, vec![key1, key2, key3]).unwrap();
 
     let near = Near::custom(sandbox.rpc_url()).signer(signer).build();
 
     // Execute multiple transactions - the rotating signer should cycle through keys
     for i in 0..6 {
         let sub_id: AccountId = format!("sub{}.{}", i, account_id).parse().unwrap();
-        near.transaction(sub_id.as_str())
+        near.transaction(&sub_id)
             .create_account()
             .transfer(NearToken::from_near(1))
             .add_full_access_key(SecretKey::generate_ed25519().public_key())
@@ -160,7 +160,7 @@ async fn test_rotating_signer_with_single_key() {
     let account_id = unique_account();
 
     root_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
@@ -170,13 +170,13 @@ async fn test_rotating_signer_with_single_key() {
         .unwrap();
 
     // Rotating signer with just one key should still work
-    let signer = RotatingSigner::new(account_id.as_str(), vec![key]).unwrap();
+    let signer = RotatingSigner::new(&account_id, vec![key]).unwrap();
 
     let near = Near::custom(sandbox.rpc_url()).signer(signer).build();
 
     // Should work fine with single key
     let sub_id: AccountId = format!("single.{}", account_id).parse().unwrap();
-    near.transaction(sub_id.as_str())
+    near.transaction(&sub_id)
         .create_account()
         .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
@@ -194,7 +194,7 @@ async fn test_rotating_signer_empty_keys_fails() {
     let account_id = unique_account();
 
     // Empty keys should fail
-    let result = RotatingSigner::new(account_id.as_str(), vec![]);
+    let result = RotatingSigner::new(&account_id, vec![]);
 
     assert!(result.is_err(), "Should fail with empty keys");
     match result.unwrap_err() {
@@ -246,7 +246,7 @@ async fn test_sign_with_override() {
 
     // Create client with account1's signer
     let near = Near::custom(sandbox.rpc_url())
-        .credentials(key1.to_string(), account1_id.as_str())
+        .credentials(key1.to_string(), &account1_id)
         .unwrap()
         .build();
 
@@ -254,7 +254,7 @@ async fn test_sign_with_override() {
     let signer2 = InMemorySigner::from_secret_key(account2_id.clone(), key2);
 
     let sub_id: AccountId = format!("signwith.{}", account2_id).parse().unwrap();
-    near.transaction(sub_id.as_str())
+    near.transaction(&sub_id)
         .create_account()
         .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
@@ -284,7 +284,7 @@ async fn test_wrong_key_for_account() {
     let account_id = unique_account();
 
     root_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(correct_key.public_key())
@@ -295,14 +295,14 @@ async fn test_wrong_key_for_account() {
 
     // Create client with the WRONG key
     let near = Near::custom(sandbox.rpc_url())
-        .credentials(wrong_key.to_string(), account_id.as_str())
+        .credentials(wrong_key.to_string(), &account_id)
         .unwrap()
         .build();
 
     // Try to send a transaction - should fail with access key error
     let sub_id: AccountId = format!("wrongkey.{}", account_id).parse().unwrap();
     let result = near
-        .transaction(sub_id.as_str())
+        .transaction(&sub_id)
         .create_account()
         .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
@@ -334,7 +334,7 @@ async fn test_deleted_key_fails() {
     let account_id = unique_account();
 
     root_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key1.public_key())
@@ -346,18 +346,18 @@ async fn test_deleted_key_fails() {
 
     // Create client with key1
     let near = Near::custom(sandbox.rpc_url())
-        .credentials(key1.to_string(), account_id.as_str())
+        .credentials(key1.to_string(), &account_id)
         .unwrap()
         .build();
 
     // Delete key1 using key2
     let near2 = Near::custom(sandbox.rpc_url())
-        .credentials(key2.to_string(), account_id.as_str())
+        .credentials(key2.to_string(), &account_id)
         .unwrap()
         .build();
 
     near2
-        .delete_key(account_id.as_str(), key1.public_key())
+        .delete_key(&account_id, key1.public_key())
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
@@ -365,7 +365,7 @@ async fn test_deleted_key_fails() {
     // Now try to use the deleted key1
     let sub_id: AccountId = format!("deletedkey.{}", account_id).parse().unwrap();
     let result = near
-        .transaction(sub_id.as_str())
+        .transaction(&sub_id)
         .create_account()
         .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
@@ -397,14 +397,14 @@ async fn test_signing_with_ed25519_key() {
         .unwrap();
 
     let ed_near = Near::custom(sandbox.rpc_url())
-        .credentials(ed_key.to_string(), ed_account.as_str())
+        .credentials(ed_key.to_string(), &ed_account)
         .unwrap()
         .build();
 
     // Should work with Ed25519
     let sub_id: AccountId = format!("ed25519.{}", ed_account).parse().unwrap();
     ed_near
-        .transaction(sub_id.as_str())
+        .transaction(&sub_id)
         .create_account()
         .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())

@@ -37,7 +37,7 @@ async fn funded_account(
         .unwrap();
 
     let client = Near::custom(sandbox.rpc_url())
-        .credentials(key.to_string(), id.as_str())
+        .credentials(key.to_string(), &id)
         .unwrap()
         .build();
 

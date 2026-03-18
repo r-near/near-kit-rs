@@ -128,7 +128,7 @@ async fn test_create_and_query_account() {
     let new_account_key = SecretKey::generate_ed25519();
     let new_account_id = unique_account();
 
-    near.transaction(new_account_id.as_str())
+    near.transaction(&new_account_id)
         .create_account()
         .transfer(NearToken::from_near(10))
         .add_full_access_key(new_account_key.public_key())
@@ -142,7 +142,7 @@ async fn test_create_and_query_account() {
     assert!(account.amount.as_near() >= 9); // ~10 NEAR minus storage costs
 
     // Check it exists
-    assert!(near.account_exists(new_account_id.as_str()).await.unwrap());
+    assert!(near.account_exists(&new_account_id).await.unwrap());
 
     // Check access keys
     let keys = near.access_keys(&new_account_id).await.unwrap();

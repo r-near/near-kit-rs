@@ -331,7 +331,7 @@ impl TransactionBuilder {
     ///
     /// // Relayer submits it, paying the gas
     /// let result = relayer
-    ///     .transaction(signed_delegate.sender_id().as_str())
+    ///     .transaction(signed_delegate.sender_id())
     ///     .signed_delegate_action(signed_delegate)
     ///     .send()
     ///     .await?;

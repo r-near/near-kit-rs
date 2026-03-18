@@ -44,7 +44,7 @@ async fn deploy_ft_contract(
     // Initialize the FT contract
     // The near-sdk-rs example FT uses "new" with owner_id, total_supply, metadata
     let ft_near = Near::custom(near.rpc_url())
-        .credentials(ft_key.to_string(), ft_id.as_str())?
+        .credentials(ft_key.to_string(), &ft_id)?
         .build();
 
     ft_near
@@ -196,12 +196,12 @@ async fn test_ft_transfer() {
     let receiver_id: AccountId = format!("receiver.{}", owner_id).parse().unwrap();
 
     let owner_near = Near::custom(rpc_url)
-        .credentials(owner_key.to_string(), owner_id.as_str())
+        .credentials(owner_key.to_string(), &owner_id)
         .unwrap()
         .build();
 
     owner_near
-        .transaction(receiver_id.as_str())
+        .transaction(&receiver_id)
         .create_account()
         .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
@@ -282,7 +282,7 @@ async fn test_ft_storage_deposit() {
 
     // Create owner's near client for signing
     let owner_near = Near::custom(rpc_url)
-        .credentials(owner_key.to_string(), owner_id.as_str())
+        .credentials(owner_key.to_string(), &owner_id)
         .unwrap()
         .build();
 
@@ -291,7 +291,7 @@ async fn test_ft_storage_deposit() {
     let user_id: AccountId = format!("user.{}", owner_id).parse().unwrap();
 
     owner_near
-        .transaction(user_id.as_str())
+        .transaction(&user_id)
         .create_account()
         .transfer(NearToken::from_near(10))
         .add_full_access_key(user_key.public_key())
@@ -352,7 +352,7 @@ async fn deploy_nft_contract(
 
     // Initialize the NFT contract
     let nft_near = Near::custom(near.rpc_url())
-        .credentials(nft_key.to_string(), nft_id.as_str())?
+        .credentials(nft_key.to_string(), &nft_id)?
         .build();
 
     nft_near
@@ -380,7 +380,7 @@ async fn mint_nft(
     owner_id: &AccountId,
 ) -> Result<(), Error> {
     let nft_near = Near::custom(near.rpc_url())
-        .credentials(nft_key.to_string(), nft_id.as_str())?
+        .credentials(nft_key.to_string(), nft_id)?
         .build();
 
     nft_near
@@ -563,7 +563,7 @@ async fn test_nft_transfer() {
 
     // Create owner's client for signing
     let owner_near = Near::custom(rpc_url)
-        .credentials(owner_key.to_string(), owner_id.as_str())
+        .credentials(owner_key.to_string(), &owner_id)
         .unwrap()
         .build();
 
@@ -572,7 +572,7 @@ async fn test_nft_transfer() {
     let receiver_id: AccountId = format!("receiver.{}", owner_id).parse().unwrap();
 
     owner_near
-        .transaction(receiver_id.as_str())
+        .transaction(&receiver_id)
         .create_account()
         .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
@@ -679,7 +679,7 @@ async fn test_nft_supply_for_owner() {
 
     // Create owner1's client for signing
     let owner1_near = Near::custom(rpc_url)
-        .credentials(owner1_key.to_string(), owner1_id.as_str())
+        .credentials(owner1_key.to_string(), &owner1_id)
         .unwrap()
         .build();
 

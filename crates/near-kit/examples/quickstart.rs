@@ -176,7 +176,7 @@ async fn multi_account_example(near: &Near) -> Result<(), Error> {
     // In a real app, this would be a different account's key.
     let account_id = near.account_id().unwrap();
     let second = near.with_signer(InMemorySigner::new(
-        account_id.as_str(),
+        account_id,
         std::env::var("NEAR_PRIVATE_KEY").unwrap(),
     )?);
 
@@ -205,7 +205,7 @@ async fn main() -> Result<(), Error> {
 
     match (account_id, private_key) {
         (Some(account), Some(key)) => {
-            let near = Near::testnet().credentials(&key, account.as_str())?.build();
+            let near = Near::testnet().credentials(&key, &account)?.build();
 
             call_example(&near).await?;
             transfer_example(&near).await?;

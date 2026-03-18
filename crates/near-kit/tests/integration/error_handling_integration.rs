@@ -142,7 +142,7 @@ async fn test_error_view_on_newly_created_account() {
     let account_key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(account_id.as_str())
+    near.transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(5))
         .add_full_access_key(account_key.public_key())
@@ -152,8 +152,7 @@ async fn test_error_view_on_newly_created_account() {
         .unwrap();
 
     // Try to call a view method on the account
-    let result: Result<serde_json::Value, _> =
-        near.view(account_id.as_str(), "some_method").args(()).await;
+    let result: Result<serde_json::Value, _> = near.view(&account_id, "some_method").args(()).await;
 
     assert!(
         result.is_err(),
@@ -176,7 +175,7 @@ async fn test_error_view_nonexistent_method() {
 
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
 
-    near.transaction(contract_id.as_str())
+    near.transaction(&contract_id)
         .create_account()
         .transfer(NearToken::from_near(10))
         .add_full_access_key(contract_key.public_key())
@@ -188,7 +187,7 @@ async fn test_error_view_nonexistent_method() {
 
     // Call a method that doesn't exist
     let result: Result<serde_json::Value, _> = near
-        .view(contract_id.as_str(), "this_method_does_not_exist")
+        .view(&contract_id, "this_method_does_not_exist")
         .args(serde_json::json!({}))
         .await;
 
@@ -227,7 +226,7 @@ async fn test_error_view_with_invalid_args() {
 
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
 
-    near.transaction(contract_id.as_str())
+    near.transaction(&contract_id)
         .create_account()
         .transfer(NearToken::from_near(10))
         .add_full_access_key(contract_key.public_key())
@@ -239,7 +238,7 @@ async fn test_error_view_with_invalid_args() {
 
     // Call with invalid JSON args (not valid for the method)
     let result: Result<Vec<serde_json::Value>, _> = near
-        .view(contract_id.as_str(), "get_messages")
+        .view(&contract_id, "get_messages")
         .args("not valid json args") // This should cause issues
         .await;
 
@@ -262,7 +261,7 @@ async fn test_error_transfer_to_nonexistent_implicit_account() {
     let sender_key = SecretKey::generate_ed25519();
     let sender_id = unique_account();
 
-    near.transaction(sender_id.as_str())
+    near.transaction(&sender_id)
         .create_account()
         .transfer(NearToken::from_near(10))
         .add_full_access_key(sender_key.public_key())
@@ -272,7 +271,7 @@ async fn test_error_transfer_to_nonexistent_implicit_account() {
         .unwrap();
 
     let sender_near = Near::custom(rpc_url)
-        .credentials(sender_key.to_string(), sender_id.as_str())
+        .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
 
@@ -301,7 +300,7 @@ async fn test_error_insufficient_balance_transfer() {
     let sender_key = SecretKey::generate_ed25519();
     let sender_id = unique_account();
 
-    near.transaction(sender_id.as_str())
+    near.transaction(&sender_id)
         .create_account()
         .transfer(NearToken::from_near(1))
         .add_full_access_key(sender_key.public_key())
@@ -311,7 +310,7 @@ async fn test_error_insufficient_balance_transfer() {
         .unwrap();
 
     let sender_near = Near::custom(rpc_url)
-        .credentials(sender_key.to_string(), sender_id.as_str())
+        .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
 
@@ -320,7 +319,7 @@ async fn test_error_insufficient_balance_transfer() {
     let receiver_id: AccountId = format!("receiver.{}", sender_id).parse().unwrap();
 
     sender_near
-        .transaction(receiver_id.as_str())
+        .transaction(&receiver_id)
         .create_account()
         .transfer(NearToken::from_millinear(100))
         .add_full_access_key(receiver_key.public_key())
@@ -348,7 +347,7 @@ async fn test_error_create_account_that_already_exists() {
     let account_key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(account_id.as_str())
+    near.transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(5))
         .add_full_access_key(account_key.public_key())
@@ -366,7 +365,7 @@ async fn test_error_create_account_that_already_exists() {
     // Try to create the same account again
     let new_key = SecretKey::generate_ed25519();
     let result = parent_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(1))
         .add_full_access_key(new_key.public_key())
@@ -391,7 +390,7 @@ async fn test_error_delete_nonexistent_key() {
     let account_key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(account_id.as_str())
+    near.transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(5))
         .add_full_access_key(account_key.public_key())
@@ -401,14 +400,14 @@ async fn test_error_delete_nonexistent_key() {
         .unwrap();
 
     let account_near = Near::custom(rpc_url)
-        .credentials(account_key.to_string(), account_id.as_str())
+        .credentials(account_key.to_string(), &account_id)
         .unwrap()
         .build();
 
     // Try to delete a key that doesn't exist on the account
     let fake_key = SecretKey::generate_ed25519();
     let result = account_near
-        .transaction(account_id.as_str())
+        .transaction(&account_id)
         .delete_key(fake_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
@@ -437,7 +436,7 @@ async fn test_error_function_call_panic() {
 
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
 
-    near.transaction(contract_id.as_str())
+    near.transaction(&contract_id)
         .create_account()
         .transfer(NearToken::from_near(10))
         .add_full_access_key(contract_key.public_key())
@@ -448,13 +447,13 @@ async fn test_error_function_call_panic() {
         .unwrap();
 
     let contract_near = Near::custom(rpc_url)
-        .credentials(contract_key.to_string(), contract_id.as_str())
+        .credentials(contract_key.to_string(), &contract_id)
         .unwrap()
         .build();
 
     // Call a method that doesn't exist (should fail during execution)
     let result = contract_near
-        .call(contract_id.as_str(), "nonexistent_method")
+        .call(&contract_id, "nonexistent_method")
         .args(serde_json::json!({}))
         .gas(Gas::from_tgas(30))
         .await;
@@ -478,7 +477,7 @@ async fn test_error_function_call_insufficient_gas() {
 
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
 
-    near.transaction(contract_id.as_str())
+    near.transaction(&contract_id)
         .create_account()
         .transfer(NearToken::from_near(10))
         .add_full_access_key(contract_key.public_key())
@@ -489,13 +488,13 @@ async fn test_error_function_call_insufficient_gas() {
         .unwrap();
 
     let contract_near = Near::custom(rpc_url)
-        .credentials(contract_key.to_string(), contract_id.as_str())
+        .credentials(contract_key.to_string(), &contract_id)
         .unwrap()
         .build();
 
     // Call with very low gas (should fail)
     let result = contract_near
-        .call(contract_id.as_str(), "add_message")
+        .call(&contract_id, "add_message")
         .args(serde_json::json!({ "text": "test" }))
         .gas(Gas::from_gas(1000)) // Extremely low gas
         .await;

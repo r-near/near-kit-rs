@@ -29,7 +29,7 @@ async fn high_throughput_example() -> Result<(), Error> {
     println!("Creating bot account: {bot_account}");
 
     root_near
-        .transaction(bot_account.as_str())
+        .transaction(&bot_account)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(keypairs[0].public_key.clone())
@@ -49,7 +49,7 @@ async fn high_throughput_example() -> Result<(), Error> {
     // Dynamic key addition - fold over keypairs to build transaction
     keypairs[1..]
         .iter()
-        .fold(bot_near.transaction(bot_account.as_str()), |tx, kp| {
+        .fold(bot_near.transaction(&bot_account), |tx, kp| {
             tx.add_full_access_key(kp.public_key.clone())
         })
         .send()
@@ -57,7 +57,7 @@ async fn high_throughput_example() -> Result<(), Error> {
 
     // Create RotatingSigner with all keys
     let secret_keys: Vec<SecretKey> = keypairs.into_iter().map(|kp| kp.secret_key).collect();
-    let rotating_signer = RotatingSigner::new(bot_account.as_str(), secret_keys)?;
+    let rotating_signer = RotatingSigner::new(&bot_account, secret_keys)?;
 
     let near = Near::custom(sandbox.rpc_url())
         .signer(rotating_signer)
@@ -70,7 +70,7 @@ async fn high_throughput_example() -> Result<(), Error> {
     for i in 0..num_recipients {
         let recipient = format!("recipient-{i}.{root_account}");
         root_near
-            .transaction(recipient.as_str())
+            .transaction(&recipient)
             .create_account()
             .transfer(NearToken::from_millinear(100))
             .send()
@@ -86,10 +86,7 @@ async fn high_throughput_example() -> Result<(), Error> {
         .map(|i| {
             let recipient = format!("recipient-{i}.{root_account_clone}");
             let near = near.clone();
-            async move {
-                near.transfer(recipient.as_str(), NearToken::from_near(1))
-                    .await
-            }
+            async move { near.transfer(&recipient, NearToken::from_near(1)).await }
         })
         .collect();
 
@@ -121,7 +118,7 @@ async fn high_throughput_example() -> Result<(), Error> {
     println!("\nSample recipient balances:");
     for i in 0..3 {
         let recipient = format!("recipient-{i}.{root_account}");
-        let balance = near.balance(recipient.as_str()).await?;
+        let balance = near.balance(&recipient).await?;
         println!("  {recipient}: {}", balance.available);
     }
 

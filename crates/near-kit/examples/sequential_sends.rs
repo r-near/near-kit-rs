@@ -33,7 +33,7 @@ async fn sequential_example() -> Result<(), Error> {
     println!("Creating bot account: {bot_account}");
 
     root_near
-        .transaction(bot_account.as_str())
+        .transaction(&bot_account)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(keypairs[0].public_key.clone())
@@ -50,7 +50,7 @@ async fn sequential_example() -> Result<(), Error> {
 
     keypairs[1..]
         .iter()
-        .fold(bot_near.transaction(bot_account.as_str()), |tx, kp| {
+        .fold(bot_near.transaction(&bot_account), |tx, kp| {
             tx.add_full_access_key(kp.public_key.clone())
         })
         .send()
@@ -59,7 +59,7 @@ async fn sequential_example() -> Result<(), Error> {
     // Create recipient
     let recipient = format!("recipient.{root_account}");
     root_near
-        .transaction(recipient.as_str())
+        .transaction(&recipient)
         .create_account()
         .transfer(NearToken::from_millinear(100))
         .send()
@@ -67,7 +67,7 @@ async fn sequential_example() -> Result<(), Error> {
 
     // Split RotatingSigner into per-key signers
     let secret_keys: Vec<SecretKey> = keypairs.into_iter().map(|kp| kp.secret_key).collect();
-    let rotating = RotatingSigner::new(bot_account.as_str(), secret_keys)?;
+    let rotating = RotatingSigner::new(&bot_account, secret_keys)?;
 
     println!(
         "Splitting {} keys into per-key signers...",
@@ -93,7 +93,7 @@ async fn sequential_example() -> Result<(), Error> {
             tokio::spawn(async move {
                 let near = Near::custom(&rpc_url).signer(signer).build();
                 for tx_idx in 0..txs_per_key {
-                    near.transfer(recipient.as_str(), NearToken::from_millinear(1))
+                    near.transfer(&recipient, NearToken::from_millinear(1))
                         .send()
                         .wait_until(TxExecutionStatus::Included)
                         .await
@@ -120,7 +120,7 @@ async fn sequential_example() -> Result<(), Error> {
     );
 
     // Verify balance
-    let balance = bot_near.balance(recipient.as_str()).await?;
+    let balance = bot_near.balance(&recipient).await?;
     println!("\nRecipient balance: {}", balance.available);
 
     println!("\nDone.");

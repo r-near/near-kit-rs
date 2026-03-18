@@ -87,7 +87,7 @@ async fn test_typed_contract_view_on_account_without_contract() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account();
 
-    near.transaction(account_id.as_str())
+    near.transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
@@ -97,7 +97,7 @@ async fn test_typed_contract_view_on_account_without_contract() {
         .unwrap();
 
     // Try to call view method on account without contract
-    let guestbook = near.contract::<dyn Guestbook>(account_id.as_str());
+    let guestbook = near.contract::<dyn Guestbook>(&account_id);
     let result = guestbook.total_messages().await;
 
     assert!(result.is_err(), "Should error for account without contract");
@@ -122,7 +122,7 @@ async fn test_typed_contract_call_without_signer() {
 
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
 
-    near.transaction(contract_id.as_str())
+    near.transaction(&contract_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
@@ -134,7 +134,7 @@ async fn test_typed_contract_call_without_signer() {
 
     // Create client WITHOUT a signer
     let no_signer_near = Near::custom(sandbox.rpc_url()).build();
-    let guestbook = no_signer_near.contract::<dyn Guestbook>(contract_id.as_str());
+    let guestbook = no_signer_near.contract::<dyn Guestbook>(&contract_id);
 
     // Try to call a mutating method without signer
     let result = guestbook
@@ -162,7 +162,7 @@ async fn test_typed_contract_view_on_wrong_contract_type() {
     let wasm = std::fs::read("tests/contracts/fungible_token.wasm")
         .expect("fungible_token.wasm not found");
 
-    near.transaction(contract_id.as_str())
+    near.transaction(&contract_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
@@ -173,7 +173,7 @@ async fn test_typed_contract_view_on_wrong_contract_type() {
         .unwrap();
 
     // Try to use guestbook interface on FT contract
-    let guestbook = near.contract::<dyn Guestbook>(contract_id.as_str());
+    let guestbook = near.contract::<dyn Guestbook>(&contract_id);
     let result = guestbook.total_messages().await;
 
     assert!(result.is_err(), "Should error for wrong contract type");
@@ -199,7 +199,7 @@ async fn test_typed_contract_call_with_insufficient_gas() {
 
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
 
-    near.transaction(contract_id.as_str())
+    near.transaction(&contract_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
@@ -209,7 +209,7 @@ async fn test_typed_contract_call_with_insufficient_gas() {
         .await
         .unwrap();
 
-    let guestbook = near.contract::<dyn Guestbook>(contract_id.as_str());
+    let guestbook = near.contract::<dyn Guestbook>(&contract_id);
 
     // Try to call with extremely low gas
     let result = guestbook
@@ -242,7 +242,7 @@ async fn test_typed_contract_view_returns_wrong_type() {
 
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
 
-    near.transaction(contract_id.as_str())
+    near.transaction(&contract_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
@@ -259,7 +259,7 @@ async fn test_typed_contract_view_returns_wrong_type() {
         fn total_messages(&self) -> String;
     }
 
-    let wrong_guestbook = near.contract::<dyn WrongGuestbook>(contract_id.as_str());
+    let wrong_guestbook = near.contract::<dyn WrongGuestbook>(&contract_id);
     let result = wrong_guestbook.total_messages().await;
 
     // The result could succeed (if deserialization happens to work) or fail
@@ -288,7 +288,7 @@ async fn test_typed_contract_query_at_invalid_block() {
 
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
 
-    near.transaction(contract_id.as_str())
+    near.transaction(&contract_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
@@ -298,7 +298,7 @@ async fn test_typed_contract_query_at_invalid_block() {
         .await
         .unwrap();
 
-    let guestbook = near.contract::<dyn Guestbook>(contract_id.as_str());
+    let guestbook = near.contract::<dyn Guestbook>(&contract_id);
 
     // Query at a non-existent block height
     let result: Result<u32, _> = guestbook.total_messages().at_block(999_999_999_u64).await;
@@ -329,7 +329,7 @@ async fn test_typed_contract_view_methods_still_work_without_signer() {
 
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
 
-    near.transaction(contract_id.as_str())
+    near.transaction(&contract_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
@@ -341,7 +341,7 @@ async fn test_typed_contract_view_methods_still_work_without_signer() {
 
     // Create client WITHOUT a signer
     let no_signer_near = Near::custom(sandbox.rpc_url()).build();
-    let guestbook = no_signer_near.contract::<dyn Guestbook>(contract_id.as_str());
+    let guestbook = no_signer_near.contract::<dyn Guestbook>(&contract_id);
 
     // View methods should still work without a signer
     let result = guestbook.total_messages().await;

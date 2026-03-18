@@ -184,7 +184,7 @@ async fn test_account_view_full_fields() {
     let near = sandbox.client();
 
     let account_id: AccountId = ROOT_ACCOUNT.parse().unwrap();
-    let account = near.account(account_id.as_str()).await.unwrap();
+    let account = near.account(&account_id).await.unwrap();
 
     // Verify AccountView fields
     assert!(
@@ -209,7 +209,7 @@ async fn test_access_key_list_view() {
     let near = sandbox.client();
 
     let account_id: AccountId = ROOT_ACCOUNT.parse().unwrap();
-    let keys = near.access_keys(account_id.as_str()).await.unwrap();
+    let keys = near.access_keys(&account_id).await.unwrap();
 
     // Verify AccessKeyListView fields
     assert!(
@@ -260,7 +260,7 @@ async fn test_final_execution_outcome_full_fields() {
     let receiver_id = unique_account();
 
     let outcome = near
-        .transaction(receiver_id.as_str())
+        .transaction(&receiver_id)
         .create_account()
         .transfer(NearToken::from_near(5))
         .add_full_access_key(receiver_key.public_key())
@@ -332,7 +332,7 @@ async fn test_execution_metadata_and_gas_profile() {
     let receiver_id = unique_account();
 
     let outcome = near
-        .transaction(receiver_id.as_str())
+        .transaction(&receiver_id)
         .create_account()
         .transfer(NearToken::from_near(1))
         .add_full_access_key(receiver_key.public_key())
@@ -380,7 +380,7 @@ async fn test_tx_status_with_receipts() {
     let receiver_id = unique_account();
 
     let outcome = near
-        .transaction(receiver_id.as_str())
+        .transaction(&receiver_id)
         .create_account()
         .transfer(NearToken::from_near(2))
         .add_full_access_key(receiver_key.public_key())
