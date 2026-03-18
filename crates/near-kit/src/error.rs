@@ -973,7 +973,12 @@ mod tests {
             )),
         });
         let err = Error::TransactionFailed(tx_err);
-        assert!(err.to_string().starts_with("Transaction failed: "));
+        let msg = err.to_string();
+        assert!(msg.starts_with("Transaction failed: "));
+        assert!(
+            msg.contains("execution error"),
+            "should contain inner error: {msg}"
+        );
     }
 
     #[test]

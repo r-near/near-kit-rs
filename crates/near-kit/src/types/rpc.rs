@@ -670,7 +670,8 @@ impl TransactionOutcome {
     /// Get the return value as raw bytes (base64-decoded).
     ///
     /// This is infallible because the transaction is guaranteed to have succeeded.
-    /// Returns an empty `Vec` if the success value is empty.
+    /// Returns an empty `Vec` if the success value is empty or if base64 decoding
+    /// fails (which would indicate a protocol-level bug in nearcore).
     pub fn value(&self) -> Vec<u8> {
         match &self.0.status {
             FinalExecutionStatus::SuccessValue(s) => STANDARD.decode(s).unwrap_or_default(),
