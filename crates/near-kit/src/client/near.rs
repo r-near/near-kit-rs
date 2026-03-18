@@ -859,6 +859,45 @@ impl Near {
             self.max_nonce_retries,
         ))
     }
+
+    /// Get a multi token client for a NEP-245 contract.
+    ///
+    /// Accepts either a string/`AccountId` for raw addresses, or a contract
+    /// identifier that implements [`IntoContractId`].
+    ///
+    /// [`IntoContractId`]: crate::tokens::IntoContractId
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    /// let mt = near.mt("mt-contract.near")?;
+    ///
+    /// // Get a specific token
+    /// if let Some(token) = mt.token("token-1").await? {
+    ///     println!("Token: {:?}", token);
+    /// }
+    ///
+    /// // Get balance of a specific token for an account
+    /// let balance = mt.balance_of("alice.near", "token-1").await?;
+    /// println!("Balance: {}", balance);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn mt(
+        &self,
+        contract: impl crate::tokens::IntoContractId,
+    ) -> Result<crate::tokens::MultiToken, Error> {
+        let contract_id = contract.into_contract_id(self.network)?;
+        Ok(crate::tokens::MultiToken::new(
+            self.rpc.clone(),
+            self.signer.clone(),
+            contract_id,
+            self.max_nonce_retries,
+        ))
+    }
 }
 
 impl std::fmt::Debug for Near {
