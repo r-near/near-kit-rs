@@ -217,7 +217,8 @@ async fn test_ft_transfer() {
     let ft = owner_near.ft(&ft_id).unwrap();
 
     // First, register receiver for storage
-    ft.storage_deposit(&receiver_id)
+    let bounds = ft.storage_balance_bounds().await.unwrap();
+    ft.storage_deposit(&receiver_id, bounds.min)
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
@@ -309,13 +310,11 @@ async fn test_ft_storage_deposit() {
     assert!(!ft.is_registered(&user_id).await.unwrap());
 
     // Register user
-    let balance = ft
-        .storage_deposit(&user_id)
+    let bounds = ft.storage_balance_bounds().await.unwrap();
+    ft.storage_deposit(&user_id, bounds.min)
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
-
-    println!("Storage balance after deposit: {:?}", balance);
 
     // User should now be registered
     assert!(ft.is_registered(&user_id).await.unwrap());
