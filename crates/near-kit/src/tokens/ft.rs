@@ -269,9 +269,8 @@ impl FungibleToken {
     ///
     /// Returns the minimum and maximum storage deposit amounts.
     /// The minimum is typically needed for [`storage_deposit`](Self::storage_deposit).
-    pub async fn storage_balance_bounds(&self) -> Result<StorageBalanceBounds, Error> {
-        let bounds = self
-            .storage_bounds
+    pub async fn storage_balance_bounds(&self) -> Result<&StorageBalanceBounds, Error> {
+        self.storage_bounds
             .get_or_try_init(|| async {
                 let result = self
                     .rpc
@@ -285,8 +284,7 @@ impl FungibleToken {
                     .map_err(Error::from)?;
                 result.json::<StorageBalanceBounds>().map_err(Error::from)
             })
-            .await?;
-        Ok(bounds.clone())
+            .await
     }
 
     /// Register an account on this token contract (storage_deposit).
