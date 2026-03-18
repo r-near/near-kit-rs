@@ -677,6 +677,45 @@ impl TransactionBuilder {
         self
     }
 
+    /// Add a function call action directly, without going through [`CallBuilder`].
+    ///
+    /// This is a one-shot alternative to the `.call("method").args(...).gas(...).deposit(...)`
+    /// builder pattern. It's especially useful for dynamic transaction composition
+    /// (e.g. building calls in a loop or conditionally).
+    ///
+    /// Uses the same default gas as [`CallBuilder`] (30 TGas) when called with
+    /// [`Gas::default()`].
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// near.transaction("contract.testnet")
+    ///     .function_call("init", serde_json::json!({"owner": "alice.testnet"}), Gas::from_tgas(50), NearToken::ZERO)
+    ///     .function_call("notify", serde_json::json!({"msg": "done"}), Gas::from_tgas(30), NearToken::ZERO)
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn function_call(
+        self,
+        method: impl Into<String>,
+        args: impl serde::Serialize,
+        gas: impl IntoGas,
+        deposit: impl IntoNearToken,
+    ) -> Self {
+        let args = serde_json::to_vec(&args).unwrap_or_default();
+        let gas = gas
+            .into_gas()
+            .expect("invalid gas format - use Gas::from_str() for user input");
+        let deposit = deposit
+            .into_near_token()
+            .expect("invalid deposit amount - use NearToken::from_str() for user input");
+        self.add_action(Action::function_call(method, args, gas, deposit))
+    }
+
     // ========================================================================
     // Configuration methods
     // ========================================================================
@@ -1006,6 +1045,20 @@ impl CallBuilder {
     /// Add another function call.
     pub fn call(self, method: &str) -> CallBuilder {
         self.finish().call(method)
+    }
+
+    /// Add a function call action directly.
+    ///
+    /// Finishes this function call, then adds the given function call.
+    /// See [`TransactionBuilder::function_call`] for details.
+    pub fn function_call(
+        self,
+        method: impl Into<String>,
+        args: impl serde::Serialize,
+        gas: impl IntoGas,
+        deposit: impl IntoNearToken,
+    ) -> TransactionBuilder {
+        self.finish().function_call(method, args, gas, deposit)
     }
 
     /// Add a create account action.
@@ -1361,6 +1414,54 @@ mod tests {
             .add_action(extra_action);
 
         // Should have two actions: the function call from CallBuilder + the transfer
+        assert_eq!(builder.actions.len(), 2);
+    }
+
+    #[test]
+    fn function_call_one_shot() {
+        let builder = test_builder().function_call(
+            "init",
+            serde_json::json!({"owner": "alice.testnet"}),
+            Gas::from_tgas(50),
+            NearToken::ZERO,
+        );
+
+        assert_eq!(builder.actions.len(), 1);
+    }
+
+    #[test]
+    fn function_call_chains_multiple() {
+        let builder = test_builder()
+            .deploy(vec![0u8])
+            .function_call(
+                "init",
+                serde_json::json!({"owner": "alice.testnet"}),
+                Gas::from_tgas(50),
+                NearToken::ZERO,
+            )
+            .function_call(
+                "notify",
+                serde_json::json!({"msg": "done"}),
+                Gas::from_tgas(30),
+                NearToken::ZERO,
+            );
+
+        assert_eq!(builder.actions.len(), 3);
+    }
+
+    #[test]
+    fn function_call_from_call_builder() {
+        let builder = test_builder()
+            .call("setup")
+            .args(serde_json::json!({"admin": "alice.testnet"}))
+            .gas(Gas::from_tgas(50))
+            .function_call(
+                "notify",
+                serde_json::json!({"msg": "done"}),
+                Gas::from_tgas(30),
+                NearToken::ZERO,
+            );
+
         assert_eq!(builder.actions.len(), 2);
     }
 }
