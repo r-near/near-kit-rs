@@ -316,7 +316,6 @@ impl FungibleToken {
         let account_id: AccountId = account_id
             .try_into_account_id()
             .expect("invalid account ID");
-        let deposit = deposit.into_near_token().expect("invalid deposit amount");
 
         #[derive(Serialize)]
         struct DepositArgs {
