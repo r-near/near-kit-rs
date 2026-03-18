@@ -683,9 +683,6 @@ impl TransactionBuilder {
     /// builder pattern. It's especially useful for dynamic transaction composition
     /// (e.g. building calls in a loop or conditionally).
     ///
-    /// Uses the same default gas as [`CallBuilder`] (30 TGas) when called with
-    /// [`Gas::default()`].
-    ///
     /// # Example
     ///
     /// ```rust,no_run
@@ -699,6 +696,11 @@ impl TransactionBuilder {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the gas or deposit values cannot be parsed. Use [`Gas::from_str()`]
+    /// and [`NearToken::from_str()`] for fallible parsing of user input.
     pub fn function_call(
         self,
         method: impl Into<String>,
@@ -1423,10 +1425,22 @@ mod tests {
             "init",
             serde_json::json!({"owner": "alice.testnet"}),
             Gas::from_tgas(50),
-            NearToken::ZERO,
+            NearToken::from_near(1),
         );
 
         assert_eq!(builder.actions.len(), 1);
+        match &builder.actions[0] {
+            Action::FunctionCall(fc) => {
+                assert_eq!(fc.method_name, "init");
+                assert_eq!(
+                    fc.args,
+                    serde_json::to_vec(&serde_json::json!({"owner": "alice.testnet"})).unwrap()
+                );
+                assert_eq!(fc.gas, Gas::from_tgas(50));
+                assert_eq!(fc.deposit, NearToken::from_near(1));
+            }
+            other => panic!("expected FunctionCall, got {:?}", other),
+        }
     }
 
     #[test]
