@@ -629,8 +629,9 @@ impl FinalExecutionOutcome {
 
 /// The result of a successful transaction.
 ///
-/// Returned by `.await?` on transaction builders ([`CallBuilder`](crate::CallBuilder),
-/// [`TransactionBuilder`](crate::TransactionBuilder)). The transaction is guaranteed
+/// Returned by `.await?` on transaction builders and futures
+/// ([`CallBuilder`](crate::CallBuilder), [`TransactionBuilder`](crate::TransactionBuilder),
+/// [`TransactionSend`](crate::TransactionSend)). The transaction is guaranteed
 /// to have succeeded — failures are returned as `Err(Error::TransactionFailed(...))`.
 ///
 /// # Example
@@ -656,9 +657,7 @@ pub struct TransactionOutcome(FinalExecutionOutcome);
 impl TransactionOutcome {
     /// Create from a known-successful `FinalExecutionOutcome`.
     ///
-    /// # Panics
-    ///
-    /// Debug-asserts that the outcome status is `SuccessValue`.
+    /// In debug builds, asserts that the outcome status is `SuccessValue`.
     pub(crate) fn new(outcome: FinalExecutionOutcome) -> Self {
         debug_assert!(
             outcome.is_success(),

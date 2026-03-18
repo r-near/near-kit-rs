@@ -648,18 +648,19 @@ impl IntoFuture for StorageDepositCall {
                 ))
             })?;
 
-            if outcome.is_failure() {
-                return Err(Error::TransactionFailed(
-                    outcome.failure_message().unwrap_or_default(),
-                ));
+            if let Some(err) = outcome.failure_error() {
+                return Err(Error::TransactionFailed(err.clone()));
+            }
+            if !outcome.is_success() {
+                return Err(Error::InvalidTransaction(format!(
+                    "Transaction executed but status is {:?}, expected SuccessValue",
+                    outcome.status,
+                )));
             }
 
             // Parse return value
-            let return_value = outcome
-                .success_value()
-                .ok_or_else(|| Error::TransactionFailed("No return value".to_string()))?;
-
-            let storage_balance: StorageBalance = serde_json::from_slice(&return_value)?;
+            let tx_outcome = crate::types::TransactionOutcome::new(outcome);
+            let storage_balance: StorageBalance = tx_outcome.json()?;
             Ok(storage_balance)
         })
     }
