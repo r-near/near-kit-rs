@@ -51,7 +51,7 @@ pub use query::{
 pub use rpc::{RetryConfig, RpcClient};
 pub use signer::{EnvSigner, FileSigner, InMemorySigner, RotatingSigner, Signer, SigningKey};
 pub use transaction::{
-    CallBuilder, DelegateOptions, DelegateResult, TransactionBuilder, TransactionSend,
+    CallBuilder, DelegateOptions, DelegateResult, FunctionCall, TransactionBuilder, TransactionSend,
 };
 
 #[cfg(feature = "keyring")]
