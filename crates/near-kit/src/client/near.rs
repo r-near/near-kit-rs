@@ -677,6 +677,12 @@ impl Near {
         if let Some(err) = outcome.failure_error() {
             return Err(Error::TransactionFailed(err.clone()));
         }
+        if !outcome.is_success() {
+            return Err(Error::InvalidTransaction(format!(
+                "Transaction executed but status is {:?}, expected SuccessValue",
+                outcome.status,
+            )));
+        }
 
         Ok(crate::types::TransactionOutcome::new(outcome))
     }

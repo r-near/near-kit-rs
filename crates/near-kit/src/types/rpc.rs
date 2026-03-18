@@ -655,7 +655,16 @@ pub struct TransactionOutcome(FinalExecutionOutcome);
 
 impl TransactionOutcome {
     /// Create from a known-successful `FinalExecutionOutcome`.
+    ///
+    /// # Panics
+    ///
+    /// Debug-asserts that the outcome status is `SuccessValue`.
     pub(crate) fn new(outcome: FinalExecutionOutcome) -> Self {
+        debug_assert!(
+            outcome.is_success(),
+            "TransactionOutcome constructed from non-success status: {:?}",
+            outcome.status,
+        );
         Self(outcome)
     }
 
