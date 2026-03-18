@@ -292,6 +292,12 @@ impl Near {
         }
     }
 
+    /// Set the maximum number of transaction send attempts on `InvalidNonce` errors.
+    pub fn set_max_nonce_retries(&mut self, attempts: u32) {
+        assert!(attempts > 0, "max_nonce_retries must be at least 1");
+        self.max_nonce_retries = attempts;
+    }
+
     // ========================================================================
     // Read Operations (Query Builders)
     // ========================================================================
