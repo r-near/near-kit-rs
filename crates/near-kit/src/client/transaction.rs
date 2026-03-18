@@ -879,10 +879,6 @@ impl TransactionBuilder {
 }
 
 // ============================================================================
-// CallBuilder
-// ============================================================================
-
-// ============================================================================
 // FunctionCall
 // ============================================================================
 
@@ -891,6 +887,10 @@ impl TransactionBuilder {
 /// Use this when you need to pre-build calls and compose them into a transaction
 /// later. This is especially useful for dynamic transaction composition (e.g. in
 /// a loop) or for batching typed contract calls into a single transaction.
+///
+/// Note: `FunctionCall` does not capture a receiver/contract account. The call
+/// will execute against whichever `receiver_id` is set on the transaction it's
+/// added to.
 ///
 /// # Examples
 ///

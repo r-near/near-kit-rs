@@ -33,6 +33,7 @@
 //!
 //! - [`TransactionBuilder`] — Multi-action transaction builder
 //! - [`CallBuilder`] — Function call builder (part of transactions)
+//! - [`FunctionCall`] — Standalone function call for composable transactions
 
 mod near;
 mod nonce_manager;
