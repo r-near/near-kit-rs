@@ -218,6 +218,8 @@ async fn test_ft_transfer() {
 
     // First, register receiver for storage
     ft.storage_deposit(&receiver_id)
+        .await
+        .unwrap()
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
@@ -309,13 +311,12 @@ async fn test_ft_storage_deposit() {
     assert!(!ft.is_registered(&user_id).await.unwrap());
 
     // Register user
-    let balance = ft
-        .storage_deposit(&user_id)
+    ft.storage_deposit(&user_id)
+        .await
+        .unwrap()
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
-
-    println!("Storage balance after deposit: {:?}", balance);
 
     // User should now be registered
     assert!(ft.is_registered(&user_id).await.unwrap());

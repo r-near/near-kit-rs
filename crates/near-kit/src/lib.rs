@@ -418,8 +418,7 @@ pub use client::KeyringSigner;
 // Re-export token types
 pub use tokens::{
     FtAmount, FtMetadata, FungibleToken, IntoContractId, KnownToken, NftContractMetadata, NftToken,
-    NftTokenMetadata, NonFungibleToken, StorageBalance, StorageBalanceBounds, StorageDepositCall,
-    USDC, USDT, W_NEAR,
+    NftTokenMetadata, NonFungibleToken, StorageBalance, StorageBalanceBounds, USDC, USDT, W_NEAR,
 };
 
 // Re-export proc macros

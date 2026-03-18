@@ -1,7 +1,5 @@
 //! Fungible token client (NEP-141).
 
-use std::future::{Future, IntoFuture};
-use std::pin::Pin;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -9,10 +7,7 @@ use tokio::sync::OnceCell;
 
 use crate::client::{CallBuilder, RpcClient, Signer, TransactionBuilder};
 use crate::error::Error;
-use crate::types::{
-    AccountId, Action, BlockReference, Finality, Gas, IntoNearToken, NearToken, Transaction,
-    TryIntoAccountId, TxExecutionStatus,
-};
+use crate::types::{AccountId, BlockReference, Finality, Gas, NearToken, TryIntoAccountId};
 
 use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 
@@ -270,8 +265,9 @@ impl FungibleToken {
 
     /// Register an account on this token contract (storage_deposit).
     ///
-    /// This deposits the minimum required NEAR to register the account for
-    /// receiving tokens.
+    /// Fetches the minimum required deposit automatically from the contract's
+    /// storage bounds, then returns a [`CallBuilder`] that can be further
+    /// customized before sending.
     ///
     /// # Example
     ///
@@ -284,21 +280,49 @@ impl FungibleToken {
     /// let usdc = near.ft(tokens::USDC)?;
     ///
     /// // Register bob to receive USDC
-    /// usdc.storage_deposit("bob.near").await?;
+    /// usdc.storage_deposit("bob.near").await?.await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn storage_deposit(&self, account_id: impl TryIntoAccountId) -> StorageDepositCall {
-        let account_id: AccountId = account_id
-            .try_into_account_id()
-            .expect("invalid account ID");
-        StorageDepositCall::new(
-            self.rpc.clone(),
-            self.signer.clone(),
-            self.contract_id.clone(),
-            Some(account_id.to_string()),
-            self.storage_bounds.clone(),
-        )
+    pub async fn storage_deposit(
+        &self,
+        account_id: impl TryIntoAccountId,
+    ) -> Result<CallBuilder, Error> {
+        let account_id: AccountId = account_id.try_into_account_id()?;
+
+        // Fetch storage bounds to get minimum deposit
+        let bounds = self
+            .storage_bounds
+            .get_or_try_init(|| async {
+                let result = self
+                    .rpc
+                    .view_function(
+                        &self.contract_id,
+                        "storage_balance_bounds",
+                        &[],
+                        BlockReference::Finality(Finality::Optimistic),
+                    )
+                    .await
+                    .map_err(Error::from)?;
+                result.json::<StorageBalanceBounds>().map_err(Error::from)
+            })
+            .await?;
+
+        #[derive(Serialize)]
+        struct DepositArgs {
+            account_id: String,
+            registration_only: bool,
+        }
+
+        Ok(self
+            .transaction()
+            .call("storage_deposit")
+            .args(DepositArgs {
+                account_id: account_id.to_string(),
+                registration_only: true,
+            })
+            .deposit(bounds.min)
+            .gas(Gas::from_tgas(30)))
     }
 
     // =========================================================================
@@ -462,205 +486,5 @@ impl std::fmt::Debug for FungibleToken {
             .field("contract_id", &self.contract_id)
             .field("metadata_cached", &self.metadata.initialized())
             .finish()
-    }
-}
-
-// =============================================================================
-// StorageDepositCall Builder
-// =============================================================================
-
-/// Builder for storage deposit transactions.
-///
-/// This builder needs special handling because it fetches storage bounds
-/// to determine the deposit amount, which requires async prep work.
-pub struct StorageDepositCall {
-    rpc: Arc<RpcClient>,
-    signer: Option<Arc<dyn Signer>>,
-    contract_id: AccountId,
-    account_id: Option<String>,
-    deposit: Option<NearToken>,
-    registration_only: bool,
-    storage_bounds: OnceCell<StorageBalanceBounds>,
-    signer_override: Option<Arc<dyn Signer>>,
-    wait_until: TxExecutionStatus,
-}
-
-impl StorageDepositCall {
-    fn new(
-        rpc: Arc<RpcClient>,
-        signer: Option<Arc<dyn Signer>>,
-        contract_id: AccountId,
-        account_id: Option<String>,
-        storage_bounds: OnceCell<StorageBalanceBounds>,
-    ) -> Self {
-        Self {
-            rpc,
-            signer,
-            contract_id,
-            account_id,
-            deposit: None,
-            registration_only: true,
-            storage_bounds,
-            signer_override: None,
-            wait_until: TxExecutionStatus::ExecutedOptimistic,
-        }
-    }
-
-    /// Set a custom deposit amount (overrides automatic minimum).
-    ///
-    /// # Panics
-    ///
-    /// Panics if the amount string cannot be parsed. Use [`NearToken`]'s `FromStr`
-    /// impl for fallible parsing of user input.
-    pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
-        self.deposit = Some(
-            amount
-                .into_near_token()
-                .expect("invalid deposit amount - use NearToken::from_str() for user input"),
-        );
-        self
-    }
-
-    /// Set registration_only flag (default: true).
-    ///
-    /// When true, any excess deposit is refunded. When false, excess is kept
-    /// as additional storage deposit.
-    pub fn registration_only(mut self, value: bool) -> Self {
-        self.registration_only = value;
-        self
-    }
-
-    /// Override the signer for this transaction.
-    pub fn sign_with(mut self, signer: impl Signer + 'static) -> Self {
-        self.signer_override = Some(Arc::new(signer));
-        self
-    }
-
-    /// Set the execution wait level.
-    pub fn wait_until(mut self, status: TxExecutionStatus) -> Self {
-        self.wait_until = status;
-        self
-    }
-}
-
-impl IntoFuture for StorageDepositCall {
-    type Output = Result<StorageBalance, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move {
-            let signer = self
-                .signer_override
-                .as_ref()
-                .or(self.signer.as_ref())
-                .ok_or(Error::NoSigner)?;
-
-            let signer_id = signer.account_id().clone();
-
-            // Determine deposit amount
-            let deposit = if let Some(d) = self.deposit {
-                d
-            } else {
-                // Fetch storage bounds to get minimum
-                let bounds = self
-                    .storage_bounds
-                    .get_or_try_init(|| async {
-                        let result = self
-                            .rpc
-                            .view_function(
-                                &self.contract_id,
-                                "storage_balance_bounds",
-                                &[],
-                                BlockReference::Finality(Finality::Optimistic),
-                            )
-                            .await
-                            .map_err(Error::from)?;
-                        result.json::<StorageBalanceBounds>().map_err(Error::from)
-                    })
-                    .await?;
-                bounds.min
-            };
-
-            // Build args
-            #[derive(Serialize)]
-            struct DepositArgs {
-                #[serde(skip_serializing_if = "Option::is_none")]
-                account_id: Option<String>,
-                #[serde(skip_serializing_if = "std::ops::Not::not")]
-                registration_only: bool,
-            }
-
-            let args = serde_json::to_vec(&DepositArgs {
-                account_id: self.account_id,
-                registration_only: self.registration_only,
-            })?;
-
-            // Get a signing key atomically
-            let key = signer.key();
-            let public_key = key.public_key().clone();
-
-            // Get access key for nonce
-            let access_key = self
-                .rpc
-                .view_access_key(
-                    &signer_id,
-                    &public_key,
-                    BlockReference::Finality(Finality::Optimistic),
-                )
-                .await?;
-
-            // Get recent block hash
-            let block = self
-                .rpc
-                .block(BlockReference::Finality(Finality::Final))
-                .await?;
-
-            // Build transaction
-            let tx = Transaction::new(
-                signer_id,
-                public_key,
-                access_key.nonce + 1,
-                self.contract_id,
-                block.header.hash,
-                vec![Action::function_call(
-                    "storage_deposit".to_string(),
-                    args,
-                    Gas::from_tgas(30),
-                    deposit,
-                )],
-            );
-
-            // Sign
-            let signature = key.sign(tx.get_hash().as_bytes()).await?;
-            let signed_tx = crate::types::SignedTransaction {
-                transaction: tx,
-                signature,
-            };
-
-            // Send
-            let response = self.rpc.send_tx(&signed_tx, self.wait_until).await?;
-            let outcome = response.outcome.ok_or_else(|| {
-                Error::InvalidTransaction(format!(
-                    "Transaction {} submitted with wait_until={:?} but no execution \
-                     outcome was returned. Use rpc().send_tx() for fire-and-forget \
-                     submission.",
-                    response.transaction_hash, self.wait_until,
-                ))
-            })?;
-
-            if outcome.is_failure() {
-                return Err(Error::TransactionFailed(
-                    outcome.failure_message().unwrap_or_default(),
-                ));
-            }
-
-            // Parse return value
-            let return_value = outcome
-                .success_value()
-                .ok_or_else(|| Error::TransactionFailed("No return value".to_string()))?;
-
-            let storage_balance: StorageBalance = serde_json::from_slice(&return_value)?;
-            Ok(storage_balance)
-        })
     }
 }
