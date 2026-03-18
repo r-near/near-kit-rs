@@ -162,14 +162,15 @@ async fn debug_transaction_receipts() {
         .await
         .unwrap();
 
+    let raw = outcome.raw();
     println!("\n========================================");
     println!("TRANSACTION OUTCOME");
     println!("========================================");
-    println!("Is success: {}", outcome.is_success());
-    println!("Status: {:?}", outcome.status);
+    println!("Is success: {}", raw.is_success());
+    println!("Status: {:?}", raw.status);
 
     {
-        let tx = &outcome.transaction;
+        let tx = &raw.transaction;
         println!("\n--- Transaction ---");
         println!("Hash: {}", tx.hash);
         println!("Signer: {}", tx.signer_id);
@@ -185,7 +186,7 @@ async fn debug_transaction_receipts() {
     }
 
     {
-        let tx_outcome = &outcome.transaction_outcome;
+        let tx_outcome = &raw.transaction_outcome;
         println!("\n--- Transaction Outcome ---");
         println!("ID: {}", tx_outcome.id);
         println!("Block hash: {}", tx_outcome.block_hash);
@@ -213,9 +214,9 @@ async fn debug_transaction_receipts() {
 
     println!(
         "\n--- Receipt Outcomes ({}) ---",
-        outcome.receipts_outcome.len()
+        raw.receipts_outcome.len()
     );
-    for (i, ro) in outcome.receipts_outcome.iter().enumerate() {
+    for (i, ro) in raw.receipts_outcome.iter().enumerate() {
         println!("\n  Receipt Outcome [{}]:", i);
         println!("    ID: {}", ro.id);
         println!("    Block hash: {}", ro.block_hash);

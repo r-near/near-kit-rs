@@ -36,9 +36,9 @@ use std::sync::{Arc, OnceLock};
 use crate::error::{Error, RpcError};
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, DeterministicAccountStateInit,
-    DeterministicAccountStateInitV1, FinalExecutionOutcome, Finality, Gas,
-    GlobalContractIdentifier, IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey,
-    SignedDelegateAction, SignedTransaction, Transaction, TryIntoAccountId, TxExecutionStatus,
+    DeterministicAccountStateInitV1, Finality, Gas, GlobalContractIdentifier, IntoGas,
+    IntoNearToken, NearToken, NonDelegateAction, PublicKey, SignedDelegateAction,
+    SignedTransaction, Transaction, TransactionOutcome, TryIntoAccountId, TxExecutionStatus,
 };
 
 use super::nonce_manager::NonceManager;
@@ -1142,7 +1142,7 @@ impl CallBuilder {
 }
 
 impl IntoFuture for CallBuilder {
-    type Output = Result<FinalExecutionOutcome, Error>;
+    type Output = Result<TransactionOutcome, Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 
     fn into_future(self) -> Self::IntoFuture {
@@ -1168,7 +1168,7 @@ impl TransactionSend {
 }
 
 impl IntoFuture for TransactionSend {
-    type Output = Result<FinalExecutionOutcome, Error>;
+    type Output = Result<TransactionOutcome, Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 
     fn into_future(self) -> Self::IntoFuture {
@@ -1273,12 +1273,7 @@ impl IntoFuture for TransactionSend {
                                 response.transaction_hash, builder.wait_until,
                             ))
                         })?;
-                        if outcome.is_failure() {
-                            return Err(Error::TransactionFailed(
-                                outcome.failure_message().unwrap_or_default(),
-                            ));
-                        }
-                        return Ok(outcome);
+                        return outcome.try_into();
                     }
                     Err(RpcError::InvalidNonce { tx_nonce, ak_nonce })
                         if attempt < max_nonce_retries - 1 =>
@@ -1310,7 +1305,7 @@ impl IntoFuture for TransactionSend {
 }
 
 impl IntoFuture for TransactionBuilder {
-    type Output = Result<FinalExecutionOutcome, Error>;
+    type Output = Result<TransactionOutcome, Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 
     fn into_future(self) -> Self::IntoFuture {

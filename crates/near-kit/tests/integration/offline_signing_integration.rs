@@ -101,7 +101,6 @@ async fn test_sign_offline_transfer() {
     // Step 3: Send the signed transaction (online machine)
     let outcome = sender_near.send(&signed).await.unwrap();
 
-    assert!(outcome.is_success());
     println!("Transaction succeeded: {:?}", outcome.transaction_hash());
 
     // Verify the transfer happened
@@ -169,8 +168,7 @@ async fn test_sign_offline_function_call() {
         .unwrap();
 
     // Send
-    let outcome = contract_near.send(&signed).await.unwrap();
-    assert!(outcome.is_success());
+    let _outcome = contract_near.send(&signed).await.unwrap();
 
     // Verify the message was added
     let messages: Vec<serde_json::Value> = contract_near
@@ -257,8 +255,7 @@ async fn test_signed_transaction_roundtrip_bytes() {
     );
 
     // Verify the deserialized transaction can be sent
-    let outcome = sender_near.send(&deserialized).await.unwrap();
-    assert!(outcome.is_success());
+    let _outcome = sender_near.send(&deserialized).await.unwrap();
 }
 
 #[tokio::test]
@@ -323,8 +320,7 @@ async fn test_signed_transaction_roundtrip_base64() {
     );
 
     // Verify the deserialized transaction can be sent
-    let outcome = sender_near.send(&deserialized).await.unwrap();
-    assert!(outcome.is_success());
+    let _outcome = sender_near.send(&deserialized).await.unwrap();
 }
 
 #[tokio::test]
@@ -406,8 +402,8 @@ async fn test_offline_sign_and_transport_simulation() {
     println!("Online: received tx hash={}", received_tx.get_hash());
 
     // Send it
-    let outcome = sender_near.send(&received_tx).await.unwrap();
-    assert!(outcome.is_success());
+    let _outcome = sender_near.send(&received_tx).await.unwrap();
+
     println!("Online: transaction confirmed!");
 
     // Verify

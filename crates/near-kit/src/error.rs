@@ -46,7 +46,7 @@
 
 use thiserror::Error;
 
-use crate::types::{AccountId, DelegateDecodeError, PublicKey};
+use crate::types::{AccountId, DelegateDecodeError, PublicKey, TxExecutionError};
 
 /// Error parsing an account ID.
 ///
@@ -412,7 +412,7 @@ pub enum Error {
 
     // ─── Transaction ───
     #[error("Transaction failed: {0}")]
-    TransactionFailed(String),
+    TransactionFailed(TxExecutionError),
 
     #[error("Invalid transaction: {0}")]
     InvalidTransaction(String),
@@ -965,9 +965,19 @@ mod tests {
 
     #[test]
     fn test_error_transaction_failed_display() {
-        assert_eq!(
-            Error::TransactionFailed("execution error".to_string()).to_string(),
-            "Transaction failed: execution error"
+        use crate::types::{ActionError, ActionErrorKind, FunctionCallError, TxExecutionError};
+        let tx_err = TxExecutionError::ActionError(ActionError {
+            index: Some(0),
+            kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
+                "execution error".to_string(),
+            )),
+        });
+        let err = Error::TransactionFailed(tx_err);
+        let msg = err.to_string();
+        assert!(msg.starts_with("Transaction failed: "));
+        assert!(
+            msg.contains("execution error"),
+            "should contain inner error: {msg}"
         );
     }
 

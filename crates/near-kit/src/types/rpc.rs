@@ -590,25 +590,6 @@ impl FinalExecutionOutcome {
         matches!(&self.status, FinalExecutionStatus::Failure(_))
     }
 
-    /// Get the success value if present (base64 decoded).
-    pub fn success_value(&self) -> Option<Vec<u8>> {
-        match &self.status {
-            FinalExecutionStatus::SuccessValue(s) => STANDARD.decode(s).ok(),
-            _ => None,
-        }
-    }
-
-    /// Get the success value as a string if present.
-    pub fn success_value_string(&self) -> Option<String> {
-        self.success_value().and_then(|v| String::from_utf8(v).ok())
-    }
-
-    /// Get the success value deserialized as JSON.
-    pub fn success_value_json<T: serde::de::DeserializeOwned>(&self) -> Option<T> {
-        self.success_value()
-            .and_then(|v| serde_json::from_slice(&v).ok())
-    }
-
     /// Get the failure message if present.
     pub fn failure_message(&self) -> Option<String> {
         match &self.status {
@@ -639,6 +620,94 @@ impl FinalExecutionOutcome {
             .map(|r| r.outcome.gas_burnt.as_gas())
             .sum();
         Gas::from_gas(tx_gas + receipt_gas)
+    }
+}
+
+// =============================================================================
+// TransactionOutcome
+// =============================================================================
+
+/// The result of a successful transaction.
+///
+/// Returned by `.await?` on transaction builders and futures
+/// ([`CallBuilder`](crate::CallBuilder), [`TransactionBuilder`](crate::TransactionBuilder),
+/// [`TransactionSend`](crate::TransactionSend)). The transaction is guaranteed
+/// to have succeeded — failures are returned as `Err(Error::TransactionFailed(...))`.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// # async fn example(near: &Near) -> Result<(), Error> {
+/// let outcome = near.call("counter.testnet", "increment").await?;
+///
+/// // Get raw return value (infallible — success is guaranteed)
+/// let bytes: Vec<u8> = outcome.value();
+///
+/// // Deserialize as JSON (only fails on deserialization errors)
+/// let count: u64 = outcome.json()?;
+///
+/// println!("Gas used: {}", outcome.total_gas_used());
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone)]
+pub struct TransactionOutcome(FinalExecutionOutcome);
+
+impl TryFrom<FinalExecutionOutcome> for TransactionOutcome {
+    type Error = crate::error::Error;
+
+    /// Convert a [`FinalExecutionOutcome`] into a [`TransactionOutcome`].
+    ///
+    /// Returns `Err` if the transaction failed or has not reached `SuccessValue` status.
+    fn try_from(outcome: FinalExecutionOutcome) -> Result<Self, Self::Error> {
+        if let Some(err) = outcome.failure_error() {
+            return Err(crate::error::Error::TransactionFailed(err.clone()));
+        }
+        if !outcome.is_success() {
+            return Err(crate::error::Error::InvalidTransaction(format!(
+                "Transaction executed but status is {:?}, expected SuccessValue",
+                outcome.status,
+            )));
+        }
+        Ok(Self(outcome))
+    }
+}
+
+impl TransactionOutcome {
+    /// Get the return value as raw bytes (base64-decoded).
+    ///
+    /// This is infallible because the transaction is guaranteed to have succeeded.
+    /// Returns an empty `Vec` if the success value is empty or if base64 decoding
+    /// fails (which would indicate a protocol-level bug in nearcore).
+    pub fn value(&self) -> Vec<u8> {
+        match &self.0.status {
+            FinalExecutionStatus::SuccessValue(s) => STANDARD.decode(s).unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Deserialize the return value as JSON.
+    ///
+    /// Only fails if the return value cannot be deserialized into `T`.
+    pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, crate::error::Error> {
+        let bytes = self.value();
+        serde_json::from_slice(&bytes).map_err(crate::error::Error::from)
+    }
+
+    /// Get the transaction hash.
+    pub fn transaction_hash(&self) -> &CryptoHash {
+        self.0.transaction_hash()
+    }
+
+    /// Get total gas used across all receipts.
+    pub fn total_gas_used(&self) -> Gas {
+        self.0.total_gas_used()
+    }
+
+    /// Access the underlying [`FinalExecutionOutcome`].
+    pub fn raw(&self) -> &FinalExecutionOutcome {
+        &self.0
     }
 }
 
@@ -1622,6 +1691,98 @@ mod tests {
         assert!(!outcome.is_success());
         assert!(outcome.failure_message().is_some());
         assert!(outcome.failure_error().is_some());
+    }
+
+    // ========================================================================
+    // TransactionOutcome tests
+    // ========================================================================
+
+    fn make_success_outcome(base64_value: &str) -> FinalExecutionOutcome {
+        let json = serde_json::json!({
+            "final_execution_status": "FINAL",
+            "status": {"SuccessValue": base64_value},
+            "transaction": {
+                "signer_id": "alice.near",
+                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "nonce": 1,
+                "receiver_id": "bob.near",
+                "actions": [],
+                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
+                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+            },
+            "transaction_outcome": {
+                "id": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+                "outcome": {
+                    "executor_id": "alice.near",
+                    "gas_burnt": 223182562500_i64,
+                    "tokens_burnt": "22318256250000000000",
+                    "logs": [],
+                    "receipt_ids": [],
+                    "status": {"SuccessReceiptId": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"}
+                },
+                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
+                "proof": []
+            },
+            "receipts_outcome": []
+        });
+        let response: SendTxResponse = serde_json::from_value(json).unwrap();
+        response.outcome.unwrap()
+    }
+
+    #[test]
+    fn test_transaction_outcome_value() {
+        // "hello" in base64
+        let outcome = TransactionOutcome::try_from(make_success_outcome("aGVsbG8=")).unwrap();
+        assert_eq!(outcome.value(), b"hello");
+    }
+
+    #[test]
+    fn test_transaction_outcome_value_empty() {
+        let outcome = TransactionOutcome::try_from(make_success_outcome("")).unwrap();
+        assert_eq!(outcome.value(), b"");
+    }
+
+    #[test]
+    fn test_transaction_outcome_json() {
+        // JSON `42` in base64
+        let outcome = TransactionOutcome::try_from(make_success_outcome("NDI=")).unwrap();
+        let val: u64 = outcome.json().unwrap();
+        assert_eq!(val, 42);
+    }
+
+    #[test]
+    fn test_transaction_outcome_json_bad_data() {
+        // "hello" is not valid JSON
+        let outcome = TransactionOutcome::try_from(make_success_outcome("aGVsbG8=")).unwrap();
+        let result: Result<u64, _> = outcome.json();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_transaction_outcome_value_invalid_base64_returns_empty() {
+        // If the RPC somehow returns invalid base64 (protocol bug),
+        // value() returns empty bytes rather than panicking.
+        let outcome =
+            TransactionOutcome::try_from(make_success_outcome("not-valid-base64!!!")).unwrap();
+        assert_eq!(outcome.value(), b"");
+    }
+
+    #[test]
+    fn test_transaction_outcome_transaction_hash() {
+        let outcome = TransactionOutcome::try_from(make_success_outcome("")).unwrap();
+        assert!(!outcome.transaction_hash().is_zero());
+    }
+
+    #[test]
+    fn test_transaction_outcome_total_gas_used() {
+        let outcome = TransactionOutcome::try_from(make_success_outcome("")).unwrap();
+        assert!(outcome.total_gas_used().as_gas() > 0);
+    }
+
+    #[test]
+    fn test_transaction_outcome_raw() {
+        let outcome = TransactionOutcome::try_from(make_success_outcome("")).unwrap();
+        assert!(outcome.raw().is_success());
     }
 
     // ========================================================================

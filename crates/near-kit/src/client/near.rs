@@ -654,7 +654,7 @@ impl Near {
     pub async fn send(
         &self,
         signed_tx: &crate::types::SignedTransaction,
-    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
+    ) -> Result<crate::types::TransactionOutcome, Error> {
         self.send_with_options(signed_tx, TxExecutionStatus::ExecutedOptimistic)
             .await
     }
@@ -664,7 +664,7 @@ impl Near {
         &self,
         signed_tx: &crate::types::SignedTransaction,
         wait_until: TxExecutionStatus,
-    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
+    ) -> Result<crate::types::TransactionOutcome, Error> {
         let response = self.rpc.send_tx(signed_tx, wait_until).await?;
         let outcome = response.outcome.ok_or_else(|| {
             Error::InvalidTransaction(format!(
@@ -674,13 +674,7 @@ impl Near {
             ))
         })?;
 
-        if outcome.is_failure() {
-            return Err(Error::TransactionFailed(
-                outcome.failure_message().unwrap_or_default(),
-            ));
-        }
-
-        Ok(outcome)
+        outcome.try_into()
     }
 
     // ========================================================================
@@ -706,7 +700,7 @@ impl Near {
         contract_id: impl TryIntoAccountId,
         method: &str,
         args: &A,
-    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
+    ) -> Result<crate::types::TransactionOutcome, Error> {
         self.call(contract_id, method).args(args).await
     }
 
@@ -718,7 +712,7 @@ impl Near {
         args: &A,
         gas: Gas,
         deposit: NearToken,
-    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
+    ) -> Result<crate::types::TransactionOutcome, Error> {
         self.call(contract_id, method)
             .args(args)
             .gas(gas)

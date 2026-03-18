@@ -86,7 +86,6 @@ async fn test_publish_contract_by_account() {
         "Publish contract succeeded: {:?}",
         outcome.transaction_hash()
     );
-    assert!(outcome.is_success());
 }
 
 /// Test publishing a contract to the global registry by code hash (immutable).
@@ -115,7 +114,6 @@ async fn test_publish_contract_by_hash() {
         "Publish contract by hash succeeded: {:?}",
         outcome.transaction_hash()
     );
-    assert!(outcome.is_success());
 }
 
 /// Test deploying a contract from a publisher account.
@@ -157,7 +155,6 @@ async fn test_deploy_from_publisher() {
         "Deploy from publisher succeeded: {:?}",
         outcome.transaction_hash()
     );
-    assert!(outcome.is_success());
 
     // Verify the contract was deployed by calling a view method
     // (with global contracts, the account references global code, not a local code_hash)
@@ -213,7 +210,6 @@ async fn test_deploy_from_hash() {
         "Deploy from hash succeeded: {:?}",
         outcome.transaction_hash()
     );
-    assert!(outcome.is_success());
 
     // Verify the contract was deployed by calling a view method
     // (with global contracts, the account references global code, not a local code_hash)
@@ -266,7 +262,6 @@ async fn test_state_init_by_hash() {
         "State init by hash succeeded: {:?}",
         outcome.transaction_hash()
     );
-    assert!(outcome.is_success());
 }
 
 /// Test NEP-616 deterministic state init with publisher account.
@@ -308,7 +303,6 @@ async fn test_state_init_by_publisher() {
         "State init by publisher succeeded: {:?}",
         outcome.transaction_hash()
     );
-    assert!(outcome.is_success());
 }
 
 // =============================================================================
@@ -328,7 +322,7 @@ async fn test_action_create_account() {
     let child_key = SecretKey::generate_ed25519();
     let child_id: AccountId = format!("child.{}", parent_id).parse().unwrap();
 
-    let outcome = parent_near
+    let _outcome = parent_near
         .transaction(&child_id)
         .create_account()
         .transfer(NearToken::from_near(5))
@@ -338,7 +332,6 @@ async fn test_action_create_account() {
         .await
         .unwrap();
 
-    assert!(outcome.is_success());
     assert!(root_near.account_exists(&child_id).await.unwrap());
 }
 
@@ -382,15 +375,13 @@ async fn test_action_deploy_contract() {
 
     let wasm_code = load_test_contract();
 
-    let outcome = contract_near
+    let _outcome = contract_near
         .transaction(&contract_id)
         .deploy(wasm_code)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
-
-    assert!(outcome.is_success());
 
     // Verify contract was deployed
     let account = root_near.account(&contract_id).await.unwrap();
@@ -419,7 +410,7 @@ async fn test_action_function_call() {
         .unwrap();
 
     // Call a method on the contract
-    let outcome = contract_near
+    let _outcome = contract_near
         .transaction(&contract_id)
         .call("add_message")
         .args(serde_json::json!({ "text": "Hello from test!" }))
@@ -429,8 +420,6 @@ async fn test_action_function_call() {
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
-
-    assert!(outcome.is_success());
 }
 
 /// Test AddKey action with full access
@@ -445,15 +434,13 @@ async fn test_action_add_full_access_key() {
 
     let new_key = SecretKey::generate_ed25519();
 
-    let outcome = account_near
+    let _outcome = account_near
         .transaction(&account_id)
         .add_full_access_key(new_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
-
-    assert!(outcome.is_success());
 
     // Verify the key was added
     let keys = root_near.access_keys(&account_id).await.unwrap();
@@ -473,7 +460,7 @@ async fn test_action_add_function_call_key() {
     let fc_key = SecretKey::generate_ed25519();
     let receiver_contract: AccountId = "some-contract.sandbox".parse().unwrap();
 
-    let outcome = account_near
+    let _outcome = account_near
         .transaction(&account_id)
         .add_function_call_key(
             fc_key.public_key(),
@@ -485,8 +472,6 @@ async fn test_action_add_function_call_key() {
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
-
-    assert!(outcome.is_success());
 
     // Verify the key was added
     let keys = root_near.access_keys(&account_id).await.unwrap();
@@ -608,10 +593,6 @@ async fn test_action_stake() {
         .unwrap();
 
     println!("Stake action completed: {:?}", outcome.transaction_hash());
-    assert!(
-        outcome.is_success(),
-        "Stake action should succeed with sufficient balance"
-    );
 
     // Verify locked balance reflects the stake
     let account = root_near.account(&staker_id).await.unwrap();
@@ -635,7 +616,7 @@ async fn test_multiple_actions() {
     let wasm_code = load_test_contract();
 
     // Create account, fund it, add key, deploy contract - all in one tx
-    let outcome = parent_near
+    let _outcome = parent_near
         .transaction(&child_id)
         .create_account()
         .transfer(NearToken::from_near(20))
@@ -645,8 +626,6 @@ async fn test_multiple_actions() {
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();
-
-    assert!(outcome.is_success());
 
     // Verify everything worked
     let account = root_near.account(&child_id).await.unwrap();
@@ -694,7 +673,6 @@ async fn test_multiple_function_calls() {
         .await
         .unwrap();
 
-    assert!(outcome.is_success());
     println!(
         "Multiple function calls: gas used = {}",
         outcome.total_gas_used()

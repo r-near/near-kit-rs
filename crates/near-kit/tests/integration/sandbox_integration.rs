@@ -91,8 +91,7 @@ async fn test_sandbox_transfer() {
         .unwrap();
 
     println!(
-        "Create account outcome: success={}, hash={:?}",
-        outcome.is_success(),
+        "Create account outcome: hash={:?}",
         outcome.transaction_hash()
     );
 
@@ -270,8 +269,6 @@ async fn test_sandbox_create_account_outcome() {
 
     println!("Transaction hash: {:?}", outcome.transaction_hash());
     println!("Gas used: {}", outcome.total_gas_used());
-
-    assert!(outcome.is_success());
 }
 
 #[tokio::test]
@@ -606,10 +603,6 @@ async fn test_sandbox_set_balance_for_staking() {
         .unwrap();
 
     println!("Stake transaction: {:?}", outcome.transaction_hash());
-    assert!(
-        outcome.is_success(),
-        "Stake action should succeed with sufficient balance"
-    );
 
     // Verify locked balance reflects the stake
     let account = root_near.account(&validator_id).await.unwrap();
@@ -796,7 +789,6 @@ async fn test_send_with_options_final() {
         .await
         .unwrap();
 
-    assert!(outcome.is_success());
     println!("Transaction succeeded: {:?}", outcome.transaction_hash());
 
     // Verify the transfer happened
@@ -854,6 +846,5 @@ async fn test_send_pre_signed_transaction() {
     // Use the simple send() method (uses ExecutedOptimistic by default)
     let outcome = sender_near.send(&signed).await.unwrap();
 
-    assert!(outcome.is_success());
     println!("Transaction completed: {:?}", outcome.transaction_hash());
 }

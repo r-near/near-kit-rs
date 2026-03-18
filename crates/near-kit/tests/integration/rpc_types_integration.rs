@@ -269,15 +269,16 @@ async fn test_final_execution_outcome_full_fields() {
         .await
         .unwrap();
 
-    // Verify FinalExecutionOutcome fields
-    assert!(outcome.is_success(), "Transaction should succeed");
+    // Verify FinalExecutionOutcome fields via .raw()
+    let raw = outcome.raw();
+    assert!(raw.is_success(), "Transaction should succeed");
     assert!(
-        !outcome.receipts_outcome.is_empty(),
+        !raw.receipts_outcome.is_empty(),
         "Should have receipt outcomes"
     );
 
     // Check transaction view (now a required field)
-    let tx = &outcome.transaction;
+    let tx = &raw.transaction;
     assert_eq!(tx.signer_id, root_account);
     assert_eq!(tx.receiver_id, receiver_id);
     assert!(tx.nonce > 0, "Nonce should be positive");
@@ -285,7 +286,7 @@ async fn test_final_execution_outcome_full_fields() {
     assert!(!tx.actions.is_empty(), "Should have actions");
 
     // Check transaction outcome (now a required field)
-    let tx_outcome = &outcome.transaction_outcome;
+    let tx_outcome = &raw.transaction_outcome;
     assert!(!tx_outcome.id.is_zero(), "Outcome ID should exist");
     assert!(!tx_outcome.block_hash.is_zero(), "Block hash should exist");
     assert_eq!(tx_outcome.outcome.executor_id, root_account);
@@ -296,7 +297,7 @@ async fn test_final_execution_outcome_full_fields() {
     );
 
     // Check receipts outcome
-    for receipt_outcome in &outcome.receipts_outcome {
+    for receipt_outcome in &raw.receipts_outcome {
         assert!(!receipt_outcome.id.is_zero(), "Receipt ID should exist");
         assert!(
             !receipt_outcome.block_hash.is_zero(),
@@ -319,7 +320,7 @@ async fn test_final_execution_outcome_full_fields() {
     println!("Transaction outcome:");
     println!("  Hash: {:?}", outcome.transaction_hash());
     println!("  Gas used: {}", outcome.total_gas_used());
-    println!("  Receipt outcomes: {}", outcome.receipts_outcome.len());
+    println!("  Receipt outcomes: {}", raw.receipts_outcome.len());
 }
 
 #[tokio::test]
@@ -343,7 +344,7 @@ async fn test_execution_metadata_and_gas_profile() {
 
     // Check if metadata is present (may not be in all protocol versions)
     let mut found_metadata = false;
-    for receipt_outcome in &outcome.receipts_outcome {
+    for receipt_outcome in &outcome.raw().receipts_outcome {
         if let Some(metadata) = &receipt_outcome.outcome.metadata {
             found_metadata = true;
             println!("Execution metadata version: {}", metadata.version);
@@ -483,7 +484,7 @@ async fn test_action_view_variants() {
         .await
         .unwrap();
 
-    let tx = &outcome.transaction;
+    let tx = &outcome.raw().transaction;
     println!("Transaction actions:");
     for action in &tx.actions {
         match action {
