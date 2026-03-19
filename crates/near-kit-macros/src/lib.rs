@@ -412,11 +412,33 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
     let client_name = format_ident!("{}Client", trait_name);
     let vis = &input.vis;
 
-    // Parse all methods
+    // Reject unsupported trait features
+    if !input.generics.params.is_empty() {
+        return Err(syn::Error::new(
+            input.generics.span(),
+            "#[near_kit::contract] does not support generic parameters",
+        ));
+    }
+    if !input.supertraits.is_empty() {
+        return Err(syn::Error::new(
+            input.supertraits.span(),
+            "#[near_kit::contract] does not support supertraits",
+        ));
+    }
+
+    // Parse all methods, reject non-method items
     let mut methods = Vec::new();
     for item in &input.items {
-        if let TraitItem::Fn(method) = item {
-            methods.push(parse_method(method)?);
+        match item {
+            TraitItem::Fn(method) => {
+                methods.push(parse_method(method)?);
+            }
+            other => {
+                return Err(syn::Error::new(
+                    other.span(),
+                    "#[near_kit::contract] only supports methods, not associated types or constants",
+                ));
+            }
         }
     }
 
@@ -439,12 +461,12 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         .map(|m| generate_function_call_method(m, args.format))
         .collect();
 
+    // Propagate trait-level attributes (doc comments, #[cfg], etc.) to the struct
+    let trait_attrs = &input.attrs;
+
     // Build the output
     let expanded = quote! {
-        // Unit struct for composable FunctionCall constructors.
-        //
-        // Use the associated functions to create typed `FunctionCall` values
-        // that can be added to any transaction via `TransactionBuilder::add_action()`.
+        #(#trait_attrs)*
         #vis struct #trait_name;
 
         impl #trait_name {
