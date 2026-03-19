@@ -234,18 +234,21 @@ impl RpcClient {
 
         // NEAR's `query` endpoint sometimes returns errors inside the result
         // object (with an "error" field) instead of in the JSON-RPC error
-        // envelope. Detect and route through the standard error parser.
-        if let Some(error_str) = result_value.get("error").and_then(|e| e.as_str()) {
-            let synthetic = JsonRpcError {
-                // Use -32600 (Invalid Request) rather than -32000 (Server Error)
-                // so deterministic failures don't get retried.
-                code: -32600,
-                message: error_str.to_string(),
-                data: Some(serde_json::Value::String(error_str.to_string())),
-                cause: None,
-                name: None,
-            };
-            return Err(self.parse_rpc_error(&synthetic));
+        // envelope. Only check for this on the `query` method to avoid
+        // misclassifying legitimate results from other methods.
+        if request.method == "query" {
+            if let Some(error_str) = result_value.get("error").and_then(|e| e.as_str()) {
+                let synthetic = JsonRpcError {
+                    // Use -32600 (Invalid Request) rather than -32000 (Server Error)
+                    // so deterministic failures don't get retried.
+                    code: -32600,
+                    message: error_str.to_string(),
+                    data: Some(serde_json::Value::String(error_str.to_string())),
+                    cause: None,
+                    name: None,
+                };
+                return Err(self.parse_rpc_error(&synthetic));
+            }
         }
 
         serde_json::from_value(result_value).map_err(RpcError::Json)

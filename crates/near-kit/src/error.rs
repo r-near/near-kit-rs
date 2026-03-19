@@ -342,10 +342,23 @@ impl RpcError {
     /// The data field typically looks like:
     /// `{"TxExecutionError": {"InvalidTxError": {"InvalidNonce": {...}}}}`
     fn try_parse_invalid_tx(data: &serde_json::Value) -> Option<crate::types::InvalidTxError> {
-        // Try: data.TxExecutionError.InvalidTxError
-        let tx_err = data.get("TxExecutionError")?;
-        let invalid_tx_value = tx_err.get("InvalidTxError")?;
-        serde_json::from_value(invalid_tx_value.clone()).ok()
+        // Nested form: data.TxExecutionError.InvalidTxError
+        if let Some(tx_err) = data.get("TxExecutionError") {
+            if let Some(invalid_tx_value) = tx_err.get("InvalidTxError") {
+                if let Ok(parsed) = serde_json::from_value(invalid_tx_value.clone()) {
+                    return Some(parsed);
+                }
+            }
+        }
+
+        // Fallback: InvalidTxError at the top level (some RPC versions)
+        if let Some(invalid_tx_value) = data.get("InvalidTxError") {
+            if let Ok(parsed) = serde_json::from_value(invalid_tx_value.clone()) {
+                return Some(parsed);
+            }
+        }
+
+        None
     }
 
     /// Create a function call error.
