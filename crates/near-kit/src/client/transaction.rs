@@ -29,6 +29,7 @@
 //! ```
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
@@ -161,6 +162,25 @@ pub struct TransactionBuilder {
     signer_override: Option<Arc<dyn Signer>>,
     wait_until: TxExecutionStatus,
     max_nonce_retries: u32,
+}
+
+impl fmt::Debug for TransactionBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TransactionBuilder")
+            .field(
+                "signer_id",
+                &self
+                    .signer_override
+                    .as_ref()
+                    .or(self.signer.as_ref())
+                    .map(|s| s.account_id()),
+            )
+            .field("receiver_id", &self.receiver_id)
+            .field("action_count", &self.actions.len())
+            .field("wait_until", &self.wait_until)
+            .field("max_nonce_retries", &self.max_nonce_retries)
+            .finish()
+    }
 }
 
 impl TransactionBuilder {
@@ -939,6 +959,17 @@ pub struct FunctionCall {
     deposit: NearToken,
 }
 
+impl fmt::Debug for FunctionCall {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FunctionCall")
+            .field("method", &self.method)
+            .field("args_len", &self.args.len())
+            .field("gas", &self.gas)
+            .field("deposit", &self.deposit)
+            .finish()
+    }
+}
+
 impl FunctionCall {
     /// Create a new function call for the given method name.
     pub fn new(method: impl Into<String>) -> Self {
@@ -1016,6 +1047,15 @@ impl From<FunctionCall> for Action {
 pub struct CallBuilder {
     builder: TransactionBuilder,
     call: FunctionCall,
+}
+
+impl fmt::Debug for CallBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CallBuilder")
+            .field("call", &self.call)
+            .field("builder", &self.builder)
+            .finish()
+    }
 }
 
 impl CallBuilder {
