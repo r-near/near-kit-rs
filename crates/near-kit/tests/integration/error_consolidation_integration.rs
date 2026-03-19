@@ -168,6 +168,7 @@ async fn test_function_call_error_returns_action_failed() {
 // =============================================================================
 
 #[tokio::test]
+#[ignore = "requires EXPERIMENTAL_view_access_key (nearcore 2.11+), see #105"]
 async fn test_wrong_signer_key_returns_invalid_tx_or_rpc_error() {
     let sandbox = SandboxConfig::shared().await;
 
@@ -197,16 +198,18 @@ async fn test_wrong_signer_key_returns_invalid_tx_or_rpc_error() {
         .await
         .expect_err("Wrong key should fail");
 
-    // The RPC pre-check should catch this as AccessKeyNotFound before the
-    // transaction even enters the mempool. After the From<RpcError> promotion,
-    // non-InvalidTx RPC errors stay as Error::Rpc.
+    // The wrong key is caught during nonce lookup (view_access_key) before
+    // the transaction is even built.
     match &err {
-        Error::Rpc(e) => {
-            assert!(
-                matches!(e.as_ref(), RpcError::AccessKeyNotFound { .. }),
-                "Expected AccessKeyNotFound, got: {e:?}"
-            );
-        }
+        Error::Rpc(e) => match e.as_ref() {
+            RpcError::AccessKeyNotFound {
+                account_id: err_account,
+                ..
+            } => {
+                assert_eq!(err_account, &account_id);
+            }
+            other => panic!("Expected AccessKeyNotFound, got: {other:?}"),
+        },
         other => panic!("Expected Rpc(AccessKeyNotFound), got: {other:?}"),
     }
 

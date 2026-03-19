@@ -232,6 +232,20 @@ impl RpcClient {
             .result
             .ok_or_else(|| RpcError::InvalidResponse("Missing result in response".to_string()))?;
 
+        // NEAR's `query` endpoint sometimes returns errors inside the result
+        // object (with an "error" field) instead of in the JSON-RPC error
+        // envelope. Detect and route through the standard error parser.
+        if let Some(error_str) = result_value.get("error").and_then(|e| e.as_str()) {
+            let synthetic = JsonRpcError {
+                code: -32000,
+                message: error_str.to_string(),
+                data: Some(serde_json::Value::String(error_str.to_string())),
+                cause: None,
+                name: None,
+            };
+            return Err(self.parse_rpc_error(&synthetic));
+        }
+
         serde_json::from_value(result_value).map_err(RpcError::Json)
     }
 
