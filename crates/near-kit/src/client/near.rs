@@ -119,8 +119,11 @@ impl Near {
     /// Create a configured client from environment variables.
     ///
     /// Reads the following environment variables:
-    /// - `NEAR_CHAIN_ID` or `NEAR_NETWORK` (optional): `"mainnet"`, `"testnet"`, or a custom RPC URL.
-    ///   `NEAR_CHAIN_ID` takes precedence over `NEAR_NETWORK`. Defaults to `"testnet"` if not set.
+    /// - `NEAR_NETWORK` (optional): `"mainnet"`, `"testnet"`, or a custom RPC URL.
+    ///   Defaults to `"testnet"` if not set.
+    /// - `NEAR_CHAIN_ID` (optional): Overrides the chain identifier (e.g., `"pinet"`).
+    ///   Only needed for custom networks — `"mainnet"` and `"testnet"` are inferred
+    ///   from `NEAR_NETWORK` automatically.
     /// - `NEAR_ACCOUNT_ID` (optional): Account ID for signing transactions.
     /// - `NEAR_PRIVATE_KEY` (optional): Private key for signing (e.g., `"ed25519:..."`).
     /// - `NEAR_MAX_NONCE_RETRIES` (optional): Maximum number of transaction send
@@ -133,7 +136,8 @@ impl Near {
     ///
     /// ```bash
     /// # Environment variables
-    /// export NEAR_NETWORK=testnet
+    /// export NEAR_NETWORK=https://rpc.pinet.near.org
+    /// export NEAR_CHAIN_ID=pinet
     /// export NEAR_ACCOUNT_ID=alice.testnet
     /// export NEAR_PRIVATE_KEY=ed25519:...
     /// export NEAR_MAX_NONCE_RETRIES=10
@@ -158,18 +162,22 @@ impl Near {
     /// - `NEAR_PRIVATE_KEY` contains an invalid key format
     /// - `NEAR_MAX_NONCE_RETRIES` is set but not a valid positive integer
     pub fn from_env() -> Result<Near, Error> {
-        let network = std::env::var("NEAR_CHAIN_ID")
-            .or_else(|_| std::env::var("NEAR_NETWORK"))
-            .ok();
+        let network = std::env::var("NEAR_NETWORK").ok();
+        let chain_id_override = std::env::var("NEAR_CHAIN_ID").ok();
         let account_id = std::env::var("NEAR_ACCOUNT_ID").ok();
         let private_key = std::env::var("NEAR_PRIVATE_KEY").ok();
 
-        // Determine builder based on network/chain_id
+        // Determine builder based on NEAR_NETWORK
         let mut builder = match network.as_deref() {
             Some("mainnet") => Near::mainnet(),
             Some("testnet") | None => Near::testnet(),
             Some(url) => Near::custom(url),
         };
+
+        // Override chain_id if NEAR_CHAIN_ID is set
+        if let Some(id) = chain_id_override {
+            builder = builder.chain_id(id);
+        }
 
         // Configure signer if both account and key are provided
         match (account_id, private_key) {
@@ -1450,6 +1458,33 @@ mod tests {
                 "Error should mention NEAR_MAX_NONCE_RETRIES: {}",
                 err
             );
+        }
+
+        // Scenario 10: NEAR_CHAIN_ID overrides chain_id for custom network
+        clear_env();
+        unsafe {
+            std::env::set_var("NEAR_NETWORK", "https://rpc.pinet.near.org");
+            std::env::set_var("NEAR_CHAIN_ID", "pinet");
+        }
+        {
+            let near = Near::from_env().unwrap();
+            assert_eq!(near.rpc_url(), "https://rpc.pinet.near.org");
+            assert_eq!(near.chain_id().as_str(), "pinet");
+        }
+
+        // Scenario 11: NEAR_CHAIN_ID without NEAR_NETWORK defaults to testnet RPC
+        clear_env();
+        unsafe {
+            std::env::set_var("NEAR_CHAIN_ID", "my-chain");
+        }
+        {
+            let near = Near::from_env().unwrap();
+            assert!(
+                near.rpc_url().contains("test") || near.rpc_url().contains("fastnear"),
+                "Expected testnet URL, got: {}",
+                near.rpc_url()
+            );
+            assert_eq!(near.chain_id().as_str(), "my-chain");
         }
 
         // Final cleanup
