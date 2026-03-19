@@ -442,6 +442,11 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
                 &self.contract_id
             }
 
+            /// Get the underlying NEAR client.
+            pub fn near_client(&self) -> &near_kit::Near {
+                &self.near
+            }
+
             /// Return a new client that uses the given signer for transactions.
             pub fn with_signer(&self, signer: impl near_kit::Signer + 'static) -> Self {
                 Self {

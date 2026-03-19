@@ -29,6 +29,7 @@
 //! ```
 
 use std::collections::BTreeMap;
+use std::fmt::Debug;
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
@@ -161,6 +162,25 @@ pub struct TransactionBuilder {
     signer_override: Option<Arc<dyn Signer>>,
     wait_until: TxExecutionStatus,
     max_nonce_retries: u32,
+}
+
+impl Debug for TransactionBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TransactionBuilder")
+            .field(
+                "signer_id",
+                &self
+                    .signer_override
+                    .as_ref()
+                    .or(self.signer.as_ref())
+                    .map(|a| a.account_id()),
+            )
+            .field("receiver_id", &self.receiver_id)
+            .field("action_count", &self.actions.len())
+            .field("wait_until", &self.wait_until)
+            .field("max_nonce_retries", &self.max_nonce_retries)
+            .finish()
+    }
 }
 
 impl TransactionBuilder {
@@ -927,6 +947,7 @@ impl TransactionBuilder {
 ///
 /// Created via [`TransactionBuilder::call`]. Allows setting args, gas, and deposit
 /// before continuing to chain more actions or sending.
+#[derive(Debug)]
 pub struct CallBuilder {
     builder: TransactionBuilder,
     method: String,
