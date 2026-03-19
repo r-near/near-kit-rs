@@ -668,9 +668,14 @@ impl Near {
         state_init: crate::types::DeterministicAccountStateInit,
         deposit: impl IntoNearToken,
     ) -> TransactionBuilder {
+        // Derive once and pass directly to avoid TransactionBuilder::state_init()
+        // re-deriving the same account ID.
+        let deposit = deposit
+            .into_near_token()
+            .expect("invalid deposit amount - use NearToken::from_str() for user input");
         let receiver_id = state_init.derive_account_id();
         self.transaction(receiver_id)
-            .state_init(state_init, deposit)
+            .add_action(crate::types::Action::state_init(state_init, deposit))
     }
 
     /// Send a pre-signed transaction.
