@@ -663,6 +663,10 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the deposit amount string cannot be parsed.
     pub fn state_init(
         &self,
         state_init: crate::types::DeterministicAccountStateInit,
