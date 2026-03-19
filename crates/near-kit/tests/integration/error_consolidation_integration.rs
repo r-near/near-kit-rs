@@ -197,12 +197,17 @@ async fn test_wrong_signer_key_returns_invalid_tx_or_rpc_error() {
         .await
         .expect_err("Wrong key should fail");
 
-    // Could be InvalidTx (if caught by runtime) or Rpc error (if caught at RPC layer)
+    // The RPC pre-check should catch this as AccessKeyNotFound before the
+    // transaction even enters the mempool. After the From<RpcError> promotion,
+    // non-InvalidTx RPC errors stay as Error::Rpc.
     match &err {
-        Error::InvalidTx(_) => { /* expected: runtime caught it */ }
-        Error::Rpc(_) => { /* also ok: RPC pre-check caught it (AccessKeyNotFound, JSON parse error, etc.) */
+        Error::Rpc(e) => {
+            assert!(
+                matches!(e.as_ref(), RpcError::AccessKeyNotFound { .. }),
+                "Expected AccessKeyNotFound, got: {e:?}"
+            );
         }
-        other => panic!("Expected InvalidTx or Rpc error, got: {other:?}"),
+        other => panic!("Expected Rpc(AccessKeyNotFound), got: {other:?}"),
     }
 
     println!("Wrong key error: {:?}", err);

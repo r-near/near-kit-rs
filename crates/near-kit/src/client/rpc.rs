@@ -66,13 +66,17 @@ struct JsonRpcRequest<'a, P: Serialize> {
 }
 
 /// JSON-RPC response structure.
+///
+/// The `result` field is deserialized as raw JSON first, then parsed into `T`
+/// only after confirming no error is present. This avoids deserialization
+/// failures when the RPC returns an error with a partial/unexpected `result`.
 #[derive(Deserialize)]
-struct JsonRpcResponse<T> {
+struct JsonRpcResponse {
     #[allow(dead_code)]
     jsonrpc: String,
     #[allow(dead_code)]
     id: u64,
-    result: Option<T>,
+    result: Option<serde_json::Value>,
     error: Option<JsonRpcError>,
 }
 
@@ -218,16 +222,17 @@ impl RpcClient {
             ));
         }
 
-        let rpc_response: JsonRpcResponse<R> =
-            serde_json::from_str(&body).map_err(RpcError::Json)?;
+        let rpc_response: JsonRpcResponse = serde_json::from_str(&body).map_err(RpcError::Json)?;
 
         if let Some(error) = rpc_response.error {
             return Err(self.parse_rpc_error(&error));
         }
 
-        rpc_response
+        let result_value = rpc_response
             .result
-            .ok_or_else(|| RpcError::InvalidResponse("Missing result in response".to_string()))
+            .ok_or_else(|| RpcError::InvalidResponse("Missing result in response".to_string()))?;
+
+        serde_json::from_value(result_value).map_err(RpcError::Json)
     }
 
     /// Parse an RPC error into a specific error type.
