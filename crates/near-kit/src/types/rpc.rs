@@ -630,7 +630,11 @@ impl FinalExecutionOutcome {
             return Err(crate::error::Error::TransactionFailed(err.clone()));
         }
         match &self.status {
-            FinalExecutionStatus::SuccessValue(s) => Ok(STANDARD.decode(s).unwrap_or_default()),
+            FinalExecutionStatus::SuccessValue(s) => STANDARD.decode(s).map_err(|e| {
+                crate::error::Error::InvalidTransaction(format!(
+                    "Failed to decode base64 SuccessValue: {e}"
+                ))
+            }),
             other => Err(crate::error::Error::InvalidTransaction(format!(
                 "Transaction status is {:?}, expected SuccessValue",
                 other,
@@ -1695,11 +1699,15 @@ mod tests {
     }
 
     #[test]
-    fn test_outcome_result_invalid_base64_returns_empty() {
+    fn test_outcome_result_invalid_base64_returns_err() {
         // If the RPC somehow returns invalid base64 (protocol bug),
-        // result() returns empty bytes rather than panicking.
+        // result() returns an error so callers can distinguish it from empty values.
         let outcome = make_success_outcome("not-valid-base64!!!");
-        assert_eq!(outcome.result().unwrap(), b"");
+        let err = outcome.result().unwrap_err();
+        assert!(
+            err.to_string().contains("base64"),
+            "Error should mention base64 decode failure, got: {err}"
+        );
     }
 
     #[test]
