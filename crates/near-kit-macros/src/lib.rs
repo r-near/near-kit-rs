@@ -461,7 +461,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
             other => {
                 return Err(syn::Error::new(
                     other.span(),
-                    "#[near_kit::contract] only supports methods, not associated types or constants",
+                    "#[near_kit::contract] only supports methods in traits",
                 ));
             }
         }

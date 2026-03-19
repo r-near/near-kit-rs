@@ -99,8 +99,10 @@
 //!
 //! # Serialization Formats
 //!
-//! By default, arguments are serialized as JSON. Use `#[near_kit::contract(borsh)]`
-//! if the on-chain contract expects Borsh-encoded input:
+//! By default, arguments are serialized as JSON and view responses are
+//! deserialized from JSON. Use `#[near_kit::contract(borsh)]` to switch
+//! both directions to Borsh (call args are Borsh-encoded, view responses
+//! are Borsh-decoded):
 //!
 //! ```ignore
 //! use borsh::BorshSerialize;
