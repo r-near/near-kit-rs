@@ -176,7 +176,7 @@ impl Debug for TransactionBuilder {
                     .map(|a| a.account_id()),
             )
             .field("receiver_id", &self.receiver_id)
-            .field("actions", &self.actions)
+            .field("action_count", &self.actions.len())
             .field("wait_until", &self.wait_until)
             .field("max_nonce_retries", &self.max_nonce_retries)
             .finish()

@@ -442,8 +442,8 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
                 &self.contract_id
             }
 
-            /// Get the NEAR client.
-            pub fn near(&self) -> &near_kit::Near {
+            /// Get the underlying NEAR client.
+            pub fn near_client(&self) -> &near_kit::Near {
                 &self.near
             }
 
