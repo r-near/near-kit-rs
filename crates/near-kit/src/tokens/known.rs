@@ -24,7 +24,7 @@
 use crate::error::Error;
 use crate::types::{AccountId, ChainId};
 
-/// A known fungible token with verified addresses for different networks.
+/// A known fungible token with verified addresses for different chains.
 ///
 /// Use the predefined constants like [`USDC`], [`USDT`], and [`W_NEAR`]
 /// for common tokens.
@@ -50,12 +50,12 @@ impl KnownToken {
             "mainnet" => self.mainnet,
             "testnet" => self.testnet.ok_or_else(|| Error::TokenNotAvailable {
                 token: self.name.to_string(),
-                network: chain_id.to_string(),
+                chain_id: chain_id.to_string(),
             })?,
             _ => {
                 return Err(Error::TokenNotAvailable {
                     token: self.name.to_string(),
-                    network: chain_id.to_string(),
+                    chain_id: chain_id.to_string(),
                 });
             }
         };

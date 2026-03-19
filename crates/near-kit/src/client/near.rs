@@ -123,8 +123,9 @@ impl Near {
     /// - `NEAR_NETWORK` (optional): `"mainnet"`, `"testnet"`, or a custom RPC URL.
     ///   Defaults to `"testnet"` if not set.
     /// - `NEAR_CHAIN_ID` (optional): Overrides the chain identifier (e.g., `"pinet"`).
-    ///   Only needed for custom networks — `"mainnet"` and `"testnet"` are inferred
-    ///   from `NEAR_NETWORK` automatically.
+    ///   If set, always overrides the chain ID inferred from `NEAR_NETWORK`, including
+    ///   the built-in `"mainnet"` and `"testnet"` presets. Typically only needed for
+    ///   custom networks.
     /// - `NEAR_ACCOUNT_ID` (optional): Account ID for signing transactions.
     /// - `NEAR_PRIVATE_KEY` (optional): Private key for signing (e.g., `"ed25519:..."`).
     /// - `NEAR_MAX_NONCE_RETRIES` (optional): Maximum number of transaction send
@@ -294,8 +295,9 @@ impl Near {
     /// Returns true if this client was created via [`Near::sandbox()`].
     ///
     /// Note: sandbox nodes generate a random `chain_id` (e.g., `test-chain-aB3xQ`)
-    /// on each startup, so `chain_id()` won't return a predictable value for sandbox.
-    /// Use this method instead to check if the client is connected to a sandbox.
+    /// on each startup, so [`Near::chain_id()`] returns a placeholder for sandbox
+    /// clients that does not reflect the node-reported chain ID. Use this method
+    /// instead to check if the client is connected to a sandbox.
     pub fn is_sandbox(&self) -> bool {
         self.sandbox
     }

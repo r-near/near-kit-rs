@@ -439,8 +439,8 @@ pub enum Error {
     DelegateDecode(#[from] DelegateDecodeError),
 
     // ─── Tokens ───
-    #[error("Token {token} is not available on {network}")]
-    TokenNotAvailable { token: String, network: String },
+    #[error("Token {token} is not available on chain {chain_id}")]
+    TokenNotAvailable { token: String, chain_id: String },
 }
 
 #[cfg(test)]
