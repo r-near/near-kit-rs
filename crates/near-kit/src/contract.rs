@@ -78,14 +78,62 @@
 //! }
 //! ```
 //!
-//! # Serialization Formats
+//! # Composing Typed Calls in Transactions
 //!
-//! By default, arguments are serialized as JSON. For Borsh serialization:
+//! The macro also generates static `FunctionCall` constructors on the struct,
+//! so typed calls can be mixed with other actions in a single transaction:
 //!
 //! ```ignore
+//! // Compose state_init + typed call in one transaction
+//! near.transaction(contract_id)
+//!     .state_init(state_init, NearToken::ZERO)
+//!     .add_action(Counter::increment())
+//!     .send().await?;
+//!
+//! // Compose calls from multiple contract standards
+//! near.transaction("token.near")
+//!     .add_action(StorageManagement::storage_deposit(deposit_args))
+//!     .add_action(FungibleToken::ft_transfer_call(transfer_args))
+//!     .send().await?;
+//! ```
+//!
+//! # Serialization Formats
+//!
+//! By default, arguments are serialized as JSON and view responses are
+//! deserialized from JSON. Use `#[near_kit::contract(borsh)]` to switch
+//! both directions to Borsh (call args are Borsh-encoded, view responses
+//! are Borsh-decoded):
+//!
+//! ```ignore
+//! use borsh::BorshSerialize;
+//!
+//! #[derive(BorshSerialize)]
+//! pub struct UploadArgs {
+//!     pub data: Vec<u8>,
+//! }
+//!
 //! #[near_kit::contract(borsh)]
-//! pub trait MyContract {
-//!     fn my_method(&self, args: MyArgs) -> u64;
+//! pub trait DataStore {
+//!     fn get_size(&self) -> u64;
+//!
+//!     #[call]
+//!     fn upload(&mut self, args: UploadArgs);
+//! }
+//! ```
+//!
+//! You can also override the format per-method with `#[borsh]` or `#[json]`:
+//!
+//! ```ignore
+//! #[near_kit::contract]  // default: JSON
+//! pub trait MixedContract {
+//!     fn get_status(&self) -> String;       // JSON (default)
+//!
+//!     #[call]
+//!     fn set_config(&mut self, args: Config);  // JSON (default)
+//!
+//!     #[call]
+//!     #[borsh]
+//!     fn upload_data(&mut self, args: Data);   // Borsh (override)
 //! }
 //! ```
 
@@ -95,15 +143,28 @@ use crate::types::AccountId;
 /// Marker trait for typed contract interfaces.
 ///
 /// This trait is automatically implemented by the `#[near_kit::contract]` macro
-/// for each contract trait you define. It provides the associated `Client` type
+/// for each contract interface you define. It provides the associated `Client` type
 /// that is used by [`Near::contract`](crate::Near::contract).
 ///
 /// # Example
 ///
-/// The macro generates an implementation like this:
+/// Given a contract definition:
 ///
 /// ```ignore
-/// impl Contract for dyn MyContract {
+/// #[near_kit::contract]
+/// pub trait MyContract {
+///     fn get_value(&self) -> u64;
+///     #[call]
+///     fn set_value(&mut self, args: SetArgs);
+/// }
+/// ```
+///
+/// The macro generates a unit struct `MyContract` with composable
+/// `FunctionCall` constructors, a `MyContractClient` for the simple case,
+/// and this implementation:
+///
+/// ```ignore
+/// impl Contract for MyContract {
 ///     type Client = MyContractClient;
 /// }
 /// ```

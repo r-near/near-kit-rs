@@ -73,4 +73,10 @@ fn main() {
         let _: ViewCall<u64> = client.get_json_value();
         let _: CallBuilder = client.set_json_value();
     }
+
+    // Verify static FunctionCall constructors (call methods only, not view)
+    let _: FunctionCall = MixedContract::set_json_value();
+    let _: FunctionCall = MixedContract::set_borsh_value();
+    let _: FunctionCall = MixedContractBorshDefault::set_borsh_value();
+    let _: FunctionCall = MixedContractBorshDefault::set_json_value();
 }

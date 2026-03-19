@@ -42,4 +42,19 @@ fn main() {
     )
     .unwrap();
     let _client2: JsonGuestbookClient = client.with_signer(signer);
+
+    // Verify static FunctionCall constructors on the unit struct
+    let _fc: FunctionCall = JsonGuestbook::add_message(AddMessageArgs {
+        text: "composable".to_string(),
+    });
+
+    // Verify FunctionCall can be composed into a transaction via add_action
+    let _tx = near
+        .transaction("guestbook.testnet")
+        .add_action(
+            JsonGuestbook::add_message(AddMessageArgs {
+                text: "composed".to_string(),
+            })
+            .gas(Gas::from_tgas(50)),
+        );
 }

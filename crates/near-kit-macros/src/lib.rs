@@ -290,7 +290,7 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
                 quote! {
                     pub fn #method_name(&self) -> #view_return_type {
                         self.near.view::<#return_type>(&self.contract_id, #method_name_str)
-                            .args(serde_json::json!({}))
+                            .args_raw(b"{}".to_vec())
                     }
                 }
             }
@@ -334,7 +334,7 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
                 quote! {
                     pub fn #method_name(&self) -> near_kit::CallBuilder {
                         self.near.call(&self.contract_id, #method_name_str)
-                            .args(serde_json::json!({}))
+                            .args_raw(b"{}".to_vec())
                     }
                 }
             }
@@ -349,15 +349,51 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
     }
 }
 
-/// Strip internal attributes from a method for the output trait.
-fn strip_internal_attrs(method: &TraitItemFn) -> TraitItemFn {
-    let mut method = method.clone();
-    method.attrs.retain(|attr| {
-        !attr.path().is_ident("call")
-            && !attr.path().is_ident("json")
-            && !attr.path().is_ident("borsh")
-    });
-    method
+/// Generate a static associated function on the contract struct that returns `FunctionCall`.
+///
+/// Only generated for call methods (not view methods). This enables composable
+/// transactions where typed contract calls can be mixed with other actions.
+fn generate_function_call_method(
+    method: &MethodInfo,
+    contract_format: SerializationFormat,
+) -> TokenStream2 {
+    let method_name = &method.name;
+    let method_name_str = method_name.to_string();
+
+    let format = method.format_override.unwrap_or(contract_format);
+
+    if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
+        let args_method = match format {
+            SerializationFormat::Json => quote! { .args(#arg_name) },
+            SerializationFormat::Borsh => quote! { .args_borsh(#arg_name) },
+        };
+
+        quote! {
+            pub fn #method_name(#arg_name: #arg_type) -> near_kit::FunctionCall {
+                near_kit::FunctionCall::new(#method_name_str)
+                    #args_method
+            }
+        }
+    } else {
+        match format {
+            SerializationFormat::Json => {
+                // Use args_raw to avoid depending on serde_json in expanded code
+                quote! {
+                    pub fn #method_name() -> near_kit::FunctionCall {
+                        near_kit::FunctionCall::new(#method_name_str)
+                            .args_raw(b"{}".to_vec())
+                    }
+                }
+            }
+            SerializationFormat::Borsh => {
+                quote! {
+                    pub fn #method_name() -> near_kit::FunctionCall {
+                        near_kit::FunctionCall::new(#method_name_str)
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The main contract macro implementation.
@@ -377,15 +413,61 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
     let client_name = format_ident!("{}Client", trait_name);
     let vis = &input.vis;
 
-    // Parse all methods
+    // Reject unsupported trait features
+    if let Some(unsafety) = input.unsafety {
+        return Err(syn::Error::new(
+            unsafety.span(),
+            "#[near_kit::contract] does not support unsafe traits",
+        ));
+    }
+    if let Some(auto_token) = input.auto_token {
+        return Err(syn::Error::new(
+            auto_token.span(),
+            "#[near_kit::contract] does not support auto traits",
+        ));
+    }
+    if !input.generics.params.is_empty() {
+        return Err(syn::Error::new(
+            input.generics.span(),
+            "#[near_kit::contract] does not support generic parameters",
+        ));
+    }
+    if let Some(where_clause) = &input.generics.where_clause {
+        return Err(syn::Error::new(
+            where_clause.span(),
+            "#[near_kit::contract] does not support where clauses",
+        ));
+    }
+    if !input.supertraits.is_empty() {
+        return Err(syn::Error::new(
+            input.supertraits.span(),
+            "#[near_kit::contract] does not support supertraits",
+        ));
+    }
+
+    // Parse all methods, reject non-method items
     let mut methods = Vec::new();
     for item in &input.items {
-        if let TraitItem::Fn(method) = item {
-            methods.push(parse_method(method)?);
+        match item {
+            TraitItem::Fn(method) => {
+                if method.default.is_some() {
+                    return Err(syn::Error::new(
+                        method.sig.span(),
+                        "#[near_kit::contract] does not support default method implementations",
+                    ));
+                }
+                methods.push(parse_method(method)?);
+            }
+            other => {
+                return Err(syn::Error::new(
+                    other.span(),
+                    "#[near_kit::contract] only supports methods in traits",
+                ));
+            }
         }
     }
 
-    // Generate client methods
+    // Generate client methods (view → ViewCall, call → CallBuilder)
     let client_methods: Vec<TokenStream2> = methods
         .iter()
         .map(|m| {
@@ -397,35 +479,26 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         })
         .collect();
 
-    // Generate the cleaned trait (without internal attributes)
-    let cleaned_items: Vec<TraitItem> = input
-        .items
+    // Generate FunctionCall constructors for call methods only
+    let function_call_methods: Vec<TokenStream2> = methods
         .iter()
-        .map(|item| {
-            if let TraitItem::Fn(method) = item {
-                TraitItem::Fn(strip_internal_attrs(method))
-            } else {
-                item.clone()
-            }
-        })
+        .filter(|m| !m.is_view)
+        .map(|m| generate_function_call_method(m, args.format))
         .collect();
 
+    // Propagate trait-level attributes (doc comments, #[cfg], etc.) to the struct
     let trait_attrs = &input.attrs;
-    let trait_supertraits = &input.supertraits;
-    let trait_generics = &input.generics;
 
     // Build the output
     let expanded = quote! {
-        // Original trait (with internal attrs stripped for cleaner output)
-        // The trait is used for defining the interface, but the generated client
-        // struct is what's actually used - so suppress dead_code warnings.
-        #[allow(dead_code)]
         #(#trait_attrs)*
-        #vis trait #trait_name #trait_generics : #trait_supertraits {
-            #(#cleaned_items)*
+        #vis struct #trait_name;
+
+        impl #trait_name {
+            #(#function_call_methods)*
         }
 
-        // Generated client struct
+        // Generated client struct for the simple (non-composed) case.
         #vis struct #client_name {
             near: near_kit::Near,
             contract_id: near_kit::AccountId,
@@ -461,7 +534,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         }
 
         // Implement Contract marker trait
-        impl near_kit::Contract for dyn #trait_name {
+        impl near_kit::Contract for #trait_name {
             type Client = #client_name;
         }
     };
