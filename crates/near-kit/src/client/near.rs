@@ -98,6 +98,7 @@ pub struct Near {
     signer: Option<Arc<dyn Signer>>,
     chain_id: ChainId,
     max_nonce_retries: u32,
+    sandbox: bool,
 }
 
 impl Near {
@@ -249,8 +250,9 @@ impl Near {
         Near {
             rpc: Arc::new(RpcClient::new(network.rpc_url())),
             signer: Some(Arc::new(signer)),
-            chain_id: ChainId::sandbox(),
+            chain_id: ChainId::new("sandbox"),
             max_nonce_retries: 3,
+            sandbox: true,
         }
     }
 
@@ -289,6 +291,15 @@ impl Near {
         &self.chain_id
     }
 
+    /// Returns true if this client was created via [`Near::sandbox()`].
+    ///
+    /// Note: sandbox nodes generate a random `chain_id` (e.g., `test-chain-aB3xQ`)
+    /// on each startup, so `chain_id()` won't return a predictable value for sandbox.
+    /// Use this method instead to check if the client is connected to a sandbox.
+    pub fn is_sandbox(&self) -> bool {
+        self.sandbox
+    }
+
     /// Create a new client that shares this client's transport but uses a different signer.
     ///
     /// This is the recommended way to manage multiple accounts. The RPC connection
@@ -318,6 +329,7 @@ impl Near {
             signer: Some(Arc::new(signer)),
             chain_id: self.chain_id.clone(),
             max_nonce_retries: self.max_nonce_retries,
+            sandbox: self.sandbox,
         }
     }
 
@@ -1052,6 +1064,7 @@ impl NearBuilder {
             signer: self.signer,
             chain_id: self.chain_id,
             max_nonce_retries: self.max_nonce_retries,
+            sandbox: false,
         }
     }
 }

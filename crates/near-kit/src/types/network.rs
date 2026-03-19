@@ -41,11 +41,6 @@ impl ChainId {
         Self("testnet".to_string())
     }
 
-    /// Local sandbox network.
-    pub fn sandbox() -> Self {
-        Self("sandbox".to_string())
-    }
-
     /// Returns true if this is mainnet.
     pub fn is_mainnet(&self) -> bool {
         self.0 == "mainnet"
@@ -54,11 +49,6 @@ impl ChainId {
     /// Returns true if this is testnet.
     pub fn is_testnet(&self) -> bool {
         self.0 == "testnet"
-    }
-
-    /// Returns true if this is a sandbox network.
-    pub fn is_sandbox(&self) -> bool {
-        self.0 == "sandbox"
     }
 
     /// Returns the chain identifier as a string slice.
@@ -93,7 +83,6 @@ mod tests {
     fn test_chain_id_display() {
         assert_eq!(ChainId::mainnet().to_string(), "mainnet");
         assert_eq!(ChainId::testnet().to_string(), "testnet");
-        assert_eq!(ChainId::sandbox().to_string(), "sandbox");
         assert_eq!(ChainId::new("custom").to_string(), "custom");
     }
 
@@ -104,8 +93,6 @@ mod tests {
 
         assert!(ChainId::testnet().is_testnet());
         assert!(!ChainId::testnet().is_mainnet());
-
-        assert!(ChainId::sandbox().is_sandbox());
     }
 
     #[test]
@@ -132,6 +119,5 @@ mod tests {
         assert_eq!(chain_id.as_str(), "my-custom-network");
         assert!(!chain_id.is_mainnet());
         assert!(!chain_id.is_testnet());
-        assert!(!chain_id.is_sandbox());
     }
 }

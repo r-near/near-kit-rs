@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn test_sandbox_not_available() {
-        let result = USDC.resolve(&ChainId::sandbox());
+        let result = USDC.resolve(&ChainId::new("test-chain-abc12"));
         assert!(result.is_err());
     }
 
