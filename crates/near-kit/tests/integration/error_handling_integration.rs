@@ -37,9 +37,9 @@ async fn test_error_balance_nonexistent_account() {
 
     // Should be an RPC error indicating account not found
     match err {
-        Error::Rpc(rpc_err) => {
+        Error::Rpc(ref rpc_err) => {
             assert!(
-                matches!(rpc_err, RpcError::AccountNotFound(_)),
+                matches!(rpc_err.as_ref(), RpcError::AccountNotFound(_)),
                 "Expected AccountNotFound, got: {:?}",
                 rpc_err
             );
@@ -60,10 +60,13 @@ async fn test_error_account_info_nonexistent() {
     let err = result.unwrap_err();
 
     match err {
-        Error::Rpc(RpcError::AccountNotFound(account_id)) => {
-            assert_eq!(account_id.as_str(), "nonexistent-account-xyz.sandbox");
-        }
-        other => panic!("Expected AccountNotFound, got: {:?}", other),
+        Error::Rpc(ref e) => match e.as_ref() {
+            RpcError::AccountNotFound(account_id) => {
+                assert_eq!(account_id.as_str(), "nonexistent-account-xyz.sandbox");
+            }
+            other => panic!("Expected AccountNotFound, got: {:?}", other),
+        },
+        other => panic!("Expected Rpc error, got: {:?}", other),
     }
 }
 
@@ -120,16 +123,19 @@ async fn test_error_view_on_account_without_contract() {
     let err = result.unwrap_err();
 
     match err {
-        Error::Rpc(RpcError::ContractNotDeployed(account_id)) => {
-            assert!(account_id.as_str().contains("sandbox"));
-        }
-        Error::Rpc(RpcError::ContractExecution { .. }) => {
-            // Some versions return this instead
-        }
-        other => panic!(
-            "Expected ContractNotDeployed or ContractExecution, got: {:?}",
-            other
-        ),
+        Error::Rpc(ref e) => match e.as_ref() {
+            RpcError::ContractNotDeployed(account_id) => {
+                assert!(account_id.as_str().contains("sandbox"));
+            }
+            RpcError::ContractExecution { .. } => {
+                // Some versions return this instead
+            }
+            other => panic!(
+                "Expected ContractNotDeployed or ContractExecution, got: {:?}",
+                other
+            ),
+        },
+        other => panic!("Expected Rpc error, got: {:?}", other),
     }
 }
 
@@ -198,20 +204,23 @@ async fn test_error_view_nonexistent_method() {
     let err = result.unwrap_err();
 
     match err {
-        Error::Rpc(RpcError::ContractExecution {
-            contract_id: cid,
-            method_name,
-            message,
-        }) => {
-            assert_eq!(cid.as_str(), contract_id.as_str());
-            assert!(method_name.is_some());
-            assert!(
-                message.contains("MethodNotFound") || message.contains("MethodResolveError"),
-                "Expected method not found error, got: {}",
-                message
-            );
-        }
-        other => panic!("Expected ContractExecution error, got: {:?}", other),
+        Error::Rpc(ref e) => match e.as_ref() {
+            RpcError::ContractExecution {
+                contract_id: cid,
+                method_name,
+                message,
+            } => {
+                assert_eq!(cid.as_str(), contract_id.as_str());
+                assert!(method_name.is_some());
+                assert!(
+                    message.contains("MethodNotFound") || message.contains("MethodResolveError"),
+                    "Expected method not found error, got: {}",
+                    message
+                );
+            }
+            other => panic!("Expected ContractExecution error, got: {:?}", other),
+        },
+        other => panic!("Expected Rpc error, got: {:?}", other),
     }
 }
 
@@ -533,7 +542,7 @@ async fn test_error_query_at_nonexistent_block_height() {
     let err = result.unwrap_err();
 
     match err {
-        Error::Rpc(RpcError::UnknownBlock(_)) => {
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::UnknownBlock(_)) => {
             // Expected
         }
         other => {

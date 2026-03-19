@@ -377,10 +377,10 @@
 //!
 //! match near.balance("nonexistent.testnet").await {
 //!     Ok(balance) => println!("Balance: {}", balance.available),
-//!     Err(Error::Rpc(RpcError::AccountNotFound(account))) => {
-//!         println!("Account {} doesn't exist", account);
+//!     Err(e) => {
+//!         println!("Error: {}", e);
+//!         return Err(e);
 //!     }
-//!     Err(e) => return Err(e),
 //! }
 //! # Ok(())
 //! # }

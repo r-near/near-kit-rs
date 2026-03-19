@@ -69,8 +69,10 @@ async fn test_typed_contract_view_on_nonexistent_account() {
 
     // Should be AccountNotFound or ContractNotDeployed
     match err {
-        Error::Rpc(RpcError::AccountNotFound(_)) => { /* Expected */ }
-        Error::Rpc(RpcError::ContractNotDeployed(_)) => { /* Also acceptable */ }
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::AccountNotFound(_)) => { /* Expected */
+        }
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed(_)) => { /* Also acceptable */
+        }
         _ => panic!(
             "Expected AccountNotFound or ContractNotDeployed, got: {:?}",
             err
@@ -105,7 +107,8 @@ async fn test_typed_contract_view_on_account_without_contract() {
     println!("View on account without contract: {:?}", err);
 
     match err {
-        Error::Rpc(RpcError::ContractNotDeployed(_)) => { /* Expected */ }
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed(_)) => { /* Expected */
+        }
         Error::Rpc(_) => { /* Other RPC errors acceptable */ }
         _ => panic!("Expected RPC error, got: {:?}", err),
     }
@@ -182,7 +185,8 @@ async fn test_typed_contract_view_on_wrong_contract_type() {
 
     // Should be a contract execution error (method not found)
     match err {
-        Error::Rpc(RpcError::ContractExecution { .. }) => { /* Expected */ }
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractExecution { .. }) => { /* Expected */
+        }
         Error::Rpc(_) => { /* Other RPC errors acceptable */ }
         _ => panic!("Expected RPC error, got: {:?}", err),
     }
@@ -306,7 +310,7 @@ async fn test_typed_contract_query_at_invalid_block() {
     println!("Query at invalid block: {:?}", err);
 
     match err {
-        Error::Rpc(RpcError::UnknownBlock(_)) => { /* Expected */ }
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::UnknownBlock(_)) => { /* Expected */ }
         Error::Rpc(_) => { /* Other RPC errors acceptable */ }
         _ => panic!("Expected RPC error, got: {:?}", err),
     }

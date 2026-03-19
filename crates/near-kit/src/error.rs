@@ -31,9 +31,6 @@
 //!         // Transaction executed but an action failed — outcome has receipt details
 //!         println!("Action failed: {}, gas used: {}", error, outcome.total_gas_used());
 //!     }
-//!     Err(Error::Rpc(RpcError::AccountNotFound(account))) => {
-//!         println!("Account {} doesn't exist", account);
-//!     }
 //!     Err(e) => return Err(e),
 //! }
 //! # Ok(())
@@ -413,7 +410,7 @@ pub enum Error {
 
     // ─── RPC ───
     #[error(transparent)]
-    Rpc(RpcError),
+    Rpc(Box<RpcError>),
 
     // ─── Transaction validation ───
     /// Transaction was rejected before execution. No receipt was created,
@@ -466,7 +463,7 @@ impl From<RpcError> for Error {
         match err {
             // Promote structured tx validation errors to Error::InvalidTx
             RpcError::InvalidTx(e) => Error::InvalidTx(e),
-            other => Error::Rpc(other),
+            other => Error::Rpc(Box::new(other)),
         }
     }
 }

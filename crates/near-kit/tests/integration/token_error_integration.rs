@@ -49,13 +49,13 @@ async fn test_ft_metadata_on_non_contract_account() {
     // Should be ContractNotDeployed or similar error
     println!("FT metadata on non-contract: {:?}", err);
     match err {
-        Error::Rpc(RpcError::ContractNotDeployed(_)) => {
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed(_)) => {
             // Expected
         }
-        _ => {
+        Error::Rpc(_) => {
             // Accept other RPC errors that indicate no contract
-            assert!(matches!(err, Error::Rpc(_)));
         }
+        _ => panic!("Expected Rpc error, got: {:?}", err),
     }
 }
 
@@ -190,7 +190,8 @@ async fn test_ft_on_wrong_contract_type() {
 
     // Could be ContractExecution or other RPC error
     match err {
-        Error::Rpc(RpcError::ContractExecution { .. }) => { /* Expected */ }
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractExecution { .. }) => { /* Expected */
+        }
         Error::Rpc(_) => { /* Other RPC errors are acceptable too */ }
         _ => panic!("Expected RPC error, got: {:?}", err),
     }

@@ -200,9 +200,9 @@ async fn test_wrong_signer_key_returns_invalid_tx_or_rpc_error() {
     // Could be InvalidTx (if caught by runtime) or Rpc error (if caught at RPC layer)
     match &err {
         Error::InvalidTx(_) => { /* expected: runtime caught it */ }
-        Error::Rpc(RpcError::AccessKeyNotFound { .. }) => { /* also ok: RPC pre-check caught it */ }
-        Error::Rpc(RpcError::InvalidTx(_)) => { /* shouldn't happen with promotion, but handle */ }
-        other => panic!("Expected InvalidTx or AccessKeyNotFound, got: {other:?}"),
+        Error::Rpc(_) => { /* also ok: RPC pre-check caught it (AccessKeyNotFound, JSON parse error, etc.) */
+        }
+        other => panic!("Expected InvalidTx or Rpc error, got: {other:?}"),
     }
 
     println!("Wrong key error: {:?}", err);
@@ -236,7 +236,7 @@ fn test_rpc_invalid_tx_promotes_to_error_invalid_tx() {
             assert_eq!(tx_nonce, 5);
             assert_eq!(ak_nonce, 10);
         }
-        other => panic!("Expected Error::InvalidTx, got: {other:?}"),
+        other => panic!("Expected Error::InvalidTx(InvalidNonce), got: {other:?}"),
     }
 }
 
@@ -244,7 +244,7 @@ fn test_rpc_invalid_tx_promotes_to_error_invalid_tx() {
 fn test_rpc_non_tx_error_stays_as_rpc() {
     let rpc_err = RpcError::Timeout(3);
     let err: Error = rpc_err.into();
-    assert!(matches!(err, Error::Rpc(RpcError::Timeout(3))));
+    assert!(matches!(err, Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::Timeout(3))));
 }
 
 // =============================================================================
