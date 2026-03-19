@@ -577,7 +577,8 @@ impl TransactionBuilder {
     /// # use near_kit::*;
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
     /// let si = DeterministicAccountStateInit::by_hash(code_hash, Default::default());
-    /// let outcome = near.state_init(si, NearToken::from_near(1))
+    /// let outcome = near.transaction("alice.testnet")
+    ///     .state_init(si, NearToken::from_near(1))
     ///     .send()
     ///     .await?;
     /// # Ok(())
