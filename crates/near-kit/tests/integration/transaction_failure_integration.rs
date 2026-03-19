@@ -476,12 +476,12 @@ async fn test_transfer_max_amount() {
         .unwrap()
         .build();
 
-    // Transfer max u128 (way more than balance)
+    // Transfer max u128 (way more than balance) — rejected at RPC validation
+    // level (CostOverflow is caught before on-chain execution)
     let result = account_near
         .transfer(ROOT_ACCOUNT, NearToken::from_yoctonear(u128::MAX))
         .await;
 
-    let outcome = result.expect("RPC send should succeed");
-    assert!(outcome.is_failure(), "Should fail with max amount");
-    println!("Max transfer error: {:?}", outcome.result().unwrap_err());
+    assert!(result.is_err(), "Should fail with max amount");
+    println!("Max transfer error: {:?}", result.unwrap_err());
 }

@@ -328,20 +328,14 @@ async fn test_error_insufficient_balance_transfer() {
         .await
         .unwrap();
 
-    // Try to transfer more than available
-    let outcome = sender_near
+    // Try to transfer more than available — rejected at RPC validation level
+    // (NotEnoughBalance is caught before on-chain execution)
+    let result = sender_near
         .transfer(&receiver_id, NearToken::from_near(1000))
-        .await
-        .expect("RPC send should succeed");
+        .await;
 
-    assert!(
-        outcome.is_failure(),
-        "Should fail with insufficient balance"
-    );
-    println!(
-        "Insufficient balance error: {:?}",
-        outcome.result().unwrap_err()
-    );
+    assert!(result.is_err(), "Should fail with insufficient balance");
+    println!("Insufficient balance error: {:?}", result.unwrap_err());
 }
 
 #[tokio::test]
