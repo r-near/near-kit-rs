@@ -817,6 +817,29 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_transaction_parses_top_level_invalid_tx() {
+        use crate::types::InvalidTxError;
+        // Some RPC versions put InvalidTxError at the top level
+        let data = serde_json::json!({
+            "InvalidTxError": {
+                "NotEnoughBalance": {
+                    "signer_id": "alice.near",
+                    "balance": "1000000000000000000000000",
+                    "cost": "9000000000000000000000000"
+                }
+            }
+        });
+        let err = RpcError::invalid_transaction("insufficient balance", Some(data));
+        assert!(
+            matches!(
+                err,
+                RpcError::InvalidTx(InvalidTxError::NotEnoughBalance { .. })
+            ),
+            "Expected InvalidTx(NotEnoughBalance), got: {err:?}"
+        );
+    }
+
+    #[test]
     fn test_invalid_transaction_falls_back_on_unparseable() {
         // When data doesn't contain a parseable InvalidTxError, falls back
         let data = serde_json::json!({ "SomeOtherError": {} });
