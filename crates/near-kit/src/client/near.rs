@@ -123,6 +123,8 @@ impl Near {
     ///   Defaults to `"testnet"` if not set.
     /// - `NEAR_ACCOUNT_ID` (optional): Account ID for signing transactions.
     /// - `NEAR_PRIVATE_KEY` (optional): Private key for signing (e.g., `"ed25519:..."`).
+    /// - `NEAR_MAX_NONCE_RETRIES` (optional): Maximum number of transaction send
+    ///   attempts on `InvalidNonce` errors. Defaults to `3`.
     ///
     /// If `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` are both set, the client will
     /// be configured with signing capability. Otherwise, it will be read-only.
@@ -134,6 +136,7 @@ impl Near {
     /// export NEAR_NETWORK=testnet
     /// export NEAR_ACCOUNT_ID=alice.testnet
     /// export NEAR_PRIVATE_KEY=ed25519:...
+    /// export NEAR_MAX_NONCE_RETRIES=10
     /// ```
     ///
     /// ```rust,no_run
@@ -153,6 +156,7 @@ impl Near {
     /// Returns an error if:
     /// - `NEAR_ACCOUNT_ID` is set without `NEAR_PRIVATE_KEY` (or vice versa)
     /// - `NEAR_PRIVATE_KEY` contains an invalid key format
+    /// - `NEAR_MAX_NONCE_RETRIES` is set but not a valid positive integer
     pub fn from_env() -> Result<Near, Error> {
         let network = std::env::var("NEAR_NETWORK").ok();
         let account_id = std::env::var("NEAR_ACCOUNT_ID").ok();
@@ -183,6 +187,21 @@ impl Near {
             (None, None) => {
                 // Read-only client, no credentials
             }
+        }
+
+        // Configure max nonce retries if set
+        if let Ok(retries) = std::env::var("NEAR_MAX_NONCE_RETRIES") {
+            let retries: u32 = retries.parse().map_err(|_| {
+                Error::Config(format!(
+                    "NEAR_MAX_NONCE_RETRIES must be a positive integer, got: {retries}"
+                ))
+            })?;
+            if retries == 0 {
+                return Err(Error::Config(
+                    "NEAR_MAX_NONCE_RETRIES must be at least 1".into(),
+                ));
+            }
+            builder = builder.max_nonce_retries(retries);
         }
 
         Ok(builder.build())
@@ -1239,6 +1258,7 @@ mod tests {
                 std::env::remove_var("NEAR_NETWORK");
                 std::env::remove_var("NEAR_ACCOUNT_ID");
                 std::env::remove_var("NEAR_PRIVATE_KEY");
+                std::env::remove_var("NEAR_MAX_NONCE_RETRIES");
             }
         }
 
@@ -1332,6 +1352,54 @@ mod tests {
             assert!(
                 err.to_string().contains("NEAR_ACCOUNT_ID"),
                 "Error should mention NEAR_ACCOUNT_ID: {}",
+                err
+            );
+        }
+
+        // Scenario 7: Custom max_nonce_retries
+        clear_env();
+        unsafe {
+            std::env::set_var("NEAR_MAX_NONCE_RETRIES", "10");
+        }
+        {
+            let near = Near::from_env().unwrap();
+            assert_eq!(near.max_nonce_retries, 10);
+        }
+
+        // Scenario 8: Invalid max_nonce_retries (not a number)
+        clear_env();
+        unsafe {
+            std::env::set_var("NEAR_MAX_NONCE_RETRIES", "abc");
+        }
+        {
+            let result = Near::from_env();
+            assert!(
+                result.is_err(),
+                "Expected error for non-numeric NEAR_MAX_NONCE_RETRIES"
+            );
+            let err = result.unwrap_err();
+            assert!(
+                err.to_string().contains("NEAR_MAX_NONCE_RETRIES"),
+                "Error should mention NEAR_MAX_NONCE_RETRIES: {}",
+                err
+            );
+        }
+
+        // Scenario 9: Invalid max_nonce_retries (zero)
+        clear_env();
+        unsafe {
+            std::env::set_var("NEAR_MAX_NONCE_RETRIES", "0");
+        }
+        {
+            let result = Near::from_env();
+            assert!(
+                result.is_err(),
+                "Expected error for zero NEAR_MAX_NONCE_RETRIES"
+            );
+            let err = result.unwrap_err();
+            assert!(
+                err.to_string().contains("NEAR_MAX_NONCE_RETRIES"),
+                "Error should mention NEAR_MAX_NONCE_RETRIES: {}",
                 err
             );
         }
