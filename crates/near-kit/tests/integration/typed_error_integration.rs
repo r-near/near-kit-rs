@@ -20,7 +20,7 @@ fn unique_account() -> AccountId {
 
 /// Create a funded account, returning a Near client, the account ID, and the secret key.
 async fn funded_account(
-    sandbox: &near_kit::sandbox::SharedSandbox,
+    sandbox: &near_kit::sandbox::Sandbox,
     balance: NearToken,
 ) -> (Near, AccountId, SecretKey) {
     let near = sandbox.client();
