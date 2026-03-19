@@ -729,17 +729,12 @@ impl Near {
             ))
         })?;
 
-        // Inspect outcome status and convert failures to Err
+        // Only InvalidTxError becomes Err — action errors return Ok(outcome)
+        // so callers can inspect the full outcome via is_failure()/failure_message().
         use crate::types::{FinalExecutionStatus, TxExecutionError};
         match outcome.status {
             FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
                 Err(Error::InvalidTx(Box::new(e)))
-            }
-            FinalExecutionStatus::Failure(TxExecutionError::ActionError(ref e)) => {
-                Err(Error::ActionFailed {
-                    error: Box::new(e.clone()),
-                    outcome: Box::new(outcome),
-                })
             }
             _ => Ok(outcome),
         }

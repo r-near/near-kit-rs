@@ -3,9 +3,9 @@
 //! These tests ensure that:
 //! - `InvalidTxError` surfaces as `Err(Error::InvalidTx(..))` regardless of
 //!   whether the RPC or runtime caught it
-//! - `ActionError` surfaces as `Err(Error::ActionFailed { error, outcome })`
-//!   with the full outcome attached
-//! - Successful transactions return `Ok(outcome)`
+//! - Action errors (contract panics, missing keys, etc.) return `Ok(outcome)`
+//!   where `outcome.is_failure()` is `true`
+//! - Successful transactions return `Ok(outcome)` where `outcome.is_success()`
 //!
 //! Run with: `cargo test --features sandbox --test integration error_consolidation`
 
@@ -22,7 +22,7 @@ fn unique_account() -> AccountId {
 }
 
 // =============================================================================
-// Successful transactions return Ok
+// Successful transactions return Ok with is_success()
 // =============================================================================
 
 #[tokio::test]
@@ -49,11 +49,11 @@ async fn test_successful_transfer_returns_ok() {
 }
 
 // =============================================================================
-// ActionError returns Err(Error::ActionFailed) with outcome attached
+// Action errors return Ok(outcome) with is_failure() true
 // =============================================================================
 
 #[tokio::test]
-async fn test_action_error_returns_err_with_outcome() {
+async fn test_action_error_returns_ok_with_failure_outcome() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
@@ -75,49 +75,31 @@ async fn test_action_error_returns_err_with_outcome() {
         .unwrap()
         .build();
 
-    // Delete a key that doesn't exist — ActionError
+    // Delete a key that doesn't exist — ActionError, but returned as Ok
     let fake_key = SecretKey::generate_ed25519();
-    let err = account_near
+    let outcome = account_near
         .transaction(&account_id)
         .delete_key(fake_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect_err("Deleting non-existent key should fail");
+        .expect("Action errors should return Ok(outcome)");
 
-    // Verify it's ActionFailed
-    match &err {
-        Error::ActionFailed { error, outcome } => {
-            // ActionError should name the specific kind
-            match &error.kind {
-                ActionErrorKind::DeleteKeyDoesNotExist {
-                    account_id: err_account,
-                    public_key,
-                } => {
-                    assert_eq!(err_account, &account_id);
-                    assert_eq!(public_key, &fake_key.public_key());
-                }
-                other => panic!("Expected DeleteKeyDoesNotExist, got: {other:?}"),
-            }
-
-            // Outcome should be attached with meaningful data
-            assert!(
-                outcome.total_gas_used().as_gas() > 0,
-                "Gas should have been consumed"
-            );
-            assert!(!outcome.transaction_hash().is_zero());
-        }
-        other => panic!("Expected ActionFailed, got: {other:?}"),
-    }
-
-    // Convenience methods should work
-    assert!(err.is_action_failed());
-    assert!(!err.is_invalid_tx());
-    assert!(err.outcome().is_some());
+    assert!(outcome.is_failure(), "Outcome should be a failure");
+    assert!(!outcome.is_success());
+    assert!(
+        outcome.failure_message().is_some(),
+        "Should have a failure message"
+    );
+    assert!(
+        outcome.total_gas_used().as_gas() > 0,
+        "Gas should have been consumed"
+    );
+    assert!(!outcome.transaction_hash().is_zero());
 }
 
 #[tokio::test]
-async fn test_function_call_error_returns_action_failed() {
+async fn test_function_call_error_returns_ok_with_failure_outcome() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
@@ -141,26 +123,18 @@ async fn test_function_call_error_returns_action_failed() {
         .unwrap()
         .build();
 
-    // Call a non-existent method
-    let err = contract_near
+    // Call a non-existent method — returns Ok with failure outcome
+    let outcome = contract_near
         .call(&contract_id, "nonexistent_method")
         .args(serde_json::json!({}))
         .gas(Gas::from_tgas(30))
         .await
-        .expect_err("Non-existent method should fail");
+        .expect("Action errors should return Ok(outcome)");
 
-    match &err {
-        Error::ActionFailed { error, outcome } => {
-            // Should be a FunctionCallError
-            match &error.kind {
-                ActionErrorKind::FunctionCallError(_) => { /* expected */ }
-                other => panic!("Expected FunctionCallError, got: {other:?}"),
-            }
-            // Receipts should exist (the tx was executed)
-            assert!(!outcome.receipts_outcome.is_empty());
-        }
-        other => panic!("Expected ActionFailed, got: {other:?}"),
-    }
+    assert!(outcome.is_failure());
+    assert!(outcome.failure_message().is_some());
+    // Receipts should exist (the tx was executed)
+    assert!(!outcome.receipts_outcome.is_empty());
 }
 
 // =============================================================================
@@ -214,18 +188,6 @@ async fn test_wrong_signer_key_returns_invalid_tx_or_rpc_error() {
     }
 
     println!("Wrong key error: {:?}", err);
-}
-
-// =============================================================================
-// Error::outcome() gives None for non-ActionFailed errors
-// =============================================================================
-
-#[tokio::test]
-async fn test_error_outcome_returns_none_for_non_action_errors() {
-    let err = Error::InvalidTx(Box::new(InvalidTxError::Expired));
-    assert!(err.outcome().is_none());
-    assert!(err.is_invalid_tx());
-    assert!(!err.is_action_failed());
 }
 
 // =============================================================================

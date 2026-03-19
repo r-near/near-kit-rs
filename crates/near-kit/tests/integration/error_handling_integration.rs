@@ -356,9 +356,9 @@ async fn test_error_create_account_that_already_exists() {
         .unwrap()
         .build();
 
-    // Try to create the same account again
+    // Try to create the same account again — action error returns Ok(outcome)
     let new_key = SecretKey::generate_ed25519();
-    let err = parent_near
+    let outcome = parent_near
         .transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(1))
@@ -366,14 +366,13 @@ async fn test_error_create_account_that_already_exists() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect_err("Should fail when creating duplicate account");
+        .expect("Action errors should return Ok(outcome)");
 
     assert!(
-        err.is_action_failed(),
-        "Expected ActionFailed, got: {:?}",
-        err
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
     );
-    println!("Duplicate account error: {:?}", err);
+    println!("Duplicate account error: {:?}", outcome.failure_message());
 }
 
 #[tokio::test]
@@ -400,22 +399,24 @@ async fn test_error_delete_nonexistent_key() {
         .unwrap()
         .build();
 
-    // Try to delete a key that doesn't exist on the account
+    // Try to delete a key that doesn't exist on the account — action error returns Ok(outcome)
     let fake_key = SecretKey::generate_ed25519();
-    let err = account_near
+    let outcome = account_near
         .transaction(&account_id)
         .delete_key(fake_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect_err("Should fail when deleting non-existent key");
+        .expect("Action errors should return Ok(outcome)");
 
     assert!(
-        err.is_action_failed(),
-        "Expected ActionFailed, got: {:?}",
-        err
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
     );
-    println!("Delete non-existent key error: {:?}", err);
+    println!(
+        "Delete non-existent key error: {:?}",
+        outcome.failure_message()
+    );
 }
 
 // =============================================================================
@@ -449,22 +450,20 @@ async fn test_error_function_call_panic() {
         .unwrap()
         .build();
 
-    // Call a method that doesn't exist (should fail during execution)
-    let err = contract_near
+    // Call a method that doesn't exist — action error returns Ok(outcome)
+    let outcome = contract_near
         .call(&contract_id, "nonexistent_method")
         .args(serde_json::json!({}))
         .gas(Gas::from_tgas(30))
         .await
-        .expect_err("Should fail when calling non-existent method");
+        .expect("Action errors should return Ok(outcome)");
 
     assert!(
-        err.is_action_failed(),
-        "Expected ActionFailed, got: {:?}",
-        err
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
     );
-    // ActionFailed carries the outcome so we can inspect it
-    assert!(err.outcome().is_some());
-    println!("Function call error: {:?}", err);
+    assert!(outcome.failure_message().is_some());
+    println!("Function call error: {:?}", outcome.failure_message());
 }
 
 #[tokio::test]
@@ -494,20 +493,19 @@ async fn test_error_function_call_insufficient_gas() {
         .unwrap()
         .build();
 
-    // Call with very low gas (should fail)
-    let err = contract_near
+    // Call with very low gas — action error returns Ok(outcome)
+    let outcome = contract_near
         .call(&contract_id, "add_message")
         .args(serde_json::json!({ "text": "test" }))
         .gas(Gas::from_gas(1000)) // Extremely low gas
         .await
-        .expect_err("Should fail with insufficient gas");
+        .expect("Action errors should return Ok(outcome)");
 
     assert!(
-        err.is_action_failed(),
-        "Expected ActionFailed, got: {:?}",
-        err
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
     );
-    println!("Insufficient gas error: {:?}", err);
+    println!("Insufficient gas error: {:?}", outcome.failure_message());
 }
 
 // =============================================================================

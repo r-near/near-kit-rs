@@ -635,12 +635,9 @@ impl FinalExecutionOutcome {
             FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
                 Err(crate::error::Error::InvalidTx(Box::new(e.clone())))
             }
-            FinalExecutionStatus::Failure(TxExecutionError::ActionError(e)) => {
-                Err(crate::error::Error::ActionFailed {
-                    error: Box::new(e.clone()),
-                    outcome: Box::new(self.clone()),
-                })
-            }
+            FinalExecutionStatus::Failure(TxExecutionError::ActionError(e)) => Err(
+                crate::error::Error::InvalidTransaction(format!("Action error: {e}")),
+            ),
             FinalExecutionStatus::SuccessValue(s) => STANDARD.decode(s).map_err(|e| {
                 crate::error::Error::InvalidTransaction(format!(
                     "Failed to decode base64 SuccessValue: {e}"

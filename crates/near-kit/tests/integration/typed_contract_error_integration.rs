@@ -215,7 +215,7 @@ async fn test_typed_contract_call_with_insufficient_gas() {
 
     let guestbook = near.contract::<dyn Guestbook>(&contract_id);
 
-    // Try to call with extremely low gas
+    // Try to call with extremely low gas — action errors return Ok(outcome)
     let result = guestbook
         .add_message(AddMessageArgs {
             text: "Test message".to_string(),
@@ -224,12 +224,15 @@ async fn test_typed_contract_call_with_insufficient_gas() {
         .await;
 
     match result {
-        Err(Error::ActionFailed { error, .. }) => {
-            println!("Insufficient gas error: {:?}", error);
+        Ok(outcome) if outcome.is_failure() => {
+            println!("Insufficient gas error: {:?}", outcome.failure_message());
         }
+        Ok(outcome) => panic!("Expected failure outcome, got success: {:?}", outcome),
         Err(Error::Rpc(_)) | Err(Error::InvalidTx(_)) => { /* Also acceptable */ }
-        Ok(_) => panic!("Expected error, got Ok"),
-        Err(other) => panic!("Expected ActionFailed or Rpc error, got: {:?}", other),
+        Err(other) => panic!(
+            "Expected Ok(failure) or Rpc/InvalidTx error, got: {:?}",
+            other
+        ),
     }
 }
 

@@ -45,33 +45,33 @@ async fn test_failed_transaction_preserves_receipts() {
         .build();
 
     // Call a non-existent method — the transaction executes but fails on-chain
-    let err = account_near
+    // Action errors return Ok(outcome) where outcome.is_failure() is true
+    let outcome = account_near
         .call(&contract_id, "nonexistent_method")
         .args(serde_json::json!({}))
         .gas(Gas::from_tgas(10))
         .await
-        .expect_err("Should fail for non-existent method");
+        .expect("Action errors should return Ok(outcome)");
 
-    // Should be an ActionFailed error with the outcome attached
-    match &err {
-        Error::ActionFailed { error, outcome } => {
-            println!("Got expected action error: {error}");
+    assert!(outcome.is_failure(), "Outcome should be a failure");
+    assert!(
+        outcome.failure_message().is_some(),
+        "Should have a failure message"
+    );
+    println!("Got expected failure: {:?}", outcome.failure_message());
 
-            // Receipt details are accessible via the attached outcome
-            assert!(
-                !outcome.receipts_outcome.is_empty(),
-                "Should have receipt outcomes even on failure"
-            );
-            assert!(outcome.total_gas_used().as_gas() > 0);
-            assert!(!outcome.transaction_hash().is_zero());
+    // Receipt details are accessible via the outcome
+    assert!(
+        !outcome.receipts_outcome.is_empty(),
+        "Should have receipt outcomes even on failure"
+    );
+    assert!(outcome.total_gas_used().as_gas() > 0);
+    assert!(!outcome.transaction_hash().is_zero());
 
-            for (i, receipt) in outcome.receipts_outcome.iter().enumerate() {
-                println!(
-                    "Receipt {i}: executor={}, status={:?}",
-                    receipt.outcome.executor_id, receipt.outcome.status
-                );
-            }
-        }
-        other => panic!("Expected ActionFailed, got: {other:?}"),
+    for (i, receipt) in outcome.receipts_outcome.iter().enumerate() {
+        println!(
+            "Receipt {i}: executor={}, status={:?}",
+            receipt.outcome.executor_id, receipt.outcome.status
+        );
     }
 }

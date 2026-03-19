@@ -8,8 +8,10 @@
 //!   - [`RpcError`] — RPC/network errors (connectivity, account not found, etc.)
 //!   - [`InvalidTxError`][crate::types::InvalidTxError] — Transaction was rejected
 //!     before execution (bad nonce, insufficient balance, expired, etc.)
-//!   - [`ActionError`][crate::types::ActionError] — Transaction executed but an
-//!     action failed (via [`Error::ActionFailed`], which includes the outcome)
+//!
+//! Action errors (contract panics, missing keys, etc.) are **not** `Err` — the
+//! transaction was accepted and executed, so the outcome is returned as
+//! `Ok(outcome)` where `outcome.is_failure()` is `true`.
 //!
 //! # Error Handling Examples
 //!
@@ -22,14 +24,16 @@
 //! let near = Near::testnet().build();
 //!
 //! match near.transfer("bob.testnet", "1 NEAR").await {
-//!     Ok(outcome) => println!("Success! Hash: {}", outcome.transaction_hash()),
+//!     Ok(outcome) if outcome.is_success() => {
+//!         println!("Success! Hash: {}", outcome.transaction_hash());
+//!     }
+//!     Ok(outcome) => {
+//!         // Transaction executed but an action failed — inspect the outcome
+//!         println!("Action failed: {:?}, gas used: {}", outcome.failure_message(), outcome.total_gas_used());
+//!     }
 //!     Err(Error::InvalidTx(e)) => {
 //!         // Transaction was rejected before execution (bad nonce, insufficient balance, etc.)
 //!         println!("Transaction rejected: {}", e);
-//!     }
-//!     Err(Error::ActionFailed { error, outcome }) => {
-//!         // Transaction executed but an action failed — outcome has receipt details
-//!         println!("Action failed: {}, gas used: {}", error, outcome.total_gas_used());
 //!     }
 //!     Err(e) => return Err(e),
 //! }
@@ -49,9 +53,7 @@
 
 use thiserror::Error;
 
-use crate::types::{
-    AccountId, ActionError, DelegateDecodeError, FinalExecutionOutcome, InvalidTxError, PublicKey,
-};
+use crate::types::{AccountId, DelegateDecodeError, InvalidTxError, PublicKey};
 
 /// Error parsing an account ID.
 ///
@@ -421,15 +423,6 @@ pub enum Error {
     #[error("Invalid transaction: {0}")]
     InvalidTx(Box<InvalidTxError>),
 
-    /// Transaction executed (nonce incremented, gas consumed) but an action
-    /// failed. The outcome is attached so callers can inspect receipts, logs,
-    /// and gas usage.
-    #[error("Action failed: {}", error)]
-    ActionFailed {
-        error: Box<ActionError>,
-        outcome: Box<FinalExecutionOutcome>,
-    },
-
     /// Local pre-send validation failure (e.g. empty actions, bad
     /// deserialization). Not a nearcore error.
     #[error("Invalid transaction: {0}")]
@@ -472,19 +465,6 @@ impl Error {
     /// Returns `true` if this is an [`Error::InvalidTx`] variant.
     pub fn is_invalid_tx(&self) -> bool {
         matches!(self, Error::InvalidTx(_))
-    }
-
-    /// Returns `true` if this is an [`Error::ActionFailed`] variant.
-    pub fn is_action_failed(&self) -> bool {
-        matches!(self, Error::ActionFailed { .. })
-    }
-
-    /// Returns the [`FinalExecutionOutcome`] if this is an [`Error::ActionFailed`].
-    pub fn outcome(&self) -> Option<&FinalExecutionOutcome> {
-        match self {
-            Error::ActionFailed { outcome, .. } => Some(outcome),
-            _ => None,
-        }
     }
 }
 

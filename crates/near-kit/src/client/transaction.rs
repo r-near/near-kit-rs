@@ -1384,17 +1384,13 @@ impl IntoFuture for TransactionSend {
                             ))
                         })?;
 
-                        // Inspect outcome status and convert failures to Err
+                        // Inspect outcome status — only InvalidTxError becomes Err.
+                        // ActionError means the tx executed (nonce incremented, gas consumed),
+                        // so we return Ok(outcome) and let the caller inspect is_failure().
                         use crate::types::{FinalExecutionStatus, TxExecutionError};
                         match outcome.status {
                             FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
                                 return Err(Error::InvalidTx(Box::new(e)));
-                            }
-                            FinalExecutionStatus::Failure(TxExecutionError::ActionError(ref e)) => {
-                                return Err(Error::ActionFailed {
-                                    error: Box::new(e.clone()),
-                                    outcome: Box::new(outcome),
-                                });
                             }
                             _ => return Ok(outcome),
                         }
