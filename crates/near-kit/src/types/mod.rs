@@ -79,7 +79,7 @@ pub use key::{
     DEFAULT_HD_PATH, DEFAULT_WORD_COUNT, KeyPair, KeyType, PublicKey, SecretKey, Signature,
     generate_seed_phrase,
 };
-pub use network::Network;
+pub use network::ChainId;
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountView, ActionReceiptData, ActionView, BandwidthRequest,

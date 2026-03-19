@@ -22,7 +22,7 @@
 //! ```
 
 use crate::error::Error;
-use crate::types::{AccountId, Network};
+use crate::types::{AccountId, ChainId};
 
 /// A known fungible token with verified addresses for different networks.
 ///
@@ -45,17 +45,17 @@ impl KnownToken {
     ///
     /// Returns an error if the token is not available on the specified network
     /// (e.g., some tokens don't have testnet deployments).
-    pub fn resolve(&self, network: Network) -> Result<AccountId, Error> {
-        let address = match network {
-            Network::Mainnet => self.mainnet,
-            Network::Testnet => self.testnet.ok_or_else(|| Error::TokenNotAvailable {
+    pub fn resolve(&self, chain_id: &ChainId) -> Result<AccountId, Error> {
+        let address = match chain_id.as_str() {
+            "mainnet" => self.mainnet,
+            "testnet" => self.testnet.ok_or_else(|| Error::TokenNotAvailable {
                 token: self.name.to_string(),
-                network: network.to_string(),
+                network: chain_id.to_string(),
             })?,
-            Network::Sandbox | Network::Custom => {
+            _ => {
                 return Err(Error::TokenNotAvailable {
                     token: self.name.to_string(),
-                    network: network.to_string(),
+                    network: chain_id.to_string(),
                 });
             }
         };
@@ -68,37 +68,37 @@ impl KnownToken {
 /// This enables the `ft()` and `nft()` methods to accept both raw addresses
 /// and [`KnownToken`] constants, resolving them based on the client's network.
 pub trait IntoContractId {
-    /// Resolve this to a contract [`AccountId`] for the given network.
-    fn into_contract_id(self, network: Network) -> Result<AccountId, Error>;
+    /// Resolve this to a contract [`AccountId`] for the given chain.
+    fn into_contract_id(self, chain_id: &ChainId) -> Result<AccountId, Error>;
 }
 
 impl IntoContractId for &str {
-    fn into_contract_id(self, _network: Network) -> Result<AccountId, Error> {
+    fn into_contract_id(self, _chain_id: &ChainId) -> Result<AccountId, Error> {
         self.parse().map_err(Into::into)
     }
 }
 
 impl IntoContractId for String {
-    fn into_contract_id(self, _network: Network) -> Result<AccountId, Error> {
+    fn into_contract_id(self, _chain_id: &ChainId) -> Result<AccountId, Error> {
         self.parse().map_err(Into::into)
     }
 }
 
 impl IntoContractId for AccountId {
-    fn into_contract_id(self, _network: Network) -> Result<AccountId, Error> {
+    fn into_contract_id(self, _chain_id: &ChainId) -> Result<AccountId, Error> {
         Ok(self)
     }
 }
 
 impl IntoContractId for &AccountId {
-    fn into_contract_id(self, _network: Network) -> Result<AccountId, Error> {
+    fn into_contract_id(self, _chain_id: &ChainId) -> Result<AccountId, Error> {
         Ok(self.clone())
     }
 }
 
 impl IntoContractId for KnownToken {
-    fn into_contract_id(self, network: Network) -> Result<AccountId, Error> {
-        self.resolve(network)
+    fn into_contract_id(self, chain_id: &ChainId) -> Result<AccountId, Error> {
+        self.resolve(chain_id)
     }
 }
 
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_usdc_mainnet() {
-        let account = USDC.resolve(Network::Mainnet).unwrap();
+        let account = USDC.resolve(&ChainId::mainnet()).unwrap();
         assert_eq!(
             account.as_str(),
             "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1"
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_usdc_testnet() {
-        let account = USDC.resolve(Network::Testnet).unwrap();
+        let account = USDC.resolve(&ChainId::testnet()).unwrap();
         assert_eq!(
             account.as_str(),
             "3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af"
@@ -164,37 +164,37 @@ mod tests {
 
     #[test]
     fn test_usdt_mainnet() {
-        let account = USDT.resolve(Network::Mainnet).unwrap();
+        let account = USDT.resolve(&ChainId::mainnet()).unwrap();
         assert_eq!(account.as_str(), "usdt.tether-token.near");
     }
 
     #[test]
     fn test_usdt_testnet_not_available() {
-        let result = USDT.resolve(Network::Testnet);
+        let result = USDT.resolve(&ChainId::testnet());
         assert!(result.is_err());
     }
 
     #[test]
     fn test_wnear_mainnet() {
-        let account = W_NEAR.resolve(Network::Mainnet).unwrap();
+        let account = W_NEAR.resolve(&ChainId::mainnet()).unwrap();
         assert_eq!(account.as_str(), "wrap.near");
     }
 
     #[test]
     fn test_wnear_testnet() {
-        let account = W_NEAR.resolve(Network::Testnet).unwrap();
+        let account = W_NEAR.resolve(&ChainId::testnet()).unwrap();
         assert_eq!(account.as_str(), "wrap.testnet");
     }
 
     #[test]
     fn test_sandbox_not_available() {
-        let result = USDC.resolve(Network::Sandbox);
+        let result = USDC.resolve(&ChainId::sandbox());
         assert!(result.is_err());
     }
 
     #[test]
     fn test_custom_not_available() {
-        let result = USDC.resolve(Network::Custom);
+        let result = USDC.resolve(&ChainId::new("custom"));
         assert!(result.is_err());
     }
 }
