@@ -33,6 +33,7 @@
 //!
 //! - [`TransactionBuilder`] — Multi-action transaction builder
 //! - [`CallBuilder`] — Function call builder (part of transactions)
+//! - [`FunctionCall`] — Standalone function call for composable transactions
 
 mod near;
 mod nonce_manager;
@@ -51,7 +52,7 @@ pub use query::{
 pub use rpc::{RetryConfig, RpcClient};
 pub use signer::{EnvSigner, FileSigner, InMemorySigner, RotatingSigner, Signer, SigningKey};
 pub use transaction::{
-    CallBuilder, DelegateOptions, DelegateResult, TransactionBuilder, TransactionSend,
+    CallBuilder, DelegateOptions, DelegateResult, FunctionCall, TransactionBuilder, TransactionSend,
 };
 
 #[cfg(feature = "keyring")]

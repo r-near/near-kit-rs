@@ -672,50 +672,9 @@ impl TransactionBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn add_action(mut self, action: Action) -> Self {
-        self.actions.push(action);
+    pub fn add_action(mut self, action: impl Into<Action>) -> Self {
+        self.actions.push(action.into());
         self
-    }
-
-    /// Add a function call action directly, without going through [`CallBuilder`].
-    ///
-    /// This is a one-shot alternative to the `.call("method").args(...).gas(...).deposit(...)`
-    /// builder pattern. It's especially useful for dynamic transaction composition
-    /// (e.g. building calls in a loop or conditionally).
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
-    /// near.transaction("contract.testnet")
-    ///     .function_call("init", serde_json::json!({"owner": "alice.testnet"}), Gas::from_tgas(50), NearToken::ZERO)
-    ///     .function_call("notify", serde_json::json!({"msg": "done"}), Gas::from_tgas(30), NearToken::ZERO)
-    ///     .send()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the gas or deposit values cannot be parsed. Use [`Gas::from_str()`]
-    /// and [`NearToken::from_str()`] for fallible parsing of user input.
-    pub fn function_call(
-        self,
-        method: impl Into<String>,
-        args: impl serde::Serialize,
-        gas: impl IntoGas,
-        deposit: impl IntoNearToken,
-    ) -> Self {
-        let args = serde_json::to_vec(&args).unwrap_or_default();
-        let gas = gas
-            .into_gas()
-            .expect("invalid gas format - use Gas::from_str() for user input");
-        let deposit = deposit
-            .into_near_token()
-            .expect("invalid deposit amount - use NearToken::from_str() for user input");
-        self.add_action(Action::function_call(method, args, gas, deposit))
     }
 
     // ========================================================================
@@ -920,26 +879,71 @@ impl TransactionBuilder {
 }
 
 // ============================================================================
-// CallBuilder
+// FunctionCall
 // ============================================================================
 
-/// Builder for configuring a function call within a transaction.
+/// A standalone function call configuration, decoupled from any transaction.
 ///
-/// Created via [`TransactionBuilder::call`]. Allows setting args, gas, and deposit
-/// before continuing to chain more actions or sending.
-pub struct CallBuilder {
-    builder: TransactionBuilder,
+/// Use this when you need to pre-build calls and compose them into a transaction
+/// later. This is especially useful for dynamic transaction composition (e.g. in
+/// a loop) or for batching typed contract calls into a single transaction.
+///
+/// Note: `FunctionCall` does not capture a receiver/contract account. The call
+/// will execute against whichever `receiver_id` is set on the transaction it's
+/// added to.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+/// // Pre-build calls independently
+/// let init = FunctionCall::new("init")
+///     .args(serde_json::json!({"owner": "alice.testnet"}))
+///     .gas(Gas::from_tgas(50));
+///
+/// let notify = FunctionCall::new("notify")
+///     .args(serde_json::json!({"msg": "done"}));
+///
+/// // Compose into a single atomic transaction
+/// near.transaction("contract.testnet")
+///     .add_action(init)
+///     .add_action(notify)
+///     .send()
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+/// // Dynamic composition in a loop
+/// let calls = vec![
+///     FunctionCall::new("method_a").args(serde_json::json!({"x": 1})),
+///     FunctionCall::new("method_b").args(serde_json::json!({"y": 2})),
+/// ];
+///
+/// let mut tx = near.transaction("contract.testnet");
+/// for call in calls {
+///     tx = tx.add_action(call);
+/// }
+/// tx.send().await?;
+/// # Ok(())
+/// # }
+/// ```
+pub struct FunctionCall {
     method: String,
     args: Vec<u8>,
     gas: Gas,
     deposit: NearToken,
 }
 
-impl CallBuilder {
-    fn new(builder: TransactionBuilder, method: String) -> Self {
+impl FunctionCall {
+    /// Create a new function call for the given method name.
+    pub fn new(method: impl Into<String>) -> Self {
         Self {
-            builder,
-            method,
+            method: method.into(),
             args: Vec::new(),
             gas: Gas::from_tgas(30),
             deposit: NearToken::ZERO,
@@ -947,7 +951,7 @@ impl CallBuilder {
     }
 
     /// Set JSON arguments.
-    pub fn args<A: serde::Serialize>(mut self, args: A) -> Self {
+    pub fn args(mut self, args: impl serde::Serialize) -> Self {
         self.args = serde_json::to_vec(&args).unwrap_or_default();
         self
     }
@@ -959,8 +963,84 @@ impl CallBuilder {
     }
 
     /// Set Borsh-encoded arguments.
-    pub fn args_borsh<A: borsh::BorshSerialize>(mut self, args: A) -> Self {
+    pub fn args_borsh(mut self, args: impl borsh::BorshSerialize) -> Self {
         self.args = borsh::to_vec(&args).unwrap_or_default();
+        self
+    }
+
+    /// Set gas limit.
+    ///
+    /// Defaults to 30 TGas if not set.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the gas string cannot be parsed. Use [`Gas`]'s `FromStr` impl
+    /// for fallible parsing of user input.
+    pub fn gas(mut self, gas: impl IntoGas) -> Self {
+        self.gas = gas
+            .into_gas()
+            .expect("invalid gas format - use Gas::from_str() for user input");
+        self
+    }
+
+    /// Set attached deposit.
+    ///
+    /// Defaults to zero if not set.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the amount string cannot be parsed. Use [`NearToken`]'s `FromStr`
+    /// impl for fallible parsing of user input.
+    pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
+        self.deposit = amount
+            .into_near_token()
+            .expect("invalid deposit amount - use NearToken::from_str() for user input");
+        self
+    }
+}
+
+impl From<FunctionCall> for Action {
+    fn from(call: FunctionCall) -> Self {
+        Action::function_call(call.method, call.args, call.gas, call.deposit)
+    }
+}
+
+// ============================================================================
+// CallBuilder
+// ============================================================================
+
+/// Builder for configuring a function call within a transaction.
+///
+/// Created via [`TransactionBuilder::call`]. Allows setting args, gas, and deposit
+/// before continuing to chain more actions or sending.
+pub struct CallBuilder {
+    builder: TransactionBuilder,
+    call: FunctionCall,
+}
+
+impl CallBuilder {
+    fn new(builder: TransactionBuilder, method: String) -> Self {
+        Self {
+            builder,
+            call: FunctionCall::new(method),
+        }
+    }
+
+    /// Set JSON arguments.
+    pub fn args<A: serde::Serialize>(mut self, args: A) -> Self {
+        self.call = self.call.args(args);
+        self
+    }
+
+    /// Set raw byte arguments.
+    pub fn args_raw(mut self, args: Vec<u8>) -> Self {
+        self.call = self.call.args_raw(args);
+        self
+    }
+
+    /// Set Borsh-encoded arguments.
+    pub fn args_borsh<A: borsh::BorshSerialize>(mut self, args: A) -> Self {
+        self.call = self.call.args_borsh(args);
         self
     }
 
@@ -985,9 +1065,7 @@ impl CallBuilder {
     /// Panics if the gas string cannot be parsed. Use [`Gas`]'s `FromStr` impl
     /// for fallible parsing of user input.
     pub fn gas(mut self, gas: impl IntoGas) -> Self {
-        self.gas = gas
-            .into_gas()
-            .expect("invalid gas format - use Gas::from_str() for user input");
+        self.call = self.call.gas(gas);
         self
     }
 
@@ -1012,10 +1090,50 @@ impl CallBuilder {
     /// Panics if the amount string cannot be parsed. Use [`NearToken`]'s `FromStr`
     /// impl for fallible parsing of user input.
     pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
-        self.deposit = amount
-            .into_near_token()
-            .expect("invalid deposit amount - use NearToken::from_str() for user input");
+        self.call = self.call.deposit(amount);
         self
+    }
+
+    /// Convert this call into a standalone [`Action`], discarding the
+    /// underlying transaction builder.
+    ///
+    /// This is useful for extracting a typed contract call so it can be
+    /// composed into a different transaction.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// // Extract actions from the fluent builder
+    /// let action = near.transaction("contract.testnet")
+    ///     .call("method")
+    ///     .args(serde_json::json!({"key": "value"}))
+    ///     .gas(Gas::from_tgas(50))
+    ///     .into_action();
+    ///
+    /// // Compose into a different transaction
+    /// near.transaction("contract.testnet")
+    ///     .add_action(action)
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying transaction builder already has accumulated
+    /// actions, since those would be silently dropped. Use [`finish`](Self::finish)
+    /// instead when chaining multiple actions on the same transaction.
+    pub fn into_action(self) -> Action {
+        assert!(
+            self.builder.actions.is_empty(),
+            "into_action() discards {} previously accumulated action(s) — \
+             use .finish() to keep them in the transaction",
+            self.builder.actions.len(),
+        );
+        self.call.into()
     }
 
     /// Finish this call and return to the transaction builder.
@@ -1024,12 +1142,7 @@ impl CallBuilder {
     /// transaction, since it gives back the [`TransactionBuilder`] so you can
     /// branch on runtime state before starting the next action.
     pub fn finish(self) -> TransactionBuilder {
-        self.builder.add_action(Action::function_call(
-            self.method,
-            self.args,
-            self.gas,
-            self.deposit,
-        ))
+        self.builder.add_action(self.call)
     }
 
     // ========================================================================
@@ -1040,27 +1153,13 @@ impl CallBuilder {
     ///
     /// Finishes this function call, then adds the given action.
     /// See [`TransactionBuilder::add_action`] for details.
-    pub fn add_action(self, action: Action) -> TransactionBuilder {
+    pub fn add_action(self, action: impl Into<Action>) -> TransactionBuilder {
         self.finish().add_action(action)
     }
 
     /// Add another function call.
     pub fn call(self, method: &str) -> CallBuilder {
         self.finish().call(method)
-    }
-
-    /// Add a function call action directly.
-    ///
-    /// Finishes this function call, then adds the given function call.
-    /// See [`TransactionBuilder::function_call`] for details.
-    pub fn function_call(
-        self,
-        method: impl Into<String>,
-        args: impl serde::Serialize,
-        gas: impl IntoGas,
-        deposit: impl IntoNearToken,
-    ) -> TransactionBuilder {
-        self.finish().function_call(method, args, gas, deposit)
     }
 
     /// Add a create account action.
@@ -1419,17 +1518,17 @@ mod tests {
         assert_eq!(builder.actions.len(), 2);
     }
 
-    #[test]
-    fn function_call_one_shot() {
-        let builder = test_builder().function_call(
-            "init",
-            serde_json::json!({"owner": "alice.testnet"}),
-            Gas::from_tgas(50),
-            NearToken::from_near(1),
-        );
+    // FunctionCall tests
 
-        assert_eq!(builder.actions.len(), 1);
-        match &builder.actions[0] {
+    #[test]
+    fn function_call_into_action() {
+        let call = FunctionCall::new("init")
+            .args(serde_json::json!({"owner": "alice.testnet"}))
+            .gas(Gas::from_tgas(50))
+            .deposit(NearToken::from_near(1));
+
+        let action: Action = call.into();
+        match &action {
             Action::FunctionCall(fc) => {
                 assert_eq!(fc.method_name, "init");
                 assert_eq!(
@@ -1444,37 +1543,80 @@ mod tests {
     }
 
     #[test]
-    fn function_call_chains_multiple() {
+    fn function_call_defaults() {
+        let call = FunctionCall::new("method");
+        let action: Action = call.into();
+        match &action {
+            Action::FunctionCall(fc) => {
+                assert_eq!(fc.method_name, "method");
+                assert!(fc.args.is_empty());
+                assert_eq!(fc.gas, Gas::from_tgas(30));
+                assert_eq!(fc.deposit, NearToken::ZERO);
+            }
+            other => panic!("expected FunctionCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn function_call_compose_into_transaction() {
+        let init = FunctionCall::new("init")
+            .args(serde_json::json!({"owner": "alice.testnet"}))
+            .gas(Gas::from_tgas(50));
+
+        let notify = FunctionCall::new("notify").args(serde_json::json!({"msg": "done"}));
+
         let builder = test_builder()
             .deploy(vec![0u8])
-            .function_call(
-                "init",
-                serde_json::json!({"owner": "alice.testnet"}),
-                Gas::from_tgas(50),
-                NearToken::ZERO,
-            )
-            .function_call(
-                "notify",
-                serde_json::json!({"msg": "done"}),
-                Gas::from_tgas(30),
-                NearToken::ZERO,
-            );
+            .add_action(init)
+            .add_action(notify);
 
         assert_eq!(builder.actions.len(), 3);
     }
 
     #[test]
-    fn function_call_from_call_builder() {
-        let builder = test_builder()
+    fn function_call_dynamic_loop_composition() {
+        let methods = vec!["step1", "step2", "step3"];
+
+        let mut tx = test_builder();
+        for method in methods {
+            tx = tx.add_action(FunctionCall::new(method));
+        }
+
+        assert_eq!(tx.actions.len(), 3);
+    }
+
+    #[test]
+    fn call_builder_into_action() {
+        let action = test_builder()
             .call("setup")
             .args(serde_json::json!({"admin": "alice.testnet"}))
             .gas(Gas::from_tgas(50))
-            .function_call(
-                "notify",
-                serde_json::json!({"msg": "done"}),
-                Gas::from_tgas(30),
-                NearToken::ZERO,
-            );
+            .deposit(NearToken::from_near(1))
+            .into_action();
+
+        match &action {
+            Action::FunctionCall(fc) => {
+                assert_eq!(fc.method_name, "setup");
+                assert_eq!(fc.gas, Gas::from_tgas(50));
+                assert_eq!(fc.deposit, NearToken::from_near(1));
+            }
+            other => panic!("expected FunctionCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn call_builder_into_action_compose() {
+        let action1 = test_builder()
+            .call("method_a")
+            .gas(Gas::from_tgas(50))
+            .into_action();
+
+        let action2 = test_builder()
+            .call("method_b")
+            .deposit(NearToken::from_near(1))
+            .into_action();
+
+        let builder = test_builder().add_action(action1).add_action(action2);
 
         assert_eq!(builder.actions.len(), 2);
     }
