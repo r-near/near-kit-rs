@@ -28,7 +28,6 @@
 //! # }
 //! ```
 
-use std::collections::BTreeMap;
 use std::fmt;
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
@@ -37,9 +36,9 @@ use std::sync::{Arc, OnceLock};
 use crate::error::{Error, RpcError};
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, DeterministicAccountStateInit,
-    DeterministicAccountStateInitV1, Finality, Gas, GlobalContractIdentifier, IntoGas,
-    IntoNearToken, NearToken, NonDelegateAction, PublicKey, SignedDelegateAction,
-    SignedTransaction, Transaction, TransactionOutcome, TryIntoAccountId, TxExecutionStatus,
+    Finality, Gas, IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey,
+    SignedDelegateAction, SignedTransaction, Transaction, TransactionOutcome, TryIntoAccountId,
+    TxExecutionStatus,
 };
 
 use super::nonce_manager::NonceManager;
@@ -567,7 +566,7 @@ impl TransactionBuilder {
         self
     }
 
-    /// Create a NEP-616 deterministic state init action with code hash reference.
+    /// Create a NEP-616 deterministic state init action.
     ///
     /// The receiver_id is automatically set to the deterministically derived account ID:
     /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`
@@ -577,76 +576,13 @@ impl TransactionBuilder {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
-    /// // Note: the receiver_id passed to transaction() is ignored for state_init -
-    /// // it will be replaced with the derived deterministic account ID
-    /// let outcome = near.transaction("alice.testnet")
-    ///     .state_init_by_hash(code_hash, Default::default(), NearToken::from_near(1))
+    /// let si = DeterministicAccountStateInit::by_hash(code_hash, Default::default());
+    /// let outcome = near.state_init(si, NearToken::from_near(1))
     ///     .send()
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the deposit amount string cannot be parsed.
-    pub fn state_init_by_hash(
-        self,
-        code_hash: CryptoHash,
-        data: BTreeMap<Vec<u8>, Vec<u8>>,
-        deposit: impl IntoNearToken,
-    ) -> Self {
-        let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
-            code: GlobalContractIdentifier::CodeHash(code_hash),
-            data,
-        });
-        self.state_init(state_init, deposit)
-    }
-
-    /// Create a NEP-616 deterministic state init action with publisher account reference.
-    ///
-    /// The receiver_id is automatically set to the deterministically derived account ID.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
-    /// // Note: the receiver_id passed to transaction() is ignored for state_init -
-    /// // it will be replaced with the derived deterministic account ID
-    /// let outcome = near.transaction("alice.testnet")
-    ///     .state_init_by_publisher("contract-publisher.near", Default::default(), NearToken::from_near(1))
-    ///     .send()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the deposit amount string cannot be parsed.
-    pub fn state_init_by_publisher(
-        self,
-        publisher_id: impl TryIntoAccountId,
-        data: BTreeMap<Vec<u8>, Vec<u8>>,
-        deposit: impl IntoNearToken,
-    ) -> Self {
-        let publisher_id = publisher_id
-            .try_into_account_id()
-            .expect("invalid account ID");
-        let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
-            code: GlobalContractIdentifier::AccountId(publisher_id),
-            data,
-        });
-        self.state_init(state_init, deposit)
-    }
-
-    /// Create a NEP-616 deterministic state init action from a pre-built state init.
-    ///
-    /// This is a convenience method that accepts a [`DeterministicAccountStateInit`] directly,
-    /// avoiding the need to branch on [`GlobalContractIdentifier`] variants.
-    ///
-    /// The receiver_id is automatically set to the deterministically derived account ID.
     ///
     /// # Panics
     ///
@@ -1264,28 +1200,7 @@ impl CallBuilder {
         self.finish().deploy_from_publisher(publisher_id)
     }
 
-    /// Create a NEP-616 deterministic state init action with code hash reference.
-    pub fn state_init_by_hash(
-        self,
-        code_hash: CryptoHash,
-        data: BTreeMap<Vec<u8>, Vec<u8>>,
-        deposit: impl IntoNearToken,
-    ) -> TransactionBuilder {
-        self.finish().state_init_by_hash(code_hash, data, deposit)
-    }
-
-    /// Create a NEP-616 deterministic state init action with publisher account reference.
-    pub fn state_init_by_publisher(
-        self,
-        publisher_id: impl TryIntoAccountId,
-        data: BTreeMap<Vec<u8>, Vec<u8>>,
-        deposit: impl IntoNearToken,
-    ) -> TransactionBuilder {
-        self.finish()
-            .state_init_by_publisher(publisher_id, data, deposit)
-    }
-
-    /// Create a NEP-616 deterministic state init action from a pre-built state init.
+    /// Create a NEP-616 deterministic state init action.
     pub fn state_init(
         self,
         state_init: DeterministicAccountStateInit,

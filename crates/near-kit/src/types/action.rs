@@ -310,6 +310,22 @@ pub struct DeterministicStateInitAction {
 }
 
 impl DeterministicAccountStateInit {
+    /// Create a state init referencing a global contract by its code hash (immutable).
+    pub fn by_hash(code_hash: CryptoHash, data: BTreeMap<Vec<u8>, Vec<u8>>) -> Self {
+        Self::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::CodeHash(code_hash),
+            data,
+        })
+    }
+
+    /// Create a state init referencing a global contract by its publisher account (updatable).
+    pub fn by_publisher(publisher_id: AccountId, data: BTreeMap<Vec<u8>, Vec<u8>>) -> Self {
+        Self::V1(DeterministicAccountStateInitV1 {
+            code: GlobalContractIdentifier::AccountId(publisher_id),
+            data,
+        })
+    }
+
     /// Derive the deterministic account ID from this state init.
     ///
     /// The account ID is derived as: `"0s" + hex(keccak256(borsh(state_init))[12..32])`
@@ -321,13 +337,10 @@ impl DeterministicAccountStateInit {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::types::{DeterministicAccountStateInit, DeterministicAccountStateInitV1, GlobalContractIdentifier, CryptoHash};
+    /// use near_kit::types::{DeterministicAccountStateInit, CryptoHash};
     /// use std::collections::BTreeMap;
     ///
-    /// let state_init = DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
-    ///     code: GlobalContractIdentifier::CodeHash(CryptoHash::default()),
-    ///     data: BTreeMap::new(),
-    /// });
+    /// let state_init = DeterministicAccountStateInit::by_hash(CryptoHash::default(), BTreeMap::new());
     ///
     /// let account_id = state_init.derive_account_id();
     /// assert!(account_id.as_str().starts_with("0s"));
@@ -553,36 +566,6 @@ impl Action {
     pub fn state_init(state_init: DeterministicAccountStateInit, deposit: NearToken) -> Self {
         Self::DeterministicStateInit(DeterministicStateInitAction {
             state_init,
-            deposit,
-        })
-    }
-
-    /// Create a NEP-616 deterministic state init action with code hash reference.
-    pub fn state_init_by_hash(
-        code_hash: CryptoHash,
-        data: BTreeMap<Vec<u8>, Vec<u8>>,
-        deposit: NearToken,
-    ) -> Self {
-        Self::DeterministicStateInit(DeterministicStateInitAction {
-            state_init: DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
-                code: GlobalContractIdentifier::CodeHash(code_hash),
-                data,
-            }),
-            deposit,
-        })
-    }
-
-    /// Create a NEP-616 deterministic state init action with account reference.
-    pub fn state_init_by_account(
-        account_id: AccountId,
-        data: BTreeMap<Vec<u8>, Vec<u8>>,
-        deposit: NearToken,
-    ) -> Self {
-        Self::DeterministicStateInit(DeterministicStateInitAction {
-            state_init: DeterministicAccountStateInit::V1(DeterministicAccountStateInitV1 {
-                code: GlobalContractIdentifier::AccountId(account_id),
-                data,
-            }),
             deposit,
         })
     }
@@ -915,8 +898,10 @@ mod tests {
         );
 
         // DeterministicStateInit (discriminant = 11)
-        let state_init =
-            Action::state_init_by_hash(code_hash, BTreeMap::new(), NearToken::from_near(1));
+        let state_init = Action::state_init(
+            DeterministicAccountStateInit::by_hash(code_hash, BTreeMap::new()),
+            NearToken::from_near(1),
+        );
         let bytes = borsh::to_vec(&state_init).unwrap();
         assert_eq!(
             bytes[0], 11,

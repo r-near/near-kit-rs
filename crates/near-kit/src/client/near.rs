@@ -646,6 +646,33 @@ impl Near {
         )
     }
 
+    /// Create a NEP-616 deterministic state init transaction.
+    ///
+    /// The receiver_id is automatically derived from the state init parameters,
+    /// so unlike [`transaction()`](Self::transaction), no receiver needs to be specified.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
+    /// let si = DeterministicAccountStateInit::by_hash(code_hash, Default::default());
+    /// let outcome = near.state_init(si, NearToken::from_near(5))
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn state_init(
+        &self,
+        state_init: crate::types::DeterministicAccountStateInit,
+        deposit: impl IntoNearToken,
+    ) -> TransactionBuilder {
+        let receiver_id = state_init.derive_account_id();
+        self.transaction(receiver_id)
+            .state_init(state_init, deposit)
+    }
+
     /// Send a pre-signed transaction.
     ///
     /// Use this with transactions signed via `.sign()` for offline signing

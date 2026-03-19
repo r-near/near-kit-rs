@@ -249,10 +249,9 @@ async fn test_state_init_by_hash() {
     let initial_data: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
 
     // Use state_init to create a deterministic account
-    // Note: The receiver_id doesn't matter for state_init - the account ID is derived
+    let si = near_kit::DeterministicAccountStateInit::by_hash(code_hash, initial_data);
     let outcome = publisher_near
-        .transaction(&publisher_id)
-        .state_init_by_hash(code_hash, initial_data, NearToken::from_near(5))
+        .state_init(si, NearToken::from_near(5))
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -291,9 +290,10 @@ async fn test_state_init_by_publisher() {
     initial_data.insert(b"key1".to_vec(), b"value1".to_vec());
 
     // Use state_init to create a deterministic account
+    let si =
+        near_kit::DeterministicAccountStateInit::by_publisher(publisher_id.clone(), initial_data);
     let outcome = publisher_near
-        .transaction(&publisher_id)
-        .state_init_by_publisher(&publisher_id, initial_data, NearToken::from_near(5))
+        .state_init(si, NearToken::from_near(5))
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
