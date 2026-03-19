@@ -413,6 +413,18 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
     let vis = &input.vis;
 
     // Reject unsupported trait features
+    if let Some(unsafety) = input.unsafety {
+        return Err(syn::Error::new(
+            unsafety.span(),
+            "#[near_kit::contract] does not support unsafe traits",
+        ));
+    }
+    if let Some(auto_token) = input.auto_token {
+        return Err(syn::Error::new(
+            auto_token.span(),
+            "#[near_kit::contract] does not support auto traits",
+        ));
+    }
     if !input.generics.params.is_empty() {
         return Err(syn::Error::new(
             input.generics.span(),
