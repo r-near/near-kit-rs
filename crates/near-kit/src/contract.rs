@@ -78,14 +78,60 @@
 //! }
 //! ```
 //!
-//! # Serialization Formats
+//! # Composing Typed Calls in Transactions
 //!
-//! By default, arguments are serialized as JSON. For Borsh serialization:
+//! The macro also generates static `FunctionCall` constructors on the struct,
+//! so typed calls can be mixed with other actions in a single transaction:
 //!
 //! ```ignore
+//! // Compose state_init + typed call in one transaction
+//! near.transaction(contract_id)
+//!     .state_init(state_init, NearToken::ZERO)
+//!     .add_action(Counter::increment())
+//!     .send().await?;
+//!
+//! // Compose calls from multiple contract standards
+//! near.transaction("token.near")
+//!     .add_action(StorageManagement::storage_deposit(deposit_args))
+//!     .add_action(FungibleToken::ft_transfer_call(transfer_args))
+//!     .send().await?;
+//! ```
+//!
+//! # Serialization Formats
+//!
+//! By default, arguments are serialized as JSON. Use `#[near_kit::contract(borsh)]`
+//! if the on-chain contract expects Borsh-encoded input:
+//!
+//! ```ignore
+//! use borsh::BorshSerialize;
+//!
+//! #[derive(BorshSerialize)]
+//! pub struct UploadArgs {
+//!     pub data: Vec<u8>,
+//! }
+//!
 //! #[near_kit::contract(borsh)]
-//! pub trait MyContract {
-//!     fn my_method(&self, args: MyArgs) -> u64;
+//! pub trait DataStore {
+//!     fn get_size(&self) -> u64;
+//!
+//!     #[call]
+//!     fn upload(&mut self, args: UploadArgs);
+//! }
+//! ```
+//!
+//! You can also override the format per-method with `#[borsh]` or `#[json]`:
+//!
+//! ```ignore
+//! #[near_kit::contract]  // default: JSON
+//! pub trait MixedContract {
+//!     fn get_status(&self) -> String;       // JSON (default)
+//!
+//!     #[call]
+//!     fn set_config(&mut self, args: Config);  // JSON (default)
+//!
+//!     #[call]
+//!     #[borsh]
+//!     fn upload_data(&mut self, args: Data);   // Borsh (override)
 //! }
 //! ```
 
