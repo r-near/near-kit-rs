@@ -419,6 +419,12 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
             "#[near_kit::contract] does not support generic parameters",
         ));
     }
+    if let Some(where_clause) = &input.generics.where_clause {
+        return Err(syn::Error::new(
+            where_clause.span(),
+            "#[near_kit::contract] does not support where clauses",
+        ));
+    }
     if !input.supertraits.is_empty() {
         return Err(syn::Error::new(
             input.supertraits.span(),
