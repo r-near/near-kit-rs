@@ -624,7 +624,8 @@ impl FinalExecutionOutcome {
 
     /// Get the return value as raw bytes (base64-decoded).
     ///
-    /// Returns `Err` if the transaction failed on-chain.
+    /// Returns `Err` if the transaction failed on-chain, if the status is not
+    /// `SuccessValue`, or if the value is not valid base64.
     pub fn result(&self) -> Result<Vec<u8>, crate::error::Error> {
         if let Some(err) = self.failure_error() {
             return Err(crate::error::Error::TransactionFailed(err.clone()));
@@ -644,7 +645,8 @@ impl FinalExecutionOutcome {
 
     /// Deserialize the return value as JSON.
     ///
-    /// Returns `Err` if the transaction failed on-chain or if deserialization fails.
+    /// Returns `Err` if `result()` fails (on-chain failure, unexpected status,
+    /// or invalid base64) or if JSON deserialization fails.
     pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, crate::error::Error> {
         let bytes = self.result()?;
         serde_json::from_slice(&bytes).map_err(crate::error::Error::from)
