@@ -24,7 +24,7 @@ It's a ground-up implementation focused on developer experience:
 
 - **One entry point.** Everything flows through the `Near` client — no hunting for the right module.
 - **Configure once.** Set your network and credentials at startup, then just write your logic.
-- **Explicit units.** No more wondering if that's yoctoNEAR or NEAR. Write `NearToken::near(5)` or `"5 NEAR"`.
+- **Explicit units.** No more wondering if that's yoctoNEAR or NEAR. Write `NearToken::from_near(5)` or `"5 NEAR"`.
 - **Batteries included.** Built-in support for FT/NFT standards, typed contracts, multiple signers, and automatic retries.
 
 ## Quick Start
@@ -62,11 +62,11 @@ let near = Near::testnet()
     .build();
 
 // Transfer tokens
-near.transfer("bob.testnet", NearToken::near(1)).await?;
+near.transfer("bob.testnet", NearToken::from_near(1)).await?;
 
 // Call a contract function
 near.call("counter.testnet", "increment")
-    .gas(Gas::tgas(30))
+    .gas(Gas::from_tgas(30))
     .await?;
 ```
 
@@ -87,8 +87,8 @@ let near = Near::testnet().build(); // read-only, shared connection
 let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
 let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
 
-alice.transfer("carol.testnet", NearToken::near(1)).await?;
-bob.transfer("carol.testnet", NearToken::near(2)).await?;
+alice.transfer("carol.testnet", NearToken::from_near(1)).await?;
+bob.transfer("carol.testnet", NearToken::from_near(2)).await?;
 ```
 
 For single-account scripts, the `credentials` builder is still the simplest path. Use `with_signer` when you need to manage multiple accounts or want explicit separation between connection setup and signing.
@@ -98,8 +98,8 @@ Need to pass arguments or attach a deposit? Chain the builders:
 ```rust
 near.call("nft.testnet", "nft_mint")
     .args(serde_json::json!({ "token_id": "1", "receiver_id": "alice.testnet" }))
-    .deposit(NearToken::millinear(100))
-    .gas(Gas::tgas(100))
+    .deposit(NearToken::from_millinear(100))
+    .gas(Gas::from_tgas(100))
     .await?;
 ```
 
@@ -110,7 +110,7 @@ NEAR supports batching multiple actions into a single atomic transaction. This i
 ```rust
 near.transaction("sub.alice.testnet")
     .create_account()
-    .transfer(NearToken::near(5))
+    .transfer(NearToken::from_near(5))
     .add_full_access_key(new_public_key)
     .deploy(wasm_bytes)
     .call("init")
@@ -125,16 +125,17 @@ For more dynamic use cases, you can conditionally add actions or work with pre-b
 let mut tx = near.transaction("contract.testnet");
 
 if needs_funding {
-    tx = tx.transfer(NearToken::near(1));
+    tx = tx.transfer(NearToken::from_near(1));
 }
 
 tx = tx.call("setup")
     .args(serde_json::json!({ "admin": "alice.testnet" }))
     .finish(); // return to TransactionBuilder for more chaining
 
-// Or add pre-built actions
-let action = Action::function_call("notify", b"{}".to_vec(), Gas::tgas(5), NearToken::ZERO);
-tx.add_action(action).send().await?;
+// Or add pre-built function calls
+tx.add_action(FunctionCall::new("notify").args(serde_json::json!({ "msg": "hello" })))
+    .send()
+    .await?;
 ```
 
 ## Typed Contract Interfaces
