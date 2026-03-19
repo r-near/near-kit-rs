@@ -819,10 +819,7 @@ impl Near {
     ///     Ok(())
     /// }
     /// ```
-    pub fn contract<T: crate::Contract + ?Sized>(
-        &self,
-        contract_id: impl TryIntoAccountId,
-    ) -> T::Client {
+    pub fn contract<T: crate::Contract>(&self, contract_id: impl TryIntoAccountId) -> T::Client {
         let contract_id = contract_id
             .try_into_account_id()
             .expect("invalid account ID");

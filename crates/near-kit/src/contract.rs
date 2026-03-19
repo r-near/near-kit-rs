@@ -95,15 +95,28 @@ use crate::types::AccountId;
 /// Marker trait for typed contract interfaces.
 ///
 /// This trait is automatically implemented by the `#[near_kit::contract]` macro
-/// for each contract trait you define. It provides the associated `Client` type
+/// for each contract interface you define. It provides the associated `Client` type
 /// that is used by [`Near::contract`](crate::Near::contract).
 ///
 /// # Example
 ///
-/// The macro generates an implementation like this:
+/// Given a contract definition:
 ///
 /// ```ignore
-/// impl Contract for dyn MyContract {
+/// #[near_kit::contract]
+/// pub trait MyContract {
+///     fn get_value(&self) -> u64;
+///     #[call]
+///     fn set_value(&mut self, args: SetArgs);
+/// }
+/// ```
+///
+/// The macro generates a unit struct `MyContract` with composable
+/// `FunctionCall` constructors, a `MyContractClient` for the simple case,
+/// and this implementation:
+///
+/// ```ignore
+/// impl Contract for MyContract {
 ///     type Client = MyContractClient;
 /// }
 /// ```

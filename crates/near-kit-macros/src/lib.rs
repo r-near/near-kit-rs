@@ -349,15 +349,50 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
     }
 }
 
-/// Strip internal attributes from a method for the output trait.
-fn strip_internal_attrs(method: &TraitItemFn) -> TraitItemFn {
-    let mut method = method.clone();
-    method.attrs.retain(|attr| {
-        !attr.path().is_ident("call")
-            && !attr.path().is_ident("json")
-            && !attr.path().is_ident("borsh")
-    });
-    method
+/// Generate a static associated function on the contract struct that returns `FunctionCall`.
+///
+/// Only generated for call methods (not view methods). This enables composable
+/// transactions where typed contract calls can be mixed with other actions.
+fn generate_function_call_method(
+    method: &MethodInfo,
+    contract_format: SerializationFormat,
+) -> TokenStream2 {
+    let method_name = &method.name;
+    let method_name_str = method_name.to_string();
+
+    let format = method.format_override.unwrap_or(contract_format);
+
+    if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
+        let args_method = match format {
+            SerializationFormat::Json => quote! { .args(#arg_name) },
+            SerializationFormat::Borsh => quote! { .args_borsh(#arg_name) },
+        };
+
+        quote! {
+            pub fn #method_name(#arg_name: #arg_type) -> near_kit::FunctionCall {
+                near_kit::FunctionCall::new(#method_name_str)
+                    #args_method
+            }
+        }
+    } else {
+        match format {
+            SerializationFormat::Json => {
+                quote! {
+                    pub fn #method_name() -> near_kit::FunctionCall {
+                        near_kit::FunctionCall::new(#method_name_str)
+                            .args(serde_json::json!({}))
+                    }
+                }
+            }
+            SerializationFormat::Borsh => {
+                quote! {
+                    pub fn #method_name() -> near_kit::FunctionCall {
+                        near_kit::FunctionCall::new(#method_name_str)
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The main contract macro implementation.
@@ -385,7 +420,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         }
     }
 
-    // Generate client methods
+    // Generate client methods (view → ViewCall, call → CallBuilder)
     let client_methods: Vec<TokenStream2> = methods
         .iter()
         .map(|m| {
@@ -397,35 +432,26 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         })
         .collect();
 
-    // Generate the cleaned trait (without internal attributes)
-    let cleaned_items: Vec<TraitItem> = input
-        .items
+    // Generate FunctionCall constructors for call methods only
+    let function_call_methods: Vec<TokenStream2> = methods
         .iter()
-        .map(|item| {
-            if let TraitItem::Fn(method) = item {
-                TraitItem::Fn(strip_internal_attrs(method))
-            } else {
-                item.clone()
-            }
-        })
+        .filter(|m| !m.is_view)
+        .map(|m| generate_function_call_method(m, args.format))
         .collect();
-
-    let trait_attrs = &input.attrs;
-    let trait_supertraits = &input.supertraits;
-    let trait_generics = &input.generics;
 
     // Build the output
     let expanded = quote! {
-        // Original trait (with internal attrs stripped for cleaner output)
-        // The trait is used for defining the interface, but the generated client
-        // struct is what's actually used - so suppress dead_code warnings.
-        #[allow(dead_code)]
-        #(#trait_attrs)*
-        #vis trait #trait_name #trait_generics : #trait_supertraits {
-            #(#cleaned_items)*
+        // Unit struct for composable FunctionCall constructors.
+        //
+        // Use the associated functions to create typed `FunctionCall` values
+        // that can be added to any transaction via `TransactionBuilder::add_action()`.
+        #vis struct #trait_name;
+
+        impl #trait_name {
+            #(#function_call_methods)*
         }
 
-        // Generated client struct
+        // Generated client struct for the simple (non-composed) case.
         #vis struct #client_name {
             near: near_kit::Near,
             contract_id: near_kit::AccountId,
@@ -461,7 +487,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         }
 
         // Implement Contract marker trait
-        impl near_kit::Contract for dyn #trait_name {
+        impl near_kit::Contract for #trait_name {
             type Client = #client_name;
         }
     };

@@ -60,7 +60,7 @@ async fn test_typed_contract_view_on_nonexistent_account() {
     let near = sandbox.client();
 
     // Try to call view method on non-existent contract
-    let guestbook = near.contract::<dyn Guestbook>("nonexistent-contract.sandbox");
+    let guestbook = near.contract::<Guestbook>("nonexistent-contract.sandbox");
     let result = guestbook.total_messages().await;
 
     assert!(result.is_err(), "Should error for non-existent account");
@@ -97,7 +97,7 @@ async fn test_typed_contract_view_on_account_without_contract() {
         .unwrap();
 
     // Try to call view method on account without contract
-    let guestbook = near.contract::<dyn Guestbook>(&account_id);
+    let guestbook = near.contract::<Guestbook>(&account_id);
     let result = guestbook.total_messages().await;
 
     assert!(result.is_err(), "Should error for account without contract");
@@ -134,7 +134,7 @@ async fn test_typed_contract_call_without_signer() {
 
     // Create client WITHOUT a signer
     let no_signer_near = Near::custom(sandbox.rpc_url()).build();
-    let guestbook = no_signer_near.contract::<dyn Guestbook>(&contract_id);
+    let guestbook = no_signer_near.contract::<Guestbook>(&contract_id);
 
     // Try to call a mutating method without signer
     let result = guestbook
@@ -173,7 +173,7 @@ async fn test_typed_contract_view_on_wrong_contract_type() {
         .unwrap();
 
     // Try to use guestbook interface on FT contract
-    let guestbook = near.contract::<dyn Guestbook>(&contract_id);
+    let guestbook = near.contract::<Guestbook>(&contract_id);
     let result = guestbook.total_messages().await;
 
     assert!(result.is_err(), "Should error for wrong contract type");
@@ -209,7 +209,7 @@ async fn test_typed_contract_call_with_insufficient_gas() {
         .await
         .unwrap();
 
-    let guestbook = near.contract::<dyn Guestbook>(&contract_id);
+    let guestbook = near.contract::<Guestbook>(&contract_id);
 
     // Try to call with extremely low gas
     let result = guestbook
@@ -263,7 +263,7 @@ async fn test_typed_contract_view_returns_wrong_type() {
         fn total_messages(&self) -> String;
     }
 
-    let wrong_guestbook = near.contract::<dyn WrongGuestbook>(&contract_id);
+    let wrong_guestbook = near.contract::<WrongGuestbook>(&contract_id);
     let result = wrong_guestbook.total_messages().await;
 
     // The result could succeed (if deserialization happens to work) or fail
@@ -302,7 +302,7 @@ async fn test_typed_contract_query_at_invalid_block() {
         .await
         .unwrap();
 
-    let guestbook = near.contract::<dyn Guestbook>(&contract_id);
+    let guestbook = near.contract::<Guestbook>(&contract_id);
 
     // Query at a non-existent block height
     let result: Result<u32, _> = guestbook.total_messages().at_block(999_999_999_u64).await;
@@ -345,7 +345,7 @@ async fn test_typed_contract_view_methods_still_work_without_signer() {
 
     // Create client WITHOUT a signer
     let no_signer_near = Near::custom(sandbox.rpc_url()).build();
-    let guestbook = no_signer_near.contract::<dyn Guestbook>(&contract_id);
+    let guestbook = no_signer_near.contract::<Guestbook>(&contract_id);
 
     // View methods should still work without a signer
     let result = guestbook.total_messages().await;
