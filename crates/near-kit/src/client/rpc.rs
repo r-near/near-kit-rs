@@ -237,7 +237,9 @@ impl RpcClient {
         // envelope. Detect and route through the standard error parser.
         if let Some(error_str) = result_value.get("error").and_then(|e| e.as_str()) {
             let synthetic = JsonRpcError {
-                code: -32000,
+                // Use -32600 (Invalid Request) rather than -32000 (Server Error)
+                // so deterministic failures don't get retried.
+                code: -32600,
                 message: error_str.to_string(),
                 data: Some(serde_json::Value::String(error_str.to_string())),
                 cause: None,
