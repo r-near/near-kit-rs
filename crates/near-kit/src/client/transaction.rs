@@ -1015,38 +1015,32 @@ impl From<FunctionCall> for Action {
 /// before continuing to chain more actions or sending.
 pub struct CallBuilder {
     builder: TransactionBuilder,
-    method: String,
-    args: Vec<u8>,
-    gas: Gas,
-    deposit: NearToken,
+    call: FunctionCall,
 }
 
 impl CallBuilder {
     fn new(builder: TransactionBuilder, method: String) -> Self {
         Self {
             builder,
-            method,
-            args: Vec::new(),
-            gas: Gas::from_tgas(30),
-            deposit: NearToken::ZERO,
+            call: FunctionCall::new(method),
         }
     }
 
     /// Set JSON arguments.
     pub fn args<A: serde::Serialize>(mut self, args: A) -> Self {
-        self.args = serde_json::to_vec(&args).unwrap_or_default();
+        self.call = self.call.args(args);
         self
     }
 
     /// Set raw byte arguments.
     pub fn args_raw(mut self, args: Vec<u8>) -> Self {
-        self.args = args;
+        self.call = self.call.args_raw(args);
         self
     }
 
     /// Set Borsh-encoded arguments.
     pub fn args_borsh<A: borsh::BorshSerialize>(mut self, args: A) -> Self {
-        self.args = borsh::to_vec(&args).unwrap_or_default();
+        self.call = self.call.args_borsh(args);
         self
     }
 
@@ -1071,9 +1065,7 @@ impl CallBuilder {
     /// Panics if the gas string cannot be parsed. Use [`Gas`]'s `FromStr` impl
     /// for fallible parsing of user input.
     pub fn gas(mut self, gas: impl IntoGas) -> Self {
-        self.gas = gas
-            .into_gas()
-            .expect("invalid gas format - use Gas::from_str() for user input");
+        self.call = self.call.gas(gas);
         self
     }
 
@@ -1098,9 +1090,7 @@ impl CallBuilder {
     /// Panics if the amount string cannot be parsed. Use [`NearToken`]'s `FromStr`
     /// impl for fallible parsing of user input.
     pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
-        self.deposit = amount
-            .into_near_token()
-            .expect("invalid deposit amount - use NearToken::from_str() for user input");
+        self.call = self.call.deposit(amount);
         self
     }
 
@@ -1143,7 +1133,7 @@ impl CallBuilder {
              use .finish() to keep them in the transaction",
             self.builder.actions.len(),
         );
-        Action::function_call(self.method, self.args, self.gas, self.deposit)
+        self.call.into()
     }
 
     /// Finish this call and return to the transaction builder.
@@ -1152,8 +1142,7 @@ impl CallBuilder {
     /// transaction, since it gives back the [`TransactionBuilder`] so you can
     /// branch on runtime state before starting the next action.
     pub fn finish(self) -> TransactionBuilder {
-        let action = Action::function_call(self.method, self.args, self.gas, self.deposit);
-        self.builder.add_action(action)
+        self.builder.add_action(self.call)
     }
 
     // ========================================================================
