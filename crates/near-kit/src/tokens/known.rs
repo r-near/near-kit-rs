@@ -39,11 +39,11 @@ pub struct KnownToken {
 }
 
 impl KnownToken {
-    /// Resolve this token to an [`AccountId`] for the given network.
+    /// Resolve this token to an [`AccountId`] for the given chain.
     ///
     /// # Errors
     ///
-    /// Returns an error if the token is not available on the specified network
+    /// Returns an error if the token is not available on the specified chain
     /// (e.g., some tokens don't have testnet deployments).
     pub fn resolve(&self, chain_id: &ChainId) -> Result<AccountId, Error> {
         let address = match chain_id.as_str() {
@@ -66,7 +66,7 @@ impl KnownToken {
 /// Trait for types that can be resolved to a contract [`AccountId`].
 ///
 /// This enables the `ft()` and `nft()` methods to accept both raw addresses
-/// and [`KnownToken`] constants, resolving them based on the client's network.
+/// and [`KnownToken`] constants, resolving them based on the client's chain ID.
 pub trait IntoContractId {
     /// Resolve this to a contract [`AccountId`] for the given chain.
     fn into_contract_id(self, chain_id: &ChainId) -> Result<AccountId, Error>;
