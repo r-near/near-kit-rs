@@ -98,12 +98,16 @@ async fn test_add_key_to_nonexistent_account() {
     let nonexistent: AccountId = "nonexistent-for-add-key.sandbox".parse().unwrap();
 
     // Try to add a key to a non-existent account
-    let result = near
+    let outcome = near
         .add_full_access_key(&nonexistent, key.public_key())
-        .await;
+        .await
+        .expect("RPC send should succeed");
 
-    assert!(result.is_err(), "Should fail for non-existent account");
-    println!("Add key to non-existent: {:?}", result.unwrap_err());
+    assert!(outcome.is_failure(), "Should fail for non-existent account");
+    println!(
+        "Add key to non-existent: {:?}",
+        outcome.result().unwrap_err()
+    );
 }
 
 #[tokio::test]
@@ -130,12 +134,16 @@ async fn test_add_duplicate_key() {
         .build();
 
     // Try to add the same key again
-    let result = account_near
+    let outcome = account_near
         .add_full_access_key(&account_id, key.public_key())
-        .await;
+        .await
+        .expect("RPC send should succeed");
 
-    assert!(result.is_err(), "Should fail when adding duplicate key");
-    println!("Duplicate key error: {:?}", result.unwrap_err());
+    assert!(
+        outcome.is_failure(),
+        "Should fail when adding duplicate key"
+    );
+    println!("Duplicate key error: {:?}", outcome.result().unwrap_err());
 }
 
 #[tokio::test]
@@ -191,8 +199,12 @@ async fn test_create_subaccount_of_nonexistent_parent() {
         .wait_until(TxExecutionStatus::Final)
         .await;
 
-    assert!(result.is_err(), "Should fail for non-existent parent");
-    println!("Non-existent parent error: {:?}", result.unwrap_err());
+    let outcome = result.expect("RPC send should succeed");
+    assert!(outcome.is_failure(), "Should fail for non-existent parent");
+    println!(
+        "Non-existent parent error: {:?}",
+        outcome.result().unwrap_err()
+    );
 }
 
 #[tokio::test]
@@ -280,8 +292,9 @@ async fn test_transaction_with_failing_action_in_middle() {
         .wait_until(TxExecutionStatus::Final)
         .await;
 
-    assert!(result.is_err(), "Should fail when action fails");
-    println!("Multi-action failure: {:?}", result.unwrap_err());
+    let outcome = result.expect("RPC send should succeed");
+    assert!(outcome.is_failure(), "Should fail when action fails");
+    println!("Multi-action failure: {:?}", outcome.result().unwrap_err());
 }
 
 // =============================================================================
@@ -303,8 +316,12 @@ async fn test_delete_nonexistent_account() {
         .wait_until(TxExecutionStatus::Final)
         .await;
 
-    assert!(result.is_err(), "Should fail for non-existent account");
-    println!("Delete non-existent account: {:?}", result.unwrap_err());
+    let outcome = result.expect("RPC send should succeed");
+    assert!(outcome.is_failure(), "Should fail for non-existent account");
+    println!(
+        "Delete non-existent account: {:?}",
+        outcome.result().unwrap_err()
+    );
 }
 
 #[tokio::test]
@@ -377,11 +394,15 @@ async fn test_stake_with_insufficient_balance() {
         .wait_until(TxExecutionStatus::Final)
         .await;
 
+    let outcome = result.expect("RPC send should succeed");
     assert!(
-        result.is_err(),
+        outcome.is_failure(),
         "Should fail with insufficient balance to stake"
     );
-    println!("Insufficient stake balance: {:?}", result.unwrap_err());
+    println!(
+        "Insufficient stake balance: {:?}",
+        outcome.result().unwrap_err()
+    );
 }
 
 // =============================================================================
@@ -455,7 +476,8 @@ async fn test_transfer_max_amount() {
         .unwrap()
         .build();
 
-    // Transfer max u128 (way more than balance)
+    // Transfer max u128 (way more than balance) — rejected at RPC validation
+    // level (CostOverflow is caught before on-chain execution)
     let result = account_near
         .transfer(ROOT_ACCOUNT, NearToken::from_yoctonear(u128::MAX))
         .await;

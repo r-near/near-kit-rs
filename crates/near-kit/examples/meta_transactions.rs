@@ -53,7 +53,7 @@ async fn user_creates_delegate(
 async fn relayer_submits_delegate(
     relayer_near: &Near,
     delegate_result: DelegateResult,
-) -> Result<TransactionOutcome, Error> {
+) -> Result<FinalExecutionOutcome, Error> {
     println!("\n=== Relayer Side ===\n");
 
     // Relayer decodes and wraps the user's signed action

@@ -328,7 +328,8 @@ async fn test_error_insufficient_balance_transfer() {
         .await
         .unwrap();
 
-    // Try to transfer more than available
+    // Try to transfer more than available — rejected at RPC validation level
+    // (NotEnoughBalance is caught before on-chain execution)
     let result = sender_near
         .transfer(&receiver_id, NearToken::from_near(1000))
         .await;
@@ -364,20 +365,24 @@ async fn test_error_create_account_that_already_exists() {
 
     // Try to create the same account again
     let new_key = SecretKey::generate_ed25519();
-    let result = parent_near
+    let outcome = parent_near
         .transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(1))
         .add_full_access_key(new_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
-        .await;
+        .await
+        .expect("RPC send should succeed");
 
     assert!(
-        result.is_err(),
+        outcome.is_failure(),
         "Should fail when creating duplicate account"
     );
-    println!("Duplicate account error: {:?}", result.unwrap_err());
+    println!(
+        "Duplicate account error: {:?}",
+        outcome.result().unwrap_err()
+    );
 }
 
 #[tokio::test]
@@ -406,18 +411,22 @@ async fn test_error_delete_nonexistent_key() {
 
     // Try to delete a key that doesn't exist on the account
     let fake_key = SecretKey::generate_ed25519();
-    let result = account_near
+    let outcome = account_near
         .transaction(&account_id)
         .delete_key(fake_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
-        .await;
+        .await
+        .expect("RPC send should succeed");
 
     assert!(
-        result.is_err(),
+        outcome.is_failure(),
         "Should fail when deleting non-existent key"
     );
-    println!("Delete non-existent key error: {:?}", result.unwrap_err());
+    println!(
+        "Delete non-existent key error: {:?}",
+        outcome.result().unwrap_err()
+    );
 }
 
 // =============================================================================
@@ -452,17 +461,18 @@ async fn test_error_function_call_panic() {
         .build();
 
     // Call a method that doesn't exist (should fail during execution)
-    let result = contract_near
+    let outcome = contract_near
         .call(&contract_id, "nonexistent_method")
         .args(serde_json::json!({}))
         .gas(Gas::from_tgas(30))
-        .await;
+        .await
+        .expect("RPC send should succeed");
 
     assert!(
-        result.is_err(),
+        outcome.is_failure(),
         "Should fail when calling non-existent method"
     );
-    println!("Function call error: {:?}", result.unwrap_err());
+    println!("Function call error: {:?}", outcome.result().unwrap_err());
 }
 
 #[tokio::test]
@@ -499,8 +509,12 @@ async fn test_error_function_call_insufficient_gas() {
         .gas(Gas::from_gas(1000)) // Extremely low gas
         .await;
 
-    assert!(result.is_err(), "Should fail with insufficient gas");
-    println!("Insufficient gas error: {:?}", result.unwrap_err());
+    let outcome = result.expect("RPC send should succeed");
+    assert!(outcome.is_failure(), "Should fail with insufficient gas");
+    println!(
+        "Insufficient gas error: {:?}",
+        outcome.result().unwrap_err()
+    );
 }
 
 // =============================================================================
