@@ -402,7 +402,7 @@ pub use types::nep413;
 pub use types::*;
 
 // Re-export contract types
-pub use contract::{Contract, ContractClient};
+pub use contract::{Contract, ContractClient, ContractTxBuilder, HasContractContext};
 
 // Re-export client types
 pub use client::{

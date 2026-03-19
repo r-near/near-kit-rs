@@ -274,6 +274,31 @@ impl TransactionBuilder {
         CallBuilder::new(self, method.to_string())
     }
 
+    /// Switch to a typed contract scope for composing typed function calls.
+    ///
+    /// Returns a trait-specific builder whose methods append typed
+    /// `FunctionCall` actions. Each method returns a [`CallBuilder`] for
+    /// further chaining (setting gas/deposit, or calling
+    /// `.typed_call::<AnotherTrait>()` for the next scope).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use near_kit::StorageManagementTx;
+    /// use near_kit::FungibleTokenTx;
+    ///
+    /// near.transaction("token.near")
+    ///     .typed_call::<dyn StorageManagement>()
+    ///     .storage_deposit(args)
+    ///     .typed_call::<dyn FungibleToken>()
+    ///     .ft_transfer_call(args)
+    ///     .send()
+    ///     .await?;
+    /// ```
+    pub fn typed_call<T: crate::contract::Contract + ?Sized>(self) -> T::TxBuilder {
+        crate::contract::ContractTxBuilder::from_builder(self)
+    }
+
     /// Add a full access key to the account.
     pub fn add_full_access_key(mut self, public_key: PublicKey) -> Self {
         self.actions.push(Action::add_full_access_key(public_key));
@@ -1137,6 +1162,13 @@ impl CallBuilder {
     /// Add another function call.
     pub fn call(self, method: &str) -> CallBuilder {
         self.finish().call(method)
+    }
+
+    /// Switch to a typed contract scope.
+    ///
+    /// See [`TransactionBuilder::typed_call`] for details.
+    pub fn typed_call<T: crate::contract::Contract + ?Sized>(self) -> T::TxBuilder {
+        self.finish().typed_call::<T>()
     }
 
     /// Add a create account action.

@@ -89,7 +89,7 @@
 //! }
 //! ```
 
-use crate::client::Near;
+use crate::client::{Near, TransactionBuilder};
 use crate::types::AccountId;
 
 /// Marker trait for typed contract interfaces.
@@ -105,11 +105,15 @@ use crate::types::AccountId;
 /// ```ignore
 /// impl Contract for dyn MyContract {
 ///     type Client = MyContractClient;
+///     type TxBuilder = MyContractTxBuilder;
 /// }
 /// ```
 pub trait Contract {
     /// The generated client type for this contract interface.
     type Client: ContractClient;
+
+    /// The generated transaction builder for composing typed calls.
+    type TxBuilder: ContractTxBuilder;
 }
 
 /// Trait for contract client constructors.
@@ -119,4 +123,27 @@ pub trait Contract {
 pub trait ContractClient: Sized {
     /// Create a new contract client.
     fn new(near: Near, contract_id: AccountId) -> Self;
+}
+
+/// Provides access to the underlying `Near` client and contract ID.
+///
+/// Implemented by generated client structs. Standard method traits use this
+/// to access the RPC client and contract address without knowing the concrete type.
+pub trait HasContractContext {
+    /// Get a reference to the `Near` client.
+    fn near(&self) -> &Near;
+    /// Get the contract account ID.
+    fn contract_id(&self) -> &AccountId;
+}
+
+/// Trait for contract transaction builders.
+///
+/// Implemented by generated `{Trait}TxBuilder` structs returned from
+/// [`TransactionBuilder::call`] and [`CallBuilder::call`].
+pub trait ContractTxBuilder: Sized {
+    /// Create a new transaction builder wrapper from a `TransactionBuilder`.
+    fn from_builder(builder: TransactionBuilder) -> Self;
+
+    /// Consume this wrapper and return the inner `TransactionBuilder`.
+    fn into_builder(self) -> TransactionBuilder;
 }

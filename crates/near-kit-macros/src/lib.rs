@@ -349,6 +349,132 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
     }
 }
 
+/// Generate a view method for the `{Trait}Methods` trait (uses `HasContractContext`).
+fn generate_methods_trait_view(
+    method: &MethodInfo,
+    contract_format: SerializationFormat,
+) -> TokenStream2 {
+    let method_name = &method.name;
+    let method_name_str = method_name.to_string();
+    let format = method.format_override.unwrap_or(contract_format);
+
+    let return_type = method
+        .return_type
+        .as_ref()
+        .map(|t| quote! { #t })
+        .unwrap_or_else(|| quote! { () });
+
+    let view_return_type = match format {
+        SerializationFormat::Json => quote! { near_kit::ViewCall<#return_type> },
+        SerializationFormat::Borsh => quote! { near_kit::ViewCallBorsh<#return_type> },
+    };
+
+    let borsh_suffix = match format {
+        SerializationFormat::Json => quote! {},
+        SerializationFormat::Borsh => quote! { .borsh() },
+    };
+
+    if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
+        let args_method = match format {
+            SerializationFormat::Json => quote! { .args(#arg_name) },
+            SerializationFormat::Borsh => quote! { .args_borsh(#arg_name) },
+        };
+        quote! {
+            fn #method_name(&self, #arg_name: #arg_type) -> #view_return_type {
+                self.near().view::<#return_type>(self.contract_id(), #method_name_str)
+                    #args_method
+                    #borsh_suffix
+            }
+        }
+    } else {
+        match format {
+            SerializationFormat::Json => quote! {
+                fn #method_name(&self) -> #view_return_type {
+                    self.near().view::<#return_type>(self.contract_id(), #method_name_str)
+                        .args(serde_json::json!({}))
+                }
+            },
+            SerializationFormat::Borsh => quote! {
+                fn #method_name(&self) -> #view_return_type {
+                    self.near().view::<#return_type>(self.contract_id(), #method_name_str)
+                        .borsh()
+                }
+            },
+        }
+    }
+}
+
+/// Generate a call method for the `{Trait}Methods` trait (uses `HasContractContext`).
+fn generate_methods_trait_call(
+    method: &MethodInfo,
+    contract_format: SerializationFormat,
+) -> TokenStream2 {
+    let method_name = &method.name;
+    let method_name_str = method_name.to_string();
+    let format = method.format_override.unwrap_or(contract_format);
+
+    if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
+        let args_method = match format {
+            SerializationFormat::Json => quote! { .args(#arg_name) },
+            SerializationFormat::Borsh => quote! { .args_borsh(#arg_name) },
+        };
+        quote! {
+            fn #method_name(&self, #arg_name: #arg_type) -> near_kit::CallBuilder {
+                self.near().call(self.contract_id(), #method_name_str)
+                    #args_method
+            }
+        }
+    } else {
+        match format {
+            SerializationFormat::Json => quote! {
+                fn #method_name(&self) -> near_kit::CallBuilder {
+                    self.near().call(self.contract_id(), #method_name_str)
+                        .args(serde_json::json!({}))
+                }
+            },
+            SerializationFormat::Borsh => quote! {
+                fn #method_name(&self) -> near_kit::CallBuilder {
+                    self.near().call(self.contract_id(), #method_name_str)
+                }
+            },
+        }
+    }
+}
+
+/// Generate a call method for the `{Trait}TxMethods` trait (uses `ContractTxBuilder`).
+fn generate_tx_method(method: &MethodInfo, contract_format: SerializationFormat) -> TokenStream2 {
+    let method_name = &method.name;
+    let method_name_str = method_name.to_string();
+    let format = method.format_override.unwrap_or(contract_format);
+
+    if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
+        let args_method = match format {
+            SerializationFormat::Json => quote! { .args(#arg_name) },
+            SerializationFormat::Borsh => quote! { .args_borsh(#arg_name) },
+        };
+        quote! {
+            fn #method_name(self, #arg_name: #arg_type) -> near_kit::CallBuilder {
+                self.into_builder().call(#method_name_str)
+                    #args_method
+            }
+        }
+    } else {
+        match format {
+            SerializationFormat::Json => quote! {
+                fn #method_name(self) -> near_kit::CallBuilder {
+                    self.into_builder().call(#method_name_str)
+                        .args(serde_json::json!({}))
+                }
+            },
+            SerializationFormat::Borsh => quote! {
+                fn #method_name(self) -> near_kit::CallBuilder {
+                    self.into_builder().call(#method_name_str)
+                }
+            },
+        }
+    }
+}
+
 /// Strip internal attributes from a method for the output trait.
 fn strip_internal_attrs(method: &TraitItemFn) -> TraitItemFn {
     let mut method = method.clone();
@@ -375,6 +501,11 @@ pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
 fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStream2> {
     let trait_name = &input.ident;
     let client_name = format_ident!("{}Client", trait_name);
+    let methods_trait_name = format_ident!("{}Methods", trait_name);
+    let marker_trait_name = format_ident!("Implements{}", trait_name);
+    let tx_builder_name = format_ident!("{}TxBuilder", trait_name);
+    let tx_methods_trait_name = format_ident!("{}TxMethods", trait_name);
+    let tx_marker_trait_name = format_ident!("Implements{}Tx", trait_name);
     let vis = &input.vis;
 
     // Parse all methods
@@ -385,7 +516,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         }
     }
 
-    // Generate client methods
+    // Generate client methods (inherent impls, for backwards compat)
     let client_methods: Vec<TokenStream2> = methods
         .iter()
         .map(|m| {
@@ -393,6 +524,49 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
                 generate_view_method(m, args.format)
             } else {
                 generate_call_method(m, args.format)
+            }
+        })
+        .collect();
+
+    // Generate Methods trait methods (view + call, using HasContractContext)
+    let methods_trait_methods: Vec<TokenStream2> = methods
+        .iter()
+        .map(|m| {
+            if m.is_view {
+                generate_methods_trait_view(m, args.format)
+            } else {
+                generate_methods_trait_call(m, args.format)
+            }
+        })
+        .collect();
+
+    // Generate TxMethods trait methods (call-only, using ContractTxBuilder)
+    let tx_methods: Vec<TokenStream2> = methods
+        .iter()
+        .filter(|m| !m.is_view)
+        .map(|m| generate_tx_method(m, args.format))
+        .collect();
+
+    // Collect supertrait names for generating marker trait impls
+    let supertrait_markers: Vec<TokenStream2> = input
+        .supertraits
+        .iter()
+        .filter_map(|bound| {
+            if let syn::TypeParamBound::Trait(trait_bound) = bound {
+                let path = &trait_bound.path;
+                // Generate marker trait names from supertrait paths
+                if let Some(last_seg) = path.segments.last() {
+                    let marker = format_ident!("Implements{}", last_seg.ident);
+                    let tx_marker = format_ident!("Implements{}Tx", last_seg.ident);
+                    Some(quote! {
+                        impl #marker for #client_name {}
+                        impl #tx_marker for #tx_builder_name {}
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
             }
         })
         .collect();
@@ -417,15 +591,30 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
     // Build the output
     let expanded = quote! {
         // Original trait (with internal attrs stripped for cleaner output)
-        // The trait is used for defining the interface, but the generated client
-        // struct is what's actually used - so suppress dead_code warnings.
         #[allow(dead_code)]
         #(#trait_attrs)*
         #vis trait #trait_name #trait_generics : #trait_supertraits {
             #(#cleaned_items)*
         }
 
-        // Generated client struct
+        // ── Methods trait (composable via blanket impl) ──────────────────
+
+        /// Trait providing typed methods for this contract standard.
+        ///
+        /// Automatically implemented for any type that implements
+        /// [`HasContractContext`] + [`#marker_trait_name`].
+        #vis trait #methods_trait_name: near_kit::HasContractContext {
+            #(#methods_trait_methods)*
+        }
+
+        /// Marker trait indicating a type supports this contract standard.
+        #vis trait #marker_trait_name {}
+
+        /// Blanket impl: any type with contract context + marker gets the methods.
+        impl<T: near_kit::HasContractContext + #marker_trait_name> #methods_trait_name for T {}
+
+        // ── Client struct (for simple standalone calls) ──────────────────
+
         #vis struct #client_name {
             near: near_kit::Near,
             contract_id: near_kit::AccountId,
@@ -453,16 +642,57 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
             #(#client_methods)*
         }
 
-        // Implement ContractClient trait for construction via near.contract::<T>()
+        impl near_kit::HasContractContext for #client_name {
+            fn near(&self) -> &near_kit::Near { &self.near }
+            fn contract_id(&self) -> &near_kit::AccountId { &self.contract_id }
+        }
+
+        impl #marker_trait_name for #client_name {}
+
         impl near_kit::contract::ContractClient for #client_name {
             fn new(near: near_kit::Near, contract_id: near_kit::AccountId) -> Self {
                 Self::new(near, contract_id)
             }
         }
 
-        // Implement Contract marker trait
+        // ── TxBuilder (for typed transaction composition) ────────────────
+
+        /// Builder returned by `.typed_call::<dyn #trait_name>()` on a transaction.
+        #vis struct #tx_builder_name {
+            builder: near_kit::TransactionBuilder,
+        }
+
+        impl near_kit::ContractTxBuilder for #tx_builder_name {
+            fn from_builder(builder: near_kit::TransactionBuilder) -> Self {
+                Self { builder }
+            }
+            fn into_builder(self) -> near_kit::TransactionBuilder {
+                self.builder
+            }
+        }
+
+        /// Trait providing typed transaction methods for this contract standard.
+        #vis trait #tx_methods_trait_name: near_kit::ContractTxBuilder {
+            #(#tx_methods)*
+        }
+
+        /// Marker trait for TxBuilder composition.
+        #vis trait #tx_marker_trait_name {}
+
+        /// Blanket impl: any TxBuilder with the marker gets the methods.
+        impl<T: near_kit::ContractTxBuilder + #tx_marker_trait_name> #tx_methods_trait_name for T {}
+
+        impl #tx_marker_trait_name for #tx_builder_name {}
+
+        // ── Supertrait marker impls (for trait inheritance) ──────────────
+
+        #(#supertrait_markers)*
+
+        // ── Contract marker trait ────────────────────────────────────────
+
         impl near_kit::Contract for dyn #trait_name {
             type Client = #client_name;
+            type TxBuilder = #tx_builder_name;
         }
     };
 
