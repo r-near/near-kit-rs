@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use crate::contract::ContractClient;
 use crate::error::Error;
 use crate::types::{
-    AccountId, Gas, IntoNearToken, NearToken, Network, PublicKey, SecretKey, TryIntoAccountId,
+    AccountId, ChainId, Gas, IntoNearToken, NearToken, PublicKey, SecretKey, TryIntoAccountId,
 };
 
 use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
@@ -96,24 +96,25 @@ pub trait SandboxNetwork {
 pub struct Near {
     rpc: Arc<RpcClient>,
     signer: Option<Arc<dyn Signer>>,
-    network: Network,
+    chain_id: ChainId,
     max_nonce_retries: u32,
+    sandbox: bool,
 }
 
 impl Near {
     /// Create a builder for mainnet.
     pub fn mainnet() -> NearBuilder {
-        NearBuilder::new(MAINNET.rpc_url, Network::Mainnet)
+        NearBuilder::new(MAINNET.rpc_url, ChainId::mainnet())
     }
 
     /// Create a builder for testnet.
     pub fn testnet() -> NearBuilder {
-        NearBuilder::new(TESTNET.rpc_url, Network::Testnet)
+        NearBuilder::new(TESTNET.rpc_url, ChainId::testnet())
     }
 
     /// Create a builder with a custom RPC URL.
     pub fn custom(rpc_url: impl Into<String>) -> NearBuilder {
-        NearBuilder::new(rpc_url, Network::Custom)
+        NearBuilder::new(rpc_url, ChainId::new("custom"))
     }
 
     /// Create a configured client from environment variables.
@@ -121,6 +122,10 @@ impl Near {
     /// Reads the following environment variables:
     /// - `NEAR_NETWORK` (optional): `"mainnet"`, `"testnet"`, or a custom RPC URL.
     ///   Defaults to `"testnet"` if not set.
+    /// - `NEAR_CHAIN_ID` (optional): Overrides the chain identifier (e.g., `"pinet"`).
+    ///   If set, always overrides the chain ID inferred from `NEAR_NETWORK`, including
+    ///   the built-in `"mainnet"` and `"testnet"` presets. Typically only needed for
+    ///   custom networks.
     /// - `NEAR_ACCOUNT_ID` (optional): Account ID for signing transactions.
     /// - `NEAR_PRIVATE_KEY` (optional): Private key for signing (e.g., `"ed25519:..."`).
     /// - `NEAR_MAX_NONCE_RETRIES` (optional): Maximum number of transaction send
@@ -133,7 +138,8 @@ impl Near {
     ///
     /// ```bash
     /// # Environment variables
-    /// export NEAR_NETWORK=testnet
+    /// export NEAR_NETWORK=https://rpc.pinet.near.org
+    /// export NEAR_CHAIN_ID=pinet
     /// export NEAR_ACCOUNT_ID=alice.testnet
     /// export NEAR_PRIVATE_KEY=ed25519:...
     /// export NEAR_MAX_NONCE_RETRIES=10
@@ -159,15 +165,21 @@ impl Near {
     /// - `NEAR_MAX_NONCE_RETRIES` is set but not a valid positive integer
     pub fn from_env() -> Result<Near, Error> {
         let network = std::env::var("NEAR_NETWORK").ok();
+        let chain_id_override = std::env::var("NEAR_CHAIN_ID").ok();
         let account_id = std::env::var("NEAR_ACCOUNT_ID").ok();
         let private_key = std::env::var("NEAR_PRIVATE_KEY").ok();
 
-        // Determine builder based on network
+        // Determine builder based on NEAR_NETWORK
         let mut builder = match network.as_deref() {
             Some("mainnet") => Near::mainnet(),
             Some("testnet") | None => Near::testnet(),
             Some(url) => Near::custom(url),
         };
+
+        // Override chain_id if NEAR_CHAIN_ID is set
+        if let Some(id) = chain_id_override {
+            builder = builder.chain_id(id);
+        }
 
         // Configure signer if both account and key are provided
         match (account_id, private_key) {
@@ -239,8 +251,9 @@ impl Near {
         Near {
             rpc: Arc::new(RpcClient::new(network.rpc_url())),
             signer: Some(Arc::new(signer)),
-            network: Network::Sandbox,
+            chain_id: ChainId::new("sandbox"),
             max_nonce_retries: 3,
+            sandbox: true,
         }
     }
 
@@ -274,9 +287,19 @@ impl Near {
         self.signer.clone()
     }
 
-    /// Get the network this client is connected to.
-    pub fn network(&self) -> Network {
-        self.network
+    /// Get the chain ID this client is connected to.
+    pub fn chain_id(&self) -> &ChainId {
+        &self.chain_id
+    }
+
+    /// Returns true if this client was created via [`Near::sandbox()`].
+    ///
+    /// Note: sandbox nodes generate a random `chain_id` (e.g., `test-chain-aB3xQ`)
+    /// on each startup, so [`Near::chain_id()`] returns a placeholder for sandbox
+    /// clients that does not reflect the node-reported chain ID. Use this method
+    /// instead to check if the client is connected to a sandbox.
+    pub fn is_sandbox(&self) -> bool {
+        self.sandbox
     }
 
     /// Create a new client that shares this client's transport but uses a different signer.
@@ -306,8 +329,9 @@ impl Near {
         Near {
             rpc: self.rpc.clone(),
             signer: Some(Arc::new(signer)),
-            network: self.network,
+            chain_id: self.chain_id.clone(),
             max_nonce_retries: self.max_nonce_retries,
+            sandbox: self.sandbox,
         }
     }
 
@@ -868,7 +892,7 @@ impl Near {
         &self,
         contract: impl crate::tokens::IntoContractId,
     ) -> Result<crate::tokens::FungibleToken, Error> {
-        let contract_id = contract.into_contract_id(self.network)?;
+        let contract_id = contract.into_contract_id(&self.chain_id)?;
         Ok(crate::tokens::FungibleToken::new(
             self.rpc.clone(),
             self.signer.clone(),
@@ -906,7 +930,7 @@ impl Near {
         &self,
         contract: impl crate::tokens::IntoContractId,
     ) -> Result<crate::tokens::NonFungibleToken, Error> {
-        let contract_id = contract.into_contract_id(self.network)?;
+        let contract_id = contract.into_contract_id(&self.chain_id)?;
         Ok(crate::tokens::NonFungibleToken::new(
             self.rpc.clone(),
             self.signer.clone(),
@@ -951,18 +975,18 @@ pub struct NearBuilder {
     rpc_url: String,
     signer: Option<Arc<dyn Signer>>,
     retry_config: RetryConfig,
-    network: Network,
+    chain_id: ChainId,
     max_nonce_retries: u32,
 }
 
 impl NearBuilder {
     /// Create a new builder with the given RPC URL.
-    fn new(rpc_url: impl Into<String>, network: Network) -> Self {
+    fn new(rpc_url: impl Into<String>, chain_id: ChainId) -> Self {
         Self {
             rpc_url: rpc_url.into(),
             signer: None,
             retry_config: RetryConfig::default(),
-            network,
+            chain_id,
             max_nonce_retries: 3,
         }
     }
@@ -998,6 +1022,15 @@ impl NearBuilder {
         Ok(self)
     }
 
+    /// Set the chain ID.
+    ///
+    /// This is useful for custom networks where the default chain ID
+    /// (e.g., `"custom"`) should be overridden.
+    pub fn chain_id(mut self, chain_id: impl Into<String>) -> Self {
+        self.chain_id = ChainId::new(chain_id);
+        self
+    }
+
     /// Set the retry configuration.
     pub fn retry_config(mut self, config: RetryConfig) -> Self {
         self.retry_config = config;
@@ -1031,8 +1064,9 @@ impl NearBuilder {
                 self.retry_config,
             )),
             signer: self.signer,
-            network: self.network,
+            chain_id: self.chain_id,
             max_nonce_retries: self.max_nonce_retries,
+            sandbox: false,
         }
     }
 }
@@ -1144,7 +1178,7 @@ mod tests {
 
     #[test]
     fn test_near_builder_new() {
-        let builder = NearBuilder::new("https://example.com", Network::Custom);
+        let builder = NearBuilder::new("https://example.com", ChainId::new("custom"));
         let near = builder.build();
         assert_eq!(near.rpc_url(), "https://example.com");
     }
@@ -1291,6 +1325,7 @@ mod tests {
         fn clear_env() {
             // SAFETY: This is a test and we control the execution
             unsafe {
+                std::env::remove_var("NEAR_CHAIN_ID");
                 std::env::remove_var("NEAR_NETWORK");
                 std::env::remove_var("NEAR_ACCOUNT_ID");
                 std::env::remove_var("NEAR_PRIVATE_KEY");
@@ -1438,6 +1473,33 @@ mod tests {
                 "Error should mention NEAR_MAX_NONCE_RETRIES: {}",
                 err
             );
+        }
+
+        // Scenario 10: NEAR_CHAIN_ID overrides chain_id for custom network
+        clear_env();
+        unsafe {
+            std::env::set_var("NEAR_NETWORK", "https://rpc.pinet.near.org");
+            std::env::set_var("NEAR_CHAIN_ID", "pinet");
+        }
+        {
+            let near = Near::from_env().unwrap();
+            assert_eq!(near.rpc_url(), "https://rpc.pinet.near.org");
+            assert_eq!(near.chain_id().as_str(), "pinet");
+        }
+
+        // Scenario 11: NEAR_CHAIN_ID without NEAR_NETWORK defaults to testnet RPC
+        clear_env();
+        unsafe {
+            std::env::set_var("NEAR_CHAIN_ID", "my-chain");
+        }
+        {
+            let near = Near::from_env().unwrap();
+            assert!(
+                near.rpc_url().contains("test") || near.rpc_url().contains("fastnear"),
+                "Expected testnet URL, got: {}",
+                near.rpc_url()
+            );
+            assert_eq!(near.chain_id().as_str(), "my-chain");
         }
 
         // Final cleanup
