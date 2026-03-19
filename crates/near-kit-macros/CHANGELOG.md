@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.5.1...near-kit-macros-v0.6.0) - 2026-03-19
+
+### Added
+
+- remove lifetime from typed contract client macro ([#67](https://github.com/r-near/near-kit-rs/pull/67))
+
 ## [0.3.1](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.3.0...near-kit-macros-v0.3.1) - 2026-02-03
 
 ### Other

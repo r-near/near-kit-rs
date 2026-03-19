@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.5.1...near-kit-v0.6.0) - 2026-03-19
+
+### Added
+
+- [**breaking**] add Near::state_init() and simplify state init API ([#88](https://github.com/r-near/near-kit-rs/pull/88))
+- [**breaking**] implement Signer for Arc<T: Signer> instead of Arc<dyn Signer> ([#87](https://github.com/r-near/near-kit-rs/pull/87))
+- support NEAR_MAX_NONCE_RETRIES env var and add Debug impls ([#86](https://github.com/r-near/near-kit-rs/pull/86))
+- add FunctionCall type for composable transaction building ([#84](https://github.com/r-near/near-kit-rs/pull/84))
+- add function_call() one-shot method on TransactionBuilder ([#81](https://github.com/r-near/near-kit-rs/pull/81))
+- TransactionOutcome newtype for type-safe transaction results ([#80](https://github.com/r-near/near-kit-rs/pull/80))
+- [**breaking**] replace custom types with upstream near-account-id, near-token, near-gas ([#71](https://github.com/r-near/near-kit-rs/pull/71))
+- expose signer accessor and fix RotatingSigner public_key ([#70](https://github.com/r-near/near-kit-rs/pull/70))
+- add tracing instrumentation to near-kit ([#69](https://github.com/r-near/near-kit-rs/pull/69))
+- remove lifetime from typed contract client macro ([#67](https://github.com/r-near/near-kit-rs/pull/67))
+- add signer ergonomics (public_key accessor, with_signer on token clients) ([#61](https://github.com/r-near/near-kit-rs/pull/61))
+
+### Fixed
+
+- refactor StorageDepositCall to use CallBuilder ([#79](https://github.com/r-near/near-kit-rs/pull/79))
+
 ## [0.5.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.5.0...near-kit-v0.5.1) - 2026-03-16
 
 ### Fixed
