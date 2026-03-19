@@ -3,7 +3,7 @@
 //! Verifies that failed transactions still expose the full outcome,
 //! allowing callers to inspect receipts, logs, and gas usage.
 //!
-//! Run with: `cargo test --features sandbox --test integration transaction_outcome`
+//! Run with: `cargo test --features sandbox --test integration -- transaction_outcome`
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
