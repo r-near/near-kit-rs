@@ -377,10 +377,11 @@ fn generate_function_call_method(
     } else {
         match format {
             SerializationFormat::Json => {
+                // Use args_raw to avoid depending on serde_json in expanded code
                 quote! {
                     pub fn #method_name() -> near_kit::FunctionCall {
                         near_kit::FunctionCall::new(#method_name_str)
-                            .args(serde_json::json!({}))
+                            .args_raw(b"{}".to_vec())
                     }
                 }
             }
@@ -449,6 +450,12 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
     for item in &input.items {
         match item {
             TraitItem::Fn(method) => {
+                if method.default.is_some() {
+                    return Err(syn::Error::new(
+                        method.sig.span(),
+                        "#[near_kit::contract] does not support default method implementations",
+                    ));
+                }
                 methods.push(parse_method(method)?);
             }
             other => {
