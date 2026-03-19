@@ -1130,7 +1130,19 @@ impl CallBuilder {
     /// # Ok(())
     /// # }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Debug-panics if the underlying transaction builder already has accumulated
+    /// actions, since those would be silently dropped. Use [`finish`](Self::finish)
+    /// instead when chaining multiple actions on the same transaction.
     pub fn into_action(self) -> Action {
+        debug_assert!(
+            self.builder.actions.is_empty(),
+            "into_action() discards {} previously accumulated action(s) — \
+             use .finish() to keep them in the transaction",
+            self.builder.actions.len(),
+        );
         Action::function_call(self.method, self.args, self.gas, self.deposit)
     }
 
