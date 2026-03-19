@@ -220,18 +220,12 @@ async fn test_typed_contract_call_with_insufficient_gas() {
         .await;
 
     match result {
-        Ok(outcome) => {
-            // Transaction executed but should have failed on-chain
-            assert!(outcome.is_failure(), "Should fail with insufficient gas");
-            let err = outcome.result().unwrap_err();
-            println!("Insufficient gas error: {:?}", err);
-            match err {
-                Error::TransactionFailed(_) => { /* Expected */ }
-                _ => panic!("Expected TransactionFailed from result(), got: {:?}", err),
-            }
+        Err(Error::ActionFailed { error, .. }) => {
+            println!("Insufficient gas error: {:?}", error);
         }
-        Err(Error::Rpc(_)) => { /* RPC errors also acceptable */ }
-        Err(other) => panic!("Expected Ok or Rpc error, got: {:?}", other),
+        Err(Error::Rpc(_)) | Err(Error::InvalidTx(_)) => { /* Also acceptable */ }
+        Ok(_) => panic!("Expected error, got Ok"),
+        Err(other) => panic!("Expected ActionFailed or Rpc error, got: {:?}", other),
     }
 }
 

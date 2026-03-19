@@ -5,17 +5,15 @@
 //! # Error Hierarchy
 //!
 //! - [`Error`](enum@Error) — Main error type, returned by most operations
-//!   - [`RpcError`] — RPC-specific errors (network, account not found, etc.)
-//!   - [`ParseAccountIdError`] — Invalid account ID format
-//!   - [`ParseAmountError`] — Invalid NEAR amount format
-//!   - [`ParseGasError`] — Invalid gas format
-//!   - [`ParseKeyError`] — Invalid key format
-//!   - [`SignerError`] — Signing operation failures
-//!   - [`KeyStoreError`] — Credential loading failures
+//!   - [`RpcError`] — RPC/network errors (connectivity, account not found, etc.)
+//!   - [`InvalidTxError`][crate::types::InvalidTxError] — Transaction was rejected
+//!     before execution (bad nonce, insufficient balance, expired, etc.)
+//!   - [`ActionError`][crate::types::ActionError] — Transaction executed but an
+//!     action failed (via [`Error::ActionFailed`], which includes the outcome)
 //!
 //! # Error Handling Examples
 //!
-//! ## Pattern Matching on RPC Errors
+//! ## Handling Transaction Errors
 //!
 //! ```rust,no_run
 //! use near_kit::*;
@@ -23,8 +21,16 @@
 //! # async fn example() -> Result<(), Error> {
 //! let near = Near::testnet().build();
 //!
-//! match near.balance("maybe-exists.testnet").await {
-//!     Ok(balance) => println!("Balance: {}", balance.available),
+//! match near.transfer("bob.testnet", "1 NEAR").await {
+//!     Ok(outcome) => println!("Success! Hash: {}", outcome.transaction_hash()),
+//!     Err(Error::InvalidTx(e)) => {
+//!         // Transaction was rejected before execution (bad nonce, insufficient balance, etc.)
+//!         println!("Transaction rejected: {}", e);
+//!     }
+//!     Err(Error::ActionFailed { error, outcome }) => {
+//!         // Transaction executed but an action failed — outcome has receipt details
+//!         println!("Action failed: {}, gas used: {}", error, outcome.total_gas_used());
+//!     }
 //!     Err(Error::Rpc(RpcError::AccountNotFound(account))) => {
 //!         println!("Account {} doesn't exist", account);
 //!     }
@@ -46,7 +52,9 @@
 
 use thiserror::Error;
 
-use crate::types::{AccountId, DelegateDecodeError, PublicKey, TxExecutionError};
+use crate::types::{
+    AccountId, ActionError, DelegateDecodeError, FinalExecutionOutcome, InvalidTxError, PublicKey,
+};
 
 /// Error parsing an account ID.
 ///
@@ -247,24 +255,20 @@ pub enum RpcError {
     UnknownReceipt(String),
 
     // ─── Transaction Errors ───
+    /// Structured transaction validation error, parsed from nearcore's
+    /// `TxExecutionError::InvalidTxError`. Prefer matching on
+    /// [`Error::InvalidTx`] instead — this variant only appears when using
+    /// the low-level `rpc().send_tx()` API directly.
+    #[error("Invalid transaction: {0}")]
+    InvalidTx(crate::types::InvalidTxError),
+
+    /// Fallback when the RPC returns `INVALID_TRANSACTION` but the structured
+    /// error could not be deserialized into [`InvalidTxError`][crate::types::InvalidTxError].
     #[error("Invalid transaction: {message}")]
     InvalidTransaction {
         message: String,
         details: Option<serde_json::Value>,
-        shard_congested: bool,
-        shard_stuck: bool,
     },
-
-    #[error(
-        "Invalid nonce: transaction nonce {tx_nonce} must be greater than access key nonce {ak_nonce}"
-    )]
-    InvalidNonce { tx_nonce: u64, ak_nonce: u64 },
-
-    #[error("Insufficient balance: required {required}, available {available}")]
-    InsufficientBalance { required: String, available: String },
-
-    #[error("Gas limit exceeded: used {gas_used}, limit {gas_limit}")]
-    GasLimitExceeded { gas_used: String, gas_limit: String },
 
     // ─── Node Errors ───
     #[error("Shard unavailable: {0}")]
@@ -298,12 +302,7 @@ impl RpcError {
             RpcError::NodeNotSynced(_) => true,
             RpcError::InternalError(_) => true,
             RpcError::RequestTimeout { .. } => true,
-            RpcError::InvalidNonce { .. } => true,
-            RpcError::InvalidTransaction {
-                shard_congested,
-                shard_stuck,
-                ..
-            } => *shard_congested || *shard_stuck,
+            RpcError::InvalidTx(e) => e.is_retryable(),
             RpcError::Rpc { code, .. } => {
                 // Retry on server errors
                 *code == -32000 || *code == -32603
@@ -321,27 +320,33 @@ impl RpcError {
         }
     }
 
-    /// Create an invalid transaction error.
+    /// Create an invalid transaction error, attempting to parse structured data first.
     pub fn invalid_transaction(
         message: impl Into<String>,
         details: Option<serde_json::Value>,
     ) -> Self {
-        let details_obj = details.as_ref();
-        let shard_congested = details_obj
-            .and_then(|d| d.get("ShardCongested"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let shard_stuck = details_obj
-            .and_then(|d| d.get("ShardStuck"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        // Try to deserialize the structured error from the data field
+        if let Some(ref data) = details {
+            if let Some(invalid_tx) = Self::try_parse_invalid_tx(data) {
+                return RpcError::InvalidTx(invalid_tx);
+            }
+        }
 
         RpcError::InvalidTransaction {
             message: message.into(),
             details,
-            shard_congested,
-            shard_stuck,
         }
+    }
+
+    /// Try to extract an `InvalidTxError` from the RPC error data JSON.
+    ///
+    /// The data field typically looks like:
+    /// `{"TxExecutionError": {"InvalidTxError": {"InvalidNonce": {...}}}}`
+    fn try_parse_invalid_tx(data: &serde_json::Value) -> Option<crate::types::InvalidTxError> {
+        // Try: data.TxExecutionError.InvalidTxError
+        let tx_err = data.get("TxExecutionError")?;
+        let invalid_tx_value = tx_err.get("InvalidTxError")?;
+        serde_json::from_value(invalid_tx_value.clone()).ok()
     }
 
     /// Create a function call error.
@@ -408,17 +413,30 @@ pub enum Error {
 
     // ─── RPC ───
     #[error(transparent)]
-    Rpc(#[from] RpcError),
+    Rpc(RpcError),
 
-    // ─── Transaction ───
-    #[error("Transaction failed: {0}")]
-    TransactionFailed(TxExecutionError),
+    // ─── Transaction validation ───
+    /// Transaction was rejected before execution. No receipt was created,
+    /// no nonce was incremented, no gas was consumed.
+    ///
+    /// This covers validation failures from both the RPC pre-check and the
+    /// runtime execution layer — the caller never needs to distinguish them.
+    #[error("Invalid transaction: {0}")]
+    InvalidTx(InvalidTxError),
 
+    /// Transaction executed (nonce incremented, gas consumed) but an action
+    /// failed. The outcome is attached so callers can inspect receipts, logs,
+    /// and gas usage.
+    #[error("Action failed: {error}")]
+    ActionFailed {
+        error: ActionError,
+        outcome: Box<FinalExecutionOutcome>,
+    },
+
+    /// Local pre-send validation failure (e.g. empty actions, bad
+    /// deserialization). Not a nearcore error.
     #[error("Invalid transaction: {0}")]
     InvalidTransaction(String),
-
-    #[error("Contract panic: {0}")]
-    ContractPanic(String),
 
     // ─── Signing ───
     #[error("Signing failed: {0}")]
@@ -441,6 +459,36 @@ pub enum Error {
     // ─── Tokens ───
     #[error("Token {token} is not available on {network}")]
     TokenNotAvailable { token: String, network: String },
+}
+
+impl From<RpcError> for Error {
+    fn from(err: RpcError) -> Self {
+        match err {
+            // Promote structured tx validation errors to Error::InvalidTx
+            RpcError::InvalidTx(e) => Error::InvalidTx(e),
+            other => Error::Rpc(other),
+        }
+    }
+}
+
+impl Error {
+    /// Returns `true` if this is an [`Error::InvalidTx`] variant.
+    pub fn is_invalid_tx(&self) -> bool {
+        matches!(self, Error::InvalidTx(_))
+    }
+
+    /// Returns `true` if this is an [`Error::ActionFailed`] variant.
+    pub fn is_action_failed(&self) -> bool {
+        matches!(self, Error::ActionFailed { .. })
+    }
+
+    /// Returns the [`FinalExecutionOutcome`] if this is an [`Error::ActionFailed`].
+    pub fn outcome(&self) -> Option<&FinalExecutionOutcome> {
+        match self {
+            Error::ActionFailed { outcome, .. } => Some(outcome),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -674,6 +722,8 @@ mod tests {
 
     #[test]
     fn test_rpc_error_is_retryable() {
+        use crate::types::InvalidTxError;
+
         // Retryable errors
         assert!(RpcError::Timeout(3).is_retryable());
         assert!(RpcError::ShardUnavailable("shard 0".to_string()).is_retryable());
@@ -687,10 +737,17 @@ mod tests {
             .is_retryable()
         );
         assert!(
-            RpcError::InvalidNonce {
+            RpcError::InvalidTx(InvalidTxError::InvalidNonce {
                 tx_nonce: 5,
                 ak_nonce: 10
-            }
+            })
+            .is_retryable()
+        );
+        assert!(
+            RpcError::InvalidTx(InvalidTxError::ShardCongested {
+                congestion_level: 1.0,
+                shard_id: 0,
+            })
             .is_retryable()
         );
         assert!(
@@ -702,26 +759,9 @@ mod tests {
             .is_retryable()
         );
         assert!(
-            RpcError::InvalidTransaction {
-                message: "shard congested".to_string(),
-                details: None,
-                shard_congested: true,
-                shard_stuck: false,
-            }
-            .is_retryable()
-        );
-        assert!(
             RpcError::Rpc {
                 code: -32000,
                 message: "server error".to_string(),
-                data: None,
-            }
-            .is_retryable()
-        );
-        assert!(
-            RpcError::Rpc {
-                code: -32603,
-                message: "internal error".to_string(),
                 data: None,
             }
             .is_retryable()
@@ -735,27 +775,17 @@ mod tests {
         assert!(!RpcError::UnknownBlock("12345".to_string()).is_retryable());
         assert!(!RpcError::ParseError("bad json".to_string()).is_retryable());
         assert!(
-            !RpcError::Network {
-                message: "not found".to_string(),
-                status_code: Some(404),
-                retryable: false,
-            }
+            !RpcError::InvalidTx(InvalidTxError::NotEnoughBalance {
+                signer_id: account_id.clone(),
+                balance: crate::types::NearToken::from_near(1),
+                cost: crate::types::NearToken::from_near(100),
+            })
             .is_retryable()
         );
         assert!(
             !RpcError::InvalidTransaction {
                 message: "invalid".to_string(),
                 details: None,
-                shard_congested: false,
-                shard_stuck: false,
-            }
-            .is_retryable()
-        );
-        assert!(
-            !RpcError::Rpc {
-                code: -32600,
-                message: "invalid request".to_string(),
-                data: None,
             }
             .is_retryable()
         );
@@ -779,21 +809,40 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_error_invalid_transaction_constructor() {
+    fn test_rpc_error_invalid_transaction_constructor_unstructured() {
         let err = RpcError::invalid_transaction("invalid nonce", None);
         match err {
-            RpcError::InvalidTransaction {
-                message,
-                details,
-                shard_congested,
-                shard_stuck,
-            } => {
+            RpcError::InvalidTransaction { message, details } => {
                 assert_eq!(message, "invalid nonce");
                 assert!(details.is_none());
-                assert!(!shard_congested);
-                assert!(!shard_stuck);
             }
             _ => panic!("Expected InvalidTransaction error"),
+        }
+    }
+
+    #[test]
+    fn test_rpc_error_invalid_transaction_constructor_structured() {
+        // When data contains a parseable InvalidTxError, it should produce InvalidTx
+        let data = serde_json::json!({
+            "TxExecutionError": {
+                "InvalidTxError": {
+                    "InvalidNonce": {
+                        "tx_nonce": 5,
+                        "ak_nonce": 10
+                    }
+                }
+            }
+        });
+        let err = RpcError::invalid_transaction("invalid nonce", Some(data));
+        match err {
+            RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {
+                tx_nonce,
+                ak_nonce,
+            }) => {
+                assert_eq!(tx_nonce, 5);
+                assert_eq!(ak_nonce, 10);
+            }
+            other => panic!("Expected InvalidTx(InvalidNonce), got: {other:?}"),
         }
     }
 
@@ -877,39 +926,13 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_error_invalid_nonce_display() {
-        let err = RpcError::InvalidNonce {
+    fn test_rpc_error_invalid_tx_display() {
+        use crate::types::InvalidTxError;
+        let err = RpcError::InvalidTx(InvalidTxError::InvalidNonce {
             tx_nonce: 5,
             ak_nonce: 10,
-        };
-        assert_eq!(
-            err.to_string(),
-            "Invalid nonce: transaction nonce 5 must be greater than access key nonce 10"
-        );
-    }
-
-    #[test]
-    fn test_rpc_error_insufficient_balance_display() {
-        let err = RpcError::InsufficientBalance {
-            required: "100 NEAR".to_string(),
-            available: "50 NEAR".to_string(),
-        };
-        assert_eq!(
-            err.to_string(),
-            "Insufficient balance: required 100 NEAR, available 50 NEAR"
-        );
-    }
-
-    #[test]
-    fn test_rpc_error_gas_limit_exceeded_display() {
-        let err = RpcError::GasLimitExceeded {
-            gas_used: "300 Tgas".to_string(),
-            gas_limit: "200 Tgas".to_string(),
-        };
-        assert_eq!(
-            err.to_string(),
-            "Gas limit exceeded: used 300 Tgas, limit 200 Tgas"
-        );
+        });
+        assert!(err.to_string().contains("invalid nonce"));
     }
 
     #[test]
@@ -964,21 +987,25 @@ mod tests {
     }
 
     #[test]
-    fn test_error_transaction_failed_display() {
-        use crate::types::{ActionError, ActionErrorKind, FunctionCallError, TxExecutionError};
-        let tx_err = TxExecutionError::ActionError(ActionError {
-            index: Some(0),
-            kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
-                "execution error".to_string(),
-            )),
+    fn test_error_invalid_tx_display() {
+        use crate::types::InvalidTxError;
+        let err = Error::InvalidTx(InvalidTxError::Expired);
+        assert!(err.to_string().contains("expired"));
+    }
+
+    #[test]
+    fn test_error_from_rpc_invalid_tx_promotes() {
+        use crate::types::InvalidTxError;
+        // RpcError::InvalidTx should become Error::InvalidTx, not Error::Rpc
+        let rpc_err = RpcError::InvalidTx(InvalidTxError::InvalidNonce {
+            tx_nonce: 5,
+            ak_nonce: 10,
         });
-        let err = Error::TransactionFailed(tx_err);
-        let msg = err.to_string();
-        assert!(msg.starts_with("Transaction failed: "));
-        assert!(
-            msg.contains("execution error"),
-            "should contain inner error: {msg}"
-        );
+        let err: Error = rpc_err.into();
+        assert!(matches!(
+            err,
+            Error::InvalidTx(InvalidTxError::InvalidNonce { .. })
+        ));
     }
 
     #[test]

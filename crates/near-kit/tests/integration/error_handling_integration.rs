@@ -365,7 +365,7 @@ async fn test_error_create_account_that_already_exists() {
 
     // Try to create the same account again
     let new_key = SecretKey::generate_ed25519();
-    let outcome = parent_near
+    let err = parent_near
         .transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(1))
@@ -373,16 +373,14 @@ async fn test_error_create_account_that_already_exists() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect("RPC send should succeed");
+        .expect_err("Should fail when creating duplicate account");
 
     assert!(
-        outcome.is_failure(),
-        "Should fail when creating duplicate account"
+        err.is_action_failed(),
+        "Expected ActionFailed, got: {:?}",
+        err
     );
-    println!(
-        "Duplicate account error: {:?}",
-        outcome.result().unwrap_err()
-    );
+    println!("Duplicate account error: {:?}", err);
 }
 
 #[tokio::test]
@@ -411,22 +409,20 @@ async fn test_error_delete_nonexistent_key() {
 
     // Try to delete a key that doesn't exist on the account
     let fake_key = SecretKey::generate_ed25519();
-    let outcome = account_near
+    let err = account_near
         .transaction(&account_id)
         .delete_key(fake_key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect("RPC send should succeed");
+        .expect_err("Should fail when deleting non-existent key");
 
     assert!(
-        outcome.is_failure(),
-        "Should fail when deleting non-existent key"
+        err.is_action_failed(),
+        "Expected ActionFailed, got: {:?}",
+        err
     );
-    println!(
-        "Delete non-existent key error: {:?}",
-        outcome.result().unwrap_err()
-    );
+    println!("Delete non-existent key error: {:?}", err);
 }
 
 // =============================================================================
@@ -461,18 +457,21 @@ async fn test_error_function_call_panic() {
         .build();
 
     // Call a method that doesn't exist (should fail during execution)
-    let outcome = contract_near
+    let err = contract_near
         .call(&contract_id, "nonexistent_method")
         .args(serde_json::json!({}))
         .gas(Gas::from_tgas(30))
         .await
-        .expect("RPC send should succeed");
+        .expect_err("Should fail when calling non-existent method");
 
     assert!(
-        outcome.is_failure(),
-        "Should fail when calling non-existent method"
+        err.is_action_failed(),
+        "Expected ActionFailed, got: {:?}",
+        err
     );
-    println!("Function call error: {:?}", outcome.result().unwrap_err());
+    // ActionFailed carries the outcome so we can inspect it
+    assert!(err.outcome().is_some());
+    println!("Function call error: {:?}", err);
 }
 
 #[tokio::test]
@@ -503,18 +502,19 @@ async fn test_error_function_call_insufficient_gas() {
         .build();
 
     // Call with very low gas (should fail)
-    let result = contract_near
+    let err = contract_near
         .call(&contract_id, "add_message")
         .args(serde_json::json!({ "text": "test" }))
         .gas(Gas::from_gas(1000)) // Extremely low gas
-        .await;
+        .await
+        .expect_err("Should fail with insufficient gas");
 
-    let outcome = result.expect("RPC send should succeed");
-    assert!(outcome.is_failure(), "Should fail with insufficient gas");
-    println!(
-        "Insufficient gas error: {:?}",
-        outcome.result().unwrap_err()
+    assert!(
+        err.is_action_failed(),
+        "Expected ActionFailed, got: {:?}",
+        err
     );
+    println!("Insufficient gas error: {:?}", err);
 }
 
 // =============================================================================

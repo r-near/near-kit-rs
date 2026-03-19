@@ -318,6 +318,8 @@ async fn test_wrong_key_for_account() {
     match err {
         Error::Rpc(RpcError::AccessKeyNotFound { .. }) => { /* Expected */ }
         Error::Rpc(RpcError::InvalidTransaction { .. }) => { /* Also acceptable */ }
+        Error::Rpc(RpcError::InvalidTx(_)) => { /* Also acceptable */ }
+        Error::InvalidTx(_) => { /* Also acceptable */ }
         Error::Rpc(_) => { /* Other RPC errors */ }
         _ => panic!("Expected RPC error, got: {:?}", err),
     }

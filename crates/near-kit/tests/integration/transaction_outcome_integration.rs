@@ -45,38 +45,33 @@ async fn test_failed_transaction_preserves_receipts() {
         .build();
 
     // Call a non-existent method — the transaction executes but fails on-chain
-    let outcome = account_near
+    let err = account_near
         .call(&contract_id, "nonexistent_method")
         .args(serde_json::json!({}))
         .gas(Gas::from_tgas(10))
         .await
-        .expect("RPC send should succeed");
+        .expect_err("Should fail for non-existent method");
 
-    // The outcome should indicate failure
-    assert!(outcome.is_failure(), "Should fail for non-existent method");
-    assert!(!outcome.is_success());
-
-    // Extracting the return value should give a TransactionFailed error
-    let err = outcome.result().unwrap_err();
+    // Should be an ActionFailed error with the outcome attached
     match &err {
-        Error::TransactionFailed(tx_err) => {
-            println!("Got expected error: {tx_err}");
+        Error::ActionFailed { error, outcome } => {
+            println!("Got expected action error: {error}");
+
+            // Receipt details are accessible via the attached outcome
+            assert!(
+                !outcome.receipts_outcome.is_empty(),
+                "Should have receipt outcomes even on failure"
+            );
+            assert!(outcome.total_gas_used().as_gas() > 0);
+            assert!(!outcome.transaction_hash().is_zero());
+
+            for (i, receipt) in outcome.receipts_outcome.iter().enumerate() {
+                println!(
+                    "Receipt {i}: executor={}, status={:?}",
+                    receipt.outcome.executor_id, receipt.outcome.status
+                );
+            }
         }
-        other => panic!("Expected TransactionFailed, got: {other:?}"),
-    }
-
-    // Receipt details are directly accessible
-    assert!(
-        !outcome.receipts_outcome.is_empty(),
-        "Should have receipt outcomes even on failure"
-    );
-    assert!(outcome.total_gas_used().as_gas() > 0);
-    assert!(!outcome.transaction_hash().is_zero());
-
-    for (i, receipt) in outcome.receipts_outcome.iter().enumerate() {
-        println!(
-            "Receipt {i}: executor={}, status={:?}",
-            receipt.outcome.executor_id, receipt.outcome.status
-        );
+        other => panic!("Expected ActionFailed, got: {other:?}"),
     }
 }

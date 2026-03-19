@@ -626,11 +626,21 @@ impl FinalExecutionOutcome {
     ///
     /// Returns `Err` if the transaction failed on-chain, if the status is not
     /// `SuccessValue`, or if the value is not valid base64.
+    ///
+    /// Note: When using the high-level transaction API, failures are returned
+    /// as `Err` from the send call itself. This method is primarily useful
+    /// when working with the low-level `rpc().send_tx()` API directly.
     pub fn result(&self) -> Result<Vec<u8>, crate::error::Error> {
-        if let Some(err) = self.failure_error() {
-            return Err(crate::error::Error::TransactionFailed(err.clone()));
-        }
         match &self.status {
+            FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
+                Err(crate::error::Error::InvalidTx(e.clone()))
+            }
+            FinalExecutionStatus::Failure(TxExecutionError::ActionError(e)) => {
+                Err(crate::error::Error::ActionFailed {
+                    error: e.clone(),
+                    outcome: Box::new(self.clone()),
+                })
+            }
             FinalExecutionStatus::SuccessValue(s) => STANDARD.decode(s).map_err(|e| {
                 crate::error::Error::InvalidTransaction(format!(
                     "Failed to decode base64 SuccessValue: {e}"

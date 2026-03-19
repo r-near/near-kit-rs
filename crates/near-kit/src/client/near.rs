@@ -729,7 +729,20 @@ impl Near {
             ))
         })?;
 
-        Ok(outcome)
+        // Inspect outcome status and convert failures to Err
+        use crate::types::{FinalExecutionStatus, TxExecutionError};
+        match outcome.status {
+            FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
+                Err(Error::InvalidTx(e))
+            }
+            FinalExecutionStatus::Failure(TxExecutionError::ActionError(ref e)) => {
+                Err(Error::ActionFailed {
+                    error: e.clone(),
+                    outcome: Box::new(outcome),
+                })
+            }
+            _ => Ok(outcome),
+        }
     }
 
     // ========================================================================

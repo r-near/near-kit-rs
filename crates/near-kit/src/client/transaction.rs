@@ -1383,11 +1383,26 @@ impl IntoFuture for TransactionSend {
                                 response.transaction_hash, builder.wait_until,
                             ))
                         })?;
-                        return Ok(outcome);
+
+                        // Inspect outcome status and convert failures to Err
+                        use crate::types::{FinalExecutionStatus, TxExecutionError};
+                        match outcome.status {
+                            FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
+                                return Err(Error::InvalidTx(e));
+                            }
+                            FinalExecutionStatus::Failure(TxExecutionError::ActionError(ref e)) => {
+                                return Err(Error::ActionFailed {
+                                    error: e.clone(),
+                                    outcome: Box::new(outcome),
+                                });
+                            }
+                            _ => return Ok(outcome),
+                        }
                     }
-                    Err(RpcError::InvalidNonce { tx_nonce, ak_nonce })
-                        if attempt < max_nonce_retries - 1 =>
-                    {
+                    Err(RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {
+                        tx_nonce,
+                        ak_nonce,
+                    })) if attempt < max_nonce_retries - 1 => {
                         tracing::warn!(
                             tx_nonce = tx_nonce,
                             ak_nonce = ak_nonce,
@@ -1396,13 +1411,14 @@ impl IntoFuture for TransactionSend {
                         );
                         // Store ak_nonce for next iteration to avoid refetching
                         last_ak_nonce = Some(ak_nonce);
-                        last_error =
-                            Some(Error::Rpc(RpcError::InvalidNonce { tx_nonce, ak_nonce }));
+                        last_error = Some(Error::InvalidTx(
+                            crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
+                        ));
                         continue;
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "Transaction send failed");
-                        return Err(Error::Rpc(e));
+                        return Err(e.into());
                     }
                 }
             }

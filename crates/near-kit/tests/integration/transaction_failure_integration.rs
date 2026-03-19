@@ -98,16 +98,17 @@ async fn test_add_key_to_nonexistent_account() {
     let nonexistent: AccountId = "nonexistent-for-add-key.sandbox".parse().unwrap();
 
     // Try to add a key to a non-existent account
-    let outcome = near
+    let err = near
         .add_full_access_key(&nonexistent, key.public_key())
         .await
-        .expect("RPC send should succeed");
+        .expect_err("Should fail for non-existent account");
 
-    assert!(outcome.is_failure(), "Should fail for non-existent account");
-    println!(
-        "Add key to non-existent: {:?}",
-        outcome.result().unwrap_err()
+    assert!(
+        err.is_action_failed(),
+        "Expected ActionFailed, got: {:?}",
+        err
     );
+    println!("Add key to non-existent: {:?}", err);
 }
 
 #[tokio::test]
@@ -134,16 +135,17 @@ async fn test_add_duplicate_key() {
         .build();
 
     // Try to add the same key again
-    let outcome = account_near
+    let err = account_near
         .add_full_access_key(&account_id, key.public_key())
         .await
-        .expect("RPC send should succeed");
+        .expect_err("Should fail when adding duplicate key");
 
     assert!(
-        outcome.is_failure(),
-        "Should fail when adding duplicate key"
+        err.is_action_failed(),
+        "Expected ActionFailed, got: {:?}",
+        err
     );
-    println!("Duplicate key error: {:?}", outcome.result().unwrap_err());
+    println!("Duplicate key error: {:?}", err);
 }
 
 #[tokio::test]
@@ -199,12 +201,13 @@ async fn test_create_subaccount_of_nonexistent_parent() {
         .wait_until(TxExecutionStatus::Final)
         .await;
 
-    let outcome = result.expect("RPC send should succeed");
-    assert!(outcome.is_failure(), "Should fail for non-existent parent");
-    println!(
-        "Non-existent parent error: {:?}",
-        outcome.result().unwrap_err()
+    let err = result.expect_err("Should fail for non-existent parent");
+    assert!(
+        err.is_action_failed(),
+        "Expected ActionFailed, got: {:?}",
+        err
     );
+    println!("Non-existent parent error: {:?}", err);
 }
 
 #[tokio::test]
@@ -292,9 +295,13 @@ async fn test_transaction_with_failing_action_in_middle() {
         .wait_until(TxExecutionStatus::Final)
         .await;
 
-    let outcome = result.expect("RPC send should succeed");
-    assert!(outcome.is_failure(), "Should fail when action fails");
-    println!("Multi-action failure: {:?}", outcome.result().unwrap_err());
+    let err = result.expect_err("Should fail when action fails");
+    assert!(
+        err.is_action_failed(),
+        "Expected ActionFailed, got: {:?}",
+        err
+    );
+    println!("Multi-action failure: {:?}", err);
 }
 
 // =============================================================================
@@ -316,12 +323,13 @@ async fn test_delete_nonexistent_account() {
         .wait_until(TxExecutionStatus::Final)
         .await;
 
-    let outcome = result.expect("RPC send should succeed");
-    assert!(outcome.is_failure(), "Should fail for non-existent account");
-    println!(
-        "Delete non-existent account: {:?}",
-        outcome.result().unwrap_err()
+    let err = result.expect_err("Should fail for non-existent account");
+    assert!(
+        err.is_action_failed(),
+        "Expected ActionFailed, got: {:?}",
+        err
     );
+    println!("Delete non-existent account: {:?}", err);
 }
 
 #[tokio::test]
@@ -394,15 +402,13 @@ async fn test_stake_with_insufficient_balance() {
         .wait_until(TxExecutionStatus::Final)
         .await;
 
-    let outcome = result.expect("RPC send should succeed");
+    let err = result.expect_err("Should fail with insufficient balance to stake");
     assert!(
-        outcome.is_failure(),
-        "Should fail with insufficient balance to stake"
+        err.is_action_failed(),
+        "Expected ActionFailed, got: {:?}",
+        err
     );
-    println!(
-        "Insufficient stake balance: {:?}",
-        outcome.result().unwrap_err()
-    );
+    println!("Insufficient stake balance: {:?}", err);
 }
 
 // =============================================================================
