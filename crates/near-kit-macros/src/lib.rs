@@ -290,7 +290,7 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
                 quote! {
                     pub fn #method_name(&self) -> #view_return_type {
                         self.near.view::<#return_type>(&self.contract_id, #method_name_str)
-                            .args(serde_json::json!({}))
+                            .args_raw(b"{}".to_vec())
                     }
                 }
             }
@@ -334,7 +334,7 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
                 quote! {
                     pub fn #method_name(&self) -> near_kit::CallBuilder {
                         self.near.call(&self.contract_id, #method_name_str)
-                            .args(serde_json::json!({}))
+                            .args_raw(b"{}".to_vec())
                     }
                 }
             }
