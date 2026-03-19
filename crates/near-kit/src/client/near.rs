@@ -1258,6 +1258,7 @@ mod tests {
                 std::env::remove_var("NEAR_NETWORK");
                 std::env::remove_var("NEAR_ACCOUNT_ID");
                 std::env::remove_var("NEAR_PRIVATE_KEY");
+                std::env::remove_var("NEAR_MAX_NONCE_RETRIES");
             }
         }
 
