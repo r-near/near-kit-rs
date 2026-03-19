@@ -636,10 +636,11 @@ impl FinalExecutionOutcome {
                 Err(crate::error::Error::InvalidTx(Box::new(e.clone())))
             }
             FinalExecutionStatus::Failure(TxExecutionError::ActionError(e)) => {
-                Err(crate::error::Error::ActionFailed {
-                    error: Box::new(e.clone()),
-                    outcome: Box::new(self.clone()),
-                })
+                // Don't clone the entire outcome into the error — the caller
+                // already has `&self`. Just surface the action error.
+                Err(crate::error::Error::InvalidTransaction(format!(
+                    "ActionError: {e}"
+                )))
             }
             FinalExecutionStatus::SuccessValue(s) => STANDARD.decode(s).map_err(|e| {
                 crate::error::Error::InvalidTransaction(format!(
