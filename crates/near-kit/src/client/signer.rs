@@ -95,8 +95,12 @@ pub trait Signer: Send + Sync {
     }
 }
 
-/// Implement `Signer` for `Arc<dyn Signer>` for convenience.
-impl Signer for Arc<dyn Signer> {
+/// Implement `Signer` for `Arc<T>` where `T: Signer`.
+///
+/// This covers `Arc<dyn Signer>` (since `dyn Signer: Signer`) as well as
+/// concrete types like `Arc<InMemorySigner>`, `Arc<RotatingSigner>`, etc.
+/// without requiring a cast to `Arc<dyn Signer>` first.
+impl<T: Signer + ?Sized> Signer for Arc<T> {
     fn account_id(&self) -> &AccountId {
         (**self).account_id()
     }
