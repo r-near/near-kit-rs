@@ -733,11 +733,11 @@ impl Near {
         use crate::types::{FinalExecutionStatus, TxExecutionError};
         match outcome.status {
             FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
-                Err(Error::InvalidTx(e))
+                Err(Error::InvalidTx(Box::new(e)))
             }
             FinalExecutionStatus::Failure(TxExecutionError::ActionError(ref e)) => {
                 Err(Error::ActionFailed {
-                    error: e.clone(),
+                    error: Box::new(e.clone()),
                     outcome: Box::new(outcome),
                 })
             }

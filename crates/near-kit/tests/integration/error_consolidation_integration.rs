@@ -214,7 +214,7 @@ async fn test_wrong_signer_key_returns_invalid_tx_or_rpc_error() {
 
 #[tokio::test]
 async fn test_error_outcome_returns_none_for_non_action_errors() {
-    let err = Error::InvalidTx(InvalidTxError::Expired);
+    let err = Error::InvalidTx(Box::new(InvalidTxError::Expired));
     assert!(err.outcome().is_none());
     assert!(err.is_invalid_tx());
     assert!(!err.is_action_failed());
@@ -232,10 +232,13 @@ fn test_rpc_invalid_tx_promotes_to_error_invalid_tx() {
     });
     let err: Error = rpc_err.into();
     match err {
-        Error::InvalidTx(InvalidTxError::InvalidNonce { tx_nonce, ak_nonce }) => {
-            assert_eq!(tx_nonce, 5);
-            assert_eq!(ak_nonce, 10);
-        }
+        Error::InvalidTx(e) => match *e {
+            InvalidTxError::InvalidNonce { tx_nonce, ak_nonce } => {
+                assert_eq!(tx_nonce, 5);
+                assert_eq!(ak_nonce, 10);
+            }
+            other => panic!("Expected InvalidNonce, got: {other:?}"),
+        },
         other => panic!("Expected Error::InvalidTx(InvalidNonce), got: {other:?}"),
     }
 }

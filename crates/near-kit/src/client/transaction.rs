@@ -1388,11 +1388,11 @@ impl IntoFuture for TransactionSend {
                         use crate::types::{FinalExecutionStatus, TxExecutionError};
                         match outcome.status {
                             FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
-                                return Err(Error::InvalidTx(e));
+                                return Err(Error::InvalidTx(Box::new(e)));
                             }
                             FinalExecutionStatus::Failure(TxExecutionError::ActionError(ref e)) => {
                                 return Err(Error::ActionFailed {
-                                    error: e.clone(),
+                                    error: Box::new(e.clone()),
                                     outcome: Box::new(outcome),
                                 });
                             }
@@ -1411,9 +1411,9 @@ impl IntoFuture for TransactionSend {
                         );
                         // Store ak_nonce for next iteration to avoid refetching
                         last_ak_nonce = Some(ak_nonce);
-                        last_error = Some(Error::InvalidTx(
+                        last_error = Some(Error::InvalidTx(Box::new(
                             crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
-                        ));
+                        )));
                         continue;
                     }
                     Err(e) => {

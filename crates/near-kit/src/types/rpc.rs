@@ -633,11 +633,11 @@ impl FinalExecutionOutcome {
     pub fn result(&self) -> Result<Vec<u8>, crate::error::Error> {
         match &self.status {
             FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
-                Err(crate::error::Error::InvalidTx(e.clone()))
+                Err(crate::error::Error::InvalidTx(Box::new(e.clone())))
             }
             FinalExecutionStatus::Failure(TxExecutionError::ActionError(e)) => {
                 Err(crate::error::Error::ActionFailed {
-                    error: e.clone(),
+                    error: Box::new(e.clone()),
                     outcome: Box::new(self.clone()),
                 })
             }

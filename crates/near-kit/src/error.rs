@@ -419,14 +419,14 @@ pub enum Error {
     /// This covers validation failures from both the RPC pre-check and the
     /// runtime execution layer — the caller never needs to distinguish them.
     #[error("Invalid transaction: {0}")]
-    InvalidTx(InvalidTxError),
+    InvalidTx(Box<InvalidTxError>),
 
     /// Transaction executed (nonce incremented, gas consumed) but an action
     /// failed. The outcome is attached so callers can inspect receipts, logs,
     /// and gas usage.
-    #[error("Action failed: {error}")]
+    #[error("Action failed: {}", error)]
     ActionFailed {
-        error: ActionError,
+        error: Box<ActionError>,
         outcome: Box<FinalExecutionOutcome>,
     },
 
@@ -462,7 +462,7 @@ impl From<RpcError> for Error {
     fn from(err: RpcError) -> Self {
         match err {
             // Promote structured tx validation errors to Error::InvalidTx
-            RpcError::InvalidTx(e) => Error::InvalidTx(e),
+            RpcError::InvalidTx(e) => Error::InvalidTx(Box::new(e)),
             other => Error::Rpc(Box::new(other)),
         }
     }
@@ -986,7 +986,7 @@ mod tests {
     #[test]
     fn test_error_invalid_tx_display() {
         use crate::types::InvalidTxError;
-        let err = Error::InvalidTx(InvalidTxError::Expired);
+        let err = Error::InvalidTx(Box::new(InvalidTxError::Expired));
         assert!(err.to_string().contains("expired"));
     }
 
@@ -1001,7 +1001,7 @@ mod tests {
         let err: Error = rpc_err.into();
         assert!(matches!(
             err,
-            Error::InvalidTx(InvalidTxError::InvalidNonce { .. })
+            Error::InvalidTx(e) if matches!(*e, InvalidTxError::InvalidNonce { .. })
         ));
     }
 
