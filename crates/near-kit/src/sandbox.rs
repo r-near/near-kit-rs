@@ -73,7 +73,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use testcontainers::{
-    ContainerAsync, CopyToContainer, Image,
+    ContainerAsync, CopyToContainer, Image, ImageExt,
     core::{ContainerPort, WaitFor},
     runners::AsyncRunner,
 };
@@ -194,26 +194,31 @@ pub use crate::client::{SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_SECRET_KEY, SandboxNe
 /// Global shared sandbox instance.
 static SHARED_SANDBOX: OnceCell<Sandbox> = OnceCell::const_new();
 
-/// Container ID of the shared sandbox, used for atexit cleanup.
-static SHARED_CONTAINER_ID: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
+/// Stop the shared sandbox container on process exit.
+///
+/// Tokio's thread-local storage is already destroyed on the main thread by
+/// the time `atexit` fires, so `Runtime::block_on` panics there. We work
+/// around this by spawning a new thread (which gets fresh TLS) and calling
+/// `stop_with_timeout` via a temporary tokio runtime.
+///
+/// The container is started with `auto_remove = true`, so Docker removes it
+/// automatically after it stops.
 extern "C" fn cleanup_shared_sandbox() {
-    if let Ok(mut guard) = SHARED_CONTAINER_ID.lock() {
-        if let Some(id) = guard.take() {
-            let _ = std::process::Command::new("docker")
-                .args(["rm", "-f", &id])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
+    let handle = std::thread::spawn(|| {
+        if let Some(sandbox) = SHARED_SANDBOX.get() {
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                let _ = rt.block_on(sandbox.container.stop_with_timeout(Some(0)));
+            }
         }
-    }
+    });
+    let _ = handle.join();
 }
 
-/// Store container ID and register atexit handler for shared sandbox cleanup.
-fn register_shared_cleanup(sandbox: &Sandbox) {
-    if let Ok(mut guard) = SHARED_CONTAINER_ID.lock() {
-        *guard = Some(sandbox.container.id().to_string());
-    }
+/// Register atexit handler for shared sandbox cleanup.
+fn register_shared_cleanup() {
     unsafe {
         libc::atexit(cleanup_shared_sandbox);
     }
@@ -233,8 +238,10 @@ fn register_shared_cleanup(sandbox: &Sandbox) {
 ///
 /// # Cleanup
 ///
-/// For [`SandboxConfig::fresh()`], the container stops when the last clone drops.
-/// For [`SandboxConfig::shared()`], an `atexit` handler stops the container on process exit.
+/// All containers are started with `auto_remove = true` so Docker removes them
+/// after they stop. For fresh sandboxes, testcontainers' `Drop` handles stopping.
+/// For the shared sandbox, an `atexit` handler stops the container via the
+/// testcontainers API on a spawned thread (to avoid tokio TLS destruction).
 #[derive(Clone)]
 pub struct Sandbox {
     #[allow(dead_code)]
@@ -253,6 +260,9 @@ impl Sandbox {
 
         let image = NearSandbox::new(version).with_account_id(&root_account);
         let container = image
+            .with_host_config_modifier(|hc| {
+                hc.auto_remove = Some(true);
+            })
             .start()
             .await
             .expect("Failed to start sandbox container");
@@ -426,7 +436,7 @@ impl SandboxConfig {
             .get_or_init(|| async {
                 let sandbox =
                     Sandbox::start(DEFAULT_VERSION, SANDBOX_ROOT_ACCOUNT.to_string()).await;
-                register_shared_cleanup(&sandbox);
+                register_shared_cleanup();
                 sandbox
             })
             .await
@@ -555,7 +565,7 @@ impl SandboxBuilder {
                 let v = version.as_deref().unwrap_or(DEFAULT_VERSION);
                 let r = root_account.unwrap_or_else(|| SANDBOX_ROOT_ACCOUNT.to_string());
                 let sandbox = Sandbox::start(v, r).await;
-                register_shared_cleanup(&sandbox);
+                register_shared_cleanup();
                 sandbox
             })
             .await
