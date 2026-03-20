@@ -66,7 +66,7 @@ serde_with = { version = "3.17.0", features = ["hex", "base64"] }
 
 [features]
 default = ["keyring"]
-sandbox = ["testcontainers", "libc"]
+sandbox = ["dep:testcontainers", "dep:libc"]
 keyring = ["dep:keyring"]
 
 [dev-dependencies]
