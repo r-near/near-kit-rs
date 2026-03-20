@@ -201,7 +201,7 @@ extern "C" fn cleanup_shared_sandbox() {
     if let Ok(mut guard) = SHARED_CONTAINER_ID.lock() {
         if let Some(id) = guard.take() {
             let _ = std::process::Command::new("docker")
-                .args(["stop", "-t", "2", &id])
+                .args(["rm", "-f", &id])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .status();
@@ -522,8 +522,10 @@ impl SandboxBuilder {
     ///     .await;
     /// // Sub-accounts will be "alice.sb" instead of "alice.sandbox"
     /// ```
-    pub fn root_account(mut self, name: impl Into<crate::AccountId>) -> Self {
-        self.root_account = Some(name.into().to_string());
+    pub fn root_account(mut self, name: &str) -> Self {
+        // Validate by parsing as AccountId
+        let _: crate::AccountId = name.parse().expect("invalid sandbox root account name");
+        self.root_account = Some(name.to_string());
         self
     }
 
