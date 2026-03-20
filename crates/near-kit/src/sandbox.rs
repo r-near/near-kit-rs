@@ -200,14 +200,22 @@ static SHARED_CONTAINER_ID: std::sync::Mutex<Option<String>> = std::sync::Mutex:
 extern "C" fn cleanup_shared_sandbox() {
     if let Ok(mut guard) = SHARED_CONTAINER_ID.lock() {
         if let Some(id) = guard.take() {
-            // Best-effort: stop the container on process exit.
-            // Can't use async here, so shell out to docker directly.
             let _ = std::process::Command::new("docker")
                 .args(["stop", "-t", "2", &id])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .status();
         }
+    }
+}
+
+/// Store container ID and register atexit handler for shared sandbox cleanup.
+fn register_shared_cleanup(sandbox: &Sandbox) {
+    if let Ok(mut guard) = SHARED_CONTAINER_ID.lock() {
+        *guard = Some(sandbox.container.id().to_string());
+    }
+    unsafe {
+        libc::atexit(cleanup_shared_sandbox);
     }
 }
 
@@ -249,12 +257,17 @@ impl Sandbox {
             .await
             .expect("Failed to start sandbox container");
 
+        let host = container
+            .get_host()
+            .await
+            .expect("Failed to get sandbox host");
+
         let host_port = container
             .get_host_port_ipv4(RPC_PORT)
             .await
             .expect("Failed to get mapped port for sandbox RPC");
 
-        let rpc_url = format!("http://localhost:{}", host_port);
+        let rpc_url = format!("http://{}:{}", host, host_port);
 
         info!(rpc_url = %rpc_url, "Sandbox container ready");
 
@@ -413,15 +426,7 @@ impl SandboxConfig {
             .get_or_init(|| async {
                 let sandbox =
                     Sandbox::start(DEFAULT_VERSION, SANDBOX_ROOT_ACCOUNT.to_string()).await;
-
-                // Store container ID and register atexit handler for cleanup
-                if let Ok(mut guard) = SHARED_CONTAINER_ID.lock() {
-                    *guard = Some(sandbox.container.id().to_string());
-                }
-                unsafe {
-                    libc::atexit(cleanup_shared_sandbox);
-                }
-
+                register_shared_cleanup(&sandbox);
                 sandbox
             })
             .await
@@ -517,8 +522,8 @@ impl SandboxBuilder {
     ///     .await;
     /// // Sub-accounts will be "alice.sb" instead of "alice.sandbox"
     /// ```
-    pub fn root_account(mut self, name: impl Into<String>) -> Self {
-        self.root_account = Some(name.into());
+    pub fn root_account(mut self, name: impl Into<crate::AccountId>) -> Self {
+        self.root_account = Some(name.into().to_string());
         self
     }
 
@@ -544,10 +549,12 @@ impl SandboxBuilder {
         let root_account = self.root_account;
 
         SHARED_SANDBOX
-            .get_or_init(|| {
+            .get_or_init(|| async {
                 let v = version.as_deref().unwrap_or(DEFAULT_VERSION);
                 let r = root_account.unwrap_or_else(|| SANDBOX_ROOT_ACCOUNT.to_string());
-                Sandbox::start(v, r)
+                let sandbox = Sandbox::start(v, r).await;
+                register_shared_cleanup(&sandbox);
+                sandbox
             })
             .await
     }
