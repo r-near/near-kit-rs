@@ -1068,30 +1068,13 @@ impl From<NearBuilder> for Near {
     }
 }
 
-// ============================================================================
-// near-sandbox integration (behind feature flag or for dev dependencies)
-// ============================================================================
-
 /// Default sandbox root account ID.
 pub const SANDBOX_ROOT_ACCOUNT: &str = "sandbox";
 
-/// Default sandbox root account private key.
-pub const SANDBOX_ROOT_PRIVATE_KEY: &str = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
-
-#[cfg(feature = "sandbox")]
-impl SandboxNetwork for near_sandbox::Sandbox {
-    fn rpc_url(&self) -> &str {
-        &self.rpc_addr
-    }
-
-    fn root_account_id(&self) -> &str {
-        SANDBOX_ROOT_ACCOUNT
-    }
-
-    fn root_secret_key(&self) -> &str {
-        SANDBOX_ROOT_PRIVATE_KEY
-    }
-}
+/// Default sandbox root secret key.
+///
+/// Deterministic key generated via `near-sandbox init --test-seed sandbox`.
+pub const SANDBOX_ROOT_SECRET_KEY: &str = "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJnpBKWieC73hVTpBeA6FZiCc5tfyZL3a3tHeQJegQe4qGSv8FLsYp7TYd1r6";
 
 #[cfg(test)]
 mod tests {
@@ -1238,7 +1221,7 @@ mod tests {
         let mock = MockSandbox {
             rpc_url: "http://127.0.0.1:3030".to_string(),
             root_account: "sandbox".to_string(),
-            root_key: SANDBOX_ROOT_PRIVATE_KEY.to_string(),
+            root_key: SANDBOX_ROOT_SECRET_KEY.to_string(),
         };
 
         let near = Near::sandbox(&mock);
@@ -1254,7 +1237,7 @@ mod tests {
     #[test]
     fn test_sandbox_constants() {
         assert_eq!(SANDBOX_ROOT_ACCOUNT, "sandbox");
-        assert!(SANDBOX_ROOT_PRIVATE_KEY.starts_with("ed25519:"));
+        assert!(SANDBOX_ROOT_SECRET_KEY.starts_with("ed25519:"));
     }
 
     // ========================================================================

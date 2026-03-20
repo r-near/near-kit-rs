@@ -7,7 +7,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::sandbox::{ROOT_ACCOUNT, SandboxConfig};
+use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
 use near_kit::{
     AccessKeyPermissionView, ActionView, MerkleDirection, ReceiptContent, TxExecutionStatus,
@@ -19,7 +19,9 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// Generate a unique subaccount ID for test isolation
 fn unique_account() -> AccountId {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("rpc{}.{}", n, ROOT_ACCOUNT).parse().unwrap()
+    format!("rpc{}.{}", n, SANDBOX_ROOT_ACCOUNT)
+        .parse()
+        .unwrap()
 }
 
 // ============================================================================
@@ -183,7 +185,7 @@ async fn test_account_view_full_fields() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
-    let account_id: AccountId = ROOT_ACCOUNT.parse().unwrap();
+    let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
     let account = near.account(&account_id).await.unwrap();
 
     // Verify AccountView fields
@@ -208,7 +210,7 @@ async fn test_access_key_list_view() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
-    let account_id: AccountId = ROOT_ACCOUNT.parse().unwrap();
+    let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
     let keys = near.access_keys(&account_id).await.unwrap();
 
     // Verify AccessKeyListView fields
@@ -253,7 +255,7 @@ async fn test_final_execution_outcome_full_fields() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
-    let root_account: AccountId = ROOT_ACCOUNT.parse().unwrap();
+    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
 
     // Create and execute a transaction
     let receiver_key = SecretKey::generate_ed25519();
@@ -373,7 +375,7 @@ async fn test_tx_status_with_receipts() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
-    let root_account: AccountId = ROOT_ACCOUNT.parse().unwrap();
+    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
 
     // Execute a transaction first
     let receiver_key = SecretKey::generate_ed25519();
@@ -548,7 +550,7 @@ async fn test_view_function_result() {
     // so we'll test that the ViewFunctionResult structure is correct
     // by checking what happens when we call a non-existent contract
 
-    let contract_id: AccountId = ROOT_ACCOUNT.parse().unwrap();
+    let contract_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
     let result = near
         .rpc()
         .view_function(&contract_id, "get_greeting", &[], BlockReference::final_())

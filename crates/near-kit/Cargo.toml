@@ -59,17 +59,17 @@ tracing.workspace = true
 # Proc macros for typed contracts
 near-kit-macros.workspace = true
 
-# Optional: Sandbox integration
-near-sandbox = { workspace = true, optional = true }
+# Optional: Sandbox integration (via Docker/testcontainers)
+testcontainers = { workspace = true, optional = true }
+libc = { version = "0.2", optional = true }
 serde_with = { version = "3.17.0", features = ["hex", "base64"] }
 
 [features]
 default = ["keyring"]
-sandbox = ["near-sandbox"]
+sandbox = ["testcontainers", "libc"]
 keyring = ["dep:keyring"]
 
 [dev-dependencies]
 tokio-test.workspace = true
-near-sandbox.workspace = true
 tempfile.workspace = true
 tracing-subscriber.workspace = true

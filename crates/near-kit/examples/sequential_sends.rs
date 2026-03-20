@@ -14,12 +14,12 @@
 use near_kit::*;
 
 #[cfg(feature = "sandbox")]
-use near_kit::sandbox::{OwnedSandbox, SandboxConfig};
+use near_kit::sandbox::{Sandbox, SandboxConfig};
 
 #[cfg(feature = "sandbox")]
 async fn sequential_example() -> Result<(), Error> {
     println!("Starting local sandbox...\n");
-    let sandbox: OwnedSandbox = SandboxConfig::fresh().await;
+    let sandbox: Sandbox = SandboxConfig::fresh().await;
 
     let root_near = sandbox.client();
     let root_account = root_near.account_id().unwrap().to_string();

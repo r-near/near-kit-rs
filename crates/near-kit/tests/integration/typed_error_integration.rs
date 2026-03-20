@@ -8,19 +8,19 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::sandbox::{ROOT_ACCOUNT, SandboxConfig};
+use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn unique_account() -> AccountId {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("typerr{n}.{ROOT_ACCOUNT}").parse().unwrap()
+    format!("typerr{n}.{SANDBOX_ROOT_ACCOUNT}").parse().unwrap()
 }
 
 /// Create a funded account, returning a Near client, the account ID, and the secret key.
 async fn funded_account(
-    sandbox: &near_kit::sandbox::SharedSandbox,
+    sandbox: &near_kit::sandbox::Sandbox,
     balance: NearToken,
 ) -> (Near, AccountId, SecretKey) {
     let near = sandbox.client();

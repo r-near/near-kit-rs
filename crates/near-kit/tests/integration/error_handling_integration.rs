@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::sandbox::{ROOT_ACCOUNT, SandboxConfig};
+use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
 
 /// Counter for generating unique subaccount names
@@ -14,7 +14,9 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// Generate a unique subaccount ID for test isolation
 fn unique_account() -> AccountId {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("err{}.{}", n, ROOT_ACCOUNT).parse().unwrap()
+    format!("err{}.{}", n, SANDBOX_ROOT_ACCOUNT)
+        .parse()
+        .unwrap()
 }
 
 // =============================================================================
@@ -113,8 +115,10 @@ async fn test_error_view_on_account_without_contract() {
     let near = sandbox.client();
 
     // Root account exists but has no contract
-    let result: Result<serde_json::Value, _> =
-        near.view(ROOT_ACCOUNT, "get_greeting").args(()).await;
+    let result: Result<serde_json::Value, _> = near
+        .view(SANDBOX_ROOT_ACCOUNT, "get_greeting")
+        .args(())
+        .await;
 
     assert!(
         result.is_err(),
@@ -352,7 +356,7 @@ async fn test_error_create_account_that_already_exists() {
 
     // Create a signer for the parent
     let parent_near = Near::custom(rpc_url)
-        .credentials(sandbox.root_secret_key(), ROOT_ACCOUNT)
+        .credentials(sandbox.root_secret_key(), SANDBOX_ROOT_ACCOUNT)
         .unwrap()
         .build();
 
@@ -518,7 +522,10 @@ async fn test_error_query_at_nonexistent_block_height() {
     let near = sandbox.client();
 
     // Try to query at a block height that doesn't exist yet
-    let result = near.balance(ROOT_ACCOUNT).at_block(999999999999).await;
+    let result = near
+        .balance(SANDBOX_ROOT_ACCOUNT)
+        .at_block(999999999999)
+        .await;
 
     assert!(result.is_err(), "Should fail for non-existent block height");
     let err = result.unwrap_err();
@@ -542,7 +549,10 @@ async fn test_error_query_at_invalid_block_hash() {
     // Create an invalid block hash (all zeros won't exist)
     let fake_hash = CryptoHash::ZERO;
 
-    let result = near.balance(ROOT_ACCOUNT).at_block_hash(fake_hash).await;
+    let result = near
+        .balance(SANDBOX_ROOT_ACCOUNT)
+        .at_block_hash(fake_hash)
+        .await;
 
     assert!(result.is_err(), "Should fail for non-existent block hash");
     println!("Invalid block hash error: {:?}", result.unwrap_err());
@@ -649,14 +659,14 @@ async fn test_query_with_different_finalities() {
 
     // Query with Final finality
     let balance_final = near
-        .balance(ROOT_ACCOUNT)
+        .balance(SANDBOX_ROOT_ACCOUNT)
         .finality(Finality::Final)
         .await
         .unwrap();
 
     // Query with Optimistic finality
     let balance_optimistic = near
-        .balance(ROOT_ACCOUNT)
+        .balance(SANDBOX_ROOT_ACCOUNT)
         .finality(Finality::Optimistic)
         .await
         .unwrap();
