@@ -41,6 +41,14 @@ pub trait SandboxNetwork {
 
     /// The root account's secret key.
     fn root_secret_key(&self) -> &str;
+
+    /// Optional chain ID override.
+    ///
+    /// If `None`, defaults to `"sandbox"`. Set this to mimic a specific
+    /// network (e.g., `"mainnet"`) for chain-ID-dependent logic.
+    fn chain_id(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// The main client for interacting with NEAR Protocol.
@@ -250,7 +258,7 @@ impl Near {
         Near {
             rpc: Arc::new(RpcClient::new(network.rpc_url())),
             signer: Some(Arc::new(signer)),
-            chain_id: ChainId::new("sandbox"),
+            chain_id: ChainId::new(network.chain_id().unwrap_or("sandbox")),
             max_nonce_retries: 3,
         }
     }

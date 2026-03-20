@@ -102,6 +102,8 @@ struct NearSandbox {
     account_id: String,
     /// Seed for deterministic key generation (passed to `--test-seed`).
     test_seed: String,
+    /// Chain ID for the sandbox (passed to `--chain-id`).
+    chain_id: Option<String>,
 }
 
 impl NearSandbox {
@@ -116,11 +118,17 @@ impl NearSandbox {
             copy_to_sources: Vec::new(),
             account_id: SANDBOX_ROOT_ACCOUNT.to_owned(),
             test_seed: "sandbox".to_owned(),
+            chain_id: None,
         }
     }
 
     fn with_account_id(mut self, account_id: impl Into<String>) -> Self {
         self.account_id = account_id.into();
+        self
+    }
+
+    fn with_chain_id(mut self, chain_id: impl Into<String>) -> Self {
+        self.chain_id = Some(chain_id.into());
         self
     }
 }
@@ -151,16 +159,21 @@ impl Image for NearSandbox {
     fn cmd(&self) -> impl IntoIterator<Item = impl Into<Cow<'_, str>>> {
         // Override the default entrypoint to use --test-seed for deterministic keys
         // and --account-id for custom root account names
+        let chain_id_flag = match &self.chain_id {
+            Some(id) => format!(" --chain-id {id}"),
+            None => String::new(),
+        };
         let script = format!(
             concat!(
                 "export RUST_LOG=\"neard::cli=off,info\" && ",
                 "near-sandbox --home /data init --fast ",
-                "--test-seed {test_seed} --account-id {account_id} && ",
+                "--test-seed {test_seed} --account-id {account_id}{chain_id_flag} && ",
                 "near-sandbox --home /data run ",
                 "--rpc-addr 0.0.0.0:3030 --network-addr 0.0.0.0:3031"
             ),
             test_seed = self.test_seed,
             account_id = self.account_id,
+            chain_id_flag = chain_id_flag,
         );
         vec!["-c".to_string(), script]
     }
@@ -248,17 +261,22 @@ pub struct Sandbox {
     container: Arc<ContainerAsync<NearSandbox>>,
     rpc_url: String,
     root_account: String,
+    chain_id: Option<String>,
 }
 
 impl Sandbox {
-    async fn start(version: &str, root_account: String) -> Self {
+    async fn start(version: &str, root_account: String, chain_id: Option<String>) -> Self {
         info!(
             version = version,
             root_account = %root_account,
+            chain_id = chain_id.as_deref().unwrap_or("(default)"),
             "Starting sandbox container"
         );
 
-        let image = NearSandbox::new(version).with_account_id(&root_account);
+        let mut image = NearSandbox::new(version).with_account_id(&root_account);
+        if let Some(ref id) = chain_id {
+            image = image.with_chain_id(id);
+        }
         let container = image
             .with_host_config_modifier(|hc| {
                 hc.auto_remove = Some(true);
@@ -285,6 +303,7 @@ impl Sandbox {
             container: Arc::new(container),
             rpc_url,
             root_account,
+            chain_id,
         }
     }
 
@@ -370,6 +389,10 @@ impl SandboxNetwork for Sandbox {
     fn root_secret_key(&self) -> &str {
         SANDBOX_ROOT_SECRET_KEY
     }
+
+    fn chain_id(&self) -> Option<&str> {
+        self.chain_id.as_deref()
+    }
 }
 
 // ============================================================================
@@ -435,7 +458,7 @@ impl SandboxConfig {
         SHARED_SANDBOX
             .get_or_init(|| async {
                 let sandbox =
-                    Sandbox::start(DEFAULT_VERSION, SANDBOX_ROOT_ACCOUNT.to_string()).await;
+                    Sandbox::start(DEFAULT_VERSION, SANDBOX_ROOT_ACCOUNT.to_string(), None).await;
                 register_shared_cleanup();
                 sandbox
             })
@@ -460,7 +483,7 @@ impl SandboxConfig {
     /// // sandbox is stopped when last reference goes out of scope
     /// ```
     pub async fn fresh() -> Sandbox {
-        Sandbox::start(DEFAULT_VERSION, SANDBOX_ROOT_ACCOUNT.to_string()).await
+        Sandbox::start(DEFAULT_VERSION, SANDBOX_ROOT_ACCOUNT.to_string(), None).await
     }
 
     /// Create a builder for custom sandbox configuration.
@@ -492,6 +515,7 @@ impl SandboxConfig {
 pub struct SandboxBuilder {
     version: Option<String>,
     root_account: Option<String>,
+    chain_id: Option<String>,
 }
 
 impl SandboxBuilder {
@@ -499,6 +523,7 @@ impl SandboxBuilder {
         Self {
             version: None,
             root_account: None,
+            chain_id: None,
         }
     }
 
@@ -539,6 +564,26 @@ impl SandboxBuilder {
         self
     }
 
+    /// Set the chain ID for this sandbox.
+    ///
+    /// Useful for testing against a sandbox that mimics a specific network
+    /// (e.g., `"mainnet"`) so that chain-ID-dependent logic behaves correctly.
+    ///
+    /// If not specified, the sandbox uses its default chain ID.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let sandbox = SandboxConfig::builder()
+    ///     .chain_id("mainnet")
+    ///     .fresh()
+    ///     .await;
+    /// ```
+    pub fn chain_id(mut self, chain_id: impl Into<String>) -> Self {
+        self.chain_id = Some(chain_id.into());
+        self
+    }
+
     /// Spawn a fresh sandbox with the configured options.
     ///
     /// The sandbox container will be stopped when the last clone of
@@ -548,23 +593,24 @@ impl SandboxBuilder {
         let root_account = self
             .root_account
             .unwrap_or_else(|| SANDBOX_ROOT_ACCOUNT.to_string());
-        Sandbox::start(version, root_account).await
+        Sandbox::start(version, root_account, self.chain_id).await
     }
 
     /// Get or create the shared sandbox with the configured options.
     ///
-    /// **Note:** The version and root account are only used if the shared
-    /// sandbox hasn't been initialized yet. If it's already running, the
+    /// **Note:** The version, root account, and chain ID are only used if the
+    /// shared sandbox hasn't been initialized yet. If it's already running, the
     /// existing instance is returned regardless of the options specified here.
     pub async fn shared(self) -> &'static Sandbox {
         let version = self.version;
         let root_account = self.root_account;
+        let chain_id = self.chain_id;
 
         SHARED_SANDBOX
             .get_or_init(|| async {
                 let v = version.as_deref().unwrap_or(DEFAULT_VERSION);
                 let r = root_account.unwrap_or_else(|| SANDBOX_ROOT_ACCOUNT.to_string());
-                let sandbox = Sandbox::start(v, r).await;
+                let sandbox = Sandbox::start(v, r, chain_id).await;
                 register_shared_cleanup();
                 sandbox
             })
