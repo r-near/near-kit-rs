@@ -168,7 +168,7 @@ impl Image for NearSandbox {
                 "export RUST_LOG=\"neard::cli=off,info\" && ",
                 "near-sandbox --home /data init --fast ",
                 "--test-seed {test_seed} --account-id {account_id}{chain_id_flag} && ",
-                "near-sandbox --home /data run ",
+                "exec near-sandbox --home /data run ",
                 "--rpc-addr 0.0.0.0:3030 --network-addr 0.0.0.0:3031"
             ),
             test_seed = self.test_seed,
@@ -557,10 +557,11 @@ impl SandboxBuilder {
     ///     .await;
     /// // Sub-accounts will be "alice.sb" instead of "alice.sandbox"
     /// ```
-    pub fn root_account(mut self, name: &str) -> Self {
-        // Validate by parsing as AccountId
-        let _: crate::AccountId = name.parse().expect("invalid sandbox root account name");
-        self.root_account = Some(name.to_string());
+    pub fn root_account(mut self, name: impl crate::TryIntoAccountId) -> Self {
+        let account_id = name
+            .try_into_account_id()
+            .expect("invalid sandbox root account name");
+        self.root_account = Some(account_id.to_string());
         self
     }
 
