@@ -244,10 +244,10 @@ impl NonFungibleToken {
 
         let supply_str: String = result.json()?;
         supply_str.parse().map_err(|_| {
-            Error::Rpc(crate::error::RpcError::InvalidResponse(format!(
+            Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
                 "Invalid supply format: {}",
                 supply_str
-            )))
+            ))))
         })
     }
 
@@ -277,10 +277,10 @@ impl NonFungibleToken {
 
         let supply_str: String = result.json()?;
         supply_str.parse().map_err(|_| {
-            Error::Rpc(crate::error::RpcError::InvalidResponse(format!(
+            Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
                 "Invalid supply format: {}",
                 supply_str
-            )))
+            ))))
         })
     }
 

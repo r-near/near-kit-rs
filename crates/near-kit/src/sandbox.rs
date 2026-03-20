@@ -189,7 +189,7 @@ impl SharedSandbox {
                 }),
             )
             .await
-            .map_err(crate::Error::Rpc)?;
+            .map_err(|e| crate::Error::Rpc(Box::new(e)))?;
 
         // Modify the amount field in the response
         if let Some(obj) = account_response.as_object_mut() {
@@ -211,7 +211,7 @@ impl SharedSandbox {
         near.rpc()
             .sandbox_patch_state(records)
             .await
-            .map_err(crate::Error::Rpc)
+            .map_err(|e| crate::Error::Rpc(Box::new(e)))
     }
 }
 
@@ -315,7 +315,7 @@ impl OwnedSandbox {
                 }),
             )
             .await
-            .map_err(crate::Error::Rpc)?;
+            .map_err(|e| crate::Error::Rpc(Box::new(e)))?;
 
         // Modify the amount field in the response
         if let Some(obj) = account_response.as_object_mut() {
@@ -337,7 +337,7 @@ impl OwnedSandbox {
         near.rpc()
             .sandbox_patch_state(records)
             .await
-            .map_err(crate::Error::Rpc)
+            .map_err(|e| crate::Error::Rpc(Box::new(e)))
     }
 }
 

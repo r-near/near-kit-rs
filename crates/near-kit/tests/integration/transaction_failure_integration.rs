@@ -97,17 +97,17 @@ async fn test_add_key_to_nonexistent_account() {
     let key = SecretKey::generate_ed25519();
     let nonexistent: AccountId = "nonexistent-for-add-key.sandbox".parse().unwrap();
 
-    // Try to add a key to a non-existent account
+    // Try to add a key to a non-existent account — action error returns Ok(outcome)
     let outcome = near
         .add_full_access_key(&nonexistent, key.public_key())
         .await
-        .expect("RPC send should succeed");
+        .expect("Action errors should return Ok(outcome)");
 
-    assert!(outcome.is_failure(), "Should fail for non-existent account");
-    println!(
-        "Add key to non-existent: {:?}",
-        outcome.result().unwrap_err()
+    assert!(
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
     );
+    println!("Add key to non-existent: {:?}", outcome.failure_message());
 }
 
 #[tokio::test]
@@ -133,17 +133,17 @@ async fn test_add_duplicate_key() {
         .unwrap()
         .build();
 
-    // Try to add the same key again
+    // Try to add the same key again — action error returns Ok(outcome)
     let outcome = account_near
         .add_full_access_key(&account_id, key.public_key())
         .await
-        .expect("RPC send should succeed");
+        .expect("Action errors should return Ok(outcome)");
 
     assert!(
         outcome.is_failure(),
-        "Should fail when adding duplicate key"
+        "Expected failure outcome, got success"
     );
-    println!("Duplicate key error: {:?}", outcome.result().unwrap_err());
+    println!("Duplicate key error: {:?}", outcome.failure_message());
 }
 
 #[tokio::test]
@@ -190,21 +190,21 @@ async fn test_create_subaccount_of_nonexistent_parent() {
     let sub_id: AccountId = "sub.nonexistent-parent.sandbox".parse().unwrap();
     let key = SecretKey::generate_ed25519();
 
-    let result = near
+    let outcome = near
         .transaction(&sub_id)
         .create_account()
         .transfer(NearToken::from_near(1))
         .add_full_access_key(key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
-        .await;
+        .await
+        .expect("Action errors should return Ok(outcome)");
 
-    let outcome = result.expect("RPC send should succeed");
-    assert!(outcome.is_failure(), "Should fail for non-existent parent");
-    println!(
-        "Non-existent parent error: {:?}",
-        outcome.result().unwrap_err()
+    assert!(
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
     );
+    println!("Non-existent parent error: {:?}", outcome.failure_message());
 }
 
 #[tokio::test]
@@ -285,16 +285,19 @@ async fn test_transaction_with_failing_action_in_middle() {
     // The whole transaction should fail
     let fake_key = SecretKey::generate_ed25519();
 
-    let result = account_near
+    let outcome = account_near
         .transaction(&account_id)
         .delete_key(fake_key.public_key()) // This key doesn't exist
         .send()
         .wait_until(TxExecutionStatus::Final)
-        .await;
+        .await
+        .expect("Action errors should return Ok(outcome)");
 
-    let outcome = result.expect("RPC send should succeed");
-    assert!(outcome.is_failure(), "Should fail when action fails");
-    println!("Multi-action failure: {:?}", outcome.result().unwrap_err());
+    assert!(
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
+    );
+    println!("Multi-action failure: {:?}", outcome.failure_message());
 }
 
 // =============================================================================
@@ -309,18 +312,21 @@ async fn test_delete_nonexistent_account() {
     // Try to delete an account that doesn't exist
     let nonexistent: AccountId = "nonexistent-to-delete.sandbox".parse().unwrap();
 
-    let result = near
+    let outcome = near
         .transaction(&nonexistent)
         .delete_account(ROOT_ACCOUNT)
         .send()
         .wait_until(TxExecutionStatus::Final)
-        .await;
+        .await
+        .expect("Action errors should return Ok(outcome)");
 
-    let outcome = result.expect("RPC send should succeed");
-    assert!(outcome.is_failure(), "Should fail for non-existent account");
+    assert!(
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
+    );
     println!(
         "Delete non-existent account: {:?}",
-        outcome.result().unwrap_err()
+        outcome.failure_message()
     );
 }
 
@@ -387,21 +393,21 @@ async fn test_stake_with_insufficient_balance() {
         .build();
 
     // Try to stake more than available
-    let result = account_near
+    let outcome = account_near
         .transaction(&account_id)
         .stake(NearToken::from_near(1000), key.public_key())
         .send()
         .wait_until(TxExecutionStatus::Final)
-        .await;
+        .await
+        .expect("Action errors should return Ok(outcome)");
 
-    let outcome = result.expect("RPC send should succeed");
     assert!(
         outcome.is_failure(),
-        "Should fail with insufficient balance to stake"
+        "Expected failure outcome, got success"
     );
     println!(
         "Insufficient stake balance: {:?}",
-        outcome.result().unwrap_err()
+        outcome.failure_message()
     );
 }
 

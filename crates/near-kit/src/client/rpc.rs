@@ -66,13 +66,17 @@ struct JsonRpcRequest<'a, P: Serialize> {
 }
 
 /// JSON-RPC response structure.
+///
+/// The `result` field is deserialized as raw JSON first, then parsed into `T`
+/// only after confirming no error is present. This avoids deserialization
+/// failures when the RPC returns an error with a partial/unexpected `result`.
 #[derive(Deserialize)]
-struct JsonRpcResponse<T> {
+struct JsonRpcResponse {
     #[allow(dead_code)]
     jsonrpc: String,
     #[allow(dead_code)]
     id: u64,
-    result: Option<T>,
+    result: Option<serde_json::Value>,
     error: Option<JsonRpcError>,
 }
 
@@ -218,16 +222,36 @@ impl RpcClient {
             ));
         }
 
-        let rpc_response: JsonRpcResponse<R> =
-            serde_json::from_str(&body).map_err(RpcError::Json)?;
+        let rpc_response: JsonRpcResponse = serde_json::from_str(&body).map_err(RpcError::Json)?;
 
         if let Some(error) = rpc_response.error {
             return Err(self.parse_rpc_error(&error));
         }
 
-        rpc_response
+        let result_value = rpc_response
             .result
-            .ok_or_else(|| RpcError::InvalidResponse("Missing result in response".to_string()))
+            .ok_or_else(|| RpcError::InvalidResponse("Missing result in response".to_string()))?;
+
+        // NEAR's `query` endpoint sometimes returns errors inside the result
+        // object (with an "error" field) instead of in the JSON-RPC error
+        // envelope. Only check for this on the `query` method to avoid
+        // misclassifying legitimate results from other methods.
+        if request.method == "query" {
+            if let Some(error_str) = result_value.get("error").and_then(|e| e.as_str()) {
+                let synthetic = JsonRpcError {
+                    // Use -32600 (Invalid Request) rather than -32000 (Server Error)
+                    // so deterministic failures don't get retried.
+                    code: -32600,
+                    message: error_str.to_string(),
+                    data: Some(serde_json::Value::String(error_str.to_string())),
+                    cause: None,
+                    name: None,
+                };
+                return Err(self.parse_rpc_error(&synthetic));
+            }
+        }
+
+        serde_json::from_value(result_value).map_err(RpcError::Json)
     }
 
     /// Parse an RPC error into a specific error type.
@@ -354,9 +378,6 @@ impl RpcClient {
                     return RpcError::InvalidShardId(shard_id);
                 }
                 "INVALID_TRANSACTION" => {
-                    if let Some(invalid_nonce) = data.as_ref().and_then(extract_invalid_nonce) {
-                        return invalid_nonce;
-                    }
                     return RpcError::invalid_transaction(&error.message, data.clone());
                 }
                 "TIMEOUT_ERROR" => {
@@ -670,21 +691,6 @@ fn is_retryable_status(status: u16) -> bool {
     status == 408 || status == 429 || status == 503 || (500..600).contains(&status)
 }
 
-/// Extract InvalidNonce error from data.
-fn extract_invalid_nonce(data: &serde_json::Value) -> Option<RpcError> {
-    // Navigate nested error structure: TxExecutionError.InvalidTxError.InvalidNonce
-    let tx_exec_error = data.get("TxExecutionError")?;
-    let invalid_tx_error = tx_exec_error
-        .get("InvalidTxError")
-        .or_else(|| data.get("InvalidTxError"))?;
-    let invalid_nonce = invalid_tx_error.get("InvalidNonce")?;
-
-    let ak_nonce = invalid_nonce.get("ak_nonce")?.as_u64()?;
-    let tx_nonce = invalid_nonce.get("tx_nonce")?.as_u64()?;
-
-    Some(RpcError::InvalidNonce { tx_nonce, ak_nonce })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -784,11 +790,12 @@ mod tests {
     }
 
     // ========================================================================
-    // extract_invalid_nonce tests
+    // InvalidTxError parsing tests
     // ========================================================================
 
     #[test]
-    fn test_extract_invalid_nonce_success() {
+    fn test_invalid_transaction_parses_invalid_nonce() {
+        use crate::types::InvalidTxError;
         let data = serde_json::json!({
             "TxExecutionError": {
                 "InvalidTxError": {
@@ -799,66 +806,45 @@ mod tests {
                 }
             }
         });
-        let result = extract_invalid_nonce(&data);
-        assert!(result.is_some());
-        match result.unwrap() {
-            RpcError::InvalidNonce { tx_nonce, ak_nonce } => {
+        let err = RpcError::invalid_transaction("invalid nonce", Some(data));
+        match err {
+            RpcError::InvalidTx(InvalidTxError::InvalidNonce { tx_nonce, ak_nonce }) => {
                 assert_eq!(tx_nonce, 5);
                 assert_eq!(ak_nonce, 10);
             }
-            _ => panic!("Expected InvalidNonce error"),
+            other => panic!("Expected InvalidTx(InvalidNonce), got: {other:?}"),
         }
     }
 
     #[test]
-    fn test_extract_invalid_nonce_missing_fields() {
-        // Missing TxExecutionError
+    fn test_invalid_transaction_parses_top_level_invalid_tx() {
+        use crate::types::InvalidTxError;
+        // Some RPC versions put InvalidTxError at the top level
         let data = serde_json::json!({
-            "SomeOtherError": {}
-        });
-        assert!(extract_invalid_nonce(&data).is_none());
-
-        // Missing InvalidTxError
-        let data = serde_json::json!({
-            "TxExecutionError": {
-                "SomeOtherError": {}
-            }
-        });
-        assert!(extract_invalid_nonce(&data).is_none());
-
-        // Missing InvalidNonce
-        let data = serde_json::json!({
-            "TxExecutionError": {
-                "InvalidTxError": {
-                    "SomeOtherError": {}
+            "InvalidTxError": {
+                "NotEnoughBalance": {
+                    "signer_id": "alice.near",
+                    "balance": "1000000000000000000000000",
+                    "cost": "9000000000000000000000000"
                 }
             }
         });
-        assert!(extract_invalid_nonce(&data).is_none());
+        let err = RpcError::invalid_transaction("insufficient balance", Some(data));
+        assert!(
+            matches!(
+                err,
+                RpcError::InvalidTx(InvalidTxError::NotEnoughBalance { .. })
+            ),
+            "Expected InvalidTx(NotEnoughBalance), got: {err:?}"
+        );
+    }
 
-        // Missing tx_nonce
-        let data = serde_json::json!({
-            "TxExecutionError": {
-                "InvalidTxError": {
-                    "InvalidNonce": {
-                        "ak_nonce": 10
-                    }
-                }
-            }
-        });
-        assert!(extract_invalid_nonce(&data).is_none());
-
-        // Missing ak_nonce
-        let data = serde_json::json!({
-            "TxExecutionError": {
-                "InvalidTxError": {
-                    "InvalidNonce": {
-                        "tx_nonce": 5
-                    }
-                }
-            }
-        });
-        assert!(extract_invalid_nonce(&data).is_none());
+    #[test]
+    fn test_invalid_transaction_falls_back_on_unparseable() {
+        // When data doesn't contain a parseable InvalidTxError, falls back
+        let data = serde_json::json!({ "SomeOtherError": {} });
+        let err = RpcError::invalid_transaction("some error", Some(data));
+        assert!(matches!(err, RpcError::InvalidTransaction { .. }));
     }
 
     // ========================================================================

@@ -740,7 +740,15 @@ impl Near {
             ))
         })?;
 
-        Ok(outcome)
+        // Only InvalidTxError becomes Err — action errors return Ok(outcome)
+        // so callers can inspect the full outcome via is_failure()/failure_message().
+        use crate::types::{FinalExecutionStatus, TxExecutionError};
+        match outcome.status {
+            FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
+                Err(Error::InvalidTx(Box::new(e)))
+            }
+            _ => Ok(outcome),
+        }
     }
 
     // ========================================================================

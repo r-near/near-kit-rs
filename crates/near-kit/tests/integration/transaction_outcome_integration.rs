@@ -45,27 +45,22 @@ async fn test_failed_transaction_preserves_receipts() {
         .build();
 
     // Call a non-existent method — the transaction executes but fails on-chain
+    // Action errors return Ok(outcome) where outcome.is_failure() is true
     let outcome = account_near
         .call(&contract_id, "nonexistent_method")
         .args(serde_json::json!({}))
         .gas(Gas::from_tgas(10))
         .await
-        .expect("RPC send should succeed");
+        .expect("Action errors should return Ok(outcome)");
 
-    // The outcome should indicate failure
-    assert!(outcome.is_failure(), "Should fail for non-existent method");
-    assert!(!outcome.is_success());
+    assert!(outcome.is_failure(), "Outcome should be a failure");
+    assert!(
+        outcome.failure_message().is_some(),
+        "Should have a failure message"
+    );
+    println!("Got expected failure: {:?}", outcome.failure_message());
 
-    // Extracting the return value should give a TransactionFailed error
-    let err = outcome.result().unwrap_err();
-    match &err {
-        Error::TransactionFailed(tx_err) => {
-            println!("Got expected error: {tx_err}");
-        }
-        other => panic!("Expected TransactionFailed, got: {other:?}"),
-    }
-
-    // Receipt details are directly accessible
+    // Receipt details are accessible via the outcome
     assert!(
         !outcome.receipts_outcome.is_empty(),
         "Should have receipt outcomes even on failure"

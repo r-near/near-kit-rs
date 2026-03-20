@@ -1383,11 +1383,22 @@ impl IntoFuture for TransactionSend {
                                 response.transaction_hash, builder.wait_until,
                             ))
                         })?;
-                        return Ok(outcome);
+
+                        // Inspect outcome status — only InvalidTxError becomes Err.
+                        // ActionError means the tx executed (nonce incremented, gas consumed),
+                        // so we return Ok(outcome) and let the caller inspect is_failure().
+                        use crate::types::{FinalExecutionStatus, TxExecutionError};
+                        match outcome.status {
+                            FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
+                                return Err(Error::InvalidTx(Box::new(e)));
+                            }
+                            _ => return Ok(outcome),
+                        }
                     }
-                    Err(RpcError::InvalidNonce { tx_nonce, ak_nonce })
-                        if attempt < max_nonce_retries - 1 =>
-                    {
+                    Err(RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {
+                        tx_nonce,
+                        ak_nonce,
+                    })) if attempt < max_nonce_retries - 1 => {
                         tracing::warn!(
                             tx_nonce = tx_nonce,
                             ak_nonce = ak_nonce,
@@ -1396,13 +1407,14 @@ impl IntoFuture for TransactionSend {
                         );
                         // Store ak_nonce for next iteration to avoid refetching
                         last_ak_nonce = Some(ak_nonce);
-                        last_error =
-                            Some(Error::Rpc(RpcError::InvalidNonce { tx_nonce, ak_nonce }));
+                        last_error = Some(Error::InvalidTx(Box::new(
+                            crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
+                        )));
                         continue;
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "Transaction send failed");
-                        return Err(Error::Rpc(e));
+                        return Err(e.into());
                     }
                 }
             }

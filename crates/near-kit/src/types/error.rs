@@ -240,6 +240,19 @@ pub enum InvalidTxError {
     },
 }
 
+impl InvalidTxError {
+    /// Returns `true` if this error is transient and the transaction may
+    /// succeed on retry (e.g. invalid nonce, shard congestion).
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            InvalidTxError::InvalidNonce { .. }
+                | InvalidTxError::ShardCongested { .. }
+                | InvalidTxError::ShardStuck { .. }
+        )
+    }
+}
+
 impl std::fmt::Display for InvalidTxError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

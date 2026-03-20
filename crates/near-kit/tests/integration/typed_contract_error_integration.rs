@@ -69,8 +69,10 @@ async fn test_typed_contract_view_on_nonexistent_account() {
 
     // Should be AccountNotFound or ContractNotDeployed
     match err {
-        Error::Rpc(RpcError::AccountNotFound(_)) => { /* Expected */ }
-        Error::Rpc(RpcError::ContractNotDeployed(_)) => { /* Also acceptable */ }
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::AccountNotFound(_)) => { /* Expected */
+        }
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed(_)) => { /* Also acceptable */
+        }
         _ => panic!(
             "Expected AccountNotFound or ContractNotDeployed, got: {:?}",
             err
@@ -105,7 +107,8 @@ async fn test_typed_contract_view_on_account_without_contract() {
     println!("View on account without contract: {:?}", err);
 
     match err {
-        Error::Rpc(RpcError::ContractNotDeployed(_)) => { /* Expected */ }
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed(_)) => { /* Expected */
+        }
         Error::Rpc(_) => { /* Other RPC errors acceptable */ }
         _ => panic!("Expected RPC error, got: {:?}", err),
     }
@@ -182,7 +185,8 @@ async fn test_typed_contract_view_on_wrong_contract_type() {
 
     // Should be a contract execution error (method not found)
     match err {
-        Error::Rpc(RpcError::ContractExecution { .. }) => { /* Expected */ }
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractExecution { .. }) => { /* Expected */
+        }
         Error::Rpc(_) => { /* Other RPC errors acceptable */ }
         _ => panic!("Expected RPC error, got: {:?}", err),
     }
@@ -211,7 +215,7 @@ async fn test_typed_contract_call_with_insufficient_gas() {
 
     let guestbook = near.contract::<Guestbook>(&contract_id);
 
-    // Try to call with extremely low gas
+    // Try to call with extremely low gas — action errors return Ok(outcome)
     let result = guestbook
         .add_message(AddMessageArgs {
             text: "Test message".to_string(),
@@ -220,18 +224,15 @@ async fn test_typed_contract_call_with_insufficient_gas() {
         .await;
 
     match result {
-        Ok(outcome) => {
-            // Transaction executed but should have failed on-chain
-            assert!(outcome.is_failure(), "Should fail with insufficient gas");
-            let err = outcome.result().unwrap_err();
-            println!("Insufficient gas error: {:?}", err);
-            match err {
-                Error::TransactionFailed(_) => { /* Expected */ }
-                _ => panic!("Expected TransactionFailed from result(), got: {:?}", err),
-            }
+        Ok(outcome) if outcome.is_failure() => {
+            println!("Insufficient gas error: {:?}", outcome.failure_message());
         }
-        Err(Error::Rpc(_)) => { /* RPC errors also acceptable */ }
-        Err(other) => panic!("Expected Ok or Rpc error, got: {:?}", other),
+        Ok(outcome) => panic!("Expected failure outcome, got success: {:?}", outcome),
+        Err(Error::Rpc(_)) | Err(Error::InvalidTx(_)) => { /* Also acceptable */ }
+        Err(other) => panic!(
+            "Expected Ok(failure) or Rpc/InvalidTx error, got: {:?}",
+            other
+        ),
     }
 }
 
@@ -312,7 +313,7 @@ async fn test_typed_contract_query_at_invalid_block() {
     println!("Query at invalid block: {:?}", err);
 
     match err {
-        Error::Rpc(RpcError::UnknownBlock(_)) => { /* Expected */ }
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::UnknownBlock(_)) => { /* Expected */ }
         Error::Rpc(_) => { /* Other RPC errors acceptable */ }
         _ => panic!("Expected RPC error, got: {:?}", err),
     }

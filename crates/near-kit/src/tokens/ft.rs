@@ -185,10 +185,10 @@ impl FungibleToken {
 
         let balance_str: String = result.json().map_err(Error::from)?;
         let raw: u128 = balance_str.parse().map_err(|_| {
-            Error::Rpc(crate::error::RpcError::InvalidResponse(format!(
+            Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
                 "Invalid balance format: {}",
                 balance_str
-            )))
+            ))))
         })?;
 
         Ok(FtAmount::from_metadata(raw, metadata))
@@ -212,10 +212,10 @@ impl FungibleToken {
 
         let supply_str: String = result.json().map_err(Error::from)?;
         let raw: u128 = supply_str.parse().map_err(|_| {
-            Error::Rpc(crate::error::RpcError::InvalidResponse(format!(
+            Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
                 "Invalid supply format: {}",
                 supply_str
-            )))
+            ))))
         })?;
 
         Ok(FtAmount::from_metadata(raw, metadata))
