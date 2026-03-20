@@ -568,15 +568,19 @@ impl SandboxBuilder {
     /// Set the chain ID for this sandbox.
     ///
     /// Useful for testing against a sandbox that mimics a specific network
-    /// (e.g., `"mainnet"`) so that chain-ID-dependent logic behaves correctly.
+    /// so that chain-ID-dependent logic behaves correctly.
     ///
     /// If not specified, the sandbox uses its default chain ID.
+    ///
+    /// **Note:** `"mainnet"` and `"testnet"` are rejected by `near-sandbox`
+    /// when used with `--test-seed`. Use custom chain IDs (e.g., `"pinet"`)
+    /// for testing chain-ID-dependent logic.
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let sandbox = SandboxConfig::builder()
-    ///     .chain_id("mainnet")
+    ///     .chain_id("pinet")
     ///     .fresh()
     ///     .await;
     /// ```

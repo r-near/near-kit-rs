@@ -850,3 +850,18 @@ async fn test_send_pre_signed_transaction() {
 
     println!("Transaction completed: {:?}", outcome.transaction_hash());
 }
+
+#[tokio::test]
+async fn test_sandbox_custom_chain_id() {
+    // Note: "mainnet"/"testnet" chain IDs are rejected by near-sandbox
+    // when used with --test-seed, so we use a custom chain ID here.
+    let sandbox = SandboxConfig::builder().chain_id("pinet").fresh().await;
+    let near = sandbox.client();
+
+    // Verify the Near client reports the custom chain ID
+    assert_eq!(near.chain_id().as_str(), "pinet");
+
+    // Verify the sandbox is functional with the custom chain ID
+    let balance = near.balance("sandbox").await.unwrap();
+    assert!(balance.total > NearToken::from_near(1));
+}
