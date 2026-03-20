@@ -138,7 +138,7 @@ impl Finality {
 }
 
 /// Transaction execution status for send_tx wait_until parameter.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {
     /// Don't wait, return immediately after RPC accepts.
