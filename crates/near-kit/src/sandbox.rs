@@ -157,8 +157,6 @@ impl Image for NearSandbox {
     }
 
     fn cmd(&self) -> impl IntoIterator<Item = impl Into<Cow<'_, str>>> {
-        // Override the default entrypoint to use --test-seed for deterministic keys
-        // and --account-id for custom root account names
         let chain_id_flag = match &self.chain_id {
             Some(id) => format!(" --chain-id {id}"),
             None => String::new(),
@@ -567,14 +565,14 @@ impl SandboxBuilder {
 
     /// Set the chain ID for this sandbox.
     ///
-    /// Useful for testing against a sandbox that mimics a specific network
-    /// so that chain-ID-dependent logic behaves correctly.
+    /// Useful for testing chain-ID-dependent logic (e.g., signed wallet
+    /// requests that compare against the chain ID).
     ///
     /// If not specified, the sandbox uses its default chain ID.
     ///
-    /// **Note:** `"mainnet"` and `"testnet"` are rejected by `near-sandbox`
-    /// when used with `--test-seed`. Use custom chain IDs (e.g., `"pinet"`)
-    /// for testing chain-ID-dependent logic.
+    /// **Note:** `"mainnet"` and `"testnet"` are not supported — the
+    /// `near-sandbox` binary refuses to run with these chain IDs.
+    /// Use custom chain IDs instead (e.g., `"pinet"` for Private Shard).
     ///
     /// # Example
     ///
