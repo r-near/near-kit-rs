@@ -64,7 +64,7 @@ quote = "1"
 proc-macro2 = "1"
 
 # Optional: Sandbox integration
-near-sandbox = { version = "0.3.7", features = ["global_install"] }
+near-sandbox = { version = "0.3.8", features = ["global_install"] }
 
 # Dev dependencies
 tokio-test = "0.4"
