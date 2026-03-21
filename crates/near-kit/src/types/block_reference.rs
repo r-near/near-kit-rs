@@ -138,7 +138,7 @@ impl Finality {
 }
 
 /// Transaction execution status for send_tx wait_until parameter.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {
     /// Don't wait, return immediately after RPC accepts.
@@ -169,11 +169,9 @@ impl TxExecutionStatus {
         }
     }
 
-    /// Returns `true` if receipt/execution outcomes are available at this status.
+    /// Returns `true` if all non-refund receipt outcomes are available.
     ///
-    /// The "executed" statuses are `ExecutedOptimistic`, `Executed`, and `Final`.
-    /// Note that `IncludedFinal` means the transaction is in a final block but
-    /// execution outcomes may not yet be available.
+    /// True for `ExecutedOptimistic`, `Executed`, and `Final`.
     pub fn is_executed(&self) -> bool {
         matches!(
             self,
@@ -181,9 +179,66 @@ impl TxExecutionStatus {
         )
     }
 
-    /// Returns `true` if the transaction has reached full finality.
+    /// Returns `true` if the transaction's block has reached finality.
+    ///
+    /// True for `IncludedFinal`, `Executed`, and `Final`.
+    pub fn is_block_final(&self) -> bool {
+        matches!(self, Self::IncludedFinal | Self::Executed | Self::Final)
+    }
+
+    /// Returns `true` if all receipts are executed and all blocks finalized.
     pub fn is_final(&self) -> bool {
         matches!(self, Self::Final)
+    }
+}
+
+/// Partial ordering for `TxExecutionStatus` forms a diamond lattice:
+///
+/// ```text
+///         None
+///          |
+///       Included
+///       /      \
+/// ExecutedOptimistic  IncludedFinal
+///       \      /
+///       Executed
+///          |
+///        Final
+/// ```
+///
+/// `ExecutedOptimistic` and `IncludedFinal` are **incomparable** because they
+/// represent progress on orthogonal axes (execution vs block finality).
+impl PartialOrd for TxExecutionStatus {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        use std::cmp::Ordering::*;
+        use TxExecutionStatus::*;
+
+        if self == other {
+            return Some(Equal);
+        }
+
+        // Assign each variant a position in the lattice.
+        // Returns (execution_level, finality_level).
+        fn axes(s: &TxExecutionStatus) -> (u8, u8) {
+            match s {
+                None => (0, 0),
+                Included => (1, 1),
+                ExecutedOptimistic => (2, 1),
+                IncludedFinal => (1, 2),
+                Executed => (2, 2),
+                Final => (3, 3),
+            }
+        }
+
+        let (ex_a, fin_a) = axes(self);
+        let (ex_b, fin_b) = axes(other);
+
+        match (ex_a.cmp(&ex_b), fin_a.cmp(&fin_b)) {
+            (Equal, Equal) => Some(Equal),
+            (Less | Equal, Less | Equal) => Some(Less),
+            (Greater | Equal, Greater | Equal) => Some(Greater),
+            _ => Option::None, // incomparable
+        }
     }
 }
 
@@ -394,6 +449,16 @@ mod tests {
     }
 
     #[test]
+    fn test_tx_execution_status_is_block_final() {
+        assert!(!TxExecutionStatus::None.is_block_final());
+        assert!(!TxExecutionStatus::Included.is_block_final());
+        assert!(!TxExecutionStatus::ExecutedOptimistic.is_block_final());
+        assert!(TxExecutionStatus::IncludedFinal.is_block_final());
+        assert!(TxExecutionStatus::Executed.is_block_final());
+        assert!(TxExecutionStatus::Final.is_block_final());
+    }
+
+    #[test]
     fn test_tx_execution_status_is_final() {
         assert!(!TxExecutionStatus::None.is_final());
         assert!(!TxExecutionStatus::Included.is_final());
@@ -401,5 +466,41 @@ mod tests {
         assert!(!TxExecutionStatus::IncludedFinal.is_final());
         assert!(!TxExecutionStatus::Executed.is_final());
         assert!(TxExecutionStatus::Final.is_final());
+    }
+
+    #[test]
+    fn test_tx_execution_status_partial_ord_linear() {
+        // Linear chain: None < Included < Executed < Final
+        assert!(TxExecutionStatus::None < TxExecutionStatus::Included);
+        assert!(TxExecutionStatus::Included < TxExecutionStatus::Executed);
+        assert!(TxExecutionStatus::Executed < TxExecutionStatus::Final);
+        assert!(TxExecutionStatus::None < TxExecutionStatus::Final);
+    }
+
+    #[test]
+    fn test_tx_execution_status_partial_ord_branches() {
+        // Both branches are greater than Included
+        assert!(TxExecutionStatus::ExecutedOptimistic > TxExecutionStatus::Included);
+        assert!(TxExecutionStatus::IncludedFinal > TxExecutionStatus::Included);
+        // Both branches are less than Executed
+        assert!(TxExecutionStatus::ExecutedOptimistic < TxExecutionStatus::Executed);
+        assert!(TxExecutionStatus::IncludedFinal < TxExecutionStatus::Executed);
+    }
+
+    #[test]
+    fn test_tx_execution_status_partial_ord_incomparable() {
+        // ExecutedOptimistic and IncludedFinal are incomparable
+        assert_eq!(
+            TxExecutionStatus::ExecutedOptimistic
+                .partial_cmp(&TxExecutionStatus::IncludedFinal),
+            Option::None,
+        );
+        assert_eq!(
+            TxExecutionStatus::IncludedFinal
+                .partial_cmp(&TxExecutionStatus::ExecutedOptimistic),
+            Option::None,
+        );
+        // Neither is >, <, ==
+        assert_ne!(TxExecutionStatus::ExecutedOptimistic, TxExecutionStatus::IncludedFinal);
     }
 }
