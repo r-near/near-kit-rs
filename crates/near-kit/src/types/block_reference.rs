@@ -210,8 +210,8 @@ impl TxExecutionStatus {
 /// represent progress on orthogonal axes (execution vs block finality).
 impl PartialOrd for TxExecutionStatus {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        use std::cmp::Ordering::*;
         use TxExecutionStatus::*;
+        use std::cmp::Ordering::*;
 
         if self == other {
             return Some(Equal);
@@ -491,16 +491,17 @@ mod tests {
     fn test_tx_execution_status_partial_ord_incomparable() {
         // ExecutedOptimistic and IncludedFinal are incomparable
         assert_eq!(
-            TxExecutionStatus::ExecutedOptimistic
-                .partial_cmp(&TxExecutionStatus::IncludedFinal),
+            TxExecutionStatus::ExecutedOptimistic.partial_cmp(&TxExecutionStatus::IncludedFinal),
             Option::None,
         );
         assert_eq!(
-            TxExecutionStatus::IncludedFinal
-                .partial_cmp(&TxExecutionStatus::ExecutedOptimistic),
+            TxExecutionStatus::IncludedFinal.partial_cmp(&TxExecutionStatus::ExecutedOptimistic),
             Option::None,
         );
         // Neither is >, <, ==
-        assert_ne!(TxExecutionStatus::ExecutedOptimistic, TxExecutionStatus::IncludedFinal);
+        assert_ne!(
+            TxExecutionStatus::ExecutedOptimistic,
+            TxExecutionStatus::IncludedFinal
+        );
     }
 }
