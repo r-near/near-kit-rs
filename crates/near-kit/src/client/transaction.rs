@@ -37,9 +37,8 @@ use crate::error::{Error, RpcError};
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, DeterministicAccountStateInit,
     FinalExecutionOutcome, Finality, Gas, GlobalContractIdentifier, GlobalContractRef, IntoGas,
-    IntoNearToken,
-    NearToken, NonDelegateAction, PublicKey, PublishMode, SignedDelegateAction, SignedTransaction,
-    Transaction, TryIntoAccountId, TxExecutionStatus,
+    IntoNearToken, NearToken, NonDelegateAction, PublicKey, PublishMode, SignedDelegateAction,
+    SignedTransaction, Transaction, TryIntoAccountId, TxExecutionStatus,
 };
 
 use super::nonce_manager::NonceManager;
