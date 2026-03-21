@@ -1850,10 +1850,12 @@ mod tests {
                 "InvalidTxError": "InvalidSignature"
             }
         });
-        let result = serde_json::from_value::<ExecutionStatus>(json);
+        let err = serde_json::from_value::<ExecutionStatus>(json)
+            .expect_err("InvalidTxError should be rejected in receipt execution status");
+        let msg = err.to_string();
         assert!(
-            result.is_err(),
-            "InvalidTxError should be rejected in receipt execution status"
+            msg.contains("unexpected InvalidTxError"),
+            "Expected descriptive error containing \"unexpected InvalidTxError\", got: {msg}"
         );
     }
 

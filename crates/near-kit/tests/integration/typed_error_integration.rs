@@ -1,7 +1,7 @@
 //! Integration tests verifying typed error deserialization from sandbox.
 //!
 //! These tests trigger real transaction failures and verify that
-//! `ExecutionStatus::Failure(TxExecutionError)` deserializes correctly,
+//! `ExecutionStatus::Failure(ActionError)` deserializes correctly,
 //! going through the RPC client directly to inspect raw outcomes.
 //!
 //! Run with: `cargo test --features sandbox --test integration typed_error`
