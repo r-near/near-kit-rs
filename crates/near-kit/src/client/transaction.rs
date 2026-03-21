@@ -36,7 +36,8 @@ use std::sync::{Arc, OnceLock};
 use crate::error::{Error, RpcError};
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, DeterministicAccountStateInit,
-    FinalExecutionOutcome, Finality, Gas, GlobalContractIdentifier, IntoGas, IntoNearToken,
+    FinalExecutionOutcome, Finality, Gas, GlobalContractIdentifier, GlobalContractRef, IntoGas,
+    IntoNearToken,
     NearToken, NonDelegateAction, PublicKey, PublishMode, SignedDelegateAction, SignedTransaction,
     Transaction, TryIntoAccountId, TxExecutionStatus,
 };
@@ -522,13 +523,14 @@ impl TransactionBuilder {
     /// # use near_kit::*;
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
     /// near.transaction("alice.testnet")
-    ///     .deploy_from(GlobalContractIdentifier::CodeHash(code_hash))
+    ///     .deploy_from(code_hash)
     ///     .send()
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn deploy_from(mut self, identifier: GlobalContractIdentifier) -> Self {
+    pub fn deploy_from(mut self, contract_ref: impl GlobalContractRef) -> Self {
+        let identifier = contract_ref.into_identifier();
         self.actions.push(match identifier {
             GlobalContractIdentifier::CodeHash(hash) => Action::deploy_from_hash(hash),
             GlobalContractIdentifier::AccountId(id) => Action::deploy_from_account(id),
@@ -1162,8 +1164,8 @@ impl CallBuilder {
     }
 
     /// Deploy a contract from the global registry.
-    pub fn deploy_from(self, identifier: GlobalContractIdentifier) -> TransactionBuilder {
-        self.finish().deploy_from(identifier)
+    pub fn deploy_from(self, contract_ref: impl GlobalContractRef) -> TransactionBuilder {
+        self.finish().deploy_from(contract_ref)
     }
 
     /// Create a NEP-616 deterministic state init action.

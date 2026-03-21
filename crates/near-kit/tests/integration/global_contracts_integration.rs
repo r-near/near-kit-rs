@@ -145,7 +145,7 @@ async fn test_deploy_from_publisher() {
     // Deploy from the publisher's global contract
     let outcome = user_near
         .transaction(&user_id)
-        .deploy_from(GlobalContractIdentifier::AccountId(publisher_id.clone()))
+        .deploy_from(publisher_id.as_str())
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -200,7 +200,7 @@ async fn test_deploy_from_hash() {
     // Deploy from the code hash
     let outcome = user_near
         .transaction(&user_id)
-        .deploy_from(GlobalContractIdentifier::CodeHash(code_hash))
+        .deploy_from(code_hash)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await

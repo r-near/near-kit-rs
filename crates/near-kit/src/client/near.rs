@@ -640,8 +640,7 @@ impl Near {
     /// Panics if no signer is configured.
     pub fn deploy_from(&self, contract_ref: impl GlobalContractRef) -> TransactionBuilder {
         let account_id = self.account_id().clone();
-        let identifier = contract_ref.into_identifier();
-        self.transaction(account_id).deploy_from(identifier)
+        self.transaction(account_id).deploy_from(contract_ref)
     }
 
     /// Publish a contract to the global registry.

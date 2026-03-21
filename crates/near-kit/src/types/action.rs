@@ -28,6 +28,10 @@ pub enum PublishMode {
 ///
 /// This allows `deploy_from` to accept either a `CryptoHash` (for immutable
 /// contracts) or an account ID string/`AccountId` (for publisher-updatable contracts).
+///
+/// # Panics
+///
+/// The `&str` and `String` implementations panic if the string is not a valid NEAR account ID.
 pub trait GlobalContractRef {
     fn into_identifier(self) -> GlobalContractIdentifier;
 }
@@ -1064,7 +1068,7 @@ mod tests {
 
     #[test]
     fn test_action_helper_constructors() {
-        // Test publish_contract
+        // Test publish
         let code = vec![1, 2, 3];
         let action = Action::publish(code.clone(), PublishMode::Immutable);
         if let Action::DeployGlobalContract(inner) = action {
