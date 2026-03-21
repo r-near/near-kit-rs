@@ -273,8 +273,21 @@ impl Near {
         self.rpc.url()
     }
 
+    /// Get the signer's account ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no signer is configured. Use [`try_account_id`](Self::try_account_id)
+    /// if you need to handle the no-signer case.
+    pub fn account_id(&self) -> &AccountId {
+        self.signer
+            .as_ref()
+            .expect("no signer configured — use Near::testnet().credentials(...) or with_signer()")
+            .account_id()
+    }
+
     /// Get the signer's account ID, if a signer is configured.
-    pub fn account_id(&self) -> Option<&AccountId> {
+    pub fn try_account_id(&self) -> Option<&AccountId> {
         self.signer.as_ref().map(|s| s.account_id())
     }
 
@@ -944,7 +957,7 @@ impl std::fmt::Debug for Near {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Near")
             .field("rpc", &self.rpc)
-            .field("account_id", &self.account_id())
+            .field("account_id", &self.try_account_id())
             .finish()
     }
 }
@@ -1096,14 +1109,14 @@ mod tests {
     fn test_near_mainnet_builder() {
         let near = Near::mainnet().build();
         assert!(near.rpc_url().contains("fastnear") || near.rpc_url().contains("near"));
-        assert!(near.account_id().is_none()); // No signer configured
+        assert!(near.try_account_id().is_none()); // No signer configured
     }
 
     #[test]
     fn test_near_testnet_builder() {
         let near = Near::testnet().build();
         assert!(near.rpc_url().contains("fastnear") || near.rpc_url().contains("test"));
-        assert!(near.account_id().is_none());
+        assert!(near.try_account_id().is_none());
     }
 
     #[test]
@@ -1122,8 +1135,7 @@ mod tests {
             .unwrap()
             .build();
 
-        assert!(near.account_id().is_some());
-        assert_eq!(near.account_id().unwrap().as_str(), "alice.testnet");
+        assert_eq!(near.account_id().as_str(), "alice.testnet");
     }
 
     #[test]
@@ -1135,8 +1147,7 @@ mod tests {
 
         let near = Near::testnet().signer(signer).build();
 
-        assert!(near.account_id().is_some());
-        assert_eq!(near.account_id().unwrap().as_str(), "bob.testnet");
+        assert_eq!(near.account_id().as_str(), "bob.testnet");
     }
 
     #[test]
@@ -1234,8 +1245,7 @@ mod tests {
 
         let near = Near::sandbox(&mock);
         assert_eq!(near.rpc_url(), "http://127.0.0.1:3030");
-        assert!(near.account_id().is_some());
-        assert_eq!(near.account_id().unwrap().as_str(), "sandbox");
+        assert_eq!(near.account_id().as_str(), "sandbox");
     }
 
     // ========================================================================
@@ -1262,7 +1272,7 @@ mod tests {
     #[test]
     fn test_near_with_signer_derived() {
         let near = Near::testnet().build();
-        assert!(near.account_id().is_none());
+        assert!(near.try_account_id().is_none());
 
         let signer = InMemorySigner::new(
             "alice.testnet",
@@ -1270,9 +1280,9 @@ mod tests {
         ).unwrap();
 
         let alice = near.with_signer(signer);
-        assert_eq!(alice.account_id().unwrap().as_str(), "alice.testnet");
+        assert_eq!(alice.account_id().as_str(), "alice.testnet");
         assert_eq!(alice.rpc_url(), near.rpc_url()); // Same transport
-        assert!(near.account_id().is_none()); // Original unchanged
+        assert!(near.try_account_id().is_none()); // Original unchanged
     }
 
     #[test]
@@ -1289,8 +1299,8 @@ mod tests {
             "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
         ).unwrap());
 
-        assert_eq!(alice.account_id().unwrap().as_str(), "alice.testnet");
-        assert_eq!(bob.account_id().unwrap().as_str(), "bob.testnet");
+        assert_eq!(alice.account_id().as_str(), "alice.testnet");
+        assert_eq!(bob.account_id().as_str(), "bob.testnet");
         assert_eq!(alice.rpc_url(), bob.rpc_url()); // Shared transport
     }
 
@@ -1324,7 +1334,7 @@ mod tests {
                 "Expected testnet URL, got: {}",
                 near.rpc_url()
             );
-            assert!(near.account_id().is_none());
+            assert!(near.try_account_id().is_none());
         }
 
         // Scenario 2: Mainnet network
@@ -1339,7 +1349,7 @@ mod tests {
                 "Expected mainnet URL, got: {}",
                 near.rpc_url()
             );
-            assert!(near.account_id().is_none());
+            assert!(near.try_account_id().is_none());
         }
 
         // Scenario 3: Custom URL
@@ -1364,8 +1374,7 @@ mod tests {
         }
         {
             let near = Near::from_env().unwrap();
-            assert!(near.account_id().is_some());
-            assert_eq!(near.account_id().unwrap().as_str(), "alice.testnet");
+            assert_eq!(near.account_id().as_str(), "alice.testnet");
         }
 
         // Scenario 5: Account without key - should error
