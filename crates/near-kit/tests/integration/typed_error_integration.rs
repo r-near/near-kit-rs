@@ -226,7 +226,7 @@ async fn test_call_nonexistent_method_deserializes_as_typed_error() {
 
     let receipt = failed.expect("should have a failed receipt");
     match &receipt.outcome.status {
-        ExecutionStatus::Failure(TxExecutionError::ActionError(ae)) => match &ae.kind {
+        ExecutionStatus::Failure(ae) => match &ae.kind {
             ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodNotFound,
             )) => {
