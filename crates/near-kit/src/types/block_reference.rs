@@ -138,7 +138,7 @@ impl Finality {
 }
 
 /// Transaction execution status for send_tx wait_until parameter.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {
     /// Don't wait, return immediately after RPC accepts.
@@ -174,7 +174,7 @@ impl TxExecutionStatus {
     /// The "executed" statuses are `ExecutedOptimistic`, `Executed`, and `Final`.
     /// Note that `IncludedFinal` means the transaction is in a final block but
     /// execution outcomes may not yet be available.
-    pub fn executed(&self) -> bool {
+    pub fn is_executed(&self) -> bool {
         matches!(
             self,
             Self::ExecutedOptimistic | Self::Executed | Self::Final
@@ -384,13 +384,13 @@ mod tests {
     }
 
     #[test]
-    fn test_tx_execution_status_executed() {
-        assert!(!TxExecutionStatus::None.executed());
-        assert!(!TxExecutionStatus::Included.executed());
-        assert!(TxExecutionStatus::ExecutedOptimistic.executed());
-        assert!(!TxExecutionStatus::IncludedFinal.executed());
-        assert!(TxExecutionStatus::Executed.executed());
-        assert!(TxExecutionStatus::Final.executed());
+    fn test_tx_execution_status_is_executed() {
+        assert!(!TxExecutionStatus::None.is_executed());
+        assert!(!TxExecutionStatus::Included.is_executed());
+        assert!(TxExecutionStatus::ExecutedOptimistic.is_executed());
+        assert!(!TxExecutionStatus::IncludedFinal.is_executed());
+        assert!(TxExecutionStatus::Executed.is_executed());
+        assert!(TxExecutionStatus::Final.is_executed());
     }
 
     #[test]
