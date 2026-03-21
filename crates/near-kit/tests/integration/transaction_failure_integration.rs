@@ -101,7 +101,9 @@ async fn test_add_key_to_nonexistent_account() {
 
     // Try to add a key to a non-existent account — action error returns Ok(outcome)
     let outcome = near
-        .add_full_access_key(&nonexistent, key.public_key())
+        .transaction(&nonexistent)
+        .add_full_access_key(key.public_key())
+        .send()
         .await
         .expect("Action errors should return Ok(outcome)");
 
@@ -137,7 +139,7 @@ async fn test_add_duplicate_key() {
 
     // Try to add the same key again — action error returns Ok(outcome)
     let outcome = account_near
-        .add_full_access_key(&account_id, key.public_key())
+        .add_full_access_key(key.public_key())
         .await
         .expect("Action errors should return Ok(outcome)");
 
@@ -172,7 +174,7 @@ async fn test_delete_last_full_access_key() {
 
     // Delete the only key - this should succeed but leave the account inaccessible
     // Note: NEAR protocol allows this
-    let result = account_near.delete_key(&account_id, key.public_key()).await;
+    let result = account_near.delete_key(key.public_key()).await;
 
     // This may succeed - depends on protocol rules about last key
     println!("Delete last key result: {:?}", result);
