@@ -1,7 +1,7 @@
 //! Integration tests verifying typed error deserialization from sandbox.
 //!
 //! These tests trigger real transaction failures and verify that
-//! `ExecutionStatus::Failure(TxExecutionError)` deserializes correctly,
+//! `ExecutionStatus::Failure(ActionError)` deserializes correctly,
 //! going through the RPC client directly to inspect raw outcomes.
 //!
 //! Run with: `cargo test --features sandbox --test integration typed_error`
@@ -226,7 +226,7 @@ async fn test_call_nonexistent_method_deserializes_as_typed_error() {
 
     let receipt = failed.expect("should have a failed receipt");
     match &receipt.outcome.status {
-        ExecutionStatus::Failure(TxExecutionError::ActionError(ae)) => match &ae.kind {
+        ExecutionStatus::Failure(ae) => match &ae.kind {
             ActionErrorKind::FunctionCallError(FunctionCallError::MethodResolveError(
                 MethodResolveError::MethodNotFound,
             )) => {

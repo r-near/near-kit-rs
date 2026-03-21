@@ -6,7 +6,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 
 use super::block_reference::TxExecutionStatus;
-use super::error::TxExecutionError;
+use super::error::{ActionError, TxExecutionError};
 use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature};
 
 // ============================================================================
@@ -667,16 +667,47 @@ impl FinalExecutionOutcome {
 /// Per-receipt execution status.
 ///
 /// Matches nearcore's `ExecutionStatusView`. Used in [`ExecutionOutcome`].
-#[derive(Debug, Clone, Deserialize)]
+///
+/// The `Failure` variant contains an [`ActionError`] rather than
+/// [`TxExecutionError`] because receipt execution outcomes can only fail with
+/// action errors. Transaction-validation errors (`InvalidTxError`) are caught
+/// earlier in the send path and surfaced as [`Error::InvalidTx`].
+///
+/// The NEAR RPC serialises the failure as `{"Failure": {"ActionError": {…}}}`.
+/// A custom [`Deserialize`] impl unwraps the outer `TxExecutionError` envelope.
+#[derive(Debug, Clone)]
 pub enum ExecutionStatus {
     /// The execution is pending or unknown.
     Unknown,
-    /// Execution failed.
-    Failure(TxExecutionError),
+    /// Execution failed with an action error.
+    Failure(ActionError),
     /// Execution succeeded with a return value (base64 encoded).
     SuccessValue(String),
     /// Execution succeeded, producing a receipt.
     SuccessReceiptId(CryptoHash),
+}
+
+impl<'de> serde::Deserialize<'de> for ExecutionStatus {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        /// Mirror of the on-wire format that serde can derive.
+        #[derive(Deserialize)]
+        enum Raw {
+            Unknown,
+            Failure(TxExecutionError),
+            SuccessValue(String),
+            SuccessReceiptId(CryptoHash),
+        }
+
+        match Raw::deserialize(deserializer)? {
+            Raw::Unknown => Ok(Self::Unknown),
+            Raw::Failure(TxExecutionError::ActionError(e)) => Ok(Self::Failure(e)),
+            Raw::Failure(TxExecutionError::InvalidTxError(e)) => Err(serde::de::Error::custom(
+                format!("unexpected InvalidTxError in receipt execution status: {e}"),
+            )),
+            Raw::SuccessValue(v) => Ok(Self::SuccessValue(v)),
+            Raw::SuccessReceiptId(h) => Ok(Self::SuccessReceiptId(h)),
+        }
+    }
 }
 
 /// Transaction view in outcome.
@@ -1787,6 +1818,45 @@ mod tests {
             serde_json::json!({"SuccessReceiptId": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"});
         let status: ExecutionStatus = serde_json::from_value(json).unwrap();
         assert!(matches!(status, ExecutionStatus::SuccessReceiptId(_)));
+    }
+
+    #[test]
+    fn test_execution_status_failure_action_error() {
+        let json = serde_json::json!({
+            "Failure": {
+                "ActionError": {
+                    "index": 0,
+                    "kind": {
+                        "FunctionCallError": {
+                            "ExecutionError": "Smart contract panicked"
+                        }
+                    }
+                }
+            }
+        });
+        let status: ExecutionStatus = serde_json::from_value(json).unwrap();
+        match status {
+            ExecutionStatus::Failure(ae) => {
+                assert_eq!(ae.index, Some(0));
+            }
+            other => panic!("expected Failure, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_execution_status_failure_invalid_tx_error_rejected() {
+        let json = serde_json::json!({
+            "Failure": {
+                "InvalidTxError": "InvalidSignature"
+            }
+        });
+        let err = serde_json::from_value::<ExecutionStatus>(json)
+            .expect_err("InvalidTxError should be rejected in receipt execution status");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unexpected InvalidTxError"),
+            "Expected descriptive error containing \"unexpected InvalidTxError\", got: {msg}"
+        );
     }
 
     // ========================================================================
