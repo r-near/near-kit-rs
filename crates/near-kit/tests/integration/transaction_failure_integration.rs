@@ -49,7 +49,7 @@ async fn test_deploy_invalid_wasm() {
     // Try to deploy invalid WASM (random bytes)
     let invalid_wasm = vec![0u8; 100]; // Not valid WASM
 
-    let result = account_near.deploy(&account_id, invalid_wasm).await;
+    let result = account_near.deploy(invalid_wasm).await;
 
     // Note: NEAR allows deploying any bytes, but calling methods will fail
     // The deploy itself may succeed
@@ -81,7 +81,7 @@ async fn test_deploy_empty_wasm() {
     // Try to deploy empty WASM
     let empty_wasm: Vec<u8> = vec![];
 
-    let result = account_near.deploy(&account_id, empty_wasm).await;
+    let result = account_near.deploy(empty_wasm).await;
 
     // Empty deploys may succeed (effectively removes contract)
     println!("Empty WASM deploy result: {:?}", result);

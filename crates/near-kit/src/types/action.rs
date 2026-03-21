@@ -9,7 +9,54 @@ use serde_with::base64::Base64;
 use serde_with::serde_as;
 use sha3::{Digest, Keccak256};
 
-use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature};
+use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature, TryIntoAccountId};
+
+/// Publish mode for global contracts.
+///
+/// Determines how a published contract will be identified in the global registry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PublishMode {
+    /// Contract is identified by the signer's account ID.
+    /// The signer can update the contract later.
+    Updatable,
+    /// Contract is identified by its code hash.
+    /// The contract cannot be updated after publishing.
+    Immutable,
+}
+
+/// Trait for types that can identify a global contract.
+///
+/// This allows `deploy_from` to accept either a `CryptoHash` (for immutable
+/// contracts) or an account ID string/`AccountId` (for publisher-updatable contracts).
+pub trait GlobalContractRef {
+    fn into_identifier(self) -> GlobalContractIdentifier;
+}
+
+impl GlobalContractRef for CryptoHash {
+    fn into_identifier(self) -> GlobalContractIdentifier {
+        GlobalContractIdentifier::CodeHash(self)
+    }
+}
+
+impl GlobalContractRef for AccountId {
+    fn into_identifier(self) -> GlobalContractIdentifier {
+        GlobalContractIdentifier::AccountId(self)
+    }
+}
+
+impl GlobalContractRef for &str {
+    fn into_identifier(self) -> GlobalContractIdentifier {
+        let account_id: AccountId = self.try_into_account_id().expect("invalid account ID");
+        GlobalContractIdentifier::AccountId(account_id)
+    }
+}
+
+impl GlobalContractRef for String {
+    fn into_identifier(self) -> GlobalContractIdentifier {
+        let account_id: AccountId = self.try_into_account_id().expect("invalid account ID");
+        GlobalContractIdentifier::AccountId(account_id)
+    }
+}
 
 /// NEP-461 prefix for delegate actions (meta-transactions).
 /// Value: 2^30 + 366 = 1073742190
@@ -511,31 +558,29 @@ impl Action {
     /// # Arguments
     ///
     /// * `code` - The WASM code to publish
-    /// * `by_hash` - If true, contract is identified by its code hash (immutable).
-    ///   If false (default), contract is identified by the signer's account ID (updatable).
+    /// * `mode` - Whether the contract is updatable (by publisher) or immutable (by hash)
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// // Publish updatable contract (identified by your account)
     /// near.transaction("alice.near")
-    ///     .publish_contract(wasm_code, false)
+    ///     .publish(wasm_code, PublishMode::Updatable)
     ///     .send()
     ///     .await?;
     ///
     /// // Publish immutable contract (identified by its hash)
     /// near.transaction("alice.near")
-    ///     .publish_contract(wasm_code, true)
+    ///     .publish(wasm_code, PublishMode::Immutable)
     ///     .send()
     ///     .await?;
     /// ```
-    pub fn publish_contract(code: Vec<u8>, by_hash: bool) -> Self {
+    pub fn publish(code: Vec<u8>, mode: PublishMode) -> Self {
         Self::DeployGlobalContract(DeployGlobalContractAction {
             code,
-            deploy_mode: if by_hash {
-                GlobalContractDeployMode::CodeHash
-            } else {
-                GlobalContractDeployMode::AccountId
+            deploy_mode: match mode {
+                PublishMode::Updatable => GlobalContractDeployMode::AccountId,
+                PublishMode::Immutable => GlobalContractDeployMode::CodeHash,
             },
         })
     }
@@ -881,7 +926,7 @@ mod tests {
         assert_eq!(bytes[0], 3, "Transfer should have discriminant 3");
 
         // DeployGlobalContract (discriminant = 9)
-        let publish = Action::publish_contract(vec![1, 2, 3], false);
+        let publish = Action::publish(vec![1, 2, 3], PublishMode::Updatable);
         let bytes = borsh::to_vec(&publish).unwrap();
         assert_eq!(
             bytes[0], 9,
@@ -1021,7 +1066,7 @@ mod tests {
     fn test_action_helper_constructors() {
         // Test publish_contract
         let code = vec![1, 2, 3];
-        let action = Action::publish_contract(code.clone(), true);
+        let action = Action::publish(code.clone(), PublishMode::Immutable);
         if let Action::DeployGlobalContract(inner) = action {
             assert_eq!(inner.code, code);
             assert_eq!(inner.deploy_mode, GlobalContractDeployMode::CodeHash);
@@ -1029,7 +1074,7 @@ mod tests {
             panic!("Expected DeployGlobalContract");
         }
 
-        let action = Action::publish_contract(code.clone(), false);
+        let action = Action::publish(code.clone(), PublishMode::Updatable);
         if let Action::DeployGlobalContract(inner) = action {
             assert_eq!(inner.deploy_mode, GlobalContractDeployMode::AccountId);
         } else {

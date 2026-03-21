@@ -76,7 +76,7 @@ async fn test_publish_contract_by_account() {
     // Publish the contract (by_hash = false means identified by account)
     let outcome = publisher_near
         .transaction(&publisher_id)
-        .publish_contract(wasm_code, false)
+        .publish(wasm_code, PublishMode::Updatable)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -104,7 +104,7 @@ async fn test_publish_contract_by_hash() {
     // Publish the contract (by_hash = true means identified by code hash, immutable)
     let outcome = publisher_near
         .transaction(&publisher_id)
-        .publish_contract(wasm_code, true)
+        .publish(wasm_code, PublishMode::Immutable)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -132,7 +132,7 @@ async fn test_deploy_from_publisher() {
     // First, publish the contract
     publisher_near
         .transaction(&publisher_id)
-        .publish_contract(wasm_code, false)
+        .publish(wasm_code, PublishMode::Updatable)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -145,7 +145,7 @@ async fn test_deploy_from_publisher() {
     // Deploy from the publisher's global contract
     let outcome = user_near
         .transaction(&user_id)
-        .deploy_from_publisher(&publisher_id)
+        .deploy_from(GlobalContractIdentifier::AccountId(publisher_id.clone()))
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -187,7 +187,7 @@ async fn test_deploy_from_hash() {
     // Publish the contract by hash (immutable)
     publisher_near
         .transaction(&publisher_id)
-        .publish_contract(wasm_code, true)
+        .publish(wasm_code, PublishMode::Immutable)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -200,7 +200,7 @@ async fn test_deploy_from_hash() {
     // Deploy from the code hash
     let outcome = user_near
         .transaction(&user_id)
-        .deploy_from_hash(code_hash)
+        .deploy_from(GlobalContractIdentifier::CodeHash(code_hash))
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -239,7 +239,7 @@ async fn test_state_init_by_hash() {
     // First, publish the contract by hash
     publisher_near
         .transaction(&publisher_id)
-        .publish_contract(wasm_code, true)
+        .publish(wasm_code, PublishMode::Immutable)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -279,7 +279,7 @@ async fn test_state_init_by_publisher() {
     // First, publish the contract by account
     publisher_near
         .transaction(&publisher_id)
-        .publish_contract(wasm_code, false)
+        .publish(wasm_code, PublishMode::Updatable)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
