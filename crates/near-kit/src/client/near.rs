@@ -135,8 +135,8 @@ impl Near {
     ///   custom networks.
     /// - `NEAR_ACCOUNT_ID` (optional): Account ID for signing transactions.
     /// - `NEAR_PRIVATE_KEY` (optional): Private key for signing (e.g., `"ed25519:..."`).
-    /// - `NEAR_MAX_NONCE_RETRIES` (optional): Maximum number of transaction send
-    ///   attempts on `InvalidNonce` errors. Defaults to `3`.
+    /// - `NEAR_MAX_NONCE_RETRIES` (optional): Number of nonce retries on
+    ///   `InvalidNonce` errors. `0` means no retries. Defaults to `3`.
     ///
     /// If `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` are both set, the client will
     /// be configured with signing capability. Otherwise, it will be read-only.
@@ -169,7 +169,7 @@ impl Near {
     /// Returns an error if:
     /// - `NEAR_ACCOUNT_ID` is set without `NEAR_PRIVATE_KEY` (or vice versa)
     /// - `NEAR_PRIVATE_KEY` contains an invalid key format
-    /// - `NEAR_MAX_NONCE_RETRIES` is set but not a valid positive integer
+    /// - `NEAR_MAX_NONCE_RETRIES` is set but not a valid integer
     pub fn from_env() -> Result<Near, Error> {
         let network = std::env::var("NEAR_NETWORK").ok();
         let chain_id_override = std::env::var("NEAR_CHAIN_ID").ok();
@@ -212,14 +212,9 @@ impl Near {
         if let Ok(retries) = std::env::var("NEAR_MAX_NONCE_RETRIES") {
             let retries: u32 = retries.parse().map_err(|_| {
                 Error::Config(format!(
-                    "NEAR_MAX_NONCE_RETRIES must be a positive integer, got: {retries}"
+                    "NEAR_MAX_NONCE_RETRIES must be a non-negative integer, got: {retries}"
                 ))
             })?;
-            if retries == 0 {
-                return Err(Error::Config(
-                    "NEAR_MAX_NONCE_RETRIES must be at least 1".into(),
-                ));
-            }
             builder = builder.max_nonce_retries(retries);
         }
 
@@ -309,6 +304,26 @@ impl Near {
     /// Get the chain ID this client is connected to.
     pub fn chain_id(&self) -> &ChainId {
         &self.chain_id
+    }
+
+    /// Set the number of nonce retries on `InvalidNonce` errors.
+    ///
+    /// `0` means no retries (send once), `1` means one retry, etc. Defaults to `3`.
+    ///
+    /// Useful when you need to adjust retries after construction,
+    /// for example when using a client obtained from a sandbox.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # fn example(sandbox: Near) {
+    /// let relayer = sandbox.max_nonce_retries(u32::MAX);
+    /// # }
+    /// ```
+    pub fn max_nonce_retries(mut self, retries: u32) -> Near {
+        self.max_nonce_retries = retries;
+        self
     }
 
     /// Create a new client that shares this client's transport but uses a different signer.
@@ -1053,19 +1068,13 @@ impl NearBuilder {
     /// Set the maximum number of transaction send attempts on `InvalidNonce` errors.
     ///
     /// When a transaction fails with `InvalidNonce`, the client automatically
-    /// retries with the corrected nonce from the error response. This controls
-    /// the total number of send attempts (including the initial one) before
-    /// giving up. A value of `1` means no retries (only the initial attempt).
+    /// retries with the corrected nonce from the error response.
     ///
-    /// Defaults to `3`. For high-contention relayer scenarios, consider setting
+    /// `0` means no retries (send once), `1` means one retry, etc. Defaults to `3`.
+    /// For high-contention relayer scenarios, consider setting
     /// this higher (e.g., `u32::MAX`) and wrapping sends in `tokio::timeout`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `attempts` is `0`.
-    pub fn max_nonce_retries(mut self, attempts: u32) -> Self {
-        assert!(attempts > 0, "max_nonce_retries must be at least 1");
-        self.max_nonce_retries = attempts;
+    pub fn max_nonce_retries(mut self, retries: u32) -> Self {
+        self.max_nonce_retries = retries;
         self
     }
 
@@ -1304,6 +1313,19 @@ mod tests {
         assert_eq!(alice.rpc_url(), bob.rpc_url()); // Shared transport
     }
 
+    #[test]
+    fn test_near_max_nonce_retries() {
+        let near = Near::testnet().build();
+        assert_eq!(near.max_nonce_retries, 3);
+
+        let near = near.max_nonce_retries(10);
+        assert_eq!(near.max_nonce_retries, 10);
+
+        // 0 means no retries (send once)
+        let near = near.max_nonce_retries(0);
+        assert_eq!(near.max_nonce_retries, 0);
+    }
+
     // ========================================================================
     // from_env tests
     // ========================================================================
@@ -1447,23 +1469,14 @@ mod tests {
             );
         }
 
-        // Scenario 9: Invalid max_nonce_retries (zero)
+        // Scenario 9: max_nonce_retries zero is valid (means no retries)
         clear_env();
         unsafe {
             std::env::set_var("NEAR_MAX_NONCE_RETRIES", "0");
         }
         {
-            let result = Near::from_env();
-            assert!(
-                result.is_err(),
-                "Expected error for zero NEAR_MAX_NONCE_RETRIES"
-            );
-            let err = result.unwrap_err();
-            assert!(
-                err.to_string().contains("NEAR_MAX_NONCE_RETRIES"),
-                "Error should mention NEAR_MAX_NONCE_RETRIES: {}",
-                err
-            );
+            let near = Near::from_env().expect("0 retries should be valid");
+            assert_eq!(near.max_nonce_retries, 0);
         }
 
         // Scenario 10: NEAR_CHAIN_ID overrides chain_id for custom network

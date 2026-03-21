@@ -650,6 +650,13 @@ impl TransactionBuilder {
         self
     }
 
+    /// Override the number of nonce retries for this transaction on `InvalidNonce`
+    /// errors. `0` means no retries (send once), `1` means one retry, etc.
+    pub fn max_nonce_retries(mut self, retries: u32) -> Self {
+        self.max_nonce_retries = retries;
+        self
+    }
+
     // ========================================================================
     // Execution
     // ========================================================================
@@ -1220,6 +1227,12 @@ impl CallBuilder {
         self.finish().wait_until(status)
     }
 
+    /// Override the number of nonce retries for this transaction on `InvalidNonce`
+    /// errors. `0` means no retries (send once), `1` means one retry, etc.
+    pub fn max_nonce_retries(self, retries: u32) -> TransactionBuilder {
+        self.finish().max_nonce_retries(retries)
+    }
+
     /// Build and sign a delegate action for meta-transactions (NEP-366).
     ///
     /// This finishes the current function call and then creates a delegate action.
@@ -1275,6 +1288,13 @@ impl TransactionSend {
         self.builder.wait_until = status;
         self
     }
+
+    /// Override the number of nonce retries for this transaction on `InvalidNonce`
+    /// errors. `0` means no retries (send once), `1` means one retry, etc.
+    pub fn max_nonce_retries(mut self, retries: u32) -> Self {
+        self.builder.max_nonce_retries = retries;
+        self
+    }
 }
 
 impl IntoFuture for TransactionSend {
@@ -1312,7 +1332,7 @@ impl IntoFuture for TransactionSend {
             let mut last_error: Option<Error> = None;
             let mut last_ak_nonce: Option<u64> = None;
 
-            for attempt in 0..max_nonce_retries {
+            for attempt in 0..max_nonce_retries + 1 {
                 // Get a signing key atomically for this attempt
                 let key = signer.key();
                 let public_key = key.public_key().clone();
@@ -1398,7 +1418,7 @@ impl IntoFuture for TransactionSend {
                     Err(RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {
                         tx_nonce,
                         ak_nonce,
-                    })) if attempt < max_nonce_retries - 1 => {
+                    })) if attempt < max_nonce_retries => {
                         tracing::warn!(
                             tx_nonce = tx_nonce,
                             ak_nonce = ak_nonce,
