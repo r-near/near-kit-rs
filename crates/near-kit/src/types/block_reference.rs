@@ -138,7 +138,7 @@ impl Finality {
 }
 
 /// Transaction execution status for send_tx wait_until parameter.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {
     /// Don't wait, return immediately after RPC accepts.
@@ -167,6 +167,23 @@ impl TxExecutionStatus {
             Self::Executed => "EXECUTED",
             Self::Final => "FINAL",
         }
+    }
+
+    /// Returns `true` if receipt/execution outcomes are available at this status.
+    ///
+    /// The "executed" statuses are `ExecutedOptimistic`, `Executed`, and `Final`.
+    /// Note that `IncludedFinal` means the transaction is in a final block but
+    /// execution outcomes may not yet be available.
+    pub fn executed(&self) -> bool {
+        matches!(
+            self,
+            Self::ExecutedOptimistic | Self::Executed | Self::Final
+        )
+    }
+
+    /// Returns `true` if the transaction has reached full finality.
+    pub fn is_final(&self) -> bool {
+        matches!(self, Self::Final)
     }
 }
 
@@ -364,5 +381,25 @@ mod tests {
             let parsed: SyncCheckpoint = serde_json::from_str(&json).unwrap();
             assert_eq!(cp, parsed);
         }
+    }
+
+    #[test]
+    fn test_tx_execution_status_executed() {
+        assert!(!TxExecutionStatus::None.executed());
+        assert!(!TxExecutionStatus::Included.executed());
+        assert!(TxExecutionStatus::ExecutedOptimistic.executed());
+        assert!(!TxExecutionStatus::IncludedFinal.executed());
+        assert!(TxExecutionStatus::Executed.executed());
+        assert!(TxExecutionStatus::Final.executed());
+    }
+
+    #[test]
+    fn test_tx_execution_status_is_final() {
+        assert!(!TxExecutionStatus::None.is_final());
+        assert!(!TxExecutionStatus::Included.is_final());
+        assert!(!TxExecutionStatus::ExecutedOptimistic.is_final());
+        assert!(!TxExecutionStatus::IncludedFinal.is_final());
+        assert!(!TxExecutionStatus::Executed.is_final());
+        assert!(TxExecutionStatus::Final.is_final());
     }
 }
