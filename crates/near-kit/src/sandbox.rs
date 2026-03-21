@@ -4,6 +4,9 @@
 //! It handles sandbox lifecycle management, including shared singleton instances
 //! for test performance and fresh instances for isolated tests.
 //!
+//! The sandbox runs as a Docker container via testcontainers, using the
+//! `nearprotocol/sandbox` image from Docker Hub.
+//!
 //! # Design Principles
 //!
 //! 1. **Consistent with production**: Test code looks like production code.
@@ -25,7 +28,7 @@
 //! async fn test_transfer() {
 //!     // Same pattern as production - just different network
 //!     let near = Near::sandbox(SandboxConfig::shared().await);
-//!     
+//!
 //!     // Create accounts the normal way
 //!     let alice_key = SecretKey::generate_ed25519();
 //!     near.transaction("alice.sandbox")
@@ -39,7 +42,7 @@
 //!
 //! #[tokio::test]
 //! async fn test_isolated() {
-//!     // Fresh sandbox - completely isolated, stopped on drop
+//!     // Fresh sandbox - completely isolated, stopped when container drops
 //!     let sandbox = SandboxConfig::fresh().await;
 //!     let near = Near::sandbox(&sandbox);
 //! }
@@ -53,96 +56,253 @@
 //!         .await;
 //!     let near = Near::sandbox(&sandbox);
 //! }
+//!
+//! #[tokio::test]
+//! async fn test_custom_root() {
+//!     // Custom root account name
+//!     let sandbox = SandboxConfig::builder()
+//!         .root_account("sb")
+//!         .fresh()
+//!         .await;
+//!     let near = Near::sandbox(&sandbox);
+//!     // Root account is now "sb" instead of "sandbox"
+//! }
 //! ```
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::borrow::Cow;
+use std::sync::Arc;
 
+use testcontainers::{
+    ContainerAsync, CopyToContainer, Image, ImageExt,
+    core::{ContainerPort, WaitFor},
+    runners::AsyncRunner,
+};
 use tokio::sync::OnceCell;
-use tracing::{debug, info};
+use tracing::info;
 
 use crate::client::Near;
 
 // ============================================================================
-// Logging and metrics
+// NearSandbox testcontainers Image (inlined from near-sandbox-testcontainer)
 // ============================================================================
 
-/// Counter for sandbox instances created (for debugging/testing)
-static SANDBOX_INSTANCE_COUNT: AtomicUsize = AtomicUsize::new(0);
+const DEFAULT_VERSION: &str = "2.10.7";
 
-/// Get the total number of sandbox instances created during this process.
-///
-/// Useful for verifying that shared sandboxes are actually being shared.
-pub fn sandbox_instance_count() -> usize {
-    SANDBOX_INSTANCE_COUNT.load(Ordering::Relaxed)
+/// The RPC port exposed by the NEAR sandbox container.
+const RPC_PORT: ContainerPort = ContainerPort::Tcp(3030);
+
+/// A [`testcontainers::Image`] for the NEAR sandbox Docker image
+/// (`nearprotocol/sandbox`).
+#[derive(Debug, Clone)]
+struct NearSandbox {
+    tag: String,
+    env_vars: Vec<(String, String)>,
+    copy_to_sources: Vec<CopyToContainer>,
+    /// Account ID for the root/validator account.
+    account_id: String,
+    /// Seed for deterministic key generation (passed to `--test-seed`).
+    test_seed: String,
+    /// Chain ID for the sandbox (passed to `--chain-id`).
+    chain_id: Option<String>,
+}
+
+impl NearSandbox {
+    /// Creates a new [`NearSandbox`] image with the given version tag.
+    fn new(version: &str) -> Self {
+        Self {
+            tag: version.to_owned(),
+            env_vars: vec![
+                // Enable logging so we can detect the ready condition
+                ("NEAR_ENABLE_SANDBOX_LOG".to_owned(), "1".to_owned()),
+            ],
+            copy_to_sources: Vec::new(),
+            account_id: SANDBOX_ROOT_ACCOUNT.to_owned(),
+            test_seed: "sandbox".to_owned(),
+            chain_id: None,
+        }
+    }
+
+    fn with_account_id(mut self, account_id: impl Into<String>) -> Self {
+        self.account_id = account_id.into();
+        self
+    }
+
+    fn with_chain_id(mut self, chain_id: impl Into<String>) -> Self {
+        self.chain_id = Some(chain_id.into());
+        self
+    }
+}
+
+impl Default for NearSandbox {
+    fn default() -> Self {
+        Self::new(DEFAULT_VERSION)
+    }
+}
+
+impl Image for NearSandbox {
+    fn name(&self) -> &str {
+        "nearprotocol/sandbox"
+    }
+
+    fn tag(&self) -> &str {
+        &self.tag
+    }
+
+    fn ready_conditions(&self) -> Vec<WaitFor> {
+        vec![WaitFor::message_on_stderr("Starting http server at")]
+    }
+
+    fn entrypoint(&self) -> Option<&str> {
+        Some("/bin/sh")
+    }
+
+    fn cmd(&self) -> impl IntoIterator<Item = impl Into<Cow<'_, str>>> {
+        let chain_id_flag = match &self.chain_id {
+            Some(id) => format!(" --chain-id {id}"),
+            None => String::new(),
+        };
+        let script = format!(
+            concat!(
+                "export RUST_LOG=\"neard::cli=off,info\" && ",
+                "near-sandbox --home /data init --fast ",
+                "--test-seed {test_seed} --account-id {account_id}{chain_id_flag} && ",
+                "exec near-sandbox --home /data run ",
+                "--rpc-addr 0.0.0.0:3030 --network-addr 0.0.0.0:3031"
+            ),
+            test_seed = self.test_seed,
+            account_id = self.account_id,
+            chain_id_flag = chain_id_flag,
+        );
+        vec!["-c".to_string(), script]
+    }
+
+    fn env_vars(
+        &self,
+    ) -> impl IntoIterator<Item = (impl Into<Cow<'_, str>>, impl Into<Cow<'_, str>>)> {
+        self.env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str()))
+    }
+
+    fn copy_to_sources(&self) -> impl IntoIterator<Item = &CopyToContainer> {
+        &self.copy_to_sources
+    }
+
+    fn expose_ports(&self) -> &[ContainerPort] {
+        &[RPC_PORT]
+    }
 }
 
 // ============================================================================
 // Re-exports for convenience
 // ============================================================================
 
-/// Root account ID for the sandbox ("sandbox").
-pub const ROOT_ACCOUNT: &str = "sandbox";
-
-/// Root account secret key for the sandbox.
-pub const ROOT_SECRET_KEY: &str = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
-
-// Re-export SandboxNetwork trait
-pub use crate::client::SandboxNetwork;
+// Re-export sandbox constants and trait from client module
+pub use crate::client::{SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_SECRET_KEY, SandboxNetwork};
 
 // ============================================================================
 // Global shared sandbox
 // ============================================================================
 
 /// Global shared sandbox instance.
-static SHARED_SANDBOX: OnceCell<SharedSandbox> = OnceCell::const_new();
+static SHARED_SANDBOX: OnceCell<Sandbox> = OnceCell::const_new();
 
-// ============================================================================
-// SharedSandbox
-// ============================================================================
-
-/// A shared sandbox instance that persists across tests.
+/// Stop the shared sandbox container on process exit.
 ///
-/// This wrapper holds a reference to a `near_sandbox::Sandbox` and implements
-/// [`SandboxNetwork`]. It is obtained via [`SandboxConfig::shared()`].
+/// Tokio's thread-local storage is already destroyed on the main thread by
+/// the time `atexit` fires, so `Runtime::block_on` panics there. We work
+/// around this by spawning a new thread (which gets fresh TLS) and calling
+/// `stop_with_timeout` via a temporary tokio runtime.
 ///
-/// The shared sandbox persists for the entire test run. All tests in a binary
-/// share the same sandbox instance when using `cargo test`.
-///
-/// # Note on Cleanup
-///
-/// The sandbox process may outlive the test process since Rust doesn't run
-/// static destructors. This is a known limitation that should be fixed in
-/// `near-sandbox-rs`. For now, you may see orphaned `near-sandbox` processes
-/// after test runs.
-pub struct SharedSandbox {
-    inner: near_sandbox::Sandbox,
+/// The container is started with `auto_remove = true`, so Docker removes it
+/// automatically after it stops.
+extern "C" fn cleanup_shared_sandbox() {
+    let handle = std::thread::spawn(|| {
+        if let Some(sandbox) = SHARED_SANDBOX.get() {
+            if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                let _ = rt.block_on(sandbox.container.stop_with_timeout(Some(0)));
+            }
+        }
+    });
+    let _ = handle.join();
 }
 
-impl SharedSandbox {
-    async fn init() -> Self {
-        Self::init_with_version(near_sandbox::DEFAULT_NEAR_SANDBOX_VERSION).await
+/// Register atexit handler for shared sandbox cleanup.
+fn register_shared_cleanup() {
+    unsafe {
+        libc::atexit(cleanup_shared_sandbox);
     }
+}
 
-    async fn init_with_version(version: &str) -> Self {
-        let instance_num = SANDBOX_INSTANCE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+// ============================================================================
+// Sandbox
+// ============================================================================
+
+/// A sandbox instance backed by a Docker container via testcontainers.
+///
+/// Cloning a `Sandbox` shares the underlying container — the container is stopped
+/// only when the last `Arc` reference is dropped.
+///
+/// Obtain one via [`SandboxConfig::shared()`] (global singleton) or
+/// [`SandboxConfig::fresh()`] (new isolated instance).
+///
+/// # Cleanup
+///
+/// All containers are started with `auto_remove = true` so Docker removes them
+/// after they stop. For fresh sandboxes, testcontainers' `Drop` handles stopping.
+/// For the shared sandbox, an `atexit` handler stops the container via the
+/// testcontainers API on a spawned thread (to avoid tokio TLS destruction).
+#[derive(Clone)]
+pub struct Sandbox {
+    #[allow(dead_code)]
+    container: Arc<ContainerAsync<NearSandbox>>,
+    rpc_url: String,
+    root_account: String,
+    chain_id: Option<String>,
+}
+
+impl Sandbox {
+    async fn start(version: &str, root_account: String, chain_id: Option<String>) -> Self {
         info!(
-            instance = instance_num,
             version = version,
-            mode = "shared",
-            "Starting sandbox"
+            root_account = %root_account,
+            chain_id = chain_id.as_deref().unwrap_or("(default)"),
+            "Starting sandbox container"
         );
 
-        let inner = near_sandbox::Sandbox::start_sandbox_with_version(version)
+        let mut image = NearSandbox::new(version).with_account_id(&root_account);
+        if let Some(ref id) = chain_id {
+            image = image.with_chain_id(id);
+        }
+        let container = image
+            .with_host_config_modifier(|hc| {
+                hc.auto_remove = Some(true);
+            })
+            .start()
             .await
-            .expect("Failed to start shared sandbox");
+            .expect("Failed to start sandbox container");
 
-        info!(
-            instance = instance_num,
-            rpc_url = %inner.rpc_addr,
-            "Shared sandbox ready"
-        );
+        let host = container
+            .get_host()
+            .await
+            .expect("Failed to get sandbox host");
 
-        Self { inner }
+        let host_port = container
+            .get_host_port_ipv4(RPC_PORT)
+            .await
+            .expect("Failed to get mapped port for sandbox RPC");
+
+        let rpc_url = format!("http://{}:{}", host, host_port);
+
+        info!(rpc_url = %rpc_url, "Sandbox container ready");
+
+        Self {
+            container: Arc::new(container),
+            rpc_url,
+            root_account,
+            chain_id,
+        }
     }
 
     /// Get a configured `Near` client for this sandbox.
@@ -215,157 +375,21 @@ impl SharedSandbox {
     }
 }
 
-impl SandboxNetwork for SharedSandbox {
+impl SandboxNetwork for Sandbox {
     fn rpc_url(&self) -> &str {
-        &self.inner.rpc_addr
+        &self.rpc_url
     }
 
     fn root_account_id(&self) -> &str {
-        ROOT_ACCOUNT
+        &self.root_account
     }
 
     fn root_secret_key(&self) -> &str {
-        ROOT_SECRET_KEY
-    }
-}
-
-// ============================================================================
-// OwnedSandbox
-// ============================================================================
-
-/// An owned sandbox instance that stops when dropped.
-///
-/// This wrapper holds a `near_sandbox::Sandbox` and implements [`SandboxNetwork`].
-/// When dropped, it will stop the sandbox process and clean up resources.
-///
-/// Use [`SandboxConfig::fresh()`] to create a fresh sandbox for tests that need
-/// completely isolated state.
-pub struct OwnedSandbox {
-    inner: Option<near_sandbox::Sandbox>,
-}
-
-impl OwnedSandbox {
-    async fn spawn() -> Self {
-        Self::spawn_with_version(near_sandbox::DEFAULT_NEAR_SANDBOX_VERSION).await
+        SANDBOX_ROOT_SECRET_KEY
     }
 
-    async fn spawn_with_version(version: &str) -> Self {
-        let instance_num = SANDBOX_INSTANCE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-        info!(
-            instance = instance_num,
-            version = version,
-            mode = "fresh",
-            "Starting sandbox"
-        );
-
-        let inner = near_sandbox::Sandbox::start_sandbox_with_version(version)
-            .await
-            .expect("Failed to start sandbox");
-
-        info!(
-            instance = instance_num,
-            rpc_url = %inner.rpc_addr,
-            "Fresh sandbox ready"
-        );
-
-        Self { inner: Some(inner) }
-    }
-
-    /// Get a configured `Near` client for this sandbox.
-    ///
-    /// This is a convenience method equivalent to `Near::sandbox(self)`.
-    pub fn client(&self) -> Near {
-        Near::sandbox(self)
-    }
-
-    /// Set an account's balance in this sandbox.
-    ///
-    /// This patches the account's balance directly via the sandbox RPC,
-    /// useful for testing scenarios that require specific balances
-    /// (e.g., staking tests that need 1M+ NEAR).
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use near_kit::*;
-    /// use near_kit::sandbox::SandboxConfig;
-    ///
-    /// let sandbox = SandboxConfig::fresh().await;
-    ///
-    /// // Set account balance to 1M NEAR for staking test
-    /// sandbox.set_balance("validator.sandbox", NearToken::from_near(1_000_000)).await?;
-    /// ```
-    pub async fn set_balance(
-        &self,
-        account_id: impl Into<crate::AccountId>,
-        balance: crate::NearToken,
-    ) -> Result<(), crate::Error> {
-        let near = self.client();
-        let account_id: crate::AccountId = account_id.into();
-
-        // Fetch raw account data from RPC - this includes all fields the sandbox expects
-        let mut account_response: serde_json::Value = near
-            .rpc()
-            .call(
-                "query",
-                serde_json::json!({
-                    "finality": "optimistic",
-                    "request_type": "view_account",
-                    "account_id": account_id.to_string()
-                }),
-            )
-            .await
-            .map_err(|e| crate::Error::Rpc(Box::new(e)))?;
-
-        // Modify the amount field in the response
-        if let Some(obj) = account_response.as_object_mut() {
-            obj.insert(
-                "amount".to_string(),
-                serde_json::Value::String(balance.as_yoctonear().to_string()),
-            );
-        }
-
-        let records = serde_json::json!([
-            {
-                "Account": {
-                    "account_id": account_id.to_string(),
-                    "account": account_response
-                }
-            }
-        ]);
-
-        near.rpc()
-            .sandbox_patch_state(records)
-            .await
-            .map_err(|e| crate::Error::Rpc(Box::new(e)))
-    }
-}
-
-impl SandboxNetwork for OwnedSandbox {
-    fn rpc_url(&self) -> &str {
-        &self
-            .inner
-            .as_ref()
-            .expect("sandbox already stopped")
-            .rpc_addr
-    }
-
-    fn root_account_id(&self) -> &str {
-        ROOT_ACCOUNT
-    }
-
-    fn root_secret_key(&self) -> &str {
-        ROOT_SECRET_KEY
-    }
-}
-
-impl Drop for OwnedSandbox {
-    fn drop(&mut self) {
-        if let Some(sandbox) = self.inner.take() {
-            debug!(rpc_url = %sandbox.rpc_addr, "Stopping fresh sandbox");
-            // The near_sandbox::Sandbox will kill the child process when dropped
-            drop(sandbox);
-        }
+    fn chain_id(&self) -> Option<&str> {
+        self.chain_id.as_deref()
     }
 }
 
@@ -377,9 +401,9 @@ impl Drop for OwnedSandbox {
 ///
 /// Provides two main ways to get a sandbox:
 /// - [`SandboxConfig::shared()`] - Returns a reference to a global singleton sandbox
-/// - [`SandboxConfig::fresh()`] - Spawns a new sandbox that is stopped on drop
+/// - [`SandboxConfig::fresh()`] - Spawns a new sandbox that is stopped when the last clone drops
 ///
-/// For custom configuration (e.g., specific version), use [`SandboxConfig::builder()`].
+/// For custom configuration (e.g., specific version or root account), use [`SandboxConfig::builder()`].
 ///
 /// # Example
 ///
@@ -428,14 +452,22 @@ impl SandboxConfig {
     /// // or
     /// let near = SandboxConfig::shared().await.client();
     /// ```
-    pub async fn shared() -> &'static SharedSandbox {
-        SHARED_SANDBOX.get_or_init(SharedSandbox::init).await
+    pub async fn shared() -> &'static Sandbox {
+        SHARED_SANDBOX
+            .get_or_init(|| async {
+                let sandbox =
+                    Sandbox::start(DEFAULT_VERSION, SANDBOX_ROOT_ACCOUNT.to_string(), None).await;
+                register_shared_cleanup();
+                sandbox
+            })
+            .await
     }
 
     /// Spawn a fresh sandbox instance.
     ///
-    /// Creates a new sandbox with clean state. The sandbox will be
-    /// stopped and cleaned up when the returned [`OwnedSandbox`] is dropped.
+    /// Creates a new sandbox with clean state. The sandbox container will be
+    /// stopped and cleaned up when the last clone of the returned [`Sandbox`]
+    /// is dropped.
     ///
     /// Use this for tests that need guaranteed isolation from other tests.
     ///
@@ -446,22 +478,23 @@ impl SandboxConfig {
     /// let near = Near::sandbox(&sandbox);
     /// // or
     /// let near = sandbox.client();
-    /// // sandbox is stopped when it goes out of scope
+    /// // sandbox is stopped when last reference goes out of scope
     /// ```
-    pub async fn fresh() -> OwnedSandbox {
-        OwnedSandbox::spawn().await
+    pub async fn fresh() -> Sandbox {
+        Sandbox::start(DEFAULT_VERSION, SANDBOX_ROOT_ACCOUNT.to_string(), None).await
     }
 
     /// Create a builder for custom sandbox configuration.
     ///
     /// Use this when you need to specify a particular sandbox version
-    /// or other advanced options.
+    /// or custom root account name.
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let sandbox = SandboxConfig::builder()
     ///     .version("2.10.5")
+    ///     .root_account("sb")
     ///     .fresh()
     ///     .await;
     /// ```
@@ -479,16 +512,22 @@ impl SandboxConfig {
 /// Created via [`SandboxConfig::builder()`].
 pub struct SandboxBuilder {
     version: Option<String>,
+    root_account: Option<String>,
+    chain_id: Option<String>,
 }
 
 impl SandboxBuilder {
     fn new() -> Self {
-        Self { version: None }
+        Self {
+            version: None,
+            root_account: None,
+            chain_id: None,
+        }
     }
 
     /// Set the sandbox version to use.
     ///
-    /// If not specified, uses the default version from `near-sandbox`.
+    /// If not specified, uses the default version (`2.10.7`).
     ///
     /// # Example
     ///
@@ -503,31 +542,81 @@ impl SandboxBuilder {
         self
     }
 
+    /// Set the root account name for this sandbox.
+    ///
+    /// If not specified, defaults to `"sandbox"`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let sandbox = SandboxConfig::builder()
+    ///     .root_account("sb")
+    ///     .fresh()
+    ///     .await;
+    /// // Sub-accounts will be "alice.sb" instead of "alice.sandbox"
+    /// ```
+    pub fn root_account(mut self, name: impl crate::TryIntoAccountId) -> Self {
+        let account_id = name
+            .try_into_account_id()
+            .expect("invalid sandbox root account name");
+        self.root_account = Some(account_id.to_string());
+        self
+    }
+
+    /// Set the chain ID for this sandbox.
+    ///
+    /// Useful for testing chain-ID-dependent logic (e.g., signed wallet
+    /// requests that compare against the chain ID).
+    ///
+    /// If not specified, the sandbox uses its default chain ID.
+    ///
+    /// **Note:** `"mainnet"` and `"testnet"` are not supported — the
+    /// `near-sandbox` binary refuses to run with these chain IDs.
+    /// Use custom chain IDs instead (e.g., `"pinet"` for Private Shard).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let sandbox = SandboxConfig::builder()
+    ///     .chain_id("pinet")
+    ///     .fresh()
+    ///     .await;
+    /// ```
+    pub fn chain_id(mut self, chain_id: impl Into<String>) -> Self {
+        self.chain_id = Some(chain_id.into());
+        self
+    }
+
     /// Spawn a fresh sandbox with the configured options.
     ///
-    /// The sandbox will be stopped when the returned [`OwnedSandbox`] is dropped.
-    pub async fn fresh(self) -> OwnedSandbox {
-        let version = self
-            .version
-            .as_deref()
-            .unwrap_or(near_sandbox::DEFAULT_NEAR_SANDBOX_VERSION);
-        OwnedSandbox::spawn_with_version(version).await
+    /// The sandbox container will be stopped when the last clone of
+    /// the returned [`Sandbox`] is dropped.
+    pub async fn fresh(self) -> Sandbox {
+        let version = self.version.as_deref().unwrap_or(DEFAULT_VERSION);
+        let root_account = self
+            .root_account
+            .unwrap_or_else(|| SANDBOX_ROOT_ACCOUNT.to_string());
+        Sandbox::start(version, root_account, self.chain_id).await
     }
 
     /// Get or create the shared sandbox with the configured options.
     ///
-    /// **Note:** The version is only used if the shared sandbox hasn't been
-    /// initialized yet. If it's already running, the existing instance is
-    /// returned regardless of the version specified here.
-    pub async fn shared(self) -> &'static SharedSandbox {
-        // If a version is specified and sandbox isn't initialized yet,
-        // initialize with that version
-        if let Some(version) = self.version {
-            SHARED_SANDBOX
-                .get_or_init(|| SharedSandbox::init_with_version(&version))
-                .await
-        } else {
-            SHARED_SANDBOX.get_or_init(SharedSandbox::init).await
-        }
+    /// **Note:** The version, root account, and chain ID are only used if the
+    /// shared sandbox hasn't been initialized yet. If it's already running, the
+    /// existing instance is returned regardless of the options specified here.
+    pub async fn shared(self) -> &'static Sandbox {
+        let version = self.version;
+        let root_account = self.root_account;
+        let chain_id = self.chain_id;
+
+        SHARED_SANDBOX
+            .get_or_init(|| async {
+                let v = version.as_deref().unwrap_or(DEFAULT_VERSION);
+                let r = root_account.unwrap_or_else(|| SANDBOX_ROOT_ACCOUNT.to_string());
+                let sandbox = Sandbox::start(v, r, chain_id).await;
+                register_shared_cleanup();
+                sandbox
+            })
+            .await
     }
 }

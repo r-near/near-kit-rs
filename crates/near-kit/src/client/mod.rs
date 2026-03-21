@@ -45,7 +45,7 @@ mod transaction;
 #[cfg(feature = "keyring")]
 mod keyring_signer;
 
-pub use near::{Near, NearBuilder, SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_PRIVATE_KEY, SandboxNetwork};
+pub use near::{Near, NearBuilder, SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_SECRET_KEY, SandboxNetwork};
 pub use query::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall, ViewCallBorsh,
 };

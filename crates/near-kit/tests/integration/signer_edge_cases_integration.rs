@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::sandbox::{ROOT_ACCOUNT, SandboxConfig};
+use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
 
 /// Counter for generating unique subaccount names
@@ -14,7 +14,9 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// Generate a unique subaccount ID for test isolation
 fn unique_account() -> AccountId {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("signer{}.{}", n, ROOT_ACCOUNT).parse().unwrap()
+    format!("signer{}.{}", n, SANDBOX_ROOT_ACCOUNT)
+        .parse()
+        .unwrap()
 }
 
 // =============================================================================

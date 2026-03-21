@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::sandbox::{ROOT_ACCOUNT, SandboxConfig};
+use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
 
 /// Counter for generating unique subaccount names
@@ -14,7 +14,9 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// Generate a unique subaccount ID for test isolation
 fn unique_account() -> AccountId {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("basic{}.{}", n, ROOT_ACCOUNT).parse().unwrap()
+    format!("basic{}.{}", n, SANDBOX_ROOT_ACCOUNT)
+        .parse()
+        .unwrap()
 }
 
 /// Test that we can query account balance.
@@ -24,11 +26,11 @@ async fn test_balance_query() {
     let near = sandbox.client();
 
     // Query the root account
-    let balance = near.balance(ROOT_ACCOUNT).await.unwrap();
+    let balance = near.balance(SANDBOX_ROOT_ACCOUNT).await.unwrap();
 
     // The sandbox root account should have a large balance
     assert!(balance.total.as_yoctonear() > 0);
-    println!("{} balance: {}", ROOT_ACCOUNT, balance);
+    println!("{} balance: {}", SANDBOX_ROOT_ACCOUNT, balance);
 }
 
 /// Test that we can query account info.
@@ -37,10 +39,13 @@ async fn test_account_query() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
-    let account = near.account(ROOT_ACCOUNT).await.unwrap();
+    let account = near.account(SANDBOX_ROOT_ACCOUNT).await.unwrap();
 
     assert!(account.storage_usage > 0);
-    println!("{} storage: {} bytes", ROOT_ACCOUNT, account.storage_usage);
+    println!(
+        "{} storage: {} bytes",
+        SANDBOX_ROOT_ACCOUNT, account.storage_usage
+    );
 }
 
 /// Test account existence check.
@@ -50,7 +55,7 @@ async fn test_account_exists() {
     let near = sandbox.client();
 
     // Root account should exist
-    assert!(near.account_exists(ROOT_ACCOUNT).await.unwrap());
+    assert!(near.account_exists(SANDBOX_ROOT_ACCOUNT).await.unwrap());
 
     // This random account should not exist
     assert!(
@@ -67,11 +72,15 @@ async fn test_access_keys_query() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
-    let keys = near.access_keys(ROOT_ACCOUNT).await.unwrap();
+    let keys = near.access_keys(SANDBOX_ROOT_ACCOUNT).await.unwrap();
 
     // The root account should have at least one access key
     assert!(!keys.keys.is_empty());
-    println!("{} has {} access keys", ROOT_ACCOUNT, keys.keys.len());
+    println!(
+        "{} has {} access keys",
+        SANDBOX_ROOT_ACCOUNT,
+        keys.keys.len()
+    );
 }
 
 /// Test balance query at specific finality.
@@ -82,7 +91,7 @@ async fn test_balance_with_finality() {
 
     // Query with optimistic finality
     let balance = near
-        .balance(ROOT_ACCOUNT)
+        .balance(SANDBOX_ROOT_ACCOUNT)
         .finality(Finality::Optimistic)
         .await
         .unwrap();

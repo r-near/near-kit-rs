@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::sandbox::{ROOT_ACCOUNT, SandboxConfig};
+use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
 
 /// Counter for generating unique subaccount names
@@ -14,7 +14,9 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// Generate a unique subaccount ID for test isolation
 fn unique_account() -> AccountId {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("txfail{}.{}", n, ROOT_ACCOUNT).parse().unwrap()
+    format!("txfail{}.{}", n, SANDBOX_ROOT_ACCOUNT)
+        .parse()
+        .unwrap()
 }
 
 // =============================================================================
@@ -314,7 +316,7 @@ async fn test_delete_nonexistent_account() {
 
     let outcome = near
         .transaction(&nonexistent)
-        .delete_account(ROOT_ACCOUNT)
+        .delete_account(SANDBOX_ROOT_ACCOUNT)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -485,7 +487,7 @@ async fn test_transfer_max_amount() {
     // Transfer max u128 (way more than balance) — rejected at RPC validation
     // level (CostOverflow is caught before on-chain execution)
     let result = account_near
-        .transfer(ROOT_ACCOUNT, NearToken::from_yoctonear(u128::MAX))
+        .transfer(SANDBOX_ROOT_ACCOUNT, NearToken::from_yoctonear(u128::MAX))
         .await;
 
     assert!(result.is_err(), "Should fail with max amount");

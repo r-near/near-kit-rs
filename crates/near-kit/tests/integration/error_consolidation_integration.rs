@@ -11,14 +11,14 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::sandbox::{ROOT_ACCOUNT, SandboxConfig};
+use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn unique_account() -> AccountId {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("errcon{n}.{ROOT_ACCOUNT}").parse().unwrap()
+    format!("errcon{n}.{SANDBOX_ROOT_ACCOUNT}").parse().unwrap()
 }
 
 // =============================================================================

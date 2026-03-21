@@ -6,7 +6,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::sandbox::{ROOT_ACCOUNT, SandboxConfig};
+use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
 use near_kit::{ActionView, ReceiptContent};
 
@@ -16,7 +16,9 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// Generate a unique subaccount ID for test isolation
 fn unique_account() -> AccountId {
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("debug{}.{}", n, ROOT_ACCOUNT).parse().unwrap()
+    format!("debug{}.{}", n, SANDBOX_ROOT_ACCOUNT)
+        .parse()
+        .unwrap()
 }
 
 /// A minimal valid WASM module for testing
@@ -146,7 +148,7 @@ async fn debug_transaction_receipts() {
     let near = sandbox.client();
     let rpc_url = sandbox.rpc_url();
 
-    let root_account: AccountId = ROOT_ACCOUNT.parse().unwrap();
+    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
 
     // Create an account with multiple actions to generate receipts
     let receiver_key = SecretKey::generate_ed25519();
@@ -311,7 +313,7 @@ async fn debug_access_key_details() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
-    let root_account: AccountId = ROOT_ACCOUNT.parse().unwrap();
+    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
 
     // Create account with function call key
     let account_key = SecretKey::generate_ed25519();
@@ -400,7 +402,7 @@ async fn test_error_contract_not_deployed() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
-    let account_id: AccountId = ROOT_ACCOUNT.parse().unwrap();
+    let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
 
     // Try to call a function on an account without a contract
     let result = near
