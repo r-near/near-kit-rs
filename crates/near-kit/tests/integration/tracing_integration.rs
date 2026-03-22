@@ -188,8 +188,8 @@ async fn test_sign_transaction_span_hierarchy() {
         "expected 'get_nonce' as child of 'sign_transaction', got: {children:?}"
     );
     assert!(
-        children.contains(&"block"),
-        "expected 'block' as child of 'sign_transaction', got: {children:?}"
+        children.contains(&"view_access_key"),
+        "expected 'view_access_key' as child of 'sign_transaction', got: {children:?}"
     );
 }
 

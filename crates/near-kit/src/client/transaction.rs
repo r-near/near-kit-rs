@@ -692,29 +692,24 @@ impl TransactionBuilder {
             let public_key = key.public_key().clone();
             let public_key_str = public_key.to_string();
 
-            // Get nonce for the key
-            let rpc = self.rpc.clone();
-            let network = rpc.url().to_string();
-            let signer_id_clone = signer_id.clone();
-            let public_key_clone = public_key.clone();
+            // Single view_access_key call provides both nonce and block_hash.
+            // Uses Finality::Final for block hash stability.
+            let access_key = self
+                .rpc
+                .view_access_key(
+                    &signer_id,
+                    &public_key,
+                    BlockReference::Finality(Finality::Final),
+                )
+                .await?;
+            let block_hash = access_key.block_hash;
+            let chain_nonce = access_key.nonce;
 
+            let network = self.rpc.url().to_string();
             let nonce = nonce_manager()
                 .get_next_nonce(&network, signer_id.as_ref(), &public_key_str, || async {
-                    let access_key = rpc
-                        .view_access_key(
-                            &signer_id_clone,
-                            &public_key_clone,
-                            BlockReference::Finality(Finality::Optimistic),
-                        )
-                        .await?;
-                    Ok(access_key.nonce)
+                    Ok(chain_nonce)
                 })
-                .await?;
-
-            // Get recent block hash
-            let block = self
-                .rpc
-                .block(BlockReference::Finality(Finality::Final))
                 .await?;
 
             // Build transaction
@@ -723,7 +718,7 @@ impl TransactionBuilder {
                 public_key,
                 nonce,
                 self.receiver_id,
-                block.header.hash,
+                block_hash,
                 self.actions,
             );
 
