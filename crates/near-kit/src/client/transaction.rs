@@ -484,7 +484,12 @@ impl TransactionBuilder {
     /// Publish a contract to the global registry.
     ///
     /// Global contracts are deployed once and can be referenced by multiple accounts,
-    /// saving storage costs. Two modes are available:
+    /// saving storage costs. Two modes are available via [`PublishMode`]:
+    ///
+    /// - [`PublishMode::Updatable`]: the contract is identified by the publisher's
+    ///   account and can be updated by publishing new code from the same account.
+    /// - [`PublishMode::Immutable`]: the contract is identified by its code hash and
+    ///   cannot be updated once published.
     ///
     /// # Example
     ///
@@ -514,7 +519,8 @@ impl TransactionBuilder {
 
     /// Deploy a contract from the global registry.
     ///
-    /// Accepts a [`GlobalContractIdentifier`] to reference a previously published contract.
+    /// Accepts any [`GlobalContractRef`] (such as a [`CryptoHash`] or an account ID
+    /// string/[`AccountId`]) to reference a previously published contract.
     ///
     /// # Example
     ///
