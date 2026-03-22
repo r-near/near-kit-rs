@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.6.0...near-kit-v0.7.0) - 2026-03-22
+
+### Added
+
+- InMemorySigner implicit account constructors + from_secret_key ergonomics ([#140](https://github.com/r-near/near-kit-rs/pull/140))
+- add tracing spans and #[instrument] throughout ([#128](https://github.com/r-near/near-kit-rs/pull/128))
+- [**breaking**] rework deploy/publish convenience API ([#130](https://github.com/r-near/near-kit-rs/pull/130))
+- enable testcontainers watchdog for container cleanup on Ctrl+C ([#134](https://github.com/r-near/near-kit-rs/pull/134))
+- allow overriding max_nonce_retries on Near and per-transaction ([#129](https://github.com/r-near/near-kit-rs/pull/129))
+- add semantic helpers to TxExecutionStatus ([#115](https://github.com/r-near/near-kit-rs/pull/115)) ([#125](https://github.com/r-near/near-kit-rs/pull/125))
+- [**breaking**] switch sandbox backend from native binary to Docker (testcontainers) ([#111](https://github.com/r-near/near-kit-rs/pull/111))
+- derive Ord and PartialOrd for TxExecutionStatus ([#113](https://github.com/r-near/near-kit-rs/pull/113))
+- [**breaking**] consolidate transaction error handling ([#103](https://github.com/r-near/near-kit-rs/pull/103))
+- [**breaking**] composable typed contract calls via FunctionCall constructors ([#100](https://github.com/r-near/near-kit-rs/pull/100))
+- [**breaking**] replace Network enum with ChainId newtype ([#101](https://github.com/r-near/near-kit-rs/pull/101))
+- [**breaking**] return FinalExecutionOutcome directly, remove TransactionOutcome newtype ([#95](https://github.com/r-near/near-kit-rs/pull/95))
+
+### Fixed
+
+- eliminate redundant block() RPC call in sign() ([#138](https://github.com/r-near/near-kit-rs/pull/138))
+- prevent underflow in Expired retry guard when max_nonce_retries is 0 ([#135](https://github.com/r-near/near-kit-rs/pull/135))
+- revert leaked tracing changes and relax testcontainers pin ([#133](https://github.com/r-near/near-kit-rs/pull/133))
+- use testcontainers 0.25 for MSRV 1.86 compatibility ([#131](https://github.com/r-near/near-kit-rs/pull/131))
+- prevent overflow in nonce retry loop when max_nonce_retries == u32::MAX ([#132](https://github.com/r-near/near-kit-rs/pull/132))
+- make InvalidTxError::Expired retryable ([#122](https://github.com/r-near/near-kit-rs/pull/122)) ([#124](https://github.com/r-near/near-kit-rs/pull/124))
+- [**breaking**] narrow ExecutionStatus::Failure to ActionError ([#114](https://github.com/r-near/near-kit-rs/pull/114)) ([#126](https://github.com/r-near/near-kit-rs/pull/126))
+- [**breaking**] make near.account_id() return &AccountId directly ([#116](https://github.com/r-near/near-kit-rs/pull/116)) ([#127](https://github.com/r-near/near-kit-rs/pull/127))
+
+### Other
+
+- [**breaking**] replace PublicKey/SecretKey/Signature structs with enums ([#141](https://github.com/r-near/near-kit-rs/pull/141))
+- use entrypoint env vars for sandbox config ([#139](https://github.com/r-near/near-kit-rs/pull/139))
+- remove sandbox bool from Near struct ([#104](https://github.com/r-near/near-kit-rs/pull/104))
+- update README examples for v0.6.0 API ([#89](https://github.com/r-near/near-kit-rs/pull/89))
+
 ## [0.6.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.5.1...near-kit-v0.6.0) - 2026-03-19
 
 ### Added
