@@ -36,9 +36,9 @@ async fn global_contracts_example() -> Result<(), Error> {
 
     let publisher_near = Near::custom(sandbox.rpc_url())
         .signer(InMemorySigner::from_secret_key(
-            publisher_account.parse()?,
+            publisher_account.as_str(),
             publisher_key.secret_key,
-        ))
+        )?)
         .build();
 
     println!("Created publisher: {publisher_account}");
@@ -69,9 +69,9 @@ async fn global_contracts_example() -> Result<(), Error> {
 
     let user_near = Near::custom(sandbox.rpc_url())
         .signer(InMemorySigner::from_secret_key(
-            user_account.parse()?,
+            user_account.as_str(),
             user_key.secret_key,
-        ))
+        )?)
         .build();
 
     // Deploy from the publisher's global contract
@@ -131,9 +131,9 @@ async fn global_contracts_example() -> Result<(), Error> {
 
     let user2_near = Near::custom(sandbox.rpc_url())
         .signer(InMemorySigner::from_secret_key(
-            user2_account.parse()?,
+            user2_account.as_str(),
             user2_key.secret_key,
-        ))
+        )?)
         .build();
 
     // Deploy from hash (type dispatches on CryptoHash)

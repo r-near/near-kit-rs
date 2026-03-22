@@ -253,7 +253,7 @@ async fn test_sign_with_override() {
         .build();
 
     // Use sign_with to send a transaction from account2
-    let signer2 = InMemorySigner::from_secret_key(account2_id.clone(), key2);
+    let signer2 = InMemorySigner::from_secret_key(account2_id.clone(), key2).unwrap();
 
     let sub_id: AccountId = format!("signwith.{}", account2_id).parse().unwrap();
     near.transaction(&sub_id)

@@ -39,9 +39,9 @@ async fn high_throughput_example() -> Result<(), Error> {
     // Add remaining keys using a loop
     let bot_near = Near::custom(sandbox.rpc_url())
         .signer(InMemorySigner::from_secret_key(
-            bot_account.parse()?,
+            bot_account.as_str(),
             keypairs[0].secret_key.clone(),
-        ))
+        )?)
         .build();
 
     println!("Adding {} more access keys...", num_keys - 1);

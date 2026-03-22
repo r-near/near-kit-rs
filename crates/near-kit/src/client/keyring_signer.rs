@@ -140,7 +140,7 @@ impl KeyringSigner {
         let secret_key = parse_keyring_credential(&password, &account_id, &public_key)?;
 
         // Create the inner signer
-        let inner = InMemorySigner::from_secret_key(account_id, secret_key);
+        let inner = InMemorySigner::from_secret_key(account_id, secret_key)?;
 
         // Verify the public key matches
         if inner.public_key() != &public_key {
