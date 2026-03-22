@@ -1332,7 +1332,7 @@ impl IntoFuture for TransactionSend {
             let mut last_error: Option<Error> = None;
             let mut last_ak_nonce: Option<u64> = None;
 
-            for attempt in 0..max_nonce_retries + 1 {
+            for attempt in 0..=max_nonce_retries {
                 // Get a signing key atomically for this attempt
                 let key = signer.key();
                 let public_key = key.public_key().clone();
