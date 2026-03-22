@@ -333,12 +333,12 @@ impl InMemorySigner {
     /// ```rust
     /// use near_kit::{InMemorySigner, Signer};
     ///
-    /// let signer = InMemorySigner::random_implicit();
+    /// let signer = InMemorySigner::generate_implicit();
     /// assert_eq!(signer.account_id().as_str().len(), 64);
     /// ```
-    pub fn random_implicit() -> Self {
+    pub fn generate_implicit() -> Self {
         let secret_key = SecretKey::generate_ed25519();
-        Self::new_implicit(secret_key)
+        Self::implicit(secret_key)
     }
 
     /// Create a signer from an existing secret key, deriving an implicit account ID.
@@ -355,10 +355,10 @@ impl InMemorySigner {
     /// use near_kit::{InMemorySigner, SecretKey, Signer};
     ///
     /// let secret_key = SecretKey::generate_ed25519();
-    /// let signer = InMemorySigner::new_implicit(secret_key);
+    /// let signer = InMemorySigner::implicit(secret_key);
     /// assert_eq!(signer.account_id().as_str().len(), 64);
     /// ```
-    pub fn new_implicit(secret_key: SecretKey) -> Self {
+    pub fn implicit(secret_key: SecretKey) -> Self {
         let public_key = secret_key.public_key();
         let pk_bytes = public_key
             .as_ed25519_bytes()
@@ -1082,8 +1082,8 @@ mod tests {
     }
 
     #[test]
-    fn test_random_implicit() {
-        let signer = InMemorySigner::random_implicit();
+    fn test_generate_implicit() {
+        let signer = InMemorySigner::generate_implicit();
         let account_id = signer.account_id().as_str();
 
         // Implicit account IDs are 64 hex characters
@@ -1096,10 +1096,10 @@ mod tests {
     }
 
     #[test]
-    fn test_new_implicit() {
+    fn test_implicit() {
         let secret_key = SecretKey::generate_ed25519();
         let expected_pk = secret_key.public_key();
-        let signer = InMemorySigner::new_implicit(secret_key);
+        let signer = InMemorySigner::implicit(secret_key);
 
         // Account ID matches hex-encoded public key
         let pk_bytes = expected_pk.as_ed25519_bytes().unwrap();
@@ -1108,9 +1108,9 @@ mod tests {
     }
 
     #[test]
-    fn test_random_implicit_unique() {
-        let signer1 = InMemorySigner::random_implicit();
-        let signer2 = InMemorySigner::random_implicit();
+    fn test_generate_implicit_unique() {
+        let signer1 = InMemorySigner::generate_implicit();
+        let signer2 = InMemorySigner::generate_implicit();
         assert_ne!(signer1.account_id(), signer2.account_id());
     }
 
