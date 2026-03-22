@@ -1429,7 +1429,7 @@ impl IntoFuture for TransactionSend {
                         continue;
                     }
                     Err(RpcError::InvalidTx(crate::types::InvalidTxError::Expired))
-                        if attempt < max_nonce_retries - 1 =>
+                        if attempt + 1 < max_nonce_retries =>
                     {
                         tracing::warn!(
                             attempt = attempt + 1,
