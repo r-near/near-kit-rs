@@ -130,7 +130,7 @@ async fn test_near_deploy_from_shorthand_publisher() {
         create_funded_account(&root_near, rpc_url, NearToken::from_near(10)).await;
 
     user_near
-        .deploy_from(publisher_id.as_str())
+        .deploy_from(publisher_id.clone())
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -320,10 +320,10 @@ async fn test_deploy_from_publisher() {
     let (user_near, user_id, _) =
         create_funded_account(&root_near, rpc_url, NearToken::from_near(10)).await;
 
-    // Deploy from the publisher's global contract
+    // Deploy from the publisher's global contract (passing AccountId directly)
     let outcome = user_near
         .transaction(&user_id)
-        .deploy_from(publisher_id.as_str())
+        .deploy_from(publisher_id.clone())
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await

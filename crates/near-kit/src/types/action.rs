@@ -48,6 +48,12 @@ impl GlobalContractRef for AccountId {
     }
 }
 
+impl GlobalContractRef for &AccountId {
+    fn into_identifier(self) -> GlobalContractIdentifier {
+        GlobalContractIdentifier::AccountId(self.clone())
+    }
+}
+
 impl GlobalContractRef for &str {
     fn into_identifier(self) -> GlobalContractIdentifier {
         let account_id: AccountId = self.try_into_account_id().expect("invalid account ID");
@@ -58,6 +64,16 @@ impl GlobalContractRef for &str {
 impl GlobalContractRef for String {
     fn into_identifier(self) -> GlobalContractIdentifier {
         let account_id: AccountId = self.try_into_account_id().expect("invalid account ID");
+        GlobalContractIdentifier::AccountId(account_id)
+    }
+}
+
+impl GlobalContractRef for &String {
+    fn into_identifier(self) -> GlobalContractIdentifier {
+        let account_id: AccountId = self
+            .as_str()
+            .try_into_account_id()
+            .expect("invalid account ID");
         GlobalContractIdentifier::AccountId(account_id)
     }
 }

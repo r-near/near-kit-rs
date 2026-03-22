@@ -74,9 +74,9 @@ async fn global_contracts_example() -> Result<(), Error> {
         ))
         .build();
 
-    // Deploy from the publisher's global contract (type dispatches on &str)
+    // Deploy from the publisher's global contract
     user_near
-        .deploy_from(publisher_account.as_str())
+        .deploy_from(&publisher_account)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await?;
