@@ -307,8 +307,65 @@ impl InMemorySigner {
     }
 
     /// Create a signer from a SecretKey directly.
-    pub fn from_secret_key(account_id: AccountId, secret_key: SecretKey) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `account_id` cannot be converted to a valid [`AccountId`].
+    pub fn from_secret_key(
+        account_id: impl TryIntoAccountId,
+        secret_key: SecretKey,
+    ) -> Result<Self, crate::error::Error> {
+        let account_id: AccountId = account_id.try_into_account_id()?;
         let public_key = secret_key.public_key();
+        Ok(Self {
+            account_id,
+            secret_key,
+            public_key,
+        })
+    }
+
+    /// Generate a random Ed25519 key and derive an implicit account ID.
+    ///
+    /// The account ID is the hex-encoded Ed25519 public key bytes (64 characters).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::{InMemorySigner, Signer};
+    ///
+    /// let signer = InMemorySigner::generate_implicit();
+    /// assert_eq!(signer.account_id().as_str().len(), 64);
+    /// ```
+    pub fn generate_implicit() -> Self {
+        let secret_key = SecretKey::generate_ed25519();
+        Self::implicit(secret_key)
+    }
+
+    /// Create a signer from an existing secret key, deriving an implicit account ID.
+    ///
+    /// The account ID is the hex-encoded Ed25519 public key bytes (64 characters).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the secret key is not Ed25519.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::{InMemorySigner, SecretKey, Signer};
+    ///
+    /// let secret_key = SecretKey::generate_ed25519();
+    /// let signer = InMemorySigner::implicit(secret_key);
+    /// assert_eq!(signer.account_id().as_str().len(), 64);
+    /// ```
+    pub fn implicit(secret_key: SecretKey) -> Self {
+        let public_key = secret_key.public_key();
+        let pk_bytes = public_key
+            .as_ed25519_bytes()
+            .expect("implicit accounts require an Ed25519 key");
+        let account_id: AccountId = hex::encode(pk_bytes)
+            .parse()
+            .expect("hex-encoded Ed25519 public key is a valid account ID");
         Self {
             account_id,
             secret_key,
@@ -339,9 +396,8 @@ impl InMemorySigner {
         account_id: impl TryIntoAccountId,
         phrase: impl AsRef<str>,
     ) -> Result<Self, crate::error::Error> {
-        let account_id: AccountId = account_id.try_into_account_id()?;
         let secret_key = SecretKey::from_seed_phrase(phrase)?;
-        Ok(Self::from_secret_key(account_id, secret_key))
+        Self::from_secret_key(account_id, secret_key)
     }
 
     /// Create a signer from a BIP-39 seed phrase with custom HD path.
@@ -368,9 +424,8 @@ impl InMemorySigner {
         phrase: impl AsRef<str>,
         hd_path: impl AsRef<str>,
     ) -> Result<Self, crate::error::Error> {
-        let account_id: AccountId = account_id.try_into_account_id()?;
         let secret_key = SecretKey::from_seed_phrase_with_path(phrase, hd_path)?;
-        Ok(Self::from_secret_key(account_id, secret_key))
+        Self::from_secret_key(account_id, secret_key)
     }
 
     /// Get the public key.
@@ -798,7 +853,10 @@ impl RotatingSigner {
         let account_id = self.account_id;
         self.keys
             .into_iter()
-            .map(|sk| InMemorySigner::from_secret_key(account_id.clone(), sk))
+            .map(|sk| {
+                InMemorySigner::from_secret_key(account_id.clone(), sk)
+                    .expect("AccountId is always a valid account ID")
+            })
             .collect()
     }
 }
@@ -894,7 +952,7 @@ mod tests {
     #[tokio::test]
     async fn test_transaction_signing_with_signer_trait() {
         let secret_key = SecretKey::generate_ed25519();
-        let signer = InMemorySigner::from_secret_key("alice.testnet".parse().unwrap(), secret_key);
+        let signer = InMemorySigner::from_secret_key("alice.testnet", secret_key).unwrap();
 
         // Get a key for signing
         let key = signer.key();
@@ -1003,10 +1061,57 @@ mod tests {
         let secret = SecretKey::generate_ed25519();
         let expected_pk = secret.public_key();
 
-        let signer = InMemorySigner::from_secret_key("alice.testnet".parse().unwrap(), secret);
+        let signer = InMemorySigner::from_secret_key("alice.testnet", secret).unwrap();
 
         assert_eq!(signer.account_id().as_str(), "alice.testnet");
         assert_eq!(signer.public_key(), &expected_pk);
+    }
+
+    #[test]
+    fn test_from_secret_key_accepts_string() {
+        let secret = SecretKey::generate_ed25519();
+        let signer = InMemorySigner::from_secret_key("alice.testnet", secret);
+        assert!(signer.is_ok());
+    }
+
+    #[test]
+    fn test_from_secret_key_rejects_invalid_account() {
+        let secret = SecretKey::generate_ed25519();
+        let signer = InMemorySigner::from_secret_key("", secret);
+        assert!(signer.is_err());
+    }
+
+    #[test]
+    fn test_generate_implicit() {
+        let signer = InMemorySigner::generate_implicit();
+        let account_id = signer.account_id().as_str();
+
+        // Implicit account IDs are 64 hex characters
+        assert_eq!(account_id.len(), 64);
+        assert!(account_id.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // The account ID should be the hex-encoded public key bytes
+        let pk_bytes = signer.public_key().as_ed25519_bytes().unwrap();
+        assert_eq!(account_id, hex::encode(pk_bytes));
+    }
+
+    #[test]
+    fn test_implicit() {
+        let secret_key = SecretKey::generate_ed25519();
+        let expected_pk = secret_key.public_key();
+        let signer = InMemorySigner::implicit(secret_key);
+
+        // Account ID matches hex-encoded public key
+        let pk_bytes = expected_pk.as_ed25519_bytes().unwrap();
+        assert_eq!(signer.account_id().as_str(), hex::encode(pk_bytes));
+        assert_eq!(signer.public_key(), &expected_pk);
+    }
+
+    #[test]
+    fn test_generate_implicit_unique() {
+        let signer1 = InMemorySigner::generate_implicit();
+        let signer2 = InMemorySigner::generate_implicit();
+        assert_ne!(signer1.account_id(), signer2.account_id());
     }
 
     #[test]
@@ -1060,7 +1165,7 @@ mod tests {
 
         let signers: Vec<InMemorySigner> = keys
             .into_iter()
-            .map(|sk| InMemorySigner::from_secret_key("bot.testnet".parse().unwrap(), sk))
+            .map(|sk| InMemorySigner::from_secret_key("bot.testnet", sk).unwrap())
             .collect();
 
         let rotating = RotatingSigner::from_signers(signers).unwrap();
@@ -1071,14 +1176,9 @@ mod tests {
     #[test]
     fn test_rotating_signer_from_signers_mismatched_accounts() {
         let signers = vec![
-            InMemorySigner::from_secret_key(
-                "alice.testnet".parse().unwrap(),
-                SecretKey::generate_ed25519(),
-            ),
-            InMemorySigner::from_secret_key(
-                "bob.testnet".parse().unwrap(),
-                SecretKey::generate_ed25519(),
-            ),
+            InMemorySigner::from_secret_key("alice.testnet", SecretKey::generate_ed25519())
+                .unwrap(),
+            InMemorySigner::from_secret_key("bob.testnet", SecretKey::generate_ed25519()).unwrap(),
         ];
 
         let result = RotatingSigner::from_signers(signers);

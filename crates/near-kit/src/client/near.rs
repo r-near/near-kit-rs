@@ -249,7 +249,8 @@ impl Near {
             .parse()
             .expect("sandbox should provide valid account id");
 
-        let signer = InMemorySigner::from_secret_key(account_id, secret_key);
+        let signer = InMemorySigner::from_secret_key(account_id, secret_key)
+            .expect("sandbox should provide valid account id");
 
         Near {
             rpc: Arc::new(RpcClient::new(network.rpc_url())),

@@ -43,9 +43,9 @@ async fn sequential_example() -> Result<(), Error> {
     // Add remaining keys
     let bot_near = Near::custom(sandbox.rpc_url())
         .signer(InMemorySigner::from_secret_key(
-            bot_account.parse()?,
+            bot_account.as_str(),
             keypairs[0].secret_key.clone(),
-        ))
+        )?)
         .build();
 
     keypairs[1..]
