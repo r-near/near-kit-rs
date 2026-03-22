@@ -703,11 +703,12 @@ impl TransactionBuilder {
                 )
                 .await?;
             let block_hash = access_key.block_hash;
+            let chain_nonce = access_key.nonce;
 
             let network = self.rpc.url().to_string();
             let nonce = nonce_manager()
                 .get_next_nonce(&network, signer_id.as_ref(), &public_key_str, || async {
-                    Ok(access_key.nonce)
+                    Ok(chain_nonce)
                 })
                 .await?;
 
