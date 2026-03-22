@@ -33,11 +33,11 @@ impl KeyType {
         }
     }
 
-    /// Get the expected key length in bytes.
-    pub fn key_len(&self) -> usize {
+    /// Get the expected public key length in bytes.
+    pub fn public_key_len(&self) -> usize {
         match self {
             KeyType::Ed25519 => 32,
-            KeyType::Secp256k1 => 33, // Compressed
+            KeyType::Secp256k1 => 64, // Uncompressed, no prefix — matches nearcore
         }
     }
 
@@ -63,44 +63,81 @@ impl TryFrom<u8> for KeyType {
 }
 
 /// Ed25519 or Secp256k1 public key.
+///
+/// Stored as fixed-size arrays matching nearcore's representation:
+/// - Ed25519: 32-byte compressed point
+/// - Secp256k1: 64-byte uncompressed point (x, y coordinates, no `0x04` prefix)
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct PublicKey {
-    key_type: KeyType,
-    data: Vec<u8>,
+pub enum PublicKey {
+    /// Ed25519 public key (32 bytes).
+    Ed25519([u8; 32]),
+    /// Secp256k1 public key (64 bytes, uncompressed without prefix).
+    ///
+    /// This matches nearcore's representation: raw x,y coordinates
+    /// without the `0x04` uncompressed point prefix.
+    Secp256k1([u8; 64]),
 }
 
 impl PublicKey {
     /// Create an Ed25519 public key from raw 32 bytes.
     pub fn ed25519_from_bytes(bytes: [u8; 32]) -> Self {
-        Self {
-            key_type: KeyType::Ed25519,
-            data: bytes.to_vec(),
-        }
+        Self::Ed25519(bytes)
     }
 
-    /// Create a Secp256k1 public key from compressed 33-byte SEC1 encoding.
+    /// Create a Secp256k1 public key from raw 64-byte uncompressed coordinates.
+    ///
+    /// The 64 bytes are the raw x,y coordinates without the `0x04` prefix,
+    /// matching nearcore's format.
     ///
     /// Validates that the point is on the secp256k1 curve.
     ///
     /// # Panics
     ///
     /// Panics if the bytes do not represent a valid point on the secp256k1 curve.
-    pub fn secp256k1_from_bytes(bytes: [u8; 33]) -> Self {
-        // Validate the point is on the curve
-        let encoded = k256::EncodedPoint::from_bytes(bytes.as_ref())
+    pub fn secp256k1_from_bytes(bytes: [u8; 64]) -> Self {
+        // Validate the point is on the curve by constructing full uncompressed encoding
+        let mut uncompressed = [0u8; 65];
+        uncompressed[0] = 0x04;
+        uncompressed[1..].copy_from_slice(&bytes);
+        let encoded = k256::EncodedPoint::from_bytes(uncompressed.as_ref())
             .expect("invalid secp256k1 SEC1 encoding");
         let point = k256::AffinePoint::from_encoded_point(&encoded);
         assert!(bool::from(point.is_some()), "invalid secp256k1 curve point");
 
-        Self {
-            key_type: KeyType::Secp256k1,
-            data: bytes.to_vec(),
-        }
+        Self::Secp256k1(bytes)
     }
 
-    /// Create a Secp256k1 public key from an uncompressed 65-byte SEC1 encoding.
+    /// Create a Secp256k1 public key from a compressed 33-byte SEC1 encoding.
     ///
-    /// The key is validated and stored internally in compressed (33-byte) format.
+    /// The key is validated and stored internally in uncompressed (64-byte) format
+    /// matching nearcore's representation.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the bytes do not represent a valid point on the secp256k1 curve.
+    pub fn secp256k1_from_compressed(bytes: [u8; 33]) -> Self {
+        let encoded = k256::EncodedPoint::from_bytes(bytes.as_ref())
+            .expect("invalid secp256k1 SEC1 encoding");
+        let point = k256::AffinePoint::from_encoded_point(&encoded);
+        let point: k256::AffinePoint = Option::from(point).expect("invalid secp256k1 curve point");
+
+        // Re-encode as uncompressed (65 bytes with 0x04 prefix)
+        let uncompressed = point.to_encoded_point(false);
+        let uncompressed_bytes: &[u8] = uncompressed.as_bytes();
+        assert_eq!(uncompressed_bytes.len(), 65);
+        assert_eq!(uncompressed_bytes[0], 0x04);
+
+        // Store without the 0x04 prefix (64 bytes)
+        let mut result = [0u8; 64];
+        result.copy_from_slice(&uncompressed_bytes[1..]);
+        Self::Secp256k1(result)
+    }
+
+    /// Create a Secp256k1 public key from an uncompressed 65-byte SEC1 encoding
+    /// (with `0x04` prefix).
+    ///
+    /// The key is validated and stored internally without the prefix (64 bytes),
+    /// matching nearcore's format.
     ///
     /// # Panics
     ///
@@ -109,46 +146,44 @@ impl PublicKey {
         let encoded = k256::EncodedPoint::from_bytes(bytes.as_ref())
             .expect("invalid secp256k1 SEC1 encoding");
         let point = k256::AffinePoint::from_encoded_point(&encoded);
-        let point: k256::AffinePoint = Option::from(point).expect("invalid secp256k1 curve point");
+        assert!(bool::from(point.is_some()), "invalid secp256k1 curve point");
 
-        // Re-encode as compressed
-        let compressed = point.to_encoded_point(true);
-        let compressed_bytes: [u8; 33] = compressed
-            .as_bytes()
-            .try_into()
-            .expect("compressed point should be 33 bytes");
-
-        Self {
-            key_type: KeyType::Secp256k1,
-            data: compressed_bytes.to_vec(),
-        }
+        // Store without the 0x04 prefix (64 bytes)
+        let mut result = [0u8; 64];
+        result.copy_from_slice(&bytes[1..]);
+        Self::Secp256k1(result)
     }
 
     /// Get the key type.
     pub fn key_type(&self) -> KeyType {
-        self.key_type
+        match self {
+            Self::Ed25519(_) => KeyType::Ed25519,
+            Self::Secp256k1(_) => KeyType::Secp256k1,
+        }
     }
 
-    /// Get the raw key bytes.
+    /// Get the raw key bytes as a slice.
     pub fn as_bytes(&self) -> &[u8] {
-        &self.data
+        match self {
+            Self::Ed25519(bytes) => bytes.as_slice(),
+            Self::Secp256k1(bytes) => bytes.as_slice(),
+        }
     }
 
     /// Get the key data as a fixed-size array for Ed25519 keys.
     pub fn as_ed25519_bytes(&self) -> Option<&[u8; 32]> {
-        if self.key_type == KeyType::Ed25519 && self.data.len() == 32 {
-            Some(self.data.as_slice().try_into().unwrap())
-        } else {
-            None
+        match self {
+            Self::Ed25519(bytes) => Some(bytes),
+            _ => None,
         }
     }
 
-    /// Get the key data as a fixed-size array for Secp256k1 keys (compressed SEC1 format).
-    pub fn as_secp256k1_bytes(&self) -> Option<&[u8; 33]> {
-        if self.key_type == KeyType::Secp256k1 && self.data.len() == 33 {
-            Some(self.data.as_slice().try_into().unwrap())
-        } else {
-            None
+    /// Get the key data as a fixed-size array for Secp256k1 keys
+    /// (64-byte uncompressed, no prefix).
+    pub fn as_secp256k1_bytes(&self) -> Option<&[u8; 64]> {
+        match self {
+            Self::Secp256k1(bytes) => Some(bytes),
+            _ => None,
         }
     }
 }
@@ -169,36 +204,40 @@ impl FromStr for PublicKey {
             .into_vec()
             .map_err(|e| ParseKeyError::InvalidBase58(e.to_string()))?;
 
-        if data.len() != key_type.key_len() {
+        if data.len() != key_type.public_key_len() {
             return Err(ParseKeyError::InvalidLength {
-                expected: key_type.key_len(),
+                expected: key_type.public_key_len(),
                 actual: data.len(),
             });
         }
 
-        // Validate that the key is actually on the curve
         match key_type {
             KeyType::Ed25519 => {
-                // Validate Ed25519 public key is a valid curve point
                 let bytes: [u8; 32] = data
                     .as_slice()
                     .try_into()
                     .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
                 VerifyingKey::from_bytes(&bytes).map_err(|_| ParseKeyError::InvalidCurvePoint)?;
+                Ok(Self::Ed25519(bytes))
             }
             KeyType::Secp256k1 => {
-                // Validate secp256k1 public key is on the curve
-                // The key is 33 bytes (compressed SEC1 format)
-                let encoded = k256::EncodedPoint::from_bytes(&data)
+                // Data is 64 bytes (uncompressed, no prefix). Add 0x04 prefix for validation.
+                let mut uncompressed = [0u8; 65];
+                uncompressed[0] = 0x04;
+                uncompressed[1..].copy_from_slice(&data);
+                let encoded = k256::EncodedPoint::from_bytes(uncompressed)
                     .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
                 let point = k256::AffinePoint::from_encoded_point(&encoded);
                 if point.is_none().into() {
                     return Err(ParseKeyError::InvalidCurvePoint);
                 }
+                let bytes: [u8; 64] = data
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
+                Ok(Self::Secp256k1(bytes))
             }
         }
-
-        Ok(Self { key_type, data })
     }
 }
 
@@ -215,8 +254,8 @@ impl Display for PublicKey {
         write!(
             f,
             "{}:{}",
-            self.key_type.as_str(),
-            bs58::encode(&self.data).into_string()
+            self.key_type().as_str(),
+            bs58::encode(self.as_bytes()).into_string()
         )
     }
 }
@@ -242,8 +281,8 @@ impl<'de> Deserialize<'de> for PublicKey {
 
 impl BorshSerialize for PublicKey {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        borsh::BorshSerialize::serialize(&(self.key_type as u8), writer)?;
-        writer.write_all(&self.data)?;
+        borsh::BorshSerialize::serialize(&(self.key_type() as u8), writer)?;
+        writer.write_all(self.as_bytes())?;
         Ok(())
     }
 }
@@ -254,27 +293,26 @@ impl BorshDeserialize for PublicKey {
         let key_type = KeyType::try_from(key_type_byte)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-        let mut data = vec![0u8; key_type.key_len()];
-        reader.read_exact(&mut data)?;
-
-        // Validate that the key is actually on the curve
         match key_type {
             KeyType::Ed25519 => {
-                let bytes: [u8; 32] = data.as_slice().try_into().map_err(|_| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "invalid ed25519 key length",
-                    )
-                })?;
+                let mut bytes = [0u8; 32];
+                reader.read_exact(&mut bytes)?;
                 VerifyingKey::from_bytes(&bytes).map_err(|_| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
                         "invalid ed25519 curve point",
                     )
                 })?;
+                Ok(Self::Ed25519(bytes))
             }
             KeyType::Secp256k1 => {
-                let encoded = k256::EncodedPoint::from_bytes(&data).map_err(|_| {
+                let mut bytes = [0u8; 64];
+                reader.read_exact(&mut bytes)?;
+                // Validate point is on curve
+                let mut uncompressed = [0u8; 65];
+                uncompressed[0] = 0x04;
+                uncompressed[1..].copy_from_slice(&bytes);
+                let encoded = k256::EncodedPoint::from_bytes(uncompressed).map_err(|_| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
                         "invalid secp256k1 encoding",
@@ -287,10 +325,9 @@ impl BorshDeserialize for PublicKey {
                         "invalid secp256k1 curve point",
                     ));
                 }
+                Ok(Self::Secp256k1(bytes))
             }
         }
-
-        Ok(Self { key_type, data })
     }
 }
 
@@ -303,36 +340,31 @@ pub const DEFAULT_WORD_COUNT: usize = 12;
 
 /// Ed25519 or Secp256k1 secret key.
 #[derive(Clone)]
-pub struct SecretKey {
-    key_type: KeyType,
-    data: Vec<u8>,
+pub enum SecretKey {
+    /// Ed25519 secret key (32-byte seed).
+    Ed25519([u8; 32]),
+    /// Secp256k1 secret key (32-byte scalar).
+    Secp256k1([u8; 32]),
 }
 
 impl SecretKey {
     /// Generate a new random Ed25519 key pair.
     pub fn generate_ed25519() -> Self {
         let signing_key = SigningKey::generate(&mut OsRng);
-        Self {
-            key_type: KeyType::Ed25519,
-            data: signing_key.to_bytes().to_vec(),
-        }
+        Self::Ed25519(signing_key.to_bytes())
     }
 
     /// Create an Ed25519 secret key from raw 32 bytes.
     pub fn ed25519_from_bytes(bytes: [u8; 32]) -> Self {
-        Self {
-            key_type: KeyType::Ed25519,
-            data: bytes.to_vec(),
-        }
+        Self::Ed25519(bytes)
     }
 
     /// Generate a new random Secp256k1 key pair.
     pub fn generate_secp256k1() -> Self {
         let secret_key = k256::SecretKey::random(&mut OsRng);
-        Self {
-            key_type: KeyType::Secp256k1,
-            data: secret_key.to_bytes().to_vec(),
-        }
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(&secret_key.to_bytes());
+        Self::Secp256k1(bytes)
     }
 
     /// Create a Secp256k1 secret key from raw 32 bytes.
@@ -340,79 +372,60 @@ impl SecretKey {
     /// Validates that the bytes represent a valid secp256k1 scalar
     /// (non-zero and less than the curve order).
     pub fn secp256k1_from_bytes(bytes: [u8; 32]) -> Result<Self, ParseKeyError> {
-        // Validate the scalar is valid for secp256k1 (non-zero and < curve order)
         k256::SecretKey::from_bytes((&bytes).into()).map_err(|_| ParseKeyError::InvalidScalar)?;
-        Ok(Self {
-            key_type: KeyType::Secp256k1,
-            data: bytes.to_vec(),
-        })
+        Ok(Self::Secp256k1(bytes))
     }
 
     /// Get the key type.
     pub fn key_type(&self) -> KeyType {
-        self.key_type
+        match self {
+            Self::Ed25519(_) => KeyType::Ed25519,
+            Self::Secp256k1(_) => KeyType::Secp256k1,
+        }
     }
 
-    /// Get the raw key bytes.
+    /// Get the raw key bytes as a slice.
     pub fn as_bytes(&self) -> &[u8] {
-        &self.data
+        match self {
+            Self::Ed25519(bytes) => bytes.as_slice(),
+            Self::Secp256k1(bytes) => bytes.as_slice(),
+        }
     }
 
     /// Derive the public key.
     pub fn public_key(&self) -> PublicKey {
-        match self.key_type {
-            KeyType::Ed25519 => {
-                let bytes: [u8; 32] = self
-                    .data
-                    .as_slice()
-                    .try_into()
-                    .expect("invalid ed25519 key");
-                let signing_key = SigningKey::from_bytes(&bytes);
+        match self {
+            Self::Ed25519(bytes) => {
+                let signing_key = SigningKey::from_bytes(bytes);
                 let verifying_key = signing_key.verifying_key();
-                PublicKey::ed25519_from_bytes(verifying_key.to_bytes())
+                PublicKey::Ed25519(verifying_key.to_bytes())
             }
-            KeyType::Secp256k1 => {
-                let bytes: [u8; 32] = self
-                    .data
-                    .as_slice()
-                    .try_into()
-                    .expect("invalid secp256k1 key");
+            Self::Secp256k1(bytes) => {
                 let secret_key =
-                    k256::SecretKey::from_bytes((&bytes).into()).expect("invalid secp256k1 key");
+                    k256::SecretKey::from_bytes(bytes.into()).expect("invalid secp256k1 key");
                 let public_key = secret_key.public_key();
-                let compressed = public_key.to_encoded_point(true);
-                let pk_bytes: [u8; 33] = compressed
-                    .as_bytes()
-                    .try_into()
-                    .expect("compressed point should be 33 bytes");
-                PublicKey::secp256k1_from_bytes(pk_bytes)
+                // Get uncompressed encoding (65 bytes with 0x04 prefix)
+                let uncompressed = public_key.to_encoded_point(false);
+                let uncompressed_bytes: &[u8] = uncompressed.as_bytes();
+                assert_eq!(uncompressed_bytes.len(), 65);
+                // Store without the 0x04 prefix (64 bytes)
+                let mut result = [0u8; 64];
+                result.copy_from_slice(&uncompressed_bytes[1..]);
+                PublicKey::Secp256k1(result)
             }
         }
     }
 
     /// Sign a message.
     pub fn sign(&self, message: &[u8]) -> Signature {
-        match self.key_type {
-            KeyType::Ed25519 => {
-                let bytes: [u8; 32] = self
-                    .data
-                    .as_slice()
-                    .try_into()
-                    .expect("invalid ed25519 key");
-                let signing_key = SigningKey::from_bytes(&bytes);
+        match self {
+            Self::Ed25519(bytes) => {
+                let signing_key = SigningKey::from_bytes(bytes);
                 let signature = signing_key.sign(message);
-                Signature {
-                    key_type: KeyType::Ed25519,
-                    data: signature.to_bytes().to_vec(),
-                }
+                Signature::Ed25519(signature.to_bytes())
             }
-            KeyType::Secp256k1 => {
-                let bytes: [u8; 32] = self
-                    .data
-                    .as_slice()
-                    .try_into()
-                    .expect("invalid secp256k1 key");
-                let signing_key = k256::ecdsa::SigningKey::from_bytes((&bytes).into())
+            Self::Secp256k1(bytes) => {
+                let signing_key = k256::ecdsa::SigningKey::from_bytes(bytes.into())
                     .expect("invalid secp256k1 key");
 
                 // NEAR protocol: hash message with SHA-256 before signing
@@ -426,10 +439,7 @@ impl SecretKey {
                 sig_bytes[..64].copy_from_slice(&signature.to_bytes());
                 sig_bytes[64] = recovery_id.to_byte();
 
-                Signature {
-                    key_type: KeyType::Secp256k1,
-                    data: sig_bytes.to_vec(),
-                }
+                Signature::Secp256k1(sig_bytes)
             }
         }
     }
@@ -629,19 +639,19 @@ impl FromStr for SecretKey {
         }
 
         // Take first 32 bytes if 64-byte expanded key
-        let data = if data.len() == 64 {
-            data[..32].to_vec()
-        } else {
-            data
-        };
+        let bytes: [u8; 32] = data[..32]
+            .try_into()
+            .map_err(|_| ParseKeyError::InvalidFormat)?;
 
-        // Validate secp256k1 scalar (non-zero and < curve order)
-        if key_type == KeyType::Secp256k1 {
-            k256::SecretKey::from_bytes(data.as_slice().into())
-                .map_err(|_| ParseKeyError::InvalidScalar)?;
+        match key_type {
+            KeyType::Ed25519 => Ok(Self::Ed25519(bytes)),
+            KeyType::Secp256k1 => {
+                // Validate secp256k1 scalar (non-zero and < curve order)
+                k256::SecretKey::from_bytes((&bytes).into())
+                    .map_err(|_| ParseKeyError::InvalidScalar)?;
+                Ok(Self::Secp256k1(bytes))
+            }
         }
-
-        Ok(Self { key_type, data })
     }
 }
 
@@ -658,32 +668,31 @@ impl Display for SecretKey {
         write!(
             f,
             "{}:{}",
-            self.key_type.as_str(),
-            bs58::encode(&self.data).into_string()
+            self.key_type().as_str(),
+            bs58::encode(self.as_bytes()).into_string()
         )
     }
 }
 
 impl Debug for SecretKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SecretKey({}:***)", self.key_type.as_str())
+        write!(f, "SecretKey({}:***)", self.key_type().as_str())
     }
 }
 
 /// Cryptographic signature.
 #[derive(Clone, PartialEq, Eq)]
-pub struct Signature {
-    key_type: KeyType,
-    data: Vec<u8>,
+pub enum Signature {
+    /// Ed25519 signature (64 bytes).
+    Ed25519([u8; 64]),
+    /// Secp256k1 signature (65 bytes: `[r (32) | s (32) | v (1)]`).
+    Secp256k1([u8; 65]),
 }
 
 impl Signature {
     /// Create an Ed25519 signature from raw 64 bytes.
     pub fn ed25519_from_bytes(bytes: [u8; 64]) -> Self {
-        Self {
-            key_type: KeyType::Ed25519,
-            data: bytes.to_vec(),
-        }
+        Self::Ed25519(bytes)
     }
 
     /// Create a Secp256k1 signature from raw 65 bytes.
@@ -691,65 +700,52 @@ impl Signature {
     /// The format is `[r (32 bytes) | s (32 bytes) | v (1 byte recovery id)]`,
     /// matching the NEAR protocol's secp256k1 signature format.
     pub fn secp256k1_from_bytes(bytes: [u8; 65]) -> Self {
-        Self {
-            key_type: KeyType::Secp256k1,
-            data: bytes.to_vec(),
-        }
+        Self::Secp256k1(bytes)
     }
 
     /// Get the key type.
     pub fn key_type(&self) -> KeyType {
-        self.key_type
+        match self {
+            Self::Ed25519(_) => KeyType::Ed25519,
+            Self::Secp256k1(_) => KeyType::Secp256k1,
+        }
     }
 
     /// Get the raw signature bytes.
     pub fn as_bytes(&self) -> &[u8] {
-        &self.data
+        match self {
+            Self::Ed25519(bytes) => bytes.as_slice(),
+            Self::Secp256k1(bytes) => bytes.as_slice(),
+        }
     }
 
     /// Verify this signature against a message and public key.
     pub fn verify(&self, message: &[u8], public_key: &PublicKey) -> bool {
-        if self.key_type != public_key.key_type() {
-            return false;
-        }
-
-        match self.key_type {
-            KeyType::Ed25519 => {
-                let Some(pk_bytes) = public_key.as_ed25519_bytes() else {
-                    return false;
-                };
+        match (self, public_key) {
+            (Self::Ed25519(sig_bytes), PublicKey::Ed25519(pk_bytes)) => {
                 let Ok(verifying_key) = VerifyingKey::from_bytes(pk_bytes) else {
                     return false;
                 };
-                let sig_bytes: [u8; 64] = match self.data.as_slice().try_into() {
-                    Ok(b) => b,
-                    Err(_) => return false,
-                };
-                let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes);
+                let signature = ed25519_dalek::Signature::from_bytes(sig_bytes);
                 verifying_key.verify_strict(message, &signature).is_ok()
             }
-            KeyType::Secp256k1 => {
-                let Some(pk_bytes) = public_key.as_secp256k1_bytes() else {
-                    return false;
-                };
-                let Ok(verifying_key) =
-                    k256::ecdsa::VerifyingKey::from_sec1_bytes(pk_bytes.as_ref())
+            (Self::Secp256k1(sig_bytes), PublicKey::Secp256k1(pk_bytes)) => {
+                // Reconstruct the 65-byte uncompressed key with 0x04 prefix for verification
+                let mut uncompressed = [0u8; 65];
+                uncompressed[0] = 0x04;
+                uncompressed[1..].copy_from_slice(pk_bytes);
+                let Ok(verifying_key) = k256::ecdsa::VerifyingKey::from_sec1_bytes(&uncompressed)
                 else {
                     return false;
                 };
 
-                // Signature must be 65 bytes: [r (32) | s (32) | v (1)]
-                if self.data.len() != 65 {
-                    return false;
-                }
-
                 // Validate recovery id byte is in expected range (0..=3)
-                let v = self.data[64];
+                let v = sig_bytes[64];
                 if v > 3 {
                     return false;
                 }
 
-                let Ok(signature) = k256::ecdsa::Signature::from_bytes((&self.data[..64]).into())
+                let Ok(signature) = k256::ecdsa::Signature::from_bytes((&sig_bytes[..64]).into())
                 else {
                     return false;
                 };
@@ -759,6 +755,8 @@ impl Signature {
                 use k256::ecdsa::signature::hazmat::PrehashVerifier;
                 verifying_key.verify_prehash(&hash, &signature).is_ok()
             }
+            // Mismatched key types
+            _ => false,
         }
     }
 }
@@ -786,7 +784,22 @@ impl FromStr for Signature {
             });
         }
 
-        Ok(Self { key_type, data })
+        match key_type {
+            KeyType::Ed25519 => {
+                let bytes: [u8; 64] = data
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| ParseKeyError::InvalidFormat)?;
+                Ok(Self::Ed25519(bytes))
+            }
+            KeyType::Secp256k1 => {
+                let bytes: [u8; 65] = data
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| ParseKeyError::InvalidFormat)?;
+                Ok(Self::Secp256k1(bytes))
+            }
+        }
     }
 }
 
@@ -795,8 +808,8 @@ impl Display for Signature {
         write!(
             f,
             "{}:{}",
-            self.key_type.as_str(),
-            bs58::encode(&self.data).into_string()
+            self.key_type().as_str(),
+            bs58::encode(self.as_bytes()).into_string()
         )
     }
 }
@@ -822,8 +835,8 @@ impl<'de> Deserialize<'de> for Signature {
 
 impl BorshSerialize for Signature {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        borsh::BorshSerialize::serialize(&(self.key_type as u8), writer)?;
-        writer.write_all(&self.data)?;
+        borsh::BorshSerialize::serialize(&(self.key_type() as u8), writer)?;
+        writer.write_all(self.as_bytes())?;
         Ok(())
     }
 }
@@ -834,10 +847,18 @@ impl BorshDeserialize for Signature {
         let key_type = KeyType::try_from(key_type_byte)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-        let mut data = vec![0u8; key_type.signature_len()];
-        reader.read_exact(&mut data)?;
-
-        Ok(Self { key_type, data })
+        match key_type {
+            KeyType::Ed25519 => {
+                let mut bytes = [0u8; 64];
+                reader.read_exact(&mut bytes)?;
+                Ok(Self::Ed25519(bytes))
+            }
+            KeyType::Secp256k1 => {
+                let mut bytes = [0u8; 65];
+                reader.read_exact(&mut bytes)?;
+                Ok(Self::Secp256k1(bytes))
+            }
+        }
     }
 }
 
@@ -1069,6 +1090,30 @@ mod tests {
         assert_eq!(secret.public_key(), parsed.public_key());
     }
 
+    #[test]
+    fn test_ed25519_secret_key_64_byte_expanded_form() {
+        // Generate a key, get its 32-byte seed, then construct a 64-byte expanded form
+        // (seed || public_key) which near-cli sometimes stores
+        let secret = SecretKey::generate_ed25519();
+        let public = secret.public_key();
+        let seed_bytes = secret.as_bytes();
+
+        // Construct 64-byte expanded key: seed (32) + public key bytes (32)
+        let mut expanded = Vec::with_capacity(64);
+        expanded.extend_from_slice(seed_bytes);
+        expanded.extend_from_slice(public.as_bytes());
+        let expanded_b58 = bs58::encode(&expanded).into_string();
+        let expanded_str = format!("ed25519:{}", expanded_b58);
+
+        // Parse the 64-byte form — should succeed and produce same public key
+        let parsed: SecretKey = expanded_str.parse().unwrap();
+        assert_eq!(parsed.public_key(), public);
+
+        // Re-serializing yields the 32-byte seed form
+        let reserialized = parsed.to_string();
+        assert_eq!(reserialized, secret.to_string());
+    }
+
     // ========================================================================
     // Seed Phrase Tests
     // ========================================================================
@@ -1206,11 +1251,11 @@ mod tests {
     #[test]
     fn test_secp256k1_valid_curve_point_accepted() {
         // Valid secp256k1 key from near-sdk-js (verified to be on the curve)
+        // This key is 64 bytes (uncompressed without prefix) — matches our new format
         let valid_key = "secp256k1:5r22SrjrDvgY3wdQsnjgxkeAbU1VcM71FYvALEQWihjM3Xk4Be1CpETTqFccChQr4iJwDroSDVmgaWZv2AcXvYeL";
         let result: Result<PublicKey, _> = valid_key.parse();
-        // This key is 64 bytes (uncompressed), but we expect 33 bytes (compressed)
-        // So it should fail with InvalidLength, not InvalidCurvePoint
-        assert!(result.is_err());
+        // This key is now parseable because we expect 64-byte uncompressed format
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -1256,7 +1301,7 @@ mod tests {
         // Test with secp256k1 since ed25519 validation is very lenient
         // Use invalid secp256k1 bytes (all zeros is definitely not on the curve)
         let mut invalid_bytes = vec![1u8]; // KeyType::Secp256k1
-        invalid_bytes.extend_from_slice(&[0u8; 33]); // Invalid curve point
+        invalid_bytes.extend_from_slice(&[0u8; 64]); // Invalid curve point (64 bytes now)
 
         let result = PublicKey::try_from_slice(&invalid_bytes);
         assert!(result.is_err());
@@ -1311,28 +1356,13 @@ mod tests {
     }
 
     #[test]
-    fn test_secp256k1_public_key_compressed_uncompressed_conversion() {
+    fn test_secp256k1_public_key_is_64_bytes() {
         let secret = SecretKey::generate_secp256k1();
         let public = secret.public_key();
 
-        // Get compressed bytes
-        let compressed = public.as_secp256k1_bytes().unwrap();
-        assert_eq!(compressed.len(), 33);
-        // First byte should be 0x02 or 0x03 (compressed point prefix)
-        assert!(compressed[0] == 0x02 || compressed[0] == 0x03);
-
-        // Decompress to uncompressed, then re-compress via constructor
-        let encoded =
-            k256::EncodedPoint::from_bytes(compressed.as_ref()).expect("valid encoded point");
-        let point = k256::AffinePoint::from_encoded_point(&encoded).expect("valid point on curve");
-        let uncompressed = point.to_encoded_point(false);
-        let uncompressed_bytes: [u8; 65] = uncompressed
-            .as_bytes()
-            .try_into()
-            .expect("uncompressed should be 65 bytes");
-
-        let public2 = PublicKey::secp256k1_from_uncompressed(uncompressed_bytes);
-        assert_eq!(public, public2);
+        // Public key should be 64 bytes (uncompressed without prefix)
+        let pk_bytes = public.as_secp256k1_bytes().unwrap();
+        assert_eq!(pk_bytes.len(), 64);
     }
 
     #[test]
@@ -1420,13 +1450,98 @@ mod tests {
         let secret = SecretKey::generate_secp256k1();
         let public = secret.public_key();
         let message = b"test message";
-        let mut signature = secret.sign(message);
+        let signature = secret.sign(message);
 
-        // Tamper with the recovery id byte (last byte) to an invalid value
-        signature.data[64] = 4; // valid range is 0..=3
-        assert!(!signature.verify(message, &public));
+        // Create a tampered signature with invalid recovery id
+        if let Signature::Secp256k1(mut sig_bytes) = signature.clone() {
+            sig_bytes[64] = 4; // valid range is 0..=3
+            let tampered = Signature::Secp256k1(sig_bytes);
+            assert!(!tampered.verify(message, &public));
 
-        signature.data[64] = 255;
-        assert!(!signature.verify(message, &public));
+            sig_bytes[64] = 255;
+            let tampered = Signature::Secp256k1(sig_bytes);
+            assert!(!tampered.verify(message, &public));
+        } else {
+            panic!("Expected Secp256k1 signature");
+        }
+    }
+
+    #[test]
+    fn test_secp256k1_from_compressed() {
+        let secret = SecretKey::generate_secp256k1();
+        let public = secret.public_key();
+
+        // Get the uncompressed bytes and create a compressed version
+        let pk_bytes = public.as_secp256k1_bytes().unwrap();
+        let mut uncompressed = [0u8; 65];
+        uncompressed[0] = 0x04;
+        uncompressed[1..].copy_from_slice(pk_bytes);
+        let encoded =
+            k256::EncodedPoint::from_bytes(uncompressed.as_ref()).expect("valid encoded point");
+        let point = k256::AffinePoint::from_encoded_point(&encoded).expect("valid point on curve");
+        let compressed = point.to_encoded_point(true);
+        let compressed_bytes: [u8; 33] = compressed
+            .as_bytes()
+            .try_into()
+            .expect("compressed should be 33 bytes");
+
+        // Reconstruct from compressed form
+        let public2 = PublicKey::secp256k1_from_compressed(compressed_bytes);
+        assert_eq!(public, public2);
+    }
+
+    #[test]
+    fn test_ed25519_borsh_roundtrip() {
+        use borsh::BorshDeserialize;
+
+        let secret = SecretKey::generate_ed25519();
+        let public = secret.public_key();
+        let serialized = borsh::to_vec(&public).unwrap();
+        // Ed25519: 1 byte key type + 32 bytes key data
+        assert_eq!(serialized.len(), 33);
+        assert_eq!(serialized[0], 0); // Ed25519
+        let deserialized = PublicKey::try_from_slice(&serialized).unwrap();
+        assert_eq!(public, deserialized);
+    }
+
+    #[test]
+    fn test_secp256k1_borsh_roundtrip() {
+        use borsh::BorshDeserialize;
+
+        let secret = SecretKey::generate_secp256k1();
+        let public = secret.public_key();
+        let serialized = borsh::to_vec(&public).unwrap();
+        // Secp256k1: 1 byte key type + 64 bytes key data
+        assert_eq!(serialized.len(), 65);
+        assert_eq!(serialized[0], 1); // Secp256k1
+        let deserialized = PublicKey::try_from_slice(&serialized).unwrap();
+        assert_eq!(public, deserialized);
+    }
+
+    #[test]
+    fn test_signature_borsh_roundtrip() {
+        use borsh::BorshDeserialize;
+
+        let secret = SecretKey::generate_ed25519();
+        let sig = secret.sign(b"test");
+        let serialized = borsh::to_vec(&sig).unwrap();
+        assert_eq!(serialized.len(), 65); // 1 + 64
+        let deserialized = Signature::try_from_slice(&serialized).unwrap();
+        assert_eq!(sig, deserialized);
+    }
+
+    #[test]
+    fn test_enum_variants_match_expected_types() {
+        let ed_secret = SecretKey::generate_ed25519();
+        let ed_public = ed_secret.public_key();
+
+        assert!(matches!(ed_public, PublicKey::Ed25519(_)));
+        assert!(matches!(ed_secret, SecretKey::Ed25519(_)));
+
+        let secp_secret = SecretKey::generate_secp256k1();
+        let secp_public = secp_secret.public_key();
+
+        assert!(matches!(secp_public, PublicKey::Secp256k1(_)));
+        assert!(matches!(secp_secret, SecretKey::Secp256k1(_)));
     }
 }
