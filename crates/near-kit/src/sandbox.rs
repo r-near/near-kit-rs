@@ -93,17 +93,15 @@ const RPC_PORT: ContainerPort = ContainerPort::Tcp(3030);
 
 /// A [`testcontainers::Image`] for the NEAR sandbox Docker image
 /// (`nearprotocol/sandbox`).
+///
+/// Configuration is passed via environment variables supported by the
+/// image's entrypoint (`NEAR_ROOT_ACCOUNT`, `NEAR_TEST_SEED`,
+/// `NEAR_CHAIN_ID`, `NEAR_ENABLE_SANDBOX_LOG`).
 #[derive(Debug, Clone)]
 struct NearSandbox {
     tag: String,
     env_vars: Vec<(String, String)>,
     copy_to_sources: Vec<CopyToContainer>,
-    /// Account ID for the root/validator account.
-    account_id: String,
-    /// Seed for deterministic key generation (passed to `--test-seed`).
-    test_seed: String,
-    /// Chain ID for the sandbox (passed to `--chain-id`).
-    chain_id: Option<String>,
 }
 
 impl NearSandbox {
@@ -116,19 +114,18 @@ impl NearSandbox {
                 ("NEAR_ENABLE_SANDBOX_LOG".to_owned(), "1".to_owned()),
             ],
             copy_to_sources: Vec::new(),
-            account_id: SANDBOX_ROOT_ACCOUNT.to_owned(),
-            test_seed: "sandbox".to_owned(),
-            chain_id: None,
         }
     }
 
     fn with_account_id(mut self, account_id: impl Into<String>) -> Self {
-        self.account_id = account_id.into();
+        self.env_vars
+            .push(("NEAR_ROOT_ACCOUNT".to_owned(), account_id.into()));
         self
     }
 
     fn with_chain_id(mut self, chain_id: impl Into<String>) -> Self {
-        self.chain_id = Some(chain_id.into());
+        self.env_vars
+            .push(("NEAR_CHAIN_ID".to_owned(), chain_id.into()));
         self
     }
 }
@@ -150,30 +147,6 @@ impl Image for NearSandbox {
 
     fn ready_conditions(&self) -> Vec<WaitFor> {
         vec![WaitFor::message_on_stderr("Starting http server at")]
-    }
-
-    fn entrypoint(&self) -> Option<&str> {
-        Some("/bin/sh")
-    }
-
-    fn cmd(&self) -> impl IntoIterator<Item = impl Into<Cow<'_, str>>> {
-        let chain_id_flag = match &self.chain_id {
-            Some(id) => format!(" --chain-id {id}"),
-            None => String::new(),
-        };
-        let script = format!(
-            concat!(
-                "export RUST_LOG=\"neard::cli=off,info\" && ",
-                "near-sandbox --home /data init --fast ",
-                "--test-seed {test_seed} --account-id {account_id}{chain_id_flag} && ",
-                "exec near-sandbox --home /data run ",
-                "--rpc-addr 0.0.0.0:3030 --network-addr 0.0.0.0:3031"
-            ),
-            test_seed = self.test_seed,
-            account_id = self.account_id,
-            chain_id_flag = chain_id_flag,
-        );
-        vec!["-c".to_string(), script]
     }
 
     fn env_vars(
