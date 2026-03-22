@@ -42,6 +42,22 @@ Requires the `sandbox` feature (starts a local NEAR node):
 cargo run --example rotating_signer --features sandbox
 ```
 
+### [`sequential_sends.rs`](./sequential_sends.rs)
+
+Per-key sequential transaction execution using `into_per_key_signers()`, preventing nonce ordering issues.
+
+```bash
+cargo run --example sequential_sends --features sandbox
+```
+
+### [`global_contracts.rs`](./global_contracts.rs)
+
+Publish contracts to the global registry and deploy them to other accounts using `deploy_from`. Demonstrates both `PublishMode::Updatable` (by publisher) and `PublishMode::Immutable` (by hash).
+
+```bash
+cargo run --example global_contracts --features sandbox
+```
+
 ## Getting Testnet Credentials
 
 1. Create an account at [testnet.mynearwallet.com](https://testnet.mynearwallet.com/)
