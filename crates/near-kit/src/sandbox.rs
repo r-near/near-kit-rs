@@ -73,7 +73,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use testcontainers::{
-    ContainerAsync, CopyToContainer, Image, ImageExt,
+    ContainerAsync, CopyToContainer, Image,
     core::{ContainerPort, WaitFor},
     runners::AsyncRunner,
 };
@@ -212,8 +212,8 @@ static SHARED_SANDBOX: OnceCell<Sandbox> = OnceCell::const_new();
 /// around this by spawning a new thread (which gets fresh TLS) and calling
 /// `stop_with_timeout` via a temporary tokio runtime.
 ///
-/// The container is started with `auto_remove = true`, so Docker removes it
-/// automatically after it stops.
+/// The container is stopped via the testcontainers API on a spawned thread
+/// (to avoid tokio TLS destruction).
 extern "C" fn cleanup_shared_sandbox() {
     let handle = std::thread::spawn(|| {
         if let Some(sandbox) = SHARED_SANDBOX.get() {
@@ -249,8 +249,7 @@ fn register_shared_cleanup() {
 ///
 /// # Cleanup
 ///
-/// All containers are started with `auto_remove = true` so Docker removes them
-/// after they stop. For fresh sandboxes, testcontainers' `Drop` handles stopping.
+/// For fresh sandboxes, testcontainers' `Drop` handles stopping.
 /// For the shared sandbox, an `atexit` handler stops the container via the
 /// testcontainers API on a spawned thread (to avoid tokio TLS destruction).
 #[derive(Clone)]
@@ -276,9 +275,6 @@ impl Sandbox {
             image = image.with_chain_id(id);
         }
         let container = image
-            .with_host_config_modifier(|hc| {
-                hc.auto_remove = Some(true);
-            })
             .start()
             .await
             .expect("Failed to start sandbox container");

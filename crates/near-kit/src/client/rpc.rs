@@ -177,7 +177,6 @@ impl RpcClient {
                         self.retry_config.max_delay_ms,
                     );
                     tracing::warn!(
-                        rpc.method = method,
                         attempt = attempt + 1,
                         max_attempts = total_attempts,
                         delay_ms = delay,
@@ -188,7 +187,7 @@ impl RpcClient {
                     continue;
                 }
                 Err(e) => {
-                    tracing::error!(rpc.method = method, error = %e, "RPC request failed");
+                    tracing::error!(error = %e, "RPC request failed");
                     return Err(e);
                 }
             }
@@ -556,6 +555,7 @@ impl RpcClient {
         wait_until: TxExecutionStatus,
     ) -> Result<SendTxResponse, RpcError> {
         let tx_hash = signed_tx.get_hash();
+        tracing::Span::current().record("tx_hash", tracing::field::display(&tx_hash));
         tracing::info!(
             tx_hash = %tx_hash,
             sender = %signed_tx.transaction.signer_id,

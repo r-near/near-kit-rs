@@ -64,7 +64,7 @@ quote = "1"
 proc-macro2 = "1"
 
 # Optional: Sandbox integration (via Docker/testcontainers)
-testcontainers = "0.27.1"
+testcontainers = "=0.25.0"
 
 # Dev dependencies
 tokio-test = "0.4"
