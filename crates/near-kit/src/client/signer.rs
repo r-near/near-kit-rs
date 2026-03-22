@@ -307,6 +307,10 @@ impl InMemorySigner {
     }
 
     /// Create a signer from a SecretKey directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `account_id` cannot be converted to a valid [`AccountId`].
     pub fn from_secret_key(
         account_id: impl TryIntoAccountId,
         secret_key: SecretKey,
@@ -392,7 +396,6 @@ impl InMemorySigner {
         account_id: impl TryIntoAccountId,
         phrase: impl AsRef<str>,
     ) -> Result<Self, crate::error::Error> {
-        let account_id: AccountId = account_id.try_into_account_id()?;
         let secret_key = SecretKey::from_seed_phrase(phrase)?;
         Self::from_secret_key(account_id, secret_key)
     }
@@ -421,7 +424,6 @@ impl InMemorySigner {
         phrase: impl AsRef<str>,
         hd_path: impl AsRef<str>,
     ) -> Result<Self, crate::error::Error> {
-        let account_id: AccountId = account_id.try_into_account_id()?;
         let secret_key = SecretKey::from_seed_phrase_with_path(phrase, hd_path)?;
         Self::from_secret_key(account_id, secret_key)
     }
