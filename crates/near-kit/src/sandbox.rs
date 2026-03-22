@@ -95,8 +95,10 @@ const RPC_PORT: ContainerPort = ContainerPort::Tcp(3030);
 /// (`nearprotocol/sandbox`).
 ///
 /// Configuration is passed via environment variables supported by the
-/// image's entrypoint (`NEAR_ROOT_ACCOUNT`, `NEAR_TEST_SEED`,
-/// `NEAR_CHAIN_ID`, `NEAR_ENABLE_SANDBOX_LOG`).
+/// image's entrypoint (`NEAR_ROOT_ACCOUNT`, `NEAR_CHAIN_ID`,
+/// `NEAR_ENABLE_SANDBOX_LOG`).
+///
+/// Requires `nearprotocol/sandbox:2.10.7` or later.
 #[derive(Debug, Clone)]
 struct NearSandbox {
     tag: String,
