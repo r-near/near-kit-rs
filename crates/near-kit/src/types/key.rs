@@ -1090,6 +1090,30 @@ mod tests {
         assert_eq!(secret.public_key(), parsed.public_key());
     }
 
+    #[test]
+    fn test_ed25519_secret_key_64_byte_expanded_form() {
+        // Generate a key, get its 32-byte seed, then construct a 64-byte expanded form
+        // (seed || public_key) which near-cli sometimes stores
+        let secret = SecretKey::generate_ed25519();
+        let public = secret.public_key();
+        let seed_bytes = secret.as_bytes();
+
+        // Construct 64-byte expanded key: seed (32) + public key bytes (32)
+        let mut expanded = Vec::with_capacity(64);
+        expanded.extend_from_slice(seed_bytes);
+        expanded.extend_from_slice(public.as_bytes());
+        let expanded_b58 = bs58::encode(&expanded).into_string();
+        let expanded_str = format!("ed25519:{}", expanded_b58);
+
+        // Parse the 64-byte form — should succeed and produce same public key
+        let parsed: SecretKey = expanded_str.parse().unwrap();
+        assert_eq!(parsed.public_key(), public);
+
+        // Re-serializing yields the 32-byte seed form
+        let reserialized = parsed.to_string();
+        assert_eq!(reserialized, secret.to_string());
+    }
+
     // ========================================================================
     // Seed Phrase Tests
     // ========================================================================
