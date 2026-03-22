@@ -61,7 +61,7 @@ impl NonceManager {
         Fut: Future<Output = Result<u64, crate::Error>>,
     {
         let key = format!("{}:{}:{}", network, account_id, public_key);
-        let span = tracing::debug_span!("nonce", account_id = account_id, public_key = public_key);
+        let span = tracing::debug_span!("get_nonce", account_id, public_key);
         let _enter = span.enter();
 
         // Fast path: check if we already have a cached nonce
@@ -70,7 +70,7 @@ impl NonceManager {
             if let Some(atomic) = nonces.get(&key) {
                 // Atomically increment and return the previous value
                 let nonce = atomic.fetch_add(1, Ordering::SeqCst);
-                tracing::debug!(nonce = nonce, "Nonce from cache");
+                tracing::debug!(nonce, "Nonce from cache");
                 return Ok(nonce);
             }
         }
@@ -90,7 +90,7 @@ impl NonceManager {
             if let Some(atomic) = nonces.get(&key) {
                 // Someone else already inserted, use theirs
                 let nonce = atomic.fetch_add(1, Ordering::SeqCst);
-                tracing::debug!(nonce = nonce, "Nonce from cache (race)");
+                tracing::debug!(nonce, "Nonce from cache (race)");
                 return Ok(nonce);
             }
             // Insert with value = next_nonce + 1 (what the NEXT caller should get)

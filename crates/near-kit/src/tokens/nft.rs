@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use tokio::sync::OnceCell;
+use tracing::Instrument;
 
 use crate::client::{CallBuilder, RpcClient, Signer, TransactionBuilder};
 use crate::error::Error;
@@ -146,27 +147,31 @@ impl NonFungibleToken {
     /// # }
     /// ```
     pub async fn token(&self, token_id: impl AsRef<str>) -> Result<Option<NftToken>, Error> {
-        tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), "Querying NFT token");
-        #[derive(Serialize)]
-        struct Args<'a> {
-            token_id: &'a str,
+        let token_id = token_id.as_ref();
+        let span = tracing::debug_span!("nft_token", contract = %self.contract_id, token_id);
+
+        async {
+            #[derive(Serialize)]
+            struct Args<'a> {
+                token_id: &'a str,
+            }
+
+            let args = serde_json::to_vec(&Args { token_id })?;
+
+            let result = self
+                .rpc
+                .view_function(
+                    &self.contract_id,
+                    "nft_token",
+                    &args,
+                    BlockReference::Finality(Finality::Optimistic),
+                )
+                .await?;
+
+            result.json().map_err(Error::from)
         }
-
-        let args = serde_json::to_vec(&Args {
-            token_id: token_id.as_ref(),
-        })?;
-
-        let result = self
-            .rpc
-            .view_function(
-                &self.contract_id,
-                "nft_token",
-                &args,
-                BlockReference::Finality(Finality::Optimistic),
-            )
-            .await?;
-
-        result.json().map_err(Error::from)
+        .instrument(span)
+        .await
     }
 
     /// Get tokens owned by an account (nft_tokens_for_owner).
@@ -199,34 +204,39 @@ impl NonFungibleToken {
         limit: Option<u64>,
     ) -> Result<Vec<NftToken>, Error> {
         let account_id: AccountId = account_id.try_into_account_id()?;
-        tracing::debug!(contract = %self.contract_id, account = %account_id, "Querying NFT tokens for owner");
+        let span =
+            tracing::debug_span!("nft_tokens_for_owner", contract = %self.contract_id, %account_id);
 
-        #[derive(Serialize)]
-        struct Args<'a> {
-            account_id: &'a str,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            from_index: Option<String>,
-            #[serde(skip_serializing_if = "Option::is_none")]
-            limit: Option<u64>,
+        async {
+            #[derive(Serialize)]
+            struct Args<'a> {
+                account_id: &'a str,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                from_index: Option<String>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                limit: Option<u64>,
+            }
+
+            let args = serde_json::to_vec(&Args {
+                account_id: account_id.as_str(),
+                from_index: from_index.map(|i| i.to_string()),
+                limit,
+            })?;
+
+            let result = self
+                .rpc
+                .view_function(
+                    &self.contract_id,
+                    "nft_tokens_for_owner",
+                    &args,
+                    BlockReference::Finality(Finality::Optimistic),
+                )
+                .await?;
+
+            result.json().map_err(Error::from)
         }
-
-        let args = serde_json::to_vec(&Args {
-            account_id: account_id.as_str(),
-            from_index: from_index.map(|i| i.to_string()),
-            limit,
-        })?;
-
-        let result = self
-            .rpc
-            .view_function(
-                &self.contract_id,
-                "nft_tokens_for_owner",
-                &args,
-                BlockReference::Finality(Finality::Optimistic),
-            )
-            .await?;
-
-        result.json().map_err(Error::from)
+        .instrument(span)
+        .await
     }
 
     /// Get total supply of tokens (nft_total_supply).
@@ -317,7 +327,7 @@ impl NonFungibleToken {
         let receiver_id: AccountId = receiver_id
             .try_into_account_id()
             .expect("invalid account ID");
-        tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), "nft_transfer");
+        tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), receiver = %receiver_id, "nft_transfer");
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -420,7 +430,7 @@ impl NonFungibleToken {
         let receiver_id: AccountId = receiver_id
             .try_into_account_id()
             .expect("invalid account ID");
-        tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), "nft_transfer_call");
+        tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), receiver = %receiver_id, "nft_transfer_call");
         #[derive(Serialize)]
         struct TransferCallArgs {
             receiver_id: String,

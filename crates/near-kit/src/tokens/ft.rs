@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use tokio::sync::OnceCell;
+use tracing::Instrument;
 
 use crate::client::{CallBuilder, RpcClient, Signer, TransactionBuilder};
 use crate::error::Error;
@@ -161,37 +162,42 @@ impl FungibleToken {
     /// ```
     pub async fn balance_of(&self, account_id: impl TryIntoAccountId) -> Result<FtAmount, Error> {
         let account_id: AccountId = account_id.try_into_account_id()?;
-        tracing::debug!(contract = %self.contract_id, account = %account_id, "Querying FT balance");
-        let metadata = self.metadata().await?;
+        let span = tracing::debug_span!("ft_balance_of", contract = %self.contract_id, %account_id);
 
-        #[derive(Serialize)]
-        struct Args<'a> {
-            account_id: &'a str,
+        async {
+            let metadata = self.metadata().await?;
+
+            #[derive(Serialize)]
+            struct Args<'a> {
+                account_id: &'a str,
+            }
+
+            let args = serde_json::to_vec(&Args {
+                account_id: account_id.as_str(),
+            })?;
+
+            let result = self
+                .rpc
+                .view_function(
+                    &self.contract_id,
+                    "ft_balance_of",
+                    &args,
+                    BlockReference::Finality(Finality::Optimistic),
+                )
+                .await?;
+
+            let balance_str: String = result.json().map_err(Error::from)?;
+            let raw: u128 = balance_str.parse().map_err(|_| {
+                Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
+                    "Invalid balance format: {}",
+                    balance_str
+                ))))
+            })?;
+
+            Ok(FtAmount::from_metadata(raw, metadata))
         }
-
-        let args = serde_json::to_vec(&Args {
-            account_id: account_id.as_str(),
-        })?;
-
-        let result = self
-            .rpc
-            .view_function(
-                &self.contract_id,
-                "ft_balance_of",
-                &args,
-                BlockReference::Finality(Finality::Optimistic),
-            )
-            .await?;
-
-        let balance_str: String = result.json().map_err(Error::from)?;
-        let raw: u128 = balance_str.parse().map_err(|_| {
-            Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
-                "Invalid balance format: {}",
-                balance_str
-            ))))
-        })?;
-
-        Ok(FtAmount::from_metadata(raw, metadata))
+        .instrument(span)
+        .await
     }
 
     /// Get total token supply (ft_total_supply).

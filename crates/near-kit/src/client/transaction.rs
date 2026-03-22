@@ -33,6 +33,8 @@ use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
+use tracing::Instrument;
+
 use crate::error::{Error, RpcError};
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, DeterministicAccountStateInit,
@@ -699,68 +701,68 @@ impl TransactionBuilder {
         let signer_id = signer.account_id().clone();
         let action_count = self.actions.len();
 
-        tracing::info!(
+        let span = tracing::info_span!(
+            "sign_transaction",
             sender = %signer_id,
             receiver = %self.receiver_id,
-            action_count = action_count,
-            "Signing transaction"
+            action_count,
         );
 
-        // Get a signing key atomically. For RotatingSigner, this claims the next
-        // key in rotation. The key contains both the public key and signing capability.
-        let key = signer.key();
-        let public_key = key.public_key().clone();
-        let public_key_str = public_key.to_string();
+        async move {
+            // Get a signing key atomically. For RotatingSigner, this claims the next
+            // key in rotation. The key contains both the public key and signing capability.
+            let key = signer.key();
+            let public_key = key.public_key().clone();
+            let public_key_str = public_key.to_string();
 
-        // Get nonce for the key
-        let rpc = self.rpc.clone();
-        let network = rpc.url().to_string();
-        let signer_id_clone = signer_id.clone();
-        let public_key_clone = public_key.clone();
+            // Get nonce for the key
+            let rpc = self.rpc.clone();
+            let network = rpc.url().to_string();
+            let signer_id_clone = signer_id.clone();
+            let public_key_clone = public_key.clone();
 
-        let nonce = nonce_manager()
-            .get_next_nonce(&network, signer_id.as_ref(), &public_key_str, || async {
-                let access_key = rpc
-                    .view_access_key(
-                        &signer_id_clone,
-                        &public_key_clone,
-                        BlockReference::Finality(Finality::Optimistic),
-                    )
-                    .await?;
-                Ok(access_key.nonce)
+            let nonce = nonce_manager()
+                .get_next_nonce(&network, signer_id.as_ref(), &public_key_str, || async {
+                    let access_key = rpc
+                        .view_access_key(
+                            &signer_id_clone,
+                            &public_key_clone,
+                            BlockReference::Finality(Finality::Optimistic),
+                        )
+                        .await?;
+                    Ok(access_key.nonce)
+                })
+                .await?;
+
+            // Get recent block hash
+            let block = self
+                .rpc
+                .block(BlockReference::Finality(Finality::Final))
+                .await?;
+
+            // Build transaction
+            let tx = Transaction::new(
+                signer_id,
+                public_key,
+                nonce,
+                self.receiver_id,
+                block.header.hash,
+                self.actions,
+            );
+
+            // Sign with the key
+            let tx_hash = tx.get_hash();
+            let signature = key.sign(tx_hash.as_bytes()).await?;
+
+            tracing::debug!(tx_hash = %tx_hash, nonce, "Transaction signed");
+
+            Ok(SignedTransaction {
+                transaction: tx,
+                signature,
             })
-            .await?;
-
-        // Get recent block hash
-        let block = self
-            .rpc
-            .block(BlockReference::Finality(Finality::Final))
-            .await?;
-
-        // Build transaction
-        let tx = Transaction::new(
-            signer_id,
-            public_key,
-            nonce,
-            self.receiver_id,
-            block.header.hash,
-            self.actions,
-        );
-
-        // Sign with the key
-        let tx_hash = tx.get_hash();
-        let signature = key.sign(tx_hash.as_bytes()).await?;
-
-        tracing::info!(
-            tx_hash = %tx_hash,
-            nonce = nonce,
-            "Transaction signed"
-        );
-
-        Ok(SignedTransaction {
-            transaction: tx,
-            signature,
-        })
+        }
+        .instrument(span)
+        .await
     }
 
     /// Sign the transaction offline without network access.
@@ -1319,141 +1321,153 @@ impl IntoFuture for TransactionSend {
 
             let signer_id = signer.account_id().clone();
 
-            tracing::info!(
+            let span = tracing::info_span!(
+                "send_transaction",
                 sender = %signer_id,
                 receiver = %builder.receiver_id,
                 action_count = builder.actions.len(),
-                "Sending transaction"
             );
 
-            // Retry loop for transient InvalidTxErrors (nonce conflicts, expired block hash)
-            let max_nonce_retries = builder.max_nonce_retries;
-            let network = builder.rpc.url().to_string();
-            let mut last_error: Option<Error> = None;
-            let mut last_ak_nonce: Option<u64> = None;
+            async move {
+                // Retry loop for transient InvalidTxErrors (nonce conflicts, expired block hash)
+                let max_nonce_retries = builder.max_nonce_retries;
+                let network = builder.rpc.url().to_string();
+                let mut last_error: Option<Error> = None;
+                let mut last_ak_nonce: Option<u64> = None;
 
-            for attempt in 0..=max_nonce_retries {
-                // Get a signing key atomically for this attempt
-                let key = signer.key();
-                let public_key = key.public_key().clone();
-                let public_key_str = public_key.to_string();
+                for attempt in 0..=max_nonce_retries {
+                    // Get a signing key atomically for this attempt
+                    let key = signer.key();
+                    let public_key = key.public_key().clone();
+                    let public_key_str = public_key.to_string();
 
-                // Single view_access_key call provides both nonce and block_hash.
-                // Uses Finality::Final for block hash stability.
-                let access_key = builder
-                    .rpc
-                    .view_access_key(
-                        &signer_id,
-                        &public_key,
-                        BlockReference::Finality(Finality::Final),
-                    )
-                    .await?;
-                let block_hash = access_key.block_hash;
+                    // Single view_access_key call provides both nonce and block_hash.
+                    // Uses Finality::Final for block hash stability.
+                    let access_key = builder
+                        .rpc
+                        .view_access_key(
+                            &signer_id,
+                            &public_key,
+                            BlockReference::Finality(Finality::Final),
+                        )
+                        .await?;
+                    let block_hash = access_key.block_hash;
 
-                // Resolve nonce: use ak_nonce from InvalidNonce error if
-                // available, otherwise use the nonce manager (which caches
-                // locally after the first fetch).
-                let nonce = if let Some(ak_nonce) = last_ak_nonce.take() {
-                    nonce_manager().update_and_get_next(
-                        &network,
-                        signer_id.as_ref(),
-                        &public_key_str,
-                        ak_nonce,
-                    )
-                } else {
-                    nonce_manager()
-                        .get_next_nonce(&network, signer_id.as_ref(), &public_key_str, || async {
-                            Ok(access_key.nonce)
-                        })
-                        .await?
-                };
+                    // Resolve nonce: use ak_nonce from InvalidNonce error if
+                    // available, otherwise use the nonce manager (which caches
+                    // locally after the first fetch).
+                    let nonce = if let Some(ak_nonce) = last_ak_nonce.take() {
+                        nonce_manager().update_and_get_next(
+                            &network,
+                            signer_id.as_ref(),
+                            &public_key_str,
+                            ak_nonce,
+                        )
+                    } else {
+                        nonce_manager()
+                            .get_next_nonce(
+                                &network,
+                                signer_id.as_ref(),
+                                &public_key_str,
+                                || async { Ok(access_key.nonce) },
+                            )
+                            .await?
+                    };
 
-                // Build transaction
-                let tx = Transaction::new(
-                    signer_id.clone(),
-                    public_key.clone(),
-                    nonce,
-                    builder.receiver_id.clone(),
-                    block_hash,
-                    builder.actions.clone(),
-                );
+                    // Build transaction
+                    let tx = Transaction::new(
+                        signer_id.clone(),
+                        public_key.clone(),
+                        nonce,
+                        builder.receiver_id.clone(),
+                        block_hash,
+                        builder.actions.clone(),
+                    );
 
-                // Sign with the key
-                let signature = match key.sign(tx.get_hash().as_bytes()).await {
-                    Ok(sig) => sig,
-                    Err(e) => return Err(Error::Signing(e)),
-                };
-                let signed_tx = crate::types::SignedTransaction {
-                    transaction: tx,
-                    signature,
-                };
+                    // Sign with the key
+                    let signature = match key.sign(tx.get_hash().as_bytes()).await {
+                        Ok(sig) => sig,
+                        Err(e) => return Err(Error::Signing(e)),
+                    };
+                    let signed_tx = crate::types::SignedTransaction {
+                        transaction: tx,
+                        signature,
+                    };
 
-                // Send
-                match builder.rpc.send_tx(&signed_tx, builder.wait_until).await {
-                    Ok(response) => {
-                        let outcome = response.outcome.ok_or_else(|| {
-                            Error::InvalidTransaction(format!(
-                                "Transaction {} submitted with wait_until={:?} but no execution \
-                                 outcome was returned. Use rpc().send_tx() for fire-and-forget \
-                                 submission.",
-                                response.transaction_hash, builder.wait_until,
-                            ))
-                        })?;
+                    // Send
+                    match builder.rpc.send_tx(&signed_tx, builder.wait_until).await {
+                        Ok(response) => {
+                            let outcome = response.outcome.ok_or_else(|| {
+                                Error::InvalidTransaction(format!(
+                                    "Transaction {} submitted with wait_until={:?} but no execution \
+                                     outcome was returned. Use rpc().send_tx() for fire-and-forget \
+                                     submission.",
+                                    response.transaction_hash, builder.wait_until,
+                                ))
+                            })?;
 
-                        // Inspect outcome status — only InvalidTxError becomes Err.
-                        // ActionError means the tx executed (nonce incremented, gas consumed),
-                        // so we return Ok(outcome) and let the caller inspect is_failure().
-                        use crate::types::{FinalExecutionStatus, TxExecutionError};
-                        match outcome.status {
-                            FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
-                                return Err(Error::InvalidTx(Box::new(e)));
+                            // Inspect outcome status — only InvalidTxError becomes Err.
+                            // ActionError means the tx executed (nonce incremented, gas consumed),
+                            // so we return Ok(outcome) and let the caller inspect is_failure().
+                            use crate::types::{FinalExecutionStatus, TxExecutionError};
+                            match outcome.status {
+                                FinalExecutionStatus::Failure(
+                                    TxExecutionError::InvalidTxError(e),
+                                ) => {
+                                    return Err(Error::InvalidTx(Box::new(e)));
+                                }
+                                _ => return Ok(outcome),
                             }
-                            _ => return Ok(outcome),
+                        }
+                        Err(RpcError::InvalidTx(
+                            crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
+                        )) if attempt < max_nonce_retries => {
+                            tracing::warn!(
+                                tx_nonce = tx_nonce,
+                                ak_nonce = ak_nonce,
+                                attempt = attempt + 1,
+                                "Invalid nonce, retrying"
+                            );
+                            // Store ak_nonce for next iteration to avoid refetching
+                            last_ak_nonce = Some(ak_nonce);
+                            last_error = Some(Error::InvalidTx(Box::new(
+                                crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
+                            )));
+                            continue;
+                        }
+                        Err(RpcError::InvalidTx(crate::types::InvalidTxError::Expired))
+                            if attempt + 1 < max_nonce_retries =>
+                        {
+                            tracing::warn!(
+                                attempt = attempt + 1,
+                                "Transaction expired (stale block hash), retrying with fresh block hash"
+                            );
+                            // Expired tx was rejected before nonce consumption.
+                            // Invalidate the nonce cache so the next iteration re-fetches
+                            // via view_access_key, which gives both a fresh nonce and block_hash.
+                            nonce_manager().invalidate(
+                                &network,
+                                signer_id.as_ref(),
+                                &public_key_str,
+                            );
+                            last_error = Some(Error::InvalidTx(Box::new(
+                                crate::types::InvalidTxError::Expired,
+                            )));
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "Transaction send failed");
+                            return Err(e.into());
                         }
                     }
-                    Err(RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {
-                        tx_nonce,
-                        ak_nonce,
-                    })) if attempt < max_nonce_retries => {
-                        tracing::warn!(
-                            tx_nonce = tx_nonce,
-                            ak_nonce = ak_nonce,
-                            attempt = attempt + 1,
-                            "Invalid nonce, retrying"
-                        );
-                        // Store ak_nonce for next iteration to avoid refetching
-                        last_ak_nonce = Some(ak_nonce);
-                        last_error = Some(Error::InvalidTx(Box::new(
-                            crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
-                        )));
-                        continue;
-                    }
-                    Err(RpcError::InvalidTx(crate::types::InvalidTxError::Expired))
-                        if attempt + 1 < max_nonce_retries =>
-                    {
-                        tracing::warn!(
-                            attempt = attempt + 1,
-                            "Transaction expired (stale block hash), retrying with fresh block hash"
-                        );
-                        // Expired tx was rejected before nonce consumption.
-                        // Invalidate the nonce cache so the next iteration re-fetches
-                        // via view_access_key, which gives both a fresh nonce and block_hash.
-                        nonce_manager().invalidate(&network, signer_id.as_ref(), &public_key_str);
-                        last_error = Some(Error::InvalidTx(Box::new(
-                            crate::types::InvalidTxError::Expired,
-                        )));
-                        continue;
-                    }
-                    Err(e) => {
-                        tracing::error!(error = %e, "Transaction send failed");
-                        return Err(e.into());
-                    }
                 }
-            }
 
-            Err(last_error.unwrap_or_else(|| {
-                Error::InvalidTransaction("Unknown error during transaction send".to_string())
-            }))
+                Err(last_error.unwrap_or_else(|| {
+                    Error::InvalidTransaction("Unknown error during transaction send".to_string())
+                }))
+            }
+            .instrument(span)
+            .await
         })
     }
 }
