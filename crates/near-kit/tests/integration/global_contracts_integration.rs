@@ -73,7 +73,7 @@ async fn test_publish_contract_by_account() {
 
     let wasm_code = load_test_contract();
 
-    // Publish the contract (by_hash = false means identified by account)
+    // Publish the contract in updatable mode (identified by the publisher account)
     let outcome = publisher_near
         .transaction(&publisher_id)
         .publish(wasm_code, PublishMode::Updatable)
@@ -101,7 +101,7 @@ async fn test_publish_contract_by_hash() {
 
     let wasm_code = load_test_contract();
 
-    // Publish the contract (by_hash = true means identified by code hash, immutable)
+    // Publish the contract using PublishMode::Immutable (identified by code hash, immutable)
     let outcome = publisher_near
         .transaction(&publisher_id)
         .publish(wasm_code, PublishMode::Immutable)
