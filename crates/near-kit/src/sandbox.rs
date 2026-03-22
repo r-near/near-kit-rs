@@ -207,13 +207,12 @@ static SHARED_SANDBOX: OnceCell<Sandbox> = OnceCell::const_new();
 
 /// Stop the shared sandbox container on process exit.
 ///
-/// Tokio's thread-local storage is already destroyed on the main thread by
-/// the time `atexit` fires, so `Runtime::block_on` panics there. We work
-/// around this by spawning a new thread (which gets fresh TLS) and calling
-/// `stop_with_timeout` via a temporary tokio runtime.
+/// Statics are never dropped in Rust, so the watchdog (which handles signals)
+/// won't cover normal process exit. This `atexit` handler ensures the container
+/// is cleaned up on clean termination.
 ///
-/// The container is stopped via the testcontainers API on a spawned thread
-/// (to avoid tokio TLS destruction).
+/// Tokio's thread-local storage is already destroyed on the main thread by
+/// the time `atexit` fires, so we spawn a new thread with fresh TLS.
 extern "C" fn cleanup_shared_sandbox() {
     let handle = std::thread::spawn(|| {
         if let Some(sandbox) = SHARED_SANDBOX.get() {
@@ -249,9 +248,9 @@ fn register_shared_cleanup() {
 ///
 /// # Cleanup
 ///
-/// For fresh sandboxes, testcontainers' `Drop` handles stopping.
-/// For the shared sandbox, an `atexit` handler stops the container via the
-/// testcontainers API on a spawned thread (to avoid tokio TLS destruction).
+/// - **Fresh sandboxes**: cleaned up via testcontainers' `Drop` impl.
+/// - **Shared sandbox**: cleaned up via an `atexit` handler (normal exit) and
+///   the testcontainers `watchdog` (SIGINT/SIGTERM/SIGQUIT, e.g. Ctrl+C).
 #[derive(Clone)]
 pub struct Sandbox {
     #[allow(dead_code)]

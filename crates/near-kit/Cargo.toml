@@ -60,7 +60,7 @@ tracing.workspace = true
 near-kit-macros.workspace = true
 
 # Optional: Sandbox integration (via Docker/testcontainers)
-testcontainers = { workspace = true, optional = true }
+testcontainers = { workspace = true, optional = true, features = ["watchdog"] }
 libc = { version = "0.2", optional = true }
 serde_with = { version = "3.17.0", features = ["hex", "base64"] }
 
