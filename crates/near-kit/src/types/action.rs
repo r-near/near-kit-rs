@@ -31,7 +31,8 @@ pub enum PublishMode {
 ///
 /// # Panics
 ///
-/// The `&str` and `String` implementations panic if the string is not a valid NEAR account ID.
+/// String-based implementations (`&str`, `String`, `&String`) panic if the string is not a
+/// valid NEAR account ID.
 pub trait GlobalContractRef {
     fn into_identifier(self) -> GlobalContractIdentifier;
 }
