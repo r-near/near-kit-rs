@@ -60,6 +60,184 @@ async fn create_funded_account(
 // Global Contract Tests
 // =============================================================================
 
+/// Test the `near.publish()` convenience shorthand (updatable mode).
+#[tokio::test]
+async fn test_near_publish_shorthand_updatable() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    let (publisher_near, _, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::from_near(50)).await;
+
+    let wasm_code = load_test_contract();
+
+    // Use the Near::publish() shorthand (targets the signer's own account)
+    let outcome = publisher_near
+        .publish(wasm_code, PublishMode::Updatable)
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    assert!(!outcome.transaction_hash().to_string().is_empty());
+}
+
+/// Test the `near.publish()` convenience shorthand (immutable mode).
+#[tokio::test]
+async fn test_near_publish_shorthand_immutable() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    let (publisher_near, _, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::from_near(50)).await;
+
+    let wasm_code = load_test_contract();
+
+    let outcome = publisher_near
+        .publish(wasm_code, PublishMode::Immutable)
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    assert!(!outcome.transaction_hash().to_string().is_empty());
+}
+
+/// Test the `near.deploy_from()` convenience shorthand with a publisher account.
+#[tokio::test]
+async fn test_near_deploy_from_shorthand_publisher() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    // Publisher publishes the contract
+    let (publisher_near, publisher_id, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::from_near(50)).await;
+
+    let wasm_code = load_test_contract();
+
+    publisher_near
+        .publish(wasm_code, PublishMode::Updatable)
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // User deploys using the Near::deploy_from() shorthand
+    let (user_near, user_id, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::from_near(10)).await;
+
+    user_near
+        .deploy_from(publisher_id.clone())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // Verify by calling a view method on the deployed contract
+    let messages: Vec<serde_json::Value> = root_near
+        .view(&user_id, "get_messages")
+        .args(serde_json::json!({}))
+        .await
+        .unwrap();
+    assert!(messages.is_empty());
+}
+
+/// Test the `near.deploy_from()` convenience shorthand with a CryptoHash.
+#[tokio::test]
+async fn test_near_deploy_from_shorthand_hash() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    let (publisher_near, _, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::from_near(50)).await;
+
+    let wasm_code = load_test_contract();
+    let code_hash = CryptoHash::hash(&wasm_code);
+
+    publisher_near
+        .publish(wasm_code, PublishMode::Immutable)
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // User deploys using the Near::deploy_from() shorthand with CryptoHash
+    let (user_near, user_id, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::from_near(10)).await;
+
+    user_near
+        .deploy_from(code_hash)
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // Verify by calling a view method
+    let messages: Vec<serde_json::Value> = root_near
+        .view(&user_id, "get_messages")
+        .args(serde_json::json!({}))
+        .await
+        .unwrap();
+    assert!(messages.is_empty());
+}
+
+/// End-to-end test: publish → deploy_from → call the deployed contract.
+#[tokio::test]
+async fn test_publish_deploy_from_call_end_to_end() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    // Publisher publishes an updatable contract
+    let (publisher_near, publisher_id, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::from_near(50)).await;
+
+    let wasm_code = load_test_contract();
+
+    publisher_near
+        .publish(wasm_code, PublishMode::Updatable)
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // User deploys from the publisher's global contract
+    let (user_near, user_id, _) =
+        create_funded_account(&root_near, rpc_url, NearToken::from_near(10)).await;
+
+    user_near
+        .deploy_from(publisher_id.as_str())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // Call a mutating method on the deployed contract
+    user_near
+        .transaction(&user_id)
+        .call("add_message")
+        .args(serde_json::json!({ "text": "Hello from global contract!" }))
+        .gas(Gas::from_tgas(30))
+        .deposit(NearToken::ZERO)
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // Verify the message was stored
+    let messages: Vec<serde_json::Value> = root_near
+        .view(&user_id, "get_messages")
+        .args(serde_json::json!({}))
+        .await
+        .unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["text"], "Hello from global contract!");
+}
+
 /// Test publishing a contract to the global registry by account ID (updatable).
 #[tokio::test]
 async fn test_publish_contract_by_account() {
@@ -73,10 +251,10 @@ async fn test_publish_contract_by_account() {
 
     let wasm_code = load_test_contract();
 
-    // Publish the contract (by_hash = false means identified by account)
+    // Publish the contract in updatable mode (identified by the publisher account)
     let outcome = publisher_near
         .transaction(&publisher_id)
-        .publish_contract(wasm_code, false)
+        .publish(wasm_code, PublishMode::Updatable)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -101,10 +279,10 @@ async fn test_publish_contract_by_hash() {
 
     let wasm_code = load_test_contract();
 
-    // Publish the contract (by_hash = true means identified by code hash, immutable)
+    // Publish the contract using PublishMode::Immutable (identified by code hash, immutable)
     let outcome = publisher_near
         .transaction(&publisher_id)
-        .publish_contract(wasm_code, true)
+        .publish(wasm_code, PublishMode::Immutable)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -132,7 +310,7 @@ async fn test_deploy_from_publisher() {
     // First, publish the contract
     publisher_near
         .transaction(&publisher_id)
-        .publish_contract(wasm_code, false)
+        .publish(wasm_code, PublishMode::Updatable)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -142,10 +320,10 @@ async fn test_deploy_from_publisher() {
     let (user_near, user_id, _) =
         create_funded_account(&root_near, rpc_url, NearToken::from_near(10)).await;
 
-    // Deploy from the publisher's global contract
+    // Deploy from the publisher's global contract (passing AccountId directly)
     let outcome = user_near
         .transaction(&user_id)
-        .deploy_from_publisher(&publisher_id)
+        .deploy_from(publisher_id.clone())
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -187,7 +365,7 @@ async fn test_deploy_from_hash() {
     // Publish the contract by hash (immutable)
     publisher_near
         .transaction(&publisher_id)
-        .publish_contract(wasm_code, true)
+        .publish(wasm_code, PublishMode::Immutable)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -200,7 +378,7 @@ async fn test_deploy_from_hash() {
     // Deploy from the code hash
     let outcome = user_near
         .transaction(&user_id)
-        .deploy_from_hash(code_hash)
+        .deploy_from(code_hash)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -239,7 +417,7 @@ async fn test_state_init_by_hash() {
     // First, publish the contract by hash
     publisher_near
         .transaction(&publisher_id)
-        .publish_contract(wasm_code, true)
+        .publish(wasm_code, PublishMode::Immutable)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
@@ -279,7 +457,7 @@ async fn test_state_init_by_publisher() {
     // First, publish the contract by account
     publisher_near
         .transaction(&publisher_id)
-        .publish_contract(wasm_code, false)
+        .publish(wasm_code, PublishMode::Updatable)
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await

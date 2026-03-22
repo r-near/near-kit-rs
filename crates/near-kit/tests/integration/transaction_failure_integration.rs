@@ -49,7 +49,7 @@ async fn test_deploy_invalid_wasm() {
     // Try to deploy invalid WASM (random bytes)
     let invalid_wasm = vec![0u8; 100]; // Not valid WASM
 
-    let result = account_near.deploy(&account_id, invalid_wasm).await;
+    let result = account_near.deploy(invalid_wasm).await;
 
     // Note: NEAR allows deploying any bytes, but calling methods will fail
     // The deploy itself may succeed
@@ -81,7 +81,7 @@ async fn test_deploy_empty_wasm() {
     // Try to deploy empty WASM
     let empty_wasm: Vec<u8> = vec![];
 
-    let result = account_near.deploy(&account_id, empty_wasm).await;
+    let result = account_near.deploy(empty_wasm).await;
 
     // Empty deploys may succeed (effectively removes contract)
     println!("Empty WASM deploy result: {:?}", result);
@@ -101,7 +101,9 @@ async fn test_add_key_to_nonexistent_account() {
 
     // Try to add a key to a non-existent account — action error returns Ok(outcome)
     let outcome = near
-        .add_full_access_key(&nonexistent, key.public_key())
+        .transaction(&nonexistent)
+        .add_full_access_key(key.public_key())
+        .send()
         .await
         .expect("Action errors should return Ok(outcome)");
 
@@ -137,7 +139,7 @@ async fn test_add_duplicate_key() {
 
     // Try to add the same key again — action error returns Ok(outcome)
     let outcome = account_near
-        .add_full_access_key(&account_id, key.public_key())
+        .add_full_access_key(key.public_key())
         .await
         .expect("Action errors should return Ok(outcome)");
 
@@ -172,7 +174,7 @@ async fn test_delete_last_full_access_key() {
 
     // Delete the only key - this should succeed but leave the account inaccessible
     // Note: NEAR protocol allows this
-    let result = account_near.delete_key(&account_id, key.public_key()).await;
+    let result = account_near.delete_key(key.public_key()).await;
 
     // This may succeed - depends on protocol rules about last key
     println!("Delete last key result: {:?}", result);

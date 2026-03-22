@@ -7,7 +7,8 @@ use serde::de::DeserializeOwned;
 use crate::contract::ContractClient;
 use crate::error::Error;
 use crate::types::{
-    AccountId, ChainId, Gas, IntoNearToken, NearToken, PublicKey, SecretKey, TryIntoAccountId,
+    AccountId, ChainId, Gas, GlobalContractRef, IntoNearToken, NearToken, PublicKey, PublishMode,
+    SecretKey, TryIntoAccountId,
 };
 
 use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
@@ -601,7 +602,7 @@ impl Near {
         self.transaction(contract_id).call(method)
     }
 
-    /// Deploy a contract.
+    /// Deploy WASM bytes to the signer's account.
     ///
     /// # Example
     ///
@@ -613,33 +614,97 @@ impl Near {
     ///     .build();
     ///
     /// let wasm_code = std::fs::read("contract.wasm").unwrap();
-    /// near.deploy("alice.testnet", wasm_code).await?;
+    /// near.deploy(wasm_code).await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn deploy(
-        &self,
-        account_id: impl TryIntoAccountId,
-        code: impl Into<Vec<u8>>,
-    ) -> TransactionBuilder {
+    ///
+    /// # Panics
+    ///
+    /// Panics if no signer is configured.
+    pub fn deploy(&self, code: impl Into<Vec<u8>>) -> TransactionBuilder {
+        let account_id = self.account_id().clone();
         self.transaction(account_id).deploy(code)
     }
 
-    /// Add a full access key to an account.
-    pub fn add_full_access_key(
-        &self,
-        account_id: impl TryIntoAccountId,
-        public_key: PublicKey,
-    ) -> TransactionBuilder {
+    /// Deploy a contract from the global registry.
+    ///
+    /// Accepts either a `CryptoHash` (for immutable contracts identified by hash)
+    /// or an account ID string/`AccountId` (for publisher-updatable contracts).
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(code_hash: CryptoHash) -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet()
+    ///         .credentials("ed25519:...", "alice.testnet")?
+    ///     .build();
+    ///
+    /// // Deploy by publisher (updatable)
+    /// near.deploy_from("publisher.near").await?;
+    ///
+    /// // Deploy by hash (immutable)
+    /// near.deploy_from(code_hash).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if no signer is configured.
+    pub fn deploy_from(&self, contract_ref: impl GlobalContractRef) -> TransactionBuilder {
+        let account_id = self.account_id().clone();
+        self.transaction(account_id).deploy_from(contract_ref)
+    }
+
+    /// Publish a contract to the global registry.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet()
+    ///         .credentials("ed25519:...", "alice.testnet")?
+    ///     .build();
+    ///
+    /// let wasm_code = std::fs::read("contract.wasm").unwrap();
+    ///
+    /// // Publish updatable contract (identified by your account)
+    /// near.publish(wasm_code.clone(), PublishMode::Updatable).await?;
+    ///
+    /// // Publish immutable contract (identified by its hash)
+    /// near.publish(wasm_code, PublishMode::Immutable).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if no signer is configured.
+    pub fn publish(&self, code: impl Into<Vec<u8>>, mode: PublishMode) -> TransactionBuilder {
+        let account_id = self.account_id().clone();
+        self.transaction(account_id).publish(code, mode)
+    }
+
+    /// Add a full access key to the signer's account.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no signer is configured.
+    pub fn add_full_access_key(&self, public_key: PublicKey) -> TransactionBuilder {
+        let account_id = self.account_id().clone();
         self.transaction(account_id).add_full_access_key(public_key)
     }
 
-    /// Delete an access key from an account.
-    pub fn delete_key(
-        &self,
-        account_id: impl TryIntoAccountId,
-        public_key: PublicKey,
-    ) -> TransactionBuilder {
+    /// Delete an access key from the signer's account.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no signer is configured.
+    pub fn delete_key(&self, public_key: PublicKey) -> TransactionBuilder {
+        let account_id = self.account_id().clone();
         self.transaction(account_id).delete_key(public_key)
     }
 

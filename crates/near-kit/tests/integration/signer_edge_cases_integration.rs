@@ -358,7 +358,7 @@ async fn test_deleted_key_fails() {
         .build();
 
     near2
-        .delete_key(&account_id, key1.public_key())
+        .delete_key(key1.public_key())
         .wait_until(TxExecutionStatus::Final)
         .await
         .unwrap();

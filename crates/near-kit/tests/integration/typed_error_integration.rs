@@ -201,7 +201,7 @@ async fn test_call_nonexistent_method_deserializes_as_typed_error() {
 
     // Deploy a contract first
     let wasm = std::fs::read("tests/contracts/guestbook.wasm").unwrap();
-    near.deploy(&id, wasm).await.unwrap();
+    near.deploy(wasm).await.unwrap();
 
     // Call a method that doesn't exist
     let outcome = send_raw_tx(

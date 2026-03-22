@@ -36,9 +36,9 @@ use std::sync::{Arc, OnceLock};
 use crate::error::{Error, RpcError};
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, DeterministicAccountStateInit,
-    FinalExecutionOutcome, Finality, Gas, IntoGas, IntoNearToken, NearToken, NonDelegateAction,
-    PublicKey, SignedDelegateAction, SignedTransaction, Transaction, TryIntoAccountId,
-    TxExecutionStatus,
+    FinalExecutionOutcome, Finality, Gas, GlobalContractIdentifier, GlobalContractRef, IntoGas,
+    IntoNearToken, NearToken, NonDelegateAction, PublicKey, PublishMode, SignedDelegateAction,
+    SignedTransaction, Transaction, TryIntoAccountId, TxExecutionStatus,
 };
 
 use super::nonce_manager::NonceManager;
@@ -484,14 +484,12 @@ impl TransactionBuilder {
     /// Publish a contract to the global registry.
     ///
     /// Global contracts are deployed once and can be referenced by multiple accounts,
-    /// saving storage costs. Two modes are available:
+    /// saving storage costs. Two modes are available via [`PublishMode`]:
     ///
-    /// - `by_hash = false` (default): Contract is identified by the signer's account ID.
-    ///   The signer can update the contract later, and all users will automatically
-    ///   use the updated version.
-    ///
-    /// - `by_hash = true`: Contract is identified by its code hash. This creates
-    ///   an immutable contract that cannot be updated.
+    /// - [`PublishMode::Updatable`]: the contract is identified by the publisher's
+    ///   account and can be updated by publishing new code from the same account.
+    /// - [`PublishMode::Immutable`]: the contract is identified by its code hash and
+    ///   cannot be updated once published.
     ///
     /// # Example
     ///
@@ -502,27 +500,27 @@ impl TransactionBuilder {
     ///
     /// // Publish updatable contract (identified by your account)
     /// near.transaction("alice.testnet")
-    ///     .publish_contract(wasm_code.clone(), false)
+    ///     .publish(wasm_code.clone(), PublishMode::Updatable)
     ///     .send()
     ///     .await?;
     ///
     /// // Publish immutable contract (identified by its hash)
     /// near.transaction("alice.testnet")
-    ///     .publish_contract(wasm_code, true)
+    ///     .publish(wasm_code, PublishMode::Immutable)
     ///     .send()
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn publish_contract(mut self, code: impl Into<Vec<u8>>, by_hash: bool) -> Self {
-        self.actions
-            .push(Action::publish_contract(code.into(), by_hash));
+    pub fn publish(mut self, code: impl Into<Vec<u8>>, mode: PublishMode) -> Self {
+        self.actions.push(Action::publish(code.into(), mode));
         self
     }
 
-    /// Deploy a contract from the global registry by code hash.
+    /// Deploy a contract from the global registry.
     ///
-    /// References a previously published immutable contract.
+    /// Accepts any [`GlobalContractRef`] (such as a [`CryptoHash`] or an account ID
+    /// string/[`AccountId`]) to reference a previously published contract.
     ///
     /// # Example
     ///
@@ -530,39 +528,18 @@ impl TransactionBuilder {
     /// # use near_kit::*;
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
     /// near.transaction("alice.testnet")
-    ///     .deploy_from_hash(code_hash)
+    ///     .deploy_from(code_hash)
     ///     .send()
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn deploy_from_hash(mut self, code_hash: CryptoHash) -> Self {
-        self.actions.push(Action::deploy_from_hash(code_hash));
-        self
-    }
-
-    /// Deploy a contract from the global registry by publisher account.
-    ///
-    /// References a contract published by the given account.
-    /// The contract can be updated by the publisher.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
-    /// near.transaction("alice.testnet")
-    ///     .deploy_from_publisher("contract-publisher.near")
-    ///     .send()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn deploy_from_publisher(mut self, publisher_id: impl TryIntoAccountId) -> Self {
-        let publisher_id = publisher_id
-            .try_into_account_id()
-            .expect("invalid account ID");
-        self.actions.push(Action::deploy_from_account(publisher_id));
+    pub fn deploy_from(mut self, contract_ref: impl GlobalContractRef) -> Self {
+        let identifier = contract_ref.into_identifier();
+        self.actions.push(match identifier {
+            GlobalContractIdentifier::CodeHash(hash) => Action::deploy_from_hash(hash),
+            GlobalContractIdentifier::AccountId(id) => Action::deploy_from_account(id),
+        });
         self
     }
 
@@ -1194,18 +1171,13 @@ impl CallBuilder {
     }
 
     /// Publish a contract to the global registry.
-    pub fn publish_contract(self, code: impl Into<Vec<u8>>, by_hash: bool) -> TransactionBuilder {
-        self.finish().publish_contract(code, by_hash)
+    pub fn publish(self, code: impl Into<Vec<u8>>, mode: PublishMode) -> TransactionBuilder {
+        self.finish().publish(code, mode)
     }
 
-    /// Deploy a contract from the global registry by code hash.
-    pub fn deploy_from_hash(self, code_hash: CryptoHash) -> TransactionBuilder {
-        self.finish().deploy_from_hash(code_hash)
-    }
-
-    /// Deploy a contract from the global registry by publisher account.
-    pub fn deploy_from_publisher(self, publisher_id: impl TryIntoAccountId) -> TransactionBuilder {
-        self.finish().deploy_from_publisher(publisher_id)
+    /// Deploy a contract from the global registry.
+    pub fn deploy_from(self, contract_ref: impl GlobalContractRef) -> TransactionBuilder {
+        self.finish().deploy_from(contract_ref)
     }
 
     /// Create a NEP-616 deterministic state init action.

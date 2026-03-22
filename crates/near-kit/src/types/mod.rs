@@ -64,8 +64,9 @@ pub use action::{
     DeleteAccountAction, DeleteKeyAction, DeployContractAction, DeployGlobalContractAction,
     DeterministicAccountStateInit, DeterministicAccountStateInitV1, DeterministicStateInitAction,
     FunctionCallAction, FunctionCallPermission, GasKeyInfo, GlobalContractDeployMode,
-    GlobalContractIdentifier, NonDelegateAction, SignedDelegateAction, StakeAction, TransferAction,
-    TransferToGasKeyAction, UseGlobalContractAction, WithdrawFromGasKeyAction,
+    GlobalContractIdentifier, GlobalContractRef, NonDelegateAction, PublishMode,
+    SignedDelegateAction, StakeAction, TransferAction, TransferToGasKeyAction,
+    UseGlobalContractAction, WithdrawFromGasKeyAction,
 };
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{
