@@ -3,20 +3,21 @@
 //! Prevents nonce collisions when sending multiple transactions in parallel
 //! by caching nonces in memory and incrementing them atomically.
 
-use std::collections::HashMap;
-use std::future::Future;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{collections::HashMap, sync::Mutex};
+
+use near_account_id::AccountId;
+
+use crate::PublicKey;
+
+type Network = String;
 
 /// Manages nonces for concurrent transactions.
 ///
 /// Prevents nonce collisions when sending multiple transactions in parallel
 /// by caching nonces in memory and incrementing them atomically.
 pub struct NonceManager {
-    /// Cached nonces: key = "accountId:publicKey", value = next nonce to use
-    /// We use AtomicU64 for lock-free increment after initial fetch.
-    /// Value of 0 means "not initialized" (valid nonces start at 1+).
-    nonces: Mutex<HashMap<String, AtomicU64>>,
+    /// Cached nonces: value = last nonce handed out for this key.
+    nonces: Mutex<HashMap<(Network, AccountId, PublicKey), u64>>,
 }
 
 impl Default for NonceManager {
@@ -35,132 +36,24 @@ impl NonceManager {
 
     /// Get the next nonce for an account and public key on a specific network.
     ///
-    /// Fetches from blockchain on first call, then increments atomically.
-    /// Nonces are cached per `(network, account_id, public_key)` tuple so the
-    /// same signer used against different RPC endpoints won't share state.
-    ///
-    /// # Arguments
-    ///
-    /// * `network` - Network identifier (typically the RPC URL) used to scope the cache
-    /// * `account_id` - Account ID to get nonce for
-    /// * `public_key` - Public key string (e.g., "ed25519:...")
-    /// * `fetch_from_blockchain` - Callback to fetch current nonce from blockchain
-    ///
-    /// # Returns
-    ///
-    /// Next nonce to use for transaction
-    pub async fn get_next_nonce<F, Fut>(
+    /// Takes the current blockchain nonce (from `view_access_key`) and returns
+    /// `max(cached, blockchain_nonce) + 1`. This handles both the initial fetch
+    /// and concurrent increments: when multiple transactions race, the cached
+    /// value stays ahead of the (stale) chain nonce.
+    pub fn next(
         &self,
-        network: &str,
-        account_id: &str,
-        public_key: &str,
-        fetch_from_blockchain: F,
-    ) -> Result<u64, crate::Error>
-    where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = Result<u64, crate::Error>>,
-    {
-        let key = format!("{}:{}:{}", network, account_id, public_key);
-        let span = tracing::debug_span!("get_nonce", account_id, public_key);
-        let _enter = span.enter();
-
-        // Fast path: check if we already have a cached nonce
-        {
-            let nonces = self.nonces.lock().unwrap();
-            if let Some(atomic) = nonces.get(&key) {
-                // Atomically increment and return the previous value
-                let nonce = atomic.fetch_add(1, Ordering::SeqCst);
-                tracing::debug!(nonce, "Nonce from cache");
-                return Ok(nonce);
-            }
-        }
-
-        // Slow path: need to fetch from blockchain
-        tracing::debug!("Fetching nonce from RPC");
-        // Drop the span guard before the async call
-        drop(_enter);
-        let blockchain_nonce = fetch_from_blockchain().await?;
-        let _enter = span.enter();
-        let next_nonce = blockchain_nonce + 1;
-
-        // Store the nonce (next_nonce + 1 for future calls)
-        {
-            let mut nonces = self.nonces.lock().unwrap();
-            // Check again in case another task beat us to it
-            if let Some(atomic) = nonces.get(&key) {
-                // Someone else already inserted, use theirs
-                let nonce = atomic.fetch_add(1, Ordering::SeqCst);
-                tracing::debug!(nonce, "Nonce from cache (race)");
-                return Ok(nonce);
-            }
-            // Insert with value = next_nonce + 1 (what the NEXT caller should get)
-            nonces.insert(key, AtomicU64::new(next_nonce + 1));
-        }
-
-        tracing::debug!(nonce = next_nonce, "Nonce acquired from RPC");
-        Ok(next_nonce)
-    }
-
-    /// Invalidate cached nonce for an account and public key on a specific network.
-    ///
-    /// Call this when an InvalidNonceError occurs to force a fresh fetch
-    /// from the blockchain on the next transaction. The `network` parameter
-    /// must match the value used when the nonce was originally cached.
-    #[allow(dead_code)]
-    pub fn invalidate(&self, network: &str, account_id: &str, public_key: &str) {
-        let key = format!("{}:{}:{}", network, account_id, public_key);
-        let mut nonces = self.nonces.lock().unwrap();
-        nonces.remove(&key);
-    }
-
-    /// Update the cached nonce to a known value on a specific network.
-    ///
-    /// Use this when you receive an InvalidNonce error with `ak_nonce` -
-    /// instead of invalidating and refetching, directly set the nonce
-    /// to avoid thundering herd on retry.
-    ///
-    /// # Arguments
-    ///
-    /// * `network` - Network identifier (typically the RPC URL) used to scope the cache
-    /// * `account_id` - Account ID
-    /// * `public_key` - Public key string (e.g., "ed25519:...")
-    /// * `current_nonce` - The current nonce on chain (ak_nonce from error)
-    ///
-    /// # Returns
-    ///
-    /// The next nonce to use (current_nonce + 1)
-    pub fn update_and_get_next(
-        &self,
-        network: &str,
-        account_id: &str,
-        public_key: &str,
-        current_nonce: u64,
+        network: impl Into<Network>,
+        account_id: AccountId,
+        public_key: PublicKey,
+        blockchain_nonce: u64,
     ) -> u64 {
-        let key = format!("{}:{}:{}", network, account_id, public_key);
-        let next_nonce = current_nonce + 1;
-        tracing::debug!(
-            account_id = account_id,
-            nonce = next_nonce,
-            "Nonce updated from error"
-        );
-
         let mut nonces = self.nonces.lock().unwrap();
-        if let Some(atomic) = nonces.get(&key) {
-            // Update to max of current cached value and new value
-            // This handles case where another worker already advanced past this nonce
-            let cached = atomic.load(Ordering::SeqCst);
-            if next_nonce > cached {
-                atomic.store(next_nonce + 1, Ordering::SeqCst);
-                return next_nonce;
-            } else {
-                // Cached value is already higher, use it
-                return atomic.fetch_add(1, Ordering::SeqCst);
-            }
-        }
-
-        // No entry, create one
-        nonces.insert(key, AtomicU64::new(next_nonce + 1));
-        next_nonce
+        let nonce = nonces
+            .entry((network.into(), account_id, public_key))
+            .and_modify(|n| *n = (*n).max(blockchain_nonce))
+            .or_insert(blockchain_nonce);
+        *nonce += 1;
+        *nonce
     }
 }
 
@@ -168,174 +61,229 @@ impl NonceManager {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_nonce_manager_caching() {
+    #[test]
+    fn test_nonce_manager_caching() {
         let manager = NonceManager::new();
 
-        // First call should fetch from blockchain
-        let nonce1 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
-                Ok(10)
-            })
-            .await
-            .unwrap();
-        assert_eq!(nonce1, 11); // blockchain nonce + 1
+        // First call: blockchain nonce is 10, should return 11
+        let nonce1 = manager.next(
+            "testnet",
+            "alice.testnet".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            10,
+        );
+        assert_eq!(nonce1, 11);
 
-        // Second call should use cached value
-        let nonce2 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
-                panic!("Should not fetch again!")
-            })
-            .await
-            .unwrap();
-        assert_eq!(nonce2, 12); // incremented
+        // Second call: blockchain nonce still 10 (stale), cached is 11, should return 12
+        let nonce2 = manager.next(
+            "testnet",
+            "alice.testnet".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            10,
+        );
+        assert_eq!(nonce2, 12);
 
         // Third call
-        let nonce3 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
-                panic!("Should not fetch again!")
-            })
-            .await
-            .unwrap();
+        let nonce3 = manager.next(
+            "testnet",
+            "alice.testnet".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            10,
+        );
         assert_eq!(nonce3, 13);
     }
 
-    #[tokio::test]
-    async fn test_nonce_manager_invalidate() {
+    #[test]
+    fn test_chain_catches_up() {
         let manager = NonceManager::new();
 
-        // Fetch initial nonce
-        let nonce1 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
-                Ok(10)
-            })
-            .await
-            .unwrap();
+        let nonce1 = manager.next(
+            "testnet",
+            "alice.testnet".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            10,
+        );
         assert_eq!(nonce1, 11);
 
-        // Invalidate
-        manager.invalidate("testnet", "alice.testnet", "ed25519:abc");
-
-        // Next call should fetch again
-        let nonce2 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
-                Ok(15)
-            })
-            .await
-            .unwrap();
-        assert_eq!(nonce2, 16); // Fresh fetch
+        // Chain advanced past our cache (e.g. another client sent txs)
+        let nonce2 = manager.next(
+            "testnet",
+            "alice.testnet".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            15,
+        );
+        assert_eq!(nonce2, 16); // max(11, 15) + 1
     }
 
-    #[tokio::test]
-    async fn test_nonce_manager_different_keys() {
+    #[test]
+    fn test_different_keys() {
         let manager = NonceManager::new();
 
-        let nonce_alice = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
-                Ok(10)
-            })
-            .await
-            .unwrap();
+        let nonce_alice = manager.next(
+            "testnet",
+            "alice.testnet".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            10,
+        );
         assert_eq!(nonce_alice, 11);
 
-        let nonce_bob = manager
-            .get_next_nonce("testnet", "bob.testnet", "ed25519:xyz", || async { Ok(20) })
-            .await
-            .unwrap();
+        let nonce_bob = manager.next(
+            "testnet",
+            "bob.testnet".parse().unwrap(),
+            "ed25519:22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV"
+                .parse()
+                .unwrap(),
+            20,
+        );
         assert_eq!(nonce_bob, 21);
 
-        // Alice's nonce should still increment
-        let nonce_alice2 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
-                panic!("Should not fetch!")
-            })
-            .await
-            .unwrap();
+        // Alice's nonce should still increment from cache
+        let nonce_alice2 = manager.next(
+            "testnet",
+            "alice.testnet".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            10,
+        );
         assert_eq!(nonce_alice2, 12);
     }
 
-    #[tokio::test]
-    async fn test_nonce_manager_different_networks() {
+    #[test]
+    fn test_different_networks() {
         let manager = NonceManager::new();
 
-        // Same account+key on testnet
-        let nonce_testnet = manager
-            .get_next_nonce("testnet", "alice.near", "ed25519:abc", || async { Ok(10) })
-            .await
-            .unwrap();
+        let nonce_testnet = manager.next(
+            "testnet",
+            "alice.near".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            10,
+        );
         assert_eq!(nonce_testnet, 11);
 
-        // Same account+key on mainnet should fetch separately
-        let nonce_mainnet = manager
-            .get_next_nonce("mainnet", "alice.near", "ed25519:abc", || async { Ok(50) })
-            .await
-            .unwrap();
+        // Same account+key on mainnet should be separate
+        let nonce_mainnet = manager.next(
+            "mainnet",
+            "alice.near".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            50,
+        );
         assert_eq!(nonce_mainnet, 51);
 
         // Testnet should still increment from its own cache
-        let nonce_testnet2 = manager
-            .get_next_nonce("testnet", "alice.near", "ed25519:abc", || async {
-                panic!("Should not fetch!")
-            })
-            .await
-            .unwrap();
+        let nonce_testnet2 = manager.next(
+            "testnet",
+            "alice.near".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            10,
+        );
         assert_eq!(nonce_testnet2, 12);
     }
 
-    #[tokio::test]
-    async fn test_nonce_manager_update_and_get_next() {
+    #[test]
+    fn test_ak_nonce_from_error() {
         let manager = NonceManager::new();
 
-        // First call - no entry exists
-        let nonce1 = manager.update_and_get_next("testnet", "alice.testnet", "ed25519:abc", 100);
-        assert_eq!(nonce1, 101); // current_nonce + 1
+        // Simulate: sent tx with nonce 11, got InvalidNonce with ak_nonce=100
+        let nonce1 = manager.next(
+            "testnet",
+            "alice.testnet".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            10,
+        );
+        assert_eq!(nonce1, 11);
 
-        // Second call - entry exists, should increment
-        let nonce2 = manager.update_and_get_next("testnet", "alice.testnet", "ed25519:abc", 100);
-        // Should use cached value (102) since it's higher than 101
-        assert_eq!(nonce2, 102);
+        // Retry with ak_nonce from error (higher than cache)
+        let nonce2 = manager.next(
+            "testnet",
+            "alice.testnet".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            100,
+        );
+        assert_eq!(nonce2, 101);
 
-        // Third call with higher ak_nonce - should update cache
-        let nonce3 = manager.update_and_get_next("testnet", "alice.testnet", "ed25519:abc", 110);
-        assert_eq!(nonce3, 111); // New current_nonce + 1
-
-        // Fourth call - should use updated cache
-        let nonce4 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
-                panic!("Should not fetch!")
-            })
-            .await
-            .unwrap();
-        assert_eq!(nonce4, 112); // Incremented from 112
+        // Subsequent call, chain still stale
+        let nonce3 = manager.next(
+            "testnet",
+            "alice.testnet".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            100,
+        );
+        assert_eq!(nonce3, 102);
     }
 
-    #[tokio::test]
-    async fn test_nonce_manager_update_respects_higher_cached() {
+    #[test]
+    fn test_lower_ak_nonce_uses_cache() {
         let manager = NonceManager::new();
 
-        // Setup: get some nonces to advance the cache
-        let _ = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
-                Ok(100)
-            })
-            .await
-            .unwrap(); // Returns 101, cache has 102
-        let _ = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
-                panic!("no fetch")
-            })
-            .await
-            .unwrap(); // Returns 102, cache has 103
-        let _ = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
-                panic!("no fetch")
-            })
-            .await
-            .unwrap(); // Returns 103, cache has 104
+        // Build up cache
+        assert_eq!(
+            manager.next(
+                "testnet",
+                "alice.testnet".parse().unwrap(),
+                "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                    .parse()
+                    .unwrap(),
+                100,
+            ),
+            101
+        );
+        assert_eq!(
+            manager.next(
+                "testnet",
+                "alice.testnet".parse().unwrap(),
+                "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                    .parse()
+                    .unwrap(),
+                100,
+            ),
+            102
+        );
+        assert_eq!(
+            manager.next(
+                "testnet",
+                "alice.testnet".parse().unwrap(),
+                "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                    .parse()
+                    .unwrap(),
+                100,
+            ),
+            103
+        );
 
-        // Now update with a LOWER ak_nonce - should use cached value
-        let nonce = manager.update_and_get_next("testnet", "alice.testnet", "ed25519:abc", 100);
-        // Cache had 104, which is higher than 101, so use cached
-        assert_eq!(nonce, 104);
+        // Lower chain nonce — cache should win
+        let nonce = manager.next(
+            "testnet",
+            "alice.testnet".parse().unwrap(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+            100,
+        );
+        assert_eq!(nonce, 104); // max(103, 100) + 1
     }
 }
