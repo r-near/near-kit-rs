@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.6.0...near-kit-macros-v0.7.0) - 2026-03-22
+
+### Added
+
+- [**breaking**] composable typed contract calls via FunctionCall constructors ([#100](https://github.com/r-near/near-kit-rs/pull/100))
+
 ## [0.6.0](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.5.1...near-kit-macros-v0.6.0) - 2026-03-19
 
 ### Added
