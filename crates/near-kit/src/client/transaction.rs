@@ -690,7 +690,6 @@ impl TransactionBuilder {
             // key in rotation. The key contains both the public key and signing capability.
             let key = signer.key();
             let public_key = key.public_key().clone();
-            let public_key_str = public_key.to_string();
 
             // Single view_access_key call provides both nonce and block_hash.
             // Uses Finality::Final for block hash stability.
@@ -703,14 +702,14 @@ impl TransactionBuilder {
                 )
                 .await?;
             let block_hash = access_key.block_hash;
-            let chain_nonce = access_key.nonce;
 
             let network = self.rpc.url().to_string();
-            let nonce = nonce_manager()
-                .get_next_nonce(&network, signer_id.as_ref(), &public_key_str, || async {
-                    Ok(chain_nonce)
-                })
-                .await?;
+            let nonce = nonce_manager().next(
+                network,
+                signer_id.clone(),
+                public_key.clone(),
+                access_key.nonce,
+            );
 
             // Build transaction
             let tx = Transaction::new(
@@ -1306,7 +1305,6 @@ impl IntoFuture for TransactionSend {
                     // Get a signing key atomically for this attempt
                     let key = signer.key();
                     let public_key = key.public_key().clone();
-                    let public_key_str = public_key.to_string();
 
                     // Single view_access_key call provides both nonce and block_hash.
                     // Uses Finality::Final for block hash stability.
@@ -1320,26 +1318,16 @@ impl IntoFuture for TransactionSend {
                         .await?;
                     let block_hash = access_key.block_hash;
 
-                    // Resolve nonce: use ak_nonce from InvalidNonce error if
-                    // available, otherwise use the nonce manager (which caches
-                    // locally after the first fetch).
-                    let nonce = if let Some(ak_nonce) = last_ak_nonce.take() {
-                        nonce_manager().update_and_get_next(
-                            &network,
-                            signer_id.as_ref(),
-                            &public_key_str,
-                            ak_nonce,
-                        )
-                    } else {
-                        nonce_manager()
-                            .get_next_nonce(
-                                &network,
-                                signer_id.as_ref(),
-                                &public_key_str,
-                                || async { Ok(access_key.nonce) },
-                            )
-                            .await?
-                    };
+                    // Resolve nonce: prefer ak_nonce from a prior InvalidNonce
+                    // error (more recent than the view_access_key result), then
+                    // fall back to the chain nonce. The nonce manager takes
+                    // max(cached, provided) so stale values are harmless.
+                    let nonce = nonce_manager().next(
+                        network.clone(),
+                        signer_id.clone(),
+                        public_key.clone(),
+                        last_ak_nonce.take().unwrap_or(access_key.nonce),
+                    );
 
                     // Build transaction
                     let tx = Transaction::new(
@@ -1410,13 +1398,9 @@ impl IntoFuture for TransactionSend {
                                 "Transaction expired (stale block hash), retrying with fresh block hash"
                             );
                             // Expired tx was rejected before nonce consumption.
-                            // Invalidate the nonce cache so the next iteration re-fetches
-                            // via view_access_key, which gives both a fresh nonce and block_hash.
-                            nonce_manager().invalidate(
-                                &network,
-                                signer_id.as_ref(),
-                                &public_key_str,
-                            );
+                            // No cache invalidation needed: the next iteration calls
+                            // view_access_key which provides a fresh nonce, and
+                            // next() uses max(cached, chain) so stale cache is harmless.
                             last_error = Some(Error::InvalidTx(Box::new(
                                 crate::types::InvalidTxError::Expired,
                             )));

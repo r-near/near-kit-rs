@@ -138,10 +138,6 @@ async fn test_send_transaction_span_hierarchy() {
     // Verify key child spans are nested under send_transaction
     let children = captured.children_of("send_transaction");
     assert!(
-        children.contains(&"get_nonce"),
-        "expected 'get_nonce' as child of 'send_transaction', got: {children:?}"
-    );
-    assert!(
         children.contains(&"send_tx"),
         "expected 'send_tx' (RPC) as child of 'send_transaction', got: {children:?}"
     );
@@ -183,10 +179,6 @@ async fn test_sign_transaction_span_hierarchy() {
     );
 
     let children = captured.children_of("sign_transaction");
-    assert!(
-        children.contains(&"get_nonce"),
-        "expected 'get_nonce' as child of 'sign_transaction', got: {children:?}"
-    );
     assert!(
         children.contains(&"view_access_key"),
         "expected 'view_access_key' as child of 'sign_transaction', got: {children:?}"
