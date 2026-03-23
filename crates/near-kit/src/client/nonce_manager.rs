@@ -1,20 +1,19 @@
 //! Nonce manager for concurrent transaction handling.
 //!
 //! Prevents nonce collisions when sending multiple transactions in parallel
-//! by caching nonces in memory and incrementing them atomically.
+//! by caching nonces in memory and incrementing them under a lock.
 
 use std::{collections::HashMap, sync::Mutex};
 
-use near_account_id::AccountId;
-
 use crate::PublicKey;
+use crate::types::AccountId;
 
 type Network = String;
 
 /// Manages nonces for concurrent transactions.
 ///
 /// Prevents nonce collisions when sending multiple transactions in parallel
-/// by caching nonces in memory and incrementing them atomically.
+/// by caching nonces in memory and incrementing them under a lock.
 pub struct NonceManager {
     /// Cached nonces: value = last nonce handed out for this key.
     nonces: Mutex<HashMap<(Network, AccountId, PublicKey), u64>>,
