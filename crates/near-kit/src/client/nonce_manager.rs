@@ -3,20 +3,21 @@
 //! Prevents nonce collisions when sending multiple transactions in parallel
 //! by caching nonces in memory and incrementing them atomically.
 
-use std::collections::HashMap;
-use std::future::Future;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{collections::HashMap, sync::Mutex};
+
+use near_account_id::AccountId;
+
+use crate::PublicKey;
+
+pub type Network = String;
 
 /// Manages nonces for concurrent transactions.
 ///
 /// Prevents nonce collisions when sending multiple transactions in parallel
 /// by caching nonces in memory and incrementing them atomically.
 pub struct NonceManager {
-    /// Cached nonces: key = "accountId:publicKey", value = next nonce to use
-    /// We use AtomicU64 for lock-free increment after initial fetch.
-    /// Value of 0 means "not initialized" (valid nonces start at 1+).
-    nonces: Mutex<HashMap<String, AtomicU64>>,
+    /// Cached nonces, value = last nonce used on this key
+    nonces: Mutex<HashMap<(Network, AccountId, PublicKey), u64>>,
 }
 
 impl Default for NonceManager {
@@ -49,118 +50,22 @@ impl NonceManager {
     /// # Returns
     ///
     /// Next nonce to use for transaction
-    pub async fn get_next_nonce<F, Fut>(
+    pub fn next(
         &self,
-        network: &str,
-        account_id: &str,
-        public_key: &str,
-        fetch_from_blockchain: F,
-    ) -> Result<u64, crate::Error>
-    where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = Result<u64, crate::Error>>,
-    {
-        let key = format!("{}:{}:{}", network, account_id, public_key);
-        let span = tracing::debug_span!("get_nonce", account_id, public_key);
-        let _enter = span.enter();
-
-        // Fast path: check if we already have a cached nonce
-        {
-            let nonces = self.nonces.lock().unwrap();
-            if let Some(atomic) = nonces.get(&key) {
-                // Atomically increment and return the previous value
-                let nonce = atomic.fetch_add(1, Ordering::SeqCst);
-                tracing::debug!(nonce, "Nonce from cache");
-                return Ok(nonce);
-            }
-        }
-
-        // Slow path: need to fetch from blockchain
-        tracing::debug!("Fetching nonce from RPC");
-        // Drop the span guard before the async call
-        drop(_enter);
-        let blockchain_nonce = fetch_from_blockchain().await?;
-        let _enter = span.enter();
-        let next_nonce = blockchain_nonce + 1;
-
-        // Store the nonce (next_nonce + 1 for future calls)
-        {
-            let mut nonces = self.nonces.lock().unwrap();
-            // Check again in case another task beat us to it
-            if let Some(atomic) = nonces.get(&key) {
-                // Someone else already inserted, use theirs
-                let nonce = atomic.fetch_add(1, Ordering::SeqCst);
-                tracing::debug!(nonce, "Nonce from cache (race)");
-                return Ok(nonce);
-            }
-            // Insert with value = next_nonce + 1 (what the NEXT caller should get)
-            nonces.insert(key, AtomicU64::new(next_nonce + 1));
-        }
-
-        tracing::debug!(nonce = next_nonce, "Nonce acquired from RPC");
-        Ok(next_nonce)
-    }
-
-    /// Invalidate cached nonce for an account and public key on a specific network.
-    ///
-    /// Call this when an InvalidNonceError occurs to force a fresh fetch
-    /// from the blockchain on the next transaction. The `network` parameter
-    /// must match the value used when the nonce was originally cached.
-    #[allow(dead_code)]
-    pub fn invalidate(&self, network: &str, account_id: &str, public_key: &str) {
-        let key = format!("{}:{}:{}", network, account_id, public_key);
-        let mut nonces = self.nonces.lock().unwrap();
-        nonces.remove(&key);
-    }
-
-    /// Update the cached nonce to a known value on a specific network.
-    ///
-    /// Use this when you receive an InvalidNonce error with `ak_nonce` -
-    /// instead of invalidating and refetching, directly set the nonce
-    /// to avoid thundering herd on retry.
-    ///
-    /// # Arguments
-    ///
-    /// * `network` - Network identifier (typically the RPC URL) used to scope the cache
-    /// * `account_id` - Account ID
-    /// * `public_key` - Public key string (e.g., "ed25519:...")
-    /// * `current_nonce` - The current nonce on chain (ak_nonce from error)
-    ///
-    /// # Returns
-    ///
-    /// The next nonce to use (current_nonce + 1)
-    pub fn update_and_get_next(
-        &self,
-        network: &str,
-        account_id: &str,
-        public_key: &str,
-        current_nonce: u64,
+        network: Network,
+        account_id: AccountId,
+        public_key: PublicKey,
+        blockchain_nonce: u64,
     ) -> u64 {
-        let key = format!("{}:{}:{}", network, account_id, public_key);
-        let next_nonce = current_nonce + 1;
-        tracing::debug!(
-            account_id = account_id,
-            nonce = next_nonce,
-            "Nonce updated from error"
-        );
-
         let mut nonces = self.nonces.lock().unwrap();
-        if let Some(atomic) = nonces.get(&key) {
-            // Update to max of current cached value and new value
-            // This handles case where another worker already advanced past this nonce
-            let cached = atomic.load(Ordering::SeqCst);
-            if next_nonce > cached {
-                atomic.store(next_nonce + 1, Ordering::SeqCst);
-                return next_nonce;
-            } else {
-                // Cached value is already higher, use it
-                return atomic.fetch_add(1, Ordering::SeqCst);
-            }
-        }
-
-        // No entry, create one
-        nonces.insert(key, AtomicU64::new(next_nonce + 1));
-        next_nonce
+        let nonce = nonces
+            .entry((network, account_id, public_key))
+            .and_modify(|nonce| {
+                *nonce = (*nonce).max(blockchain_nonce);
+            })
+            .or_insert(blockchain_nonce);
+        *nonce += 1;
+        *nonce
     }
 }
 
@@ -174,7 +79,7 @@ mod tests {
 
         // First call should fetch from blockchain
         let nonce1 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
+            .next("testnet", "alice.testnet", "ed25519:abc", || async {
                 Ok(10)
             })
             .await
@@ -183,7 +88,7 @@ mod tests {
 
         // Second call should use cached value
         let nonce2 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
+            .next("testnet", "alice.testnet", "ed25519:abc", || async {
                 panic!("Should not fetch again!")
             })
             .await
@@ -192,7 +97,7 @@ mod tests {
 
         // Third call
         let nonce3 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
+            .next("testnet", "alice.testnet", "ed25519:abc", || async {
                 panic!("Should not fetch again!")
             })
             .await
@@ -206,7 +111,7 @@ mod tests {
 
         // Fetch initial nonce
         let nonce1 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
+            .next("testnet", "alice.testnet", "ed25519:abc", || async {
                 Ok(10)
             })
             .await
@@ -218,7 +123,7 @@ mod tests {
 
         // Next call should fetch again
         let nonce2 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
+            .next("testnet", "alice.testnet", "ed25519:abc", || async {
                 Ok(15)
             })
             .await
@@ -231,7 +136,7 @@ mod tests {
         let manager = NonceManager::new();
 
         let nonce_alice = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
+            .next("testnet", "alice.testnet", "ed25519:abc", || async {
                 Ok(10)
             })
             .await
@@ -239,14 +144,14 @@ mod tests {
         assert_eq!(nonce_alice, 11);
 
         let nonce_bob = manager
-            .get_next_nonce("testnet", "bob.testnet", "ed25519:xyz", || async { Ok(20) })
+            .next("testnet", "bob.testnet", "ed25519:xyz", || async { Ok(20) })
             .await
             .unwrap();
         assert_eq!(nonce_bob, 21);
 
         // Alice's nonce should still increment
         let nonce_alice2 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
+            .next("testnet", "alice.testnet", "ed25519:abc", || async {
                 panic!("Should not fetch!")
             })
             .await
@@ -260,21 +165,21 @@ mod tests {
 
         // Same account+key on testnet
         let nonce_testnet = manager
-            .get_next_nonce("testnet", "alice.near", "ed25519:abc", || async { Ok(10) })
+            .next("testnet", "alice.near", "ed25519:abc", || async { Ok(10) })
             .await
             .unwrap();
         assert_eq!(nonce_testnet, 11);
 
         // Same account+key on mainnet should fetch separately
         let nonce_mainnet = manager
-            .get_next_nonce("mainnet", "alice.near", "ed25519:abc", || async { Ok(50) })
+            .next("mainnet", "alice.near", "ed25519:abc", || async { Ok(50) })
             .await
             .unwrap();
         assert_eq!(nonce_mainnet, 51);
 
         // Testnet should still increment from its own cache
         let nonce_testnet2 = manager
-            .get_next_nonce("testnet", "alice.near", "ed25519:abc", || async {
+            .next("testnet", "alice.near", "ed25519:abc", || async {
                 panic!("Should not fetch!")
             })
             .await
@@ -301,7 +206,7 @@ mod tests {
 
         // Fourth call - should use updated cache
         let nonce4 = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
+            .next("testnet", "alice.testnet", "ed25519:abc", || async {
                 panic!("Should not fetch!")
             })
             .await
@@ -315,19 +220,19 @@ mod tests {
 
         // Setup: get some nonces to advance the cache
         let _ = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
+            .next("testnet", "alice.testnet", "ed25519:abc", || async {
                 Ok(100)
             })
             .await
             .unwrap(); // Returns 101, cache has 102
         let _ = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
+            .next("testnet", "alice.testnet", "ed25519:abc", || async {
                 panic!("no fetch")
             })
             .await
             .unwrap(); // Returns 102, cache has 103
         let _ = manager
-            .get_next_nonce("testnet", "alice.testnet", "ed25519:abc", || async {
+            .next("testnet", "alice.testnet", "ed25519:abc", || async {
                 panic!("no fetch")
             })
             .await
