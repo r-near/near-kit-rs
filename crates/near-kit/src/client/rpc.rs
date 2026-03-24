@@ -631,6 +631,30 @@ impl RpcClient {
     ///     }
     /// ])).await?;
     /// ```
+    /// Fast-forward the sandbox by `delta_height` blocks.
+    ///
+    /// This is useful for testing time-dependent logic (e.g., lockups, staking
+    /// epoch changes) without waiting for real block production.
+    ///
+    /// **Note:** This can take a while for large deltas — the sandbox node
+    /// internally produces all intermediate blocks. The RPC call will block
+    /// until fast-forwarding completes (up to 1 hour server-side timeout).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Advance the sandbox by 1000 blocks
+    /// rpc.sandbox_fast_forward(1000).await?;
+    /// ```
+    pub async fn sandbox_fast_forward(&self, delta_height: u64) -> Result<(), RpcError> {
+        let params = serde_json::json!({
+            "delta_height": delta_height,
+        });
+
+        let _: serde_json::Value = self.call("sandbox_fast_forward", params).await?;
+        Ok(())
+    }
+
     pub async fn sandbox_patch_state(&self, records: serde_json::Value) -> Result<(), RpcError> {
         let params = serde_json::json!({
             "records": records,

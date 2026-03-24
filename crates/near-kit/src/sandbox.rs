@@ -343,6 +343,27 @@ impl Sandbox {
             .await
             .map_err(|e| crate::Error::Rpc(Box::new(e)))
     }
+
+    /// Fast-forward the sandbox by `delta_height` blocks.
+    ///
+    /// Useful for testing time-dependent logic (e.g., lockups, staking epoch
+    /// changes) without waiting for real block production.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use near_kit::sandbox::SandboxConfig;
+    ///
+    /// let sandbox = SandboxConfig::shared().await;
+    /// sandbox.fast_forward(1000).await?;
+    /// ```
+    pub async fn fast_forward(&self, delta_height: u64) -> Result<(), crate::Error> {
+        self.client()
+            .rpc()
+            .sandbox_fast_forward(delta_height)
+            .await?;
+        Ok(())
+    }
 }
 
 impl SandboxNetwork for Sandbox {

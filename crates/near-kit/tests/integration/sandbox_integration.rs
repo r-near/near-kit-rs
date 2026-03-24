@@ -861,3 +861,27 @@ async fn test_sandbox_custom_chain_id() {
     let balance = near.balance("sandbox").await.unwrap();
     assert!(balance.total > NearToken::from_near(1));
 }
+
+#[tokio::test]
+async fn test_sandbox_fast_forward() {
+    let sandbox = SandboxConfig::fresh().await;
+    let near = sandbox.client();
+
+    // Get the current block height
+    let status_before = near.rpc().status().await.unwrap();
+    let height_before = status_before.sync_info.latest_block_height;
+
+    // Fast-forward by 100 blocks
+    sandbox.fast_forward(100).await.unwrap();
+
+    // Verify the block height advanced
+    let status_after = near.rpc().status().await.unwrap();
+    let height_after = status_after.sync_info.latest_block_height;
+
+    assert!(
+        height_after >= height_before + 100,
+        "Expected block height to advance by at least 100: before={}, after={}",
+        height_before,
+        height_after
+    );
+}
