@@ -864,31 +864,19 @@ async fn test_sandbox_custom_chain_id() {
 
 #[tokio::test]
 async fn test_sandbox_fast_forward() {
-    let sandbox = SandboxConfig::shared().await;
+    let sandbox = SandboxConfig::fresh().await;
     let near = sandbox.client();
 
     // Get the current block height
-    let status_before: serde_json::Value = near
-        .rpc()
-        .call("status", serde_json::json!({}))
-        .await
-        .unwrap();
-    let height_before = status_before["sync_info"]["latest_block_height"]
-        .as_u64()
-        .unwrap();
+    let status_before = near.rpc().status().await.unwrap();
+    let height_before = status_before.sync_info.latest_block_height;
 
     // Fast-forward by 100 blocks
     sandbox.fast_forward(100).await.unwrap();
 
     // Verify the block height advanced
-    let status_after: serde_json::Value = near
-        .rpc()
-        .call("status", serde_json::json!({}))
-        .await
-        .unwrap();
-    let height_after = status_after["sync_info"]["latest_block_height"]
-        .as_u64()
-        .unwrap();
+    let status_after = near.rpc().status().await.unwrap();
+    let height_after = status_after.sync_info.latest_block_height;
 
     assert!(
         height_after >= height_before + 100,

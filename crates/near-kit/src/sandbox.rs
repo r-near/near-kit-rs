@@ -361,8 +361,8 @@ impl Sandbox {
         self.client()
             .rpc()
             .sandbox_fast_forward(delta_height)
-            .await
-            .map_err(|e| crate::Error::Rpc(Box::new(e)))
+            .await?;
+        Ok(())
     }
 }
 
