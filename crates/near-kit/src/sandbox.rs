@@ -101,8 +101,11 @@ const RPC_PORT: ContainerPort = ContainerPort::Tcp(3030);
 ///
 /// The image name and tag can be overridden via the `NEAR_SANDBOX_IMAGE`
 /// environment variable (e.g. `NEAR_SANDBOX_IMAGE=my-registry/sandbox:custom`).
-/// When set, the value is split on `:` into image name and tag. If no `:`
-/// is present, the value is used as the image name with the default tag.
+/// The value is split on the last `:` into image name and tag (`name[:tag]`).
+/// If no `:` is present, the value is used as the image name with the default tag.
+///
+/// The image must define a Docker `HEALTHCHECK` instruction for readiness
+/// detection. The default image includes this from version `2.10.7` onward.
 #[derive(Debug, Clone)]
 struct NearSandbox {
     image_name: String,
@@ -119,18 +122,27 @@ impl NearSandbox {
     /// `my-registry/sandbox:custom`).
     fn new(version: &str) -> Self {
         let (image_name, tag) = match std::env::var("NEAR_SANDBOX_IMAGE") {
-            Ok(val) if !val.is_empty() => match val.rsplit_once(':') {
-                Some((name, tag)) => (name.to_owned(), tag.to_owned()),
-                None => (val, version.to_owned()),
-            },
-            _ => (DEFAULT_IMAGE.to_owned(), version.to_owned()),
+            Ok(raw) => {
+                let val = raw.trim();
+                if val.is_empty() {
+                    (DEFAULT_IMAGE.to_owned(), version.to_owned())
+                } else {
+                    match val.rsplit_once(':') {
+                        Some((name, tag)) if !name.is_empty() && !tag.is_empty() => {
+                            (name.to_owned(), tag.to_owned())
+                        }
+                        _ => (val.to_owned(), version.to_owned()),
+                    }
+                }
+            }
+            Err(_) => (DEFAULT_IMAGE.to_owned(), version.to_owned()),
         };
 
         Self {
             image_name,
             tag,
             env_vars: vec![
-                // Enable logging so we can detect the ready condition
+                // Enable sandbox logging for easier debugging
                 ("NEAR_ENABLE_SANDBOX_LOG".to_owned(), "1".to_owned()),
             ],
             copy_to_sources: Vec::new(),
