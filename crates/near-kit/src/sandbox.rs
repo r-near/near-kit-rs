@@ -86,6 +86,7 @@ use crate::client::Near;
 // NearSandbox testcontainers Image (inlined from near-sandbox-testcontainer)
 // ============================================================================
 
+const DEFAULT_IMAGE: &str = "nearprotocol/sandbox";
 const DEFAULT_VERSION: &str = "2.10.7";
 
 /// The RPC port exposed by the NEAR sandbox container.
@@ -98,9 +99,15 @@ const RPC_PORT: ContainerPort = ContainerPort::Tcp(3030);
 /// image's entrypoint (`NEAR_ROOT_ACCOUNT`, `NEAR_CHAIN_ID`,
 /// `NEAR_ENABLE_SANDBOX_LOG`).
 ///
-/// Requires `nearprotocol/sandbox:2.10.7` or later.
+/// The image name and tag can be overridden via the `NEAR_SANDBOX_IMAGE`
+/// environment variable (e.g. `NEAR_SANDBOX_IMAGE=my-registry/sandbox:custom`).
+/// The value is split on the last `:` into image name and tag (`name[:tag]`).
+/// If no `:` is present, the value is used as the image name with the default tag.
+///
+/// The image must define a Docker `HEALTHCHECK` for readiness detection.
 #[derive(Debug, Clone)]
 struct NearSandbox {
+    image_name: String,
     tag: String,
     env_vars: Vec<(String, String)>,
     copy_to_sources: Vec<CopyToContainer>,
@@ -108,11 +115,33 @@ struct NearSandbox {
 
 impl NearSandbox {
     /// Creates a new [`NearSandbox`] image with the given version tag.
+    ///
+    /// The image name and tag can be overridden by setting the
+    /// `NEAR_SANDBOX_IMAGE` environment variable (e.g.
+    /// `my-registry/sandbox:custom`).
     fn new(version: &str) -> Self {
+        let (image_name, tag) = match std::env::var("NEAR_SANDBOX_IMAGE") {
+            Ok(raw) => {
+                let val = raw.trim();
+                if val.is_empty() {
+                    (DEFAULT_IMAGE.to_owned(), version.to_owned())
+                } else {
+                    match val.rsplit_once(':') {
+                        Some((name, tag)) if !name.is_empty() && !tag.is_empty() => {
+                            (name.to_owned(), tag.to_owned())
+                        }
+                        _ => (val.to_owned(), version.to_owned()),
+                    }
+                }
+            }
+            Err(_) => (DEFAULT_IMAGE.to_owned(), version.to_owned()),
+        };
+
         Self {
-            tag: version.to_owned(),
+            image_name,
+            tag,
             env_vars: vec![
-                // Enable logging so we can detect the ready condition
+                // Enable sandbox logging for easier debugging
                 ("NEAR_ENABLE_SANDBOX_LOG".to_owned(), "1".to_owned()),
             ],
             copy_to_sources: Vec::new(),
@@ -140,7 +169,7 @@ impl Default for NearSandbox {
 
 impl Image for NearSandbox {
     fn name(&self) -> &str {
-        "nearprotocol/sandbox"
+        &self.image_name
     }
 
     fn tag(&self) -> &str {
@@ -148,7 +177,7 @@ impl Image for NearSandbox {
     }
 
     fn ready_conditions(&self) -> Vec<WaitFor> {
-        vec![WaitFor::message_on_stderr("Starting http server at")]
+        vec![WaitFor::healthcheck()]
     }
 
     fn env_vars(

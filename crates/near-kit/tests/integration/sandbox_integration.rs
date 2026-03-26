@@ -874,6 +874,10 @@ async fn test_sandbox_fast_forward() {
     // Fast-forward by 100 blocks
     sandbox.fast_forward(100).await.unwrap();
 
+    // The sandbox RPC returns before the fast-forward is fully applied,
+    // so wait briefly for it to finish (known nearcore issue).
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
     // Verify the block height advanced
     let status_after = near.rpc().status().await.unwrap();
     let height_after = status_after.sync_info.latest_block_height;
