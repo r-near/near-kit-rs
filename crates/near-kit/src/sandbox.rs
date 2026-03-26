@@ -103,6 +103,8 @@ const RPC_PORT: ContainerPort = ContainerPort::Tcp(3030);
 /// environment variable (e.g. `NEAR_SANDBOX_IMAGE=my-registry/sandbox:custom`).
 /// The value is split on the last `:` into image name and tag (`name[:tag]`).
 /// If no `:` is present, the value is used as the image name with the default tag.
+///
+/// The image must define a Docker `HEALTHCHECK` for readiness detection.
 #[derive(Debug, Clone)]
 struct NearSandbox {
     image_name: String,
@@ -175,10 +177,7 @@ impl Image for NearSandbox {
     }
 
     fn ready_conditions(&self) -> Vec<WaitFor> {
-        // Use the log message for readiness detection — it works across all
-        // sandbox versions. Images >=2.11 also include a Docker HEALTHCHECK,
-        // but we can't rely on it until we bump the minimum supported version.
-        vec![WaitFor::message_on_stderr("Starting http server at")]
+        vec![WaitFor::healthcheck()]
     }
 
     fn env_vars(
