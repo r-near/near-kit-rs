@@ -359,10 +359,13 @@
 //!
 //! ## Feature Flags
 //!
-//! | Feature | Description |
-//! |---------|-------------|
-//! | `sandbox` | Integration with `near-sandbox` for local testing |
-//! | `keyring` | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
+//! | Feature | Default | Description |
+//! |---------|---------|-------------|
+//! | `file-signer` | Yes | [`FileSigner`] for loading keys from `~/.near-credentials` |
+//! | `keyring` | Yes | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
+//! | `sandbox` | No | Integration with `near-sandbox` for local testing |
+//!
+//! For `wasm32` targets, use `default-features = false` to disable `file-signer` and `keyring`.
 //!
 //! ## Error Handling
 //!
