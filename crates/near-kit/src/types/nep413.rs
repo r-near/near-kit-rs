@@ -251,10 +251,15 @@ pub fn generate_nonce() -> [u8; 32] {
     let mut nonce = [0u8; 32];
 
     // First 8 bytes: timestamp (ms since epoch) as big-endian u64
+    #[cfg(not(target_arch = "wasm32"))]
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("Time went backwards")
         .as_millis() as u64;
+
+    #[cfg(target_arch = "wasm32")]
+    let timestamp = js_sys::Date::now() as u64;
+
     nonce[..8].copy_from_slice(&timestamp.to_be_bytes());
 
     // Remaining 24 bytes: random data

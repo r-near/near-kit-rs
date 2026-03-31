@@ -18,8 +18,8 @@ near-account-id.workspace = true
 near-token.workspace = true
 near-gas.workspace = true
 
-# Async runtime
-tokio.workspace = true
+# Async runtime — only pull in `sync`; `time` is added for non-wasm below
+tokio = { version = "1", features = ["sync"] }
 futures.workspace = true
 
 # HTTP client
@@ -44,8 +44,8 @@ k256.workspace = true
 bs58.workspace = true
 hex.workspace = true
 
-# Filesystem
-dirs.workspace = true
+# Filesystem (optional, not available on wasm)
+dirs = { workspace = true, optional = true }
 
 # System keyring (optional)
 keyring = { workspace = true, optional = true }
@@ -64,12 +64,24 @@ testcontainers = { workspace = true, optional = true, features = ["watchdog"] }
 libc = { version = "0.2", optional = true }
 serde_with = { version = "3.17.0", features = ["hex", "base64"] }
 
+# Native-only: tokio timer support for retry backoff
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["sync", "time"] }
+
+# WASM-only: browser-compatible timer, entropy, and time APIs
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-timers = { version = "0.3", features = ["futures"] }
+getrandom = { version = "0.2", features = ["js"] }
+js-sys = "0.3"
+
 [features]
-default = ["keyring"]
+default = ["keyring", "file-signer"]
 sandbox = ["dep:testcontainers", "dep:libc"]
 keyring = ["dep:keyring"]
+file-signer = ["dep:dirs"]
 
 [dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tokio-test.workspace = true
 tempfile.workspace = true
 tracing-subscriber.workspace = true

@@ -2,9 +2,8 @@
 //!
 //! All query builders implement `IntoFuture` so they can be `.await`ed directly.
 
-use std::future::{Future, IntoFuture};
+use std::future::IntoFuture;
 use std::marker::PhantomData;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
@@ -80,7 +79,7 @@ impl BalanceQuery {
 
 impl IntoFuture for BalanceQuery {
     type Output = Result<AccountBalance, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -147,7 +146,7 @@ impl AccountQuery {
 
 impl IntoFuture for AccountQuery {
     type Output = Result<AccountView, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -215,7 +214,7 @@ impl AccountExistsQuery {
 
 impl IntoFuture for AccountExistsQuery {
     type Output = Result<bool, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -288,7 +287,7 @@ impl AccessKeysQuery {
 
 impl IntoFuture for AccessKeysQuery {
     type Output = Result<AccessKeyListView, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -427,7 +426,7 @@ impl<T> ViewCall<T> {
 
 impl<T: DeserializeOwned + Send + 'static> IntoFuture for ViewCall<T> {
     type Output = Result<T, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -489,7 +488,7 @@ pub struct ViewCallBorsh<T> {
 
 impl<T: borsh::BorshDeserialize + Send + 'static> IntoFuture for ViewCallBorsh<T> {
     type Output = Result<T, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {

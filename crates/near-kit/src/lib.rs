@@ -389,6 +389,7 @@
 pub mod client;
 pub mod contract;
 pub mod error;
+mod platform;
 pub mod tokens;
 pub mod types;
 
@@ -407,10 +408,13 @@ pub use contract::{Contract, ContractClient};
 // Re-export client types
 pub use client::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, CallBuilder, DelegateOptions,
-    DelegateResult, EnvSigner, FileSigner, FunctionCall, InMemorySigner, Near, NearBuilder,
-    RetryConfig, RotatingSigner, RpcClient, SandboxNetwork, Signer, SigningKey, TransactionBuilder,
+    DelegateResult, EnvSigner, FunctionCall, InMemorySigner, Near, NearBuilder, RetryConfig,
+    RotatingSigner, RpcClient, SandboxNetwork, Signer, SigningKey, TransactionBuilder,
     TransactionSend, ViewCall, ViewCallBorsh,
 };
+
+#[cfg(feature = "file-signer")]
+pub use client::FileSigner;
 
 #[cfg(feature = "keyring")]
 pub use client::KeyringSigner;
