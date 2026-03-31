@@ -76,7 +76,7 @@ js-sys = "0.3"
 
 [features]
 default = ["keyring", "file-signer"]
-sandbox = ["dep:testcontainers", "dep:libc"]
+sandbox = ["dep:testcontainers", "dep:libc", "tokio/rt"]
 keyring = ["dep:keyring"]
 file-signer = ["dep:dirs"]
 
