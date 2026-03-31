@@ -81,7 +81,10 @@ keyring = ["dep:keyring"]
 file-signer = ["dep:dirs"]
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tokio-test.workspace = true
 tempfile.workspace = true
 tracing-subscriber.workspace = true
+wasm-bindgen-test = "0.3"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
