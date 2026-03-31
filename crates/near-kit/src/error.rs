@@ -295,6 +295,8 @@ impl RpcError {
     pub fn is_retryable(&self) -> bool {
         match self {
             RpcError::Http(e) => {
+                // is_connect() is unavailable on wasm (no hyper backend);
+                // is_request() covers transport-level failures on both platforms
                 e.is_timeout() || {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
@@ -302,7 +304,7 @@ impl RpcError {
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
-                        false
+                        e.is_request()
                     }
                 }
             }
