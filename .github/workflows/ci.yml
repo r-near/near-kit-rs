@@ -47,7 +47,7 @@ jobs:
         run: cargo llvm-cov --workspace --features sandbox --lcov --output-path lcov.info
       - name: Run doctests
         run: cargo test --workspace --doc
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
