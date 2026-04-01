@@ -108,7 +108,6 @@ struct ErrorCause {
 /// field is needed here.
 #[derive(Debug, Deserialize)]
 struct CallFunctionResponse {
-    #[serde(default)]
     result: Vec<u8>,
     #[serde(default)]
     logs: Vec<String>,
@@ -380,12 +379,18 @@ impl RpcClient {
                     let message = data
                         .as_ref()
                         .and_then(|d| d.as_str())
-                        .unwrap_or(&error.message);
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            // EXPERIMENTAL endpoint: use vm_error as fallback
+                            // when data isn't a string
+                            info.and_then(|i| i.get("vm_error")).map(|v| v.to_string())
+                        })
+                        .unwrap_or_else(|| error.message.clone());
                     if let Ok(contract_id) = contract_id.parse() {
                         return RpcError::ContractExecution {
                             contract_id,
                             method_name,
-                            message: message.to_string(),
+                            message,
                         };
                     }
                 }
@@ -532,17 +537,9 @@ impl RpcClient {
             .call("EXPERIMENTAL_call_function", params)
             .await
             .map_err(|e| match e {
-                RpcError::ContractExecution {
-                    contract_id,
-                    method_name: mn,
-                    message,
-                } => RpcError::ContractExecution {
-                    contract_id: if contract_id.as_str() == "unknown" {
-                        account_id.clone()
-                    } else {
-                        contract_id
-                    },
-                    method_name: mn.or_else(|| Some(method_name.to_string())),
+                RpcError::ContractExecution { message, .. } => RpcError::ContractExecution {
+                    contract_id: account_id.clone(),
+                    method_name: Some(method_name.to_string()),
                     message,
                 },
                 other => other,
