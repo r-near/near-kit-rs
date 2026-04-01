@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.7.0...near-kit-v0.7.1) - 2026-04-01
+
+### Added
+
+- migrate view_function to EXPERIMENTAL_call_function ([#153](https://github.com/r-near/near-kit-rs/pull/153))
+- support NEAR_SANDBOX_IMAGE env var and Docker health checks ([#148](https://github.com/r-near/near-kit-rs/pull/148))
+- add sandbox_fast_forward RPC method ([#146](https://github.com/r-near/near-kit-rs/pull/146))
+
+### Other
+
+- update near-sandbox to 2.11.0 ([#152](https://github.com/r-near/near-kit-rs/pull/152))
+- simplify NonceManager to a single next() method ([#143](https://github.com/r-near/near-kit-rs/pull/143))
+
 ## [0.7.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.6.0...near-kit-v0.7.0) - 2026-03-22
 
 ### Added
