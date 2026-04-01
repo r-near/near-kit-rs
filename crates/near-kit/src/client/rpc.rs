@@ -103,18 +103,16 @@ struct ErrorCause {
     info: Option<serde_json::Value>,
 }
 
-/// Query response for view function calls.
-/// NEAR RPC returns `result` on success or `error` on failure.
+/// Response from EXPERIMENTAL_call_function.
+/// Errors are returned through the JSON-RPC error envelope, so no `error`
+/// field is needed here.
 #[derive(Debug, Deserialize)]
-struct QueryResponse {
-    #[serde(default)]
-    result: Option<Vec<u8>>,
+struct CallFunctionResponse {
+    result: Vec<u8>,
     #[serde(default)]
     logs: Vec<String>,
     block_height: u64,
     block_hash: CryptoHash,
-    #[serde(default)]
-    error: Option<String>,
 }
 
 /// Low-level JSON-RPC client for NEAR.
@@ -351,6 +349,25 @@ impl RpcClient {
                     }
                 }
                 "CONTRACT_EXECUTION_ERROR" => {
+                    // Check for CodeDoesNotExist inside vm_error
+                    // (EXPERIMENTAL_call_function wraps this as CONTRACT_EXECUTION_ERROR)
+                    if let Some(vm_error) = info.and_then(|i| i.get("vm_error")) {
+                        if let Some(compilation_err) = vm_error.get("CompilationError") {
+                            if let Some(code_not_exist) = compilation_err.get("CodeDoesNotExist") {
+                                if let Some(account_id) = code_not_exist
+                                    .get("account_id")
+                                    .and_then(|a| a.as_str())
+                                    .and_then(|a| a.parse().ok())
+                                {
+                                    return RpcError::ContractNotDeployed(account_id);
+                                }
+                            }
+                        }
+                    }
+
+                    // Legacy `query` includes contract_id/method_name;
+                    // EXPERIMENTAL_call_function does not (the caller
+                    // already knows them). Fall back to "unknown".
                     let contract_id = info
                         .and_then(|i| i.get("contract_id"))
                         .and_then(|c| c.as_str())
@@ -359,11 +376,21 @@ impl RpcClient {
                         .and_then(|i| i.get("method_name"))
                         .and_then(|m| m.as_str())
                         .map(String::from);
+                    let message = data
+                        .as_ref()
+                        .and_then(|d| d.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            // EXPERIMENTAL endpoint: use vm_error as fallback
+                            // when data isn't a string
+                            info.and_then(|i| i.get("vm_error")).map(|v| v.to_string())
+                        })
+                        .unwrap_or_else(|| error.message.clone());
                     if let Ok(contract_id) = contract_id.parse() {
                         return RpcError::ContractExecution {
                             contract_id,
                             method_name,
-                            message: error.message.clone(),
+                            message,
                         };
                     }
                 }
@@ -496,38 +523,30 @@ impl RpcClient {
         block: BlockReference,
     ) -> Result<ViewFunctionResult, RpcError> {
         let mut params = serde_json::json!({
-            "request_type": "call_function",
             "account_id": account_id.to_string(),
             "method_name": method_name,
             "args_base64": STANDARD.encode(args),
         });
-
         self.merge_block_reference(&mut params, &block);
 
-        // Query responses may have an error field instead of result
-        let response: QueryResponse = self.call("query", params).await?;
-
-        if let Some(error) = response.error {
-            // Parse the error message for known patterns
-            if error.contains("CodeDoesNotExist") {
-                return Err(RpcError::ContractNotDeployed(account_id.clone()));
-            }
-            if error.contains("MethodNotFound") || error.contains("MethodResolveError") {
-                return Err(RpcError::ContractExecution {
+        // EXPERIMENTAL_call_function returns errors through the JSON-RPC
+        // error envelope, so `parse_rpc_error` handles them. Patch in
+        // the caller-known contract_id and method_name when they are
+        // missing from the error info (the experimental endpoint omits them).
+        let response: CallFunctionResponse = self
+            .call("EXPERIMENTAL_call_function", params)
+            .await
+            .map_err(|e| match e {
+                RpcError::ContractExecution { message, .. } => RpcError::ContractExecution {
                     contract_id: account_id.clone(),
                     method_name: Some(method_name.to_string()),
-                    message: error,
-                });
-            }
-            return Err(RpcError::ContractExecution {
-                contract_id: account_id.clone(),
-                method_name: Some(method_name.to_string()),
-                message: error,
-            });
-        }
+                    message,
+                },
+                other => other,
+            })?;
 
         Ok(ViewFunctionResult {
-            result: response.result.unwrap_or_default(),
+            result: response.result,
             logs: response.logs,
             block_height: response.block_height,
             block_hash: response.block_hash,
@@ -1251,7 +1270,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_rpc_error_contract_execution() {
+    fn test_parse_rpc_error_contract_execution_legacy() {
+        // Legacy `query` endpoint includes contract_id and method_name in info
         let client = RpcClient::new("https://example.com");
         let error = JsonRpcError {
             code: -32000,
@@ -1267,7 +1287,88 @@ mod tests {
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::ContractExecution { .. }));
+        match result {
+            RpcError::ContractExecution {
+                contract_id,
+                method_name,
+                ..
+            } => {
+                assert_eq!(contract_id.as_str(), "contract.near");
+                assert_eq!(method_name.as_deref(), Some("my_method"));
+            }
+            _ => panic!("Expected ContractExecution error, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_contract_execution_experimental() {
+        // EXPERIMENTAL_call_function omits contract_id/method_name from info,
+        // but includes vm_error and a data string
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: Some(serde_json::json!(
+                "Function call returned an error: MethodResolveError(MethodNotFound)"
+            )),
+            cause: Some(ErrorCause {
+                name: "CONTRACT_EXECUTION_ERROR".to_string(),
+                info: Some(serde_json::json!({
+                    "vm_error": { "MethodResolveError": "MethodNotFound" },
+                    "block_height": 243803767,
+                    "block_hash": "Et7So7jtsorkYLdVMMgV8gxA3Cfaztp75Ti6TPv2A"
+                })),
+            }),
+            name: Some("HANDLER_ERROR".to_string()),
+        };
+        let result = client.parse_rpc_error(&error);
+        match result {
+            RpcError::ContractExecution {
+                contract_id,
+                message,
+                ..
+            } => {
+                // contract_id falls back to "unknown" — caller enriches it
+                assert_eq!(contract_id.as_str(), "unknown");
+                assert!(message.contains("MethodResolveError"));
+            }
+            _ => panic!("Expected ContractExecution error, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_code_does_not_exist_experimental() {
+        // EXPERIMENTAL_call_function returns CodeDoesNotExist as CONTRACT_EXECUTION_ERROR
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: Some(serde_json::json!(
+                "Function call returned an error: CompilationError(CodeDoesNotExist { account_id: AccountId(\"nonexistent.testnet\") })"
+            )),
+            cause: Some(ErrorCause {
+                name: "CONTRACT_EXECUTION_ERROR".to_string(),
+                info: Some(serde_json::json!({
+                    "vm_error": {
+                        "CompilationError": {
+                            "CodeDoesNotExist": {
+                                "account_id": "nonexistent.testnet"
+                            }
+                        }
+                    },
+                    "block_height": 243803764,
+                    "block_hash": "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+                })),
+            }),
+            name: Some("HANDLER_ERROR".to_string()),
+        };
+        let result = client.parse_rpc_error(&error);
+        match result {
+            RpcError::ContractNotDeployed(account_id) => {
+                assert_eq!(account_id.as_str(), "nonexistent.testnet");
+            }
+            _ => panic!("Expected ContractNotDeployed error, got {:?}", result),
+        }
     }
 
     #[test]
