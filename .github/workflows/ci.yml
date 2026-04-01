@@ -52,6 +52,21 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
 
+  wasm:
+    name: WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: wasm
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: "true"
+      - run: cargo check --target wasm32-unknown-unknown --no-default-features -p near-kit
+
   msrv:
     name: MSRV (1.86)
     runs-on: ubuntu-latest

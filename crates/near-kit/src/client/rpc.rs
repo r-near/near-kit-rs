@@ -3,6 +3,15 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+/// Platform-appropriate async sleep.
+async fn async_sleep(duration: Duration) {
+    #[cfg(not(target_arch = "wasm32"))]
+    tokio::time::sleep(duration).await;
+
+    #[cfg(target_arch = "wasm32")]
+    gloo_timers::future::sleep(duration).await;
+}
+
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -184,7 +193,7 @@ impl RpcClient {
                         error = %e,
                         "RPC request failed, retrying"
                     );
-                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                    async_sleep(Duration::from_millis(delay)).await;
                     continue;
                 }
                 Err(e) => {
@@ -684,7 +693,7 @@ impl RpcClient {
             .await?;
 
         // Small delay to allow state to propagate - sandbox patch_state has race conditions
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        async_sleep(std::time::Duration::from_millis(100)).await;
 
         Ok(())
     }
