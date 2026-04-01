@@ -142,7 +142,6 @@ async fn test_function_call_error_returns_ok_with_failure_outcome() {
 // =============================================================================
 
 #[tokio::test]
-#[ignore = "requires EXPERIMENTAL_view_access_key (nearcore 2.11+), see #105"]
 async fn test_wrong_signer_key_returns_invalid_tx_or_rpc_error() {
     let sandbox = SandboxConfig::shared().await;
 

@@ -87,7 +87,7 @@ use crate::client::Near;
 // ============================================================================
 
 const DEFAULT_IMAGE: &str = "nearprotocol/sandbox";
-const DEFAULT_VERSION: &str = "2.10.7";
+const DEFAULT_VERSION: &str = "2.11.0";
 
 /// The RPC port exposed by the NEAR sandbox container.
 const RPC_PORT: ContainerPort = ContainerPort::Tcp(3030);
