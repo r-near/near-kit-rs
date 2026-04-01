@@ -281,20 +281,23 @@ impl RpcClient {
                     return RpcError::InvalidAccount(account_id.to_string());
                 }
                 "UNKNOWN_ACCESS_KEY" => {
-                    if let (Some(account_id), Some(public_key)) = (
-                        info.and_then(|i| i.get("requested_account_id"))
-                            .and_then(|a| a.as_str()),
-                        info.and_then(|i| i.get("public_key"))
-                            .and_then(|k| k.as_str()),
-                    ) {
-                        if let (Ok(account_id), Ok(public_key)) =
-                            (account_id.parse(), public_key.parse())
-                        {
-                            return RpcError::AccessKeyNotFound {
-                                account_id,
-                                public_key,
-                            };
-                        }
+                    if let Some(public_key) = info
+                        .and_then(|i| i.get("public_key"))
+                        .and_then(|k| k.as_str())
+                        .and_then(|k| k.parse().ok())
+                    {
+                        // Legacy `query` includes requested_account_id;
+                        // EXPERIMENTAL_view_access_key does not (the caller
+                        // already knows the account). Fall back to "unknown".
+                        let account_id = info
+                            .and_then(|i| i.get("requested_account_id"))
+                            .and_then(|a| a.as_str())
+                            .and_then(|a| a.parse().ok())
+                            .unwrap_or_else(|| "unknown".parse().unwrap());
+                        return RpcError::AccessKeyNotFound {
+                            account_id,
+                            public_key,
+                        };
                     }
                 }
                 "UNKNOWN_BLOCK" => {
@@ -436,12 +439,10 @@ impl RpcClient {
         block: BlockReference,
     ) -> Result<AccountView, RpcError> {
         let mut params = serde_json::json!({
-            "request_type": "view_account",
             "account_id": account_id.to_string(),
         });
-
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await
+        self.call("EXPERIMENTAL_view_account", params).await
     }
 
     /// View access key information.
@@ -453,13 +454,22 @@ impl RpcClient {
         block: BlockReference,
     ) -> Result<AccessKeyView, RpcError> {
         let mut params = serde_json::json!({
-            "request_type": "view_access_key",
             "account_id": account_id.to_string(),
             "public_key": public_key.to_string(),
         });
-
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await
+        self.call("EXPERIMENTAL_view_access_key", params)
+            .await
+            .map_err(|e| match e {
+                // The EXPERIMENTAL endpoint's UNKNOWN_ACCESS_KEY error omits
+                // the account_id from its info payload. Patch it in from the
+                // request params so callers get a complete error.
+                RpcError::AccessKeyNotFound { public_key, .. } => RpcError::AccessKeyNotFound {
+                    account_id: account_id.clone(),
+                    public_key,
+                },
+                other => other,
+            })
     }
 
     /// View all access keys for an account.
@@ -470,12 +480,10 @@ impl RpcClient {
         block: BlockReference,
     ) -> Result<AccessKeyListView, RpcError> {
         let mut params = serde_json::json!({
-            "request_type": "view_access_key_list",
             "account_id": account_id.to_string(),
         });
-
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await
+        self.call("EXPERIMENTAL_view_access_key_list", params).await
     }
 
     /// Call a view function on a contract.
@@ -911,7 +919,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_rpc_error_unknown_access_key() {
+    fn test_parse_rpc_error_unknown_access_key_legacy() {
+        // Legacy `query` endpoint includes requested_account_id in info
         let client = RpcClient::new("https://example.com");
         let error = JsonRpcError {
             code: -32000,
@@ -933,6 +942,40 @@ mod tests {
                 public_key,
             } => {
                 assert_eq!(account_id.as_str(), "alice.near");
+                assert!(public_key.to_string().contains("ed25519:"));
+            }
+            _ => panic!("Expected AccessKeyNotFound error, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_unknown_access_key_experimental() {
+        // EXPERIMENTAL_view_access_key omits requested_account_id from info
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: Some(serde_json::Value::String(
+                "Access key for public key ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp does not exist while viewing".to_string()
+            )),
+            cause: Some(ErrorCause {
+                name: "UNKNOWN_ACCESS_KEY".to_string(),
+                info: Some(serde_json::json!({
+                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                    "block_height": 243789592,
+                    "block_hash": "EC5A7qc6rixfN8T4T9Gkt78H5pAsvdcjAos8Z7kFLJgi"
+                })),
+            }),
+            name: Some("HANDLER_ERROR".to_string()),
+        };
+        let result = client.parse_rpc_error(&error);
+        match result {
+            RpcError::AccessKeyNotFound {
+                account_id,
+                public_key,
+            } => {
+                // account_id falls back to "unknown" — caller enriches it
+                assert_eq!(account_id.as_str(), "unknown");
                 assert!(public_key.to_string().contains("ed25519:"));
             }
             _ => panic!("Expected AccessKeyNotFound error, got {:?}", result),

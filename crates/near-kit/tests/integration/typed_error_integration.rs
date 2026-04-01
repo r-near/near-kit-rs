@@ -56,11 +56,18 @@ async fn send_raw_tx(
     let rpc = near.rpc();
 
     let ak = rpc
-        .view_access_key(sender, &key.public_key(), BlockReference::final_())
+        .view_access_key(
+            sender,
+            &key.public_key(),
+            BlockReference::Finality(Finality::Optimistic),
+        )
         .await
         .unwrap();
 
-    let block = rpc.block(BlockReference::final_()).await.unwrap();
+    let block = rpc
+        .block(BlockReference::Finality(Finality::Optimistic))
+        .await
+        .unwrap();
 
     let tx = Transaction::new(
         sender.clone(),
