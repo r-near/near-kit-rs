@@ -169,8 +169,11 @@ async fn test_sign_offline_function_call() {
         .await
         .unwrap();
 
-    // Send
-    let _outcome = contract_near.send(&signed).await.unwrap();
+    // Send and wait for finalization so the view call sees the state change
+    let _outcome = contract_near
+        .send_with_options(&signed, TxExecutionStatus::Final)
+        .await
+        .unwrap();
 
     // Verify the message was added
     let messages: Vec<serde_json::Value> = contract_near

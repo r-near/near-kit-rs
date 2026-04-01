@@ -436,12 +436,10 @@ impl RpcClient {
         block: BlockReference,
     ) -> Result<AccountView, RpcError> {
         let mut params = serde_json::json!({
-            "request_type": "view_account",
             "account_id": account_id.to_string(),
         });
-
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await
+        self.call("EXPERIMENTAL_view_account", params).await
     }
 
     /// View access key information.
@@ -453,13 +451,11 @@ impl RpcClient {
         block: BlockReference,
     ) -> Result<AccessKeyView, RpcError> {
         let mut params = serde_json::json!({
-            "request_type": "view_access_key",
             "account_id": account_id.to_string(),
             "public_key": public_key.to_string(),
         });
-
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await
+        self.call("EXPERIMENTAL_view_access_key", params).await
     }
 
     /// View all access keys for an account.
@@ -470,12 +466,10 @@ impl RpcClient {
         block: BlockReference,
     ) -> Result<AccessKeyListView, RpcError> {
         let mut params = serde_json::json!({
-            "request_type": "view_access_key_list",
             "account_id": account_id.to_string(),
         });
-
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await
+        self.call("EXPERIMENTAL_view_access_key_list", params).await
     }
 
     /// Call a view function on a contract.

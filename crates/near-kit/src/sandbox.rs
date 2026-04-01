@@ -547,7 +547,7 @@ impl SandboxBuilder {
 
     /// Set the sandbox version to use.
     ///
-    /// If not specified, uses the default version (`2.10.7`).
+    /// If not specified, uses [`DEFAULT_VERSION`].
     ///
     /// # Example
     ///
