@@ -867,6 +867,123 @@ async fn test_send_pre_signed_transaction() {
 }
 
 #[tokio::test]
+async fn test_send_with_included_status_returns_none() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    // Create sender account
+    let sender_key = SecretKey::generate_ed25519();
+    let sender_id = unique_account();
+
+    root_near
+        .transaction(&sender_id)
+        .create_account()
+        .transfer(NearToken::from_near(100))
+        .add_full_access_key(sender_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let sender_near = Near::custom(rpc_url)
+        .credentials(sender_key.to_string(), &sender_id)
+        .unwrap()
+        .build();
+
+    // Create receiver account
+    let receiver_key = SecretKey::generate_ed25519();
+    let receiver_id: AccountId = format!("recv-inc.{}", sender_id).parse().unwrap();
+
+    sender_near
+        .transaction(&receiver_id)
+        .create_account()
+        .transfer(NearToken::from_near(10))
+        .add_full_access_key(receiver_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Send with Included wait level — outcome should be None since the
+    // transaction was included but not yet executed.
+    let result = sender_near
+        .transfer(&receiver_id, NearToken::from_near(1))
+        .send()
+        .wait_until(TxExecutionStatus::Included)
+        .await
+        .unwrap();
+
+    assert!(
+        result.is_none(),
+        "Included status should return None outcome, got: {:?}",
+        result
+    );
+}
+
+#[tokio::test]
+async fn test_send_with_options_included_returns_none() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    // Create sender account
+    let sender_key = SecretKey::generate_ed25519();
+    let sender_id = unique_account();
+
+    root_near
+        .transaction(&sender_id)
+        .create_account()
+        .transfer(NearToken::from_near(100))
+        .add_full_access_key(sender_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let sender_near = Near::custom(rpc_url)
+        .credentials(sender_key.to_string(), &sender_id)
+        .unwrap()
+        .build();
+
+    // Create receiver
+    let receiver_key = SecretKey::generate_ed25519();
+    let receiver_id: AccountId = format!("recv-inc2.{}", sender_id).parse().unwrap();
+
+    sender_near
+        .transaction(&receiver_id)
+        .create_account()
+        .transfer(NearToken::from_near(10))
+        .add_full_access_key(receiver_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Sign offline and send with Included via send_with_options
+    let signed = sender_near
+        .transfer(&receiver_id, NearToken::from_near(1))
+        .sign()
+        .await
+        .unwrap();
+
+    let result = sender_near
+        .send_with_options(&signed, TxExecutionStatus::Included)
+        .await
+        .unwrap();
+
+    assert!(
+        result.is_none(),
+        "send_with_options with Included should return None outcome, got: {:?}",
+        result
+    );
+}
+
+#[tokio::test]
 async fn test_sandbox_custom_chain_id() {
     let sandbox = SandboxConfig::builder().chain_id("pinet").fresh().await;
     let near = sandbox.client();
