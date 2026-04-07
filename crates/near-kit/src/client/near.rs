@@ -849,8 +849,10 @@ impl Near {
     /// `outcome` field is `Some` when the transaction has been executed, and
     /// `None` for non-executed wait levels (`None`, `Included`, `IncludedFinal`).
     ///
-    /// Use [`send`](Self::send) if you always want a `FinalExecutionOutcome`
-    /// (it defaults to `ExecutedOptimistic`).
+    /// **Note:** Unlike [`send`](Self::send), this method does not convert
+    /// `InvalidTxError` failures into [`Error::InvalidTx`]. Callers that need
+    /// structured error handling for invalid transactions should inspect
+    /// `outcome.status` themselves or use [`send`](Self::send) instead.
     pub async fn send_with_options(
         &self,
         signed_tx: &crate::types::SignedTransaction,
