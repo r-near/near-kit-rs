@@ -39,7 +39,7 @@ async fn test_sign_offline_transfer() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -58,7 +58,7 @@ async fn test_sign_offline_transfer() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -132,7 +132,7 @@ async fn test_sign_offline_function_call() {
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm_code)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -171,7 +171,7 @@ async fn test_sign_offline_function_call() {
 
     // Send and wait for finalization so the view call sees the state change
     let _outcome = contract_near
-        .send_with_options(&signed, TxExecutionStatus::Final)
+        .send_with_options(&signed, Final)
         .await
         .unwrap();
 
@@ -206,7 +206,7 @@ async fn test_signed_transaction_roundtrip_bytes() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -225,7 +225,7 @@ async fn test_signed_transaction_roundtrip_bytes() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -279,7 +279,7 @@ async fn test_signed_transaction_roundtrip_base64() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -298,7 +298,7 @@ async fn test_signed_transaction_roundtrip_base64() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -344,7 +344,7 @@ async fn test_offline_sign_and_transport_simulation() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -364,7 +364,7 @@ async fn test_offline_sign_and_transport_simulation() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 

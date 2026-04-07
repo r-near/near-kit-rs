@@ -40,7 +40,7 @@ async fn test_sandbox_balance() {
         .transfer(NearToken::from_near(1000))
         .add_full_access_key(account_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -67,7 +67,7 @@ async fn test_sandbox_transfer() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -88,7 +88,7 @@ async fn test_sandbox_transfer() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -122,7 +122,7 @@ async fn test_sandbox_multiple_transfers() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -145,7 +145,7 @@ async fn test_sandbox_multiple_transfers() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(receiver1_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -156,7 +156,7 @@ async fn test_sandbox_multiple_transfers() {
         .transfer(NearToken::from_near(3))
         .add_full_access_key(receiver2_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -187,7 +187,7 @@ async fn test_sandbox_simple_transfer() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -206,7 +206,7 @@ async fn test_sandbox_simple_transfer() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -215,7 +215,7 @@ async fn test_sandbox_simple_transfer() {
     // Now do a simple transfer using the convenience method
     sender_near
         .transfer(&receiver_id, NearToken::from_near(2))
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -245,7 +245,7 @@ async fn test_sandbox_create_account_outcome() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -265,7 +265,7 @@ async fn test_sandbox_create_account_outcome() {
         .transfer(NearToken::from_near(50))
         .add_full_access_key(contract_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -289,7 +289,7 @@ async fn test_sandbox_delete_account() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(parent_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -308,7 +308,7 @@ async fn test_sandbox_delete_account() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(temp_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -326,7 +326,7 @@ async fn test_sandbox_delete_account() {
         .transaction(&temp_id)
         .delete_account(&parent_id)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -350,7 +350,7 @@ async fn test_sandbox_add_and_delete_key() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(account_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -367,7 +367,7 @@ async fn test_sandbox_add_and_delete_key() {
         .transaction(&account_id)
         .add_full_access_key(second_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -380,7 +380,7 @@ async fn test_sandbox_add_and_delete_key() {
         .transaction(&account_id)
         .delete_key(second_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -405,7 +405,7 @@ async fn test_sandbox_multiple_actions_in_one_transaction() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(parent_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -428,7 +428,7 @@ async fn test_sandbox_multiple_actions_in_one_transaction() {
         .transfer(NearToken::from_near(20))
         .add_full_access_key(alice_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -439,7 +439,7 @@ async fn test_sandbox_multiple_actions_in_one_transaction() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(bob_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -475,7 +475,7 @@ async fn test_sandbox_set_balance() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(account_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -516,7 +516,7 @@ async fn test_sandbox_set_balance_preserves_other_fields() {
         .add_full_access_key(account_key.public_key())
         .deploy(wasm_code)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -574,7 +574,7 @@ async fn test_sandbox_set_balance_for_staking() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(validator_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -600,7 +600,7 @@ async fn test_sandbox_set_balance_for_staking() {
         .transaction(&validator_id)
         .stake(stake_amount, validator_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -627,7 +627,7 @@ async fn test_sandbox_patch_debug() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(account_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -685,7 +685,7 @@ async fn test_sign_message_nep413() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(account_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -753,7 +753,7 @@ async fn test_send_with_options_final() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -772,7 +772,7 @@ async fn test_send_with_options_final() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -786,10 +786,7 @@ async fn test_send_with_options_final() {
     println!("Signed transaction hash: {}", signed.get_hash());
 
     // Send with Final wait option
-    let outcome = sender_near
-        .send_with_options(&signed, TxExecutionStatus::Final)
-        .await
-        .unwrap();
+    let outcome = sender_near.send_with_options(&signed, Final).await.unwrap();
 
     println!("Transaction succeeded: {:?}", outcome.transaction_hash());
 
@@ -797,6 +794,122 @@ async fn test_send_with_options_final() {
     let balance = root_near.balance(&receiver_id).await.unwrap();
     println!("Receiver balance: {}", balance.total);
     assert!(balance.total > NearToken::from_near(14));
+}
+
+#[tokio::test]
+async fn test_send_with_options_included_returns_send_tx_response() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    // Create sender account
+    let sender_key = SecretKey::generate_ed25519();
+    let sender_id = unique_account();
+
+    root_near
+        .transaction(&sender_id)
+        .create_account()
+        .transfer(NearToken::from_near(100))
+        .add_full_access_key(sender_key.public_key())
+        .send()
+        .wait_until(Final)
+        .await
+        .unwrap();
+
+    let sender_near = Near::custom(rpc_url)
+        .credentials(sender_key.to_string(), &sender_id)
+        .unwrap()
+        .build();
+
+    // Create receiver account
+    let receiver_key = SecretKey::generate_ed25519();
+    let receiver_id: AccountId = format!("recv-inc.{}", sender_id).parse().unwrap();
+
+    sender_near
+        .transaction(&receiver_id)
+        .create_account()
+        .transfer(NearToken::from_near(10))
+        .add_full_access_key(receiver_key.public_key())
+        .send()
+        .wait_until(Final)
+        .await
+        .unwrap();
+
+    // Sign and send with Included — returns SendTxResponse, not FinalExecutionOutcome
+    let signed = sender_near
+        .transfer(&receiver_id, NearToken::from_near(1))
+        .sign()
+        .await
+        .unwrap();
+
+    let response = sender_near
+        .send_with_options(&signed, Included)
+        .await
+        .unwrap();
+
+    // SendTxResponse always has transaction_hash
+    assert!(!response.transaction_hash.is_zero());
+
+    // Included does not wait for execution, so outcome should be None
+    assert!(
+        response.outcome.is_none(),
+        "expected no outcome for Included, got: {:?}",
+        response.outcome
+    );
+}
+
+#[tokio::test]
+async fn test_wait_until_included_on_builder() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    // Create sender account
+    let sender_key = SecretKey::generate_ed25519();
+    let sender_id = unique_account();
+
+    root_near
+        .transaction(&sender_id)
+        .create_account()
+        .transfer(NearToken::from_near(100))
+        .add_full_access_key(sender_key.public_key())
+        .send()
+        .wait_until(Final)
+        .await
+        .unwrap();
+
+    let sender_near = Near::custom(rpc_url)
+        .credentials(sender_key.to_string(), &sender_id)
+        .unwrap()
+        .build();
+
+    // Create receiver account
+    let receiver_key = SecretKey::generate_ed25519();
+    let receiver_id: AccountId = format!("recv-inc2.{}", sender_id).parse().unwrap();
+
+    sender_near
+        .transaction(&receiver_id)
+        .create_account()
+        .transfer(NearToken::from_near(10))
+        .add_full_access_key(receiver_key.public_key())
+        .send()
+        .wait_until(Final)
+        .await
+        .unwrap();
+
+    // Use Included directly on the builder — this was the original bug path
+    let response: SendTxResponse = sender_near
+        .transfer(&receiver_id, NearToken::from_near(1))
+        .wait_until(Included)
+        .await
+        .unwrap();
+
+    assert!(!response.transaction_hash.is_zero());
+    assert!(
+        response.outcome.is_none(),
+        "expected no outcome for Included, got: {:?}",
+        response.outcome
+    );
 }
 
 #[tokio::test]
@@ -815,7 +928,7 @@ async fn test_send_pre_signed_transaction() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -834,7 +947,7 @@ async fn test_send_pre_signed_transaction() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 

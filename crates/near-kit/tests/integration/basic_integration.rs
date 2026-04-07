@@ -142,7 +142,7 @@ async fn test_create_and_query_account() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(new_account_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 

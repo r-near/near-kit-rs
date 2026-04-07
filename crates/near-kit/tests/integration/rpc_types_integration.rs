@@ -267,7 +267,7 @@ async fn test_final_execution_outcome_full_fields() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -339,7 +339,7 @@ async fn test_execution_metadata_and_gas_profile() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -387,7 +387,7 @@ async fn test_tx_status_with_receipts() {
         .transfer(NearToken::from_near(2))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -481,7 +481,7 @@ async fn test_action_view_variants() {
         .transfer(NearToken::from_near(3))
         .add_full_access_key(account1_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 

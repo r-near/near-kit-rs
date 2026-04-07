@@ -35,7 +35,7 @@ async fn test_failed_transaction_preserves_receipts() {
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .expect("setup: deploy should succeed")
         .result()

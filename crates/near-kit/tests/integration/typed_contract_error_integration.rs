@@ -96,7 +96,7 @@ async fn test_typed_contract_view_on_account_without_contract() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -133,7 +133,7 @@ async fn test_typed_contract_call_without_signer() {
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -173,7 +173,7 @@ async fn test_typed_contract_view_on_wrong_contract_type() {
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -211,7 +211,7 @@ async fn test_typed_contract_call_with_insufficient_gas() {
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -255,7 +255,7 @@ async fn test_typed_contract_view_returns_wrong_type() {
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -301,7 +301,7 @@ async fn test_typed_contract_query_at_invalid_block() {
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -342,7 +342,7 @@ async fn test_typed_contract_view_methods_still_work_without_signer() {
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 

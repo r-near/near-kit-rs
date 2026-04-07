@@ -32,7 +32,7 @@ async fn funded_account(
         .transfer(balance)
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 

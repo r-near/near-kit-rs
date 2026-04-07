@@ -40,7 +40,7 @@ async fn test_successful_transfer_returns_ok() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .expect("Successful transaction should return Ok");
 
@@ -66,7 +66,7 @@ async fn test_action_error_returns_ok_with_failure_outcome() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -81,7 +81,7 @@ async fn test_action_error_returns_ok_with_failure_outcome() {
         .transaction(&account_id)
         .delete_key(fake_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .expect("Action errors should return Ok(outcome)");
 
@@ -114,7 +114,7 @@ async fn test_function_call_error_returns_ok_with_failure_outcome() {
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -155,7 +155,7 @@ async fn test_wrong_signer_key_returns_access_key_not_found() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 

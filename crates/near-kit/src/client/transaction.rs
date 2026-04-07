@@ -40,7 +40,7 @@ use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, DeterministicAccountStateInit,
     FinalExecutionOutcome, Finality, Gas, GlobalContractIdentifier, GlobalContractRef, IntoGas,
     IntoNearToken, NearToken, NonDelegateAction, PublicKey, PublishMode, SignedDelegateAction,
-    SignedTransaction, Transaction, TryIntoAccountId, TxExecutionStatus,
+    SignedTransaction, Transaction, TryIntoAccountId, WaitLevel,
 };
 
 use super::nonce_manager::NonceManager;
@@ -161,7 +161,6 @@ pub struct TransactionBuilder {
     receiver_id: AccountId,
     actions: Vec<Action>,
     signer_override: Option<Arc<dyn Signer>>,
-    wait_until: TxExecutionStatus,
     max_nonce_retries: u32,
 }
 
@@ -178,7 +177,6 @@ impl fmt::Debug for TransactionBuilder {
             )
             .field("receiver_id", &self.receiver_id)
             .field("action_count", &self.actions.len())
-            .field("wait_until", &self.wait_until)
             .field("max_nonce_retries", &self.max_nonce_retries)
             .finish()
     }
@@ -197,7 +195,6 @@ impl TransactionBuilder {
             receiver_id,
             actions: Vec::new(),
             signer_override: None,
-            wait_until: TxExecutionStatus::ExecutedOptimistic,
             max_nonce_retries,
         }
     }
@@ -623,10 +620,12 @@ impl TransactionBuilder {
         self
     }
 
-    /// Set the execution wait level.
-    pub fn wait_until(mut self, status: TxExecutionStatus) -> Self {
-        self.wait_until = status;
-        self
+    /// Set the execution wait level and prepare to send.
+    ///
+    /// This is a shorthand for `.send().wait_until(level)`.
+    /// The return type changes based on the wait level — see [`TransactionSend::wait_until`].
+    pub fn wait_until<W: crate::types::WaitLevel>(self, level: W) -> TransactionSend<W> {
+        self.send().wait_until(level)
     }
 
     /// Override the number of nonce retries for this transaction on `InvalidNonce`
@@ -809,9 +808,13 @@ impl TransactionBuilder {
 
     /// Send the transaction.
     ///
-    /// This is equivalent to awaiting the builder directly.
+    /// Returns a [`TransactionSend`] that defaults to [`ExecutedOptimistic`] wait level.
+    /// Chain `.wait_until(...)` to change the wait level before awaiting.
     pub fn send(self) -> TransactionSend {
-        TransactionSend { builder: self }
+        TransactionSend {
+            builder: self,
+            _marker: std::marker::PhantomData,
+        }
     }
 }
 
@@ -1191,8 +1194,8 @@ impl CallBuilder {
     }
 
     /// Set the execution wait level.
-    pub fn wait_until(self, status: TxExecutionStatus) -> TransactionBuilder {
-        self.finish().wait_until(status)
+    pub fn wait_until<W: WaitLevel>(self, level: W) -> TransactionSend<W> {
+        self.finish().wait_until(level)
     }
 
     /// Override the number of nonce retries for this transaction on `InvalidNonce`
@@ -1246,15 +1249,42 @@ impl IntoFuture for CallBuilder {
 // ============================================================================
 
 /// Future for sending a transaction.
-pub struct TransactionSend {
+///
+/// The type parameter `W` determines the wait level and the return type:
+/// - Executed levels ([`ExecutedOptimistic`], [`Executed`], [`Final`]) → [`FinalExecutionOutcome`]
+/// - Non-executed levels ([`Submitted`], [`Included`], [`IncludedFinal`]) → [`SendTxResponse`]
+pub struct TransactionSend<W: WaitLevel = crate::types::ExecutedOptimistic> {
     builder: TransactionBuilder,
+    _marker: std::marker::PhantomData<W>,
 }
 
-impl TransactionSend {
-    /// Set the execution wait level.
-    pub fn wait_until(mut self, status: TxExecutionStatus) -> Self {
-        self.builder.wait_until = status;
-        self
+impl<W: WaitLevel> TransactionSend<W> {
+    /// Change the execution wait level.
+    ///
+    /// The return type changes based on the wait level:
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(near: &Near) -> Result<(), Error> {
+    /// // Executed levels return FinalExecutionOutcome
+    /// let outcome = near.transfer("bob.testnet", NearToken::from_near(1))
+    ///     .send()
+    ///     .wait_until(Final)
+    ///     .await?;
+    ///
+    /// // Non-executed levels return SendTxResponse
+    /// let response = near.transfer("bob.testnet", NearToken::from_near(1))
+    ///     .send()
+    ///     .wait_until(Included)
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn wait_until<W2: WaitLevel>(self, _level: W2) -> TransactionSend<W2> {
+        TransactionSend {
+            builder: self.builder,
+            _marker: std::marker::PhantomData,
+        }
     }
 
     /// Override the number of nonce retries for this transaction on `InvalidNonce`
@@ -1265,8 +1295,8 @@ impl TransactionSend {
     }
 }
 
-impl IntoFuture for TransactionSend {
-    type Output = Result<FinalExecutionOutcome, Error>;
+impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
+    type Output = Result<W::Response, Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 
     fn into_future(self) -> Self::IntoFuture {
@@ -1297,6 +1327,7 @@ impl IntoFuture for TransactionSend {
             async move {
                 // Retry loop for transient InvalidTxErrors (nonce conflicts, expired block hash)
                 let max_nonce_retries = builder.max_nonce_retries;
+                let wait_until = W::status();
                 let network = builder.rpc.url().to_string();
                 let mut last_error: Option<Error> = None;
                 let mut last_ak_nonce: Option<u64> = None;
@@ -1350,29 +1381,12 @@ impl IntoFuture for TransactionSend {
                     };
 
                     // Send
-                    match builder.rpc.send_tx(&signed_tx, builder.wait_until).await {
+                    match builder.rpc.send_tx(&signed_tx, wait_until).await {
                         Ok(response) => {
-                            let outcome = response.outcome.ok_or_else(|| {
-                                Error::InvalidTransaction(format!(
-                                    "Transaction {} submitted with wait_until={:?} but no execution \
-                                     outcome was returned. Use rpc().send_tx() for fire-and-forget \
-                                     submission.",
-                                    response.transaction_hash, builder.wait_until,
-                                ))
-                            })?;
-
-                            // Inspect outcome status — only InvalidTxError becomes Err.
-                            // ActionError means the tx executed (nonce incremented, gas consumed),
-                            // so we return Ok(outcome) and let the caller inspect is_failure().
-                            use crate::types::{FinalExecutionStatus, TxExecutionError};
-                            match outcome.status {
-                                FinalExecutionStatus::Failure(
-                                    TxExecutionError::InvalidTxError(e),
-                                ) => {
-                                    return Err(Error::InvalidTx(Box::new(e)));
-                                }
-                                _ => return Ok(outcome),
-                            }
+                            // W::convert handles the response appropriately:
+                            // - Executed levels: extract outcome, check for InvalidTxError
+                            // - Non-executed levels: return SendTxResponse directly
+                            return W::convert(response);
                         }
                         Err(RpcError::InvalidTx(
                             crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },

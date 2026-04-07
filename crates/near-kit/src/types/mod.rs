@@ -56,6 +56,7 @@ mod rpc;
 mod rpc_extra;
 mod transaction;
 mod units;
+mod wait_level;
 
 pub use account::{AccountId, AccountIdExt, AccountIdRef, AccountType, TryIntoAccountId};
 pub use action::{
@@ -100,3 +101,6 @@ pub use rpc_extra::{
 };
 pub use transaction::{SignedTransaction, Transaction};
 pub use units::{Gas, IntoGas, IntoNearToken, NearToken};
+pub use wait_level::{
+    Executed, ExecutedOptimistic, Final, Included, IncludedFinal, Submitted, WaitLevel,
+};
