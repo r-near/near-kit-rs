@@ -170,7 +170,7 @@ async fn test_sign_offline_function_call() {
         .unwrap();
 
     // Send and wait for finalization so the view call sees the state change
-    let _outcome = contract_near
+    let _response = contract_near
         .send_with_options(&signed, TxExecutionStatus::Final)
         .await
         .unwrap();

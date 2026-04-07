@@ -786,12 +786,12 @@ async fn test_send_with_options_final() {
     println!("Signed transaction hash: {}", signed.get_hash());
 
     // Send with Final wait option
-    let outcome = sender_near
+    let response = sender_near
         .send_with_options(&signed, TxExecutionStatus::Final)
         .await
         .unwrap();
 
-    println!("Transaction succeeded: {:?}", outcome.transaction_hash());
+    println!("Transaction succeeded: {:?}", response.transaction_hash);
 
     // Verify the transfer happened
     let balance = root_near.balance(&receiver_id).await.unwrap();
@@ -849,6 +849,68 @@ async fn test_send_pre_signed_transaction() {
     let outcome = sender_near.send(&signed).await.unwrap();
 
     println!("Transaction completed: {:?}", outcome.transaction_hash());
+}
+
+#[tokio::test]
+async fn test_send_with_options_included_returns_no_outcome() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+    let rpc_url = sandbox.rpc_url();
+
+    // Create sender account
+    let sender_key = SecretKey::generate_ed25519();
+    let sender_id = unique_account();
+
+    root_near
+        .transaction(&sender_id)
+        .create_account()
+        .transfer(NearToken::from_near(100))
+        .add_full_access_key(sender_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    let sender_near = Near::custom(rpc_url)
+        .credentials(sender_key.to_string(), &sender_id)
+        .unwrap()
+        .build();
+
+    // Create receiver account
+    let receiver_key = SecretKey::generate_ed25519();
+    let receiver_id: AccountId = format!("recv-inc.{}", sender_id).parse().unwrap();
+
+    sender_near
+        .transaction(&receiver_id)
+        .create_account()
+        .transfer(NearToken::from_near(10))
+        .add_full_access_key(receiver_key.public_key())
+        .send()
+        .wait_until(TxExecutionStatus::Final)
+        .await
+        .unwrap();
+
+    // Sign and send with Included — outcome may be None
+    let signed = sender_near
+        .transfer(&receiver_id, NearToken::from_near(1))
+        .sign()
+        .await
+        .unwrap();
+
+    let response = sender_near
+        .send_with_options(&signed, TxExecutionStatus::Included)
+        .await
+        .unwrap();
+
+    // transaction_hash is always available
+    assert!(!response.transaction_hash.is_zero());
+
+    // Included does not wait for execution, so outcome should be None
+    assert!(
+        response.outcome.is_none(),
+        "expected no outcome for Included, got: {:?}",
+        response.outcome
+    );
 }
 
 #[tokio::test]

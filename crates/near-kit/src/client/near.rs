@@ -823,27 +823,16 @@ impl Near {
         &self,
         signed_tx: &crate::types::SignedTransaction,
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        self.send_with_options(signed_tx, TxExecutionStatus::ExecutedOptimistic)
-            .await
-    }
-
-    /// Send a pre-signed transaction with custom wait options.
-    pub async fn send_with_options(
-        &self,
-        signed_tx: &crate::types::SignedTransaction,
-        wait_until: TxExecutionStatus,
-    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        let response = self.rpc.send_tx(signed_tx, wait_until).await?;
+        let response = self
+            .send_with_options(signed_tx, TxExecutionStatus::ExecutedOptimistic)
+            .await?;
         let outcome = response.outcome.ok_or_else(|| {
             Error::InvalidTransaction(format!(
-                "Transaction {} submitted with wait_until={:?} but no execution outcome \
-                 was returned. Use rpc().send_tx() for fire-and-forget submission.",
-                response.transaction_hash, wait_until,
+                "RPC returned no execution outcome for transaction {} at wait level ExecutedOptimistic",
+                response.transaction_hash
             ))
         })?;
 
-        // Only InvalidTxError becomes Err — action errors return Ok(outcome)
-        // so callers can inspect the full outcome via is_failure()/failure_message().
         use crate::types::{FinalExecutionStatus, TxExecutionError};
         match outcome.status {
             FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
@@ -851,6 +840,25 @@ impl Near {
             }
             _ => Ok(outcome),
         }
+    }
+
+    /// Send a pre-signed transaction with custom wait options.
+    ///
+    /// Returns the raw [`SendTxResponse`](crate::types::SendTxResponse), which
+    /// always contains the `transaction_hash` and `final_execution_status`. The
+    /// `outcome` field is `Some` when the transaction has been executed, and
+    /// `None` for non-executed wait levels (`None`, `Included`, `IncludedFinal`).
+    ///
+    /// **Note:** Unlike [`send`](Self::send), this method does not convert
+    /// `InvalidTxError` failures into [`Error::InvalidTx`]. Callers that need
+    /// structured error handling for invalid transactions should inspect
+    /// `outcome.status` themselves or use [`send`](Self::send) instead.
+    pub async fn send_with_options(
+        &self,
+        signed_tx: &crate::types::SignedTransaction,
+        wait_until: TxExecutionStatus,
+    ) -> Result<crate::types::SendTxResponse, Error> {
+        Ok(self.rpc.send_tx(signed_tx, wait_until).await?)
     }
 
     // ========================================================================
