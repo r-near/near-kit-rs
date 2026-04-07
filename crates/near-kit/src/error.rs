@@ -23,6 +23,7 @@
 //! # async fn example() -> Result<(), Error> {
 //! let near = Near::testnet().build();
 //!
+//! // With the default wait level (ExecutedOptimistic), the outcome is always present.
 //! match near.transfer("bob.testnet", "1 NEAR").await {
 //!     Ok(Some(outcome)) if outcome.is_success() => {
 //!         println!("Success! Hash: {}", outcome.transaction_hash());
@@ -32,8 +33,9 @@
 //!         println!("Action failed: {:?}, gas used: {}", outcome.failure_message(), outcome.total_gas_used());
 //!     }
 //!     Ok(None) => {
-//!         // Transaction was included but not yet executed (when using a non-executed wait level)
-//!         println!("Transaction included, not yet executed");
+//!         // Only returned when using a non-executed wait level like
+//!         // .send().wait_until(TxExecutionStatus::Included)
+//!         unreachable!("default wait level always returns an outcome");
 //!     }
 //!     Err(Error::InvalidTx(e)) => {
 //!         // Transaction was rejected before execution (bad nonce, insufficient balance, etc.)
