@@ -905,12 +905,11 @@ async fn test_send_with_options_included_returns_no_outcome() {
     // transaction_hash is always available
     assert!(!response.transaction_hash.is_zero());
 
-    // outcome may or may not be present for Included — both are valid
-    println!(
-        "Included response: hash={}, status={:?}, has_outcome={}",
-        response.transaction_hash,
-        response.final_execution_status,
-        response.outcome.is_some()
+    // Included does not wait for execution, so outcome should be None
+    assert!(
+        response.outcome.is_none(),
+        "expected no outcome for Included, got: {:?}",
+        response.outcome
     );
 }
 
