@@ -14,7 +14,7 @@ use crate::types::{
 use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
 use super::signer::{InMemorySigner, Signer};
-use super::transaction::{CallBuilder, TransactionBuilder};
+use super::transaction::{CallBuilder, TransactionBuilder, process_send_response, require_outcome};
 use crate::types::TxExecutionStatus;
 
 /// Trait for sandbox network configuration.
@@ -823,15 +823,10 @@ impl Near {
         &self,
         signed_tx: &crate::types::SignedTransaction,
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        self.send_with_options(signed_tx, TxExecutionStatus::ExecutedOptimistic)
-            .await
-            .and_then(|opt| {
-                opt.ok_or_else(|| {
-                    Error::InvalidTransaction(
-                        "RPC returned no execution outcome for ExecutedOptimistic".to_string(),
-                    )
-                })
-            })
+        require_outcome(
+            self.send_with_options(signed_tx, TxExecutionStatus::ExecutedOptimistic)
+                .await,
+        )
     }
 
     /// Send a pre-signed transaction with custom wait options.
@@ -847,28 +842,7 @@ impl Near {
         wait_until: TxExecutionStatus,
     ) -> Result<Option<crate::types::FinalExecutionOutcome>, Error> {
         let response = self.rpc.send_tx(signed_tx, wait_until).await?;
-
-        let outcome = match response.outcome {
-            Some(outcome) => outcome,
-            None if !wait_until.is_executed() => return Ok(None),
-            None => {
-                return Err(Error::InvalidTransaction(format!(
-                    "Transaction {} submitted with wait_until={:?} but no execution outcome \
-                     was returned by the RPC.",
-                    response.transaction_hash, wait_until,
-                )));
-            }
-        };
-
-        // Only InvalidTxError becomes Err — action errors return Ok(Some(outcome))
-        // so callers can inspect the full outcome via is_failure()/failure_message().
-        use crate::types::{FinalExecutionStatus, TxExecutionError};
-        match outcome.status {
-            FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
-                Err(Error::InvalidTx(Box::new(e)))
-            }
-            _ => Ok(Some(outcome)),
-        }
+        process_send_response(response, wait_until)
     }
 
     // ========================================================================
@@ -895,16 +869,7 @@ impl Near {
         method: &str,
         args: &A,
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        self.call(contract_id, method)
-            .args(args)
-            .await
-            .and_then(|opt| {
-                opt.ok_or_else(|| {
-                    Error::InvalidTransaction(
-                        "RPC returned no execution outcome for ExecutedOptimistic".to_string(),
-                    )
-                })
-            })
+        require_outcome(self.call(contract_id, method).args(args).await)
     }
 
     /// Call a function with full options (convenience method).
@@ -916,18 +881,13 @@ impl Near {
         gas: Gas,
         deposit: NearToken,
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        self.call(contract_id, method)
-            .args(args)
-            .gas(gas)
-            .deposit(deposit)
-            .await
-            .and_then(|opt| {
-                opt.ok_or_else(|| {
-                    Error::InvalidTransaction(
-                        "RPC returned no execution outcome for ExecutedOptimistic".to_string(),
-                    )
-                })
-            })
+        require_outcome(
+            self.call(contract_id, method)
+                .args(args)
+                .gas(gas)
+                .deposit(deposit)
+                .await,
+        )
     }
 
     // ========================================================================

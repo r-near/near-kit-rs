@@ -47,6 +47,54 @@ use super::nonce_manager::NonceManager;
 use super::rpc::RpcClient;
 use super::signer::Signer;
 
+/// Extract and validate the execution outcome from a send_tx RPC response.
+///
+/// - Returns `Ok(Some(outcome))` when an outcome is present and valid.
+/// - Returns `Ok(None)` when the outcome is absent and `wait_until` is a
+///   non-executed level (`None`, `Included`, `IncludedFinal`).
+/// - Returns `Err(InvalidTx)` if the outcome contains an `InvalidTxError`.
+/// - Returns `Err(InvalidTransaction)` if the outcome is absent but `wait_until`
+///   is an executed level (malformed RPC response).
+pub(crate) fn process_send_response(
+    response: crate::types::SendTxResponse,
+    wait_until: TxExecutionStatus,
+) -> Result<Option<FinalExecutionOutcome>, Error> {
+    let outcome = match response.outcome {
+        Some(outcome) => outcome,
+        None if !wait_until.is_executed() => return Ok(None),
+        None => {
+            return Err(Error::InvalidTransaction(format!(
+                "Transaction {} submitted with wait_until={:?} but no execution outcome \
+                 was returned by the RPC.",
+                response.transaction_hash, wait_until,
+            )));
+        }
+    };
+
+    use crate::types::{FinalExecutionStatus, TxExecutionError};
+    match outcome.status {
+        FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
+            Err(Error::InvalidTx(Box::new(e)))
+        }
+        _ => Ok(Some(outcome)),
+    }
+}
+
+/// Unwrap an `Option<FinalExecutionOutcome>` into a `FinalExecutionOutcome`,
+/// returning an error if the outcome is absent. Used by convenience methods
+/// that always send with `ExecutedOptimistic`.
+pub(crate) fn require_outcome(
+    result: Result<Option<FinalExecutionOutcome>, Error>,
+) -> Result<FinalExecutionOutcome, Error> {
+    result.and_then(|opt| {
+        opt.ok_or_else(|| {
+            Error::InvalidTransaction(
+                "RPC returned no execution outcome for ExecutedOptimistic".to_string(),
+            )
+        })
+    })
+}
+
 /// Global nonce manager shared across all TransactionBuilder instances.
 /// This is an implementation detail - not exposed to users.
 fn nonce_manager() -> &'static NonceManager {
@@ -1352,34 +1400,7 @@ impl IntoFuture for TransactionSend {
                     // Send
                     match builder.rpc.send_tx(&signed_tx, builder.wait_until).await {
                         Ok(response) => {
-                            // When wait_until is a non-executed level (None, Included,
-                            // IncludedFinal), the outcome may legitimately be absent
-                            // because the tx was included but not yet executed.
-                            // For executed levels, a missing outcome is a malformed RPC response.
-                            let outcome = match response.outcome {
-                                Some(outcome) => outcome,
-                                None if !builder.wait_until.is_executed() => return Ok(None),
-                                None => {
-                                    return Err(Error::InvalidTransaction(format!(
-                                        "Transaction submitted with wait_until={:?} but no \
-                                         execution outcome was returned by the RPC.",
-                                        builder.wait_until,
-                                    )));
-                                }
-                            };
-
-                            // Inspect outcome status — only InvalidTxError becomes Err.
-                            // ActionError means the tx executed (nonce incremented, gas consumed),
-                            // so we return Ok(Some(outcome)) and let the caller inspect is_failure().
-                            use crate::types::{FinalExecutionStatus, TxExecutionError};
-                            match outcome.status {
-                                FinalExecutionStatus::Failure(
-                                    TxExecutionError::InvalidTxError(e),
-                                ) => {
-                                    return Err(Error::InvalidTx(Box::new(e)));
-                                }
-                                _ => return Ok(Some(outcome)),
-                            }
+                            return process_send_response(response, builder.wait_until);
                         }
                         Err(RpcError::InvalidTx(
                             crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
