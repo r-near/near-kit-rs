@@ -825,31 +825,36 @@ impl Near {
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
         self.send_with_options(signed_tx, TxExecutionStatus::ExecutedOptimistic)
             .await
+            .map(|opt| opt.expect("ExecutedOptimistic guarantees an execution outcome"))
     }
 
     /// Send a pre-signed transaction with custom wait options.
+    ///
+    /// Returns `Ok(None)` when `wait_until` is a non-executed level
+    /// (`None`, `Included`, `IncludedFinal`) and the RPC does not return an
+    /// execution outcome. This is expected — the transaction was accepted but
+    /// has not yet been executed. Use [`send`](Self::send) if you always want
+    /// an outcome (it defaults to `ExecutedOptimistic`).
     pub async fn send_with_options(
         &self,
         signed_tx: &crate::types::SignedTransaction,
         wait_until: TxExecutionStatus,
-    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
+    ) -> Result<Option<crate::types::FinalExecutionOutcome>, Error> {
         let response = self.rpc.send_tx(signed_tx, wait_until).await?;
-        let outcome = response.outcome.ok_or_else(|| {
-            Error::InvalidTransaction(format!(
-                "Transaction {} submitted with wait_until={:?} but no execution outcome \
-                 was returned. Use rpc().send_tx() for fire-and-forget submission.",
-                response.transaction_hash, wait_until,
-            ))
-        })?;
 
-        // Only InvalidTxError becomes Err — action errors return Ok(outcome)
+        let outcome = match response.outcome {
+            Some(outcome) => outcome,
+            None => return Ok(None),
+        };
+
+        // Only InvalidTxError becomes Err — action errors return Ok(Some(outcome))
         // so callers can inspect the full outcome via is_failure()/failure_message().
         use crate::types::{FinalExecutionStatus, TxExecutionError};
         match outcome.status {
             FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
                 Err(Error::InvalidTx(Box::new(e)))
             }
-            _ => Ok(outcome),
+            _ => Ok(Some(outcome)),
         }
     }
 
@@ -877,7 +882,10 @@ impl Near {
         method: &str,
         args: &A,
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        self.call(contract_id, method).args(args).await
+        self.call(contract_id, method)
+            .args(args)
+            .await
+            .map(|opt| opt.expect("ExecutedOptimistic guarantees an execution outcome"))
     }
 
     /// Call a function with full options (convenience method).
@@ -894,6 +902,7 @@ impl Near {
             .gas(gas)
             .deposit(deposit)
             .await
+            .map(|opt| opt.expect("ExecutedOptimistic guarantees an execution outcome"))
     }
 
     // ========================================================================

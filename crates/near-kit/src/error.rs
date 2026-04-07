@@ -24,12 +24,16 @@
 //! let near = Near::testnet().build();
 //!
 //! match near.transfer("bob.testnet", "1 NEAR").await {
-//!     Ok(outcome) if outcome.is_success() => {
+//!     Ok(Some(outcome)) if outcome.is_success() => {
 //!         println!("Success! Hash: {}", outcome.transaction_hash());
 //!     }
-//!     Ok(outcome) => {
+//!     Ok(Some(outcome)) => {
 //!         // Transaction executed but an action failed — inspect the outcome
 //!         println!("Action failed: {:?}, gas used: {}", outcome.failure_message(), outcome.total_gas_used());
+//!     }
+//!     Ok(None) => {
+//!         // Transaction was included but not yet executed (when using a non-executed wait level)
+//!         println!("Transaction included, not yet executed");
 //!     }
 //!     Err(Error::InvalidTx(e)) => {
 //!         // Transaction was rejected before execution (bad nonce, insufficient balance, etc.)

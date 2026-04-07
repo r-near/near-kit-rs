@@ -1233,7 +1233,7 @@ impl CallBuilder {
 }
 
 impl IntoFuture for CallBuilder {
-    type Output = Result<FinalExecutionOutcome, Error>;
+    type Output = Result<Option<FinalExecutionOutcome>, Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 
     fn into_future(self) -> Self::IntoFuture {
@@ -1266,7 +1266,7 @@ impl TransactionSend {
 }
 
 impl IntoFuture for TransactionSend {
-    type Output = Result<FinalExecutionOutcome, Error>;
+    type Output = Result<Option<FinalExecutionOutcome>, Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 
     fn into_future(self) -> Self::IntoFuture {
@@ -1352,18 +1352,17 @@ impl IntoFuture for TransactionSend {
                     // Send
                     match builder.rpc.send_tx(&signed_tx, builder.wait_until).await {
                         Ok(response) => {
-                            let outcome = response.outcome.ok_or_else(|| {
-                                Error::InvalidTransaction(format!(
-                                    "Transaction {} submitted with wait_until={:?} but no execution \
-                                     outcome was returned. Use rpc().send_tx() for fire-and-forget \
-                                     submission.",
-                                    response.transaction_hash, builder.wait_until,
-                                ))
-                            })?;
+                            // When wait_until is a non-executed level (None, Included,
+                            // IncludedFinal), the outcome may legitimately be absent
+                            // because the tx was included but not yet executed.
+                            let outcome = match response.outcome {
+                                Some(outcome) => outcome,
+                                None => return Ok(None),
+                            };
 
                             // Inspect outcome status — only InvalidTxError becomes Err.
                             // ActionError means the tx executed (nonce incremented, gas consumed),
-                            // so we return Ok(outcome) and let the caller inspect is_failure().
+                            // so we return Ok(Some(outcome)) and let the caller inspect is_failure().
                             use crate::types::{FinalExecutionStatus, TxExecutionError};
                             match outcome.status {
                                 FinalExecutionStatus::Failure(
@@ -1371,7 +1370,7 @@ impl IntoFuture for TransactionSend {
                                 ) => {
                                     return Err(Error::InvalidTx(Box::new(e)));
                                 }
-                                _ => return Ok(outcome),
+                                _ => return Ok(Some(outcome)),
                             }
                         }
                         Err(RpcError::InvalidTx(
@@ -1424,7 +1423,7 @@ impl IntoFuture for TransactionSend {
 }
 
 impl IntoFuture for TransactionBuilder {
-    type Output = Result<FinalExecutionOutcome, Error>;
+    type Output = Result<Option<FinalExecutionOutcome>, Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
 
     fn into_future(self) -> Self::IntoFuture {

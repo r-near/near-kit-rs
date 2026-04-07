@@ -64,6 +64,7 @@ async fn test_delegate_action_transfer() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Create recipient account
@@ -78,6 +79,7 @@ async fn test_delegate_action_transfer() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!(
@@ -131,6 +133,7 @@ async fn test_delegate_action_transfer() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!(
@@ -185,6 +188,7 @@ async fn test_delegate_action_function_call() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Create contract account and deploy a simple contract
@@ -242,6 +246,7 @@ async fn test_delegate_action_function_call() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!("Delegate action function call successful!");
@@ -281,6 +286,7 @@ async fn test_delegate_action_multiple_actions() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // New account to be created via delegate action
@@ -324,6 +330,7 @@ async fn test_delegate_action_multiple_actions() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!("Delegate action with multiple actions succeeded");
@@ -372,6 +379,7 @@ async fn test_delegate_action_roundtrip_encoding() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Create a delegate action

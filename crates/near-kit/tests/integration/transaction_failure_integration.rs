@@ -105,7 +105,8 @@ async fn test_add_key_to_nonexistent_account() {
         .add_full_access_key(key.public_key())
         .send()
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(
         outcome.is_failure(),
@@ -141,7 +142,8 @@ async fn test_add_duplicate_key() {
     let outcome = account_near
         .add_full_access_key(key.public_key())
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(
         outcome.is_failure(),
@@ -202,7 +204,8 @@ async fn test_create_subaccount_of_nonexistent_parent() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(
         outcome.is_failure(),
@@ -295,7 +298,8 @@ async fn test_transaction_with_failing_action_in_middle() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(
         outcome.is_failure(),
@@ -322,7 +326,8 @@ async fn test_delete_nonexistent_account() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(
         outcome.is_failure(),
@@ -403,7 +408,8 @@ async fn test_stake_with_insufficient_balance() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(
         outcome.is_failure(),
@@ -453,6 +459,7 @@ async fn test_transfer_zero_amount() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Transfer zero

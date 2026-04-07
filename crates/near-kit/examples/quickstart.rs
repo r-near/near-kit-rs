@@ -50,7 +50,8 @@ async fn call_example(near: &Near) -> Result<(), Error> {
         .call("guestbook.near-examples.testnet", "add_message")
         .args(serde_json::json!({ "text": "Hello from near-kit-rs!" }))
         .gas(Gas::from_tgas(30))
-        .await?;
+        .await?
+        .expect("default wait level guarantees an execution outcome");
 
     println!("Transaction: {:?}", outcome.transaction_hash());
 
@@ -67,7 +68,8 @@ async fn transfer_example(near: &Near) -> Result<(), Error> {
     // Transfer using typed amount
     let outcome = near
         .transfer("friend.testnet", NearToken::from_millinear(100))
-        .await?;
+        .await?
+        .expect("default wait level guarantees an execution outcome");
 
     println!("Sent 0.1 NEAR: {:?}", outcome.transaction_hash());
 
@@ -94,7 +96,8 @@ async fn transaction_example(near: &Near, new_account: &str) -> Result<(), Error
         .transfer(NearToken::from_near(1))
         .add_full_access_key(keypair.public_key)
         .send()
-        .await?;
+        .await?
+        .expect("default wait level guarantees an execution outcome");
 
     println!("Transaction: {:?}", outcome.transaction_hash());
 

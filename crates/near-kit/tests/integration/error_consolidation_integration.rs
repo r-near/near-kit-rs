@@ -42,7 +42,8 @@ async fn test_successful_transfer_returns_ok() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect("Successful transaction should return Ok");
+        .expect("Successful transaction should return Ok")
+        .unwrap();
 
     assert!(outcome.is_success());
     assert!(!outcome.transaction_hash().is_zero());
@@ -83,7 +84,8 @@ async fn test_action_error_returns_ok_with_failure_outcome() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(outcome.is_failure(), "Outcome should be a failure");
     assert!(!outcome.is_success());
@@ -129,7 +131,8 @@ async fn test_function_call_error_returns_ok_with_failure_outcome() {
         .args(serde_json::json!({}))
         .gas(Gas::from_tgas(30))
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(outcome.is_failure());
     assert!(outcome.failure_message().is_some());

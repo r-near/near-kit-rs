@@ -173,7 +173,8 @@ async fn test_sign_offline_function_call() {
     let _outcome = contract_near
         .send_with_options(&signed, TxExecutionStatus::Final)
         .await
-        .unwrap();
+        .unwrap()
+        .expect("Final guarantees an execution outcome");
 
     // Verify the message was added
     let messages: Vec<serde_json::Value> = contract_near

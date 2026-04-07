@@ -38,6 +38,7 @@ async fn test_failed_transaction_preserves_receipts() {
         .wait_until(TxExecutionStatus::Final)
         .await
         .expect("setup: deploy should succeed")
+        .unwrap()
         .result()
         .expect("setup: deploy should succeed on-chain");
 
@@ -53,7 +54,8 @@ async fn test_failed_transaction_preserves_receipts() {
         .args(serde_json::json!({}))
         .gas(Gas::from_tgas(10))
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(outcome.is_failure(), "Outcome should be a failure");
     assert!(

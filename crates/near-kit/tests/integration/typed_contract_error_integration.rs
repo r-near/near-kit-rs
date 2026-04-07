@@ -135,6 +135,7 @@ async fn test_typed_contract_call_without_signer() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Create client WITHOUT a signer
@@ -175,6 +176,7 @@ async fn test_typed_contract_view_on_wrong_contract_type() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Try to use guestbook interface on FT contract
@@ -213,6 +215,7 @@ async fn test_typed_contract_call_with_insufficient_gas() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     let guestbook = near.contract::<Guestbook>(&contract_id);
@@ -226,10 +229,10 @@ async fn test_typed_contract_call_with_insufficient_gas() {
         .await;
 
     match result {
-        Ok(outcome) if outcome.is_failure() => {
+        Ok(Some(outcome)) if outcome.is_failure() => {
             println!("Insufficient gas error: {:?}", outcome.failure_message());
         }
-        Ok(outcome) => panic!("Expected failure outcome, got success: {:?}", outcome),
+        Ok(outcome) => panic!("Expected failure outcome, got: {:?}", outcome),
         Err(Error::Rpc(_)) | Err(Error::InvalidTx(_)) => { /* Also acceptable */ }
         Err(other) => panic!(
             "Expected Ok(failure) or Rpc/InvalidTx error, got: {:?}",
@@ -257,6 +260,7 @@ async fn test_typed_contract_view_returns_wrong_type() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Define a "wrong" contract interface that expects different return type
@@ -303,6 +307,7 @@ async fn test_typed_contract_query_at_invalid_block() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     let guestbook = near.contract::<Guestbook>(&contract_id);
@@ -344,6 +349,7 @@ async fn test_typed_contract_view_methods_still_work_without_signer() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Create client WITHOUT a signer

@@ -269,6 +269,7 @@ async fn test_final_execution_outcome_full_fields() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Verify FinalExecutionOutcome fields
@@ -341,6 +342,7 @@ async fn test_execution_metadata_and_gas_profile() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Check if metadata is present (may not be in all protocol versions)
@@ -389,6 +391,7 @@ async fn test_tx_status_with_receipts() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     let tx_hash = outcome.transaction_hash();
@@ -483,6 +486,7 @@ async fn test_action_view_variants() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     let tx = &outcome.transaction;

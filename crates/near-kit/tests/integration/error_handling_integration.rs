@@ -183,6 +183,7 @@ async fn test_error_view_nonexistent_method() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Call a method that doesn't exist
@@ -231,6 +232,7 @@ async fn test_error_view_with_invalid_args() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Call with invalid JSON args (not valid for the method)
@@ -323,6 +325,7 @@ async fn test_error_insufficient_balance_transfer() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Try to transfer more than available — rejected at RPC validation level
@@ -370,7 +373,8 @@ async fn test_error_create_account_that_already_exists() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(
         outcome.is_failure(),
@@ -411,7 +415,8 @@ async fn test_error_delete_nonexistent_key() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(
         outcome.is_failure(),
@@ -447,6 +452,7 @@ async fn test_error_function_call_panic() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     let contract_near = Near::custom(rpc_url)
@@ -460,7 +466,8 @@ async fn test_error_function_call_panic() {
         .args(serde_json::json!({}))
         .gas(Gas::from_tgas(30))
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(
         outcome.is_failure(),
@@ -490,6 +497,7 @@ async fn test_error_function_call_insufficient_gas() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     let contract_near = Near::custom(rpc_url)
@@ -503,7 +511,8 @@ async fn test_error_function_call_insufficient_gas() {
         .args(serde_json::json!({ "text": "test" }))
         .gas(Gas::from_gas(1000)) // Extremely low gas
         .await
-        .expect("Action errors should return Ok(outcome)");
+        .expect("Action errors should return Ok(outcome)")
+        .unwrap();
 
     assert!(
         outcome.is_failure(),

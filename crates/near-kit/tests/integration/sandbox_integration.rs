@@ -90,6 +90,7 @@ async fn test_sandbox_transfer() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!(
@@ -147,6 +148,7 @@ async fn test_sandbox_multiple_transfers() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Create second account
@@ -158,6 +160,7 @@ async fn test_sandbox_multiple_transfers() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Check balances
@@ -208,6 +211,7 @@ async fn test_sandbox_simple_transfer() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     let initial_balance = root_near.balance(&receiver_id).await.unwrap();
@@ -267,6 +271,7 @@ async fn test_sandbox_create_account_outcome() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!("Transaction hash: {:?}", outcome.transaction_hash());
@@ -310,6 +315,7 @@ async fn test_sandbox_delete_account() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Verify it exists
@@ -328,6 +334,7 @@ async fn test_sandbox_delete_account() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Verify it no longer exists
@@ -369,6 +376,7 @@ async fn test_sandbox_add_and_delete_key() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Check that both keys exist
@@ -430,6 +438,7 @@ async fn test_sandbox_multiple_actions_in_one_transaction() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Create bob
@@ -441,6 +450,7 @@ async fn test_sandbox_multiple_actions_in_one_transaction() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Verify both exist
@@ -518,6 +528,7 @@ async fn test_sandbox_set_balance_preserves_other_fields() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Get original account state
@@ -602,6 +613,7 @@ async fn test_sandbox_set_balance_for_staking() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!("Stake transaction: {:?}", outcome.transaction_hash());
@@ -774,6 +786,7 @@ async fn test_send_with_options_final() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Sign a transaction offline
@@ -789,7 +802,8 @@ async fn test_send_with_options_final() {
     let outcome = sender_near
         .send_with_options(&signed, TxExecutionStatus::Final)
         .await
-        .unwrap();
+        .unwrap()
+        .expect("Final guarantees an execution outcome");
 
     println!("Transaction succeeded: {:?}", outcome.transaction_hash());
 
@@ -836,6 +850,7 @@ async fn test_send_pre_signed_transaction() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Sign a transaction offline

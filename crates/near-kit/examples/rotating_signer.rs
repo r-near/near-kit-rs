@@ -90,7 +90,7 @@ async fn high_throughput_example() -> Result<(), Error> {
         })
         .collect();
 
-    let results: Vec<Result<FinalExecutionOutcome, Error>> =
+    let results: Vec<Result<Option<FinalExecutionOutcome>, Error>> =
         futures::future::join_all(futures).await;
     let duration = start.elapsed();
 

@@ -46,6 +46,7 @@ async fn create_funded_account(
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     let near = Near::custom(rpc_url)
@@ -78,6 +79,7 @@ async fn test_near_publish_shorthand_updatable() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     assert!(!outcome.transaction_hash().to_string().is_empty());
@@ -100,6 +102,7 @@ async fn test_near_publish_shorthand_immutable() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     assert!(!outcome.transaction_hash().to_string().is_empty());
@@ -134,6 +137,7 @@ async fn test_near_deploy_from_shorthand_publisher() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Verify by calling a view method on the deployed contract
@@ -174,6 +178,7 @@ async fn test_near_deploy_from_shorthand_hash() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Verify by calling a view method
@@ -214,6 +219,7 @@ async fn test_publish_deploy_from_call_end_to_end() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Call a mutating method on the deployed contract
@@ -226,6 +232,7 @@ async fn test_publish_deploy_from_call_end_to_end() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Verify the message was stored
@@ -258,6 +265,7 @@ async fn test_publish_contract_by_account() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!(
@@ -286,6 +294,7 @@ async fn test_publish_contract_by_hash() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!(
@@ -314,6 +323,7 @@ async fn test_deploy_from_publisher() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Create a user account that will deploy from the publisher
@@ -327,6 +337,7 @@ async fn test_deploy_from_publisher() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!(
@@ -369,6 +380,7 @@ async fn test_deploy_from_hash() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Create a user account that will deploy from the hash
@@ -382,6 +394,7 @@ async fn test_deploy_from_hash() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!(
@@ -421,6 +434,7 @@ async fn test_state_init_by_hash() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Create initial state data (empty for this test)
@@ -433,6 +447,7 @@ async fn test_state_init_by_hash() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!(
@@ -461,6 +476,7 @@ async fn test_state_init_by_publisher() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Create initial state data with some sample data
@@ -475,6 +491,7 @@ async fn test_state_init_by_publisher() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!(
@@ -508,6 +525,7 @@ async fn test_action_create_account() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     assert!(root_near.account_exists(&child_id).await.unwrap());
@@ -597,6 +615,7 @@ async fn test_action_function_call() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 }
 
@@ -649,6 +668,7 @@ async fn test_action_add_function_call_key() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Verify the key was added
@@ -717,6 +737,7 @@ async fn test_action_delete_account() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     assert!(root_near.account_exists(&to_delete_id).await.unwrap());
@@ -733,6 +754,7 @@ async fn test_action_delete_account() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     assert!(!root_near.account_exists(&to_delete_id).await.unwrap());
@@ -768,6 +790,7 @@ async fn test_action_stake() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!("Stake action completed: {:?}", outcome.transaction_hash());
@@ -803,6 +826,7 @@ async fn test_multiple_actions() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     // Verify everything worked
@@ -849,6 +873,7 @@ async fn test_multiple_function_calls() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!(

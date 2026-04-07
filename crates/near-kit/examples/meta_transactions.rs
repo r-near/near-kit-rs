@@ -62,7 +62,8 @@ async fn relayer_submits_delegate(
         .transaction(delegate_result.sender_id())
         .signed_delegate_action(delegate_result.signed_delegate_action)
         .send()
-        .await?;
+        .await?
+        .expect("ExecutedOptimistic guarantees an execution outcome");
 
     println!(
         "Relayer submitted transaction: {:?}",

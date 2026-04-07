@@ -162,6 +162,7 @@ async fn debug_transaction_receipts() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     println!("\n========================================");
@@ -334,6 +335,7 @@ async fn debug_access_key_details() {
         .send()
         .wait_until(TxExecutionStatus::Final)
         .await
+        .unwrap()
         .unwrap();
 
     let keys = near.access_keys(&account_id).await.unwrap();
