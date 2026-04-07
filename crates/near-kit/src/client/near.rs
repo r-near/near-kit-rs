@@ -827,9 +827,10 @@ impl Near {
             .send_with_options(signed_tx, TxExecutionStatus::ExecutedOptimistic)
             .await?;
         let outcome = response.outcome.ok_or_else(|| {
-            Error::InvalidTransaction(
-                "RPC returned no execution outcome for ExecutedOptimistic".to_string(),
-            )
+            Error::InvalidTransaction(format!(
+                "RPC returned no execution outcome for transaction {} at wait level ExecutedOptimistic",
+                response.transaction_hash
+            ))
         })?;
 
         use crate::types::{FinalExecutionStatus, TxExecutionError};
