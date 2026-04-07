@@ -50,7 +50,9 @@ pub use query::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall, ViewCallBorsh,
 };
 pub use rpc::{RetryConfig, RpcClient};
-pub use signer::{EnvSigner, FileSigner, InMemorySigner, RotatingSigner, Signer, SigningKey};
+#[cfg(feature = "file-signer")]
+pub use signer::FileSigner;
+pub use signer::{EnvSigner, InMemorySigner, RotatingSigner, Signer, SigningKey};
 pub use transaction::{
     CallBuilder, DelegateOptions, DelegateResult, FunctionCall, TransactionBuilder, TransactionSend,
 };

@@ -294,7 +294,20 @@ impl RpcError {
     /// Check if this error is retryable.
     pub fn is_retryable(&self) -> bool {
         match self {
-            RpcError::Http(e) => e.is_timeout() || e.is_connect(),
+            RpcError::Http(e) => {
+                // is_connect() is unavailable on wasm (no hyper backend);
+                // is_request() covers transport-level failures on both platforms
+                e.is_timeout() || {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        e.is_connect()
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        e.is_request()
+                    }
+                }
+            }
             RpcError::Timeout(_) => true,
             RpcError::Network { retryable, .. } => *retryable,
             RpcError::ShardUnavailable(_) => true,
