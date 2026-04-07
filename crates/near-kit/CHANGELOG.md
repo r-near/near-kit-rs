@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.7.1...near-kit-v0.7.2) - 2026-04-07
+
+### Fixed
+
+- return SendTxResponse from send_with_options ([#159](https://github.com/r-near/near-kit-rs/pull/159))
+
 ## [0.7.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.7.0...near-kit-v0.7.1) - 2026-04-06
 
 ### Added
