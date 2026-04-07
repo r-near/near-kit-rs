@@ -546,8 +546,9 @@ pub enum FinalExecutionStatus {
 
 /// Response from `send_tx` RPC.
 ///
-/// When `wait_until=NONE`, the outcome is absent and only `final_execution_status`
-/// is populated. For all other wait levels the outcome is present.
+/// The `outcome` field is `Some` only for executed wait levels
+/// (`ExecutedOptimistic`, `Executed`, `Final`). For non-executed levels
+/// (`NONE`, `Included`, `IncludedFinal`) the outcome is absent.
 ///
 /// The `transaction_hash` is always available regardless of wait level,
 /// populated from the signed transaction before sending.
@@ -671,7 +672,7 @@ impl FinalExecutionOutcome {
 /// The `Failure` variant contains an [`ActionError`] rather than
 /// [`TxExecutionError`] because receipt execution outcomes can only fail with
 /// action errors. Transaction-validation errors (`InvalidTxError`) are caught
-/// earlier in the send path and surfaced as [`Error::InvalidTx`].
+/// earlier in the send path and surfaced as [`crate::error::Error::InvalidTx`].
 ///
 /// The NEAR RPC serialises the failure as `{"Failure": {"ActionError": {…}}}`.
 /// A custom [`Deserialize`] impl unwraps the outer `TxExecutionError` envelope.
