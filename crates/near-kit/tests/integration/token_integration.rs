@@ -40,7 +40,7 @@ async fn deploy_ft_contract(
         .add_full_access_key(ft_key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await?;
 
     // Initialize the FT contract
@@ -82,7 +82,7 @@ async fn test_ft_metadata() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -116,7 +116,7 @@ async fn test_ft_balance_of() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -158,7 +158,7 @@ async fn test_ft_total_supply() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -189,7 +189,7 @@ async fn test_ft_transfer() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -208,7 +208,7 @@ async fn test_ft_transfer() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -221,7 +221,7 @@ async fn test_ft_transfer() {
     // First, register receiver for storage
     let bounds = ft.storage_balance_bounds().await.unwrap();
     ft.storage_deposit(&receiver_id, bounds.min)
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -240,7 +240,7 @@ async fn test_ft_transfer() {
     let transfer_amount = 100_000_000_000_000_000_000_u128; // 100 tokens (18 decimals)
 
     ft.transfer_with_memo(&receiver_id, transfer_amount, "Test transfer")
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -279,7 +279,7 @@ async fn test_ft_storage_deposit() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -299,7 +299,7 @@ async fn test_ft_storage_deposit() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(user_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -314,7 +314,7 @@ async fn test_ft_storage_deposit() {
     // Register user
     let bounds = ft.storage_balance_bounds().await.unwrap();
     ft.storage_deposit(&user_id, bounds.min)
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -348,7 +348,7 @@ async fn deploy_nft_contract(
         .add_full_access_key(nft_key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await?;
 
     // Initialize the NFT contract
@@ -417,7 +417,7 @@ async fn test_nft_metadata() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -450,7 +450,7 @@ async fn test_nft_token_query() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -497,7 +497,7 @@ async fn test_nft_tokens_for_owner() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -558,7 +558,7 @@ async fn test_nft_transfer() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -578,7 +578,7 @@ async fn test_nft_transfer() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -599,7 +599,7 @@ async fn test_nft_transfer() {
     let nft_with_signer = owner_near.nft(&nft_id).unwrap();
     nft_with_signer
         .transfer_with_memo(&receiver_id, "transfer-test", "Gift for you!")
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -625,7 +625,7 @@ async fn test_nft_total_supply() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -674,7 +674,7 @@ async fn test_nft_supply_for_owner() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner1_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -694,7 +694,7 @@ async fn test_nft_supply_for_owner() {
         .transfer(NearToken::from_near(50))
         .add_full_access_key(owner2_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -760,7 +760,7 @@ async fn test_ft_amount_arithmetic_from_real_balances() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -803,7 +803,7 @@ async fn test_ft_metadata_caching() {
         .transfer(NearToken::from_near(100))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 

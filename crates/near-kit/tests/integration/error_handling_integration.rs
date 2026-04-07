@@ -147,7 +147,7 @@ async fn test_error_view_on_newly_created_account() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(account_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -181,7 +181,7 @@ async fn test_error_view_nonexistent_method() {
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -229,7 +229,7 @@ async fn test_error_view_with_invalid_args() {
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -263,7 +263,7 @@ async fn test_error_transfer_to_nonexistent_implicit_account() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -302,7 +302,7 @@ async fn test_error_insufficient_balance_transfer() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -321,7 +321,7 @@ async fn test_error_insufficient_balance_transfer() {
         .transfer(NearToken::from_millinear(100))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -350,7 +350,7 @@ async fn test_error_create_account_that_already_exists() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(account_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -368,7 +368,7 @@ async fn test_error_create_account_that_already_exists() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(new_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .expect("Action errors should return Ok(outcome)");
 
@@ -394,7 +394,7 @@ async fn test_error_delete_nonexistent_key() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(account_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -409,7 +409,7 @@ async fn test_error_delete_nonexistent_key() {
         .transaction(&account_id)
         .delete_key(fake_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .expect("Action errors should return Ok(outcome)");
 
@@ -445,7 +445,7 @@ async fn test_error_function_call_panic() {
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -488,7 +488,7 @@ async fn test_error_function_call_insufficient_gas() {
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 

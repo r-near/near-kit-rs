@@ -160,7 +160,7 @@ async fn debug_transaction_receipts() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -332,7 +332,7 @@ async fn debug_access_key_details() {
             Some(NearToken::from_near(1)), // allowance
         )
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -454,7 +454,7 @@ async fn test_error_invalid_method() {
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 

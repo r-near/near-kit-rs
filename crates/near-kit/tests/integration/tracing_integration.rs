@@ -125,7 +125,7 @@ async fn test_send_transaction_span_hierarchy() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(account_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -212,7 +212,7 @@ async fn test_ft_balance_of_span_hierarchy() {
         .transfer(NearToken::from_near(50))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -227,7 +227,7 @@ async fn test_ft_balance_of_span_hierarchy() {
         .add_full_access_key(ft_key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -249,7 +249,7 @@ async fn test_ft_balance_of_span_hierarchy() {
             }
         }))
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 

@@ -172,7 +172,7 @@
 //!
 //! // Wait for different execution levels
 //! near.transfer("bob.testnet", NearToken::from_near(1))
-//!     .wait_until(TxExecutionStatus::Final)
+//!     .wait_until(Final)
 //!     .await?;
 //! # Ok(())
 //! # }

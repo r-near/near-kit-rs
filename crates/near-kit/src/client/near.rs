@@ -15,7 +15,6 @@ use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQue
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
 use super::signer::{InMemorySigner, Signer};
 use super::transaction::{CallBuilder, TransactionBuilder};
-use crate::types::TxExecutionStatus;
 
 /// Trait for sandbox network configuration.
 ///
@@ -560,7 +559,7 @@ impl Near {
     ///
     /// // Transfer with wait for finality
     /// near.transfer("bob.testnet", NearToken::from_near(1000))
-    ///     .wait_until(TxExecutionStatus::Final)
+    ///     .wait_until(Final)
     ///     .await?;
     /// # Ok(())
     /// # }
@@ -823,34 +822,26 @@ impl Near {
         &self,
         signed_tx: &crate::types::SignedTransaction,
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        self.send_with_options(signed_tx, TxExecutionStatus::ExecutedOptimistic)
+        self.send_with_options(signed_tx, crate::types::ExecutedOptimistic)
             .await
     }
 
-    /// Send a pre-signed transaction with custom wait options.
-    pub async fn send_with_options(
+    /// Send a pre-signed transaction with a custom wait level.
+    ///
+    /// The return type depends on the wait level:
+    /// - Executed levels ([`ExecutedOptimistic`](crate::types::ExecutedOptimistic),
+    ///   [`Executed`](crate::types::Executed), [`Final`](crate::types::Final))
+    ///   → [`FinalExecutionOutcome`](crate::types::FinalExecutionOutcome)
+    /// - Non-executed levels ([`Submitted`](crate::types::Submitted),
+    ///   [`Included`](crate::types::Included), [`IncludedFinal`](crate::types::IncludedFinal))
+    ///   → [`SendTxResponse`](crate::types::SendTxResponse)
+    pub async fn send_with_options<W: crate::types::WaitLevel>(
         &self,
         signed_tx: &crate::types::SignedTransaction,
-        wait_until: TxExecutionStatus,
-    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        let response = self.rpc.send_tx(signed_tx, wait_until).await?;
-        let outcome = response.outcome.ok_or_else(|| {
-            Error::InvalidTransaction(format!(
-                "Transaction {} submitted with wait_until={:?} but no execution outcome \
-                 was returned. Use rpc().send_tx() for fire-and-forget submission.",
-                response.transaction_hash, wait_until,
-            ))
-        })?;
-
-        // Only InvalidTxError becomes Err — action errors return Ok(outcome)
-        // so callers can inspect the full outcome via is_failure()/failure_message().
-        use crate::types::{FinalExecutionStatus, TxExecutionError};
-        match outcome.status {
-            FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
-                Err(Error::InvalidTx(Box::new(e)))
-            }
-            _ => Ok(outcome),
-        }
+        _level: W,
+    ) -> Result<W::Response, Error> {
+        let response = self.rpc.send_tx(signed_tx, W::status()).await?;
+        W::convert(response)
     }
 
     // ========================================================================

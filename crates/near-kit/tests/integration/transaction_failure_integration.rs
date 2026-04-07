@@ -37,7 +37,7 @@ async fn test_deploy_invalid_wasm() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -69,7 +69,7 @@ async fn test_deploy_empty_wasm() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -128,7 +128,7 @@ async fn test_add_duplicate_key() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -163,7 +163,7 @@ async fn test_delete_last_full_access_key() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -200,7 +200,7 @@ async fn test_create_subaccount_of_nonexistent_parent() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .expect("Action errors should return Ok(outcome)");
 
@@ -226,7 +226,7 @@ async fn test_create_account_without_initial_balance() {
         .add_full_access_key(key.public_key())
         // No .transfer() call
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await;
 
     // Note: Creating an account without balance may succeed
@@ -250,7 +250,7 @@ async fn test_create_account_with_insufficient_balance() {
         .transfer(NearToken::from_yoctonear(1)) // Way too small
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await;
 
     // This may fail due to insufficient balance for storage
@@ -274,7 +274,7 @@ async fn test_transaction_with_failing_action_in_middle() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -293,7 +293,7 @@ async fn test_transaction_with_failing_action_in_middle() {
         .transaction(&account_id)
         .delete_key(fake_key.public_key()) // This key doesn't exist
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .expect("Action errors should return Ok(outcome)");
 
@@ -320,7 +320,7 @@ async fn test_delete_nonexistent_account() {
         .transaction(&nonexistent)
         .delete_account(SANDBOX_ROOT_ACCOUNT)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .expect("Action errors should return Ok(outcome)");
 
@@ -347,7 +347,7 @@ async fn test_delete_account_to_nonexistent_beneficiary() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -363,7 +363,7 @@ async fn test_delete_account_to_nonexistent_beneficiary() {
         .transaction(&account_id)
         .delete_account(&nonexistent_beneficiary)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await;
 
     // This should fail because the beneficiary doesn't exist
@@ -387,7 +387,7 @@ async fn test_stake_with_insufficient_balance() {
         .transfer(NearToken::from_near(1)) // Small balance
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -401,7 +401,7 @@ async fn test_stake_with_insufficient_balance() {
         .transaction(&account_id)
         .stake(NearToken::from_near(1000), key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .expect("Action errors should return Ok(outcome)");
 
@@ -432,7 +432,7 @@ async fn test_transfer_zero_amount() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -451,7 +451,7 @@ async fn test_transfer_zero_amount() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -477,7 +477,7 @@ async fn test_transfer_max_amount() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 

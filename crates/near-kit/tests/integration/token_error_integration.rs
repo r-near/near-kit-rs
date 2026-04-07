@@ -37,7 +37,7 @@ async fn test_ft_metadata_on_non_contract_account() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -88,7 +88,7 @@ async fn test_ft_balance_of_on_non_contract() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -117,7 +117,7 @@ async fn test_ft_transfer_without_signer() {
         .transfer(NearToken::from_near(50))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -178,7 +178,7 @@ async fn test_ft_on_wrong_contract_type() {
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -217,7 +217,7 @@ async fn test_nft_metadata_on_non_contract() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -241,7 +241,7 @@ async fn test_nft_token_on_non_contract() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
@@ -285,7 +285,7 @@ async fn test_nft_on_wrong_contract_type() {
         .add_full_access_key(key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(TxExecutionStatus::Final)
+        .wait_until(Final)
         .await
         .unwrap();
 
