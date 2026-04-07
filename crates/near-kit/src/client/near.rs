@@ -825,7 +825,13 @@ impl Near {
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
         self.send_with_options(signed_tx, TxExecutionStatus::ExecutedOptimistic)
             .await
-            .map(|opt| opt.expect("ExecutedOptimistic guarantees an execution outcome"))
+            .and_then(|opt| {
+                opt.ok_or_else(|| {
+                    Error::InvalidTransaction(
+                        "RPC returned no execution outcome for ExecutedOptimistic".to_string(),
+                    )
+                })
+            })
     }
 
     /// Send a pre-signed transaction with custom wait options.
@@ -892,7 +898,13 @@ impl Near {
         self.call(contract_id, method)
             .args(args)
             .await
-            .map(|opt| opt.expect("ExecutedOptimistic guarantees an execution outcome"))
+            .and_then(|opt| {
+                opt.ok_or_else(|| {
+                    Error::InvalidTransaction(
+                        "RPC returned no execution outcome for ExecutedOptimistic".to_string(),
+                    )
+                })
+            })
     }
 
     /// Call a function with full options (convenience method).
@@ -909,7 +921,13 @@ impl Near {
             .gas(gas)
             .deposit(deposit)
             .await
-            .map(|opt| opt.expect("ExecutedOptimistic guarantees an execution outcome"))
+            .and_then(|opt| {
+                opt.ok_or_else(|| {
+                    Error::InvalidTransaction(
+                        "RPC returned no execution outcome for ExecutedOptimistic".to_string(),
+                    )
+                })
+            })
     }
 
     // ========================================================================
