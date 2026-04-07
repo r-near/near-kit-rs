@@ -808,7 +808,7 @@ impl TransactionBuilder {
 
     /// Send the transaction.
     ///
-    /// Returns a [`TransactionSend`] that defaults to [`ExecutedOptimistic`] wait level.
+    /// Returns a [`TransactionSend`] that defaults to [`crate::types::ExecutedOptimistic`] wait level.
     /// Chain `.wait_until(...)` to change the wait level before awaiting.
     pub fn send(self) -> TransactionSend {
         TransactionSend {
@@ -1251,8 +1251,10 @@ impl IntoFuture for CallBuilder {
 /// Future for sending a transaction.
 ///
 /// The type parameter `W` determines the wait level and the return type:
-/// - Executed levels ([`ExecutedOptimistic`], [`Executed`], [`Final`]) → [`FinalExecutionOutcome`]
-/// - Non-executed levels ([`Submitted`], [`Included`], [`IncludedFinal`]) → [`SendTxResponse`]
+/// - Executed levels ([`crate::types::ExecutedOptimistic`], [`crate::types::Executed`],
+///   [`crate::types::Final`]) → [`FinalExecutionOutcome`]
+/// - Non-executed levels ([`crate::types::Submitted`], [`crate::types::Included`],
+///   [`crate::types::IncludedFinal`]) → [`crate::types::SendTxResponse`]
 pub struct TransactionSend<W: WaitLevel = crate::types::ExecutedOptimistic> {
     builder: TransactionBuilder,
     _marker: std::marker::PhantomData<W>,
