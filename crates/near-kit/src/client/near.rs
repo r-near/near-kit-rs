@@ -844,7 +844,14 @@ impl Near {
 
         let outcome = match response.outcome {
             Some(outcome) => outcome,
-            None => return Ok(None),
+            None if !wait_until.is_executed() => return Ok(None),
+            None => {
+                return Err(Error::InvalidTransaction(format!(
+                    "Transaction {} submitted with wait_until={:?} but no execution outcome \
+                     was returned by the RPC.",
+                    response.transaction_hash, wait_until,
+                )));
+            }
         };
 
         // Only InvalidTxError becomes Err — action errors return Ok(Some(outcome))

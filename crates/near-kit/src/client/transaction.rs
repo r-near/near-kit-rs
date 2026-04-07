@@ -1355,9 +1355,17 @@ impl IntoFuture for TransactionSend {
                             // When wait_until is a non-executed level (None, Included,
                             // IncludedFinal), the outcome may legitimately be absent
                             // because the tx was included but not yet executed.
+                            // For executed levels, a missing outcome is a malformed RPC response.
                             let outcome = match response.outcome {
                                 Some(outcome) => outcome,
-                                None => return Ok(None),
+                                None if !builder.wait_until.is_executed() => return Ok(None),
+                                None => {
+                                    return Err(Error::InvalidTransaction(format!(
+                                        "Transaction submitted with wait_until={:?} but no \
+                                         execution outcome was returned by the RPC.",
+                                        builder.wait_until,
+                                    )));
+                                }
                             };
 
                             // Inspect outcome status — only InvalidTxError becomes Err.
