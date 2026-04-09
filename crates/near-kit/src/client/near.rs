@@ -880,40 +880,6 @@ impl Near {
         W::convert(response, &sender_id)
     }
 
-    /// Get the status of a transaction you sent.
-    ///
-    /// Convenience wrapper around [`tx_status`](Self::tx_status) that uses
-    /// the configured signer's account ID as the sender. Use this when
-    /// checking your own transactions.
-    ///
-    /// # Panics
-    ///
-    /// Panics if no signer is configured.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example(near: &Near) -> Result<(), Error> {
-    /// let response = near.transfer("bob.testnet", NearToken::from_near(1))
-    ///     .wait_until(Included)
-    ///     .await?;
-    ///
-    /// // Later, poll for the full outcome:
-    /// let outcome = near.tx_status_of(&response.transaction_hash, Final).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn tx_status_of<W: crate::types::WaitLevel>(
-        &self,
-        tx_hash: &crate::types::CryptoHash,
-        _level: W,
-    ) -> Result<W::Response, Error> {
-        let sender_id = self.account_id();
-        let response = self.rpc.tx_status(tx_hash, sender_id, W::status()).await?;
-        W::convert(response, sender_id)
-    }
-
     // ========================================================================
     // Convenience methods
     // ========================================================================
