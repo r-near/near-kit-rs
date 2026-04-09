@@ -232,13 +232,7 @@ async fn debug_transaction_receipts() {
 
     // Now get full receipt details via EXPERIMENTAL_tx_status
     let tx_hash = outcome.transaction_hash();
-    let full_status = near
-        .rpc()
-        .tx_status(tx_hash, &root_account, TxExecutionStatus::Final)
-        .await
-        .unwrap();
-
-    let full_outcome = full_status.outcome.expect("expected outcome with receipts");
+    let full_outcome = near.tx_status(tx_hash, &root_account, Final).await.unwrap();
 
     println!("\n========================================");
     println!("FULL RECEIPTS (via EXPERIMENTAL_tx_status)");

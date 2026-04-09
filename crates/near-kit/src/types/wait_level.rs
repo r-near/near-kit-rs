@@ -15,7 +15,7 @@
 //!     .wait_until(Final)
 //!     .await?;
 //!
-//! // Non-executed levels — returns SendTxResponse
+//! // Non-executed levels — returns SendTxResponse (hash + sender)
 //! let response = near.transfer("bob.testnet", NearToken::from_near(1))
 //!     .wait_until(Included)
 //!     .await?;
@@ -25,9 +25,10 @@
 //! ```
 
 use crate::error::Error;
+use crate::types::AccountId;
 
 use super::block_reference::TxExecutionStatus;
-use super::rpc::{FinalExecutionOutcome, SendTxResponse};
+use super::rpc::{FinalExecutionOutcome, RawTransactionResponse, SendTxResponse};
 
 mod sealed {
     pub trait Sealed {}
@@ -48,13 +49,16 @@ pub trait WaitLevel: sealed::Sealed + Send + Sync + 'static {
     /// The RPC wait_until value.
     fn status() -> TxExecutionStatus;
 
-    /// Convert an RPC response into the appropriate return type.
+    /// Convert a raw RPC response into the appropriate return type.
     ///
     /// For executed levels, this extracts the outcome and checks for
-    /// `InvalidTxError`. For non-executed levels, this returns the raw
-    /// `SendTxResponse`.
+    /// `InvalidTxError`. For non-executed levels, this builds a
+    /// [`SendTxResponse`] with the transaction hash and sender ID.
     #[doc(hidden)]
-    fn convert(response: SendTxResponse) -> Result<Self::Response, Error>;
+    fn convert(
+        response: RawTransactionResponse,
+        sender_id: &AccountId,
+    ) -> Result<Self::Response, Error>;
 }
 
 // =============================================================================
@@ -75,8 +79,14 @@ impl WaitLevel for Submitted {
     fn status() -> TxExecutionStatus {
         TxExecutionStatus::None
     }
-    fn convert(response: SendTxResponse) -> Result<Self::Response, Error> {
-        Ok(response)
+    fn convert(
+        response: RawTransactionResponse,
+        sender_id: &AccountId,
+    ) -> Result<Self::Response, Error> {
+        Ok(SendTxResponse {
+            transaction_hash: response.transaction_hash,
+            sender_id: sender_id.clone(),
+        })
     }
 }
 
@@ -92,8 +102,14 @@ impl WaitLevel for Included {
     fn status() -> TxExecutionStatus {
         TxExecutionStatus::Included
     }
-    fn convert(response: SendTxResponse) -> Result<Self::Response, Error> {
-        Ok(response)
+    fn convert(
+        response: RawTransactionResponse,
+        sender_id: &AccountId,
+    ) -> Result<Self::Response, Error> {
+        Ok(SendTxResponse {
+            transaction_hash: response.transaction_hash,
+            sender_id: sender_id.clone(),
+        })
     }
 }
 
@@ -109,8 +125,14 @@ impl WaitLevel for IncludedFinal {
     fn status() -> TxExecutionStatus {
         TxExecutionStatus::IncludedFinal
     }
-    fn convert(response: SendTxResponse) -> Result<Self::Response, Error> {
-        Ok(response)
+    fn convert(
+        response: RawTransactionResponse,
+        sender_id: &AccountId,
+    ) -> Result<Self::Response, Error> {
+        Ok(SendTxResponse {
+            transaction_hash: response.transaction_hash,
+            sender_id: sender_id.clone(),
+        })
     }
 }
 
@@ -118,8 +140,11 @@ impl WaitLevel for IncludedFinal {
 // Executed wait levels → FinalExecutionOutcome
 // =============================================================================
 
-/// Extract and validate the execution outcome from a response.
-fn extract_outcome(response: SendTxResponse, level: &str) -> Result<FinalExecutionOutcome, Error> {
+/// Extract and validate the execution outcome from a raw response.
+fn extract_outcome(
+    response: RawTransactionResponse,
+    level: &str,
+) -> Result<FinalExecutionOutcome, Error> {
     let outcome = response.outcome.ok_or_else(|| {
         Error::InvalidTransaction(format!(
             "RPC returned no execution outcome for transaction {} at wait level {}",
@@ -150,7 +175,10 @@ impl WaitLevel for ExecutedOptimistic {
     fn status() -> TxExecutionStatus {
         TxExecutionStatus::ExecutedOptimistic
     }
-    fn convert(response: SendTxResponse) -> Result<Self::Response, Error> {
+    fn convert(
+        response: RawTransactionResponse,
+        _sender_id: &AccountId,
+    ) -> Result<Self::Response, Error> {
         extract_outcome(response, "ExecutedOptimistic")
     }
 }
@@ -167,7 +195,10 @@ impl WaitLevel for Executed {
     fn status() -> TxExecutionStatus {
         TxExecutionStatus::Executed
     }
-    fn convert(response: SendTxResponse) -> Result<Self::Response, Error> {
+    fn convert(
+        response: RawTransactionResponse,
+        _sender_id: &AccountId,
+    ) -> Result<Self::Response, Error> {
         extract_outcome(response, "Executed")
     }
 }
@@ -184,7 +215,10 @@ impl WaitLevel for Final {
     fn status() -> TxExecutionStatus {
         TxExecutionStatus::Final
     }
-    fn convert(response: SendTxResponse) -> Result<Self::Response, Error> {
+    fn convert(
+        response: RawTransactionResponse,
+        _sender_id: &AccountId,
+    ) -> Result<Self::Response, Error> {
         extract_outcome(response, "Final")
     }
 }

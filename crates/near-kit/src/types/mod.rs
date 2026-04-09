@@ -52,7 +52,7 @@ mod hash;
 mod key;
 pub mod nep413;
 mod network;
-mod rpc;
+pub(crate) mod rpc;
 mod rpc_extra;
 mod transaction;
 mod units;
@@ -88,9 +88,9 @@ pub use rpc::{
     BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1, BlockHeaderView, BlockView,
     ChunkHeaderView, CongestionInfoView, DataReceiptData, DataReceiverView, DelegateActionView,
     ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
-    FinalExecutionOutcome, FinalExecutionOutcomeWithReceipts, FinalExecutionStatus, GasPrice,
-    GasProfileEntry, GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NodeVersion,
-    Receipt, ReceiptContent, STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SendTxWithReceiptsResponse,
+    FinalExecutionOutcome, FinalExecutionStatus, GasPrice, GasProfileEntry,
+    GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NodeVersion,
+    RawTransactionResponse, Receipt, ReceiptContent, STORAGE_AMOUNT_PER_BYTE, SendTxResponse,
     SlashedValidator, StatusResponse, SyncInfo, TransactionView, TrieSplit, ValidatorInfo,
     ValidatorStakeView, ValidatorStakeViewV1, ViewFunctionResult,
 };

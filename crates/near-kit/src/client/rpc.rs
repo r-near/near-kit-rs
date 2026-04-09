@@ -7,10 +7,11 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::error::RpcError;
+use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockReference, BlockView,
-    CryptoHash, GasPrice, PublicKey, SendTxResponse, SendTxWithReceiptsResponse, SignedTransaction,
-    StatusResponse, TxExecutionStatus, ViewFunctionResult,
+    CryptoHash, GasPrice, PublicKey, SignedTransaction, StatusResponse, TxExecutionStatus,
+    ViewFunctionResult,
 };
 
 /// Network configuration presets.
@@ -587,34 +588,43 @@ impl RpcClient {
         &self,
         signed_tx: &SignedTransaction,
         wait_until: TxExecutionStatus,
-    ) -> Result<SendTxResponse, RpcError> {
+    ) -> Result<RawTransactionResponse, RpcError> {
         let tx_hash = signed_tx.get_hash();
         tracing::Span::current().record("tx_hash", tracing::field::display(&tx_hash));
         let params = serde_json::json!({
             "signed_tx_base64": signed_tx.to_base64(),
             "wait_until": wait_until.as_str(),
         });
-        let mut response: SendTxResponse = self.call("send_tx", params).await?;
+        let mut response: RawTransactionResponse = self.call("send_tx", params).await?;
         response.transaction_hash = tx_hash;
         Ok(response)
     }
 
     /// Get transaction status with full receipt details.
     ///
-    /// Uses EXPERIMENTAL_tx_status which returns complete receipt information.
+    /// Uses `EXPERIMENTAL_tx_status` which returns complete receipt information.
+    /// When the transaction has been executed, the outcome's `receipts` field
+    /// will be populated (unlike `send_tx` which leaves it empty).
     #[tracing::instrument(skip(self), fields(%tx_hash, sender = %sender_id, ?wait_until))]
     pub async fn tx_status(
         &self,
         tx_hash: &CryptoHash,
         sender_id: &AccountId,
         wait_until: TxExecutionStatus,
-    ) -> Result<SendTxWithReceiptsResponse, RpcError> {
+    ) -> Result<RawTransactionResponse, RpcError> {
         let params = serde_json::json!({
             "tx_hash": tx_hash.to_string(),
             "sender_account_id": sender_id.to_string(),
             "wait_until": wait_until.as_str(),
         });
-        self.call("EXPERIMENTAL_tx_status", params).await
+        let mut response: RawTransactionResponse =
+            self.call("EXPERIMENTAL_tx_status", params).await?;
+        response.transaction_hash = response
+            .outcome
+            .as_ref()
+            .map(|o| *o.transaction_hash())
+            .unwrap_or(*tx_hash);
+        Ok(response)
     }
 
     /// Merge block reference parameters into a JSON object.

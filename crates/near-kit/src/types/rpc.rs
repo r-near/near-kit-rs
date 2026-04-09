@@ -544,30 +544,68 @@ pub enum FinalExecutionStatus {
     SuccessValue(String),
 }
 
-/// Response from `send_tx` RPC.
+/// Response returned for non-executed wait levels.
 ///
-/// The `outcome` field is `Some` only for executed wait levels
-/// (`ExecutedOptimistic`, `Executed`, `Final`). For non-executed levels
-/// (`NONE`, `Included`, `IncludedFinal`) the outcome is absent.
+/// When you use a non-executed wait level ([`Submitted`](crate::types::Submitted),
+/// [`Included`](crate::types::Included), [`IncludedFinal`](crate::types::IncludedFinal)),
+/// the transaction hasn't been executed yet so there's no outcome to return.
+/// This type gives you the information needed to poll for the result later
+/// via [`Near::tx_status`](crate::Near::tx_status).
 ///
-/// The `transaction_hash` is always available regardless of wait level,
-/// populated from the signed transaction before sending.
-#[derive(Debug, Clone, Deserialize)]
+/// # Example
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// # async fn example(near: &Near) -> Result<(), Error> {
+/// let response = near.transfer("bob.testnet", NearToken::from_near(1))
+///     .wait_until(Included)
+///     .await?;
+///
+/// // Later, poll for the full outcome:
+/// let outcome = near.tx_status(
+///     &response.transaction_hash,
+///     &response.sender_id,
+///     Final,
+/// ).await?;
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone)]
 pub struct SendTxResponse {
-    /// Hash of the submitted transaction. Always present.
+    /// Hash of the submitted transaction.
+    pub transaction_hash: CryptoHash,
+    /// Account ID of the transaction signer.
+    pub sender_id: AccountId,
+}
+
+/// Raw RPC response for transaction submission/status (internal).
+///
+/// Used internally to deserialize responses from `send_tx` and
+/// `EXPERIMENTAL_tx_status` before converting to user-facing types
+/// via [`WaitLevel::convert`](crate::types::WaitLevel::convert).
+#[doc(hidden)]
+#[derive(Debug, Clone, Deserialize)]
+pub struct RawTransactionResponse {
+    /// Transaction hash — populated after deserialization from the signed tx
+    /// (for `send_tx`) or from the outcome (for `tx_status`).
     #[serde(skip)]
     pub transaction_hash: CryptoHash,
-    /// The wait level that was reached (e.g. `NONE`, `EXECUTED_OPTIMISTIC`, `FINAL`).
+    /// The wait level that was reached.
     pub final_execution_status: TxExecutionStatus,
     /// The execution outcome, present when the transaction has been executed.
     #[serde(flatten)]
     pub outcome: Option<FinalExecutionOutcome>,
 }
 
-/// Final execution outcome from send_tx RPC.
+/// Final execution outcome from a NEAR transaction.
 ///
-/// All fields are required — this type only appears when a transaction has actually
-/// been executed (not for `wait_until=NONE` responses).
+/// Returned by both `send_tx` and `EXPERIMENTAL_tx_status` RPC methods.
+/// All fields are required — this type only appears when a transaction has
+/// actually been executed (not for non-executed wait levels).
+///
+/// The `receipts` field contains full receipt details when the outcome comes
+/// from `EXPERIMENTAL_tx_status` (i.e. `near.tx_status()`). When the outcome
+/// comes from `send_tx` (i.e. `near.send()`), this field is an empty `Vec`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct FinalExecutionOutcome {
     /// Overall transaction execution result.
@@ -578,6 +616,9 @@ pub struct FinalExecutionOutcome {
     pub transaction_outcome: ExecutionOutcomeWithId,
     /// Outcomes of all receipts spawned by the transaction.
     pub receipts_outcome: Vec<ExecutionOutcomeWithId>,
+    /// Full receipt details (populated by `tx_status`, empty from `send`).
+    #[serde(default)]
+    pub receipts: Vec<Receipt>,
 }
 
 impl FinalExecutionOutcome {
@@ -1078,54 +1119,6 @@ pub struct DataReceiptData {
     pub data: Option<String>,
 }
 
-/// Response from `EXPERIMENTAL_tx_status` RPC.
-///
-/// Same pattern as [`SendTxResponse`] but includes full receipt details.
-#[derive(Debug, Clone, Deserialize)]
-pub struct SendTxWithReceiptsResponse {
-    /// The wait level that was reached.
-    pub final_execution_status: TxExecutionStatus,
-    /// The execution outcome, present when the transaction has been executed.
-    #[serde(flatten)]
-    pub outcome: Option<FinalExecutionOutcomeWithReceipts>,
-}
-
-/// Final execution outcome with receipts (from EXPERIMENTAL_tx_status).
-///
-/// All fields are required — this type only appears when a transaction has actually
-/// been executed.
-#[derive(Debug, Clone, Deserialize)]
-pub struct FinalExecutionOutcomeWithReceipts {
-    /// Overall transaction execution result.
-    pub status: FinalExecutionStatus,
-    /// The transaction that was executed.
-    pub transaction: TransactionView,
-    /// Outcome of the transaction itself.
-    pub transaction_outcome: ExecutionOutcomeWithId,
-    /// Outcomes of all receipts spawned by the transaction.
-    pub receipts_outcome: Vec<ExecutionOutcomeWithId>,
-    /// Full receipt details.
-    #[serde(default)]
-    pub receipts: Vec<Receipt>,
-}
-
-impl FinalExecutionOutcomeWithReceipts {
-    /// Check if the transaction succeeded.
-    pub fn is_success(&self) -> bool {
-        matches!(&self.status, FinalExecutionStatus::SuccessValue(_))
-    }
-
-    /// Check if the transaction failed.
-    pub fn is_failure(&self) -> bool {
-        matches!(&self.status, FinalExecutionStatus::Failure(_))
-    }
-
-    /// Get the transaction hash.
-    pub fn transaction_hash(&self) -> &CryptoHash {
-        &self.transaction_outcome.id
-    }
-}
-
 // ============================================================================
 // Node status types
 // ============================================================================
@@ -1611,7 +1604,7 @@ mod tests {
             },
             "receipts_outcome": []
         });
-        let response: SendTxResponse = serde_json::from_value(json).unwrap();
+        let response: RawTransactionResponse = serde_json::from_value(json).unwrap();
         assert_eq!(response.final_execution_status, TxExecutionStatus::Final);
         let outcome = response.outcome.unwrap();
         assert!(outcome.is_success());
@@ -1623,10 +1616,10 @@ mod tests {
         let json = serde_json::json!({
             "final_execution_status": "NONE"
         });
-        let response: SendTxResponse = serde_json::from_value(json).unwrap();
+        let response: RawTransactionResponse = serde_json::from_value(json).unwrap();
         assert_eq!(response.final_execution_status, TxExecutionStatus::None);
         assert!(response.outcome.is_none());
-        // transaction_hash is serde(skip) — populated by rpc.send_tx(), not deserialization
+        // transaction_hash is serde(skip) — populated by rpc methods, not deserialization
         assert!(response.transaction_hash.is_zero());
     }
 
@@ -1670,7 +1663,7 @@ mod tests {
             },
             "receipts_outcome": []
         });
-        let response: SendTxResponse = serde_json::from_value(json).unwrap();
+        let response: RawTransactionResponse = serde_json::from_value(json).unwrap();
         let outcome = response.outcome.unwrap();
         assert!(outcome.is_failure());
         assert!(!outcome.is_success());
@@ -1710,7 +1703,7 @@ mod tests {
             },
             "receipts_outcome": []
         });
-        let response: SendTxResponse = serde_json::from_value(json).unwrap();
+        let response: RawTransactionResponse = serde_json::from_value(json).unwrap();
         response.outcome.unwrap()
     }
 

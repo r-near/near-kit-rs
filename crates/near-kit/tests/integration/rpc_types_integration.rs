@@ -9,9 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
-use near_kit::{
-    AccessKeyPermissionView, ActionView, MerkleDirection, ReceiptContent, TxExecutionStatus,
-};
+use near_kit::{AccessKeyPermissionView, ActionView, MerkleDirection, ReceiptContent};
 
 /// Counter for generating unique subaccount names
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -394,15 +392,9 @@ async fn test_tx_status_with_receipts() {
     let tx_hash = outcome.transaction_hash();
 
     // Now get the full transaction status with receipts
-    let status = near
-        .rpc()
-        .tx_status(tx_hash, &root_account, TxExecutionStatus::Final)
-        .await
-        .unwrap();
+    let status_outcome = near.tx_status(tx_hash, &root_account, Final).await.unwrap();
 
-    let status_outcome = status.outcome.expect("expected outcome with receipts");
-
-    // Verify FinalExecutionOutcomeWithReceipts fields
+    // Same FinalExecutionOutcome type as send() returns, with receipts populated
     assert!(status_outcome.is_success(), "Transaction should succeed");
 
     // Check receipts array
