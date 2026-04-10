@@ -55,7 +55,6 @@ async fn test_sandbox_balance() {
 async fn test_sandbox_transfer() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -72,10 +71,8 @@ async fn test_sandbox_transfer() {
         .unwrap();
 
     // Create sender's client
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Generate a new keypair for the receiver
     let receiver_key = SecretKey::generate_ed25519();
@@ -110,7 +107,6 @@ async fn test_sandbox_transfer() {
 async fn test_sandbox_multiple_transfers() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -126,10 +122,8 @@ async fn test_sandbox_multiple_transfers() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Generate keypairs for multiple receivers
     let receiver1_key = SecretKey::generate_ed25519();
@@ -175,7 +169,6 @@ async fn test_sandbox_multiple_transfers() {
 async fn test_sandbox_simple_transfer() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -191,10 +184,8 @@ async fn test_sandbox_simple_transfer() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Create a receiver account
     let receiver_key = SecretKey::generate_ed25519();
@@ -233,7 +224,6 @@ async fn test_sandbox_simple_transfer() {
 async fn test_sandbox_create_account_outcome() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -249,10 +239,8 @@ async fn test_sandbox_create_account_outcome() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Create a contract account
     let contract_key = SecretKey::generate_ed25519();
@@ -277,7 +265,6 @@ async fn test_sandbox_create_account_outcome() {
 async fn test_sandbox_delete_account() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create parent account
     let parent_key = SecretKey::generate_ed25519();
@@ -293,10 +280,8 @@ async fn test_sandbox_delete_account() {
         .await
         .unwrap();
 
-    let parent_near = Near::custom(rpc_url, "sandbox")
-        .credentials(parent_key.to_string(), &parent_id)
-        .unwrap()
-        .build();
+    let parent_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&parent_id, parent_key.to_string()).unwrap());
 
     // Create an account to delete
     let temp_key = SecretKey::generate_ed25519();
@@ -316,10 +301,8 @@ async fn test_sandbox_delete_account() {
     assert!(root_near.account_exists(&temp_id).await.unwrap());
 
     // Create a new client with the temp account's key to delete it
-    let temp_near = Near::custom(rpc_url, "sandbox")
-        .credentials(temp_key.to_string(), &temp_id)
-        .unwrap()
-        .build();
+    let temp_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&temp_id, temp_key.to_string()).unwrap());
 
     // Delete the account, sending remaining balance to parent account
     temp_near
@@ -338,7 +321,6 @@ async fn test_sandbox_delete_account() {
 async fn test_sandbox_add_and_delete_key() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create an account
     let account_key = SecretKey::generate_ed25519();
@@ -355,10 +337,8 @@ async fn test_sandbox_add_and_delete_key() {
         .unwrap();
 
     // Create a new client for this account
-    let account_near = Near::custom(rpc_url, "sandbox")
-        .credentials(account_key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, account_key.to_string()).unwrap());
 
     // Add a second key
     let second_key = SecretKey::generate_ed25519();
@@ -393,7 +373,6 @@ async fn test_sandbox_add_and_delete_key() {
 async fn test_sandbox_multiple_actions_in_one_transaction() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create parent account
     let parent_key = SecretKey::generate_ed25519();
@@ -409,10 +388,8 @@ async fn test_sandbox_multiple_actions_in_one_transaction() {
         .await
         .unwrap();
 
-    let parent_near = Near::custom(rpc_url, "sandbox")
-        .credentials(parent_key.to_string(), &parent_id)
-        .unwrap()
-        .build();
+    let parent_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&parent_id, parent_key.to_string()).unwrap());
 
     // Create two accounts in separate transactions
     let alice_key = SecretKey::generate_ed25519();
@@ -500,7 +477,6 @@ async fn test_sandbox_set_balance() {
 async fn test_sandbox_set_balance_preserves_other_fields() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create an account and deploy a contract to it
     let account_key = SecretKey::generate_ed25519();
@@ -545,10 +521,8 @@ async fn test_sandbox_set_balance_preserves_other_fields() {
     );
 
     // Verify the contract still works
-    let account_near = Near::custom(rpc_url, "sandbox")
-        .credentials(account_key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, account_key.to_string()).unwrap());
 
     let messages: Vec<serde_json::Value> = account_near
         .view(&account_id, "get_messages")
@@ -562,7 +536,6 @@ async fn test_sandbox_set_balance_preserves_other_fields() {
 async fn test_sandbox_set_balance_for_staking() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create a validator account with small initial balance
     let validator_key = SecretKey::generate_ed25519();
@@ -590,10 +563,8 @@ async fn test_sandbox_set_balance_for_staking() {
     assert_eq!(balance.total, staking_balance);
 
     // Now we can actually stake with enough to meet the minimum
-    let validator_near = Near::custom(rpc_url, "sandbox")
-        .credentials(validator_key.to_string(), &validator_id)
-        .unwrap()
-        .build();
+    let validator_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&validator_id, validator_key.to_string()).unwrap());
 
     let stake_amount = NearToken::from_near(1_000_000);
     let outcome = validator_near
@@ -673,7 +644,6 @@ async fn test_sandbox_patch_debug() {
 async fn test_sign_message_nep413() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create an account with a signer
     let account_key = SecretKey::generate_ed25519();
@@ -689,10 +659,8 @@ async fn test_sign_message_nep413() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(rpc_url, "sandbox")
-        .credentials(account_key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, account_key.to_string()).unwrap());
 
     // Sign a message using NEP-413
     let params = nep413::SignMessageParams {
@@ -741,7 +709,6 @@ async fn test_sign_message_without_signer_fails() {
 async fn test_send_with_options_final() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -757,10 +724,8 @@ async fn test_send_with_options_final() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Create receiver account
     let receiver_key = SecretKey::generate_ed25519();
@@ -800,7 +765,6 @@ async fn test_send_with_options_final() {
 async fn test_send_with_options_included_returns_send_tx_response() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -816,10 +780,8 @@ async fn test_send_with_options_included_returns_send_tx_response() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Create receiver account
     let receiver_key = SecretKey::generate_ed25519();
@@ -862,7 +824,6 @@ async fn test_send_with_options_included_returns_send_tx_response() {
 async fn test_wait_until_included_on_builder() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -878,10 +839,8 @@ async fn test_wait_until_included_on_builder() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Create receiver account
     let receiver_key = SecretKey::generate_ed25519();
@@ -916,7 +875,6 @@ async fn test_wait_until_included_on_builder() {
 async fn test_send_pre_signed_transaction() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -932,10 +890,8 @@ async fn test_send_pre_signed_transaction() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Create receiver account
     let receiver_key = SecretKey::generate_ed25519();

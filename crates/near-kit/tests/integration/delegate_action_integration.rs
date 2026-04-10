@@ -36,7 +36,6 @@ async fn test_delegate_action_transfer() {
 
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account (who wants to transfer but won't pay gas)
     let sender_key = SecretKey::generate_ed25519();
@@ -90,10 +89,8 @@ async fn test_delegate_action_transfer() {
     println!("Recipient initial balance: {}", initial_balance);
 
     // --- SENDER: Create and sign a delegate action ---
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Build a delegate action for transferring 2 NEAR to recipient
     let delegate_result = sender_near
@@ -109,10 +106,8 @@ async fn test_delegate_action_transfer() {
     );
 
     // --- RELAYER: Submit the delegate action ---
-    let relayer_near = Near::custom(rpc_url, "sandbox")
-        .credentials(relayer_key.to_string(), &relayer_id)
-        .unwrap()
-        .build();
+    let relayer_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&relayer_id, relayer_key.to_string()).unwrap());
 
     // Decode the payload (simulating receiving it via HTTP)
     let signed_delegate = SignedDelegateAction::from_base64(&delegate_result.payload).unwrap();
@@ -157,7 +152,6 @@ async fn test_delegate_action_function_call() {
 
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -212,10 +206,8 @@ async fn test_delegate_action_function_call() {
     );
 
     // --- SENDER: Create delegate action for function call ---
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     let delegate_result = sender_near
         .transaction(&contract_id)
@@ -229,10 +221,8 @@ async fn test_delegate_action_function_call() {
     println!("Sender signed delegate action for function call");
 
     // --- RELAYER: Submit the delegate action ---
-    let relayer_near = Near::custom(rpc_url, "sandbox")
-        .credentials(relayer_key.to_string(), &relayer_id)
-        .unwrap()
-        .build();
+    let relayer_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&relayer_id, relayer_key.to_string()).unwrap());
 
     let signed_delegate = SignedDelegateAction::from_base64(&delegate_result.payload).unwrap();
 
@@ -253,7 +243,6 @@ async fn test_delegate_action_multiple_actions() {
 
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -293,10 +282,8 @@ async fn test_delegate_action_multiple_actions() {
     );
 
     // --- SENDER: Create delegate action with multiple actions ---
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Create a new account with funding and a key - all in one delegate action
     let delegate_result = sender_near
@@ -311,10 +298,8 @@ async fn test_delegate_action_multiple_actions() {
     println!("Sender signed delegate action with multiple actions");
 
     // --- RELAYER: Submit the delegate action ---
-    let relayer_near = Near::custom(rpc_url, "sandbox")
-        .credentials(relayer_key.to_string(), &relayer_id)
-        .unwrap()
-        .build();
+    let relayer_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&relayer_id, relayer_key.to_string()).unwrap());
 
     let signed_delegate = SignedDelegateAction::from_base64(&delegate_result.payload).unwrap();
 
@@ -344,7 +329,6 @@ async fn test_delegate_action_roundtrip_encoding() {
 
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -375,10 +359,8 @@ async fn test_delegate_action_roundtrip_encoding() {
         .unwrap();
 
     // Create a delegate action
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     let delegate_result = sender_near
         .transaction(&recipient_id)
@@ -417,7 +399,6 @@ async fn test_delegate_action_validation_errors() {
 
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -433,10 +414,8 @@ async fn test_delegate_action_validation_errors() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Test: Empty actions should fail
     let result = sender_near

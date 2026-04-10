@@ -41,10 +41,8 @@ async fn test_failed_transaction_preserves_receipts() {
         .result()
         .expect("setup: deploy should succeed on-chain");
 
-    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &contract_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&contract_id, key.to_string()).unwrap());
 
     // Call a non-existent method — the transaction executes but fails on-chain
     // Action errors return Ok(outcome) where outcome.is_failure() is true

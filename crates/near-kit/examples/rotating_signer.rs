@@ -37,12 +37,10 @@ async fn high_throughput_example() -> Result<(), Error> {
         .await?;
 
     // Add remaining keys using a loop
-    let bot_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .signer(InMemorySigner::from_secret_key(
-            bot_account.as_str(),
-            keypairs[0].secret_key.clone(),
-        )?)
-        .build();
+    let bot_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
+        bot_account.as_str(),
+        keypairs[0].secret_key.clone(),
+    )?);
 
     println!("Adding {} more access keys...", num_keys - 1);
 
@@ -59,9 +57,7 @@ async fn high_throughput_example() -> Result<(), Error> {
     let secret_keys: Vec<SecretKey> = keypairs.into_iter().map(|kp| kp.secret_key).collect();
     let rotating_signer = RotatingSigner::new(&bot_account, secret_keys)?;
 
-    let near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .signer(rotating_signer)
-        .build();
+    let near = Near::sandbox(&sandbox).with_signer(rotating_signer);
 
     // Create recipient accounts
     let num_recipients = 20;

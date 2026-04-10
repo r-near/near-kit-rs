@@ -41,12 +41,10 @@ async fn sequential_example() -> Result<(), Error> {
         .await?;
 
     // Add remaining keys
-    let bot_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .signer(InMemorySigner::from_secret_key(
-            bot_account.as_str(),
-            keypairs[0].secret_key.clone(),
-        )?)
-        .build();
+    let bot_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
+        bot_account.as_str(),
+        keypairs[0].secret_key.clone(),
+    )?);
 
     keypairs[1..]
         .iter()
@@ -82,16 +80,14 @@ async fn sequential_example() -> Result<(), Error> {
     println!("Sending {txs_per_key} sequential txs per key ({num_keys} keys in parallel)...\n");
 
     let start = std::time::Instant::now();
-    let rpc_url = sandbox.rpc_url().to_string();
 
     let handles: Vec<_> = per_key_signers
         .into_iter()
         .enumerate()
         .map(|(key_idx, signer)| {
-            let rpc_url = rpc_url.clone();
+            let near = bot_near.with_signer(signer);
             let recipient = recipient.clone();
             tokio::spawn(async move {
-                let near = Near::custom(&rpc_url, "sandbox").signer(signer).build();
                 for tx_idx in 0..txs_per_key {
                     near.transfer(&recipient, NearToken::from_millinear(1))
                         .send()

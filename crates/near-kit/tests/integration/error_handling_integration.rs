@@ -252,7 +252,6 @@ async fn test_error_view_with_invalid_args() {
 async fn test_error_transfer_to_nonexistent_implicit_account() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create a sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -267,10 +266,8 @@ async fn test_error_transfer_to_nonexistent_implicit_account() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Transfer to a non-existent named account (not implicit)
     // This should work because the receiver doesn't need to exist for named accounts
@@ -291,7 +288,6 @@ async fn test_error_transfer_to_nonexistent_implicit_account() {
 async fn test_error_insufficient_balance_transfer() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender with small balance
     let sender_key = SecretKey::generate_ed25519();
@@ -306,10 +302,8 @@ async fn test_error_insufficient_balance_transfer() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Create receiver
     let receiver_key = SecretKey::generate_ed25519();
@@ -339,7 +333,6 @@ async fn test_error_insufficient_balance_transfer() {
 async fn test_error_create_account_that_already_exists() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create an account first
     let account_key = SecretKey::generate_ed25519();
@@ -355,10 +348,8 @@ async fn test_error_create_account_that_already_exists() {
         .unwrap();
 
     // Create a signer for the parent
-    let parent_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sandbox.root_secret_key(), SANDBOX_ROOT_ACCOUNT)
-        .unwrap()
-        .build();
+    let parent_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(SANDBOX_ROOT_ACCOUNT, sandbox.root_secret_key()).unwrap());
 
     // Try to create the same account again — action error returns Ok(outcome)
     let new_key = SecretKey::generate_ed25519();
@@ -383,7 +374,6 @@ async fn test_error_create_account_that_already_exists() {
 async fn test_error_delete_nonexistent_key() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create an account
     let account_key = SecretKey::generate_ed25519();
@@ -398,10 +388,8 @@ async fn test_error_delete_nonexistent_key() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(rpc_url, "sandbox")
-        .credentials(account_key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, account_key.to_string()).unwrap());
 
     // Try to delete a key that doesn't exist on the account — action error returns Ok(outcome)
     let fake_key = SecretKey::generate_ed25519();
@@ -431,7 +419,6 @@ async fn test_error_delete_nonexistent_key() {
 async fn test_error_function_call_panic() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Deploy guestbook contract
     let contract_key = SecretKey::generate_ed25519();
@@ -449,10 +436,8 @@ async fn test_error_function_call_panic() {
         .await
         .unwrap();
 
-    let contract_near = Near::custom(rpc_url, "sandbox")
-        .credentials(contract_key.to_string(), &contract_id)
-        .unwrap()
-        .build();
+    let contract_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&contract_id, contract_key.to_string()).unwrap());
 
     // Call a method that doesn't exist — action error returns Ok(outcome)
     let outcome = contract_near
@@ -474,7 +459,6 @@ async fn test_error_function_call_panic() {
 async fn test_error_function_call_insufficient_gas() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Deploy guestbook contract
     let contract_key = SecretKey::generate_ed25519();
@@ -492,10 +476,8 @@ async fn test_error_function_call_insufficient_gas() {
         .await
         .unwrap();
 
-    let contract_near = Near::custom(rpc_url, "sandbox")
-        .credentials(contract_key.to_string(), &contract_id)
-        .unwrap()
-        .build();
+    let contract_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&contract_id, contract_key.to_string()).unwrap());
 
     // Call with very low gas — action error returns Ok(outcome)
     let outcome = contract_near

@@ -197,7 +197,6 @@ async fn test_ft_balance_of_span_hierarchy() {
 
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Deploy an FT contract
     let ft_key = SecretKey::generate_ed25519();
@@ -231,10 +230,8 @@ async fn test_ft_balance_of_span_hierarchy() {
         .await
         .unwrap();
 
-    let ft_near = Near::custom(rpc_url, "sandbox")
-        .credentials(ft_key.to_string(), &ft_id)
-        .unwrap()
-        .build();
+    let ft_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&ft_id, ft_key.to_string()).unwrap());
 
     ft_near
         .call(&ft_id, "new")

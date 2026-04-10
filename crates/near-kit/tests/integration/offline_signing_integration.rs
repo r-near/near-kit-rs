@@ -27,7 +27,6 @@ fn unique_account() -> AccountId {
 async fn test_sign_offline_transfer() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -43,10 +42,8 @@ async fn test_sign_offline_transfer() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Create receiver account (must be created by sender as subaccount)
     let receiver_key = SecretKey::generate_ed25519();
@@ -116,7 +113,6 @@ async fn test_sign_offline_transfer() {
 async fn test_sign_offline_function_call() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create account with contract
     let contract_key = SecretKey::generate_ed25519();
@@ -136,10 +132,8 @@ async fn test_sign_offline_function_call() {
         .await
         .unwrap();
 
-    let contract_near = Near::custom(rpc_url, "sandbox")
-        .credentials(contract_key.to_string(), &contract_id)
-        .unwrap()
-        .build();
+    let contract_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&contract_id, contract_key.to_string()).unwrap());
 
     // Get block_hash and nonce for offline signing
     let block = contract_near
@@ -194,7 +188,6 @@ async fn test_sign_offline_function_call() {
 async fn test_signed_transaction_roundtrip_bytes() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -210,10 +203,8 @@ async fn test_signed_transaction_roundtrip_bytes() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Create receiver account (must be created by sender as subaccount)
     let receiver_key = SecretKey::generate_ed25519();
@@ -267,7 +258,6 @@ async fn test_signed_transaction_roundtrip_bytes() {
 async fn test_signed_transaction_roundtrip_base64() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -283,10 +273,8 @@ async fn test_signed_transaction_roundtrip_base64() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Create receiver account (must be created by sender as subaccount)
     let receiver_key = SecretKey::generate_ed25519();
@@ -332,7 +320,6 @@ async fn test_signed_transaction_roundtrip_base64() {
 async fn test_offline_sign_and_transport_simulation() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create sender account
     let sender_key = SecretKey::generate_ed25519();
@@ -349,10 +336,8 @@ async fn test_offline_sign_and_transport_simulation() {
         .unwrap();
 
     // --- ONLINE MACHINE ---
-    let sender_near = Near::custom(rpc_url, "sandbox")
-        .credentials(sender_key.to_string(), &sender_id)
-        .unwrap()
-        .build();
+    let sender_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
 
     // Create receiver account (must be created by sender as subaccount)
     let receiver_key = SecretKey::generate_ed25519();
