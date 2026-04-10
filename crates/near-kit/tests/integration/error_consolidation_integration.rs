@@ -70,10 +70,8 @@ async fn test_action_error_returns_ok_with_failure_outcome() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
 
     // Delete a key that doesn't exist — ActionError, but returned as Ok
     let fake_key = SecretKey::generate_ed25519();
@@ -118,10 +116,8 @@ async fn test_function_call_error_returns_ok_with_failure_outcome() {
         .await
         .unwrap();
 
-    let contract_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &contract_id)
-        .unwrap()
-        .build();
+    let contract_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&contract_id, key.to_string()).unwrap());
 
     // Call a non-existent method — returns Ok with failure outcome
     let outcome = contract_near
@@ -161,10 +157,8 @@ async fn test_wrong_signer_key_returns_access_key_not_found() {
 
     // Try to sign with a wrong key
     let wrong_key = SecretKey::generate_ed25519();
-    let wrong_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(wrong_key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let wrong_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, wrong_key.to_string()).unwrap());
 
     let err = wrong_near
         .transfer(&account_id, NearToken::from_near(1))

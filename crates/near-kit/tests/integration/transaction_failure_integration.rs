@@ -41,10 +41,8 @@ async fn test_deploy_invalid_wasm() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
 
     // Try to deploy invalid WASM (random bytes)
     let invalid_wasm = vec![0u8; 100]; // Not valid WASM
@@ -73,10 +71,8 @@ async fn test_deploy_empty_wasm() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
 
     // Try to deploy empty WASM
     let empty_wasm: Vec<u8> = vec![];
@@ -132,10 +128,8 @@ async fn test_add_duplicate_key() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
 
     // Try to add the same key again — action error returns Ok(outcome)
     let outcome = account_near
@@ -167,10 +161,8 @@ async fn test_delete_last_full_access_key() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
 
     // Delete the only key - this should succeed but leave the account inaccessible
     // Note: NEAR protocol allows this
@@ -278,10 +270,8 @@ async fn test_transaction_with_failing_action_in_middle() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
 
     // Try a multi-action transaction where one action fails
     // First action: valid key deletion (the one we're signing with)
@@ -351,10 +341,8 @@ async fn test_delete_account_to_nonexistent_beneficiary() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
 
     // Try to delete account with non-existent beneficiary
     let nonexistent_beneficiary: AccountId = "nonexistent-beneficiary.sandbox".parse().unwrap();
@@ -391,10 +379,8 @@ async fn test_stake_with_insufficient_balance() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
 
     // Try to stake more than available
     let outcome = account_near
@@ -436,10 +422,8 @@ async fn test_transfer_zero_amount() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
 
     // Transfer zero amount
     let receiver: AccountId = format!("recv.{}", account_id).parse().unwrap();
@@ -481,10 +465,8 @@ async fn test_transfer_max_amount() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
 
     // Transfer max u128 (way more than balance) — rejected at RPC validation
     // level (CostOverflow is caught before on-chain execution)

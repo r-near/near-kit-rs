@@ -45,9 +45,7 @@ async fn deploy_ft_contract(
 
     // Initialize the FT contract
     // The near-sdk-rs example FT uses "new" with owner_id, total_supply, metadata
-    let ft_near = Near::custom(near.rpc_url(), "sandbox")
-        .credentials(ft_key.to_string(), &ft_id)?
-        .build();
+    let ft_near = near.with_signer(InMemorySigner::new(&ft_id, ft_key.to_string())?);
 
     ft_near
         .call(&ft_id, "new")
@@ -177,7 +175,6 @@ async fn test_ft_total_supply() {
 async fn test_ft_transfer() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create owner account (sender)
     let owner_key = SecretKey::generate_ed25519();
@@ -197,10 +194,8 @@ async fn test_ft_transfer() {
     let receiver_key = SecretKey::generate_ed25519();
     let receiver_id: AccountId = format!("receiver.{}", owner_id).parse().unwrap();
 
-    let owner_near = Near::custom(rpc_url, "sandbox")
-        .credentials(owner_key.to_string(), &owner_id)
-        .unwrap()
-        .build();
+    let owner_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&owner_id, owner_key.to_string()).unwrap());
 
     owner_near
         .transaction(&receiver_id)
@@ -267,7 +262,6 @@ async fn test_ft_transfer() {
 async fn test_ft_storage_deposit() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create owner account
     let owner_key = SecretKey::generate_ed25519();
@@ -284,10 +278,8 @@ async fn test_ft_storage_deposit() {
         .unwrap();
 
     // Create owner's near client for signing
-    let owner_near = Near::custom(rpc_url, "sandbox")
-        .credentials(owner_key.to_string(), &owner_id)
-        .unwrap()
-        .build();
+    let owner_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&owner_id, owner_key.to_string()).unwrap());
 
     // Create account to register - must be created by owner
     let user_key = SecretKey::generate_ed25519();
@@ -352,9 +344,7 @@ async fn deploy_nft_contract(
         .await?;
 
     // Initialize the NFT contract
-    let nft_near = Near::custom(near.rpc_url(), "sandbox")
-        .credentials(nft_key.to_string(), &nft_id)?
-        .build();
+    let nft_near = near.with_signer(InMemorySigner::new(&nft_id, nft_key.to_string())?);
 
     nft_near
         .call(&nft_id, "new")
@@ -380,9 +370,7 @@ async fn mint_nft(
     token_id: &str,
     owner_id: &AccountId,
 ) -> Result<(), Error> {
-    let nft_near = Near::custom(near.rpc_url(), "sandbox")
-        .credentials(nft_key.to_string(), nft_id)?
-        .build();
+    let nft_near = near.with_signer(InMemorySigner::new(nft_id, nft_key.to_string())?);
 
     nft_near
         .call(nft_id, "nft_mint")
@@ -546,7 +534,6 @@ async fn test_nft_tokens_for_owner() {
 async fn test_nft_transfer() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create owner account
     let owner_key = SecretKey::generate_ed25519();
@@ -563,10 +550,8 @@ async fn test_nft_transfer() {
         .unwrap();
 
     // Create owner's client for signing
-    let owner_near = Near::custom(rpc_url, "sandbox")
-        .credentials(owner_key.to_string(), &owner_id)
-        .unwrap()
-        .build();
+    let owner_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&owner_id, owner_key.to_string()).unwrap());
 
     // Create receiver account - must be created by owner
     let receiver_key = SecretKey::generate_ed25519();
@@ -662,7 +647,6 @@ async fn test_nft_total_supply() {
 async fn test_nft_supply_for_owner() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
-    let rpc_url = sandbox.rpc_url();
 
     // Create first owner account
     let owner1_key = SecretKey::generate_ed25519();
@@ -679,10 +663,8 @@ async fn test_nft_supply_for_owner() {
         .unwrap();
 
     // Create owner1's client for signing
-    let owner1_near = Near::custom(rpc_url, "sandbox")
-        .credentials(owner1_key.to_string(), &owner1_id)
-        .unwrap()
-        .build();
+    let owner1_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&owner1_id, owner1_key.to_string()).unwrap());
 
     // Create second owner as subaccount of owner1
     let owner2_key = SecretKey::generate_ed25519();

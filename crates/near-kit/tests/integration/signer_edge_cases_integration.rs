@@ -43,10 +43,8 @@ async fn test_in_memory_signer_from_secret_key() {
         .unwrap();
 
     // Create client with InMemorySigner from secret key
-    let near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
 
     // Should be able to sign transactions
     let receiver_id: AccountId = format!("recv.{}", account_id).parse().unwrap();
@@ -92,9 +90,7 @@ async fn test_in_memory_signer_from_seed_phrase() {
     assert_eq!(*pubkey, key.public_key(), "Public keys should match");
 
     // Create client with seed phrase signer
-    let near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .signer(signer)
-        .build();
+    let near = Near::sandbox(sandbox).with_signer(signer);
 
     // Should be able to query account
     let balance = near.balance(&account_id).await.unwrap();
@@ -132,9 +128,7 @@ async fn test_rotating_signer_uses_multiple_keys() {
     // Create a rotating signer with all three keys
     let signer = RotatingSigner::new(&account_id, vec![key1, key2, key3]).unwrap();
 
-    let near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .signer(signer)
-        .build();
+    let near = Near::sandbox(sandbox).with_signer(signer);
 
     // Execute multiple transactions - the rotating signer should cycle through keys
     for i in 0..6 {
@@ -178,9 +172,7 @@ async fn test_rotating_signer_with_single_key() {
     // Rotating signer with just one key should still work
     let signer = RotatingSigner::new(&account_id, vec![key]).unwrap();
 
-    let near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .signer(signer)
-        .build();
+    let near = Near::sandbox(sandbox).with_signer(signer);
 
     // Should work fine with single key
     let sub_id: AccountId = format!("single.{}", account_id).parse().unwrap();
@@ -253,10 +245,8 @@ async fn test_sign_with_override() {
         .unwrap();
 
     // Create client with account1's signer
-    let near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key1.to_string(), &account1_id)
-        .unwrap()
-        .build();
+    let near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account1_id, key1.to_string()).unwrap());
 
     // Use sign_with to send a transaction from account2
     let signer2 = InMemorySigner::from_secret_key(account2_id.clone(), key2).unwrap();
@@ -302,10 +292,8 @@ async fn test_wrong_key_for_account() {
         .unwrap();
 
     // Create client with the WRONG key
-    let near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(wrong_key.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, wrong_key.to_string()).unwrap());
 
     // Try to send a transaction - should fail with access key error
     let sub_id: AccountId = format!("wrongkey.{}", account_id).parse().unwrap();
@@ -352,16 +340,12 @@ async fn test_deleted_key_fails() {
         .unwrap();
 
     // Create client with key1
-    let near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key1.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key1.to_string()).unwrap());
 
     // Delete key1 using key2
-    let near2 = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key2.to_string(), &account_id)
-        .unwrap()
-        .build();
+    let near2 = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key2.to_string()).unwrap());
 
     near2
         .delete_key(key1.public_key())
@@ -403,10 +387,8 @@ async fn test_signing_with_ed25519_key() {
         .await
         .unwrap();
 
-    let ed_near = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(ed_key.to_string(), &ed_account)
-        .unwrap()
-        .build();
+    let ed_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&ed_account, ed_key.to_string()).unwrap());
 
     // Should work with Ed25519
     let sub_id: AccountId = format!("ed25519.{}", ed_account).parse().unwrap();

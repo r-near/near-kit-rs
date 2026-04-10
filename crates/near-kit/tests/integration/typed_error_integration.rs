@@ -36,10 +36,8 @@ async fn funded_account(
         .await
         .unwrap();
 
-    let client = Near::custom(sandbox.rpc_url(), "sandbox")
-        .credentials(key.to_string(), &id)
-        .unwrap()
-        .build();
+    let client =
+        Near::sandbox(sandbox).with_signer(InMemorySigner::new(&id, key.to_string()).unwrap());
 
     (client, id, key)
 }
