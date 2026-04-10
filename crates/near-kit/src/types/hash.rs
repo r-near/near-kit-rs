@@ -4,13 +4,13 @@ use std::fmt::{self, Debug, Display};
 use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 use sha2::{Digest, Sha256};
 
 use crate::error::ParseHashError;
 
 /// A 32-byte SHA-256 hash used for block hashes, transaction hashes, etc.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, SerializeDisplay, DeserializeFromStr)]
 pub struct CryptoHash([u8; 32]);
 
 impl CryptoHash {
@@ -106,19 +106,6 @@ impl Display for CryptoHash {
 impl Debug for CryptoHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "CryptoHash({})", self)
-    }
-}
-
-impl Serialize for CryptoHash {
-    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for CryptoHash {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let s: String = serde::Deserialize::deserialize(d)?;
-        s.parse().map_err(serde::de::Error::custom)
     }
 }
 
