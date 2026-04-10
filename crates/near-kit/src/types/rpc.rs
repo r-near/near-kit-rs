@@ -683,7 +683,7 @@ pub enum ExecutionStatus {
     Unknown,
     /// Execution failed with an action error.
     Failure(ActionError),
-    /// Execution succeeded with a return value (base64 encoded).
+    /// Execution succeeded with a return value.
     SuccessValue(Vec<u8>),
     /// Execution succeeded, producing a receipt.
     SuccessReceiptId(CryptoHash),
