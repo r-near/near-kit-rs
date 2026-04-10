@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
+use serde_with::{base64::Base64, serde_as};
 
 use super::block_reference::TxExecutionStatus;
 use super::error::{ActionError, TxExecutionError};
@@ -682,8 +683,8 @@ pub enum ExecutionStatus {
     Unknown,
     /// Execution failed with an action error.
     Failure(ActionError),
-    /// Execution succeeded with a return value (base64 encoded).
-    SuccessValue(String),
+    /// Execution succeeded with a return value.
+    SuccessValue(Vec<u8>),
     /// Execution succeeded, producing a receipt.
     SuccessReceiptId(CryptoHash),
 }
@@ -691,11 +692,12 @@ pub enum ExecutionStatus {
 impl<'de> serde::Deserialize<'de> for ExecutionStatus {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         /// Mirror of the on-wire format that serde can derive.
+        #[serde_as]
         #[derive(Deserialize)]
         enum Raw {
             Unknown,
             Failure(TxExecutionError),
-            SuccessValue(String),
+            SuccessValue(#[serde_as(as = "Base64")] Vec<u8>),
             SuccessReceiptId(CryptoHash),
         }
 
