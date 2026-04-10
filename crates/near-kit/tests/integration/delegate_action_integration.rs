@@ -90,7 +90,7 @@ async fn test_delegate_action_transfer() {
     println!("Recipient initial balance: {}", initial_balance);
 
     // --- SENDER: Create and sign a delegate action ---
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -109,7 +109,7 @@ async fn test_delegate_action_transfer() {
     );
 
     // --- RELAYER: Submit the delegate action ---
-    let relayer_near = Near::custom(rpc_url)
+    let relayer_near = Near::custom(rpc_url, "sandbox")
         .credentials(relayer_key.to_string(), &relayer_id)
         .unwrap()
         .build();
@@ -212,7 +212,7 @@ async fn test_delegate_action_function_call() {
     );
 
     // --- SENDER: Create delegate action for function call ---
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -229,7 +229,7 @@ async fn test_delegate_action_function_call() {
     println!("Sender signed delegate action for function call");
 
     // --- RELAYER: Submit the delegate action ---
-    let relayer_near = Near::custom(rpc_url)
+    let relayer_near = Near::custom(rpc_url, "sandbox")
         .credentials(relayer_key.to_string(), &relayer_id)
         .unwrap()
         .build();
@@ -293,7 +293,7 @@ async fn test_delegate_action_multiple_actions() {
     );
 
     // --- SENDER: Create delegate action with multiple actions ---
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -311,7 +311,7 @@ async fn test_delegate_action_multiple_actions() {
     println!("Sender signed delegate action with multiple actions");
 
     // --- RELAYER: Submit the delegate action ---
-    let relayer_near = Near::custom(rpc_url)
+    let relayer_near = Near::custom(rpc_url, "sandbox")
         .credentials(relayer_key.to_string(), &relayer_id)
         .unwrap()
         .build();
@@ -375,7 +375,7 @@ async fn test_delegate_action_roundtrip_encoding() {
         .unwrap();
 
     // Create a delegate action
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -433,7 +433,7 @@ async fn test_delegate_action_validation_errors() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();

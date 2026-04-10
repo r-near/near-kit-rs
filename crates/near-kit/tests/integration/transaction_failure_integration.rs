@@ -41,7 +41,7 @@ async fn test_deploy_invalid_wasm() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url())
+    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -73,7 +73,7 @@ async fn test_deploy_empty_wasm() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url())
+    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -132,7 +132,7 @@ async fn test_add_duplicate_key() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url())
+    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -167,7 +167,7 @@ async fn test_delete_last_full_access_key() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url())
+    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -278,7 +278,7 @@ async fn test_transaction_with_failing_action_in_middle() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url())
+    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -351,7 +351,7 @@ async fn test_delete_account_to_nonexistent_beneficiary() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url())
+    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -391,7 +391,7 @@ async fn test_stake_with_insufficient_balance() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url())
+    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -436,7 +436,7 @@ async fn test_transfer_zero_amount() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url())
+    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -481,7 +481,7 @@ async fn test_transfer_max_amount() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url())
+    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();

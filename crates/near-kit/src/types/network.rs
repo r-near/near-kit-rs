@@ -75,6 +75,18 @@ impl fmt::Display for ChainId {
     }
 }
 
+impl From<&str> for ChainId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+impl From<String> for ChainId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,5 +131,17 @@ mod tests {
         assert_eq!(chain_id.as_str(), "my-custom-network");
         assert!(!chain_id.is_mainnet());
         assert!(!chain_id.is_testnet());
+    }
+
+    #[test]
+    fn test_from_str() {
+        let chain_id: ChainId = "mainnet".into();
+        assert!(chain_id.is_mainnet());
+    }
+
+    #[test]
+    fn test_from_string() {
+        let chain_id: ChainId = String::from("testnet").into();
+        assert!(chain_id.is_testnet());
     }
 }

@@ -267,7 +267,7 @@ async fn test_error_transfer_to_nonexistent_implicit_account() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -306,7 +306,7 @@ async fn test_error_insufficient_balance_transfer() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -355,7 +355,7 @@ async fn test_error_create_account_that_already_exists() {
         .unwrap();
 
     // Create a signer for the parent
-    let parent_near = Near::custom(rpc_url)
+    let parent_near = Near::custom(rpc_url, "sandbox")
         .credentials(sandbox.root_secret_key(), SANDBOX_ROOT_ACCOUNT)
         .unwrap()
         .build();
@@ -398,7 +398,7 @@ async fn test_error_delete_nonexistent_key() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(rpc_url)
+    let account_near = Near::custom(rpc_url, "sandbox")
         .credentials(account_key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -449,7 +449,7 @@ async fn test_error_function_call_panic() {
         .await
         .unwrap();
 
-    let contract_near = Near::custom(rpc_url)
+    let contract_near = Near::custom(rpc_url, "sandbox")
         .credentials(contract_key.to_string(), &contract_id)
         .unwrap()
         .build();
@@ -492,7 +492,7 @@ async fn test_error_function_call_insufficient_gas() {
         .await
         .unwrap();
 
-    let contract_near = Near::custom(rpc_url)
+    let contract_near = Near::custom(rpc_url, "sandbox")
         .credentials(contract_key.to_string(), &contract_id)
         .unwrap()
         .build();
@@ -568,7 +568,7 @@ async fn test_error_transaction_without_signer() {
     let rpc_url = sandbox.rpc_url();
 
     // Create a Near client without a signer
-    let near = Near::custom(rpc_url).build();
+    let near = Near::custom(rpc_url, "sandbox").build();
 
     // Try to send a transaction
     let receiver: AccountId = "some-receiver.sandbox".parse().unwrap();

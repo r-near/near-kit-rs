@@ -231,7 +231,7 @@ async fn test_ft_balance_of_span_hierarchy() {
         .await
         .unwrap();
 
-    let ft_near = Near::custom(rpc_url)
+    let ft_near = Near::custom(rpc_url, "sandbox")
         .credentials(ft_key.to_string(), &ft_id)
         .unwrap()
         .build();

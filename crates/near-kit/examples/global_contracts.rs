@@ -34,7 +34,7 @@ async fn global_contracts_example() -> Result<(), Error> {
         .send()
         .await?;
 
-    let publisher_near = Near::custom(sandbox.rpc_url())
+    let publisher_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .signer(InMemorySigner::from_secret_key(
             publisher_account.as_str(),
             publisher_key.secret_key,
@@ -67,7 +67,7 @@ async fn global_contracts_example() -> Result<(), Error> {
         .send()
         .await?;
 
-    let user_near = Near::custom(sandbox.rpc_url())
+    let user_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .signer(InMemorySigner::from_secret_key(
             user_account.as_str(),
             user_key.secret_key,
@@ -129,7 +129,7 @@ async fn global_contracts_example() -> Result<(), Error> {
         .send()
         .await?;
 
-    let user2_near = Near::custom(sandbox.rpc_url())
+    let user2_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .signer(InMemorySigner::from_secret_key(
             user2_account.as_str(),
             user2_key.secret_key,

@@ -138,7 +138,7 @@ async fn test_typed_contract_call_without_signer() {
         .unwrap();
 
     // Create client WITHOUT a signer
-    let no_signer_near = Near::custom(sandbox.rpc_url()).build();
+    let no_signer_near = Near::custom(sandbox.rpc_url(), "sandbox").build();
     let guestbook = no_signer_near.contract::<Guestbook>(&contract_id);
 
     // Try to call a mutating method without signer
@@ -347,7 +347,7 @@ async fn test_typed_contract_view_methods_still_work_without_signer() {
         .unwrap();
 
     // Create client WITHOUT a signer
-    let no_signer_near = Near::custom(sandbox.rpc_url()).build();
+    let no_signer_near = Near::custom(sandbox.rpc_url(), "sandbox").build();
     let guestbook = no_signer_near.contract::<Guestbook>(&contract_id);
 
     // View methods should still work without a signer

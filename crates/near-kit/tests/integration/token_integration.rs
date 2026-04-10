@@ -45,7 +45,7 @@ async fn deploy_ft_contract(
 
     // Initialize the FT contract
     // The near-sdk-rs example FT uses "new" with owner_id, total_supply, metadata
-    let ft_near = Near::custom(near.rpc_url())
+    let ft_near = Near::custom(near.rpc_url(), "sandbox")
         .credentials(ft_key.to_string(), &ft_id)?
         .build();
 
@@ -197,7 +197,7 @@ async fn test_ft_transfer() {
     let receiver_key = SecretKey::generate_ed25519();
     let receiver_id: AccountId = format!("receiver.{}", owner_id).parse().unwrap();
 
-    let owner_near = Near::custom(rpc_url)
+    let owner_near = Near::custom(rpc_url, "sandbox")
         .credentials(owner_key.to_string(), &owner_id)
         .unwrap()
         .build();
@@ -284,7 +284,7 @@ async fn test_ft_storage_deposit() {
         .unwrap();
 
     // Create owner's near client for signing
-    let owner_near = Near::custom(rpc_url)
+    let owner_near = Near::custom(rpc_url, "sandbox")
         .credentials(owner_key.to_string(), &owner_id)
         .unwrap()
         .build();
@@ -352,7 +352,7 @@ async fn deploy_nft_contract(
         .await?;
 
     // Initialize the NFT contract
-    let nft_near = Near::custom(near.rpc_url())
+    let nft_near = Near::custom(near.rpc_url(), "sandbox")
         .credentials(nft_key.to_string(), &nft_id)?
         .build();
 
@@ -380,7 +380,7 @@ async fn mint_nft(
     token_id: &str,
     owner_id: &AccountId,
 ) -> Result<(), Error> {
-    let nft_near = Near::custom(near.rpc_url())
+    let nft_near = Near::custom(near.rpc_url(), "sandbox")
         .credentials(nft_key.to_string(), nft_id)?
         .build();
 
@@ -563,7 +563,7 @@ async fn test_nft_transfer() {
         .unwrap();
 
     // Create owner's client for signing
-    let owner_near = Near::custom(rpc_url)
+    let owner_near = Near::custom(rpc_url, "sandbox")
         .credentials(owner_key.to_string(), &owner_id)
         .unwrap()
         .build();
@@ -679,7 +679,7 @@ async fn test_nft_supply_for_owner() {
         .unwrap();
 
     // Create owner1's client for signing
-    let owner1_near = Near::custom(rpc_url)
+    let owner1_near = Near::custom(rpc_url, "sandbox")
         .credentials(owner1_key.to_string(), &owner1_id)
         .unwrap()
         .build();
