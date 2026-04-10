@@ -8,7 +8,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
 use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 use rand::rngs::OsRng;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use sha2::Digest;
 use slipped10::{BIP32Path, Curve};
@@ -669,7 +668,7 @@ impl Debug for SecretKey {
 }
 
 /// Cryptographic signature.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, SerializeDisplay, DeserializeFromStr)]
 pub enum Signature {
     /// Ed25519 signature (64 bytes).
     Ed25519([u8; 64]),
@@ -805,19 +804,6 @@ impl Display for Signature {
 impl Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Signature({})", self)
-    }
-}
-
-impl Serialize for Signature {
-    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for Signature {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let s: String = serde::Deserialize::deserialize(d)?;
-        s.parse().map_err(serde::de::Error::custom)
     }
 }
 
