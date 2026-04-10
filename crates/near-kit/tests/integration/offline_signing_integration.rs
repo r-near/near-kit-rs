@@ -43,7 +43,7 @@ async fn test_sign_offline_transfer() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -136,7 +136,7 @@ async fn test_sign_offline_function_call() {
         .await
         .unwrap();
 
-    let contract_near = Near::custom(rpc_url)
+    let contract_near = Near::custom(rpc_url, "sandbox")
         .credentials(contract_key.to_string(), &contract_id)
         .unwrap()
         .build();
@@ -210,7 +210,7 @@ async fn test_signed_transaction_roundtrip_bytes() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -283,7 +283,7 @@ async fn test_signed_transaction_roundtrip_base64() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -349,7 +349,7 @@ async fn test_offline_sign_and_transport_simulation() {
         .unwrap();
 
     // --- ONLINE MACHINE ---
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();

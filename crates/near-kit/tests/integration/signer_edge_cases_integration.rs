@@ -43,7 +43,7 @@ async fn test_in_memory_signer_from_secret_key() {
         .unwrap();
 
     // Create client with InMemorySigner from secret key
-    let near = Near::custom(sandbox.rpc_url())
+    let near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -92,7 +92,9 @@ async fn test_in_memory_signer_from_seed_phrase() {
     assert_eq!(*pubkey, key.public_key(), "Public keys should match");
 
     // Create client with seed phrase signer
-    let near = Near::custom(sandbox.rpc_url()).signer(signer).build();
+    let near = Near::custom(sandbox.rpc_url(), "sandbox")
+        .signer(signer)
+        .build();
 
     // Should be able to query account
     let balance = near.balance(&account_id).await.unwrap();
@@ -130,7 +132,9 @@ async fn test_rotating_signer_uses_multiple_keys() {
     // Create a rotating signer with all three keys
     let signer = RotatingSigner::new(&account_id, vec![key1, key2, key3]).unwrap();
 
-    let near = Near::custom(sandbox.rpc_url()).signer(signer).build();
+    let near = Near::custom(sandbox.rpc_url(), "sandbox")
+        .signer(signer)
+        .build();
 
     // Execute multiple transactions - the rotating signer should cycle through keys
     for i in 0..6 {
@@ -174,7 +178,9 @@ async fn test_rotating_signer_with_single_key() {
     // Rotating signer with just one key should still work
     let signer = RotatingSigner::new(&account_id, vec![key]).unwrap();
 
-    let near = Near::custom(sandbox.rpc_url()).signer(signer).build();
+    let near = Near::custom(sandbox.rpc_url(), "sandbox")
+        .signer(signer)
+        .build();
 
     // Should work fine with single key
     let sub_id: AccountId = format!("single.{}", account_id).parse().unwrap();
@@ -247,7 +253,7 @@ async fn test_sign_with_override() {
         .unwrap();
 
     // Create client with account1's signer
-    let near = Near::custom(sandbox.rpc_url())
+    let near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key1.to_string(), &account1_id)
         .unwrap()
         .build();
@@ -296,7 +302,7 @@ async fn test_wrong_key_for_account() {
         .unwrap();
 
     // Create client with the WRONG key
-    let near = Near::custom(sandbox.rpc_url())
+    let near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(wrong_key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -346,13 +352,13 @@ async fn test_deleted_key_fails() {
         .unwrap();
 
     // Create client with key1
-    let near = Near::custom(sandbox.rpc_url())
+    let near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key1.to_string(), &account_id)
         .unwrap()
         .build();
 
     // Delete key1 using key2
-    let near2 = Near::custom(sandbox.rpc_url())
+    let near2 = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key2.to_string(), &account_id)
         .unwrap()
         .build();
@@ -397,7 +403,7 @@ async fn test_signing_with_ed25519_key() {
         .await
         .unwrap();
 
-    let ed_near = Near::custom(sandbox.rpc_url())
+    let ed_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(ed_key.to_string(), &ed_account)
         .unwrap()
         .build();

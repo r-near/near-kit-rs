@@ -122,7 +122,7 @@ async fn test_ft_transfer_without_signer() {
         .unwrap();
 
     // Create a client WITHOUT a signer
-    let no_signer_near = Near::custom(sandbox.rpc_url()).build();
+    let no_signer_near = Near::custom(sandbox.rpc_url(), "sandbox").build();
 
     // Try to transfer without a signer configured
     let ft = no_signer_near.ft(&owner_id).unwrap();
@@ -145,7 +145,7 @@ async fn test_ft_storage_deposit_without_signer() {
     let sandbox = SandboxConfig::shared().await;
 
     // Create a client WITHOUT a signer
-    let no_signer_near = Near::custom(sandbox.rpc_url()).build();
+    let no_signer_near = Near::custom(sandbox.rpc_url(), "sandbox").build();
 
     let ft = no_signer_near.ft("any-token.sandbox").unwrap();
 
@@ -256,7 +256,7 @@ async fn test_nft_token_on_non_contract() {
 async fn test_nft_transfer_without_signer() {
     let sandbox = SandboxConfig::shared().await;
 
-    let no_signer_near = Near::custom(sandbox.rpc_url()).build();
+    let no_signer_near = Near::custom(sandbox.rpc_url(), "sandbox").build();
 
     let nft = no_signer_near.nft("any-nft.sandbox").unwrap();
     let result = nft.transfer("bob.near", "token-1").await;

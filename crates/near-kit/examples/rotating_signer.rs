@@ -37,7 +37,7 @@ async fn high_throughput_example() -> Result<(), Error> {
         .await?;
 
     // Add remaining keys using a loop
-    let bot_near = Near::custom(sandbox.rpc_url())
+    let bot_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .signer(InMemorySigner::from_secret_key(
             bot_account.as_str(),
             keypairs[0].secret_key.clone(),
@@ -59,7 +59,7 @@ async fn high_throughput_example() -> Result<(), Error> {
     let secret_keys: Vec<SecretKey> = keypairs.into_iter().map(|kp| kp.secret_key).collect();
     let rotating_signer = RotatingSigner::new(&bot_account, secret_keys)?;
 
-    let near = Near::custom(sandbox.rpc_url())
+    let near = Near::custom(sandbox.rpc_url(), "sandbox")
         .signer(rotating_signer)
         .build();
 

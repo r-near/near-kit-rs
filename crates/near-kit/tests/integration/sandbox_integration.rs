@@ -72,7 +72,7 @@ async fn test_sandbox_transfer() {
         .unwrap();
 
     // Create sender's client
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -126,7 +126,7 @@ async fn test_sandbox_multiple_transfers() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -191,7 +191,7 @@ async fn test_sandbox_simple_transfer() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -249,7 +249,7 @@ async fn test_sandbox_create_account_outcome() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -293,7 +293,7 @@ async fn test_sandbox_delete_account() {
         .await
         .unwrap();
 
-    let parent_near = Near::custom(rpc_url)
+    let parent_near = Near::custom(rpc_url, "sandbox")
         .credentials(parent_key.to_string(), &parent_id)
         .unwrap()
         .build();
@@ -316,7 +316,7 @@ async fn test_sandbox_delete_account() {
     assert!(root_near.account_exists(&temp_id).await.unwrap());
 
     // Create a new client with the temp account's key to delete it
-    let temp_near = Near::custom(rpc_url)
+    let temp_near = Near::custom(rpc_url, "sandbox")
         .credentials(temp_key.to_string(), &temp_id)
         .unwrap()
         .build();
@@ -355,7 +355,7 @@ async fn test_sandbox_add_and_delete_key() {
         .unwrap();
 
     // Create a new client for this account
-    let account_near = Near::custom(rpc_url)
+    let account_near = Near::custom(rpc_url, "sandbox")
         .credentials(account_key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -409,7 +409,7 @@ async fn test_sandbox_multiple_actions_in_one_transaction() {
         .await
         .unwrap();
 
-    let parent_near = Near::custom(rpc_url)
+    let parent_near = Near::custom(rpc_url, "sandbox")
         .credentials(parent_key.to_string(), &parent_id)
         .unwrap()
         .build();
@@ -545,7 +545,7 @@ async fn test_sandbox_set_balance_preserves_other_fields() {
     );
 
     // Verify the contract still works
-    let account_near = Near::custom(rpc_url)
+    let account_near = Near::custom(rpc_url, "sandbox")
         .credentials(account_key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -590,7 +590,7 @@ async fn test_sandbox_set_balance_for_staking() {
     assert_eq!(balance.total, staking_balance);
 
     // Now we can actually stake with enough to meet the minimum
-    let validator_near = Near::custom(rpc_url)
+    let validator_near = Near::custom(rpc_url, "sandbox")
         .credentials(validator_key.to_string(), &validator_id)
         .unwrap()
         .build();
@@ -689,7 +689,7 @@ async fn test_sign_message_nep413() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(rpc_url)
+    let account_near = Near::custom(rpc_url, "sandbox")
         .credentials(account_key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -757,7 +757,7 @@ async fn test_send_with_options_final() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -816,7 +816,7 @@ async fn test_send_with_options_included_returns_send_tx_response() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -878,7 +878,7 @@ async fn test_wait_until_included_on_builder() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();
@@ -932,7 +932,7 @@ async fn test_send_pre_signed_transaction() {
         .await
         .unwrap();
 
-    let sender_near = Near::custom(rpc_url)
+    let sender_near = Near::custom(rpc_url, "sandbox")
         .credentials(sender_key.to_string(), &sender_id)
         .unwrap()
         .build();

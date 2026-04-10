@@ -41,7 +41,7 @@ async fn test_failed_transaction_preserves_receipts() {
         .result()
         .expect("setup: deploy should succeed on-chain");
 
-    let account_near = Near::custom(sandbox.rpc_url())
+    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &contract_id)
         .unwrap()
         .build();

@@ -70,7 +70,7 @@ async fn test_action_error_returns_ok_with_failure_outcome() {
         .await
         .unwrap();
 
-    let account_near = Near::custom(sandbox.rpc_url())
+    let account_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -118,7 +118,7 @@ async fn test_function_call_error_returns_ok_with_failure_outcome() {
         .await
         .unwrap();
 
-    let contract_near = Near::custom(sandbox.rpc_url())
+    let contract_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(key.to_string(), &contract_id)
         .unwrap()
         .build();
@@ -161,7 +161,7 @@ async fn test_wrong_signer_key_returns_access_key_not_found() {
 
     // Try to sign with a wrong key
     let wrong_key = SecretKey::generate_ed25519();
-    let wrong_near = Near::custom(sandbox.rpc_url())
+    let wrong_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .credentials(wrong_key.to_string(), &account_id)
         .unwrap()
         .build();

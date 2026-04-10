@@ -48,7 +48,7 @@ async fn create_funded_account(
         .await
         .unwrap();
 
-    let near = Near::custom(rpc_url)
+    let near = Near::custom(rpc_url, "sandbox")
         .credentials(account_key.to_string(), &account_id)
         .unwrap()
         .build();
@@ -722,7 +722,7 @@ async fn test_action_delete_account() {
     assert!(root_near.account_exists(&to_delete_id).await.unwrap());
 
     // Delete the account
-    let to_delete_near = Near::custom(rpc_url)
+    let to_delete_near = Near::custom(rpc_url, "sandbox")
         .credentials(to_delete_key.to_string(), &to_delete_id)
         .unwrap()
         .build();

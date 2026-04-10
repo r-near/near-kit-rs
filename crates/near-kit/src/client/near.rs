@@ -119,9 +119,21 @@ impl Near {
         NearBuilder::new(TESTNET.rpc_url, ChainId::testnet())
     }
 
-    /// Create a builder with a custom RPC URL.
-    pub fn custom(rpc_url: impl Into<String>) -> NearBuilder {
-        NearBuilder::new(rpc_url, ChainId::new("custom"))
+    /// Create a builder with a custom RPC URL and chain ID.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use near_kit::Near;
+    ///
+    /// // Private mainnet RPC
+    /// let near = Near::custom("https://my-private-rpc.example.com", "mainnet").build();
+    ///
+    /// // Custom network
+    /// let near = Near::custom("https://rpc.pinet.near.org", "pinet").build();
+    /// ```
+    pub fn custom(rpc_url: impl Into<String>, chain_id: impl Into<ChainId>) -> NearBuilder {
+        NearBuilder::new(rpc_url, chain_id.into())
     }
 
     /// Create a configured client from environment variables.
@@ -172,7 +184,7 @@ impl Near {
     /// - `NEAR_MAX_NONCE_RETRIES` is set but not a valid integer
     pub fn from_env() -> Result<Near, Error> {
         let network = std::env::var("NEAR_NETWORK").ok();
-        let chain_id_override = std::env::var("NEAR_CHAIN_ID").ok();
+        let mut chain_id_override = std::env::var("NEAR_CHAIN_ID").ok();
         let account_id = std::env::var("NEAR_ACCOUNT_ID").ok();
         let private_key = std::env::var("NEAR_PRIVATE_KEY").ok();
 
@@ -180,10 +192,15 @@ impl Near {
         let mut builder = match network.as_deref() {
             Some("mainnet") => Near::mainnet(),
             Some("testnet") | None => Near::testnet(),
-            Some(url) => Near::custom(url),
+            Some(url) => {
+                let chain_id = chain_id_override
+                    .take()
+                    .unwrap_or_else(|| "custom".to_string());
+                Near::custom(url, chain_id)
+            }
         };
 
-        // Override chain_id if NEAR_CHAIN_ID is set
+        // Override chain_id if NEAR_CHAIN_ID is set (applies to mainnet/testnet presets)
         if let Some(id) = chain_id_override {
             builder = builder.chain_id(id);
         }
@@ -1187,8 +1204,15 @@ mod tests {
 
     #[test]
     fn test_near_custom_builder() {
-        let near = Near::custom("https://custom-rpc.example.com").build();
+        let near = Near::custom("https://custom-rpc.example.com", "mainnet").build();
         assert_eq!(near.rpc_url(), "https://custom-rpc.example.com");
+        assert!(near.chain_id().is_mainnet());
+    }
+
+    #[test]
+    fn test_near_custom_builder_with_chain_id_type() {
+        let near = Near::custom("https://rpc.example.com", ChainId::testnet()).build();
+        assert!(near.chain_id().is_testnet());
     }
 
     #[test]

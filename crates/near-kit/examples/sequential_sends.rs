@@ -41,7 +41,7 @@ async fn sequential_example() -> Result<(), Error> {
         .await?;
 
     // Add remaining keys
-    let bot_near = Near::custom(sandbox.rpc_url())
+    let bot_near = Near::custom(sandbox.rpc_url(), "sandbox")
         .signer(InMemorySigner::from_secret_key(
             bot_account.as_str(),
             keypairs[0].secret_key.clone(),
@@ -91,7 +91,7 @@ async fn sequential_example() -> Result<(), Error> {
             let rpc_url = rpc_url.clone();
             let recipient = recipient.clone();
             tokio::spawn(async move {
-                let near = Near::custom(&rpc_url).signer(signer).build();
+                let near = Near::custom(&rpc_url, "sandbox").signer(signer).build();
                 for tx_idx in 0..txs_per_key {
                     near.transfer(&recipient, NearToken::from_millinear(1))
                         .send()
