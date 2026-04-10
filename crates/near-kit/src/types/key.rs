@@ -9,6 +9,7 @@ use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
 use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 use sha2::Digest;
 use slipped10::{BIP32Path, Curve};
 
@@ -67,7 +68,7 @@ impl TryFrom<u8> for KeyType {
 /// Stored as fixed-size arrays matching nearcore's representation:
 /// - Ed25519: 32-byte compressed point
 /// - Secp256k1: 64-byte uncompressed point (x, y coordinates, no `0x04` prefix)
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, SerializeDisplay, DeserializeFromStr)]
 pub enum PublicKey {
     /// Ed25519 public key (32 bytes).
     Ed25519([u8; 32]),
@@ -266,19 +267,6 @@ impl Debug for PublicKey {
     }
 }
 
-impl Serialize for PublicKey {
-    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for PublicKey {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let s: String = serde::Deserialize::deserialize(d)?;
-        s.parse().map_err(serde::de::Error::custom)
-    }
-}
-
 impl BorshSerialize for PublicKey {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         borsh::BorshSerialize::serialize(&(self.key_type() as u8), writer)?;
@@ -339,7 +327,7 @@ pub const DEFAULT_HD_PATH: &str = "m/44'/397'/0'";
 pub const DEFAULT_WORD_COUNT: usize = 12;
 
 /// Ed25519 or Secp256k1 secret key.
-#[derive(Clone)]
+#[derive(Clone, SerializeDisplay, DeserializeFromStr)]
 pub enum SecretKey {
     /// Ed25519 secret key (32-byte seed).
     Ed25519([u8; 32]),
