@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.7.2...near-kit-v0.8.0) - 2026-04-10
+
+### Added
+
+- decode execution status ([#172](https://github.com/r-near/near-kit-rs/pull/172))
+- type-safe wait levels for transaction submission ([#163](https://github.com/r-near/near-kit-rs/pull/163))
+
+### Fixed
+
+- require chain_id in Near::custom() ([#169](https://github.com/r-near/near-kit-rs/pull/169))
+
+### Other
+
+- use Near::sandbox() in tests and examples ([#173](https://github.com/r-near/near-kit-rs/pull/173))
+- implement serde traits for `SecretKey` ([#170](https://github.com/r-near/near-kit-rs/pull/170))
+- use serde_with derives for CryptoHash ([#171](https://github.com/r-near/near-kit-rs/pull/171))
+- Revert "fix: return SendTxResponse from send_with_options" ([#161](https://github.com/r-near/near-kit-rs/pull/161))
+
 ## [0.7.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.7.1...near-kit-v0.7.2) - 2026-04-07
 
 ### Fixed
