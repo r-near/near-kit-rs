@@ -77,13 +77,13 @@ impl fmt::Display for ChainId {
 
 impl From<&str> for ChainId {
     fn from(s: &str) -> Self {
-        Self(s.to_string())
+        Self::new(s)
     }
 }
 
 impl From<String> for ChainId {
     fn from(s: String) -> Self {
-        Self(s)
+        Self::new(s)
     }
 }
 
