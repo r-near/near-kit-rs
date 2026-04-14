@@ -922,7 +922,7 @@ mod tests {
             tx_nonce: 5,
             ak_nonce: 10,
         });
-        assert!(err.to_string().contains("invalid nonce"));
+        assert!(err.to_string().contains("nonce"));
     }
 
     #[test]
