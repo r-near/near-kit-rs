@@ -10,8 +10,8 @@ use crate::error::RpcError;
 use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockReference, BlockView,
-    CryptoHash, GasPrice, PublicKey, SignedTransaction, StatusResponse, TxExecutionStatus,
-    ViewFunctionResult,
+    CryptoHash, EpochValidatorInfo, GasPrice, PublicKey, SignedTransaction, StatusResponse,
+    TxExecutionStatus, ViewFunctionResult,
 };
 
 /// Network configuration presets.
@@ -577,6 +577,20 @@ impl RpcClient {
         self.call("gas_price", params).await
     }
 
+    /// Get validator information for an epoch.
+    ///
+    /// Pass `None` for the latest epoch, or a block height/hash to query a
+    /// specific epoch. Finality and sync-checkpoint variants are treated as
+    /// latest (the `validators` RPC accepts only `block_id` or `null`).
+    #[tracing::instrument(skip(self))]
+    pub async fn validators(
+        &self,
+        block: Option<BlockReference>,
+    ) -> Result<EpochValidatorInfo, RpcError> {
+        let params = serde_json::json!([block_id_or_null(block.as_ref())]);
+        self.call("validators", params).await
+    }
+
     /// Send a signed transaction.
     #[tracing::instrument(skip(self, signed_tx), fields(
         tx_hash = tracing::field::Empty,
@@ -742,6 +756,20 @@ impl std::fmt::Debug for RpcClient {
 // ============================================================================
 // Helper functions
 // ============================================================================
+
+/// Convert a [`BlockReference`] to a `block_id` value for RPC methods that
+/// accept only positional `block_id` or `null` (e.g. `validators`,
+/// `EXPERIMENTAL_validators_ordered`).
+///
+/// Height and hash variants are forwarded as-is; finality and sync-checkpoint
+/// variants become `null` (latest).
+fn block_id_or_null(block: Option<&BlockReference>) -> serde_json::Value {
+    match block {
+        Some(BlockReference::Height(h)) => serde_json::json!(*h),
+        Some(BlockReference::Hash(h)) => serde_json::json!(h.to_string()),
+        _ => serde_json::Value::Null,
+    }
+}
 
 /// Check if an HTTP status code is retryable.
 fn is_retryable_status(status: u16) -> bool {
@@ -1432,5 +1460,48 @@ mod tests {
             }
             _ => panic!("Expected generic Rpc error"),
         }
+    }
+
+    // ========================================================================
+    // block_id_or_null tests
+    // ========================================================================
+
+    #[test]
+    fn test_block_id_or_null_with_none() {
+        let result = block_id_or_null(None);
+        assert!(result.is_null());
+    }
+
+    #[test]
+    fn test_block_id_or_null_with_height() {
+        let block = BlockReference::at_height(12345);
+        let result = block_id_or_null(Some(&block));
+        assert_eq!(result, serde_json::json!(12345));
+    }
+
+    #[test]
+    fn test_block_id_or_null_with_hash() {
+        let hash = CryptoHash::hash(b"test block");
+        let block = BlockReference::at_hash(hash);
+        let result = block_id_or_null(Some(&block));
+        assert_eq!(result, serde_json::json!(hash.to_string()));
+    }
+
+    #[test]
+    fn test_block_id_or_null_with_finality_falls_back_to_null() {
+        let block = BlockReference::final_();
+        let result = block_id_or_null(Some(&block));
+        assert!(result.is_null(), "finality variants should map to null");
+
+        let block = BlockReference::optimistic();
+        let result = block_id_or_null(Some(&block));
+        assert!(result.is_null(), "optimistic should map to null");
+    }
+
+    #[test]
+    fn test_block_id_or_null_with_sync_checkpoint_falls_back_to_null() {
+        let block = BlockReference::genesis();
+        let result = block_id_or_null(Some(&block));
+        assert!(result.is_null(), "sync checkpoint should map to null");
     }
 }

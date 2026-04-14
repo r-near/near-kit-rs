@@ -508,6 +508,31 @@ impl Near {
     }
 
     // ========================================================================
+    // Validator / Epoch Queries
+    // ========================================================================
+
+    /// Get validator information for the latest epoch.
+    ///
+    /// Returns current validators, next epoch validators, current proposals,
+    /// and kicked-out validators.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    /// let info = near.validators().await?;
+    /// println!("Current validators: {}", info.current_validators.len());
+    /// println!("Epoch height: {}", info.epoch_height);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn validators(&self) -> Result<crate::types::EpochValidatorInfo, Error> {
+        Ok(self.rpc.validators(None).await?)
+    }
+
+    // ========================================================================
     // Off-Chain Signing (NEP-413)
     // ========================================================================
 
