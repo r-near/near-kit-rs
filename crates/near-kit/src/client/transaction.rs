@@ -58,26 +58,30 @@ fn nonce_manager() -> &'static NonceManager {
 ///
 /// Function calls include the method name, e.g. `"create_account,transfer,function_call(init)"`.
 fn actions_summary(actions: &[Action]) -> String {
-    actions
-        .iter()
-        .map(|a| match a {
-            Action::CreateAccount(_) => "create_account".to_string(),
-            Action::DeployContract(_) => "deploy_contract".to_string(),
-            Action::FunctionCall(fc) => format!("function_call({})", fc.method_name),
-            Action::Transfer(_) => "transfer".to_string(),
-            Action::Stake(_) => "stake".to_string(),
-            Action::AddKey(_) => "add_key".to_string(),
-            Action::DeleteKey(_) => "delete_key".to_string(),
-            Action::DeleteAccount(_) => "delete_account".to_string(),
-            Action::Delegate(_) => "delegate".to_string(),
-            Action::DeployGlobalContract(_) => "deploy_global_contract".to_string(),
-            Action::UseGlobalContract(_) => "use_global_contract".to_string(),
-            Action::DeterministicStateInit(_) => "deterministic_state_init".to_string(),
-            Action::TransferToGasKey(_) => "transfer_to_gas_key".to_string(),
-            Action::WithdrawFromGasKey(_) => "withdraw_from_gas_key".to_string(),
-        })
-        .collect::<Vec<_>>()
-        .join(",")
+    use std::fmt::Write;
+    let mut out = String::new();
+    for (i, a) in actions.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        match a {
+            Action::CreateAccount(_) => out.push_str("create_account"),
+            Action::DeployContract(_) => out.push_str("deploy_contract"),
+            Action::FunctionCall(fc) => write!(out, "function_call({})", fc.method_name).unwrap(),
+            Action::Transfer(_) => out.push_str("transfer"),
+            Action::Stake(_) => out.push_str("stake"),
+            Action::AddKey(_) => out.push_str("add_key"),
+            Action::DeleteKey(_) => out.push_str("delete_key"),
+            Action::DeleteAccount(_) => out.push_str("delete_account"),
+            Action::Delegate(_) => out.push_str("delegate"),
+            Action::DeployGlobalContract(_) => out.push_str("deploy_global_contract"),
+            Action::UseGlobalContract(_) => out.push_str("use_global_contract"),
+            Action::DeterministicStateInit(_) => out.push_str("deterministic_state_init"),
+            Action::TransferToGasKey(_) => out.push_str("transfer_to_gas_key"),
+            Action::WithdrawFromGasKey(_) => out.push_str("withdraw_from_gas_key"),
+        }
+    }
+    out
 }
 
 /// Record function-call span fields from the action list.
