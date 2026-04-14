@@ -696,8 +696,9 @@ impl TransactionBuilder {
         );
 
         async move {
-            let key = signer.key();
-            let public_key = key.public_key().clone();
+            // Use public_key() directly to avoid side effects from key() —
+            // e.g. RotatingSigner advances its rotation counter on key().
+            let public_key = signer.public_key().clone();
 
             let access_key = self
                 .rpc
