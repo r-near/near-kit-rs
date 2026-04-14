@@ -809,15 +809,9 @@ async fn test_send_with_options_included_returns_send_tx_response() {
         .await
         .unwrap();
 
-    // SendTxResponse always has transaction_hash
+    // SendTxResponse has transaction_hash and sender_id
     assert!(!response.transaction_hash.is_zero());
-
-    // Included does not wait for execution, so outcome should be None
-    assert!(
-        response.outcome.is_none(),
-        "expected no outcome for Included, got: {:?}",
-        response.outcome
-    );
+    assert_eq!(response.sender_id, signed.transaction.signer_id);
 }
 
 #[tokio::test]
@@ -864,11 +858,7 @@ async fn test_wait_until_included_on_builder() {
         .unwrap();
 
     assert!(!response.transaction_hash.is_zero());
-    assert!(
-        response.outcome.is_none(),
-        "expected no outcome for Included, got: {:?}",
-        response.outcome
-    );
+    assert_eq!(response.sender_id.as_str(), sender_id.as_str());
 }
 
 #[tokio::test]

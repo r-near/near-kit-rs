@@ -1387,8 +1387,8 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                         Ok(response) => {
                             // W::convert handles the response appropriately:
                             // - Executed levels: extract outcome, check for InvalidTxError
-                            // - Non-executed levels: return SendTxResponse directly
-                            return W::convert(response);
+                            // - Non-executed levels: build SendTxResponse with hash + sender
+                            return W::convert(response, &signer_id);
                         }
                         Err(RpcError::InvalidTx(
                             crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },

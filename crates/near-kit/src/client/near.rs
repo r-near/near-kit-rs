@@ -857,8 +857,44 @@ impl Near {
         signed_tx: &crate::types::SignedTransaction,
         _level: W,
     ) -> Result<W::Response, Error> {
+        let sender_id = &signed_tx.transaction.signer_id;
         let response = self.rpc.send_tx(signed_tx, W::status()).await?;
-        W::convert(response)
+        W::convert(response, sender_id)
+    }
+
+    /// Get transaction status with full receipt details.
+    ///
+    /// Uses `EXPERIMENTAL_tx_status` under the hood. The return type depends
+    /// on the wait level, just like [`send_with_options`](Self::send_with_options):
+    ///
+    /// - Executed levels ([`ExecutedOptimistic`](crate::types::ExecutedOptimistic),
+    ///   [`Executed`](crate::types::Executed), [`Final`](crate::types::Final))
+    ///   → [`FinalExecutionOutcome`](crate::types::FinalExecutionOutcome)
+    ///   (with `receipts` populated)
+    /// - Non-executed levels ([`Submitted`](crate::types::Submitted),
+    ///   [`Included`](crate::types::Included), [`IncludedFinal`](crate::types::IncludedFinal))
+    ///   → [`SendTxResponse`](crate::types::SendTxResponse)
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(near: &Near, tx_hash: CryptoHash) -> Result<(), Error> {
+    /// let outcome = near.tx_status(&tx_hash, "alice.testnet", Final).await?;
+    /// println!("Gas used: {}", outcome.total_gas_used());
+    /// println!("Receipts: {}", outcome.receipts.len());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn tx_status<W: crate::types::WaitLevel>(
+        &self,
+        tx_hash: &crate::types::CryptoHash,
+        sender_id: impl crate::types::TryIntoAccountId,
+        _level: W,
+    ) -> Result<W::Response, Error> {
+        let sender_id = sender_id.try_into_account_id()?;
+        let response = self.rpc.tx_status(tx_hash, &sender_id, W::status()).await?;
+        W::convert(response, &sender_id)
     }
 
     // ========================================================================
