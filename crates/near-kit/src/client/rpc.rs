@@ -11,7 +11,7 @@ use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockReference, BlockView,
     CryptoHash, EpochValidatorInfo, GasPrice, PublicKey, SignedTransaction, StatusResponse,
-    TxExecutionStatus, ValidatorStakeView, ViewFunctionResult,
+    TxExecutionStatus, ViewFunctionResult,
 };
 
 /// Network configuration presets.
@@ -589,32 +589,6 @@ impl RpcClient {
     ) -> Result<EpochValidatorInfo, RpcError> {
         let params = serde_json::json!([block_id_or_null(block.as_ref())]);
         self.call("validators", params).await
-    }
-
-    /// Get ordered list of validators by stake for the latest block.
-    ///
-    /// Returns validators ordered by their stake (highest first).
-    /// Uses the `EXPERIMENTAL_validators_ordered` RPC method.
-    #[tracing::instrument(skip(self))]
-    pub async fn validators_ordered_latest(&self) -> Result<Vec<ValidatorStakeView>, RpcError> {
-        let params = serde_json::json!([serde_json::Value::Null]);
-        self.call("EXPERIMENTAL_validators_ordered", params).await
-    }
-
-    /// Get ordered list of validators by stake at a specific block.
-    ///
-    /// Returns validators ordered by their stake (highest first).
-    /// Uses the `EXPERIMENTAL_validators_ordered` RPC method.
-    ///
-    /// Pass a block height or hash. Finality and sync-checkpoint variants
-    /// are sent as `null` (latest).
-    #[tracing::instrument(skip(self))]
-    pub async fn validators_ordered(
-        &self,
-        block: BlockReference,
-    ) -> Result<Vec<ValidatorStakeView>, RpcError> {
-        let params = serde_json::json!([block_id_or_null(Some(&block))]);
-        self.call("EXPERIMENTAL_validators_ordered", params).await
     }
 
     /// Send a signed transaction.
