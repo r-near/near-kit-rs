@@ -151,7 +151,7 @@ impl RpcClient {
     }
 
     /// Make a raw RPC call with retries.
-    #[tracing::instrument(skip(self, params), fields(rpc.method = method))]
+    #[tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %sanitize_url(&self.url)))]
     pub async fn call<P: Serialize, R: DeserializeOwned>(
         &self,
         method: &str,
@@ -201,6 +201,12 @@ impl RpcClient {
         &self,
         request: &JsonRpcRequest<'_, impl Serialize>,
     ) -> Result<R, RpcError> {
+        if tracing::enabled!(tracing::Level::TRACE) {
+            if let Ok(json) = serde_json::to_string(request) {
+                tracing::trace!(payload = %json, "RPC request");
+            }
+        }
+
         let response = self
             .client
             .post(&self.url)
@@ -211,6 +217,8 @@ impl RpcClient {
 
         let status = response.status();
         let body = response.text().await?;
+
+        tracing::trace!(payload = %body, "RPC response");
 
         if !status.is_success() {
             let retryable = is_retryable_status(status.as_u16());
@@ -771,6 +779,16 @@ fn block_id_or_null(block: Option<&BlockReference>) -> serde_json::Value {
     }
 }
 
+/// Strip query string, fragment, and userinfo from a URL for safe logging.
+///
+/// RPC provider URLs may carry API keys as query parameters or path tokens.
+/// This returns `scheme://host/path` so credentials don't leak into tracing spans.
+fn sanitize_url(url: &str) -> &str {
+    // Strip query and fragment
+    let end = url.find('?').or_else(|| url.find('#')).unwrap_or(url.len());
+    &url[..end]
+}
+
 /// Check if an HTTP status code is retryable.
 fn is_retryable_status(status: u16) -> bool {
     // 408 Request Timeout - retryable
@@ -851,6 +869,42 @@ mod tests {
         let debug = format!("{:?}", client);
         assert!(debug.contains("RpcClient"));
         assert!(debug.contains("rpc.testnet.near.org"));
+    }
+
+    // ========================================================================
+    // sanitize_url tests
+    // ========================================================================
+
+    #[test]
+    fn test_sanitize_url_plain() {
+        assert_eq!(
+            sanitize_url("https://rpc.mainnet.near.org"),
+            "https://rpc.mainnet.near.org"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_url_strips_query() {
+        assert_eq!(
+            sanitize_url("https://rpc.provider.com/v1?api_key=secret123"),
+            "https://rpc.provider.com/v1"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_url_strips_fragment() {
+        assert_eq!(
+            sanitize_url("https://rpc.provider.com/v1#section"),
+            "https://rpc.provider.com/v1"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_url_strips_query_and_fragment() {
+        assert_eq!(
+            sanitize_url("https://rpc.provider.com/v1?key=val#frag"),
+            "https://rpc.provider.com/v1"
+        );
     }
 
     // ========================================================================
