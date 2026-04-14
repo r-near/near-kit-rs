@@ -1487,4 +1487,47 @@ mod tests {
             _ => panic!("Expected generic Rpc error"),
         }
     }
+
+    // ========================================================================
+    // block_id_or_null tests
+    // ========================================================================
+
+    #[test]
+    fn test_block_id_or_null_with_none() {
+        let result = block_id_or_null(None);
+        assert!(result.is_null());
+    }
+
+    #[test]
+    fn test_block_id_or_null_with_height() {
+        let block = BlockReference::at_height(12345);
+        let result = block_id_or_null(Some(&block));
+        assert_eq!(result, serde_json::json!(12345));
+    }
+
+    #[test]
+    fn test_block_id_or_null_with_hash() {
+        let hash = CryptoHash::hash(b"test block");
+        let block = BlockReference::at_hash(hash);
+        let result = block_id_or_null(Some(&block));
+        assert_eq!(result, serde_json::json!(hash.to_string()));
+    }
+
+    #[test]
+    fn test_block_id_or_null_with_finality_falls_back_to_null() {
+        let block = BlockReference::final_();
+        let result = block_id_or_null(Some(&block));
+        assert!(result.is_null(), "finality variants should map to null");
+
+        let block = BlockReference::optimistic();
+        let result = block_id_or_null(Some(&block));
+        assert!(result.is_null(), "optimistic should map to null");
+    }
+
+    #[test]
+    fn test_block_id_or_null_with_sync_checkpoint_falls_back_to_null() {
+        let block = BlockReference::genesis();
+        let result = block_id_or_null(Some(&block));
+        assert!(result.is_null(), "sync checkpoint should map to null");
+    }
 }
