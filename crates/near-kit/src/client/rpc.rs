@@ -579,29 +579,41 @@ impl RpcClient {
 
     /// Get validator information for an epoch.
     ///
-    /// Pass `None` for the latest epoch, or `Some(block)` to query at a specific block.
+    /// Pass `None` for the latest epoch, or a block height/hash to query a
+    /// specific epoch. Finality and sync-checkpoint variants are treated as
+    /// latest (the `validators` RPC accepts only `block_id` or `null`).
     #[tracing::instrument(skip(self))]
     pub async fn validators(
         &self,
         block: Option<BlockReference>,
     ) -> Result<EpochValidatorInfo, RpcError> {
-        let params = match block {
-            Some(block_ref) => serde_json::json!([block_ref.to_rpc_params()]),
-            None => serde_json::json!([serde_json::Value::Null]),
-        };
+        let params = serde_json::json!([block_id_or_null(block.as_ref())]);
         self.call("validators", params).await
     }
 
-    /// Get ordered list of validators for a specific block.
+    /// Get ordered list of validators by stake for the latest block.
     ///
     /// Returns validators ordered by their stake (highest first).
     /// Uses the `EXPERIMENTAL_validators_ordered` RPC method.
+    #[tracing::instrument(skip(self))]
+    pub async fn validators_ordered_latest(&self) -> Result<Vec<ValidatorStakeView>, RpcError> {
+        let params = serde_json::json!([serde_json::Value::Null]);
+        self.call("EXPERIMENTAL_validators_ordered", params).await
+    }
+
+    /// Get ordered list of validators by stake at a specific block.
+    ///
+    /// Returns validators ordered by their stake (highest first).
+    /// Uses the `EXPERIMENTAL_validators_ordered` RPC method.
+    ///
+    /// Pass a block height or hash. Finality and sync-checkpoint variants
+    /// are sent as `null` (latest).
     #[tracing::instrument(skip(self))]
     pub async fn validators_ordered(
         &self,
         block: BlockReference,
     ) -> Result<Vec<ValidatorStakeView>, RpcError> {
-        let params = block.to_rpc_params();
+        let params = serde_json::json!([block_id_or_null(Some(&block))]);
         self.call("EXPERIMENTAL_validators_ordered", params).await
     }
 
@@ -770,6 +782,20 @@ impl std::fmt::Debug for RpcClient {
 // ============================================================================
 // Helper functions
 // ============================================================================
+
+/// Convert a [`BlockReference`] to a `block_id` value for RPC methods that
+/// accept only positional `block_id` or `null` (e.g. `validators`,
+/// `EXPERIMENTAL_validators_ordered`).
+///
+/// Height and hash variants are forwarded as-is; finality and sync-checkpoint
+/// variants become `null` (latest).
+fn block_id_or_null(block: Option<&BlockReference>) -> serde_json::Value {
+    match block {
+        Some(BlockReference::Height(h)) => serde_json::json!(*h),
+        Some(BlockReference::Hash(h)) => serde_json::json!(h.to_string()),
+        _ => serde_json::Value::Null,
+    }
+}
 
 /// Check if an HTTP status code is retryable.
 fn is_retryable_status(status: u16) -> bool {

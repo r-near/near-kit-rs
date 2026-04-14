@@ -532,7 +532,10 @@ impl Near {
         Ok(self.rpc.validators(None).await?)
     }
 
-    /// Get validator information for a specific block.
+    /// Get validator information at a specific block height or hash.
+    ///
+    /// The RPC resolves the block to its epoch and returns that epoch's
+    /// validators. Finality variants are treated as latest.
     ///
     /// # Example
     ///
@@ -540,7 +543,7 @@ impl Near {
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
-    /// let info = near.validators_at(BlockReference::final_()).await?;
+    /// let info = near.validators_at(BlockReference::at_height(12345)).await?;
     /// println!("Epoch start height: {}", info.epoch_start_height);
     /// # Ok(())
     /// # }
@@ -552,7 +555,7 @@ impl Near {
         Ok(self.rpc.validators(Some(block)).await?)
     }
 
-    /// Get ordered list of validators for the latest final block.
+    /// Get ordered list of validators for the latest block.
     ///
     /// Returns validators ordered by their stake (highest first).
     ///
@@ -570,15 +573,13 @@ impl Near {
     /// # }
     /// ```
     pub async fn validators_ordered(&self) -> Result<Vec<crate::types::ValidatorStakeView>, Error> {
-        Ok(self
-            .rpc
-            .validators_ordered(crate::types::BlockReference::final_())
-            .await?)
+        Ok(self.rpc.validators_ordered_latest().await?)
     }
 
-    /// Get ordered list of validators at a specific block.
+    /// Get ordered list of validators at a specific block height or hash.
     ///
     /// Returns validators ordered by their stake (highest first).
+    /// Finality variants are treated as latest.
     ///
     /// # Example
     ///
@@ -586,7 +587,7 @@ impl Near {
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
-    /// let ordered = near.validators_ordered_at(BlockReference::final_()).await?;
+    /// let ordered = near.validators_ordered_at(BlockReference::at_height(12345)).await?;
     /// # Ok(())
     /// # }
     /// ```
