@@ -160,12 +160,14 @@ impl std::fmt::Display for ActionErrorKind {
             Self::AccountDoesNotExist { account_id } => {
                 write!(f, "account {account_id} does not exist")
             }
-            Self::CreateAccountOnlyByRegistrar { .. } => {
-                write!(
-                    f,
-                    "a top-level account ID can only be created by the registrar"
-                )
-            }
+            Self::CreateAccountOnlyByRegistrar {
+                account_id,
+                predecessor_id,
+                registrar_account_id,
+            } => write!(
+                f,
+                "top-level account {account_id} can only be created by registrar {registrar_account_id}, not by {predecessor_id}"
+            ),
             Self::CreateAccountNotAllowed {
                 account_id,
                 predecessor_id,
@@ -217,12 +219,12 @@ impl std::fmt::Display for ActionErrorKind {
                 stake.exact_amount_display()
             ),
             Self::InsufficientStake {
+                account_id,
                 stake,
                 minimum_stake,
-                ..
             } => write!(
                 f,
-                "insufficient stake {}, minimum required is {}",
+                "account {account_id} has insufficient stake ({}), minimum required is {}",
                 stake.exact_amount_display(),
                 minimum_stake.exact_amount_display()
             ),
@@ -280,11 +282,12 @@ impl std::fmt::Display for ActionErrorKind {
                 account_id,
                 public_key,
                 balance,
-                ..
+                required,
             } => write!(
                 f,
-                "gas key {public_key} for account {account_id} has insufficient balance ({})",
-                balance.exact_amount_display()
+                "gas key {public_key} for account {account_id} has insufficient balance ({}, required: {})",
+                balance.exact_amount_display(),
+                required.exact_amount_display()
             ),
             Self::GasKeyBalanceTooHigh {
                 account_id,
@@ -463,10 +466,13 @@ impl std::fmt::Display for InvalidTxError {
             Self::InvalidNonceIndex {
                 tx_nonce_index,
                 num_nonces,
-            } => write!(
-                f,
-                "invalid nonce index {tx_nonce_index:?} for key with {num_nonces} nonces"
-            ),
+            } => match tx_nonce_index {
+                Some(idx) => write!(
+                    f,
+                    "invalid nonce index {idx} for key with {num_nonces} nonces"
+                ),
+                None => write!(f, "missing nonce index for key with {num_nonces} nonces"),
+            },
             Self::NotEnoughGasKeyBalance {
                 signer_id,
                 balance,
@@ -481,10 +487,10 @@ impl std::fmt::Display for InvalidTxError {
                 signer_id,
                 balance,
                 cost,
-                ..
+                reason,
             } => write!(
                 f,
-                "sender {signer_id} does not have enough balance ({}) to cover deposit cost ({})",
+                "signer {signer_id} does not have enough balance ({}) to cover deposit cost ({}): {reason}",
                 balance.exact_amount_display(),
                 cost.exact_amount_display()
             ),
@@ -1162,12 +1168,23 @@ pub enum MissingTrieValueContext {
     TrieStorage,
 }
 
+impl std::fmt::Display for MissingTrieValueContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TrieIterator => write!(f, "trie iterator"),
+            Self::TriePrefetchingStorage => write!(f, "prefetching storage"),
+            Self::TrieMemoryPartialStorage => write!(f, "memory partial storage"),
+            Self::TrieStorage => write!(f, "trie storage"),
+        }
+    }
+}
+
 impl std::fmt::Display for StorageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::StorageInternalError => write!(f, "internal storage error"),
             Self::MissingTrieValue(v) => {
-                write!(f, "missing trie value with hash {}", v.hash)
+                write!(f, "missing trie value {} in {}", v.hash, v.context)
             }
             Self::UnexpectedTrieValue => write!(f, "unexpected trie value"),
             Self::StorageInconsistentState(msg) => {

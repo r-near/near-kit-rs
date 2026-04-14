@@ -922,7 +922,8 @@ mod tests {
             tx_nonce: 5,
             ak_nonce: 10,
         });
-        assert!(err.to_string().contains("nonce"));
+        assert!(err.to_string().contains("transaction nonce"));
+        assert!(err.to_string().contains("access key nonce"));
     }
 
     #[test]
