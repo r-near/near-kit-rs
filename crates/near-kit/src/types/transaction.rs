@@ -72,12 +72,11 @@ impl Transaction {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # fn example(tx: Transaction, sig_bytes: &[u8]) -> Result<(), near_kit::Error> {
+    /// # fn example(tx: Transaction, sig_bytes: [u8; 64]) {
     /// let hash = tx.get_hash();
     /// // sign hash externally...
-    /// let signature = Signature::from_parts(KeyType::ED25519, sig_bytes)?;
+    /// let signature = Signature::ed25519_from_bytes(sig_bytes);
     /// let signed = tx.complete(signature);
-    /// # Ok(())
     /// # }
     /// ```
     pub fn complete(self, signature: Signature) -> SignedTransaction {

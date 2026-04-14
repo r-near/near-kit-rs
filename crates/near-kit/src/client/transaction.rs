@@ -752,8 +752,8 @@ impl TransactionBuilder {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # fn example(near: Near) -> Result<(), near_kit::Error> {
-    /// let block_hash: CryptoHash = "11111111111111111111111111111111".parse()?;
-    /// let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
+    /// let block_hash = CryptoHash::ZERO;
+    /// let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse().unwrap();
     ///
     /// let unsigned = near.transaction("bob.testnet")
     ///     .transfer(NearToken::from_near(1))
