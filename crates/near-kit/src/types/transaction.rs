@@ -62,6 +62,30 @@ impl Transaction {
             signature,
         }
     }
+
+    /// Complete this transaction with an externally-produced signature.
+    ///
+    /// Use this for hardware wallet, MPC, or HSM signing workflows where you
+    /// sign the transaction hash externally and then reconstruct the signed transaction.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # fn example(tx: Transaction, sig_bytes: &[u8]) -> Result<(), near_kit::Error> {
+    /// let hash = tx.get_hash();
+    /// // sign hash externally...
+    /// let signature = Signature::from_parts(KeyType::ED25519, sig_bytes)?;
+    /// let signed = tx.complete(signature);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn complete(self, signature: Signature) -> SignedTransaction {
+        SignedTransaction {
+            transaction: self,
+            signature,
+        }
+    }
 }
 
 /// A signed transaction ready to be sent.
@@ -169,5 +193,34 @@ mod tests {
 
         let signed = tx.sign(&secret);
         assert!(!signed.to_bytes().is_empty());
+    }
+
+    #[test]
+    fn test_complete_matches_sign() {
+        let secret = SecretKey::generate_ed25519();
+        let public = secret.public_key();
+
+        let tx1 = Transaction::new(
+            "alice.testnet".parse().unwrap(),
+            public.clone(),
+            1,
+            "bob.testnet".parse().unwrap(),
+            CryptoHash::ZERO,
+            vec![],
+        );
+
+        let tx2 = tx1.clone();
+
+        // Sign via the normal path
+        let signed_normal = tx1.sign(&secret);
+
+        // Sign manually via complete()
+        let hash = tx2.get_hash();
+        let signature = secret.sign(hash.as_bytes());
+        let signed_complete = tx2.complete(signature);
+
+        assert_eq!(signed_normal.get_hash(), signed_complete.get_hash());
+        assert_eq!(signed_normal.signature, signed_complete.signature);
+        assert_eq!(signed_normal.to_bytes(), signed_complete.to_bytes());
     }
 }

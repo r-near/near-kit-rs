@@ -639,6 +639,155 @@ impl TransactionBuilder {
     // Execution
     // ========================================================================
 
+    /// Build the unsigned transaction without signing.
+    ///
+    /// Resolves the nonce and block hash from the network, then returns the
+    /// unsigned [`Transaction`]. Use this for external signing workflows
+    /// (hardware wallets, MPC, HSM) where you need the transaction hash
+    /// before signing.
+    ///
+    /// The returned [`Transaction`] provides [`get_hash()`](Transaction::get_hash)
+    /// for the bytes to sign, and [`complete()`](Transaction::complete) to attach
+    /// an externally-produced signature.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// let unsigned = near.transaction("bob.testnet")
+    ///     .transfer(NearToken::from_near(1))
+    ///     .build()
+    ///     .await?;
+    ///
+    /// // Get the hash that needs signing
+    /// let hash = unsigned.get_hash();
+    ///
+    /// // Sign externally (Ledger, MPC, HSM, etc.)
+    /// // let sig_bytes = device.sign(hash.as_bytes())?;
+    /// // let signature = Signature::from_parts(KeyType::ED25519, &sig_bytes)?;
+    ///
+    /// // Complete and submit
+    /// // let signed = unsigned.complete(signature);
+    /// // near.send(&signed).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn build(self) -> Result<Transaction, Error> {
+        if self.actions.is_empty() {
+            return Err(Error::InvalidTransaction(
+                "Transaction must have at least one action".to_string(),
+            ));
+        }
+
+        let signer = self
+            .signer_override
+            .or(self.signer)
+            .ok_or(Error::NoSigner)?;
+
+        let signer_id = signer.account_id().clone();
+        let action_count = self.actions.len();
+
+        let span = tracing::info_span!(
+            "build_transaction",
+            sender = %signer_id,
+            receiver = %self.receiver_id,
+            action_count,
+        );
+
+        async move {
+            let key = signer.key();
+            let public_key = key.public_key().clone();
+
+            let access_key = self
+                .rpc
+                .view_access_key(
+                    &signer_id,
+                    &public_key,
+                    BlockReference::Finality(Finality::Final),
+                )
+                .await?;
+            let block_hash = access_key.block_hash;
+
+            let network = self.rpc.url().to_string();
+            let nonce = nonce_manager().next(
+                network,
+                signer_id.clone(),
+                public_key.clone(),
+                access_key.nonce,
+            );
+
+            let tx = Transaction::new(
+                signer_id,
+                public_key,
+                nonce,
+                self.receiver_id,
+                block_hash,
+                self.actions,
+            );
+
+            tracing::debug!(tx_hash = %tx.get_hash(), nonce, "Transaction built (unsigned)");
+
+            Ok(tx)
+        }
+        .instrument(span)
+        .await
+    }
+
+    /// Build an unsigned transaction offline without network access or a signer.
+    ///
+    /// Use this for fully air-gapped workflows where you provide all
+    /// transaction metadata manually.
+    ///
+    /// # Arguments
+    ///
+    /// * `signer_id` - The account that will sign and pay for the transaction
+    /// * `public_key` - The public key of the signer
+    /// * `block_hash` - A recent block hash (transaction expires ~24h after this block)
+    /// * `nonce` - The next nonce for the signing key (current nonce + 1)
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// let block_hash: CryptoHash = "11111111111111111111111111111111".parse()?;
+    /// let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
+    ///
+    /// let unsigned = near.transaction("bob.testnet")
+    ///     .transfer(NearToken::from_near(1))
+    ///     .build_offline("alice.testnet", public_key, block_hash, 12345)?;
+    ///
+    /// let hash = unsigned.get_hash();
+    /// // Sign hash externally, then call unsigned.complete(signature)
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn build_offline(
+        self,
+        signer_id: impl TryIntoAccountId,
+        public_key: PublicKey,
+        block_hash: CryptoHash,
+        nonce: u64,
+    ) -> Result<Transaction, Error> {
+        if self.actions.is_empty() {
+            return Err(Error::InvalidTransaction(
+                "Transaction must have at least one action".to_string(),
+            ));
+        }
+
+        let signer_id: AccountId = signer_id.try_into_account_id()?;
+
+        Ok(Transaction::new(
+            signer_id,
+            public_key,
+            nonce,
+            self.receiver_id,
+            block_hash,
+            self.actions,
+        ))
+    }
+
     /// Sign the transaction without sending it.
     ///
     /// Returns a `SignedTransaction` that can be inspected or sent later.
