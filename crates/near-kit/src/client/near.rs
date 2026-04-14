@@ -508,6 +508,96 @@ impl Near {
     }
 
     // ========================================================================
+    // Validator / Epoch Queries
+    // ========================================================================
+
+    /// Get validator information for the latest epoch.
+    ///
+    /// Returns current validators, next epoch validators, current proposals,
+    /// and kicked-out validators.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    /// let info = near.validators().await?;
+    /// println!("Current validators: {}", info.current_validators.len());
+    /// println!("Epoch height: {}", info.epoch_height);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn validators(&self) -> Result<crate::types::EpochValidatorInfo, Error> {
+        Ok(self.rpc.validators(None).await?)
+    }
+
+    /// Get validator information for a specific block.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    /// let info = near.validators_at(BlockReference::final_()).await?;
+    /// println!("Epoch start height: {}", info.epoch_start_height);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn validators_at(
+        &self,
+        block: crate::types::BlockReference,
+    ) -> Result<crate::types::EpochValidatorInfo, Error> {
+        Ok(self.rpc.validators(Some(block)).await?)
+    }
+
+    /// Get ordered list of validators for the latest final block.
+    ///
+    /// Returns validators ordered by their stake (highest first).
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    /// let ordered = near.validators_ordered().await?;
+    /// for v in &ordered {
+    ///     println!("{}: {}", v.account_id(), v.stake());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn validators_ordered(&self) -> Result<Vec<crate::types::ValidatorStakeView>, Error> {
+        Ok(self
+            .rpc
+            .validators_ordered(crate::types::BlockReference::final_())
+            .await?)
+    }
+
+    /// Get ordered list of validators at a specific block.
+    ///
+    /// Returns validators ordered by their stake (highest first).
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    /// let ordered = near.validators_ordered_at(BlockReference::final_()).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn validators_ordered_at(
+        &self,
+        block: crate::types::BlockReference,
+    ) -> Result<Vec<crate::types::ValidatorStakeView>, Error> {
+        Ok(self.rpc.validators_ordered(block).await?)
+    }
+
+    // ========================================================================
     // Off-Chain Signing (NEP-413)
     // ========================================================================
 
