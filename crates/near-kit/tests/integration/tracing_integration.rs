@@ -32,6 +32,7 @@ fn unique_account() -> AccountId {
 struct SpanRecord {
     name: &'static str,
     parent_id: Option<Id>,
+    fields: HashMap<&'static str, String>,
 }
 
 /// Shared state for the capturing layer.
@@ -39,6 +40,41 @@ struct SpanRecord {
 struct CapturedSpans {
     /// span id -> record
     spans: Arc<Mutex<HashMap<u64, SpanRecord>>>,
+}
+
+/// Visitor that collects span fields as strings.
+struct FieldVisitor {
+    fields: HashMap<&'static str, String>,
+}
+
+impl FieldVisitor {
+    fn new() -> Self {
+        Self {
+            fields: HashMap::new(),
+        }
+    }
+}
+
+impl tracing::field::Visit for FieldVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        self.fields.insert(field.name(), format!("{:?}", value));
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        self.fields.insert(field.name(), value.to_string());
+    }
+
+    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
+        self.fields.insert(field.name(), value.to_string());
+    }
+
+    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+        self.fields.insert(field.name(), value.to_string());
+    }
+
+    fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
+        self.fields.insert(field.name(), value.to_string());
+    }
 }
 
 impl CapturedSpans {
@@ -69,9 +105,19 @@ impl CapturedSpans {
     fn has_span(&self, name: &str) -> bool {
         self.spans.lock().unwrap().values().any(|r| r.name == name)
     }
+
+    /// Find a span by name and return its fields.
+    fn find_span_fields(&self, name: &str) -> Option<HashMap<&'static str, String>> {
+        self.spans
+            .lock()
+            .unwrap()
+            .values()
+            .find(|r| r.name == name)
+            .map(|r| r.fields.clone())
+    }
 }
 
-/// A tracing Layer that records span creation with parent info.
+/// A tracing Layer that records span creation with parent info and fields.
 struct CapturingLayer {
     state: CapturedSpans,
 }
@@ -82,18 +128,39 @@ where
 {
     fn on_new_span(
         &self,
-        _attrs: &tracing::span::Attributes<'_>,
+        attrs: &tracing::span::Attributes<'_>,
         id: &Id,
         ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
         let span = ctx.span(id).expect("span not found");
         let parent_id = span.parent().map(|p| p.id());
         let name = span.name();
-        self.state
-            .spans
-            .lock()
-            .unwrap()
-            .insert(id.into_u64(), SpanRecord { name, parent_id });
+
+        let mut visitor = FieldVisitor::new();
+        attrs.record(&mut visitor);
+
+        self.state.spans.lock().unwrap().insert(
+            id.into_u64(),
+            SpanRecord {
+                name,
+                parent_id,
+                fields: visitor.fields,
+            },
+        );
+    }
+
+    fn on_record(
+        &self,
+        id: &Id,
+        values: &tracing::span::Record<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut visitor = FieldVisitor::new();
+        values.record(&mut visitor);
+
+        if let Some(record) = self.state.spans.lock().unwrap().get_mut(&id.into_u64()) {
+            record.fields.extend(visitor.fields);
+        }
     }
 }
 
@@ -145,6 +212,31 @@ async fn test_send_transaction_span_hierarchy() {
         children.contains(&"view_access_key"),
         "expected 'view_access_key' as child of 'send_transaction', got: {children:?}"
     );
+
+    // Verify enriched span fields
+    let fields = captured
+        .find_span_fields("send_transaction")
+        .expect("send_transaction span should exist");
+    assert_eq!(
+        fields.get("actions").map(|s| s.as_str()),
+        Some("create_account,transfer,add_key"),
+        "expected actions summary for create+transfer+add_key transaction"
+    );
+
+    // No function call → method/gas/deposit should not be recorded
+    assert!(
+        !fields.contains_key("method") || fields.get("method").map(|s| s.as_str()) == Some(""),
+        "method should not be set for non-function-call transaction"
+    );
+
+    // Verify RPC spans have rpc.url field
+    let rpc_fields = captured
+        .find_span_fields("call")
+        .expect("RPC call span should exist");
+    assert!(
+        rpc_fields.contains_key("rpc.url"),
+        "expected rpc.url field on RPC call span, got: {rpc_fields:?}"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -182,6 +274,97 @@ async fn test_sign_transaction_span_hierarchy() {
     assert!(
         children.contains(&"view_access_key"),
         "expected 'view_access_key' as child of 'sign_transaction', got: {children:?}"
+    );
+
+    // Verify enriched span fields
+    let fields = captured
+        .find_span_fields("sign_transaction")
+        .expect("sign_transaction span should exist");
+    assert_eq!(
+        fields.get("actions").map(|s| s.as_str()),
+        Some("create_account,transfer,add_key"),
+        "expected actions summary on sign_transaction span"
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn test_function_call_span_fields() {
+    let captured = CapturedSpans::default();
+    let layer = CapturingLayer {
+        state: captured.clone(),
+    };
+
+    let subscriber = tracing_subscriber::registry().with(layer);
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+
+    // Deploy FT contract
+    let ft_key = SecretKey::generate_ed25519();
+    let ft_id = unique_account();
+
+    root_near
+        .transaction(&ft_id)
+        .create_account()
+        .transfer(NearToken::from_near(50))
+        .add_full_access_key(ft_key.public_key())
+        .deploy(
+            std::fs::read("tests/contracts/fungible_token.wasm")
+                .expect("fungible_token.wasm not found"),
+        )
+        .send()
+        .wait_until(Final)
+        .await
+        .unwrap();
+
+    // Clear setup spans — we only care about the function call
+    captured.spans.lock().unwrap().clear();
+
+    let ft_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&ft_id, ft_key.to_string()).unwrap());
+
+    ft_near
+        .call(&ft_id, "new")
+        .args(serde_json::json!({
+            "owner_id": ft_id.to_string(),
+            "total_supply": "1000000000000000000000000",
+            "metadata": {
+                "spec": "ft-1.0.0",
+                "name": "Test Token",
+                "symbol": "TEST",
+                "decimals": 18
+            }
+        }))
+        .send()
+        .wait_until(Final)
+        .await
+        .unwrap();
+
+    // Verify send_transaction span has function call fields
+    let fields = captured
+        .find_span_fields("send_transaction")
+        .expect("send_transaction span should exist");
+
+    assert_eq!(
+        fields.get("actions").map(|s| s.as_str()),
+        Some("function_call(new)"),
+        "expected actions summary for function call transaction"
+    );
+
+    // Single function call → method, gas, deposit should be recorded as span fields
+    assert_eq!(
+        fields.get("method").map(|s| s.as_str()),
+        Some("new"),
+        "expected method field for single function call"
+    );
+    assert!(
+        fields.contains_key("gas"),
+        "expected gas field for single function call, got: {fields:?}"
+    );
+    assert!(
+        fields.contains_key("deposit"),
+        "expected deposit field for single function call, got: {fields:?}"
     );
 }
 

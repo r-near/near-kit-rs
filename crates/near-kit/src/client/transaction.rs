@@ -54,6 +54,67 @@ fn nonce_manager() -> &'static NonceManager {
     NONCE_MANAGER.get_or_init(NonceManager::new)
 }
 
+/// Produce a comma-separated summary of action types for tracing spans.
+///
+/// Function calls include the method name, e.g. `"create_account,transfer,function_call(init)"`.
+fn actions_summary(actions: &[Action]) -> String {
+    actions
+        .iter()
+        .map(|a| match a {
+            Action::CreateAccount(_) => "create_account".to_string(),
+            Action::DeployContract(_) => "deploy_contract".to_string(),
+            Action::FunctionCall(fc) => format!("function_call({})", fc.method_name),
+            Action::Transfer(_) => "transfer".to_string(),
+            Action::Stake(_) => "stake".to_string(),
+            Action::AddKey(_) => "add_key".to_string(),
+            Action::DeleteKey(_) => "delete_key".to_string(),
+            Action::DeleteAccount(_) => "delete_account".to_string(),
+            Action::Delegate(_) => "delegate".to_string(),
+            Action::DeployGlobalContract(_) => "deploy_global_contract".to_string(),
+            Action::UseGlobalContract(_) => "use_global_contract".to_string(),
+            Action::DeterministicStateInit(_) => "deterministic_state_init".to_string(),
+            Action::TransferToGasKey(_) => "transfer_to_gas_key".to_string(),
+            Action::WithdrawFromGasKey(_) => "withdraw_from_gas_key".to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Record function-call span fields from the action list.
+///
+/// When the actions contain exactly one function call, records `method`, `gas`,
+/// and `deposit` on the current span. Multiple function calls emit a debug event
+/// per call instead, since span fields can't repeat.
+fn record_function_call_fields(actions: &[Action]) {
+    let function_calls: Vec<_> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::FunctionCall(fc) => Some(fc),
+            _ => None,
+        })
+        .collect();
+
+    match function_calls.as_slice() {
+        [fc] => {
+            let span = tracing::Span::current();
+            span.record("method", fc.method_name.as_str());
+            span.record("gas", tracing::field::display(&fc.gas));
+            span.record("deposit", tracing::field::display(&fc.deposit));
+        }
+        multiple if !multiple.is_empty() => {
+            for fc in multiple {
+                tracing::debug!(
+                    method = %fc.method_name,
+                    gas = %fc.gas,
+                    deposit = %fc.deposit,
+                    "function_call action"
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
 // ============================================================================
 // Delegate Action Types
 // ============================================================================
@@ -693,9 +754,16 @@ impl TransactionBuilder {
             sender = %signer_id,
             receiver = %self.receiver_id,
             action_count,
+            actions = %actions_summary(&self.actions),
+            method = tracing::field::Empty,
+            gas = tracing::field::Empty,
+            deposit = tracing::field::Empty,
         );
 
+        let actions = self.actions;
         async move {
+            record_function_call_fields(&actions);
+
             // Use public_key() directly to avoid side effects from key() —
             // e.g. RotatingSigner advances its rotation counter on key().
             let public_key = signer.public_key().clone();
@@ -724,7 +792,7 @@ impl TransactionBuilder {
                 nonce,
                 self.receiver_id,
                 block_hash,
-                self.actions,
+                actions,
             );
 
             tracing::debug!(tx_hash = %tx.get_hash(), nonce, "Transaction built (unsigned)");
@@ -832,9 +900,16 @@ impl TransactionBuilder {
             sender = %signer_id,
             receiver = %self.receiver_id,
             action_count,
+            actions = %actions_summary(&self.actions),
+            method = tracing::field::Empty,
+            gas = tracing::field::Empty,
+            deposit = tracing::field::Empty,
         );
 
+        let actions = self.actions;
         async move {
+            record_function_call_fields(&actions);
+
             // Get a signing key atomically. For RotatingSigner, this claims the next
             // key in rotation. The key contains both the public key and signing capability.
             let key = signer.key();
@@ -867,7 +942,7 @@ impl TransactionBuilder {
                 nonce,
                 self.receiver_id,
                 block_hash,
-                self.actions,
+                actions,
             );
 
             // Sign with the key
@@ -1474,9 +1549,15 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                 sender = %signer_id,
                 receiver = %builder.receiver_id,
                 action_count = builder.actions.len(),
+                actions = %actions_summary(&builder.actions),
+                method = tracing::field::Empty,
+                gas = tracing::field::Empty,
+                deposit = tracing::field::Empty,
             );
 
             async move {
+                record_function_call_fields(&builder.actions);
+
                 // Retry loop for transient InvalidTxErrors (nonce conflicts, expired block hash)
                 let max_nonce_retries = builder.max_nonce_retries;
                 let wait_until = W::status();

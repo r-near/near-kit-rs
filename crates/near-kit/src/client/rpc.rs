@@ -151,7 +151,7 @@ impl RpcClient {
     }
 
     /// Make a raw RPC call with retries.
-    #[tracing::instrument(skip(self, params), fields(rpc.method = method))]
+    #[tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %self.url))]
     pub async fn call<P: Serialize, R: DeserializeOwned>(
         &self,
         method: &str,
@@ -201,6 +201,12 @@ impl RpcClient {
         &self,
         request: &JsonRpcRequest<'_, impl Serialize>,
     ) -> Result<R, RpcError> {
+        if tracing::enabled!(tracing::Level::TRACE) {
+            if let Ok(json) = serde_json::to_string(request) {
+                tracing::trace!(payload = %json, "RPC request");
+            }
+        }
+
         let response = self
             .client
             .post(&self.url)
@@ -211,6 +217,8 @@ impl RpcClient {
 
         let status = response.status();
         let body = response.text().await?;
+
+        tracing::trace!(payload = %body, "RPC response");
 
         if !status.is_success() {
             let retryable = is_retryable_status(status.as_u16());
