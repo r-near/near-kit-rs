@@ -68,6 +68,9 @@ serde_with = { version = "3.17.0", features = ["hex", "base64"] }
 default = ["keyring"]
 sandbox = ["dep:testcontainers", "dep:libc"]
 keyring = ["dep:keyring"]
+# Enables `interactive-clap` derives on re-exported `NearToken` and `Gas` types.
+# Useful for CLI tools using `interactive-clap` for argument parsing.
+interactive-clap = ["near-token/interactive-clap", "near-gas/interactive-clap"]
 
 [dev-dependencies]
 tokio-test.workspace = true

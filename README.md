@@ -200,6 +200,11 @@ Available known tokens: `tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`
 |---------|-------------|
 | `sandbox` | Local testing with [near-sandbox](https://crates.io/crates/near-sandbox) |
 | `keyring` | System keyring integration for desktop apps |
+| `interactive-clap` | Enables `interactive-clap` derives on re-exported `NearToken` and `Gas` for CLI tools |
+
+### A note on `near-token` / `near-gas`
+
+near-kit depends on and re-exports [`near-token`](https://crates.io/crates/near-token) and [`near-gas`](https://crates.io/crates/near-gas) — so `near_kit::NearToken` and `near_kit::Gas` *are* those crates' types. If you need a feature that near-kit doesn't expose directly (anything beyond `interactive-clap`), add `near-token` or `near-gas` as a direct dependency alongside near-kit with the feature you need. Cargo unifies versions and features across the dependency graph, so the types stay compatible — no conversions required.
 
 ## Documentation
 
