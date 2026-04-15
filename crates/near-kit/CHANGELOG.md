@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.8.0...near-kit-v0.9.0) - 2026-04-15
+
+### Added
+
+- interactive-clap feature passthrough + document near-token/near-gas co-dependency ([#187](https://github.com/r-near/near-kit-rs/pull/187))
+- enrich tracing spans for CLI teach-me support ([#184](https://github.com/r-near/near-kit-rs/pull/184))
+- human-readable Display impls for all error types ([#183](https://github.com/r-near/near-kit-rs/pull/183))
+- expose unsigned transaction for external signing workflows ([#182](https://github.com/r-near/near-kit-rs/pull/182))
+- add validator and epoch query helpers ([#181](https://github.com/r-near/near-kit-rs/pull/181))
+- unified FinalExecutionOutcome and high-level tx_status ([#167](https://github.com/r-near/near-kit-rs/pull/167))
+
+### Fixed
+
+- replace compromised slipped10 with inline SLIP-10 ed25519 ([#186](https://github.com/r-near/near-kit-rs/pull/186))
+
 ## [0.8.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.7.2...near-kit-v0.8.0) - 2026-04-10
 
 ### Added
