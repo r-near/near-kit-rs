@@ -204,7 +204,9 @@ Available known tokens: `tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`
 
 ### A note on `near-token` / `near-gas`
 
-near-kit depends on and re-exports [`near-token`](https://crates.io/crates/near-token) and [`near-gas`](https://crates.io/crates/near-gas) — so `near_kit::NearToken` and `near_kit::Gas` *are* those crates' types. If you need a feature that near-kit doesn't expose directly (anything beyond `interactive-clap`), add `near-token` or `near-gas` as a direct dependency alongside near-kit with the feature you need. Cargo unifies versions and features across the dependency graph, so the types stay compatible — no conversions required.
+near-kit depends on and re-exports [`near-token`](https://crates.io/crates/near-token) and [`near-gas`](https://crates.io/crates/near-gas) — so `near_kit::NearToken` and `near_kit::Gas` *are* those crates' types. If you need a feature that near-kit doesn't expose directly (anything beyond `interactive-clap`), add `near-token` or `near-gas` as a direct dependency alongside near-kit with the feature you need.
+
+Use a version range compatible with near-kit's (check `cargo tree` if you're unsure). When only one version is resolved, Cargo unifies features across the graph and the re-exported types remain the same type — no conversions required. If you pin an incompatible semver range, Cargo will select two versions and the types will not be interchangeable.
 
 ## Documentation
 
