@@ -43,37 +43,43 @@ impl std::fmt::Display for HdPathError {
 /// Parse a BIP-32 path like `m/44'/397'/0'` into a list of hardened indexes
 /// (high bit set). Accepts `'` or `H` as the hardened marker.
 ///
-/// The leading `m` or `m/` is optional. An empty path (just `m` or `""`)
-/// derives the master key only.
+/// Root-path forms `""`, `"m"`, and `"m/"` all derive the master key only.
+/// A single leading `/` (with or without the `m`) and a single trailing `/`
+/// are tolerated; repeated or interior empty segments are rejected.
 pub(crate) fn parse_hd_path(path: &str) -> Result<Vec<u32>, HdPathError> {
-    let mut out = Vec::new();
-    for (i, seg) in path.split('/').enumerate() {
-        // Allow a leading "m" prefix only as the first segment.
-        if i == 0 && (seg == "m" || seg.is_empty()) {
-            continue;
-        }
-        if seg.is_empty() {
-            return Err(HdPathError::EmptySegment);
-        }
-        let (num_str, hardened) = match seg.as_bytes().last() {
-            Some(b'\'') | Some(b'H') => (&seg[..seg.len() - 1], true),
-            _ => (seg, false),
-        };
-        if num_str.is_empty() || !num_str.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(HdPathError::InvalidIndex(seg.to_string()));
-        }
-        let idx: u32 = num_str
-            .parse()
-            .map_err(|_| HdPathError::IndexOutOfRange(seg.to_string()))?;
-        if idx >= HARDENED {
-            return Err(HdPathError::IndexOutOfRange(seg.to_string()));
-        }
-        if !hardened {
-            return Err(HdPathError::NotHardened(seg.to_string()));
-        }
-        out.push(idx | HARDENED);
+    // Normalize: strip optional leading `m`, then a single leading `/`,
+    // then a single trailing `/`. Anything left is the `/`-separated body.
+    let body = path.strip_prefix('m').unwrap_or(path);
+    let body = body.strip_prefix('/').unwrap_or(body);
+    let body = body.strip_suffix('/').unwrap_or(body);
+    if body.is_empty() {
+        return Ok(Vec::new());
     }
-    Ok(out)
+
+    body.split('/')
+        .map(|seg| {
+            if seg.is_empty() {
+                return Err(HdPathError::EmptySegment);
+            }
+            let (num_str, hardened) = match seg.as_bytes().last() {
+                Some(b'\'') | Some(b'H') => (&seg[..seg.len() - 1], true),
+                _ => (seg, false),
+            };
+            if num_str.is_empty() || !num_str.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(HdPathError::InvalidIndex(seg.to_string()));
+            }
+            let idx: u32 = num_str
+                .parse()
+                .map_err(|_| HdPathError::IndexOutOfRange(seg.to_string()))?;
+            if idx >= HARDENED {
+                return Err(HdPathError::IndexOutOfRange(seg.to_string()));
+            }
+            if !hardened {
+                return Err(HdPathError::NotHardened(seg.to_string()));
+            }
+            Ok(idx | HARDENED)
+        })
+        .collect()
 }
 
 /// Derive a 32-byte Ed25519 secret scalar from `seed` along `path` using
@@ -88,6 +94,10 @@ pub(crate) fn derive_ed25519_slip10(seed: &[u8], path: &[u32]) -> [u8; 32] {
     let mut i = mac.finalize().into_bytes();
 
     for &index in path {
+        debug_assert!(
+            index & HARDENED != 0,
+            "ed25519 SLIP-10 requires hardened indexes; got {index:#x}"
+        );
         // Hardened child: Data = 0x00 || I_L(parent) || ser32(index)
         let (il, ir) = i.split_at(32);
 
@@ -206,8 +216,12 @@ mod tests {
 
     #[test]
     fn parse_accepts_common_forms() {
-        assert_eq!(parse_hd_path("m").unwrap(), Vec::<u32>::new());
-        assert_eq!(parse_hd_path("").unwrap(), Vec::<u32>::new());
+        // Root-path forms all derive the master key
+        let empty = Vec::<u32>::new();
+        assert_eq!(parse_hd_path("").unwrap(), empty);
+        assert_eq!(parse_hd_path("m").unwrap(), empty);
+        assert_eq!(parse_hd_path("m/").unwrap(), empty);
+
         assert_eq!(
             parse_hd_path("m/44'/397'/0'").unwrap(),
             vec![44 | HARDENED, 397 | HARDENED, HARDENED]
@@ -222,16 +236,23 @@ mod tests {
             parse_hd_path("44'/397'/0'").unwrap(),
             parse_hd_path("m/44'/397'/0'").unwrap()
         );
+        // A single trailing slash is tolerated (matches slipped10's behavior)
+        assert_eq!(
+            parse_hd_path("m/44'/397'/0'/").unwrap(),
+            parse_hd_path("m/44'/397'/0'").unwrap()
+        );
     }
 
     #[test]
     fn parse_rejects_bad_input() {
+        // Interior empty segment
         assert!(matches!(
             parse_hd_path("m/44'//0'"),
             Err(HdPathError::EmptySegment)
         ));
+        // Double trailing slash: one is stripped, the other is an empty segment
         assert!(matches!(
-            parse_hd_path("m/44'/"),
+            parse_hd_path("m/44'//"),
             Err(HdPathError::EmptySegment)
         ));
         // Non-hardened is rejected for ed25519
