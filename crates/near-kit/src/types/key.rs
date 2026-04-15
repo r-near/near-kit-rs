@@ -10,8 +10,8 @@ use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 use rand::rngs::OsRng;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use sha2::Digest;
-use slipped10::{BIP32Path, Curve};
 
+use super::hd::{derive_ed25519_slip10, parse_hd_path};
 use crate::error::{ParseKeyError, SignerError};
 
 /// Key type identifier.
@@ -525,19 +525,12 @@ impl SecretKey {
         // Convert mnemonic to seed (64 bytes)
         let seed = mnemonic.to_seed(passphrase.unwrap_or(""));
 
-        // Parse HD path
-        let path: BIP32Path = hd_path
-            .as_ref()
-            .parse()
-            .map_err(|e| SignerError::KeyDerivationFailed(format!("Invalid HD path: {}", e)))?;
+        // Parse HD path and derive via SLIP-10 (Ed25519)
+        let path = parse_hd_path(hd_path.as_ref())
+            .map_err(|e| SignerError::KeyDerivationFailed(format!("Invalid HD path: {e}")))?;
+        let derived = derive_ed25519_slip10(&seed, &path);
 
-        // Derive key using SLIP-10 for Ed25519
-        let derived =
-            slipped10::derive_key_from_path(&seed, Curve::Ed25519, &path).map_err(|e| {
-                SignerError::KeyDerivationFailed(format!("SLIP-10 derivation failed: {:?}", e))
-            })?;
-
-        Ok(Self::ed25519_from_bytes(derived.key))
+        Ok(Self::ed25519_from_bytes(derived))
     }
 
     /// Generate a new random seed phrase and derive the corresponding secret key.

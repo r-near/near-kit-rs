@@ -49,6 +49,7 @@ mod action;
 mod block_reference;
 mod error;
 mod hash;
+mod hd;
 mod key;
 pub mod nep413;
 mod network;
