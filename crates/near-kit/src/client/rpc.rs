@@ -221,6 +221,20 @@ impl RpcClient {
         tracing::trace!(payload = %body, "RPC response");
 
         if !status.is_success() {
+            // nearcore returns non-2xx (e.g. 422 UNKNOWN_BLOCK, 408 TIMEOUT_ERROR) with
+            // a well-formed JSON-RPC error body — try to decode that first so callers
+            // get typed variants instead of an opaque Network error. Falls back to the
+            // original Network error for non-JSON bodies (HTML error pages, etc.).
+            if let Ok(parsed) = serde_json::from_str::<JsonRpcResponse>(&body) {
+                if let Some(error) = parsed.error {
+                    let parsed_err = self.parse_rpc_error(&error);
+                    return Err(preserve_http_retry_classification(
+                        parsed_err,
+                        status.as_u16(),
+                        &body,
+                    ));
+                }
+            }
             let retryable = is_retryable_status(status.as_u16());
             return Err(RpcError::network(
                 format!("HTTP {}: {}", status, body),
@@ -796,6 +810,33 @@ fn is_retryable_status(status: u16) -> bool {
     // 503 Service Unavailable - retryable
     // 5xx Server Errors - retryable
     status == 408 || status == 429 || status == 503 || (500..600).contains(&status)
+}
+
+/// When a non-2xx response is decoded via `parse_rpc_error`, HTTP status is
+/// ground truth for retryability: a 4xx response is a deterministic client-side
+/// failure and must not retry, regardless of what the JSON-RPC body claims.
+///
+/// `parse_rpc_error` returns one of two shapes:
+///   1. A typed handler variant (UnknownBlock/Chunk/Epoch/RequestTimeout/
+///      NodeNotSynced/…). These have well-understood retry semantics already
+///      encoded in `RpcError::is_retryable` and should pass through unchanged.
+///   2. The catch-all `RpcError::Rpc { code, .. }` (unrecognized or missing
+///      `cause.name`). For code `-32000`, `is_retryable` returns `true`, which
+///      is appropriate for 5xx (server-side) but *wrong* for 4xx — retrying a
+///      deterministic client error wastes time and hides the original failure.
+///
+/// For case (2) on a 4xx status, downgrade to `RpcError::Network` with
+/// `retryable: false` so unrecognized handler causes on 4xx preserve the
+/// pre-decode behavior (matches the HTML-body fallback path). 5xx with
+/// unknown cause is left as-is — a server-side issue with an unmapped name is
+/// plausibly transient and the existing retry semantics are reasonable.
+fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) -> RpcError {
+    match err {
+        RpcError::Rpc { .. } if (400..500).contains(&status) => {
+            RpcError::network(format!("HTTP {}: {}", status, body), Some(status), false)
+        }
+        other => other,
+    }
 }
 
 #[cfg(test)]
@@ -1514,6 +1555,287 @@ mod tests {
             }
             _ => panic!("Expected generic Rpc error"),
         }
+    }
+
+    // ========================================================================
+    // non-2xx envelope decode tests
+    //
+    // nearcore returns HTTP 422 (UNKNOWN_BLOCK/UNKNOWN_CHUNK) and 408
+    // (TIMEOUT_ERROR) with a well-formed JSON-RPC error body. `try_call` now
+    // tries to decode that body before falling back to `RpcError::Network`.
+    // These tests verify the decode path on synthetic bodies without needing
+    // an HTTP mock harness.
+    // ========================================================================
+
+    #[test]
+    fn test_non_2xx_body_decodes_unknown_block() {
+        // Real-shape body nearcore returns with HTTP 422 for UNKNOWN_BLOCK.
+        let body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "Server error",
+                "data": "DB Not Found Error: BLOCK HEIGHT: 1",
+                "cause": {
+                    "name": "UNKNOWN_BLOCK",
+                    "info": {}
+                },
+                "name": "HANDLER_ERROR"
+            }
+        }"#;
+        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
+        let error = parsed.error.expect("error envelope present");
+        let client = RpcClient::new("https://example.com");
+        let result = client.parse_rpc_error(&error);
+        assert!(
+            matches!(result, RpcError::UnknownBlock(_)),
+            "expected UnknownBlock, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_non_2xx_body_decodes_unknown_chunk() {
+        // Real-shape body nearcore returns with HTTP 422 for UNKNOWN_CHUNK.
+        let body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "Server error",
+                "cause": {
+                    "name": "UNKNOWN_CHUNK",
+                    "info": {
+                        "chunk_hash": "3tMcx4v6hUzN7XeQgEr4kQb8R5rGvmM4Py7o4nP1T8bY"
+                    }
+                },
+                "name": "HANDLER_ERROR"
+            }
+        }"#;
+        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
+        let error = parsed.error.expect("error envelope present");
+        let client = RpcClient::new("https://example.com");
+        let result = client.parse_rpc_error(&error);
+        assert!(
+            matches!(result, RpcError::UnknownChunk(_)),
+            "expected UnknownChunk, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_non_2xx_body_decodes_timeout() {
+        // Real-shape body nearcore returns with HTTP 408 for TIMEOUT_ERROR.
+        let body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "Timeout",
+                "cause": {
+                    "name": "TIMEOUT_ERROR",
+                    "info": {
+                        "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+                    }
+                },
+                "name": "HANDLER_ERROR"
+            }
+        }"#;
+        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
+        let error = parsed.error.expect("error envelope present");
+        let client = RpcClient::new("https://example.com");
+        let result = client.parse_rpc_error(&error);
+        match result {
+            RpcError::RequestTimeout {
+                transaction_hash, ..
+            } => {
+                assert_eq!(
+                    transaction_hash.as_deref(),
+                    Some("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U")
+                );
+            }
+            _ => panic!("expected RequestTimeout, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_non_2xx_html_body_falls_back_to_network() {
+        // Non-JSON bodies (HTML error pages from proxies, gateways, etc.)
+        // must still fall through to `RpcError::Network` with the status code
+        // preserved. We verify the decode-attempt fails so try_call's fallback
+        // path kicks in.
+        let body = "<html><body><h1>422 Unprocessable Entity</h1></body></html>";
+        let parsed = serde_json::from_str::<JsonRpcResponse>(body);
+        assert!(
+            parsed.is_err(),
+            "HTML body must fail to parse as JsonRpcResponse so try_call falls back to Network"
+        );
+
+        // Confirm the fallback produces the expected shape (same call try_call
+        // makes once the decode attempt fails).
+        let fallback = RpcError::network(format!("HTTP {}: {}", 422, body), Some(422), false);
+        match fallback {
+            RpcError::Network {
+                status_code,
+                retryable,
+                ..
+            } => {
+                assert_eq!(status_code, Some(422));
+                assert!(!retryable, "422 should not be retryable");
+            }
+            _ => panic!("expected Network error"),
+        }
+    }
+
+    // ========================================================================
+    // preserve_http_retry_classification tests
+    //
+    // Regression coverage for PR #189: 4xx responses with unrecognized
+    // handler causes must stay non-retryable. Without the downgrade, a
+    // 422 + unknown cause would become `RpcError::Rpc { code: -32000 }`,
+    // which `is_retryable()` treats as retryable — causing extra retry
+    // loops for deterministic client-side failures.
+    // ========================================================================
+
+    #[test]
+    fn test_non_2xx_unknown_cause_4xx_downgrades_to_network() {
+        // 422 with a fictional unknown handler cause. nearcore (or a gateway)
+        // may introduce new cause names we don't yet map — those must retain
+        // the pre-decode classification (non-retryable on 4xx).
+        let body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "Server error",
+                "cause": {
+                    "name": "FUTURE_HANDLER_ERROR",
+                    "info": {}
+                },
+                "name": "HANDLER_ERROR"
+            }
+        }"#;
+        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
+        let error = parsed.error.expect("error envelope present");
+        let client = RpcClient::new("https://example.com");
+        let parsed_err = client.parse_rpc_error(&error);
+        // Sanity check: the parse step itself returns the generic Rpc variant
+        // because the cause name isn't mapped. The downgrade is what fixes it.
+        assert!(matches!(parsed_err, RpcError::Rpc { .. }));
+
+        let result = preserve_http_retry_classification(parsed_err, 422, body);
+        match result {
+            RpcError::Network {
+                status_code,
+                retryable,
+                ..
+            } => {
+                assert_eq!(status_code, Some(422));
+                assert!(!retryable, "4xx must never be retryable");
+            }
+            _ => panic!(
+                "expected Network error for 4xx + unknown cause, got {:?}",
+                result
+            ),
+        }
+    }
+
+    #[test]
+    fn test_non_2xx_unknown_cause_418_downgrades_to_network() {
+        // Same principle on a different 4xx code — 4xx is 4xx regardless of
+        // which specific code the upstream returns.
+        let body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "I'm a teapot",
+                "cause": {
+                    "name": "SOME_UNMAPPED_CAUSE",
+                    "info": {}
+                },
+                "name": "HANDLER_ERROR"
+            }
+        }"#;
+        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
+        let error = parsed.error.expect("error envelope present");
+        let client = RpcClient::new("https://example.com");
+        let parsed_err = client.parse_rpc_error(&error);
+        let result = preserve_http_retry_classification(parsed_err, 418, body);
+        match result {
+            RpcError::Network {
+                status_code,
+                retryable,
+                ..
+            } => {
+                assert_eq!(status_code, Some(418));
+                assert!(!retryable, "4xx must never be retryable");
+            }
+            _ => panic!(
+                "expected Network error for 4xx + unknown cause, got {:?}",
+                result
+            ),
+        }
+    }
+
+    #[test]
+    fn test_non_2xx_typed_variant_passes_through_unchanged() {
+        // Typed variants (UnknownBlock, RequestTimeout, etc.) have well-known
+        // retry semantics and must not be downgraded — even on a 4xx status.
+        let body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "Server error",
+                "data": "DB Not Found Error: BLOCK HEIGHT: 1",
+                "cause": {
+                    "name": "UNKNOWN_BLOCK",
+                    "info": {}
+                },
+                "name": "HANDLER_ERROR"
+            }
+        }"#;
+        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
+        let error = parsed.error.expect("error envelope present");
+        let client = RpcClient::new("https://example.com");
+        let parsed_err = client.parse_rpc_error(&error);
+        let result = preserve_http_retry_classification(parsed_err, 422, body);
+        assert!(
+            matches!(result, RpcError::UnknownBlock(_)),
+            "typed UnknownBlock must pass through, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_non_2xx_unknown_cause_5xx_left_as_rpc() {
+        // 5xx + unknown cause is plausibly a transient server-side issue; keep
+        // the generic Rpc variant so existing retry semantics still apply.
+        let body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "Server error",
+                "cause": {
+                    "name": "FUTURE_HANDLER_ERROR",
+                    "info": {}
+                },
+                "name": "HANDLER_ERROR"
+            }
+        }"#;
+        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
+        let error = parsed.error.expect("error envelope present");
+        let client = RpcClient::new("https://example.com");
+        let parsed_err = client.parse_rpc_error(&error);
+        let result = preserve_http_retry_classification(parsed_err, 503, body);
+        assert!(
+            matches!(result, RpcError::Rpc { .. }),
+            "5xx + unknown cause should remain Rpc, got {:?}",
+            result
+        );
     }
 
     // ========================================================================

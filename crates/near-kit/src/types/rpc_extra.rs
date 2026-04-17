@@ -213,11 +213,15 @@ pub struct BlockHeaderInnerLiteView {
 // ============================================================================
 
 /// State change with its cause (from `EXPERIMENTAL_changes` RPC).
+///
+/// On the wire, `type` (discriminator) and `change` (payload) are siblings of
+/// `cause`, so the [`StateChangeValueView`] enum is flattened into this struct.
 #[derive(Debug, Clone, Deserialize)]
 pub struct StateChangeWithCauseView {
     /// What caused this state change.
     pub cause: StateChangeCauseView,
-    /// The state change value.
+    /// The state change value (flattened: `type` and `change` are siblings of `cause`).
+    #[serde(flatten)]
     pub value: StateChangeValueView,
 }
 
@@ -376,25 +380,99 @@ mod tests {
 
     #[test]
     fn test_state_change_with_cause_deserialization() {
+        // Real wire format: `cause`, `change`, `type` are siblings of each other.
         let json = serde_json::json!({
             "cause": {
                 "type": "transaction_processing",
                 "tx_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
             },
-            "value": {
-                "type": "gas_key_nonce_update",
-                "change": {
-                    "account_id": "alice.near",
-                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                    "index": 0,
-                    "nonce": 100
-                }
+            "type": "gas_key_nonce_update",
+            "change": {
+                "account_id": "alice.near",
+                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "index": 0,
+                "nonce": 100
             }
         });
         let change: StateChangeWithCauseView = serde_json::from_value(json).unwrap();
         assert!(matches!(
+            change.cause,
+            StateChangeCauseView::TransactionProcessing { .. }
+        ));
+        assert!(matches!(
             change.value,
             StateChangeValueView::GasKeyNonceUpdate { .. }
+        ));
+    }
+
+    #[test]
+    fn test_state_change_with_cause_account_update_real_wire_format() {
+        // Exact shape returned by `EXPERIMENTAL_changes` on mainnet for
+        // `account_update` changes. See https://docs.near.org/api/rpc/contracts#view-account-changes.
+        let json = serde_json::json!({
+            "cause": {
+                "receipt_hash": "8itzpE2FYkfXEFf1Pg6BZrrXemAXHaM5p6PvmbNFK9EV",
+                "type": "receipt_processing"
+            },
+            "change": {
+                "account_id": "neat.poolv1.near",
+                "amount": "230706979676934100000000",
+                "code_hash": "J1arLz48fgXcGyCPVckFwLnewNH6j1uw79thsvwqGYTY",
+                "locked": "1003350605740429461842053774382",
+                "storage_paid_at": 0,
+                "storage_usage": 277317
+            },
+            "type": "account_update"
+        });
+        let change: StateChangeWithCauseView = serde_json::from_value(json).unwrap();
+        match change.cause {
+            StateChangeCauseView::ReceiptProcessing { receipt_hash } => {
+                assert_eq!(
+                    receipt_hash.to_string(),
+                    "8itzpE2FYkfXEFf1Pg6BZrrXemAXHaM5p6PvmbNFK9EV"
+                );
+            }
+            _ => panic!("expected ReceiptProcessing cause"),
+        }
+        match change.value {
+            StateChangeValueView::AccountUpdate {
+                account_id,
+                account,
+            } => {
+                assert_eq!(account_id.as_str(), "neat.poolv1.near");
+                assert_eq!(account["amount"], "230706979676934100000000");
+                assert_eq!(account["locked"], "1003350605740429461842053774382");
+                assert_eq!(account["storage_usage"], 277317);
+            }
+            _ => panic!("expected AccountUpdate value"),
+        }
+    }
+
+    #[test]
+    fn test_state_change_with_cause_validator_accounts_update() {
+        // `validator_accounts_update` cause has no payload fields beyond `type`.
+        let json = serde_json::json!({
+            "cause": {
+                "type": "validator_accounts_update"
+            },
+            "change": {
+                "account_id": "neat.poolv1.near",
+                "amount": "230706979676934100000000",
+                "code_hash": "J1arLz48fgXcGyCPVckFwLnewNH6j1uw79thsvwqGYTY",
+                "locked": "1003350605740429461842053774382",
+                "storage_paid_at": 0,
+                "storage_usage": 277317
+            },
+            "type": "account_update"
+        });
+        let change: StateChangeWithCauseView = serde_json::from_value(json).unwrap();
+        assert!(matches!(
+            change.cause,
+            StateChangeCauseView::ValidatorAccountsUpdate
+        ));
+        assert!(matches!(
+            change.value,
+            StateChangeValueView::AccountUpdate { .. }
         ));
     }
 
