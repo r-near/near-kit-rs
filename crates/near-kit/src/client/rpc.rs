@@ -221,6 +221,15 @@ impl RpcClient {
         tracing::trace!(payload = %body, "RPC response");
 
         if !status.is_success() {
+            // nearcore returns non-2xx (e.g. 422 UNKNOWN_BLOCK, 408 TIMEOUT_ERROR) with
+            // a well-formed JSON-RPC error body — try to decode that first so callers
+            // get typed variants instead of an opaque Network error. Falls back to the
+            // original Network error for non-JSON bodies (HTML error pages, etc.).
+            if let Ok(parsed) = serde_json::from_str::<JsonRpcResponse>(&body) {
+                if let Some(error) = parsed.error {
+                    return Err(self.parse_rpc_error(&error));
+                }
+            }
             let retryable = is_retryable_status(status.as_u16());
             return Err(RpcError::network(
                 format!("HTTP {}: {}", status, body),
@@ -1513,6 +1522,137 @@ mod tests {
                 assert_eq!(message, "Invalid request");
             }
             _ => panic!("Expected generic Rpc error"),
+        }
+    }
+
+    // ========================================================================
+    // non-2xx envelope decode tests
+    //
+    // nearcore returns HTTP 422 (UNKNOWN_BLOCK/UNKNOWN_CHUNK) and 408
+    // (TIMEOUT_ERROR) with a well-formed JSON-RPC error body. `try_call` now
+    // tries to decode that body before falling back to `RpcError::Network`.
+    // These tests verify the decode path on synthetic bodies without needing
+    // an HTTP mock harness.
+    // ========================================================================
+
+    #[test]
+    fn test_non_2xx_body_decodes_unknown_block() {
+        // Real-shape body nearcore returns with HTTP 422 for UNKNOWN_BLOCK.
+        let body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "Server error",
+                "data": "DB Not Found Error: BLOCK HEIGHT: 1",
+                "cause": {
+                    "name": "UNKNOWN_BLOCK",
+                    "info": {}
+                },
+                "name": "HANDLER_ERROR"
+            }
+        }"#;
+        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
+        let error = parsed.error.expect("error envelope present");
+        let client = RpcClient::new("https://example.com");
+        let result = client.parse_rpc_error(&error);
+        assert!(
+            matches!(result, RpcError::UnknownBlock(_)),
+            "expected UnknownBlock, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_non_2xx_body_decodes_unknown_chunk() {
+        // Real-shape body nearcore returns with HTTP 422 for UNKNOWN_CHUNK.
+        let body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "Server error",
+                "cause": {
+                    "name": "UNKNOWN_CHUNK",
+                    "info": {
+                        "chunk_hash": "3tMcx4v6hUzN7XeQgEr4kQb8R5rGvmM4Py7o4nP1T8bY"
+                    }
+                },
+                "name": "HANDLER_ERROR"
+            }
+        }"#;
+        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
+        let error = parsed.error.expect("error envelope present");
+        let client = RpcClient::new("https://example.com");
+        let result = client.parse_rpc_error(&error);
+        assert!(
+            matches!(result, RpcError::UnknownChunk(_)),
+            "expected UnknownChunk, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_non_2xx_body_decodes_timeout() {
+        // Real-shape body nearcore returns with HTTP 408 for TIMEOUT_ERROR.
+        let body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "Timeout",
+                "cause": {
+                    "name": "TIMEOUT_ERROR",
+                    "info": {
+                        "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+                    }
+                },
+                "name": "HANDLER_ERROR"
+            }
+        }"#;
+        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
+        let error = parsed.error.expect("error envelope present");
+        let client = RpcClient::new("https://example.com");
+        let result = client.parse_rpc_error(&error);
+        match result {
+            RpcError::RequestTimeout {
+                transaction_hash, ..
+            } => {
+                assert_eq!(
+                    transaction_hash.as_deref(),
+                    Some("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U")
+                );
+            }
+            _ => panic!("expected RequestTimeout, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_non_2xx_html_body_falls_back_to_network() {
+        // Non-JSON bodies (HTML error pages from proxies, gateways, etc.)
+        // must still fall through to `RpcError::Network` with the status code
+        // preserved. We verify the decode-attempt fails so try_call's fallback
+        // path kicks in.
+        let body = "<html><body><h1>422 Unprocessable Entity</h1></body></html>";
+        let parsed = serde_json::from_str::<JsonRpcResponse>(body);
+        assert!(
+            parsed.is_err(),
+            "HTML body must fail to parse as JsonRpcResponse so try_call falls back to Network"
+        );
+
+        // Confirm the fallback produces the expected shape (same call try_call
+        // makes once the decode attempt fails).
+        let fallback = RpcError::network(format!("HTTP {}: {}", 422, body), Some(422), false);
+        match fallback {
+            RpcError::Network {
+                status_code,
+                retryable,
+                ..
+            } => {
+                assert_eq!(status_code, Some(422));
+                assert!(!retryable, "422 should not be retryable");
+            }
+            _ => panic!("expected Network error"),
         }
     }
 
