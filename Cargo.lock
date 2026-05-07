@@ -1707,9 +1707,9 @@ dependencies = [
 
 [[package]]
 name = "near-gas"
-version = "0.3.5"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6fbc2f97dea1fad4289ce70604955fc3421fb7c95c7300aba1d6a3466590f60"
+checksum = "559c33c9c86e05da946358485fa6e7e881a09726f909fbd8bcf357f998d7d03d"
 dependencies = [
  "borsh",
  "interactive-clap",
