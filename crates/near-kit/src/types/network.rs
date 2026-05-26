@@ -1,6 +1,6 @@
 //! Chain identification for NEAR Protocol.
 
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 /// Identifies the NEAR chain the client is connected to.
 ///
@@ -84,6 +84,14 @@ impl From<&str> for ChainId {
 impl From<String> for ChainId {
     fn from(s: String) -> Self {
         Self::new(s)
+    }
+}
+
+impl FromStr for ChainId {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::new(s))
     }
 }
 
