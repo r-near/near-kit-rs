@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.9.0...near-kit-v0.9.1) - 2026-05-26
+
+### Fixed
+
+- add impl FromStr for ChainId ([#201](https://github.com/r-near/near-kit-rs/pull/201))
+- decode typed RPC errors from non-2xx responses ([#189](https://github.com/r-near/near-kit-rs/pull/189))
+
 ## [0.9.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.8.0...near-kit-v0.9.0) - 2026-04-15
 
 ### Added
