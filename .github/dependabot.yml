@@ -3,11 +3,20 @@ updates:
   - package-ecosystem: cargo
     directory: "/"
     schedule:
-      interval: daily
+      interval: weekly
     open-pull-requests-limit: 10
+    groups:
+      # Batch semver-compatible (lockfile-only) bumps into a single weekly PR.
+      # Major bumps still get individual PRs since they change Cargo.toml.
+      patch-and-minor:
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: daily
+      interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # The MSRV CI job pins this action to the MSRV version on purpose;
+      # bumping it would silently turn the MSRV check into a stable check.
+      - dependency-name: "dtolnay/rust-toolchain"
