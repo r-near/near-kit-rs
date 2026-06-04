@@ -9,6 +9,32 @@ use super::rpc::GlobalContractIdentifierView;
 use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey};
 
 // ============================================================================
+// Unknown fallback
+// ============================================================================
+
+/// Raw JSON payload of an error this version of near-kit could not parse
+/// into a typed variant.
+///
+/// Emits a `tracing::warn!` when constructed during deserialization so
+/// fallback misclassification is observable.
+#[derive(Debug, Clone)]
+pub struct UnknownError(pub serde_json::Value);
+
+impl<'de> serde::Deserialize<'de> for UnknownError {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        tracing::warn!(raw = %value, "unrecognized error variant from RPC, falling back to Unknown");
+        Ok(Self(value))
+    }
+}
+
+impl std::fmt::Display for UnknownError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+// ============================================================================
 // Top-level error
 // ============================================================================
 
@@ -153,7 +179,7 @@ pub enum ActionErrorKind {
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
     #[serde(untagged)]
-    Unknown(serde_json::Value),
+    Unknown(UnknownError),
 }
 
 impl std::fmt::Display for ActionErrorKind {
@@ -387,7 +413,7 @@ pub enum InvalidTxError {
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
     #[serde(untagged)]
-    Unknown(serde_json::Value),
+    Unknown(UnknownError),
 }
 
 impl InvalidTxError {
@@ -540,7 +566,7 @@ pub enum InvalidAccessKeyError {
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
     #[serde(untagged)]
-    Unknown(serde_json::Value),
+    Unknown(UnknownError),
 }
 
 impl std::fmt::Display for InvalidAccessKeyError {
@@ -607,7 +633,7 @@ pub enum FunctionCallError {
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
     #[serde(untagged)]
-    Unknown(serde_json::Value),
+    Unknown(UnknownError),
 }
 
 impl std::fmt::Display for FunctionCallError {
@@ -640,7 +666,7 @@ pub enum CompilationError {
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
     #[serde(untagged)]
-    Unknown(serde_json::Value),
+    Unknown(UnknownError),
 }
 
 impl std::fmt::Display for CompilationError {
@@ -682,7 +708,7 @@ pub enum PrepareError {
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
     #[serde(untagged)]
-    Unknown(serde_json::Value),
+    Unknown(UnknownError),
 }
 
 impl std::fmt::Display for PrepareError {
@@ -742,7 +768,7 @@ pub enum MethodResolveError {
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
     #[serde(untagged)]
-    Unknown(serde_json::Value),
+    Unknown(UnknownError),
 }
 
 impl std::fmt::Display for MethodResolveError {
@@ -773,7 +799,7 @@ pub enum WasmTrap {
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
     #[serde(untagged)]
-    Unknown(serde_json::Value),
+    Unknown(UnknownError),
 }
 
 impl std::fmt::Display for WasmTrap {
@@ -888,7 +914,7 @@ pub enum HostError {
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
     #[serde(untagged)]
-    Unknown(serde_json::Value),
+    Unknown(UnknownError),
 }
 
 impl std::fmt::Display for HostError {
@@ -1061,7 +1087,7 @@ pub enum ActionsValidationError {
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
     #[serde(untagged)]
-    Unknown(serde_json::Value),
+    Unknown(UnknownError),
 }
 
 impl std::fmt::Display for ActionsValidationError {
@@ -1212,7 +1238,7 @@ pub enum ReceiptValidationError {
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
     #[serde(untagged)]
-    Unknown(serde_json::Value),
+    Unknown(UnknownError),
 }
 
 impl std::fmt::Display for ReceiptValidationError {
@@ -1270,7 +1296,7 @@ pub enum StorageError {
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
     #[serde(untagged)]
-    Unknown(serde_json::Value),
+    Unknown(UnknownError),
 }
 
 /// Details about a missing trie value.
@@ -1433,7 +1459,7 @@ mod tests {
         let json = serde_json::json!({ "AccountAlreadyExists": {} });
         let err: ActionErrorKind = serde_json::from_value(json.clone()).unwrap();
         match err {
-            ActionErrorKind::Unknown(raw) => assert_eq!(raw, json),
+            ActionErrorKind::Unknown(raw) => assert_eq!(raw.0, json),
             other => panic!("Expected Unknown, got {other:?}"),
         }
     }

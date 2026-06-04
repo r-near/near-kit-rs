@@ -75,7 +75,7 @@ pub use error::{
     ActionError, ActionErrorKind, ActionsValidationError, CompilationError,
     DepositCostFailureReason, FunctionCallError, HostError, InvalidAccessKeyError, InvalidTxError,
     MethodResolveError, PrepareError, ReceiptValidationError, StorageError, TxExecutionError,
-    WasmTrap,
+    UnknownError, WasmTrap,
 };
 pub use hash::CryptoHash;
 pub use key::{
