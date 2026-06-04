@@ -149,7 +149,9 @@ pub enum ActionErrorKind {
         #[serde(default)]
         public_key: Option<PublicKey>,
     },
-    /// Unrecognized variant from a newer nearcore version.
+    /// Error variant that this version of near-kit does not recognize, or
+    /// whose field shape differs from what it expects. The raw JSON is
+    /// preserved.
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
@@ -381,7 +383,9 @@ pub enum InvalidTxError {
         reason: DepositCostFailureReason,
         signer_id: AccountId,
     },
-    /// Unrecognized variant from a newer nearcore version.
+    /// Error variant that this version of near-kit does not recognize, or
+    /// whose field shape differs from what it expects. The raw JSON is
+    /// preserved.
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
@@ -532,7 +536,9 @@ pub enum InvalidAccessKeyError {
         public_key: PublicKey,
     },
     DepositWithFunctionCall,
-    /// Unrecognized variant from a newer nearcore version.
+    /// Error variant that this version of near-kit does not recognize, or
+    /// whose field shape differs from what it expects. The raw JSON is
+    /// preserved.
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
@@ -597,7 +603,9 @@ pub enum FunctionCallError {
     WasmTrap(WasmTrap),
     HostError(HostError),
     ExecutionError(String),
-    /// Unrecognized variant from a newer nearcore version.
+    /// Error variant that this version of near-kit does not recognize, or
+    /// whose field shape differs from what it expects. The raw JSON is
+    /// preserved.
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
@@ -628,7 +636,9 @@ pub enum CompilationError {
     WasmerCompileError {
         msg: String,
     },
-    /// Unrecognized variant from a newer nearcore version.
+    /// Error variant that this version of near-kit does not recognize, or
+    /// whose field shape differs from what it expects. The raw JSON is
+    /// preserved.
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
@@ -668,7 +678,9 @@ pub enum PrepareError {
     TooManyParamsPerFunction,
     TooManyParamsPerContract,
     OperandStackTooLarge,
-    /// Unrecognized variant from a newer nearcore version.
+    /// Error variant that this version of near-kit does not recognize, or
+    /// whose field shape differs from what it expects. The raw JSON is
+    /// preserved.
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
@@ -726,7 +738,9 @@ pub enum MethodResolveError {
     MethodEmptyName,
     MethodNotFound,
     MethodInvalidSignature,
-    /// Unrecognized variant from a newer nearcore version.
+    /// Error variant that this version of near-kit does not recognize, or
+    /// whose field shape differs from what it expects. The raw JSON is
+    /// preserved.
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
@@ -755,7 +769,9 @@ pub enum WasmTrap {
     IndirectCallToNull,
     StackOverflow,
     GenericTrap,
-    /// Unrecognized variant from a newer nearcore version.
+    /// Error variant that this version of near-kit does not recognize, or
+    /// whose field shape differs from what it expects. The raw JSON is
+    /// preserved.
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
@@ -868,7 +884,9 @@ pub enum HostError {
     P256VerifyInvalidInput {
         msg: String,
     },
-    /// Unrecognized variant from a newer nearcore version.
+    /// Error variant that this version of near-kit does not recognize, or
+    /// whose field shape differs from what it expects. The raw JSON is
+    /// preserved.
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
@@ -1039,7 +1057,9 @@ pub enum ActionsValidationError {
         limit: u64,
         number_of_deploy_actions: u64,
     },
-    /// Unrecognized variant from a newer nearcore version.
+    /// Error variant that this version of near-kit does not recognize, or
+    /// whose field shape differs from what it expects. The raw JSON is
+    /// preserved.
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
@@ -1188,7 +1208,9 @@ pub enum ReceiptValidationError {
     InvalidRefundTo {
         account_id: String,
     },
-    /// Unrecognized variant from a newer nearcore version.
+    /// Error variant that this version of near-kit does not recognize, or
+    /// whose field shape differs from what it expects. The raw JSON is
+    /// preserved.
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
@@ -1244,7 +1266,9 @@ pub enum StorageError {
     StorageInconsistentState(String),
     FlatStorageBlockNotSupported(String),
     MemTrieLoadingError(String),
-    /// Unrecognized variant from a newer nearcore version.
+    /// Error variant that this version of near-kit does not recognize, or
+    /// whose field shape differs from what it expects. The raw JSON is
+    /// preserved.
     #[serde(untagged)]
     Unknown(serde_json::Value),
 }
@@ -1396,6 +1420,22 @@ mod tests {
         let err: ActionErrorKind = serde_json::from_value(json).unwrap();
         assert!(matches!(err, ActionErrorKind::Unknown(_)));
         assert!(err.to_string().contains("SomeFutureError"));
+    }
+
+    #[test]
+    fn test_known_tag_with_incompatible_shape_falls_back_to_unknown() {
+        // A known tag whose payload no longer matches the expected field
+        // shape (here a required field is missing) is captured by the
+        // untagged `Unknown` fallback rather than failing the whole parse.
+        // The raw JSON is preserved so callers can still inspect it. This is
+        // the same forward-compat behavior we want when nearcore changes a
+        // known variant's field shape between releases.
+        let json = serde_json::json!({ "AccountAlreadyExists": {} });
+        let err: ActionErrorKind = serde_json::from_value(json.clone()).unwrap();
+        match err {
+            ActionErrorKind::Unknown(raw) => assert_eq!(raw, json),
+            other => panic!("Expected Unknown, got {other:?}"),
+        }
     }
 
     #[test]
