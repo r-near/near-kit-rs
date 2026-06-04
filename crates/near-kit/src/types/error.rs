@@ -149,6 +149,9 @@ pub enum ActionErrorKind {
         #[serde(default)]
         public_key: Option<PublicKey>,
     },
+    /// Unrecognized variant from a newer nearcore version.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 impl std::fmt::Display for ActionErrorKind {
@@ -304,6 +307,7 @@ impl std::fmt::Display for ActionErrorKind {
                     balance.exact_amount_display()
                 )
             }
+            Self::Unknown(value) => write!(f, "unknown action error: {value}"),
         }
     }
 }
@@ -377,6 +381,9 @@ pub enum InvalidTxError {
         reason: DepositCostFailureReason,
         signer_id: AccountId,
     },
+    /// Unrecognized variant from a newer nearcore version.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 impl InvalidTxError {
@@ -494,6 +501,7 @@ impl std::fmt::Display for InvalidTxError {
                 balance.exact_amount_display(),
                 cost.exact_amount_display()
             ),
+            Self::Unknown(value) => write!(f, "unknown transaction error: {value}"),
         }
     }
 }
@@ -524,6 +532,9 @@ pub enum InvalidAccessKeyError {
         public_key: PublicKey,
     },
     DepositWithFunctionCall,
+    /// Unrecognized variant from a newer nearcore version.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 impl std::fmt::Display for InvalidAccessKeyError {
@@ -563,6 +574,7 @@ impl std::fmt::Display for InvalidAccessKeyError {
             Self::DepositWithFunctionCall => {
                 write!(f, "deposits are not allowed with function call access keys")
             }
+            Self::Unknown(value) => write!(f, "unknown access key error: {value}"),
         }
     }
 }
@@ -585,6 +597,9 @@ pub enum FunctionCallError {
     WasmTrap(WasmTrap),
     HostError(HostError),
     ExecutionError(String),
+    /// Unrecognized variant from a newer nearcore version.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 impl std::fmt::Display for FunctionCallError {
@@ -598,6 +613,7 @@ impl std::fmt::Display for FunctionCallError {
             Self::WasmTrap(e) => write!(f, "Wasm trap: {e}"),
             Self::HostError(e) => write!(f, "host error: {e}"),
             Self::ExecutionError(msg) => write!(f, "execution error: {msg}"),
+            Self::Unknown(value) => write!(f, "unknown function call error: {value}"),
         }
     }
 }
@@ -605,9 +621,16 @@ impl std::fmt::Display for FunctionCallError {
 /// Wasm compilation error.
 #[derive(Debug, Clone, Deserialize)]
 pub enum CompilationError {
-    CodeDoesNotExist { account_id: AccountId },
+    CodeDoesNotExist {
+        account_id: AccountId,
+    },
     PrepareError(PrepareError),
-    WasmerCompileError { msg: String },
+    WasmerCompileError {
+        msg: String,
+    },
+    /// Unrecognized variant from a newer nearcore version.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 impl std::fmt::Display for CompilationError {
@@ -618,6 +641,7 @@ impl std::fmt::Display for CompilationError {
             }
             Self::PrepareError(e) => write!(f, "{e}"),
             Self::WasmerCompileError { msg } => write!(f, "Wasmer compilation error: {msg}"),
+            Self::Unknown(value) => write!(f, "unknown compilation error: {value}"),
         }
     }
 }
@@ -636,6 +660,17 @@ pub enum PrepareError {
     TooManyLocals,
     TooManyTables,
     TooManyTableElements,
+    FunctionBodyTooLarge,
+    InstrumentedCodeTooLarge,
+    TooManyBlocksPerFunction,
+    TooManyBlocksPerContract,
+    TooManyTypes,
+    TooManyParamsPerFunction,
+    TooManyParamsPerContract,
+    OperandStackTooLarge,
+    /// Unrecognized variant from a newer nearcore version.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 impl std::fmt::Display for PrepareError {
@@ -658,6 +693,29 @@ impl std::fmt::Display for PrepareError {
             Self::TooManyTableElements => {
                 write!(f, "too many table elements in Wasm module")
             }
+            Self::FunctionBodyTooLarge => {
+                write!(f, "a function body in the Wasm module is too large")
+            }
+            Self::InstrumentedCodeTooLarge => {
+                write!(f, "instrumented Wasm code exceeds the size limit")
+            }
+            Self::TooManyBlocksPerFunction => {
+                write!(f, "too many basic blocks in a Wasm function")
+            }
+            Self::TooManyBlocksPerContract => {
+                write!(f, "too many basic blocks in Wasm module")
+            }
+            Self::TooManyTypes => write!(f, "too many types in Wasm module"),
+            Self::TooManyParamsPerFunction => {
+                write!(f, "too many parameters in a Wasm function")
+            }
+            Self::TooManyParamsPerContract => {
+                write!(f, "too many parameters in Wasm module")
+            }
+            Self::OperandStackTooLarge => {
+                write!(f, "operand stack of a Wasm function is too large")
+            }
+            Self::Unknown(value) => write!(f, "unknown prepare error: {value}"),
         }
     }
 }
@@ -668,6 +726,9 @@ pub enum MethodResolveError {
     MethodEmptyName,
     MethodNotFound,
     MethodInvalidSignature,
+    /// Unrecognized variant from a newer nearcore version.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 impl std::fmt::Display for MethodResolveError {
@@ -676,6 +737,7 @@ impl std::fmt::Display for MethodResolveError {
             Self::MethodEmptyName => write!(f, "method name is empty"),
             Self::MethodNotFound => write!(f, "method not found in contract"),
             Self::MethodInvalidSignature => write!(f, "method has an invalid signature"),
+            Self::Unknown(value) => write!(f, "unknown method resolve error: {value}"),
         }
     }
 }
@@ -693,6 +755,9 @@ pub enum WasmTrap {
     IndirectCallToNull,
     StackOverflow,
     GenericTrap,
+    /// Unrecognized variant from a newer nearcore version.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 impl std::fmt::Display for WasmTrap {
@@ -709,6 +774,7 @@ impl std::fmt::Display for WasmTrap {
             Self::IndirectCallToNull => write!(f, "indirect call to null"),
             Self::StackOverflow => write!(f, "stack overflow"),
             Self::GenericTrap => write!(f, "generic trap"),
+            Self::Unknown(value) => write!(f, "unknown Wasm trap: {value}"),
         }
     }
 }
@@ -799,6 +865,12 @@ pub enum HostError {
     Ed25519VerifyInvalidInput {
         msg: String,
     },
+    P256VerifyInvalidInput {
+        msg: String,
+    },
+    /// Unrecognized variant from a newer nearcore version.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 impl std::fmt::Display for HostError {
@@ -886,6 +958,10 @@ impl std::fmt::Display for HostError {
             Self::Ed25519VerifyInvalidInput { msg } => {
                 write!(f, "Ed25519 verification invalid input: {msg}")
             }
+            Self::P256VerifyInvalidInput { msg } => {
+                write!(f, "P-256 verification invalid input: {msg}")
+            }
+            Self::Unknown(value) => write!(f, "unknown host error: {value}"),
         }
     }
 }
@@ -959,6 +1035,13 @@ pub enum ActionsValidationError {
         balance: NearToken,
     },
     GasKeyFunctionCallAllowanceNotAllowed,
+    TotalNumberOfDeployActionsExceeded {
+        limit: u64,
+        number_of_deploy_actions: u64,
+    },
+    /// Unrecognized variant from a newer nearcore version.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 impl std::fmt::Display for ActionsValidationError {
@@ -1058,6 +1141,14 @@ impl std::fmt::Display for ActionsValidationError {
                 f,
                 "gas keys with function call permission cannot have an allowance"
             ),
+            Self::TotalNumberOfDeployActionsExceeded {
+                number_of_deploy_actions,
+                limit,
+            } => write!(
+                f,
+                "number of deploy actions ({number_of_deploy_actions}) exceeded the limit ({limit})"
+            ),
+            Self::Unknown(value) => write!(f, "unknown actions validation error: {value}"),
         }
     }
 }
@@ -1097,6 +1188,9 @@ pub enum ReceiptValidationError {
     InvalidRefundTo {
         account_id: String,
     },
+    /// Unrecognized variant from a newer nearcore version.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 impl std::fmt::Display for ReceiptValidationError {
@@ -1132,6 +1226,7 @@ impl std::fmt::Display for ReceiptValidationError {
             Self::InvalidRefundTo { account_id } => {
                 write!(f, "invalid refund-to account ID {account_id}")
             }
+            Self::Unknown(value) => write!(f, "unknown receipt validation error: {value}"),
         }
     }
 }
@@ -1149,6 +1244,9 @@ pub enum StorageError {
     StorageInconsistentState(String),
     FlatStorageBlockNotSupported(String),
     MemTrieLoadingError(String),
+    /// Unrecognized variant from a newer nearcore version.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 /// Details about a missing trie value.
@@ -1196,6 +1294,7 @@ impl std::fmt::Display for StorageError {
             Self::MemTrieLoadingError(msg) => {
                 write!(f, "trie is not loaded in memory: {msg}")
             }
+            Self::Unknown(value) => write!(f, "unknown storage error: {value}"),
         }
     }
 }
@@ -1216,6 +1315,129 @@ impl std::fmt::Display for DepositCostFailureReason {
         match self {
             Self::NotEnoughBalance => write!(f, "not enough balance"),
             Self::LackBalanceForState => write!(f, "not enough balance for state"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ------------------------------------------------------------------
+    // New error variants introduced in nearcore 2.12
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_prepare_error_2_12_variants() {
+        for (json, expected) in [
+            ("\"FunctionBodyTooLarge\"", "function body"),
+            ("\"InstrumentedCodeTooLarge\"", "instrumented"),
+            ("\"TooManyBlocksPerFunction\"", "basic blocks"),
+            ("\"TooManyBlocksPerContract\"", "basic blocks"),
+            ("\"TooManyTypes\"", "types"),
+            ("\"TooManyParamsPerFunction\"", "parameters"),
+            ("\"TooManyParamsPerContract\"", "parameters"),
+            ("\"OperandStackTooLarge\"", "operand stack"),
+        ] {
+            let err: PrepareError = serde_json::from_str(json).unwrap();
+            assert!(
+                !matches!(err, PrepareError::Unknown(_)),
+                "{json} fell through to Unknown"
+            );
+            assert!(err.to_string().contains(expected), "{json}: {err}");
+        }
+    }
+
+    #[test]
+    fn test_host_error_p256_verify_invalid_input() {
+        let json = serde_json::json!({
+            "P256VerifyInvalidInput": { "msg": "signature must be 64 bytes" }
+        });
+        let err: HostError = serde_json::from_value(json).unwrap();
+        match &err {
+            HostError::P256VerifyInvalidInput { msg } => {
+                assert_eq!(msg, "signature must be 64 bytes");
+            }
+            other => panic!("Expected P256VerifyInvalidInput, got {other:?}"),
+        }
+        assert!(err.to_string().contains("P-256"));
+    }
+
+    #[test]
+    fn test_actions_validation_total_deploy_actions_exceeded() {
+        let json = serde_json::json!({
+            "TotalNumberOfDeployActionsExceeded": {
+                "number_of_deploy_actions": 5,
+                "limit": 4
+            }
+        });
+        let err: ActionsValidationError = serde_json::from_value(json).unwrap();
+        match &err {
+            ActionsValidationError::TotalNumberOfDeployActionsExceeded {
+                number_of_deploy_actions,
+                limit,
+            } => {
+                assert_eq!(*number_of_deploy_actions, 5);
+                assert_eq!(*limit, 4);
+            }
+            other => panic!("Expected TotalNumberOfDeployActionsExceeded, got {other:?}"),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Unknown-variant fallbacks (forward compatibility)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_unknown_struct_variant_falls_back() {
+        let json = serde_json::json!({
+            "SomeFutureError": { "limit": 1, "actual": 2 }
+        });
+        let err: ActionErrorKind = serde_json::from_value(json).unwrap();
+        assert!(matches!(err, ActionErrorKind::Unknown(_)));
+        assert!(err.to_string().contains("SomeFutureError"));
+    }
+
+    #[test]
+    fn test_unknown_unit_variant_falls_back() {
+        let err: HostError = serde_json::from_str("\"SomeFutureHostError\"").unwrap();
+        assert!(matches!(err, HostError::Unknown(_)));
+
+        let err: PrepareError = serde_json::from_str("\"SomeFuturePrepareError\"").unwrap();
+        assert!(matches!(err, PrepareError::Unknown(_)));
+
+        let err: WasmTrap = serde_json::from_str("\"SomeFutureTrap\"").unwrap();
+        assert!(matches!(err, WasmTrap::Unknown(_)));
+    }
+
+    #[test]
+    fn test_known_variants_not_shadowed_by_fallback() {
+        let err: PrepareError = serde_json::from_str("\"GasInstrumentation\"").unwrap();
+        assert!(matches!(err, PrepareError::GasInstrumentation));
+
+        let json = serde_json::json!({ "GuestPanic": { "panic_msg": "boom" } });
+        let err: HostError = serde_json::from_value(json).unwrap();
+        assert!(matches!(err, HostError::GuestPanic { .. }));
+    }
+
+    #[test]
+    fn test_unknown_nested_variant_preserves_outer_structure() {
+        // A failed receipt whose kind comes from a future nearcore version
+        // must still deserialize as an ActionError instead of failing the
+        // whole response parse.
+        let json = serde_json::json!({
+            "ActionError": {
+                "index": 0,
+                "kind": { "BrandNewErrorKind": { "foo": "bar" } }
+            }
+        });
+        let err: TxExecutionError = serde_json::from_value(json).unwrap();
+        match err {
+            TxExecutionError::ActionError(action_error) => {
+                assert_eq!(action_error.index, Some(0));
+                assert!(matches!(action_error.kind, ActionErrorKind::Unknown(_)));
+            }
+            other => panic!("Expected ActionError, got {other:?}"),
         }
     }
 }
