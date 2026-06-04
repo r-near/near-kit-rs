@@ -452,14 +452,14 @@ where
     let s: String = String::deserialize(deserializer)?;
 
     // Try base64 first (NEP-413 spec)
-    if let Ok(bytes) = BASE64_STANDARD.decode(&s) {
-        if bytes.len() == 64 {
-            return Ok(Signature::ed25519_from_bytes(
-                bytes
-                    .try_into()
-                    .map_err(|_| D::Error::custom("Invalid signature length"))?,
-            ));
-        }
+    if let Ok(bytes) = BASE64_STANDARD.decode(&s)
+        && bytes.len() == 64
+    {
+        return Ok(Signature::ed25519_from_bytes(
+            bytes
+                .try_into()
+                .map_err(|_| D::Error::custom("Invalid signature length"))?,
+        ));
     }
 
     // Try prefixed format (ed25519:base58 or secp256k1:base58)
@@ -477,14 +477,14 @@ where
     }
 
     // Try plain base58
-    if let Ok(bytes) = bs58::decode(&s).into_vec() {
-        if bytes.len() == 64 {
-            return Ok(Signature::ed25519_from_bytes(
-                bytes
-                    .try_into()
-                    .map_err(|_| D::Error::custom("Invalid signature length"))?,
-            ));
-        }
+    if let Ok(bytes) = bs58::decode(&s).into_vec()
+        && bytes.len() == 64
+    {
+        return Ok(Signature::ed25519_from_bytes(
+            bytes
+                .try_into()
+                .map_err(|_| D::Error::custom("Invalid signature length"))?,
+        ));
     }
 
     Err(D::Error::custom(

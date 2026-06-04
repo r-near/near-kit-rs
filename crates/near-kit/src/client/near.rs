@@ -7,8 +7,8 @@ use serde::de::DeserializeOwned;
 use crate::contract::ContractClient;
 use crate::error::Error;
 use crate::types::{
-    AccountId, ChainId, Gas, GlobalContractRef, IntoNearToken, NearToken, PublicKey, PublishMode,
-    SecretKey, TryIntoAccountId,
+    AccountId, ChainId, Gas, IntoGlobalContractId, IntoNearToken, NearToken, PublicKey,
+    PublishMode, SecretKey, StateInit, TryIntoAccountId,
 };
 
 use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
@@ -695,7 +695,7 @@ impl Near {
     /// # Panics
     ///
     /// Panics if no signer is configured.
-    pub fn deploy_from(&self, contract_ref: impl GlobalContractRef) -> TransactionBuilder {
+    pub fn deploy_from(&self, contract_ref: impl IntoGlobalContractId) -> TransactionBuilder {
         let account_id = self.account_id().clone();
         self.transaction(account_id).deploy_from(contract_ref)
     }
@@ -810,7 +810,7 @@ impl Near {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
-    /// let si = DeterministicAccountStateInit::by_hash(code_hash, Default::default());
+    /// let si = StateInit::by_hash(code_hash, Default::default());
     /// let outcome = near.state_init(si, NearToken::from_near(5))
     ///     .send()
     ///     .await?;
@@ -823,7 +823,7 @@ impl Near {
     /// Panics if the deposit amount string cannot be parsed.
     pub fn state_init(
         &self,
-        state_init: crate::types::DeterministicAccountStateInit,
+        state_init: StateInit,
         deposit: impl IntoNearToken,
     ) -> TransactionBuilder {
         // Derive once and pass directly to avoid TransactionBuilder::state_init()

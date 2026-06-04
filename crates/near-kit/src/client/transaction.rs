@@ -37,10 +37,10 @@ use tracing::Instrument;
 
 use crate::error::{Error, RpcError};
 use crate::types::{
-    AccountId, Action, BlockReference, CryptoHash, DelegateAction, DeterministicAccountStateInit,
-    FinalExecutionOutcome, Finality, Gas, GlobalContractIdentifier, GlobalContractRef, IntoGas,
-    IntoNearToken, NearToken, NonDelegateAction, PublicKey, PublishMode, SignedDelegateAction,
-    SignedTransaction, Transaction, TryIntoAccountId, WaitLevel,
+    AccountId, Action, BlockReference, CryptoHash, DelegateAction, FinalExecutionOutcome, Finality,
+    Gas, GlobalContractId, IntoGas, IntoGlobalContractId, IntoNearToken, NearToken,
+    NonDelegateAction, PublicKey, PublishMode, SignedDelegateAction, SignedTransaction, StateInit,
+    Transaction, TryIntoAccountId, UseGlobalContractAction, WaitLevel,
 };
 
 use super::nonce_manager::NonceManager;
@@ -583,7 +583,7 @@ impl TransactionBuilder {
 
     /// Deploy a contract from the global registry.
     ///
-    /// Accepts any [`GlobalContractRef`] (such as a [`CryptoHash`] or an account ID
+    /// Accepts any [`IntoGlobalContractId`] (such as a [`CryptoHash`] or an account ID
     /// string/[`AccountId`]) to reference a previously published contract.
     ///
     /// # Example
@@ -598,12 +598,12 @@ impl TransactionBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn deploy_from(mut self, contract_ref: impl GlobalContractRef) -> Self {
-        let identifier = contract_ref.into_identifier();
-        self.actions.push(match identifier {
-            GlobalContractIdentifier::CodeHash(hash) => Action::deploy_from_hash(hash),
-            GlobalContractIdentifier::AccountId(id) => Action::deploy_from_account(id),
-        });
+    pub fn deploy_from(mut self, contract_ref: impl IntoGlobalContractId) -> Self {
+        let identifier: GlobalContractId = contract_ref.into_identifier();
+        self.actions
+            .push(Action::UseGlobalContract(UseGlobalContractAction {
+                contract_identifier: identifier,
+            }));
         self
     }
 
@@ -617,7 +617,7 @@ impl TransactionBuilder {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
-    /// let si = DeterministicAccountStateInit::by_hash(code_hash, Default::default());
+    /// let si = StateInit::by_hash(code_hash, Default::default());
     /// let outcome = near.transaction("alice.testnet")
     ///     .state_init(si, NearToken::from_near(1))
     ///     .send()
@@ -629,11 +629,7 @@ impl TransactionBuilder {
     /// # Panics
     ///
     /// Panics if the deposit amount string cannot be parsed.
-    pub fn state_init(
-        mut self,
-        state_init: DeterministicAccountStateInit,
-        deposit: impl IntoNearToken,
-    ) -> Self {
+    pub fn state_init(mut self, state_init: StateInit, deposit: impl IntoNearToken) -> Self {
         let deposit = deposit
             .into_near_token()
             .expect("invalid deposit amount - use NearToken::from_str() for user input");
@@ -1404,14 +1400,14 @@ impl CallBuilder {
     }
 
     /// Deploy a contract from the global registry.
-    pub fn deploy_from(self, contract_ref: impl GlobalContractRef) -> TransactionBuilder {
+    pub fn deploy_from(self, contract_ref: impl IntoGlobalContractId) -> TransactionBuilder {
         self.finish().deploy_from(contract_ref)
     }
 
     /// Create a NEP-616 deterministic state init action.
     pub fn state_init(
         self,
-        state_init: DeterministicAccountStateInit,
+        state_init: StateInit,
         deposit: impl IntoNearToken,
     ) -> TransactionBuilder {
         self.finish().state_init(state_init, deposit)

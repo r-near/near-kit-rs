@@ -11,7 +11,7 @@ version = "0.10.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/r-near/near-kit-rs"
-rust-version = "1.86"
+rust-version = "1.88"
 
 # Shared dependencies - crates can use `workspace = true` to inherit these
 [workspace.dependencies]
@@ -19,6 +19,7 @@ rust-version = "1.86"
 near-account-id = { version = "2.6", features = ["serde", "borsh"] }
 near-token = { version = "0.3", features = ["serde", "borsh"] }
 near-gas = { version = "0.3", features = ["serde", "borsh"] }
+near-global-contracts = { version = "0.2", features = ["serde", "borsh"] }
 
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
@@ -36,7 +37,6 @@ base64 = "0.22"
 # Cryptography
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 sha2 = "0.11"
-sha3 = "0.12"
 rand = "0.8"
 bip39 = "2"
 hmac = "0.13"
