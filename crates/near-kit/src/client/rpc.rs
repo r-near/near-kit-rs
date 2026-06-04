@@ -10,8 +10,8 @@ use crate::error::RpcError;
 use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockReference, BlockView,
-    CryptoHash, EpochValidatorInfo, GasPrice, PublicKey, SignedTransaction, StatusResponse,
-    TxExecutionStatus, ViewFunctionResult,
+    CryptoHash, EpochValidatorInfo, GasPrice, PublicKey, ReceiptToTxResponse, SignedTransaction,
+    StatusResponse, TxExecutionStatus, ViewFunctionResult,
 };
 
 /// Network configuration presets.
@@ -663,6 +663,20 @@ impl RpcClient {
         Ok(response)
     }
 
+    /// Look up the transaction that produced a receipt.
+    ///
+    /// Uses `EXPERIMENTAL_receipt_to_tx`, available on nodes running
+    /// nearcore 2.12 or later. Returns [`RpcError::UnknownReceipt`] if the
+    /// node does not know the receipt.
+    #[tracing::instrument(skip(self), fields(%receipt_id))]
+    pub async fn receipt_to_tx(
+        &self,
+        receipt_id: &CryptoHash,
+    ) -> Result<ReceiptToTxResponse, RpcError> {
+        let params = serde_json::json!({ "receipt_id": receipt_id.to_string() });
+        self.call("EXPERIMENTAL_receipt_to_tx", params).await
+    }
+
     /// Merge block reference parameters into a JSON object.
     fn merge_block_reference(&self, params: &mut serde_json::Value, block: &BlockReference) {
         if let serde_json::Value::Object(block_params) = block.to_rpc_params() {
@@ -1223,6 +1237,67 @@ mod tests {
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::UnknownReceipt(_)));
+    }
+
+    // ========================================================================
+    // EXPERIMENTAL_receipt_to_tx tests
+    //
+    // There is no HTTP mock harness in this crate, so the success path is
+    // exercised by decoding a real-shape `result` envelope into the
+    // user-facing type (the same step `try_call` performs), and the error
+    // path is exercised through `parse_rpc_error` on the real error envelope.
+    // ========================================================================
+
+    #[test]
+    fn test_receipt_to_tx_decodes_success_body() {
+        // Real-shape success body nearcore returns for EXPERIMENTAL_receipt_to_tx.
+        let body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+                "sender_account_id": "alice.near"
+            }
+        }"#;
+        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
+        assert!(parsed.error.is_none(), "no error envelope expected");
+        let result = parsed.result.expect("result present");
+        let response: ReceiptToTxResponse =
+            serde_json::from_value(result).expect("decodes into ReceiptToTxResponse");
+        assert_eq!(
+            response.transaction_hash.to_string(),
+            "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+        );
+        assert_eq!(response.sender_account_id.as_str(), "alice.near");
+    }
+
+    #[test]
+    fn test_receipt_to_tx_maps_unknown_receipt() {
+        // Real-shape error body nearcore returns for an unknown receipt.
+        let body = r#"{
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {
+                "code": -32000,
+                "message": "Server error",
+                "cause": {
+                    "name": "UNKNOWN_RECEIPT",
+                    "info": {
+                        "receipt_id": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"
+                    }
+                },
+                "name": "HANDLER_ERROR"
+            }
+        }"#;
+        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
+        let error = parsed.error.expect("error envelope present");
+        let client = RpcClient::new("https://example.com");
+        let result = client.parse_rpc_error(&error);
+        assert!(
+            matches!(result, RpcError::UnknownReceipt(_)),
+            "expected UnknownReceipt, got {:?}",
+            result
+        );
     }
 
     #[test]

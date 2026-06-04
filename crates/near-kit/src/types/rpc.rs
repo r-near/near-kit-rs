@@ -579,6 +579,15 @@ pub struct SendTxResponse {
     pub sender_id: AccountId,
 }
 
+/// Response from `EXPERIMENTAL_receipt_to_tx`: the transaction that produced a receipt.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReceiptToTxResponse {
+    /// Hash of the transaction that produced the receipt.
+    pub transaction_hash: CryptoHash,
+    /// Account that signed the transaction.
+    pub sender_account_id: AccountId,
+}
+
 /// Raw RPC response for transaction submission/status (internal).
 ///
 /// Used internally to deserialize responses from `send_tx` and
@@ -2060,5 +2069,19 @@ mod tests {
     fn test_nonce_mode_monotonic() {
         let mode: NonceMode = serde_json::from_value(serde_json::json!("monotonic")).unwrap();
         assert_eq!(mode, NonceMode::Monotonic);
+    }
+
+    #[test]
+    fn test_receipt_to_tx_response() {
+        let json = serde_json::json!({
+            "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+            "sender_account_id": "alice.near"
+        });
+        let response: ReceiptToTxResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            response.transaction_hash.to_string(),
+            "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+        );
+        assert_eq!(response.sender_account_id.as_str(), "alice.near");
     }
 }
