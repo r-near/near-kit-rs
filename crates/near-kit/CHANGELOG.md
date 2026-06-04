@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.9.1...near-kit-v0.10.0) - 2026-06-04
+
+### Added
+
+- add EXPERIMENTAL_receipt_to_tx RPC method ([#207](https://github.com/r-near/near-kit-rs/pull/207))
+- add nonce_mode and validator_reward_paid_prev_epoch from nearcore 2.12 ([#206](https://github.com/r-near/near-kit-rs/pull/206))
+
+### Fixed
+
+- handle new nearcore 2.12 error variants and add forward-compat fallbacks ([#205](https://github.com/r-near/near-kit-rs/pull/205))
+
 ## [0.9.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.9.0...near-kit-v0.9.1) - 2026-05-26
 
 ### Fixed
