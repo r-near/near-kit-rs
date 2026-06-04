@@ -325,10 +325,10 @@ impl RpcError {
         details: Option<serde_json::Value>,
     ) -> Self {
         // Try to deserialize the structured error from the data field
-        if let Some(ref data) = details {
-            if let Some(invalid_tx) = Self::try_parse_invalid_tx(data) {
-                return RpcError::InvalidTx(invalid_tx);
-            }
+        if let Some(ref data) = details
+            && let Some(invalid_tx) = Self::try_parse_invalid_tx(data)
+        {
+            return RpcError::InvalidTx(invalid_tx);
         }
 
         RpcError::InvalidTransaction {
@@ -343,19 +343,18 @@ impl RpcError {
     /// `{"TxExecutionError": {"InvalidTxError": {"InvalidNonce": {...}}}}`
     fn try_parse_invalid_tx(data: &serde_json::Value) -> Option<crate::types::InvalidTxError> {
         // Nested form: data.TxExecutionError.InvalidTxError
-        if let Some(tx_err) = data.get("TxExecutionError") {
-            if let Some(invalid_tx_value) = tx_err.get("InvalidTxError") {
-                if let Ok(parsed) = serde_json::from_value(invalid_tx_value.clone()) {
-                    return Some(parsed);
-                }
-            }
+        if let Some(tx_err) = data.get("TxExecutionError")
+            && let Some(invalid_tx_value) = tx_err.get("InvalidTxError")
+            && let Ok(parsed) = serde_json::from_value(invalid_tx_value.clone())
+        {
+            return Some(parsed);
         }
 
         // Fallback: InvalidTxError at the top level (some RPC versions)
-        if let Some(invalid_tx_value) = data.get("InvalidTxError") {
-            if let Ok(parsed) = serde_json::from_value(invalid_tx_value.clone()) {
-                return Some(parsed);
-            }
+        if let Some(invalid_tx_value) = data.get("InvalidTxError")
+            && let Ok(parsed) = serde_json::from_value(invalid_tx_value.clone())
+        {
+            return Some(parsed);
         }
 
         None

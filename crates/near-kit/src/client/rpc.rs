@@ -201,10 +201,10 @@ impl RpcClient {
         &self,
         request: &JsonRpcRequest<'_, impl Serialize>,
     ) -> Result<R, RpcError> {
-        if tracing::enabled!(tracing::Level::TRACE) {
-            if let Ok(json) = serde_json::to_string(request) {
-                tracing::trace!(payload = %json, "RPC request");
-            }
+        if tracing::enabled!(tracing::Level::TRACE)
+            && let Ok(json) = serde_json::to_string(request)
+        {
+            tracing::trace!(payload = %json, "RPC request");
         }
 
         let response = self
@@ -225,15 +225,15 @@ impl RpcClient {
             // a well-formed JSON-RPC error body — try to decode that first so callers
             // get typed variants instead of an opaque Network error. Falls back to the
             // original Network error for non-JSON bodies (HTML error pages, etc.).
-            if let Ok(parsed) = serde_json::from_str::<JsonRpcResponse>(&body) {
-                if let Some(error) = parsed.error {
-                    let parsed_err = self.parse_rpc_error(&error);
-                    return Err(preserve_http_retry_classification(
-                        parsed_err,
-                        status.as_u16(),
-                        &body,
-                    ));
-                }
+            if let Ok(parsed) = serde_json::from_str::<JsonRpcResponse>(&body)
+                && let Some(error) = parsed.error
+            {
+                let parsed_err = self.parse_rpc_error(&error);
+                return Err(preserve_http_retry_classification(
+                    parsed_err,
+                    status.as_u16(),
+                    &body,
+                ));
             }
             let retryable = is_retryable_status(status.as_u16());
             return Err(RpcError::network(
@@ -257,19 +257,19 @@ impl RpcClient {
         // object (with an "error" field) instead of in the JSON-RPC error
         // envelope. Only check for this on the `query` method to avoid
         // misclassifying legitimate results from other methods.
-        if request.method == "query" {
-            if let Some(error_str) = result_value.get("error").and_then(|e| e.as_str()) {
-                let synthetic = JsonRpcError {
-                    // Use -32600 (Invalid Request) rather than -32000 (Server Error)
-                    // so deterministic failures don't get retried.
-                    code: -32600,
-                    message: error_str.to_string(),
-                    data: Some(serde_json::Value::String(error_str.to_string())),
-                    cause: None,
-                    name: None,
-                };
-                return Err(self.parse_rpc_error(&synthetic));
-            }
+        if request.method == "query"
+            && let Some(error_str) = result_value.get("error").and_then(|e| e.as_str())
+        {
+            let synthetic = JsonRpcError {
+                // Use -32600 (Invalid Request) rather than -32000 (Server Error)
+                // so deterministic failures don't get retried.
+                code: -32600,
+                message: error_str.to_string(),
+                data: Some(serde_json::Value::String(error_str.to_string())),
+                cause: None,
+                name: None,
+            };
+            return Err(self.parse_rpc_error(&synthetic));
         }
 
         serde_json::from_value(result_value).map_err(RpcError::Json)
@@ -288,10 +288,9 @@ impl RpcClient {
                     if let Some(account_id) = info
                         .and_then(|i| i.get("requested_account_id"))
                         .and_then(|a| a.as_str())
+                        && let Ok(account_id) = account_id.parse()
                     {
-                        if let Ok(account_id) = account_id.parse() {
-                            return RpcError::AccountNotFound(account_id);
-                        }
+                        return RpcError::AccountNotFound(account_id);
                     }
                 }
                 "INVALID_ACCOUNT" => {
@@ -374,18 +373,15 @@ impl RpcClient {
                 "CONTRACT_EXECUTION_ERROR" => {
                     // Check for CodeDoesNotExist inside vm_error
                     // (EXPERIMENTAL_call_function wraps this as CONTRACT_EXECUTION_ERROR)
-                    if let Some(vm_error) = info.and_then(|i| i.get("vm_error")) {
-                        if let Some(compilation_err) = vm_error.get("CompilationError") {
-                            if let Some(code_not_exist) = compilation_err.get("CodeDoesNotExist") {
-                                if let Some(account_id) = code_not_exist
-                                    .get("account_id")
-                                    .and_then(|a| a.as_str())
-                                    .and_then(|a| a.parse().ok())
-                                {
-                                    return RpcError::ContractNotDeployed(account_id);
-                                }
-                            }
-                        }
+                    if let Some(vm_error) = info.and_then(|i| i.get("vm_error"))
+                        && let Some(compilation_err) = vm_error.get("CompilationError")
+                        && let Some(code_not_exist) = compilation_err.get("CodeDoesNotExist")
+                        && let Some(account_id) = code_not_exist
+                            .get("account_id")
+                            .and_then(|a| a.as_str())
+                            .and_then(|a| a.parse().ok())
+                    {
+                        return RpcError::ContractNotDeployed(account_id);
                     }
 
                     // Legacy `query` includes contract_id/method_name;
@@ -454,19 +450,17 @@ impl RpcClient {
         }
 
         // Fallback: check for string error messages in data field
-        if let Some(data) = &error.data {
-            if let Some(error_str) = data.as_str() {
-                if error_str.contains("does not exist") {
-                    // Try to extract account ID from error message
-                    // Format: "account X does not exist while viewing"
-                    if let Some(start) = error_str.strip_prefix("account ") {
-                        if let Some(account_str) = start.split_whitespace().next() {
-                            if let Ok(account_id) = account_str.parse() {
-                                return RpcError::AccountNotFound(account_id);
-                            }
-                        }
-                    }
-                }
+        if let Some(data) = &error.data
+            && let Some(error_str) = data.as_str()
+            && error_str.contains("does not exist")
+        {
+            // Try to extract account ID from error message
+            // Format: "account X does not exist while viewing"
+            if let Some(start) = error_str.strip_prefix("account ")
+                && let Some(account_str) = start.split_whitespace().next()
+                && let Ok(account_id) = account_str.parse()
+            {
+                return RpcError::AccountNotFound(account_id);
             }
         }
 
@@ -679,10 +673,10 @@ impl RpcClient {
 
     /// Merge block reference parameters into a JSON object.
     fn merge_block_reference(&self, params: &mut serde_json::Value, block: &BlockReference) {
-        if let serde_json::Value::Object(block_params) = block.to_rpc_params() {
-            if let serde_json::Value::Object(map) = params {
-                map.extend(block_params);
-            }
+        if let serde_json::Value::Object(block_params) = block.to_rpc_params()
+            && let serde_json::Value::Object(map) = params
+        {
+            map.extend(block_params);
         }
     }
 
