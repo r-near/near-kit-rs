@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.10.0...near-kit-v0.11.0) - 2026-06-04
+
+### Added
+
+- [**breaking**] replace custom NEP-616 types with near-global-contracts 0.2 ([#209](https://github.com/r-near/near-kit-rs/pull/209))
+
 ## [0.10.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.9.1...near-kit-v0.10.0) - 2026-06-04
 
 ### Added
