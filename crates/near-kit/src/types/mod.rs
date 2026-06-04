@@ -75,7 +75,7 @@ pub use error::{
     ActionError, ActionErrorKind, ActionsValidationError, CompilationError,
     DepositCostFailureReason, FunctionCallError, HostError, InvalidAccessKeyError, InvalidTxError,
     MethodResolveError, PrepareError, ReceiptValidationError, StorageError, TxExecutionError,
-    WasmTrap,
+    UnknownError, WasmTrap,
 };
 pub use hash::CryptoHash;
 pub use key::{
@@ -90,7 +90,7 @@ pub use rpc::{
     ChunkHeaderView, CongestionInfoView, DataReceiptData, DataReceiverView, DelegateActionView,
     ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     FinalExecutionOutcome, FinalExecutionStatus, GasPrice, GasProfileEntry,
-    GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NodeVersion,
+    GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NodeVersion, NonceMode,
     RawTransactionResponse, Receipt, ReceiptContent, ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE,
     SendTxResponse, SlashedValidator, StatusResponse, SyncInfo, TransactionView, TrieSplit,
     ValidatorInfo, ValidatorStakeView, ValidatorStakeViewV1, ViewFunctionResult,

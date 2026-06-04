@@ -763,6 +763,16 @@ impl<'de> serde::Deserialize<'de> for ExecutionStatus {
     }
 }
 
+/// Controls how the transaction nonce is validated against the access key nonce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NonceMode {
+    /// Any nonce strictly greater than the current access key nonce (default behavior).
+    Monotonic,
+    /// Nonce must be exactly `ak_nonce + 1` (sequential ordering).
+    Strict,
+}
+
 /// Transaction view in outcome.
 #[derive(Debug, Clone, Deserialize)]
 pub struct TransactionView {
@@ -787,6 +797,9 @@ pub struct TransactionView {
     /// Nonce index (for gas key multi-nonce support).
     #[serde(default)]
     pub nonce_index: Option<u16>,
+    /// Nonce validation mode (`None` from nodes older than nearcore 2.12; means monotonic).
+    #[serde(default)]
+    pub nonce_mode: Option<NonceMode>,
 }
 
 // ============================================================================
@@ -2032,6 +2045,30 @@ mod tests {
         let tx: TransactionView = serde_json::from_value(json).unwrap();
         assert_eq!(tx.signer_id.as_str(), "alice.near");
         assert!(tx.signature.to_string().starts_with("ed25519:"));
+        // Fixture has no `nonce_mode` (older node); should deserialize to `None`.
+        assert_eq!(tx.nonce_mode, None);
+    }
+
+    #[test]
+    fn test_transaction_view_nonce_mode_strict() {
+        let json = serde_json::json!({
+            "signer_id": "alice.near",
+            "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+            "nonce": 1,
+            "receiver_id": "bob.near",
+            "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+            "actions": [{"Transfer": {"deposit": "1000000000000000000000000"}}],
+            "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
+            "nonce_mode": "strict"
+        });
+        let tx: TransactionView = serde_json::from_value(json).unwrap();
+        assert_eq!(tx.nonce_mode, Some(NonceMode::Strict));
+    }
+
+    #[test]
+    fn test_nonce_mode_monotonic() {
+        let mode: NonceMode = serde_json::from_value(serde_json::json!("monotonic")).unwrap();
+        assert_eq!(mode, NonceMode::Monotonic);
     }
 
     #[test]
