@@ -8,7 +8,7 @@
 [![Documentation](https://docs.rs/near-kit/badge.svg)](https://docs.rs/near-kit)
 [![CI](https://github.com/r-near/near-kit-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/r-near/near-kit-rs/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/r-near/near-kit-rs/graph/badge.svg)](https://codecov.io/gh/r-near/near-kit-rs)
-[![MSRV](https://img.shields.io/badge/MSRV-1.86-blue.svg)](https://github.com/r-near/near-kit-rs)
+[![MSRV](https://img.shields.io/badge/MSRV-1.88-blue.svg)](https://github.com/r-near/near-kit-rs)
 
 [API Docs](https://docs.rs/near-kit) · [Examples](crates/near-kit/examples/) · [Changelog](CHANGELOG.md)
 
