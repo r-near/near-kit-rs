@@ -1,5 +1,7 @@
 //! Additional RPC response types for validators, light client, and state changes.
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 use super::rpc::{AccessKeyDetails, ValidatorStakeView};
@@ -32,6 +34,10 @@ pub struct EpochValidatorInfo {
     pub epoch_start_height: u64,
     /// Epoch height.
     pub epoch_height: u64,
+    /// Per-validator rewards paid out at the start of the previous epoch
+    /// (rewards earned in epoch E-2). Empty on nodes older than nearcore 2.12.
+    #[serde(default)]
+    pub validator_reward_paid_prev_epoch: HashMap<AccountId, NearToken>,
 }
 
 /// Current epoch validator information.
@@ -573,5 +579,39 @@ mod tests {
             }
             _ => panic!("expected ContractCodeUpdate"),
         }
+    }
+
+    #[test]
+    fn test_epoch_validator_info_validator_reward_paid_prev_epoch() {
+        let json = serde_json::json!({
+            "current_validators": [],
+            "next_validators": [],
+            "epoch_start_height": 100,
+            "epoch_height": 10,
+            "validator_reward_paid_prev_epoch": {
+                "alice.near": "1000000000000000000000000"
+            }
+        });
+        let info: EpochValidatorInfo = serde_json::from_value(json).unwrap();
+        assert_eq!(info.validator_reward_paid_prev_epoch.len(), 1);
+        let alice: AccountId = "alice.near".parse().unwrap();
+        assert_eq!(
+            info.validator_reward_paid_prev_epoch.get(&alice),
+            Some(&NearToken::from_yoctonear(
+                1_000_000_000_000_000_000_000_000
+            ))
+        );
+    }
+
+    #[test]
+    fn test_epoch_validator_info_validator_reward_paid_prev_epoch_default_empty() {
+        let json = serde_json::json!({
+            "current_validators": [],
+            "next_validators": [],
+            "epoch_start_height": 100,
+            "epoch_height": 10
+        });
+        let info: EpochValidatorInfo = serde_json::from_value(json).unwrap();
+        assert!(info.validator_reward_paid_prev_epoch.is_empty());
     }
 }
