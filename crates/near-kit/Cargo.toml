@@ -62,7 +62,7 @@ near-kit-macros.workspace = true
 # Optional: Sandbox integration (via Docker/testcontainers)
 testcontainers = { workspace = true, optional = true, features = ["watchdog"] }
 libc = { version = "0.2", optional = true }
-serde_with = { version = "3.20", features = ["hex", "base64"] }
+serde_with = { version = "3.21", features = ["hex", "base64"] }
 
 [features]
 default = ["keyring"]
