@@ -1,5 +1,5 @@
-//! The `#[near_kit::contract]` macro must derive Debug + Clone on generated clients.
-use near_kit::contract;
+//! The `#[near_kit::contract]` macro must derive `Debug` + `Clone` on the generated marker and client types.
+use near_kit::*;
 
 #[contract]
 pub trait Counter {
