@@ -492,6 +492,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
     // Build the output
     let expanded = quote! {
         #(#trait_attrs)*
+        #[derive(Debug, Clone)]
         #vis struct #trait_name;
 
         impl #trait_name {
@@ -499,6 +500,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         }
 
         // Generated client struct for the simple (non-composed) case.
+        #[derive(Debug, Clone)]
         #vis struct #client_name {
             near: near_kit::Near,
             contract_id: near_kit::AccountId,
