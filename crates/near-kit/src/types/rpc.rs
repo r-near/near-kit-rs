@@ -712,7 +712,9 @@ impl FinalExecutionOutcome {
     /// or invalid base64) or if JSON deserialization fails.
     pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, crate::error::Error> {
         let bytes = self.result()?;
-        serde_json::from_slice(&bytes).map_err(crate::error::Error::from)
+        // Empty SuccessValue (void change method) -> treat as null.
+        let bytes: &[u8] = if bytes.is_empty() { b"null" } else { &bytes };
+        serde_json::from_slice(bytes).map_err(crate::error::Error::from)
     }
 }
 
@@ -1049,7 +1051,14 @@ impl ViewFunctionResult {
     /// let data: MyData = result.json()?;
     /// ```
     pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
-        serde_json::from_slice(&self.result)
+        // NEAR returns zero bytes for `()`-returning (void) methods; map empty -> null so
+        // `()` and `Option<T>` deserialize instead of failing with "EOF while parsing a value".
+        let bytes: &[u8] = if self.result.is_empty() {
+            b"null"
+        } else {
+            &self.result
+        };
+        serde_json::from_slice(bytes)
     }
 
     /// Deserialize the result as Borsh.
@@ -1393,6 +1402,32 @@ mod tests {
         let result = make_view_result(b"{\"count\":123}".to_vec());
         let value: serde_json::Value = result.json().unwrap();
         assert_eq!(value["count"], 123);
+    }
+
+    #[test]
+    fn test_view_function_result_json_empty_unit() {
+        // Void view methods return zero bytes; empty should decode as `()`.
+        let result = make_view_result(vec![]);
+        let value: () = result.json().unwrap();
+        assert_eq!(value, ());
+    }
+
+    #[test]
+    fn test_view_function_result_json_empty_option_is_none() {
+        // Empty bytes map to JSON null, so `Option<T>` decodes to `None`.
+        let result = make_view_result(vec![]);
+        let value: Option<u64> = result.json().unwrap();
+        assert_eq!(value, None);
+    }
+
+    #[test]
+    fn test_view_function_result_json_non_empty_option_is_some() {
+        // Non-empty payloads are unchanged: `42` decodes to both u64 and Some(42).
+        let result = make_view_result(b"42".to_vec());
+        let scalar: u64 = result.json().unwrap();
+        assert_eq!(scalar, 42);
+        let opt: Option<u64> = result.json().unwrap();
+        assert_eq!(opt, Some(42));
     }
 
     #[test]
