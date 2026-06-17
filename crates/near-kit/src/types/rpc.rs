@@ -1797,6 +1797,22 @@ mod tests {
     }
 
     #[test]
+    fn test_outcome_json_empty_unit() {
+        // Void change methods return an empty SuccessValue; empty should decode as `()`.
+        let outcome = make_success_outcome("");
+        let val: () = outcome.json().unwrap();
+        assert_eq!(val, ());
+    }
+
+    #[test]
+    fn test_outcome_json_empty_option_is_none() {
+        // Empty SuccessValue maps to JSON null, so `Option<T>` decodes to `None`.
+        let outcome = make_success_outcome("");
+        let val: Option<u64> = outcome.json().unwrap();
+        assert_eq!(val, None);
+    }
+
+    #[test]
     fn test_outcome_json_bad_data() {
         // "hello" is not valid JSON
         let outcome = make_success_outcome("aGVsbG8=");
