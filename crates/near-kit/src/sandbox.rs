@@ -219,13 +219,12 @@ static SHARED_SANDBOX: OnceCell<Sandbox> = OnceCell::const_new();
 /// the time `atexit` fires, so we spawn a new thread with fresh TLS.
 extern "C" fn cleanup_shared_sandbox() {
     let handle = std::thread::spawn(|| {
-        if let Some(sandbox) = SHARED_SANDBOX.get() {
-            if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+        if let Some(sandbox) = SHARED_SANDBOX.get()
+            && let Ok(rt) = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-            {
-                let _ = rt.block_on(sandbox.container.stop_with_timeout(Some(0)));
-            }
+        {
+            let _ = rt.block_on(sandbox.container.stop_with_timeout(Some(0)));
         }
     });
     let _ = handle.join();
