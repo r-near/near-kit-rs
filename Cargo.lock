@@ -1791,7 +1791,7 @@ dependencies = [
 
 [[package]]
 name = "near-kit"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "base64 0.22.1",
  "bip39",
@@ -1827,7 +1827,7 @@ dependencies = [
 
 [[package]]
 name = "near-kit-macros"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "near-kit",
  "proc-macro2",
