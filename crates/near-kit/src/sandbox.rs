@@ -217,11 +217,12 @@ static SHARED_SANDBOX: OnceCell<Sandbox> = OnceCell::const_new();
 ///
 /// We must NOT use tokio/async here: by the time `atexit` fires the main
 /// thread's TLS (including tokio's) is destroyed, and reusing the async Docker
-/// client panics with a TLS `AccessError` inside this non-unwinding
-/// `extern "C"` fn, which aborts the process. Shelling out to `docker rm`
-/// touches no Rust/tokio TLS and cannot unwind into C. Removal is best-effort
-/// and errors are ignored; the testcontainers watchdog still covers
-/// signal-based termination (Ctrl+C etc.).
+/// client panics with a TLS `AccessError`. Such a panic inside this
+/// non-unwinding `extern "C"` fn would abort the process, so we shell out to
+/// `docker rm` (which touches no Rust/tokio TLS) and wrap the body in
+/// `catch_unwind` as a belt-and-suspenders guard against any unwind crossing
+/// the C boundary. Removal is best-effort and errors are ignored; the
+/// testcontainers watchdog still covers signal-based termination (Ctrl+C etc.).
 extern "C" fn cleanup_shared_sandbox() {
     let _ = std::panic::catch_unwind(|| {
         if let Some(sandbox) = SHARED_SANDBOX.get() {
