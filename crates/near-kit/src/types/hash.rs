@@ -10,6 +10,26 @@ use sha2::{Digest, Sha256};
 use crate::error::ParseHashError;
 
 /// A 32-byte SHA-256 hash used for block hashes, transaction hashes, etc.
+///
+/// # near-sdk interop
+///
+/// near-sdk's `CryptoHash` is `pub type CryptoHash = [u8; 32]`, so converting
+/// in either direction is just `.into()`, zero-cost and with no near-sdk
+/// dependency:
+///
+/// ```rust,ignore
+/// let kit: near_kit::CryptoHash = sdk_hash.into(); // [u8; 32] -> CryptoHash
+/// let sdk: [u8; 32] = kit.into();                  // CryptoHash -> [u8; 32]
+/// ```
+///
+/// near-sdk's JSON-facing `Base58CryptoHash` is a separate newtype; convert it
+/// through `[u8; 32]` (it has `From<Base58CryptoHash> for [u8; 32]` and
+/// `From<[u8; 32]>` upstream):
+///
+/// ```rust,ignore
+/// let kit: near_kit::CryptoHash = <[u8; 32]>::from(base58_hash).into();
+/// let base58 = Base58CryptoHash::from(<[u8; 32]>::from(kit));
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, SerializeDisplay, DeserializeFromStr)]
 pub struct CryptoHash([u8; 32]);
 
@@ -91,6 +111,18 @@ impl From<[u8; 32]> for CryptoHash {
     }
 }
 
+impl From<CryptoHash> for [u8; 32] {
+    fn from(hash: CryptoHash) -> Self {
+        hash.0
+    }
+}
+
+impl From<&CryptoHash> for [u8; 32] {
+    fn from(hash: &CryptoHash) -> Self {
+        hash.0
+    }
+}
+
 impl AsRef<[u8]> for CryptoHash {
     fn as_ref(&self) -> &[u8] {
         &self.0
@@ -168,6 +200,30 @@ mod tests {
         let bytes = [1u8; 32];
         let hash: CryptoHash = bytes.into();
         assert_eq!(hash.as_bytes(), &bytes);
+    }
+
+    #[test]
+    fn test_into_32_byte_array() {
+        // near-sdk's CryptoHash is [u8; 32], so this is the reverse of From<[u8; 32]>.
+        let bytes = [7u8; 32];
+        let hash: CryptoHash = bytes.into();
+        let back: [u8; 32] = hash.into();
+        assert_eq!(back, bytes);
+    }
+
+    #[test]
+    fn test_ref_into_32_byte_array() {
+        let hash = CryptoHash::from_bytes([9u8; 32]);
+        let bytes: [u8; 32] = (&hash).into();
+        assert_eq!(&bytes, hash.as_bytes());
+    }
+
+    #[test]
+    fn test_hash_value_32_byte_roundtrip() {
+        let hash = CryptoHash::hash(b"near-sdk interop");
+        let bytes: [u8; 32] = hash.into();
+        let back: CryptoHash = bytes.into();
+        assert_eq!(hash, back);
     }
 
     #[test]
