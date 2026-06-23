@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.11.1...near-kit-v0.11.2) - 2026-06-23
+
+### Added
+
+- *(types)* add CryptoHash <-> [u8; 32] conversions for near-sdk interop ([#224](https://github.com/r-near/near-kit-rs/pull/224))
+
+### Fixed
+
+- *(sandbox)* remove async from atexit cleanup to avoid TLS panic on exit ([#222](https://github.com/r-near/near-kit-rs/pull/222))
+- *(sandbox)* update default image to 2.12.0 ([#221](https://github.com/r-near/near-kit-rs/pull/221))
+
 ## [0.11.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.11.0...near-kit-v0.11.1) - 2026-06-17
 
 ### Added
