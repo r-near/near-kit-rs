@@ -209,25 +209,31 @@ pub use crate::client::{SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_SECRET_KEY, SandboxNe
 /// Global shared sandbox instance.
 static SHARED_SANDBOX: OnceCell<Sandbox> = OnceCell::const_new();
 
-/// Stop the shared sandbox container on process exit.
+/// Remove the shared sandbox container on normal process exit.
 ///
 /// Statics are never dropped in Rust, so the watchdog (which handles signals)
 /// won't cover normal process exit. This `atexit` handler ensures the container
 /// is cleaned up on clean termination.
 ///
-/// Tokio's thread-local storage is already destroyed on the main thread by
-/// the time `atexit` fires, so we spawn a new thread with fresh TLS.
+/// We must NOT use tokio/async here: by the time `atexit` fires the main
+/// thread's TLS (including tokio's) is destroyed, and reusing the async Docker
+/// client panics with a TLS `AccessError` inside this non-unwinding
+/// `extern "C"` fn, which aborts the process. Shelling out to `docker rm`
+/// touches no Rust/tokio TLS and cannot unwind into C. Removal is best-effort
+/// and errors are ignored; the testcontainers watchdog still covers
+/// signal-based termination (Ctrl+C etc.).
 extern "C" fn cleanup_shared_sandbox() {
-    let handle = std::thread::spawn(|| {
-        if let Some(sandbox) = SHARED_SANDBOX.get()
-            && let Ok(rt) = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-        {
-            let _ = rt.block_on(sandbox.container.stop_with_timeout(Some(0)));
+    let _ = std::panic::catch_unwind(|| {
+        if let Some(sandbox) = SHARED_SANDBOX.get() {
+            // `OnceCell::get` on a `tokio::sync::OnceCell` is a non-async atomic
+            // check, so it is safe to call from an `atexit` handler.
+            let _ = std::process::Command::new("docker")
+                .args(["rm", "-f", "-v", &sandbox.container_id])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
         }
     });
-    let _ = handle.join();
 }
 
 /// Register atexit handler for shared sandbox cleanup.
@@ -252,12 +258,16 @@ fn register_shared_cleanup() {
 /// # Cleanup
 ///
 /// - **Fresh sandboxes**: cleaned up via testcontainers' `Drop` impl.
-/// - **Shared sandbox**: cleaned up via an `atexit` handler (normal exit) and
-///   the testcontainers `watchdog` (SIGINT/SIGTERM/SIGQUIT, e.g. Ctrl+C).
+/// - **Shared sandbox**: cleaned up via an `atexit` handler that synchronously
+///   shells out to `docker rm -f` by container id (normal exit; no tokio/async)
+///   and the testcontainers `watchdog` (SIGINT/SIGTERM/SIGQUIT, e.g. Ctrl+C).
 #[derive(Clone)]
 pub struct Sandbox {
     #[allow(dead_code)]
     container: Arc<ContainerAsync<NearSandbox>>,
+    /// Docker container id, captured at start so the `atexit` handler can remove
+    /// the shared container synchronously without touching the async client.
+    container_id: String,
     rpc_url: String,
     root_account: String,
     chain_id: Option<String>,
@@ -280,6 +290,7 @@ impl Sandbox {
             .start()
             .await
             .expect("Failed to start sandbox container");
+        let container_id = container.id().to_string();
 
         let host = container
             .get_host()
@@ -297,6 +308,7 @@ impl Sandbox {
 
         Self {
             container: Arc::new(container),
+            container_id,
             rpc_url,
             root_account,
             chain_id,
