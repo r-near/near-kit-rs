@@ -62,12 +62,14 @@ mod wait_level;
 pub use account::{AccountId, AccountIdExt, AccountIdRef, AccountType, TryIntoAccountId};
 pub use action::{
     AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction,
-    DELEGATE_ACTION_PREFIX, DecodeError as DelegateDecodeError, DelegateAction,
-    DeleteAccountAction, DeleteKeyAction, DeployContractAction, DeployGlobalContractAction,
-    DeterministicStateInitAction, FunctionCallAction, FunctionCallPermission, GasKeyInfo,
-    GlobalContractDeployMode, GlobalContractId, IntoGlobalContractId, NonDelegateAction,
-    PublishMode, SignedDelegateAction, StakeAction, StateInit, StateInitExt, StateInitV1,
-    TransferAction, TransferToGasKeyAction, UseGlobalContractAction, WithdrawFromGasKeyAction,
+    DELEGATE_ACTION_PREFIX, DELEGATE_V2_ACTION_PREFIX, DecodeError as DelegateDecodeError,
+    DelegateAction, DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
+    DeployGlobalContractAction, DeterministicStateInitAction, FunctionCallAction,
+    FunctionCallPermission, GasKeyInfo, GlobalContractDeployMode, GlobalContractId,
+    IntoGlobalContractId, NonDelegateAction, PublishMode, SignedDelegateAction, StakeAction,
+    StateInit, StateInitExt, StateInitV1, TransferAction, TransferToGasKeyAction,
+    UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
+    WithdrawFromGasKeyAction,
 };
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{
