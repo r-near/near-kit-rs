@@ -79,6 +79,7 @@ fn actions_summary(actions: &[Action]) -> String {
             Action::DeterministicStateInit(_) => out.push_str("deterministic_state_init"),
             Action::TransferToGasKey(_) => out.push_str("transfer_to_gas_key"),
             Action::WithdrawFromGasKey(_) => out.push_str("withdraw_from_gas_key"),
+            Action::DelegateV2(_) => out.push_str("delegate_v2"),
         }
     }
     out
@@ -464,9 +465,9 @@ impl TransactionBuilder {
             ));
         }
 
-        // Verify no nested delegates
+        // Verify no nested delegates (of any version)
         for action in &self.actions {
-            if matches!(action, Action::Delegate(_)) {
+            if action.is_delegate() {
                 return Err(Error::InvalidTransaction(
                     "Delegate actions cannot contain nested signed delegate actions".to_string(),
                 ));

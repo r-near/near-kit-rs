@@ -3,10 +3,13 @@
 use std::collections::BTreeMap;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use borsh::de::EnumExt as _;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature, TryIntoAccountId};
+use super::{
+    AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature, TransactionNonce, TryIntoAccountId,
+};
 
 /// NEP-616 deterministic account types, re-exported from the
 /// [`near-global-contracts`](https://crates.io/crates/near-global-contracts) crate.
@@ -89,13 +92,22 @@ impl IntoGlobalContractId for &String {
     }
 }
 
-/// NEP-461 prefix for delegate actions (meta-transactions).
+/// NEP-461 domain prefix for V1 delegate actions (meta-transactions, NEP-366).
 /// Value: 2^30 + 366 = 1073742190
 ///
-/// This prefix is prepended to DelegateAction when serializing for signing,
-/// ensuring delegate action signatures are always distinguishable from
-/// regular transaction signatures.
+/// This prefix is prepended to a `DelegateAction` when serializing for signing,
+/// ensuring delegate action signatures are always distinguishable from regular
+/// transaction signatures.
 pub const DELEGATE_ACTION_PREFIX: u32 = 1_073_742_190;
+
+/// NEP-461 domain prefix for V2 delegate actions (gas-key meta-transactions,
+/// NEP-611). Value: 2^30 + 611 = 1073742435
+///
+/// This is a **distinct** signing domain from [`DELEGATE_ACTION_PREFIX`]: a V1
+/// delegate signature is not valid for a V2 action and vice versa. The prefix is
+/// prepended to a borsh-encoded [`VersionedDelegateActionPayload`] (not a bare
+/// `DelegateActionV2`) when serializing for signing.
+pub const DELEGATE_V2_ACTION_PREFIX: u32 = 1_073_742_435;
 
 /// Gas key information.
 ///
@@ -196,7 +208,7 @@ impl AccessKey {
 /// 0 = CreateAccount, 1 = DeployContract, 2 = FunctionCall, 3 = Transfer,
 /// 4 = Stake, 5 = AddKey, 6 = DeleteKey, 7 = DeleteAccount, 8 = Delegate,
 /// 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit,
-/// 12 = TransferToGasKey, 13 = WithdrawFromGasKey
+/// 12 = TransferToGasKey, 13 = WithdrawFromGasKey, 14 = DelegateV2
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Action {
     /// Create a new account. (discriminant = 0)
@@ -227,6 +239,17 @@ pub enum Action {
     TransferToGasKey(TransferToGasKeyAction),
     /// Withdraw NEAR from a gas key. (discriminant = 13)
     WithdrawFromGasKey(WithdrawFromGasKeyAction),
+    /// Gas-key-capable delegate action (meta-transactions, NEP-611). (discriminant = 14)
+    DelegateV2(Box<VersionedSignedDelegateAction>),
+}
+
+impl Action {
+    /// Whether this action is a delegate action of any version (`Delegate` or
+    /// `DelegateV2`). Delegate actions must never be nested, so
+    /// [`NonDelegateAction`] rejects every variant for which this is `true`.
+    pub fn is_delegate(&self) -> bool {
+        matches!(self, Action::Delegate(_) | Action::DelegateV2(_))
+    }
 }
 
 /// Create a new account.
@@ -435,16 +458,178 @@ pub struct SignedDelegateAction {
     pub signature: super::Signature,
 }
 
-/// Non-delegate action (for use within DelegateAction).
+// ============================================================================
+// DelegateV2 (gas-key meta-transactions, NEP-611)
+// ============================================================================
+
+/// Delegate action with gas-key support (NEP-611).
 ///
-/// This is a newtype wrapper around Action that ensures the wrapped action
-/// is not a Delegate variant, since delegate actions cannot contain nested
-/// delegate actions.
-///
-/// The newtype wrapper serializes identically to the inner Action, preserving
-/// Borsh compatibility with near-primitives.
+/// Like the NEP-366 [`DelegateAction`] but its `nonce` is a [`TransactionNonce`]
+/// (so it can select one of a gas key's parallel nonces), mirroring
+/// [`TransactionV1`](crate::TransactionV1). Carried inside
+/// [`VersionedDelegateActionPayload`] and signed under the V2 domain tag.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct DelegateActionV2 {
+    /// Sender of the delegated actions.
+    pub sender_id: AccountId,
+    /// Receiver of the delegated actions.
+    pub receiver_id: AccountId,
+    /// Actions to delegate.
+    pub actions: Vec<NonDelegateAction>,
+    /// Nonce of the signing key. For a gas key it also selects which parallel
+    /// nonce is advanced.
+    pub nonce: TransactionNonce,
+    /// Maximum block height below which this action is valid.
+    pub max_block_height: u64,
+    /// Public key used to sign this delegated action.
+    pub public_key: PublicKey,
+}
+
+/// Versioned payload carried by [`Action::DelegateV2`].
+///
+/// New delegate versions add a variant here rather than a new `Action` variant.
+/// The version tag is part of the signed payload, so a signature can never be
+/// ambiguous across versions.
+///
+/// Borsh discriminant is significant and must match nearcore: `V2 = 0`.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub enum VersionedDelegateActionPayload {
+    /// The V2 (gas-key) delegate action. (discriminant = 0)
+    V2(DelegateActionV2),
+}
+
+impl VersionedDelegateActionPayload {
+    /// The public key authorizing the delegate action.
+    pub fn public_key(&self) -> &PublicKey {
+        match self {
+            Self::V2(d) => &d.public_key,
+        }
+    }
+
+    /// The inner actions as plain [`Action`]s.
+    pub fn get_actions(&self) -> Vec<Action> {
+        match self {
+            Self::V2(d) => d.actions.iter().map(|a| a.clone().into()).collect(),
+        }
+    }
+
+    /// Serialize this payload for signing under the V2 NEP-461 domain.
+    ///
+    /// Layout: `DELEGATE_V2_ACTION_PREFIX (u32 LE) ++ borsh(self)`. Because the
+    /// prefix differs from [`DELEGATE_ACTION_PREFIX`] and the payload is the
+    /// *versioned* enum (so it begins with the `0x00` V2 tag), a V1 delegate
+    /// signature is never valid for a V2 action.
+    pub fn serialize_for_signing(&self) -> Vec<u8> {
+        let prefix_bytes = DELEGATE_V2_ACTION_PREFIX.to_le_bytes();
+        let payload_bytes =
+            borsh::to_vec(self).expect("delegate action serialization should never fail");
+
+        let mut result = Vec::with_capacity(prefix_bytes.len() + payload_bytes.len());
+        result.extend_from_slice(&prefix_bytes);
+        result.extend_from_slice(&payload_bytes);
+        result
+    }
+
+    /// The NEP-461 hash signed over for this payload (the V2 signing domain).
+    pub fn get_hash(&self) -> CryptoHash {
+        CryptoHash::hash(&self.serialize_for_signing())
+    }
+
+    /// Sign this payload, producing a [`VersionedSignedDelegateAction`].
+    pub fn sign(self, signature: Signature) -> VersionedSignedDelegateAction {
+        VersionedSignedDelegateAction {
+            delegate_action: self,
+            signature,
+        }
+    }
+}
+
+impl From<DelegateActionV2> for VersionedDelegateActionPayload {
+    fn from(d: DelegateActionV2) -> Self {
+        Self::V2(d)
+    }
+}
+
+/// A signed [`VersionedDelegateActionPayload`], carried by [`Action::DelegateV2`].
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct VersionedSignedDelegateAction {
+    /// The versioned delegate action payload.
+    pub delegate_action: VersionedDelegateActionPayload,
+    /// Signature over [`VersionedDelegateActionPayload::get_hash`].
+    pub signature: Signature,
+}
+
+impl VersionedSignedDelegateAction {
+    /// Verify the signature against the payload's public key under the V2 domain.
+    pub fn verify(&self) -> bool {
+        let hash = self.delegate_action.get_hash();
+        self.signature
+            .verify(hash.as_bytes(), self.delegate_action.public_key())
+    }
+
+    /// Encode to bytes for transport.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        borsh::to_vec(self).expect("signed delegate action serialization should never fail")
+    }
+
+    /// Encode to base64 for transport.
+    pub fn to_base64(&self) -> String {
+        STANDARD.encode(self.to_bytes())
+    }
+
+    /// Decode from bytes.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, borsh::io::Error> {
+        borsh::from_slice(bytes)
+    }
+
+    /// Decode from base64.
+    pub fn from_base64(s: &str) -> Result<Self, DecodeError> {
+        let bytes = STANDARD.decode(s).map_err(DecodeError::Base64)?;
+        Self::from_bytes(&bytes).map_err(DecodeError::Borsh)
+    }
+}
+
+impl From<VersionedSignedDelegateAction> for Action {
+    fn from(action: VersionedSignedDelegateAction) -> Self {
+        Self::DelegateV2(Box::new(action))
+    }
+}
+
+/// Borsh discriminants of the delegate action variants. A `NonDelegateAction`
+/// must reject exactly these so a delegate action can never be nested. Must stay
+/// in sync with [`Action::is_delegate`]; cross-checked in
+/// `test_non_delegate_rejects_all_delegate_variants`.
+const DELEGATE_VARIANT_DISCRIMINANTS: [u8; 2] = [8, 14];
+
+/// Non-delegate action (for use within a delegate action).
+///
+/// This is a newtype wrapper around [`Action`] that ensures the wrapped action
+/// is not a delegate variant (`Delegate` or `DelegateV2`), since delegate
+/// actions cannot contain nested delegate actions.
+///
+/// The newtype serializes identically to the inner [`Action`], preserving borsh
+/// compatibility with nearcore. Borsh **deserialization** is hand-rolled (rather
+/// than derived) so that nested delegate variants are rejected on the wire, not
+/// just through the typed constructors — matching nearcore's `NonDelegateAction`.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize)]
 pub struct NonDelegateAction(Action);
+
+impl BorshDeserialize for NonDelegateAction {
+    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        // Read the Action enum discriminant, reject the delegate variants, then
+        // deserialize the rest of the variant in place. Using `EnumExt` (rather
+        // than re-prepending the byte to a chained reader) keeps this allocation-
+        // free and mirrors nearcore's NonDelegateAction.
+        let discriminant = u8::deserialize_reader(reader)?;
+        if DELEGATE_VARIANT_DISCRIMINANTS.contains(&discriminant) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "a delegate action must not contain a nested delegate action",
+            ));
+        }
+        Action::deserialize_variant(reader, discriminant).map(Self)
+    }
+}
 
 // Helper constructors for actions
 impl Action {
@@ -517,6 +702,12 @@ impl Action {
     /// Create a Delegate action from a signed delegate action.
     pub fn delegate(signed_delegate: SignedDelegateAction) -> Self {
         Self::Delegate(Box::new(signed_delegate))
+    }
+
+    /// Create a DelegateV2 action from a versioned signed delegate action
+    /// (gas-key meta-transactions, NEP-611).
+    pub fn delegate_v2(signed_delegate: VersionedSignedDelegateAction) -> Self {
+        Self::DelegateV2(Box::new(signed_delegate))
     }
 
     /// Publish a contract to the global registry.
@@ -684,9 +875,10 @@ pub enum DecodeError {
 }
 
 impl NonDelegateAction {
-    /// Convert from an Action, returning None if it's a Delegate action.
+    /// Convert from an [`Action`], returning `None` if it is a delegate action
+    /// of any version (`Delegate` or `DelegateV2`).
     pub fn from_action(action: Action) -> Option<Self> {
-        if matches!(action, Action::Delegate(_)) {
+        if action.is_delegate() {
             None
         } else {
             Some(Self(action))
@@ -1289,5 +1481,214 @@ mod tests {
         let json = serde_json::to_string(&action).unwrap();
         let decoded: DeterministicStateInitAction = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, action);
+    }
+
+    // ========================================================================
+    // DelegateV2 tests
+    // ========================================================================
+
+    fn sample_delegate_v2(public_key: PublicKey) -> DelegateActionV2 {
+        DelegateActionV2 {
+            sender_id: "alice.testnet".parse().unwrap(),
+            receiver_id: "bob.testnet".parse().unwrap(),
+            actions: vec![
+                NonDelegateAction::from_action(Action::Transfer(TransferAction {
+                    deposit: NearToken::from_near(1),
+                }))
+                .unwrap(),
+            ],
+            nonce: TransactionNonce::from_nonce_and_index(7, 3),
+            max_block_height: 1000,
+            public_key,
+        }
+    }
+
+    /// The V2 domain prefix must be NEP-611 (2^30 + 611) and distinct from V1.
+    #[test]
+    fn test_delegate_v2_prefix() {
+        assert_eq!(DELEGATE_V2_ACTION_PREFIX, 1073742435);
+        assert_eq!(DELEGATE_V2_ACTION_PREFIX, (1 << 30) + 611);
+        assert_ne!(DELEGATE_V2_ACTION_PREFIX, DELEGATE_ACTION_PREFIX);
+    }
+
+    /// `Action::DelegateV2` must have borsh discriminant 14, and round-trip.
+    #[test]
+    fn test_delegate_v2_action_discriminant_and_roundtrip() {
+        let secret = SecretKey::generate_ed25519();
+        let payload: VersionedDelegateActionPayload =
+            sample_delegate_v2(secret.public_key()).into();
+        let sig = secret.sign(payload.get_hash().as_bytes());
+        let action = Action::delegate_v2(payload.sign(sig));
+
+        let bytes = borsh::to_vec(&action).unwrap();
+        assert_eq!(bytes[0], 14, "DelegateV2 must have discriminant 14");
+
+        let decoded: Action = borsh::from_slice(&bytes).unwrap();
+        assert_eq!(decoded, action);
+    }
+
+    /// `VersionedDelegateActionPayload::V2` must have borsh discriminant 0, and
+    /// the signing bytes must be `prefix_le ++ [0x00] ++ borsh(DelegateActionV2)`.
+    #[test]
+    fn test_versioned_payload_discriminant_and_signing_layout() {
+        let pk: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+            .parse()
+            .unwrap();
+        let v2 = sample_delegate_v2(pk);
+        let payload: VersionedDelegateActionPayload = v2.clone().into();
+
+        let payload_bytes = borsh::to_vec(&payload).unwrap();
+        assert_eq!(
+            payload_bytes[0], 0,
+            "VersionedDelegateActionPayload::V2 must be discriminant 0"
+        );
+
+        let signing = payload.serialize_for_signing();
+        assert_eq!(
+            u32::from_le_bytes(signing[0..4].try_into().unwrap()),
+            DELEGATE_V2_ACTION_PREFIX
+        );
+        assert_eq!(&signing[4..], payload_bytes.as_slice());
+    }
+
+    /// Sign + verify happy path for a V2 delegate action.
+    #[test]
+    fn test_delegate_v2_sign_verify() {
+        let secret = SecretKey::generate_ed25519();
+        let payload: VersionedDelegateActionPayload =
+            sample_delegate_v2(secret.public_key()).into();
+        let sig = secret.sign(payload.get_hash().as_bytes());
+        let signed = payload.sign(sig);
+        assert!(signed.verify());
+
+        // Round-trips through bytes and base64.
+        let back = VersionedSignedDelegateAction::from_bytes(&signed.to_bytes()).unwrap();
+        assert_eq!(back, signed);
+        let back64 = VersionedSignedDelegateAction::from_base64(&signed.to_base64()).unwrap();
+        assert_eq!(back64, signed);
+    }
+
+    /// A signature bound to one gas-key nonce index must not verify for another:
+    /// the nonce is part of the signed payload.
+    #[test]
+    fn test_delegate_v2_nonce_index_bound_into_signature() {
+        let secret = SecretKey::generate_ed25519();
+        let v2 = sample_delegate_v2(secret.public_key()); // nonce_index 3
+        let payload: VersionedDelegateActionPayload = v2.clone().into();
+        let signed = payload
+            .clone()
+            .sign(secret.sign(payload.get_hash().as_bytes()));
+
+        let mut tampered_v2 = v2;
+        tampered_v2.nonce = TransactionNonce::from_nonce_and_index(7, 4); // different index
+        let forged = VersionedSignedDelegateAction {
+            delegate_action: tampered_v2.into(),
+            signature: signed.signature.clone(),
+        };
+        assert!(
+            !forged.verify(),
+            "signature must not verify for a different nonce index"
+        );
+    }
+
+    /// The V1 and V2 signing domains are disjoint: a signature produced under the
+    /// V1 (NEP-366) prefix must NOT verify a V2 action, and vice versa.
+    #[test]
+    fn test_v1_and_v2_signing_domains_disjoint() {
+        let secret = SecretKey::generate_ed25519();
+        let pk = secret.public_key();
+        let v2 = sample_delegate_v2(pk.clone());
+        let payload: VersionedDelegateActionPayload = v2.into();
+
+        // Forge a signature over the *V1* prefix + the V2 payload bytes.
+        let mut v1_domain_bytes = DELEGATE_ACTION_PREFIX.to_le_bytes().to_vec();
+        v1_domain_bytes.extend_from_slice(&borsh::to_vec(&payload).unwrap());
+        let v1_sig = secret.sign(CryptoHash::hash(&v1_domain_bytes).as_bytes());
+
+        let forged = VersionedSignedDelegateAction {
+            delegate_action: payload.clone(),
+            signature: v1_sig,
+        };
+        assert!(
+            !forged.verify(),
+            "a V1-domain signature must not verify a V2 action"
+        );
+
+        // And the correct V2 signature obviously does verify.
+        let v2_sig = secret.sign(payload.get_hash().as_bytes());
+        let valid = VersionedSignedDelegateAction {
+            delegate_action: payload,
+            signature: v2_sig,
+        };
+        assert!(valid.verify());
+    }
+
+    /// `Action::is_delegate` must be true for both delegate variants and false
+    /// for everything else. Kept in sync with `DELEGATE_VARIANT_DISCRIMINANTS`.
+    #[test]
+    fn test_is_delegate() {
+        let secret = SecretKey::generate_ed25519();
+        let v1 = Action::delegate(
+            create_test_delegate_action()
+                .sign(secret.sign(create_test_delegate_action().get_hash().as_bytes())),
+        );
+        let payload: VersionedDelegateActionPayload =
+            sample_delegate_v2(secret.public_key()).into();
+        let v2 = Action::delegate_v2(
+            payload
+                .clone()
+                .sign(secret.sign(payload.get_hash().as_bytes())),
+        );
+
+        assert!(v1.is_delegate());
+        assert!(v2.is_delegate());
+        assert!(!Action::transfer(NearToken::from_near(1)).is_delegate());
+
+        // Cross-check the borsh discriminants match DELEGATE_VARIANT_DISCRIMINANTS.
+        assert_eq!(
+            borsh::to_vec(&v1).unwrap()[0],
+            DELEGATE_VARIANT_DISCRIMINANTS[0]
+        );
+        assert_eq!(
+            borsh::to_vec(&v2).unwrap()[0],
+            DELEGATE_VARIANT_DISCRIMINANTS[1]
+        );
+    }
+
+    /// `NonDelegateAction` must reject BOTH delegate variants, via the typed
+    /// constructor AND on the wire (borsh), matching nearcore.
+    #[test]
+    fn test_non_delegate_rejects_all_delegate_variants() {
+        let secret = SecretKey::generate_ed25519();
+
+        let v1_signed = create_test_delegate_action()
+            .sign(secret.sign(create_test_delegate_action().get_hash().as_bytes()));
+        let v1 = Action::delegate(v1_signed);
+
+        let payload: VersionedDelegateActionPayload =
+            sample_delegate_v2(secret.public_key()).into();
+        let v2 = Action::delegate_v2(
+            payload
+                .clone()
+                .sign(secret.sign(payload.get_hash().as_bytes())),
+        );
+
+        for action in [v1, v2] {
+            // Typed path rejects.
+            assert!(NonDelegateAction::from_action(action.clone()).is_none());
+            assert!(NonDelegateAction::try_from(action.clone()).is_err());
+
+            // Borsh path rejects (the bytes of a delegate action embedded where a
+            // NonDelegateAction is expected).
+            let bytes = borsh::to_vec(&action).unwrap();
+            let err = NonDelegateAction::try_from_slice(&bytes).unwrap_err();
+            assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        }
+
+        // A non-delegate action is accepted on both paths.
+        let transfer = Action::transfer(NearToken::from_near(1));
+        assert!(NonDelegateAction::from_action(transfer.clone()).is_some());
+        let bytes = borsh::to_vec(&transfer).unwrap();
+        assert!(NonDelegateAction::try_from_slice(&bytes).is_ok());
     }
 }

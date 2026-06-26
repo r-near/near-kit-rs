@@ -62,12 +62,14 @@ mod wait_level;
 pub use account::{AccountId, AccountIdExt, AccountIdRef, AccountType, TryIntoAccountId};
 pub use action::{
     AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction,
-    DELEGATE_ACTION_PREFIX, DecodeError as DelegateDecodeError, DelegateAction,
-    DeleteAccountAction, DeleteKeyAction, DeployContractAction, DeployGlobalContractAction,
-    DeterministicStateInitAction, FunctionCallAction, FunctionCallPermission, GasKeyInfo,
-    GlobalContractDeployMode, GlobalContractId, IntoGlobalContractId, NonDelegateAction,
-    PublishMode, SignedDelegateAction, StakeAction, StateInit, StateInitExt, StateInitV1,
-    TransferAction, TransferToGasKeyAction, UseGlobalContractAction, WithdrawFromGasKeyAction,
+    DELEGATE_ACTION_PREFIX, DELEGATE_V2_ACTION_PREFIX, DecodeError as DelegateDecodeError,
+    DelegateAction, DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
+    DeployGlobalContractAction, DeterministicStateInitAction, FunctionCallAction,
+    FunctionCallPermission, GasKeyInfo, GlobalContractDeployMode, GlobalContractId,
+    IntoGlobalContractId, NonDelegateAction, PublishMode, SignedDelegateAction, StakeAction,
+    StateInit, StateInitExt, StateInitV1, TransferAction, TransferToGasKeyAction,
+    UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
+    WithdrawFromGasKeyAction,
 };
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{
@@ -86,13 +88,14 @@ pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountView, ActionReceiptData, ActionView, BandwidthRequest,
     BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1, BlockHeaderView, BlockView,
-    ChunkHeaderView, CongestionInfoView, DataReceiptData, DataReceiverView, DelegateActionView,
-    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
-    FinalExecutionOutcome, FinalExecutionStatus, GasPrice, GasProfileEntry,
+    ChunkHeaderView, CongestionInfoView, DataReceiptData, DataReceiverView, DelegateActionV2View,
+    DelegateActionView, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId,
+    ExecutionStatus, FinalExecutionOutcome, FinalExecutionStatus, GasPrice, GasProfileEntry,
     GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NodeVersion, NonceMode,
     RawTransactionResponse, Receipt, ReceiptContent, ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE,
-    SendTxResponse, SlashedValidator, StatusResponse, SyncInfo, TransactionView, TrieSplit,
-    ValidatorInfo, ValidatorStakeView, ValidatorStakeViewV1, ViewFunctionResult,
+    SendTxResponse, SlashedValidator, StatusResponse, SyncInfo, TransactionNonceView,
+    TransactionView, TrieSplit, ValidatorInfo, ValidatorStakeView, ValidatorStakeViewV1,
+    VersionedDelegateActionPayloadView, ViewFunctionResult,
 };
 pub use rpc_extra::{
     BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,

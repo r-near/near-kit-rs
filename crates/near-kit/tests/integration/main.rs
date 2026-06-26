@@ -9,6 +9,7 @@
 mod basic_integration;
 mod debug_rpc_responses;
 mod delegate_action_integration;
+mod delegate_v2_integration;
 mod error_consolidation_integration;
 mod error_handling_integration;
 mod gas_key_transaction_integration;

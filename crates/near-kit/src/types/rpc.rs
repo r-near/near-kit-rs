@@ -878,6 +878,57 @@ pub struct DelegateActionView {
     pub public_key: PublicKey,
 }
 
+/// Nonce as it appears in a `DelegateV2` action view.
+///
+/// Externally tagged to match the node's JSON for nearcore's `TransactionNonce`:
+/// `{"Nonce": {"nonce": N}}` for an ordinary key, or
+/// `{"GasKeyNonce": {"nonce": N, "nonce_index": I}}` for a gas key.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub enum TransactionNonceView {
+    /// Ordinary access-key nonce.
+    Nonce {
+        /// The nonce value.
+        nonce: u64,
+    },
+    /// Gas-key nonce selecting one of the key's parallel nonces.
+    GasKeyNonce {
+        /// The nonce value for the selected parallel nonce.
+        nonce: u64,
+        /// Which parallel nonce this advances.
+        nonce_index: u16,
+    },
+}
+
+/// View of a `DelegateActionV2` (gas-key meta-transaction) in RPC responses.
+///
+/// Mirrors nearcore's `DelegateActionV2`: like [`DelegateActionView`] but its
+/// `nonce` is a gas-key-capable [`TransactionNonceView`].
+#[derive(Debug, Clone, Deserialize)]
+pub struct DelegateActionV2View {
+    /// The account that signed the delegate action.
+    pub sender_id: AccountId,
+    /// The intended receiver of the inner actions.
+    pub receiver_id: AccountId,
+    /// The actions to execute.
+    pub actions: Vec<ActionView>,
+    /// Nonce for replay protection (gas-key capable).
+    pub nonce: TransactionNonceView,
+    /// Maximum block height before this delegate action expires.
+    pub max_block_height: u64,
+    /// Public key of the signer.
+    pub public_key: PublicKey,
+}
+
+/// Versioned delegate-action payload as it appears in a `DelegateV2` view.
+///
+/// Externally tagged to match the node's JSON for nearcore's
+/// `VersionedDelegateActionPayload`: `{"V2": { ...DelegateActionV2View... }}`.
+#[derive(Debug, Clone, Deserialize)]
+pub enum VersionedDelegateActionPayloadView {
+    /// The V2 (gas-key) delegate action.
+    V2(DelegateActionV2View),
+}
+
 /// Action view in transaction.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -911,6 +962,10 @@ pub enum ActionView {
     },
     Delegate {
         delegate_action: DelegateActionView,
+        signature: Signature,
+    },
+    DelegateV2 {
+        delegate_action: VersionedDelegateActionPayloadView,
         signature: Signature,
     },
     #[serde(rename = "DeployGlobalContract")]
@@ -1588,6 +1643,79 @@ mod tests {
         });
         let action: ActionView = serde_json::from_value(json).unwrap();
         assert!(matches!(action, ActionView::WithdrawFromGasKey { .. }));
+    }
+
+    #[test]
+    fn test_delegate_v2_action_view_deserialization() {
+        // Matches the node's JSON for Action::DelegateV2: an externally-tagged
+        // `{"V2": ..}` payload whose nonce is an externally-tagged gas-key nonce.
+        let json = serde_json::json!({
+            "DelegateV2": {
+                "delegate_action": {
+                    "V2": {
+                        "sender_id": "alice.near",
+                        "receiver_id": "contract.near",
+                        "actions": [
+                            { "Transfer": { "deposit": "1000000000000000000000000" } }
+                        ],
+                        "nonce": { "GasKeyNonce": { "nonce": 42, "nonce_index": 3 } },
+                        "max_block_height": 100000,
+                        "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                    }
+                },
+                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5"
+            }
+        });
+        let action: ActionView = serde_json::from_value(json).unwrap();
+        match action {
+            ActionView::DelegateV2 {
+                delegate_action: VersionedDelegateActionPayloadView::V2(d),
+                signature,
+            } => {
+                assert_eq!(d.sender_id.as_str(), "alice.near");
+                assert_eq!(d.receiver_id.as_str(), "contract.near");
+                assert_eq!(d.max_block_height, 100000);
+                assert_eq!(d.actions.len(), 1);
+                assert_eq!(
+                    d.nonce,
+                    TransactionNonceView::GasKeyNonce {
+                        nonce: 42,
+                        nonce_index: 3
+                    }
+                );
+                assert!(signature.to_string().starts_with("ed25519:"));
+            }
+            other => panic!("Expected DelegateV2 action, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_delegate_v2_action_view_plain_nonce() {
+        // The V2 view must also accept an ordinary (non-gas-key) nonce.
+        let json = serde_json::json!({
+            "DelegateV2": {
+                "delegate_action": {
+                    "V2": {
+                        "sender_id": "alice.near",
+                        "receiver_id": "contract.near",
+                        "actions": [],
+                        "nonce": { "Nonce": { "nonce": 7 } },
+                        "max_block_height": 1,
+                        "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                    }
+                },
+                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5"
+            }
+        });
+        let action: ActionView = serde_json::from_value(json).unwrap();
+        let ActionView::DelegateV2 {
+            delegate_action: VersionedDelegateActionPayloadView::V2(d),
+            ..
+        } = action
+        else {
+            panic!("Expected DelegateV2 action");
+        };
+        assert_eq!(d.nonce, TransactionNonceView::Nonce { nonce: 7 });
     }
 
     // ========================================================================
