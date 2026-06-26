@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ml-dsa-65-hash:` view handle so `view_access_key_list` parses without panicking.
   `SecretKey` accepts both the 32-byte seed and the 4032-byte expanded
   private key that NEAR tooling exports under the `ml-dsa-65:` prefix.
+- *(rpc)* `view_state` RPC method with pagination (`after_key_base64` / `limit`
+  / `last_key`): `RpcClient::view_state` for a single page and
+  `RpcClient::view_state_all` to read a contract's full state across pages.
+  Adds `StateItem` / `ViewStateResult` types.
 
 ### Changed
 
