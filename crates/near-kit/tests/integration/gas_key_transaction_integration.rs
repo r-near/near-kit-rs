@@ -173,27 +173,37 @@ async fn test_gas_key_signed_transaction() {
         "gas-key transaction must serialize as a tagged V1"
     );
 
-    // Submit via the generic send_tx RPC (V1-aware path).
+    // Submit via the generic send_tx RPC (V1-aware path) and deserialize into
+    // the same typed `RawTransactionResponse` the high-level client uses, so we
+    // assert on the real `FinalExecutionOutcome` rather than poking at raw JSON.
     let send_params = serde_json::json!({
         "signed_tx_base64": signed.to_base64(),
         "wait_until": "FINAL",
     });
-    let resp: serde_json::Value = root_near
+    let resp: RawTransactionResponse = root_near
         .rpc()
         .call("send_tx", send_params)
         .await
         .expect("send gas-key signed transaction");
 
-    // The transaction must have executed successfully (no failure status).
-    let status = &resp["final_execution_status"];
+    // The transaction must have actually executed and succeeded.
+    let outcome = resp
+        .outcome
+        .expect("send_tx at wait_until=FINAL must return an execution outcome");
     assert!(
-        resp.get("status").is_some() || status.is_string() || status.is_object(),
-        "unexpected send_tx response: {resp}"
+        outcome.is_success(),
+        "gas-key transaction did not succeed on-chain: status={:?}, failure={:?}",
+        outcome.status,
+        outcome.failure_message(),
     );
-    assert!(
-        resp["status"].get("Failure").is_none(),
-        "gas-key transaction failed on-chain: {resp}"
-    );
+    // Every receipt outcome must also be a success (no failed sub-receipt).
+    for r in &outcome.receipts_outcome {
+        assert!(
+            !matches!(r.outcome.status, ExecutionStatus::Failure(_)),
+            "a gas-key transaction receipt failed: {:?}",
+            r.outcome.status,
+        );
+    }
 
     // --- 5. Assert effects: recipient credited, gas-key nonce advanced. -----
     let recipient_after = root_near
