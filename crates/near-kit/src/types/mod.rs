@@ -89,16 +89,16 @@ pub use network::ChainId;
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountContractView, AccountView, ActionReceiptData, ActionView,
-    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
+    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1, BlockEffects,
     BlockHeaderView, BlockView, ChunkHeaderView, CongestionInfoView, DataReceiptData,
     DataReceiverView, DelegateActionV2View, DelegateActionView, ExecutionMetadata,
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
-    FinalExecutionStatus, GasPrice, GasProfileEntry, GlobalContractIdentifierView, MerkleDirection,
-    MerklePathItem, NodeVersion, NonceMode, RawTransactionResponse, Receipt, ReceiptContent,
-    ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator, StateItem,
-    StatusResponse, SyncInfo, TransactionNonceView, TransactionView, TrieSplit, ValidatorInfo,
-    ValidatorStakeView, ValidatorStakeViewV1, VersionedDelegateActionPayloadView,
-    ViewFunctionResult, ViewStateResult,
+    FinalExecutionStatus, GasPrice, GasProfileEntry, GlobalContractIdentifierView, MaintenanceWindow,
+    MerkleDirection, MerklePathItem, NodeVersion, NonceMode, RawTransactionResponse, Receipt,
+    ReceiptContent, ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator,
+    StateChangeKindView, StateItem, StatusResponse, SyncInfo, TransactionNonceView, TransactionView,
+    TrieSplit, ValidatorInfo, ValidatorStakeView, ValidatorStakeViewV1,
+    VersionedDelegateActionPayloadView, ViewFunctionResult, ViewStateResult,
 };
 pub use rpc_extra::{
     BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,

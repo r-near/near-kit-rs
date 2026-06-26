@@ -8,6 +8,7 @@ use serde_with::{base64::Base64, serde_as};
 
 use super::block_reference::TxExecutionStatus;
 use super::error::{ActionError, TxExecutionError};
+use super::rpc_extra::StateChangeWithCauseView;
 use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature};
 
 // ============================================================================
@@ -244,6 +245,31 @@ pub struct ViewStateResult {
     #[serde_as(as = "Option<Base64>")]
     #[serde(default)]
     pub last_key: Option<Vec<u8>>,
+}
+
+// ============================================================================
+// Stabilized RPC method responses (protocol 2.13)
+// ============================================================================
+
+/// All state changes within a single block, from the `block_effects` RPC
+/// (stabilized name for `EXPERIMENTAL_changes_in_block`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct BlockEffects {
+    /// Hash of the block these changes belong to.
+    pub block_hash: CryptoHash,
+    /// The state changes applied in this block.
+    pub changes: Vec<StateChangeWithCauseView>,
+}
+
+/// A single maintenance window — a half-open block-height range
+/// `[start, end)` during which a validator has no chunk/block production
+/// duties. Returned by the `maintenance_windows` RPC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct MaintenanceWindow {
+    /// First block height of the window (inclusive).
+    pub start: u64,
+    /// Block height the window ends at (exclusive).
+    pub end: u64,
 }
 
 // ============================================================================

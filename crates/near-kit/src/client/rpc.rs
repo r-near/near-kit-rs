@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::error::RpcError;
 use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
-    AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockReference, BlockView,
-    CryptoHash, EpochValidatorInfo, GasPrice, PublicKey, ReceiptToTxResponse, SignedTransaction,
-    StateItem, StatusResponse, TxExecutionStatus, ViewFunctionResult, ViewStateResult,
+    AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockEffects, BlockReference,
+    BlockView, CryptoHash, EpochValidatorInfo, GasPrice, MaintenanceWindow, PublicKey,
+    ReceiptToTxResponse, SignedTransaction, StateItem, StatusResponse, TxExecutionStatus,
+    ViewFunctionResult, ViewStateResult,
 };
 
 /// Network configuration presets.
@@ -668,6 +669,40 @@ impl RpcClient {
     pub async fn block(&self, block: BlockReference) -> Result<BlockView, RpcError> {
         let params = block.to_rpc_params();
         self.call("block", params).await
+    }
+
+    /// Get all state changes that occurred in a block.
+    ///
+    /// Uses the stabilized `block_effects` method (protocol 2.13), the new name
+    /// for `EXPERIMENTAL_changes_in_block`.
+    #[tracing::instrument(skip(self, block))]
+    pub async fn block_effects(&self, block: BlockReference) -> Result<BlockEffects, RpcError> {
+        let params = block.to_rpc_params();
+        self.call("block_effects", params).await
+    }
+
+    /// Get the network's genesis configuration as raw JSON.
+    ///
+    /// Uses the stabilized `genesis_config` method (protocol 2.13), the new name
+    /// for `EXPERIMENTAL_genesis_config`. The genesis config is a large,
+    /// network-specific document, so it is returned as untyped JSON.
+    #[tracing::instrument(skip(self))]
+    pub async fn genesis_config(&self) -> Result<serde_json::Value, RpcError> {
+        self.call("genesis_config", serde_json::json!(null)).await
+    }
+
+    /// Get the upcoming maintenance windows for a validator account.
+    ///
+    /// Each window is a half-open block-height range during which the validator
+    /// has no block/chunk production duties. Uses the stabilized
+    /// `maintenance_windows` method (protocol 2.13).
+    #[tracing::instrument(skip(self), fields(%account_id))]
+    pub async fn maintenance_windows(
+        &self,
+        account_id: &AccountId,
+    ) -> Result<Vec<MaintenanceWindow>, RpcError> {
+        let params = serde_json::json!({ "account_id": account_id.to_string() });
+        self.call("maintenance_windows", params).await
     }
 
     /// Get node status.
