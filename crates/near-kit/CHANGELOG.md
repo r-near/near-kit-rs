@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(sandbox)* bump default image to `2.13.0-rc.2` (protocol v85 / nearcore 2.13)
 
+### Fixed
+
+- *(sandbox)* `set_balance` now polls until the patched balance is observable
+  instead of relying on a fixed delay, fixing a flaky read-after-write race
+  exposed under load on the 2.13 node
+
 ## [0.11.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.11.1...near-kit-v0.11.2) - 2026-06-23
 
 ### Added

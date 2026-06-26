@@ -384,7 +384,22 @@ impl Sandbox {
         near.rpc()
             .sandbox_patch_state(records)
             .await
-            .map_err(|e| crate::Error::Rpc(Box::new(e)))
+            .map_err(|e| crate::Error::Rpc(Box::new(e)))?;
+
+        // `sandbox_patch_state` applies asynchronously and is racy (see the note
+        // in `RpcClient::sandbox_patch_state`). Rather than trust a fixed delay,
+        // poll until the new balance is observable so callers can read it back
+        // immediately. Bounded so a genuinely failed patch still returns.
+        for _ in 0..50 {
+            if let Ok(account) = near.account(&account_id).await
+                && account.amount == balance
+            {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        Ok(())
     }
 
     /// Fast-forward the sandbox by `delta_height` blocks.
