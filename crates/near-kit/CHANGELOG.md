@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `VersionedDelegateActionPayloadView`, `DelegateActionV2View`,
   `TransactionNonceView`) so node-returned `DelegateV2` actions parse.
 
+### Changed
+
+- *(sandbox)* bump default image to `2.13.0-rc.2` (protocol v85 / nearcore 2.13)
+
 ## [0.11.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.11.1...near-kit-v0.11.2) - 2026-06-23
 
 ### Added
