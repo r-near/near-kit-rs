@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `VersionedDelegateActionPayload`, `VersionedSignedDelegateAction`, and the
   distinct V2 NEP-461 signing domain (a V1 delegate signature is not valid for a
   V2 action). `NonDelegateAction` now rejects both delegate variants on the wire.
+  Adds the matching RPC views (`ActionView::DelegateV2`,
+  `VersionedDelegateActionPayloadView`, `DelegateActionV2View`,
+  `TransactionNonceView`) so node-returned `DelegateV2` actions parse.
 
 ## [0.11.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.11.1...near-kit-v0.11.2) - 2026-06-23
 

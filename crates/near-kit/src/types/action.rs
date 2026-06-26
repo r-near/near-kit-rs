@@ -1,9 +1,9 @@
 //! Transaction action types.
 
 use std::collections::BTreeMap;
-use std::io::Read as _;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use borsh::de::EnumExt as _;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -616,6 +616,10 @@ pub struct NonDelegateAction(Action);
 
 impl BorshDeserialize for NonDelegateAction {
     fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        // Read the Action enum discriminant, reject the delegate variants, then
+        // deserialize the rest of the variant in place. Using `EnumExt` (rather
+        // than re-prepending the byte to a chained reader) keeps this allocation-
+        // free and mirrors nearcore's NonDelegateAction.
         let discriminant = u8::deserialize_reader(reader)?;
         if DELEGATE_VARIANT_DISCRIMINANTS.contains(&discriminant) {
             return Err(std::io::Error::new(
@@ -623,13 +627,7 @@ impl BorshDeserialize for NonDelegateAction {
                 "a delegate action must not contain a nested delegate action",
             ));
         }
-        // Re-prepend the discriminant byte and deserialize the full Action.
-        // Erase the reader type (`&mut dyn Read`) so chaining doesn't recurse at
-        // the type level through `Action::deserialize_reader`'s generic param.
-        let prefix = [discriminant];
-        let mut chained = prefix.chain(reader);
-        let mut reader: &mut dyn std::io::Read = &mut chained;
-        Ok(Self(Action::deserialize_reader(&mut reader)?))
+        Action::deserialize_variant(reader, discriminant).map(Self)
     }
 }
 
