@@ -7,12 +7,27 @@ use bip39::Mnemonic;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
 use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
+use ml_dsa::signature::{Keypair as _, Signer as _, Verifier as _};
+use ml_dsa::{B32, EncodedSignature, EncodedVerifyingKey, MlDsa65};
 use rand::rngs::OsRng;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use sha2::Digest;
 
 use super::hd::{derive_ed25519_slip10, parse_hd_path};
 use crate::error::{ParseKeyError, SignerError};
+
+/// ML-DSA-65 public key length in bytes (FIPS 204).
+pub const ML_DSA_65_PUBLIC_KEY_LENGTH: usize = 1952;
+/// ML-DSA-65 seed length in bytes — the canonical secret-key serialization.
+pub const ML_DSA_65_SEED_LENGTH: usize = 32;
+/// ML-DSA-65 signature length in bytes (FIPS 204).
+pub const ML_DSA_65_SIGNATURE_LENGTH: usize = 3309;
+/// Length of the on-trie ML-DSA-65 access-key identifier (a SHA3-256 digest).
+pub const ML_DSA_65_HASH_LENGTH: usize = 32;
+
+/// Domain-separation tag nearcore prepends before hashing an ML-DSA-65 public
+/// key into its on-trie handle (`core/crypto/src/hash_domain.rs`).
+const ML_DSA_65_PUBKEY_HASH_DOMAIN: &[u8] = b"near:ml-dsa-65-pubkey-hash:v1";
 
 /// Key type identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -22,6 +37,8 @@ pub enum KeyType {
     Ed25519 = 0,
     /// Secp256k1 key (for Ethereum compatibility).
     Secp256k1 = 1,
+    /// ML-DSA-65 post-quantum key (FIPS 204), introduced in protocol v85.
+    MlDsa65 = 2,
 }
 
 impl KeyType {
@@ -30,6 +47,7 @@ impl KeyType {
         match self {
             KeyType::Ed25519 => "ed25519",
             KeyType::Secp256k1 => "secp256k1",
+            KeyType::MlDsa65 => "ml-dsa-65",
         }
     }
 
@@ -38,6 +56,7 @@ impl KeyType {
         match self {
             KeyType::Ed25519 => 32,
             KeyType::Secp256k1 => 64, // Uncompressed, no prefix — matches nearcore
+            KeyType::MlDsa65 => ML_DSA_65_PUBLIC_KEY_LENGTH,
         }
     }
 
@@ -46,6 +65,7 @@ impl KeyType {
         match self {
             KeyType::Ed25519 => 64,
             KeyType::Secp256k1 => 65,
+            KeyType::MlDsa65 => ML_DSA_65_SIGNATURE_LENGTH,
         }
     }
 }
@@ -57,16 +77,29 @@ impl TryFrom<u8> for KeyType {
         match value {
             0 => Ok(KeyType::Ed25519),
             1 => Ok(KeyType::Secp256k1),
+            2 => Ok(KeyType::MlDsa65),
             _ => Err(ParseKeyError::UnknownKeyType(value.to_string())),
         }
     }
 }
 
-/// Ed25519 or Secp256k1 public key.
+/// A NEAR public key.
 ///
 /// Stored as fixed-size arrays matching nearcore's representation:
 /// - Ed25519: 32-byte compressed point
 /// - Secp256k1: 64-byte uncompressed point (x, y coordinates, no `0x04` prefix)
+/// - ML-DSA-65: 1952-byte FIPS-204 public key (boxed to keep the enum small)
+///
+/// # ML-DSA-65 handles
+///
+/// A full ML-DSA-65 public key (`ml-dsa-65:`) appears on the wire — in
+/// transactions and `AddKey` actions. On-chain, however, an ML-DSA-65 access
+/// key is stored only as a 32-byte SHA3-256 digest, and view RPCs
+/// (`view_access_key_list`) return it as `ml-dsa-65-hash:<base58>`. The full
+/// 1952-byte key is *not* recoverable from that digest, so it is parsed into a
+/// distinct [`PublicKey::MlDsa65Hash`] variant. A handle round-trips for
+/// display and equality but **cannot** sign, verify, or be borsh-serialized
+/// into an action (there is no full key to put on the wire).
 #[derive(Clone, PartialEq, Eq, Hash, SerializeDisplay, DeserializeFromStr)]
 pub enum PublicKey {
     /// Ed25519 public key (32 bytes).
@@ -76,6 +109,13 @@ pub enum PublicKey {
     /// This matches nearcore's representation: raw x,y coordinates
     /// without the `0x04` uncompressed point prefix.
     Secp256k1([u8; 64]),
+    /// ML-DSA-65 public key (1952 bytes, FIPS 204). Boxed to keep the enum
+    /// from bloating every `PublicKey` to ~2 KiB.
+    MlDsa65(Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>),
+    /// On-trie handle for an ML-DSA-65 access key: the 32-byte SHA3-256 digest
+    /// returned by view RPCs as `ml-dsa-65-hash:`. Not a usable public key —
+    /// it cannot sign, verify, or be serialized into an action.
+    MlDsa65Hash([u8; ML_DSA_65_HASH_LENGTH]),
 }
 
 impl PublicKey {
@@ -154,19 +194,30 @@ impl PublicKey {
         Self::Secp256k1(result)
     }
 
+    /// Create an ML-DSA-65 public key from raw 1952 bytes.
+    pub fn ml_dsa65_from_bytes(bytes: Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>) -> Self {
+        Self::MlDsa65(bytes)
+    }
+
     /// Get the key type.
     pub fn key_type(&self) -> KeyType {
         match self {
             Self::Ed25519(_) => KeyType::Ed25519,
             Self::Secp256k1(_) => KeyType::Secp256k1,
+            // A hash handle still identifies an ML-DSA-65 key.
+            Self::MlDsa65(_) | Self::MlDsa65Hash(_) => KeyType::MlDsa65,
         }
     }
 
     /// Get the raw key bytes as a slice.
+    ///
+    /// For [`PublicKey::MlDsa65Hash`] this is the 32-byte digest, not a key.
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             Self::Ed25519(bytes) => bytes.as_slice(),
             Self::Secp256k1(bytes) => bytes.as_slice(),
+            Self::MlDsa65(bytes) => bytes.as_slice(),
+            Self::MlDsa65Hash(bytes) => bytes.as_slice(),
         }
     }
 
@@ -186,17 +237,70 @@ impl PublicKey {
             _ => None,
         }
     }
+
+    /// Get the 1952-byte ML-DSA-65 public key, if this is a full ML-DSA-65 key.
+    ///
+    /// Returns `None` for a [`PublicKey::MlDsa65Hash`] handle.
+    pub fn as_ml_dsa65_bytes(&self) -> Option<&[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]> {
+        match self {
+            Self::MlDsa65(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
+
+    /// Whether this is an ML-DSA-65 *hash handle* (from a view response) rather
+    /// than a full public key. Handles cannot sign, verify, or be serialized
+    /// into an action.
+    pub fn is_ml_dsa65_hash(&self) -> bool {
+        matches!(self, Self::MlDsa65Hash(_))
+    }
+
+    /// Compute the on-trie handle (`ml-dsa-65-hash:`) for a full ML-DSA-65 key:
+    /// the SHA3-256 of (domain tag || raw pubkey bytes). For a handle this just
+    /// returns the handle itself; for ed25519/secp256k1 keys it returns `None`.
+    pub fn to_ml_dsa65_hash(&self) -> Option<PublicKey> {
+        match self {
+            Self::MlDsa65(bytes) => {
+                use sha3::{Digest as _, Sha3_256};
+                let mut hasher = Sha3_256::new();
+                hasher.update(ML_DSA_65_PUBKEY_HASH_DOMAIN);
+                hasher.update(bytes.as_slice());
+                let mut out = [0u8; ML_DSA_65_HASH_LENGTH];
+                out.copy_from_slice(&hasher.finalize());
+                Some(Self::MlDsa65Hash(out))
+            }
+            Self::MlDsa65Hash(_) => Some(self.clone()),
+            _ => None,
+        }
+    }
 }
 
 impl FromStr for PublicKey {
     type Err = ParseKeyError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (key_type, data_str) = s.split_once(':').ok_or(ParseKeyError::InvalidFormat)?;
+        let (prefix, data_str) = s.split_once(':').ok_or(ParseKeyError::InvalidFormat)?;
 
-        let key_type = match key_type {
+        // The `ml-dsa-65-hash:` view handle is a distinct prefix, handled
+        // before the normal `KeyType` prefixes.
+        if prefix == "ml-dsa-65-hash" {
+            let data = bs58::decode(data_str)
+                .into_vec()
+                .map_err(|e| ParseKeyError::InvalidBase58(e.to_string()))?;
+            let bytes: [u8; ML_DSA_65_HASH_LENGTH] =
+                data.as_slice()
+                    .try_into()
+                    .map_err(|_| ParseKeyError::InvalidLength {
+                        expected: ML_DSA_65_HASH_LENGTH,
+                        actual: data.len(),
+                    })?;
+            return Ok(Self::MlDsa65Hash(bytes));
+        }
+
+        let key_type = match prefix {
             "ed25519" => KeyType::Ed25519,
             "secp256k1" => KeyType::Secp256k1,
+            "ml-dsa-65" => KeyType::MlDsa65,
             other => return Err(ParseKeyError::UnknownKeyType(other.to_string())),
         };
 
@@ -237,6 +341,13 @@ impl FromStr for PublicKey {
                     .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
                 Ok(Self::Secp256k1(bytes))
             }
+            KeyType::MlDsa65 => {
+                let bytes: Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]> = data
+                    .into_boxed_slice()
+                    .try_into()
+                    .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
+                Ok(Self::MlDsa65(bytes))
+            }
         }
     }
 }
@@ -251,10 +362,15 @@ impl TryFrom<&str> for PublicKey {
 
 impl Display for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // A hash handle prints with its own `ml-dsa-65-hash:` prefix.
+        let prefix = match self {
+            Self::MlDsa65Hash(_) => "ml-dsa-65-hash",
+            _ => self.key_type().as_str(),
+        };
         write!(
             f,
             "{}:{}",
-            self.key_type().as_str(),
+            prefix,
             bs58::encode(self.as_bytes()).into_string()
         )
     }
@@ -268,6 +384,15 @@ impl Debug for PublicKey {
 
 impl BorshSerialize for PublicKey {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        // A hash handle has no full key, so it has no wire representation as a
+        // `PublicKey` (it only ever appears in view JSON). Refuse to encode it
+        // rather than emit a malformed `[2][32]` action pubkey.
+        if matches!(self, Self::MlDsa65Hash(_)) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "cannot borsh-serialize an ml-dsa-65-hash handle as a PublicKey",
+            ));
+        }
         borsh::BorshSerialize::serialize(&(self.key_type() as u8), writer)?;
         writer.write_all(self.as_bytes())?;
         Ok(())
@@ -314,6 +439,14 @@ impl BorshDeserialize for PublicKey {
                 }
                 Ok(Self::Secp256k1(bytes))
             }
+            KeyType::MlDsa65 => {
+                // The wire form of an ML-DSA-65 `PublicKey` is always the full
+                // 1952-byte key (`[2][1952]`); the 32-byte handle never appears
+                // in borsh, only in view JSON.
+                let mut bytes = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
+                reader.read_exact(bytes.as_mut_slice())?;
+                Ok(Self::MlDsa65(bytes))
+            }
         }
     }
 }
@@ -325,13 +458,19 @@ pub const DEFAULT_HD_PATH: &str = "m/44'/397'/0'";
 /// Default number of words in generated seed phrases.
 pub const DEFAULT_WORD_COUNT: usize = 12;
 
-/// Ed25519 or Secp256k1 secret key.
+/// A NEAR secret key.
+///
+/// ML-DSA-65 keys are stored as their canonical 32-byte FIPS-204 seed (ξ),
+/// matching nearcore's seed-based key derivation. The 4032-byte expanded
+/// private key is recomputed on demand for signing.
 #[derive(Clone, SerializeDisplay, DeserializeFromStr)]
 pub enum SecretKey {
     /// Ed25519 secret key (32-byte seed).
     Ed25519([u8; 32]),
     /// Secp256k1 secret key (32-byte scalar).
     Secp256k1([u8; 32]),
+    /// ML-DSA-65 secret key, stored as the 32-byte FIPS-204 seed.
+    MlDsa65(Box<[u8; ML_DSA_65_SEED_LENGTH]>),
 }
 
 impl SecretKey {
@@ -363,20 +502,43 @@ impl SecretKey {
         Ok(Self::Secp256k1(bytes))
     }
 
+    /// Generate a new random ML-DSA-65 key pair (FIPS 204).
+    pub fn generate_ml_dsa65() -> Self {
+        use rand::RngCore;
+        let mut seed = Box::new([0u8; ML_DSA_65_SEED_LENGTH]);
+        OsRng.fill_bytes(seed.as_mut_slice());
+        Self::MlDsa65(seed)
+    }
+
+    /// Create an ML-DSA-65 secret key from a 32-byte FIPS-204 seed.
+    pub fn ml_dsa65_from_seed(seed: [u8; ML_DSA_65_SEED_LENGTH]) -> Self {
+        Self::MlDsa65(Box::new(seed))
+    }
+
     /// Get the key type.
     pub fn key_type(&self) -> KeyType {
         match self {
             Self::Ed25519(_) => KeyType::Ed25519,
             Self::Secp256k1(_) => KeyType::Secp256k1,
+            Self::MlDsa65(_) => KeyType::MlDsa65,
         }
     }
 
     /// Get the raw key bytes as a slice.
+    ///
+    /// For ML-DSA-65 this is the 32-byte seed.
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             Self::Ed25519(bytes) => bytes.as_slice(),
             Self::Secp256k1(bytes) => bytes.as_slice(),
+            Self::MlDsa65(seed) => seed.as_slice(),
         }
+    }
+
+    /// Reconstruct the FIPS-204 ML-DSA-65 signing key from this secret's seed.
+    fn ml_dsa65_signing_key(seed: &[u8; ML_DSA_65_SEED_LENGTH]) -> ml_dsa::SigningKey<MlDsa65> {
+        let xi = B32::try_from(seed.as_slice()).expect("32-byte seed");
+        ml_dsa::SigningKey::<MlDsa65>::from_seed(&xi)
     }
 
     /// Derive the public key.
@@ -399,6 +561,13 @@ impl SecretKey {
                 let mut result = [0u8; 64];
                 result.copy_from_slice(&uncompressed_bytes[1..]);
                 PublicKey::Secp256k1(result)
+            }
+            Self::MlDsa65(seed) => {
+                let signing_key = Self::ml_dsa65_signing_key(seed);
+                let encoded: EncodedVerifyingKey<MlDsa65> = signing_key.verifying_key().encode();
+                let mut bytes = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
+                bytes.copy_from_slice(encoded.as_slice());
+                PublicKey::MlDsa65(bytes)
             }
         }
     }
@@ -427,6 +596,17 @@ impl SecretKey {
                 sig_bytes[64] = recovery_id.to_byte();
 
                 Signature::Secp256k1(sig_bytes)
+            }
+            Self::MlDsa65(seed) => {
+                // FIPS-204 ML-DSA.Sign with empty context. The `ml-dsa` crate's
+                // `Signer` is the deterministic variant; nearcore verifies with a
+                // FIPS-204 verifier, which accepts any conformant signature.
+                let signing_key = Self::ml_dsa65_signing_key(seed);
+                let sig: ml_dsa::Signature<MlDsa65> = signing_key.sign(message);
+                let encoded: EncodedSignature<MlDsa65> = sig.encode();
+                let mut bytes = Box::new([0u8; ML_DSA_65_SIGNATURE_LENGTH]);
+                bytes.copy_from_slice(encoded.as_slice());
+                Signature::MlDsa65(bytes)
             }
         }
     }
@@ -598,6 +778,7 @@ impl FromStr for SecretKey {
         let key_type = match key_type {
             "ed25519" => KeyType::Ed25519,
             "secp256k1" => KeyType::Secp256k1,
+            "ml-dsa-65" => KeyType::MlDsa65,
             other => return Err(ParseKeyError::UnknownKeyType(other.to_string())),
         };
 
@@ -605,11 +786,27 @@ impl FromStr for SecretKey {
             .into_vec()
             .map_err(|e| ParseKeyError::InvalidBase58(e.to_string()))?;
 
+        // ML-DSA-65 uses the 32-byte FIPS-204 seed as its canonical secret key.
+        // (nearcore's `ml-dsa-65:` strings instead carry the 4032-byte expanded
+        // key, which is not interchangeable — a seed cannot be recovered from
+        // it. near-kit always round-trips the seed form.)
+        if key_type == KeyType::MlDsa65 {
+            let seed: [u8; ML_DSA_65_SEED_LENGTH] =
+                data.as_slice()
+                    .try_into()
+                    .map_err(|_| ParseKeyError::InvalidLength {
+                        expected: ML_DSA_65_SEED_LENGTH,
+                        actual: data.len(),
+                    })?;
+            return Ok(Self::MlDsa65(Box::new(seed)));
+        }
+
         // For ed25519, the secret key might be 32 bytes (seed) or 64 bytes (expanded)
         // For secp256k1, it must be 32 bytes
         let valid_len = match key_type {
             KeyType::Ed25519 => data.len() == 32 || data.len() == 64,
             KeyType::Secp256k1 => data.len() == 32,
+            KeyType::MlDsa65 => unreachable!("handled above"),
         };
         if !valid_len {
             return Err(ParseKeyError::InvalidLength {
@@ -631,6 +828,7 @@ impl FromStr for SecretKey {
                     .map_err(|_| ParseKeyError::InvalidScalar)?;
                 Ok(Self::Secp256k1(bytes))
             }
+            KeyType::MlDsa65 => unreachable!("handled above"),
         }
     }
 }
@@ -667,6 +865,8 @@ pub enum Signature {
     Ed25519([u8; 64]),
     /// Secp256k1 signature (65 bytes: `[r (32) | s (32) | v (1)]`).
     Secp256k1([u8; 65]),
+    /// ML-DSA-65 signature (3309 bytes, FIPS 204). Boxed to keep the enum small.
+    MlDsa65(Box<[u8; ML_DSA_65_SIGNATURE_LENGTH]>),
 }
 
 impl Signature {
@@ -683,11 +883,17 @@ impl Signature {
         Self::Secp256k1(bytes)
     }
 
+    /// Create an ML-DSA-65 signature from raw 3309 bytes.
+    pub fn ml_dsa65_from_bytes(bytes: Box<[u8; ML_DSA_65_SIGNATURE_LENGTH]>) -> Self {
+        Self::MlDsa65(bytes)
+    }
+
     /// Get the key type.
     pub fn key_type(&self) -> KeyType {
         match self {
             Self::Ed25519(_) => KeyType::Ed25519,
             Self::Secp256k1(_) => KeyType::Secp256k1,
+            Self::MlDsa65(_) => KeyType::MlDsa65,
         }
     }
 
@@ -696,10 +902,14 @@ impl Signature {
         match self {
             Self::Ed25519(bytes) => bytes.as_slice(),
             Self::Secp256k1(bytes) => bytes.as_slice(),
+            Self::MlDsa65(bytes) => bytes.as_slice(),
         }
     }
 
     /// Verify this signature against a message and public key.
+    ///
+    /// Returns `false` for an [`PublicKey::MlDsa65Hash`] handle, which carries
+    /// no key material to verify against.
     pub fn verify(&self, message: &[u8], public_key: &PublicKey) -> bool {
         match (self, public_key) {
             (Self::Ed25519(sig_bytes), PublicKey::Ed25519(pk_bytes)) => {
@@ -735,7 +945,23 @@ impl Signature {
                 use k256::ecdsa::signature::hazmat::PrehashVerifier;
                 verifying_key.verify_prehash(&hash, &signature).is_ok()
             }
-            // Mismatched key types
+            (Self::MlDsa65(sig_bytes), PublicKey::MlDsa65(pk_bytes)) => {
+                // FIPS-204 ML-DSA.Verify with empty context.
+                let Ok(enc_vk) = EncodedVerifyingKey::<MlDsa65>::try_from(pk_bytes.as_slice())
+                else {
+                    return false;
+                };
+                let verifying_key = ml_dsa::VerifyingKey::<MlDsa65>::decode(&enc_vk);
+                let Ok(enc_sig) = EncodedSignature::<MlDsa65>::try_from(sig_bytes.as_slice())
+                else {
+                    return false;
+                };
+                let Some(signature) = ml_dsa::Signature::<MlDsa65>::decode(&enc_sig) else {
+                    return false;
+                };
+                verifying_key.verify(message, &signature).is_ok()
+            }
+            // Mismatched key types (or an ml-dsa-65-hash handle, which can't verify)
             _ => false,
         }
     }
@@ -750,6 +976,7 @@ impl FromStr for Signature {
         let key_type = match key_type {
             "ed25519" => KeyType::Ed25519,
             "secp256k1" => KeyType::Secp256k1,
+            "ml-dsa-65" => KeyType::MlDsa65,
             other => return Err(ParseKeyError::UnknownKeyType(other.to_string())),
         };
 
@@ -778,6 +1005,13 @@ impl FromStr for Signature {
                     .try_into()
                     .map_err(|_| ParseKeyError::InvalidFormat)?;
                 Ok(Self::Secp256k1(bytes))
+            }
+            KeyType::MlDsa65 => {
+                let bytes: Box<[u8; ML_DSA_65_SIGNATURE_LENGTH]> = data
+                    .into_boxed_slice()
+                    .try_into()
+                    .map_err(|_| ParseKeyError::InvalidFormat)?;
+                Ok(Self::MlDsa65(bytes))
             }
         }
     }
@@ -824,6 +1058,11 @@ impl BorshDeserialize for Signature {
                 let mut bytes = [0u8; 65];
                 reader.read_exact(&mut bytes)?;
                 Ok(Self::Secp256k1(bytes))
+            }
+            KeyType::MlDsa65 => {
+                let mut bytes = Box::new([0u8; ML_DSA_65_SIGNATURE_LENGTH]);
+                reader.read_exact(bytes.as_mut_slice())?;
+                Ok(Self::MlDsa65(bytes))
             }
         }
     }
@@ -957,6 +1196,25 @@ impl KeyPair {
     /// ```
     pub fn random_secp256k1() -> Self {
         let secret_key = SecretKey::generate_secp256k1();
+        let public_key = secret_key.public_key();
+        Self {
+            secret_key,
+            public_key,
+        }
+    }
+
+    /// Generate a random ML-DSA-65 post-quantum key pair (FIPS 204).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::KeyPair;
+    ///
+    /// let keypair = KeyPair::random_ml_dsa65();
+    /// assert!(keypair.public_key.to_string().starts_with("ml-dsa-65:"));
+    /// ```
+    pub fn random_ml_dsa65() -> Self {
+        let secret_key = SecretKey::generate_ml_dsa65();
         let public_key = secret_key.public_key();
         Self {
             secret_key,
@@ -1510,5 +1768,211 @@ mod tests {
 
         assert!(matches!(secp_public, PublicKey::Secp256k1(_)));
         assert!(matches!(secp_secret, SecretKey::Secp256k1(_)));
+    }
+
+    // ========================================================================
+    // ML-DSA-65 Tests
+    // ========================================================================
+
+    #[test]
+    fn test_ml_dsa65_sizes() {
+        assert_eq!(ML_DSA_65_PUBLIC_KEY_LENGTH, 1952);
+        assert_eq!(ML_DSA_65_SEED_LENGTH, 32);
+        assert_eq!(ML_DSA_65_SIGNATURE_LENGTH, 3309);
+        assert_eq!(ML_DSA_65_HASH_LENGTH, 32);
+        assert_eq!(KeyType::MlDsa65.public_key_len(), 1952);
+        assert_eq!(KeyType::MlDsa65.signature_len(), 3309);
+        assert_eq!(KeyType::MlDsa65.as_str(), "ml-dsa-65");
+        assert_eq!(KeyType::try_from(2u8).unwrap(), KeyType::MlDsa65);
+    }
+
+    #[test]
+    fn test_ml_dsa65_generate_sign_verify() {
+        let secret = SecretKey::generate_ml_dsa65();
+        let public = secret.public_key();
+
+        assert_eq!(secret.key_type(), KeyType::MlDsa65);
+        assert_eq!(public.key_type(), KeyType::MlDsa65);
+        assert_eq!(public.as_bytes().len(), ML_DSA_65_PUBLIC_KEY_LENGTH);
+        assert_eq!(secret.as_bytes().len(), ML_DSA_65_SEED_LENGTH);
+
+        let message = b"hello post-quantum world";
+        let signature = secret.sign(message);
+        assert_eq!(signature.key_type(), KeyType::MlDsa65);
+        assert_eq!(signature.as_bytes().len(), ML_DSA_65_SIGNATURE_LENGTH);
+
+        assert!(signature.verify(message, &public));
+        assert!(!signature.verify(b"tampered", &public));
+    }
+
+    #[test]
+    fn test_ml_dsa65_seed_is_deterministic() {
+        // Same 32-byte seed must always derive the same public key and (because
+        // the underlying signer is deterministic) the same signature.
+        let seed = [7u8; ML_DSA_65_SEED_LENGTH];
+        let sk1 = SecretKey::ml_dsa65_from_seed(seed);
+        let sk2 = SecretKey::ml_dsa65_from_seed(seed);
+        assert_eq!(sk1.public_key(), sk2.public_key());
+
+        let msg = b"determinism";
+        assert_eq!(sk1.sign(msg).as_bytes(), sk2.sign(msg).as_bytes());
+
+        // A different seed yields a different key.
+        let sk3 = SecretKey::ml_dsa65_from_seed([8u8; ML_DSA_65_SEED_LENGTH]);
+        assert_ne!(sk1.public_key(), sk3.public_key());
+    }
+
+    #[test]
+    fn test_ml_dsa65_public_key_string_roundtrip() {
+        let secret = SecretKey::generate_ml_dsa65();
+        let public = secret.public_key();
+        let s = public.to_string();
+        assert!(s.starts_with("ml-dsa-65:"));
+        assert!(!s.starts_with("ml-dsa-65-hash:"));
+        let parsed: PublicKey = s.parse().unwrap();
+        assert_eq!(public, parsed);
+    }
+
+    #[test]
+    fn test_ml_dsa65_secret_key_string_roundtrip() {
+        let secret = SecretKey::generate_ml_dsa65();
+        let s = secret.to_string();
+        assert!(s.starts_with("ml-dsa-65:"));
+        let parsed: SecretKey = s.parse().unwrap();
+        assert_eq!(secret.public_key(), parsed.public_key());
+        // The seed itself round-trips byte-for-byte.
+        assert_eq!(secret.as_bytes(), parsed.as_bytes());
+    }
+
+    #[test]
+    fn test_ml_dsa65_signature_string_roundtrip() {
+        let secret = SecretKey::generate_ml_dsa65();
+        let sig = secret.sign(b"sig-roundtrip");
+        let s = sig.to_string();
+        assert!(s.starts_with("ml-dsa-65:"));
+        let parsed: Signature = s.parse().unwrap();
+        assert_eq!(sig, parsed);
+    }
+
+    #[test]
+    fn test_ml_dsa65_public_key_borsh_roundtrip() {
+        use borsh::BorshDeserialize;
+
+        let secret = SecretKey::generate_ml_dsa65();
+        let public = secret.public_key();
+        let serialized = borsh::to_vec(&public).unwrap();
+        // 1 byte key type + 1952 bytes key data.
+        assert_eq!(serialized.len(), 1 + ML_DSA_65_PUBLIC_KEY_LENGTH);
+        assert_eq!(serialized[0], 2); // MlDsa65 discriminant
+        let deserialized = PublicKey::try_from_slice(&serialized).unwrap();
+        assert_eq!(public, deserialized);
+    }
+
+    #[test]
+    fn test_ml_dsa65_signature_borsh_roundtrip() {
+        use borsh::BorshDeserialize;
+
+        let secret = SecretKey::generate_ml_dsa65();
+        let sig = secret.sign(b"borsh");
+        let serialized = borsh::to_vec(&sig).unwrap();
+        assert_eq!(serialized.len(), 1 + ML_DSA_65_SIGNATURE_LENGTH);
+        assert_eq!(serialized[0], 2);
+        let deserialized = Signature::try_from_slice(&serialized).unwrap();
+        assert_eq!(sig, deserialized);
+    }
+
+    #[test]
+    fn test_ml_dsa65_hash_handle_parses_without_panic() {
+        // A `view_access_key_list` response stores an ML-DSA-65 key as a 32-byte
+        // SHA3-256 handle. It must parse into a distinct handle variant.
+        let secret = SecretKey::generate_ml_dsa65();
+        let full = secret.public_key();
+        let handle = full.to_ml_dsa65_hash().unwrap();
+        assert!(handle.is_ml_dsa65_hash());
+        assert_eq!(handle.key_type(), KeyType::MlDsa65);
+
+        let s = handle.to_string();
+        assert!(s.starts_with("ml-dsa-65-hash:"));
+
+        // Parsing the handle string round-trips for display/equality...
+        let parsed: PublicKey = s.parse().unwrap();
+        assert_eq!(handle, parsed);
+        // ...but it is NOT equal to the full key.
+        assert_ne!(handle, full);
+    }
+
+    #[test]
+    fn test_ml_dsa65_hash_handle_matches_nearcore_domain() {
+        // Pin the handle derivation against the protocol's domain tag so any
+        // drift in the SHA3-256 input is caught. Computed from a fixed pubkey.
+        use sha3::{Digest as _, Sha3_256};
+
+        let public = SecretKey::ml_dsa65_from_seed([1u8; 32]).public_key();
+        let raw = public.as_ml_dsa65_bytes().unwrap();
+
+        let mut hasher = Sha3_256::new();
+        hasher.update(b"near:ml-dsa-65-pubkey-hash:v1");
+        hasher.update(raw.as_slice());
+        let expected: [u8; 32] = hasher.finalize().into();
+
+        let handle = public.to_ml_dsa65_hash().unwrap();
+        assert_eq!(handle, PublicKey::MlDsa65Hash(expected));
+    }
+
+    #[test]
+    fn test_ml_dsa65_hash_handle_cannot_borsh_serialize() {
+        // A handle has no wire form as a PublicKey; serializing must error
+        // rather than emit a malformed action pubkey.
+        let handle = SecretKey::generate_ml_dsa65()
+            .public_key()
+            .to_ml_dsa65_hash()
+            .unwrap();
+        assert!(borsh::to_vec(&handle).is_err());
+    }
+
+    #[test]
+    fn test_ml_dsa65_hash_handle_cannot_verify() {
+        let secret = SecretKey::generate_ml_dsa65();
+        let handle = secret.public_key().to_ml_dsa65_hash().unwrap();
+        let sig = secret.sign(b"msg");
+        // Verifying against the handle (no key material) must fail, not panic.
+        assert!(!sig.verify(b"msg", &handle));
+    }
+
+    #[test]
+    fn test_ml_dsa65_cross_type_verify_fails() {
+        let ml_secret = SecretKey::generate_ml_dsa65();
+        let ed_secret = SecretKey::generate_ed25519();
+        let msg = b"cross type";
+        assert!(!ml_secret.sign(msg).verify(msg, &ed_secret.public_key()));
+        assert!(!ed_secret.sign(msg).verify(msg, &ml_secret.public_key()));
+    }
+
+    #[test]
+    fn test_ml_dsa65_keypair_random() {
+        let keypair = KeyPair::random_ml_dsa65();
+        assert_eq!(keypair.public_key.key_type(), KeyType::MlDsa65);
+        assert_eq!(keypair.secret_key.key_type(), KeyType::MlDsa65);
+        assert!(keypair.public_key.to_string().starts_with("ml-dsa-65:"));
+
+        let message = b"keypair";
+        let signature = keypair.secret_key.sign(message);
+        assert!(signature.verify(message, &keypair.public_key));
+    }
+
+    #[test]
+    fn test_ml_dsa65_invalid_lengths_rejected() {
+        // Wrong-length pubkey / seed / signature strings must error, not panic.
+        let short_pk = format!("ml-dsa-65:{}", bs58::encode([0u8; 100]).into_string());
+        assert!(short_pk.parse::<PublicKey>().is_err());
+
+        let short_seed = format!("ml-dsa-65:{}", bs58::encode([0u8; 16]).into_string());
+        assert!(short_seed.parse::<SecretKey>().is_err());
+
+        let short_sig = format!("ml-dsa-65:{}", bs58::encode([0u8; 100]).into_string());
+        assert!(short_sig.parse::<Signature>().is_err());
+
+        let short_handle = format!("ml-dsa-65-hash:{}", bs58::encode([0u8; 16]).into_string());
+        assert!(short_handle.parse::<PublicKey>().is_err());
     }
 }

@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Adds the matching RPC views (`ActionView::DelegateV2`,
   `VersionedDelegateActionPayloadView`, `DelegateActionV2View`,
   `TransactionNonceView`) so node-returned `DelegateV2` actions parse.
+- *(keys)* ML-DSA-65 post-quantum keys (FIPS 204, protocol v85): `KeyType::MlDsa65`,
+  full `PublicKey`/`SecretKey`/`Signature` support (32-byte seed keygen, sign,
+  verify), `ml-dsa-65:` string + borsh `[2][1952]` round-trip, and a non-signing
+  `ml-dsa-65-hash:` view handle so `view_access_key_list` parses without panicking
 
 ## [0.11.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.11.1...near-kit-v0.11.2) - 2026-06-23
 

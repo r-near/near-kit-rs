@@ -1314,6 +1314,35 @@ pub struct NodeVersion {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::KeyType;
+
+    #[test]
+    fn test_access_key_list_parses_ml_dsa65_hash_handle() {
+        // A 2.13 node returns ML-DSA-65 access keys as a 32-byte `ml-dsa-65-hash:`
+        // handle (the full pubkey is not stored on-trie). View parsing must
+        // accept it without panicking.
+        let handle = format!("ml-dsa-65-hash:{}", bs58::encode([3u8; 32]).into_string());
+        let json = serde_json::json!({
+            "keys": [
+                {
+                    "public_key": handle,
+                    "access_key": { "nonce": 1u64, "permission": "FullAccess" }
+                },
+                {
+                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                    "access_key": { "nonce": 2u64, "permission": "FullAccess" }
+                }
+            ],
+            "block_height": 42u64,
+            "block_hash": "11111111111111111111111111111111"
+        });
+
+        let list: AccessKeyListView = serde_json::from_value(json).unwrap();
+        assert_eq!(list.keys.len(), 2);
+        assert!(list.keys[0].public_key.is_ml_dsa65_hash());
+        assert_eq!(list.keys[0].public_key.key_type(), KeyType::MlDsa65);
+        assert_eq!(list.keys[1].public_key.key_type(), KeyType::Ed25519);
+    }
 
     fn make_account_view(amount: u128, locked: u128, storage_usage: u64) -> AccountView {
         AccountView {
