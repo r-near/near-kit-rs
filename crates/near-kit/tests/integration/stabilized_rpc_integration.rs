@@ -26,13 +26,23 @@ async fn test_block_effects_returns_changes_for_latest_block() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
+    // Resolve a concrete finalized block first, then ask for its effects by
+    // hash. Requesting effects for a specific block (rather than the moving
+    // `final` reference) avoids a finality-resolution race under load.
+    let block = near
+        .rpc()
+        .block(BlockReference::final_())
+        .await
+        .expect("block");
+    let block_hash = block.header.hash;
+
     let effects = near
         .rpc()
-        .block_effects(BlockReference::final_())
+        .block_effects(BlockReference::at_hash(block_hash))
         .await
         .expect("block_effects");
-    // block_hash is always present; `changes` may be empty for an idle block.
-    assert_ne!(effects.block_hash, CryptoHash::default());
+    // The response echoes the queried block; `changes` may be empty for an idle block.
+    assert_eq!(effects.block_hash, block_hash);
 }
 
 #[tokio::test]
