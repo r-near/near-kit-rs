@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   / `last_key`): `RpcClient::view_state` for a single page and
   `RpcClient::view_state_all` to read a contract's full state across pages.
   Adds `StateItem` / `ViewStateResult` types.
+- *(types)* complete the 2.13 typed read path so node-accepted 2.13 transactions
+  deserialize through the high-level `FinalExecutionOutcome` / `.send()` path
+  instead of forcing raw JSON: `ExecutionMetadata` V4 (`contracts` field +
+  `AccountContractView`), `ActionView::TransferToGasKey`/`WithdrawFromGasKey`,
+  and `AccessKeyPermissionView::GasKeyFunctionCall`/`GasKeyFullAccess`. JSON wire
+  format stays back-compatible (V1–V3 metadata omit `contracts`) (protocol 2.13).
 
 ### Changed
 

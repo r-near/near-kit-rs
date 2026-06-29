@@ -88,16 +88,17 @@ pub use key::{
 pub use network::ChainId;
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
-    AccountBalance, AccountView, ActionReceiptData, ActionView, BandwidthRequest,
-    BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1, BlockHeaderView, BlockView,
-    ChunkHeaderView, CongestionInfoView, DataReceiptData, DataReceiverView, DelegateActionV2View,
-    DelegateActionView, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId,
-    ExecutionStatus, FinalExecutionOutcome, FinalExecutionStatus, GasPrice, GasProfileEntry,
-    GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NodeVersion, NonceMode,
-    RawTransactionResponse, Receipt, ReceiptContent, ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE,
-    SendTxResponse, SlashedValidator, StateItem, StatusResponse, SyncInfo, TransactionNonceView,
-    TransactionView, TrieSplit, ValidatorInfo, ValidatorStakeView, ValidatorStakeViewV1,
-    VersionedDelegateActionPayloadView, ViewFunctionResult, ViewStateResult,
+    AccountBalance, AccountContractView, AccountView, ActionReceiptData, ActionView,
+    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
+    BlockHeaderView, BlockView, ChunkHeaderView, CongestionInfoView, DataReceiptData,
+    DataReceiverView, DelegateActionV2View, DelegateActionView, ExecutionMetadata,
+    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
+    FinalExecutionStatus, GasPrice, GasProfileEntry, GlobalContractIdentifierView, MerkleDirection,
+    MerklePathItem, NodeVersion, NonceMode, RawTransactionResponse, Receipt, ReceiptContent,
+    ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator, StateItem,
+    StatusResponse, SyncInfo, TransactionNonceView, TransactionView, TrieSplit, ValidatorInfo,
+    ValidatorStakeView, ValidatorStakeViewV1, VersionedDelegateActionPayloadView,
+    ViewFunctionResult, ViewStateResult,
 };
 pub use rpc_extra::{
     BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,

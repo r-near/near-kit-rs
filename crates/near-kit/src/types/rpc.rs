@@ -1088,11 +1088,40 @@ pub struct ExecutionOutcome {
 /// Execution metadata with gas profiling.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExecutionMetadata {
-    /// Metadata version.
+    /// Metadata version (V1=1, V2=2, V3=3, V4=4).
     pub version: u32,
     /// Gas profile entries.
     #[serde(default)]
     pub gas_profile: Option<Vec<GasProfileEntry>>,
+    /// The contract attached to the receiver account immediately before each
+    /// action in the receipt ran — one entry per action, in order
+    /// (`ExecutionMetadata` V4+, protocol 2.13).
+    ///
+    /// The inner `Option` is `None` (JSON `null`) when the account had no
+    /// contract at that point (no code, or it did not yet exist). The outer
+    /// `Option` is `None` when the field is absent (older V1–V3 metadata) or
+    /// explicitly `null`. Note this is *wire-format* back-compatibility: adding
+    /// this public field is itself a (minor) Rust API change for code that
+    /// constructs/destructures `ExecutionMetadata`.
+    #[serde(default)]
+    pub contracts: Option<Vec<Option<AccountContractView>>>,
+}
+
+/// The contract attached to an account, as reported per-action in
+/// [`ExecutionMetadata::contracts`] (V4+).
+///
+/// A receipt action with no contract is represented as `None` in the
+/// surrounding `Option`, so this enum only covers the cases where a contract
+/// was present.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountContractView {
+    /// A regular contract deployed to the account, identified by its code hash.
+    Local(CryptoHash),
+    /// A global contract referenced by its code hash.
+    GlobalHash(CryptoHash),
+    /// A global contract referenced by the account that deployed it.
+    GlobalAccountId(AccountId),
 }
 
 /// Gas profile entry for detailed gas accounting.
@@ -1405,6 +1434,52 @@ mod tests {
         let result: ViewStateResult = serde_json::from_value(json).unwrap();
         assert_eq!(result.values.len(), 1);
         assert!(result.last_key.is_none());
+    }
+
+    #[test]
+    fn test_execution_metadata_v4_contracts_parsed() {
+        // Captured from a 2.13 node: V4 metadata with one contract per action.
+        let json = serde_json::json!({
+            "version": 4,
+            "gas_profile": [],
+            "contracts": [
+                null,
+                { "local": "11111111111111111111111111111111" },
+                { "global_hash": "11111111111111111111111111111111" },
+                { "global_account_id": "contract.near" }
+            ]
+        });
+        let meta: ExecutionMetadata = serde_json::from_value(json).unwrap();
+        assert_eq!(meta.version, 4);
+        let contracts = meta.contracts.expect("V4 carries contracts");
+        assert_eq!(contracts.len(), 4);
+        assert!(contracts[0].is_none());
+        assert!(matches!(contracts[1], Some(AccountContractView::Local(_))));
+        assert!(matches!(
+            contracts[2],
+            Some(AccountContractView::GlobalHash(_))
+        ));
+        match &contracts[3] {
+            Some(AccountContractView::GlobalAccountId(id)) => {
+                assert_eq!(id.as_str(), "contract.near")
+            }
+            other => panic!("expected global_account_id, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_execution_metadata_v3_has_no_contracts() {
+        // V1-V3 omit `contracts`; parsing must stay backward-compatible.
+        let json = serde_json::json!({
+            "version": 3,
+            "gas_profile": [
+                { "cost_category": "WASM_HOST_COST", "cost": "BASE", "gas_used": "100" }
+            ]
+        });
+        let meta: ExecutionMetadata = serde_json::from_value(json).unwrap();
+        assert_eq!(meta.version, 3);
+        assert!(meta.contracts.is_none());
+        assert_eq!(meta.gas_profile.as_ref().unwrap().len(), 1);
     }
 
     fn make_account_view(amount: u128, locked: u128, storage_usage: u64) -> AccountView {
