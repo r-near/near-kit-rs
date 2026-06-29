@@ -213,6 +213,40 @@ pub struct AccessKeyInfoView {
 }
 
 // ============================================================================
+// view_state
+// ============================================================================
+
+/// A single contract state entry (key/value), as returned by `view_state`.
+///
+/// `key` and `value` are raw bytes; they are base64-encoded on the wire.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct StateItem {
+    /// Raw state key bytes.
+    #[serde_as(as = "Base64")]
+    pub key: Vec<u8>,
+    /// Raw state value bytes.
+    #[serde_as(as = "Base64")]
+    pub value: Vec<u8>,
+}
+
+/// Result of a `view_state` query (one page).
+///
+/// When the trie holds more entries than `limit`, [`ViewStateResult::last_key`]
+/// is the continuation cursor: pass it back as `after_key` to fetch the next
+/// page. It is `None` on the last page.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ViewStateResult {
+    /// The contract state entries in this page.
+    pub values: Vec<StateItem>,
+    /// Continuation cursor (raw key bytes). Absent on the last page.
+    #[serde_as(as = "Option<Base64>")]
+    #[serde(default)]
+    pub last_key: Option<Vec<u8>>,
+}
+
+// ============================================================================
 // Block types
 // ============================================================================
 
@@ -1342,6 +1376,35 @@ mod tests {
         assert!(list.keys[0].public_key.is_ml_dsa65_hash());
         assert_eq!(list.keys[0].public_key.key_type(), KeyType::MlDsa65);
         assert_eq!(list.keys[1].public_key.key_type(), KeyType::Ed25519);
+    }
+
+    #[test]
+    fn test_view_state_result_deserializes_with_cursor() {
+        // `key`/`value`/`last_key` are base64 on the wire.
+        let json = serde_json::json!({
+            "values": [
+                { "key": STANDARD.encode(b"STATE"), "value": STANDARD.encode(b"v1") },
+                { "key": STANDARD.encode(b"k2"), "value": STANDARD.encode([0u8, 1, 2]) }
+            ],
+            "last_key": STANDARD.encode(b"k2")
+        });
+        let result: ViewStateResult = serde_json::from_value(json).unwrap();
+        assert_eq!(result.values.len(), 2);
+        assert_eq!(result.values[0].key, b"STATE");
+        assert_eq!(result.values[0].value, b"v1");
+        assert_eq!(result.values[1].value, vec![0u8, 1, 2]);
+        assert_eq!(result.last_key.as_deref(), Some(b"k2".as_slice()));
+    }
+
+    #[test]
+    fn test_view_state_result_last_page_has_no_cursor() {
+        // The final page omits `last_key`.
+        let json = serde_json::json!({
+            "values": [{ "key": STANDARD.encode(b"k"), "value": STANDARD.encode(b"v") }]
+        });
+        let result: ViewStateResult = serde_json::from_value(json).unwrap();
+        assert_eq!(result.values.len(), 1);
+        assert!(result.last_key.is_none());
     }
 
     fn make_account_view(amount: u128, locked: u128, storage_usage: u64) -> AccountView {

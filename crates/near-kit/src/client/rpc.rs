@@ -11,7 +11,7 @@ use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockReference, BlockView,
     CryptoHash, EpochValidatorInfo, GasPrice, PublicKey, ReceiptToTxResponse, SignedTransaction,
-    StatusResponse, TxExecutionStatus, ViewFunctionResult,
+    StateItem, StatusResponse, TxExecutionStatus, ViewFunctionResult, ViewStateResult,
 };
 
 /// Network configuration presets.
@@ -568,6 +568,99 @@ impl RpcClient {
             block_height: response.block_height,
             block_hash: response.block_hash,
         })
+    }
+
+    /// View a single page of a contract's state (raw key/value trie entries).
+    ///
+    /// Only entries whose key starts with `prefix` are returned (pass an empty
+    /// slice for all keys). `after_key` is the continuation cursor from a
+    /// previous page's [`ViewStateResult::last_key`], and `limit` caps the
+    /// number of entries returned. When the result's `last_key` is `Some`, more
+    /// entries remain — call again with `after_key = last_key`.
+    ///
+    /// Prefer [`RpcClient::view_state_all`] to collect every entry without
+    /// managing the cursor yourself.
+    #[tracing::instrument(skip(self, prefix, after_key, block), fields(%account_id))]
+    pub async fn view_state(
+        &self,
+        account_id: &AccountId,
+        prefix: &[u8],
+        after_key: Option<&[u8]>,
+        limit: Option<u32>,
+        block: BlockReference,
+    ) -> Result<ViewStateResult, RpcError> {
+        let mut params = serde_json::json!({
+            "request_type": "view_state",
+            "account_id": account_id.to_string(),
+            "prefix_base64": STANDARD.encode(prefix),
+        });
+        if let Some(obj) = params.as_object_mut() {
+            if let Some(after) = after_key {
+                obj.insert(
+                    "after_key_base64".to_string(),
+                    STANDARD.encode(after).into(),
+                );
+            }
+            // nearcore requires a non-zero limit; omit it otherwise.
+            if let Some(limit) = limit.filter(|&l| l > 0) {
+                obj.insert("limit".to_string(), limit.into());
+            }
+        }
+        self.merge_block_reference(&mut params, &block);
+        self.call("query", params).await
+    }
+
+    /// Read a contract's entire state, transparently following pagination.
+    ///
+    /// Repeatedly calls [`RpcClient::view_state`] with `page_size` per request,
+    /// following the `last_key` cursor until the node reports no more entries,
+    /// and returns all matching [`StateItem`]s. Pass an empty `prefix` for the
+    /// whole state. `page_size` of `0` lets the node choose its default.
+    ///
+    /// All pages are read against the same `block` so the result is a
+    /// consistent snapshot.
+    #[tracing::instrument(skip(self, prefix, block), fields(%account_id))]
+    pub async fn view_state_all(
+        &self,
+        account_id: &AccountId,
+        prefix: &[u8],
+        page_size: u32,
+        block: BlockReference,
+    ) -> Result<Vec<StateItem>, RpcError> {
+        // Pin a fixed block for the whole scan so every page reads a consistent
+        // snapshot. A moving finality reference (`Final`/`Optimistic`/
+        // `NearFinal`) would re-resolve to a possibly different block on each
+        // page, which can drop or duplicate entries across the cursor; resolve
+        // it to a concrete block hash once up front. Already-fixed references
+        // (`Height`/`Hash`/`SyncCheckpoint`) are used as-is.
+        let fixed_block = match block {
+            BlockReference::Finality(_) => {
+                let header_hash = self.block(block).await?.header.hash;
+                BlockReference::at_hash(header_hash)
+            }
+            already_fixed => already_fixed,
+        };
+
+        let limit = (page_size > 0).then_some(page_size);
+        let mut all = Vec::new();
+        let mut after_key: Option<Vec<u8>> = None;
+        loop {
+            let page = self
+                .view_state(
+                    account_id,
+                    prefix,
+                    after_key.as_deref(),
+                    limit,
+                    fixed_block.clone(),
+                )
+                .await?;
+            all.extend(page.values);
+            match page.last_key {
+                Some(cursor) => after_key = Some(cursor),
+                None => break,
+            }
+        }
+        Ok(all)
     }
 
     /// Get block information.

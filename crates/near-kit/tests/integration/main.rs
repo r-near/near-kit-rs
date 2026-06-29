@@ -27,3 +27,4 @@ mod transaction_outcome_integration;
 mod typed_contract_error_integration;
 mod typed_contract_integration;
 mod typed_error_integration;
+mod view_state_integration;
