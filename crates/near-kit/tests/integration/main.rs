@@ -14,6 +14,7 @@ mod error_consolidation_integration;
 mod error_handling_integration;
 mod gas_key_transaction_integration;
 mod global_contracts_integration;
+mod ml_dsa_integration;
 mod offline_signing_integration;
 mod rpc_types_integration;
 mod sandbox_integration;

@@ -161,6 +161,12 @@ docs: update README examples
 
 ## Dependencies Policy
 
-**Allowed**: tokio, reqwest, serde, borsh, thiserror, ed25519-dalek, sha2, bs58, base64
+**Allowed**: tokio, reqwest, serde, borsh, thiserror, bs58, base64, and
+well-maintained cryptographic *primitive* crates for the curves/hashes NEAR
+uses — e.g. ed25519-dalek, k256 (secp256k1), sha2, sha3, ml-dsa (FIPS-204
+ML-DSA-65), bip39, hmac. The bar for a new crypto dependency is that it
+implements a standard primitive the protocol requires and is auditable.
 
-**Not allowed**: near-primitives, near-crypto, near-jsonrpc-client (we hand-roll types)
+**Not allowed**: near-primitives, near-crypto, near-jsonrpc-client (we hand-roll
+the NEAR types/borsh ourselves; this rule forbids the NEAR-specific crates, not
+crypto primitives).
