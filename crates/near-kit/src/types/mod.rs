@@ -97,8 +97,8 @@ pub use rpc::{
     MerklePathItem, NodeVersion, NonceMode, RawTransactionResponse, Receipt, ReceiptContent,
     ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator, StateItem,
     StatusResponse, SyncInfo, TransactionNonceView, TransactionView, TrieSplit, ValidatorInfo,
-    ValidatorStakeView, ValidatorStakeViewV1, VersionedDelegateActionPayloadView, ViewFunctionResult,
-    ViewStateResult,
+    ValidatorStakeView, ValidatorStakeViewV1, VersionedDelegateActionPayloadView,
+    ViewFunctionResult, ViewStateResult,
 };
 pub use rpc_extra::{
     BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,
