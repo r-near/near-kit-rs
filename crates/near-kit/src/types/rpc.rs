@@ -1099,8 +1099,10 @@ pub struct ExecutionMetadata {
     ///
     /// The inner `Option` is `None` (JSON `null`) when the account had no
     /// contract at that point (no code, or it did not yet exist). The outer
-    /// `Option` is `None` for older metadata versions (V1–V3), which omit the
-    /// field entirely — so this stays backward-compatible.
+    /// `Option` is `None` when the field is absent (older V1–V3 metadata) or
+    /// explicitly `null`. Note this is *wire-format* back-compatibility: adding
+    /// this public field is itself a (minor) Rust API change for code that
+    /// constructs/destructures `ExecutionMetadata`.
     #[serde(default)]
     pub contracts: Option<Vec<Option<AccountContractView>>>,
 }
