@@ -627,6 +627,20 @@ impl RpcClient {
         page_size: u32,
         block: BlockReference,
     ) -> Result<Vec<StateItem>, RpcError> {
+        // Pin a fixed block for the whole scan so every page reads a consistent
+        // snapshot. A moving finality reference (`Final`/`Optimistic`/
+        // `NearFinal`) would re-resolve to a possibly different block on each
+        // page, which can drop or duplicate entries across the cursor; resolve
+        // it to a concrete block hash once up front. Already-fixed references
+        // (`Height`/`Hash`/`SyncCheckpoint`) are used as-is.
+        let fixed_block = match block {
+            BlockReference::Finality(_) => {
+                let header_hash = self.block(block).await?.header.hash;
+                BlockReference::at_hash(header_hash)
+            }
+            already_fixed => already_fixed,
+        };
+
         let limit = (page_size > 0).then_some(page_size);
         let mut all = Vec::new();
         let mut after_key: Option<Vec<u8>> = None;
@@ -637,7 +651,7 @@ impl RpcClient {
                     prefix,
                     after_key.as_deref(),
                     limit,
-                    block.clone(),
+                    fixed_block.clone(),
                 )
                 .await?;
             all.extend(page.values);
