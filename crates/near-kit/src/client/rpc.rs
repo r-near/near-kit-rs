@@ -688,7 +688,10 @@ impl RpcClient {
     /// network-specific document, so it is returned as untyped JSON.
     #[tracing::instrument(skip(self))]
     pub async fn genesis_config(&self) -> Result<serde_json::Value, RpcError> {
-        self.call("genesis_config", serde_json::json!(null)).await
+        // Send an empty params array (not `null`) — this is what the other
+        // no-arg methods here use, and some JSON-RPC servers require `params` to
+        // be an array/object.
+        self.call("genesis_config", serde_json::json!([])).await
     }
 
     /// Get the upcoming maintenance windows for a validator account.
