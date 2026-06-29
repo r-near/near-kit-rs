@@ -16,8 +16,11 @@ async fn test_genesis_config_returns_chain_config() {
         "genesis_config should include chain_id, got: {config}"
     );
     assert!(
-        config.get("protocol_version").is_some(),
-        "genesis_config should include protocol_version"
+        config
+            .get("protocol_version")
+            .and_then(|v| v.as_u64())
+            .is_some(),
+        "genesis_config should include a numeric protocol_version, got: {config}"
     );
 }
 
