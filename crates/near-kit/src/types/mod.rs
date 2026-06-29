@@ -93,12 +93,12 @@ pub use rpc::{
     BlockHeaderView, BlockView, ChunkHeaderView, CongestionInfoView, DataReceiptData,
     DataReceiverView, DelegateActionV2View, DelegateActionView, ExecutionMetadata,
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
-    FinalExecutionStatus, GasPrice, GasProfileEntry, GlobalContractIdentifierView, MaintenanceWindow,
-    MerkleDirection, MerklePathItem, NodeVersion, NonceMode, RawTransactionResponse, Receipt,
-    ReceiptContent, ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator,
-    StateChangeKindView, StateItem, StatusResponse, SyncInfo, TransactionNonceView, TransactionView,
-    TrieSplit, ValidatorInfo, ValidatorStakeView, ValidatorStakeViewV1,
-    VersionedDelegateActionPayloadView, ViewFunctionResult, ViewStateResult,
+    FinalExecutionStatus, GasPrice, GasProfileEntry, GlobalContractIdentifierView,
+    MaintenanceWindow, MerkleDirection, MerklePathItem, NodeVersion, NonceMode,
+    RawTransactionResponse, Receipt, ReceiptContent, ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE,
+    SendTxResponse, SlashedValidator, StateChangeKindView, StateItem, StatusResponse, SyncInfo,
+    TransactionNonceView, TransactionView, TrieSplit, ValidatorInfo, ValidatorStakeView,
+    ValidatorStakeViewV1, VersionedDelegateActionPayloadView, ViewFunctionResult, ViewStateResult,
 };
 pub use rpc_extra::{
     BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,

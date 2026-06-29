@@ -1,8 +1,19 @@
 //! Integration tests for the stabilized 2.13 RPC method wrappers:
 //! `block_effects`, `genesis_config`, and `maintenance_windows`.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
+
+static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+fn unique_account() -> AccountId {
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("blockfx{n}.{SANDBOX_ROOT_ACCOUNT}")
+        .parse()
+        .unwrap()
+}
 
 #[tokio::test]
 async fn test_genesis_config_returns_chain_config() {
@@ -25,27 +36,48 @@ async fn test_genesis_config_returns_chain_config() {
 }
 
 #[tokio::test]
-async fn test_block_effects_returns_changes_for_latest_block() {
+async fn test_block_effects_returns_changes_for_block() {
     let sandbox = SandboxConfig::shared().await;
     let near = sandbox.client();
 
-    // Resolve a concrete finalized block first, then ask for its effects by
-    // hash. Requesting effects for a specific block (rather than the moving
-    // `final` reference) avoids a finality-resolution race under load.
-    let block = near
-        .rpc()
-        .block(BlockReference::final_())
+    // Produce a block we know contains state changes: create an account. Then
+    // query that exact block's effects by hash (a fixed block, not the moving
+    // `final` reference) and assert the kind-changes parse — this exercises the
+    // non-empty path that an idle `final` block would not.
+    let key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+    let outcome = near
+        .transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::from_near(3))
+        .add_full_access_key(key.public_key())
+        .send()
+        .wait_until(Final)
         .await
-        .expect("block");
-    let block_hash = block.header.hash;
+        .expect("create_account must execute");
 
+    let block_hash = outcome.transaction_outcome.block_hash;
     let effects = near
         .rpc()
         .block_effects(BlockReference::at_hash(block_hash))
         .await
-        .expect("block_effects");
-    // The response echoes the queried block; `changes` may be empty for an idle block.
+        .expect("block_effects must parse");
+
     assert_eq!(effects.block_hash, block_hash);
+    assert!(
+        !effects.changes.is_empty(),
+        "a block that created an account should report touched state"
+    );
+    // Every change kind exposes the account it touched.
+    for change in &effects.changes {
+        let touched = match change {
+            StateChangeKindView::AccountTouched { account_id }
+            | StateChangeKindView::AccessKeyTouched { account_id }
+            | StateChangeKindView::DataTouched { account_id }
+            | StateChangeKindView::ContractCodeTouched { account_id } => account_id,
+        };
+        let _ = touched;
+    }
 }
 
 #[tokio::test]
