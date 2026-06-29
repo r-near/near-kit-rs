@@ -25,7 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(keys)* ML-DSA-65 post-quantum keys (FIPS 204, protocol v85): `KeyType::MlDsa65`,
   full `PublicKey`/`SecretKey`/`Signature` support (32-byte seed keygen, sign,
   verify), `ml-dsa-65:` string + borsh `[2][1952]` round-trip, and a non-signing
-  `ml-dsa-65-hash:` view handle so `view_access_key_list` parses without panicking
+  `ml-dsa-65-hash:` view handle so `view_access_key_list` parses without panicking.
+  `SecretKey` accepts both the 32-byte seed and the 4032-byte expanded
+  private key that NEAR tooling exports under the `ml-dsa-65:` prefix.
 
 ## [0.11.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.11.1...near-kit-v0.11.2) - 2026-06-23
 

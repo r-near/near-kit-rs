@@ -81,8 +81,9 @@ pub use error::{
 pub use hash::CryptoHash;
 pub use key::{
     DEFAULT_HD_PATH, DEFAULT_WORD_COUNT, KeyPair, KeyType, ML_DSA_65_HASH_LENGTH,
-    ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH, PublicKey,
-    SecretKey, Signature, generate_seed_phrase,
+    ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SECRET_KEY_LENGTH, ML_DSA_65_SEED_LENGTH,
+    ML_DSA_65_SIGNATURE_LENGTH, MlDsa65SecretKey, PublicKey, SecretKey, Signature,
+    generate_seed_phrase,
 };
 pub use network::ChainId;
 pub use rpc::{
