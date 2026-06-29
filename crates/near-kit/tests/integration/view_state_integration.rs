@@ -21,7 +21,7 @@ async fn paginating_sandbox() -> Sandbox {
         .await
 }
 
-/// Deploy the guestbook contract to a fresh account and return its id.
+/// Deploy the guestbook contract to the given (freshly created) account.
 async fn deploy_guestbook(near: &Near, contract_account: &str) {
     let wasm_code = std::fs::read("tests/contracts/guestbook.wasm")
         .expect("guestbook.wasm not found in tests/contracts/");
