@@ -20,6 +20,7 @@ mod offline_signing_integration;
 mod rpc_types_integration;
 mod sandbox_integration;
 mod signer_edge_cases_integration;
+mod stabilized_rpc_integration;
 mod token_error_integration;
 mod token_integration;
 mod tracing_integration;

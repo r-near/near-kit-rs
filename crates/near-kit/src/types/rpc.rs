@@ -247,6 +247,63 @@ pub struct ViewStateResult {
 }
 
 // ============================================================================
+// Stabilized RPC method responses (protocol 2.13)
+// ============================================================================
+
+/// One entry in a [`BlockEffects`] response: which kind of state was touched
+/// for an account in the block.
+///
+/// `block_effects` reports only the *kind* of change per account (no cause or
+/// value), so this is a lighter view than the per-account
+/// `StateChangeWithCauseView`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum StateChangeKindView {
+    /// The account itself (balance, etc.) was touched.
+    AccountTouched {
+        /// The account that was touched.
+        account_id: AccountId,
+    },
+    /// One of the account's access keys was touched.
+    AccessKeyTouched {
+        /// The account that was touched.
+        account_id: AccountId,
+    },
+    /// The account's contract data (storage) was touched.
+    DataTouched {
+        /// The account that was touched.
+        account_id: AccountId,
+    },
+    /// The account's contract code was touched.
+    ContractCodeTouched {
+        /// The account that was touched.
+        account_id: AccountId,
+    },
+}
+
+/// All state changes within a single block, from the `block_effects` RPC
+/// (stabilized name for `EXPERIMENTAL_changes_in_block`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct BlockEffects {
+    /// Hash of the block these changes belong to.
+    pub block_hash: CryptoHash,
+    /// The kinds of state change applied in this block (one entry per touched
+    /// account/state-kind).
+    pub changes: Vec<StateChangeKindView>,
+}
+
+/// A single maintenance window — a half-open block-height range
+/// `[start, end)` during which a validator has no chunk/block production
+/// duties. Returned by the `maintenance_windows` RPC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct MaintenanceWindow {
+    /// First block height of the window (inclusive).
+    pub start: u64,
+    /// Block height the window ends at (exclusive).
+    pub end: u64,
+}
+
+// ============================================================================
 // Block types
 // ============================================================================
 

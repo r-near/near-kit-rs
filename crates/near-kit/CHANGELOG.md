@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AccountContractView`), `ActionView::TransferToGasKey`/`WithdrawFromGasKey`,
   and `AccessKeyPermissionView::GasKeyFunctionCall`/`GasKeyFullAccess`. JSON wire
   format stays back-compatible (V1–V3 metadata omit `contracts`) (protocol 2.13).
+- *(rpc)* thin wrappers for the stabilized 2.13 methods: `RpcClient::block_effects`
+  (→ `BlockEffects`), `RpcClient::genesis_config` (raw JSON), and
+  `RpcClient::maintenance_windows` (→ `Vec<MaintenanceWindow>`). The renamed
+  methods replace the `EXPERIMENTAL_` aliases, which the node still accepts.
 
 ### Changed
 
