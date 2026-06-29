@@ -87,7 +87,10 @@ use crate::client::Near;
 // ============================================================================
 
 const DEFAULT_IMAGE: &str = "nearprotocol/sandbox";
-const DEFAULT_VERSION: &str = "2.12.0";
+// Pinned to a known-good `nearprotocol/sandbox` release-candidate image for
+// protocol 2.13 (v85) so integration tests run against a 2.13 node.
+// TODO: re-pin to a stable `2.13.x` image once one is published.
+const DEFAULT_VERSION: &str = "2.13.0-rc.2";
 
 /// The RPC port exposed by the NEAR sandbox container.
 const RPC_PORT: ContainerPort = ContainerPort::Tcp(3030);
@@ -382,7 +385,22 @@ impl Sandbox {
         near.rpc()
             .sandbox_patch_state(records)
             .await
-            .map_err(|e| crate::Error::Rpc(Box::new(e)))
+            .map_err(|e| crate::Error::Rpc(Box::new(e)))?;
+
+        // `sandbox_patch_state` applies asynchronously and is racy (see the note
+        // in `RpcClient::sandbox_patch_state`). Rather than trust a fixed delay,
+        // poll until the new balance is observable so callers can read it back
+        // immediately. Bounded so a genuinely failed patch still returns.
+        for _ in 0..50 {
+            if let Ok(account) = near.account(&account_id).await
+                && account.amount == balance
+            {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        Ok(())
     }
 
     /// Fast-forward the sandbox by `delta_height` blocks.
