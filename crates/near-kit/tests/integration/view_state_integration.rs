@@ -90,30 +90,31 @@ async fn test_view_state_pagination_reads_all_entries() {
         "second page should start after the first page's cursor"
     );
 
-    // The paginating helper must collect every entry, matching an unpaginated read.
-    let all_paged = near
+    // The paginating helper must collect every entry regardless of page size:
+    // a small explicit limit vs. the node-default page size (page_size = 0).
+    let all_small_pages = near
         .rpc()
         .view_state_all(&contract, &[], 2, BlockReference::final_())
         .await
-        .expect("view_state_all paged");
-    let all_unpaged = near
+        .expect("view_state_all with small pages");
+    let all_default_page = near
         .rpc()
         .view_state_all(&contract, &[], 0, BlockReference::final_())
         .await
-        .expect("view_state_all unpaged");
+        .expect("view_state_all with node-default page size");
 
     assert_eq!(
-        all_paged, all_unpaged,
-        "paginated and single-shot reads must agree"
+        all_small_pages, all_default_page,
+        "small-page and node-default-page reads must collect the same entries"
     );
     assert!(
-        all_paged.len() >= N,
+        all_small_pages.len() >= N,
         "expected at least {N} state entries, got {}",
-        all_paged.len()
+        all_small_pages.len()
     );
 
     // Prefix filtering: every returned key must start with the requested prefix.
-    let prefix = &all_paged[0].key[..1];
+    let prefix = &all_small_pages[0].key[..1];
     let filtered = near
         .rpc()
         .view_state_all(&contract, prefix, 0, BlockReference::final_())
