@@ -87,8 +87,9 @@ use crate::client::Near;
 // ============================================================================
 
 const DEFAULT_IMAGE: &str = "nearprotocol/sandbox";
-// Latest published `nearprotocol/sandbox` tag for protocol 2.13 (v85). A stable
-// `2.13.0` image is not published yet, so we pin the newest release candidate.
+// Pinned to a known-good `nearprotocol/sandbox` release-candidate image for
+// protocol 2.13 (v85) so integration tests run against a 2.13 node.
+// TODO: re-pin to a stable `2.13.x` image once one is published.
 const DEFAULT_VERSION: &str = "2.13.0-rc.2";
 
 /// The RPC port exposed by the NEAR sandbox container.
