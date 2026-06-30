@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- *(types)* `impl IntoGlobalContractId for GlobalContractId` so an
+  already-constructed `GlobalContractId` can be passed directly to `deploy_from`
+  (identity conversion).
 - *(types)* gas-key transacting: `TransactionV1` with `TransactionNonce`
   (incl. `GasKeyNonce { nonce, nonce_index }`) and `NonceMode`, the
   backward-compatible custom borsh scheme (V0 tag-less, V1 `0x01`-tagged),
