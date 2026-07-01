@@ -40,7 +40,8 @@ pub enum PublishMode {
 ///
 /// This allows `deploy_from` to accept either a `CryptoHash` (for immutable
 /// contracts) or an account ID string/`AccountId` (for publisher-updatable contracts),
-/// converting into the canonical [`GlobalContractId`].
+/// converting into the canonical [`GlobalContractId`]. An already-constructed
+/// [`GlobalContractId`] is accepted as-is (identity conversion).
 ///
 /// # Panics
 ///
@@ -48,6 +49,12 @@ pub enum PublishMode {
 /// valid NEAR account ID.
 pub trait IntoGlobalContractId {
     fn into_identifier(self) -> GlobalContractId;
+}
+
+impl IntoGlobalContractId for GlobalContractId {
+    fn into_identifier(self) -> GlobalContractId {
+        self
+    }
 }
 
 impl IntoGlobalContractId for CryptoHash {
@@ -1466,6 +1473,17 @@ mod tests {
         let json = serde_json::to_string(&id).unwrap();
         let decoded: GlobalContractId = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, id);
+    }
+
+    #[test]
+    fn test_global_contract_id_into_identifier_is_identity() {
+        // An already-constructed `GlobalContractId` is accepted by `deploy_from`
+        // and passes through unchanged.
+        let by_hash = GlobalContractId::CodeHash(*CryptoHash::hash(&[1, 2, 3]).as_bytes());
+        assert_eq!(by_hash.clone().into_identifier(), by_hash);
+
+        let by_account = GlobalContractId::AccountId("publisher.near".parse().unwrap());
+        assert_eq!(by_account.clone().into_identifier(), by_account);
     }
 
     #[test]
