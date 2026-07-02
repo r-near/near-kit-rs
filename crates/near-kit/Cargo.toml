@@ -4,9 +4,7 @@ description = "A clean, ergonomic Rust client for NEAR Protocol"
 keywords = ["near", "blockchain", "crypto", "web3"]
 categories = ["api-bindings", "cryptography::cryptocurrencies"]
 readme = "../../README.md"
-
-# Inherit from workspace
-version.workspace = true
+version = "0.12.0-rc.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
