@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.11.2...near-kit-v0.12.0) - 2026-07-02
+
+### Added
+
+- *(types)* impl IntoGlobalContractId for GlobalContractId ([#234](https://github.com/r-near/near-kit-rs/pull/234))
+- *(rpc)* thin wrappers for stabilized 2.13 RPC methods ([#232](https://github.com/r-near/near-kit-rs/pull/232))
+- *(types)* ExecutionMetadata V4 typed contracts field ([#231](https://github.com/r-near/near-kit-rs/pull/231))
+- *(rpc)* view_state with pagination ([#230](https://github.com/r-near/near-kit-rs/pull/230))
+- *(keys)* ML-DSA-65 post-quantum signing support (protocol v85) ([#228](https://github.com/r-near/near-kit-rs/pull/228))
+- *(sandbox)* default image to 2.13.0-rc.2 (protocol v85) ([#225](https://github.com/r-near/near-kit-rs/pull/225))
+- *(types)* Action::DelegateV2 + versioned signed delegate (NEP-611) ([#227](https://github.com/r-near/near-kit-rs/pull/227))
+- *(types)* gas-key transacting (TransactionV1 + custom borsh) ([#226](https://github.com/r-near/near-kit-rs/pull/226))
+
 ### Added
 
 - *(types)* `impl IntoGlobalContractId for GlobalContractId` so an
