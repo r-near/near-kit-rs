@@ -35,6 +35,20 @@
 //! # }
 //! ```
 //!
+//! # Nonces
+//!
+//! NEP-413 defines the nonce as an arbitrary, opaque 32-byte value — the spec attaches no
+//! semantics to it. As a convenience, near-kit's [`generate_nonce()`] embeds a big-endian
+//! millisecond timestamp in the first 8 bytes so that verification can enforce a maximum
+//! signature age. This timestamp embedding is a near-kit convention, not part of the spec.
+//!
+//! By default, [`verify_signature()`] and [`verify()`] assume this convention
+//! ([`NonceValidation::Timestamp`]). If you are verifying messages from an app that uses its
+//! own nonce scheme (e.g. random bytes, or a custom structured nonce), pass
+//! [`NonceValidation::None`] to skip the timestamp interpretation — you are then responsible
+//! for replay protection yourself (e.g. tracking used nonces or validating your own embedded
+//! structure).
+//!
 //! @see <https://github.com/near/NEPs/blob/master/neps/nep-0413.md>
 
 use std::time::Duration;
@@ -70,7 +84,10 @@ pub struct SignMessageParams {
     pub recipient: String,
 
     /// A 32-byte nonce for replay protection.
-    /// Use [`generate_nonce()`] to create one with an embedded timestamp.
+    ///
+    /// Per NEP-413 this is an arbitrary, opaque value — any 32 bytes are valid.
+    /// Use [`generate_nonce()`] to create one with an embedded timestamp
+    /// (a near-kit convention that enables expiration checking during verification).
     pub nonce: [u8; 32],
 
     /// Optional callback URL for web wallets.
@@ -206,13 +223,62 @@ pub struct SignedMessage {
     pub state: Option<String>,
 }
 
+/// How to interpret the nonce during verification.
+///
+/// NEP-413 defines the nonce as an arbitrary, opaque 32-byte value. near-kit's
+/// [`generate_nonce()`] embeds a timestamp in the first 8 bytes as a convention, which
+/// [`NonceValidation::Timestamp`] (the default) checks against a maximum age. Apps using
+/// their own nonce scheme should use [`NonceValidation::None`] and handle replay
+/// protection themselves.
+///
+/// A [`Duration`] converts into this type for convenience: `max_age.into()` yields
+/// `Timestamp { max_age }`, and `Duration::MAX` yields `None` (no expiration checking).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NonceValidation {
+    /// Interpret the first 8 bytes of the nonce as a big-endian millisecond timestamp
+    /// (the near-kit convention produced by [`generate_nonce()`]) and reject signatures
+    /// older than `max_age` or with a timestamp in the future.
+    Timestamp {
+        /// Maximum age for the signature to be considered valid.
+        max_age: Duration,
+    },
+
+    /// Treat the nonce as opaque, per the NEP-413 spec. No interpretation is applied.
+    ///
+    /// The caller is then responsible for nonce validation and replay protection —
+    /// e.g. tracking used nonces server-side, or validating their own embedded
+    /// structure (expiration, versioning, etc.).
+    None,
+}
+
+impl Default for NonceValidation {
+    /// Defaults to [`NonceValidation::Timestamp`] with [`DEFAULT_MAX_AGE`] (5 minutes).
+    fn default() -> Self {
+        Self::Timestamp {
+            max_age: DEFAULT_MAX_AGE,
+        }
+    }
+}
+
+impl From<Duration> for NonceValidation {
+    /// Maps a maximum age to [`NonceValidation::Timestamp`].
+    /// `Duration::MAX` maps to [`NonceValidation::None`] (disables expiration checking).
+    fn from(max_age: Duration) -> Self {
+        if max_age == Duration::MAX {
+            Self::None
+        } else {
+            Self::Timestamp { max_age }
+        }
+    }
+}
+
 /// Options for signature verification.
 #[derive(Debug, Clone)]
 pub struct VerifyOptions {
-    /// Maximum age for the signature to be considered valid.
-    /// Set to `Duration::MAX` to disable expiration checking.
-    /// Default: 5 minutes.
-    pub max_age: Duration,
+    /// How to interpret the nonce. Defaults to [`NonceValidation::Timestamp`] with a
+    /// 5 minute maximum age (matches nonces from [`generate_nonce()`]).
+    /// Use [`NonceValidation::None`] for messages that use a custom nonce scheme.
+    pub nonce_validation: NonceValidation,
 
     /// Whether to verify that the public key belongs to the account
     /// and has full access permission via RPC.
@@ -223,7 +289,7 @@ pub struct VerifyOptions {
 impl Default for VerifyOptions {
     fn default() -> Self {
         Self {
-            max_age: DEFAULT_MAX_AGE,
+            nonce_validation: NonceValidation::default(),
             require_full_access: true,
         }
     }
@@ -238,6 +304,11 @@ impl Default for VerifyOptions {
 /// The nonce structure:
 /// - First 8 bytes: timestamp (milliseconds since epoch, big-endian)
 /// - Remaining 24 bytes: cryptographically random data
+///
+/// This layout is a near-kit convention, not part of NEP-413 — the spec treats the nonce
+/// as an arbitrary, opaque 32-byte value. Nonces produced by this function work with the
+/// default [`NonceValidation::Timestamp`] expiration checking in [`verify_signature()`]
+/// and [`verify()`].
 ///
 /// # Example
 ///
@@ -264,6 +335,10 @@ pub fn generate_nonce() -> [u8; 32] {
 }
 
 /// Extract the timestamp from a nonce (first 8 bytes as big-endian u64 milliseconds).
+///
+/// Only meaningful for nonces that follow the near-kit convention used by
+/// [`generate_nonce()`]. For nonces from other schemes the returned value is
+/// whatever their first 8 bytes happen to contain.
 pub fn extract_timestamp_from_nonce(nonce: &[u8; 32]) -> u64 {
     u64::from_be_bytes(nonce[..8].try_into().unwrap())
 }
@@ -317,20 +392,39 @@ pub fn serialize_message(params: &SignMessageParams) -> CryptoHash {
 ///
 /// This checks:
 /// - The signature is valid for the message
-/// - The signature is not expired (based on nonce timestamp)
+/// - The nonce passes validation ([`NonceValidation::Timestamp`] checks the near-kit
+///   timestamp convention; [`NonceValidation::None`] skips nonce interpretation)
 ///
 /// Does NOT check:
 /// - Whether the public key belongs to the claimed account
 /// - Whether the key has full access permission
 ///
+/// `nonce_validation` accepts a [`NonceValidation`] or a plain [`Duration`] max age
+/// (with `Duration::MAX` disabling expiration checking).
+///
 /// Use [`verify()`] for full verification including RPC checks.
+///
+/// # Custom nonce schemes
+///
+/// NEP-413 nonces are arbitrary 32 bytes; the timestamp layout is only a near-kit
+/// convention. To verify messages from apps that use their own nonce scheme, pass
+/// [`NonceValidation::None`] and handle replay protection yourself:
+///
+/// ```rust,no_run
+/// use near_kit::nep413::{verify_signature, NonceValidation};
+///
+/// # let (signed, params) = todo!();
+/// // The app embeds its own structure in the nonce — don't interpret it as a timestamp.
+/// let is_valid = verify_signature(&signed, &params, NonceValidation::None);
+/// // ...then check params.nonce against your own replay-protection scheme.
+/// ```
 pub fn verify_signature(
     signed: &SignedMessage,
     params: &SignMessageParams,
-    max_age: Duration,
+    nonce_validation: impl Into<NonceValidation>,
 ) -> bool {
-    // Check timestamp expiration if max_age is not infinite
-    if max_age != Duration::MAX {
+    // Check timestamp expiration if the nonce follows the near-kit timestamp convention
+    if let NonceValidation::Timestamp { max_age } = nonce_validation.into() {
         let timestamp_ms = extract_timestamp_from_nonce(&params.nonce);
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -356,7 +450,8 @@ pub fn verify_signature(
 ///
 /// This checks:
 /// - The signature is valid for the message
-/// - The signature is not expired (based on nonce timestamp)
+/// - The nonce passes validation (by default, the near-kit timestamp convention with a
+///   5 minute max age — see [`NonceValidation`])
 /// - The public key belongs to the claimed account (via RPC)
 /// - The key has full access permission (not a function call key)
 ///
@@ -381,6 +476,28 @@ pub fn verify_signature(
 /// # Ok(())
 /// # }
 /// ```
+///
+/// For messages that use a custom nonce scheme (NEP-413 nonces are arbitrary 32 bytes;
+/// the timestamp layout is a near-kit convention), disable nonce interpretation and
+/// handle replay protection yourself:
+///
+/// ```rust,no_run
+/// use near_kit::{Near, nep413};
+/// use near_kit::nep413::{NonceValidation, VerifyOptions};
+///
+/// # async fn example() -> Result<(), near_kit::Error> {
+/// let near = Near::testnet().build();
+///
+/// # let signed = todo!();
+/// # let params = todo!();
+/// let options = VerifyOptions {
+///     nonce_validation: NonceValidation::None,
+///     ..Default::default()
+/// };
+/// let is_valid = nep413::verify(&signed, &params, &near, options).await?;
+/// # Ok(())
+/// # }
+/// ```
 pub async fn verify(
     signed: &SignedMessage,
     params: &SignMessageParams,
@@ -388,7 +505,7 @@ pub async fn verify(
     options: VerifyOptions,
 ) -> Result<bool, Error> {
     // First, do cryptographic verification
-    if !verify_signature(signed, params, options.max_age) {
+    if !verify_signature(signed, params, options.nonce_validation) {
         return Ok(false);
     }
 
@@ -687,6 +804,81 @@ mod tests {
 
         // Should pass with infinite max age
         assert!(verify_signature(&signed, &params, Duration::MAX));
+    }
+
+    #[test]
+    fn test_verify_signature_custom_nonce_scheme() {
+        use crate::types::SecretKey;
+
+        let secret = SecretKey::generate_ed25519();
+
+        // A custom nonce that does NOT follow the near-kit timestamp convention:
+        // the first 8 bytes are garbage as a timestamp (far-future value).
+        let mut custom_nonce = [0u8; 32];
+        custom_nonce[..8].copy_from_slice(&u64::MAX.to_be_bytes());
+        rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut custom_nonce[8..]);
+
+        let params = SignMessageParams {
+            message: "Custom nonce scheme".to_string(),
+            recipient: "intents.near".to_string(),
+            nonce: custom_nonce,
+            callback_url: None,
+            state: None,
+        };
+
+        let hash = serialize_message(&params);
+        let signature = secret.sign(hash.as_bytes());
+
+        let signed = SignedMessage {
+            account_id: "alice.near".parse().unwrap(),
+            public_key: secret.public_key(),
+            signature,
+            state: None,
+        };
+
+        // Fails with the default timestamp validation (first 8 bytes look like a
+        // far-future timestamp)
+        assert!(!verify_signature(
+            &signed,
+            &params,
+            NonceValidation::default()
+        ));
+
+        // Verifies successfully when the nonce is treated as opaque
+        assert!(verify_signature(&signed, &params, NonceValidation::None));
+
+        // Still fails cryptographic verification with a tampered message
+        let wrong_params = SignMessageParams {
+            message: "Tampered".to_string(),
+            ..params
+        };
+        assert!(!verify_signature(
+            &signed,
+            &wrong_params,
+            NonceValidation::None
+        ));
+    }
+
+    #[test]
+    fn test_nonce_validation_from_duration() {
+        // A finite duration maps to timestamp validation with that max age
+        assert_eq!(
+            NonceValidation::from(Duration::from_secs(60)),
+            NonceValidation::Timestamp {
+                max_age: Duration::from_secs(60)
+            }
+        );
+
+        // Duration::MAX preserves the documented "disable expiration" behavior
+        assert_eq!(NonceValidation::from(Duration::MAX), NonceValidation::None);
+
+        // Default matches the previous default behavior
+        assert_eq!(
+            NonceValidation::default(),
+            NonceValidation::Timestamp {
+                max_age: DEFAULT_MAX_AGE
+            }
+        );
     }
 
     /// Test interoperability with TypeScript near-kit implementation.
