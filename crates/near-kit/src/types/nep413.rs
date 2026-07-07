@@ -814,9 +814,8 @@ mod tests {
 
         // A custom nonce that does NOT follow the near-kit timestamp convention:
         // the first 8 bytes are garbage as a timestamp (far-future value).
-        let mut custom_nonce = [0u8; 32];
+        let mut custom_nonce = [7u8; 32];
         custom_nonce[..8].copy_from_slice(&u64::MAX.to_be_bytes());
-        rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut custom_nonce[8..]);
 
         let params = SignMessageParams {
             message: "Custom nonce scheme".to_string(),
