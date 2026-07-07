@@ -433,8 +433,9 @@ pub fn verify_signature(
 
         let age_ms = now_ms.saturating_sub(timestamp_ms);
 
-        // Check if expired or timestamp is in the future (clock skew/tampering)
-        if age_ms > max_age.as_millis() as u64 || timestamp_ms > now_ms {
+        // Check if expired or timestamp is in the future (clock skew/tampering).
+        // Compare in u128 so very large max_age values don't truncate.
+        if u128::from(age_ms) > max_age.as_millis() || timestamp_ms > now_ms {
             return false;
         }
     }
