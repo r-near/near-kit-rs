@@ -620,20 +620,31 @@ impl SandboxBuilder {
     ///
     /// If not specified, the sandbox uses its default chain ID.
     ///
-    /// **Note:** `"mainnet"` and `"testnet"` are not supported — the
-    /// `near-sandbox` binary refuses to run with these chain IDs.
-    /// Use custom chain IDs instead (e.g., `"pinet"` for Private Shard).
+    /// **Note:** `"mainnet"` and `"testnet"` are not supported and will panic.
+    /// `neard` reserves these chain IDs for the real networks and rejects the
+    /// sandbox test-seed during `init`, so the container never passes its
+    /// health check (surfacing only as an opaque container-startup failure).
+    /// Use a custom chain ID instead (e.g. `"localnet"`, or `"pinet"` for
+    /// Private Shard).
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let sandbox = SandboxConfig::builder()
-    ///     .chain_id("pinet")
+    ///     .chain_id("localnet")
     ///     .fresh()
     ///     .await;
     /// ```
     pub fn chain_id(mut self, chain_id: impl Into<String>) -> Self {
-        self.chain_id = Some(chain_id.into());
+        let chain_id = chain_id.into();
+        assert!(
+            !matches!(chain_id.as_str(), "mainnet" | "testnet"),
+            "sandbox chain_id {chain_id:?} is not supported: neard reserves \
+             \"mainnet\"/\"testnet\" for the real networks and rejects the sandbox \
+             test-seed during `init`, so the container never becomes healthy. Use a \
+             custom chain-id (e.g. \"localnet\") instead."
+        );
+        self.chain_id = Some(chain_id);
         self
     }
 
@@ -668,5 +679,32 @@ impl SandboxBuilder {
                 sandbox
             })
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // `neard init` rejects the sandbox test-seed for the reserved "mainnet"/
+    // "testnet" chain IDs, so the container would never become healthy. Reject
+    // these at the call site with a clear message instead of surfacing an opaque
+    // container-startup panic later.
+    #[test]
+    #[should_panic(expected = "not supported")]
+    fn chain_id_mainnet_panics() {
+        let _ = SandboxConfig::builder().chain_id("mainnet");
+    }
+
+    #[test]
+    #[should_panic(expected = "not supported")]
+    fn chain_id_testnet_panics() {
+        let _ = SandboxConfig::builder().chain_id("testnet");
+    }
+
+    #[test]
+    fn chain_id_custom_is_accepted() {
+        let builder = SandboxConfig::builder().chain_id("localnet");
+        assert_eq!(builder.chain_id.as_deref(), Some("localnet"));
     }
 }
