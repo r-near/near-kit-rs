@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0-rc.4](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.12.0-rc.3...near-kit-v0.12.0-rc.4) - 2026-07-13
+
+### Added
+
+- add wasm32 support ([#150](https://github.com/r-near/near-kit-rs/pull/150))
+
 ## [0.12.0-rc.3](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.12.0-rc.2...near-kit-v0.12.0-rc.3) - 2026-07-13
 
 ### Added
