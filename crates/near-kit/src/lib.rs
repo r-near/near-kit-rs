@@ -375,10 +375,31 @@
 //! ```
 //!
 //! If you're running `wasm32-unknown-unknown` outside a JS host, leave `js` off and
-//! register your own `getrandom` backend following the
-//! [`getrandom` docs](https://docs.rs/getrandom) instead — forcing the browser backend
-//! would break your runtime. (WASI targets like `wasm32-wasip1` don't need any of
-//! this: `getrandom` supports them natively, so leave `js` off there too.)
+//! register your own `getrandom` backend instead (see below) — forcing the browser
+//! backend would break your runtime. (WASI targets like `wasm32-wasip1` don't need any
+//! of this: `getrandom` supports them natively, so leave `js` off there too.)
+//!
+//! ### Custom entropy backends
+//!
+//! Non-JS `wasm32-unknown-unknown` embedders must provide entropy for both `getrandom`
+//! major versions in near-kit's dependency graph: 0.2 (via `rand`/`ed25519-dalek`/`k256`)
+//! and 0.4 (via `ml-dsa`/`sha2`/`hmac`).
+//!
+//! ```toml
+//! [dependencies]
+//! near-kit = { version = "0.12", default-features = false }
+//! getrandom = { version = "0.2", features = ["custom"] }
+//! ```
+//!
+//! For getrandom 0.2, the `custom` feature suppresses its wasm compile error; register
+//! your entropy function with its `register_custom_getrandom!` macro. For getrandom 0.4,
+//! build with `RUSTFLAGS='--cfg getrandom_backend="custom"'` and export an `extern
+//! "Rust"` fn named `__getrandom_v03_custom` returning `Result<(), getrandom::Error>` —
+//! note the `v03`: getrandom 0.4 kept the 0.3 symbol name, so `_v04_` won't link. See
+//! the [`getrandom` docs](https://docs.rs/getrandom) for the exact signature. If your
+//! application never generates keys or nonces, `--cfg getrandom_backend="unsupported"`
+//! also works for 0.4: it compiles everywhere and errors at runtime if entropy is ever
+//! requested.
 //!
 //! ## Feature Flags
 //!
