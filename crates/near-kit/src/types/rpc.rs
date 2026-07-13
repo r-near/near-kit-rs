@@ -653,12 +653,13 @@ pub enum FinalExecutionStatus {
 ///   node returns no execution outcome at these early levels, so `outcome` is
 ///   [`None`].
 /// - Via [`Near::tx_status`](crate::Near::tx_status) (the `EXPERIMENTAL_tx_status`
-///   RPC): the node returns the *partial* outcome as soon as it has one — its
+///   RPC): the node returns the execution outcome as soon as it has one — its
 ///   `receipts_outcome` (per-receipt status) and `receipts` (so a receiver_id
 ///   can be mapped to a UI stage) — even at `Submitted`/`Included`. `outcome` is
-///   [`Some`] once that data exists. This is what lets a frontend poll
-///   `tx_status` at an early wait level to drive a progressive UI without
-///   blocking for finality.
+///   [`Some`] once that data exists. It is *partial* while the transaction is
+///   still running and *complete* once it has finished (e.g. when polling a tx
+///   that already settled). This is what lets a frontend poll `tx_status` at an
+///   early wait level to drive a progressive UI without blocking for finality.
 ///
 /// The outcome is exposed as-is (not validated); inspect
 /// [`FinalExecutionOutcome::status`] to see how far execution has progressed.
@@ -693,10 +694,12 @@ pub struct SendTxResponse {
     pub transaction_hash: CryptoHash,
     /// Account ID of the transaction signer.
     pub sender_id: AccountId,
-    /// Partial execution outcome, when the RPC returned one.
+    /// Execution outcome, when the RPC returned one.
     ///
-    /// Populated (with `receipts_outcome`/`receipts`) when this response comes
-    /// from [`Near::tx_status`](crate::Near::tx_status) and the node already has
+    /// May be partial (while the transaction is still executing) or complete
+    /// (when polling a tx that has already finished). Populated (with
+    /// `receipts_outcome`/`receipts`) when this response comes from
+    /// [`Near::tx_status`](crate::Near::tx_status) and the node already has
     /// outcome data; [`None`] for the `send_tx` path at these early wait levels.
     /// See the [type-level docs](SendTxResponse) for details.
     pub outcome: Option<FinalExecutionOutcome>,
