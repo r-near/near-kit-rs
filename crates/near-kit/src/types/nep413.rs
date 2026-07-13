@@ -302,9 +302,10 @@ impl Default for VerifyOptions {
 /// Current time in milliseconds since the Unix epoch.
 ///
 /// `std::time::SystemTime::now()` panics on `wasm32-unknown-unknown` (there's no OS
-/// clock without a JS shim), so wasm32 uses `js_sys::Date::now()` instead.
+/// clock without a JS shim), so that target uses `js_sys::Date::now()` instead.
+/// WASI targets have a real clock and take the `SystemTime` path.
 fn now_millis() -> u64 {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -312,7 +313,7 @@ fn now_millis() -> u64 {
             .as_millis() as u64
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
         js_sys::Date::now() as u64
     }

@@ -364,19 +364,21 @@
 //! APIs unavailable in the browser); use [`InMemorySigner`] or [`EnvSigner`] instead.
 //!
 //! `near-kit` relies on `getrandom` (via `rand`, `ed25519-dalek`, `k256`, and `ml-dsa`)
-//! for key generation and nonce randomness. On `wasm32`, `getrandom` requires the
-//! embedder to pick an entropy backend. If your wasm target runs in a browser, enable
-//! the `js` feature to use the browser's `crypto.getRandomValues`:
+//! for key generation and nonce randomness. On `wasm32-unknown-unknown`, `getrandom`
+//! requires the embedder to pick an entropy backend. If your wasm target runs in a
+//! browser (or another JS host like Node or Deno), enable the `js` feature to use the
+//! host's `crypto.getRandomValues`:
 //!
 //! ```toml
 //! [dependencies]
 //! near-kit = { version = "0.12", default-features = false, features = ["js"] }
 //! ```
 //!
-//! If you're targeting a non-browser wasm runtime (e.g. a custom host, or
-//! `wasm32-wasip1`), leave `js` off and register your own `getrandom` backend
-//! following the [`getrandom` docs](https://docs.rs/getrandom) instead — forcing the
-//! browser backend would break your runtime.
+//! If you're running `wasm32-unknown-unknown` outside a JS host, leave `js` off and
+//! register your own `getrandom` backend following the
+//! [`getrandom` docs](https://docs.rs/getrandom) instead — forcing the browser backend
+//! would break your runtime. (WASI targets like `wasm32-wasip1` don't need any of
+//! this: `getrandom` supports them natively, so leave `js` off there too.)
 //!
 //! ## Feature Flags
 //!
@@ -385,7 +387,7 @@
 //! | `keyring` | Yes | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
 //! | `file-signer` | Yes | [`FileSigner`] for loading keys from `~/.near-credentials` |
 //! | `sandbox` | No | Integration with `near-sandbox` for local testing |
-//! | `js` | No | Browser entropy backend (`getrandom`'s `js`/`wasm_js`) for `wasm32` targets |
+//! | `js` | No | JS-host entropy backend (`getrandom`'s `js`/`wasm_js`) for `wasm32-unknown-unknown` |
 //!
 //! ## Error Handling
 //!

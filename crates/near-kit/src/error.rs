@@ -295,15 +295,16 @@ impl RpcError {
     pub fn is_retryable(&self) -> bool {
         match self {
             RpcError::Http(e) => {
-                // `is_connect()` is unavailable on the wasm fetch backend (no hyper
-                // connector); `is_request()` covers transport-level failures there
-                // (e.g. offline, DNS, connection reset) so retries still work.
+                // `is_connect()` doesn't exist on reqwest's JS fetch backend
+                // (`wasm32-unknown-unknown` — no hyper connector); `is_request()`
+                // covers transport-level failures there (e.g. offline, DNS,
+                // connection reset) so retries still work.
                 e.is_timeout() || {
-                    #[cfg(not(target_arch = "wasm32"))]
+                    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
                     {
                         e.is_connect()
                     }
-                    #[cfg(target_arch = "wasm32")]
+                    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
                     {
                         e.is_request()
                     }

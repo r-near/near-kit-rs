@@ -460,7 +460,8 @@ impl Signer for InMemorySigner {
 ///
 /// Compatible with credentials created by near-cli and near-cli-rs.
 ///
-/// Requires the `file-signer` feature (enabled by default, not available on wasm).
+/// Requires the `file-signer` feature (enabled by default; not usable on
+/// `wasm32-unknown-unknown`, which has no filesystem).
 ///
 /// # Example
 ///

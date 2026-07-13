@@ -1,37 +1,40 @@
-//! Platform-conditional trait bounds for wasm32 compatibility.
+//! Platform-conditional trait bounds for JS-host wasm compatibility.
 //!
-//! On native targets, futures must be `Send` and trait objects must be `Send + Sync`.
-//! On wasm32, there are no threads, so these bounds are unnecessary (and often
-//! impossible to satisfy with browser APIs).
+//! On most targets, futures must be `Send` and trait objects must be `Send + Sync`.
+//! On `wasm32-unknown-unknown` (browsers and other JS hosts), there are no threads,
+//! so these bounds are unnecessary (and often impossible to satisfy with browser
+//! APIs). WASI targets (`wasm32-wasip1`/`p2`) keep the regular bounds.
 
 use std::future::Future;
 use std::pin::Pin;
 
-/// A boxed future that is `Send` on native and `!Send` on wasm32.
-#[cfg(not(target_arch = "wasm32"))]
+/// A boxed future that is `Send` everywhere except `wasm32-unknown-unknown`.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
-/// Trait alias: `Send` on native, unconditional on wasm32.
-#[cfg(not(target_arch = "wasm32"))]
+/// Trait alias: `Send` everywhere except `wasm32-unknown-unknown`, where it's
+/// unconditional.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub(crate) trait MaybeSend: Send {}
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 impl<T: Send> MaybeSend for T {}
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub(crate) trait MaybeSend {}
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 impl<T> MaybeSend for T {}
 
-/// Trait alias: `Sync` on native, unconditional on wasm32.
-#[cfg(not(target_arch = "wasm32"))]
+/// Trait alias: `Sync` everywhere except `wasm32-unknown-unknown`, where it's
+/// unconditional.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub(crate) trait MaybeSync: Sync {}
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 impl<T: Sync> MaybeSync for T {}
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub(crate) trait MaybeSync {}
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 impl<T> MaybeSync for T {}

@@ -17,16 +17,16 @@ use crate::types::{
 
 /// Platform-appropriate async sleep, used for retry backoff.
 ///
-/// Dispatches to `tokio::time::sleep` on native and `gloo-timers` on wasm32,
-/// since wasm32 has no OS timer APIs and the crate's minimal wasm tokio
-/// feature set doesn't include `time`.
+/// Dispatches to `tokio::time::sleep` everywhere except `wasm32-unknown-unknown`,
+/// which has no OS timer APIs and uses the JS host's timers via `gloo-timers`
+/// instead. WASI targets take the tokio path.
 async fn async_sleep(duration: Duration) {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     {
         tokio::time::sleep(duration).await;
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
         gloo_timers::future::sleep(duration).await;
     }
