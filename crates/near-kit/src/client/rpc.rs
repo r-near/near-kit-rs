@@ -15,6 +15,23 @@ use crate::types::{
     ViewFunctionResult, ViewStateResult,
 };
 
+/// Platform-appropriate async sleep, used for retry backoff.
+///
+/// Dispatches to `tokio::time::sleep` on native and `gloo-timers` on wasm32,
+/// since wasm32 has no OS timer APIs and the crate's minimal wasm tokio
+/// feature set doesn't include `time`.
+async fn async_sleep(duration: Duration) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        tokio::time::sleep(duration).await;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        gloo_timers::future::sleep(duration).await;
+    }
+}
+
 /// Network configuration presets.
 pub struct NetworkConfig {
     /// The RPC URL for this network.
@@ -184,7 +201,7 @@ impl RpcClient {
                         error = %e,
                         "RPC request failed, retrying"
                     );
-                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                    async_sleep(Duration::from_millis(delay)).await;
                     continue;
                 }
                 Err(e) => {
@@ -888,7 +905,7 @@ impl RpcClient {
             .await?;
 
         // Small delay to allow state to propagate - sandbox patch_state has race conditions
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        async_sleep(std::time::Duration::from_millis(100)).await;
 
         Ok(())
     }

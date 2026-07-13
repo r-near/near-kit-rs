@@ -357,12 +357,35 @@
 //! }
 //! ```
 //!
+//! ## WebAssembly support
+//!
+//! `near-kit` compiles for `wasm32-unknown-unknown` (Dioxus, Leptos, Yew, etc.) with
+//! `default-features = false`. This disables `keyring` and `file-signer` (both use OS
+//! APIs unavailable in the browser); use [`InMemorySigner`] or [`EnvSigner`] instead.
+//!
+//! `near-kit` relies on `getrandom` (via `rand`, `ed25519-dalek`, `k256`, and `ml-dsa`)
+//! for key generation and nonce randomness. On `wasm32`, `getrandom` requires the
+//! embedder to pick an entropy backend. If your wasm target runs in a browser, enable
+//! the `js` feature to use the browser's `crypto.getRandomValues`:
+//!
+//! ```toml
+//! [dependencies]
+//! near-kit = { version = "0.12", default-features = false, features = ["js"] }
+//! ```
+//!
+//! If you're targeting a non-browser wasm runtime (e.g. a custom host, or
+//! `wasm32-wasip1`), leave `js` off and register your own `getrandom` backend
+//! following the [`getrandom` docs](https://docs.rs/getrandom) instead — forcing the
+//! browser backend would break your runtime.
+//!
 //! ## Feature Flags
 //!
-//! | Feature | Description |
-//! |---------|-------------|
-//! | `sandbox` | Integration with `near-sandbox` for local testing |
-//! | `keyring` | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
+//! | Feature | Default | Description |
+//! |---------|---------|-------------|
+//! | `keyring` | Yes | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
+//! | `file-signer` | Yes | [`FileSigner`] for loading keys from `~/.near-credentials` |
+//! | `sandbox` | No | Integration with `near-sandbox` for local testing |
+//! | `js` | No | Browser entropy backend (`getrandom`'s `js`/`wasm_js`) for `wasm32` targets |
 //!
 //! ## Error Handling
 //!
@@ -389,6 +412,7 @@
 pub mod client;
 pub mod contract;
 pub mod error;
+mod platform;
 pub mod tokens;
 pub mod types;
 
@@ -407,10 +431,13 @@ pub use contract::{Contract, ContractClient};
 // Re-export client types
 pub use client::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, CallBuilder, DelegateOptions,
-    DelegateResult, EnvSigner, FileSigner, FunctionCall, InMemorySigner, Near, NearBuilder,
-    RetryConfig, RotatingSigner, RpcClient, SandboxNetwork, Signer, SigningKey, TransactionBuilder,
+    DelegateResult, EnvSigner, FunctionCall, InMemorySigner, Near, NearBuilder, RetryConfig,
+    RotatingSigner, RpcClient, SandboxNetwork, Signer, SigningKey, TransactionBuilder,
     TransactionSend, ViewCall, ViewCallBorsh,
 };
+
+#[cfg(feature = "file-signer")]
+pub use client::FileSigner;
 
 #[cfg(feature = "keyring")]
 pub use client::KeyringSigner;

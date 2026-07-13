@@ -31,9 +31,8 @@
 //! # }
 //! ```
 
-use std::future::Future;
+#[cfg(feature = "file-signer")]
 use std::path::Path;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -232,11 +231,11 @@ impl std::fmt::Debug for SigningKey {
 ///
 /// This allows different implementations (in-memory, hardware wallet, KMS)
 /// to provide signing capability.
-trait SigningBackend: Send + Sync {
+trait SigningBackend: crate::platform::MaybeSend + crate::platform::MaybeSync {
     fn sign(
         &self,
         message: &[u8],
-    ) -> Pin<Box<dyn Future<Output = Result<Signature, SignerError>> + Send + '_>>;
+    ) -> crate::platform::BoxFuture<'_, Result<Signature, SignerError>>;
 }
 
 /// In-memory signing backend using a secret key.
@@ -248,7 +247,7 @@ impl SigningBackend for SecretKeyBackend {
     fn sign(
         &self,
         message: &[u8],
-    ) -> Pin<Box<dyn Future<Output = Result<Signature, SignerError>> + Send + '_>> {
+    ) -> crate::platform::BoxFuture<'_, Result<Signature, SignerError>> {
         let sig = self.secret_key.sign(message);
         Box::pin(async move { Ok(sig) })
     }
@@ -461,6 +460,8 @@ impl Signer for InMemorySigner {
 ///
 /// Compatible with credentials created by near-cli and near-cli-rs.
 ///
+/// Requires the `file-signer` feature (enabled by default, not available on wasm).
+///
 /// # Example
 ///
 /// ```rust,no_run
@@ -469,18 +470,21 @@ impl Signer for InMemorySigner {
 /// // Load from ~/.near-credentials/testnet/alice.testnet.json
 /// let signer = FileSigner::new("testnet", "alice.testnet").unwrap();
 /// ```
+#[cfg(feature = "file-signer")]
 #[derive(Clone)]
 pub struct FileSigner {
     inner: InMemorySigner,
 }
 
 /// Credential file format compatible with near-cli.
+#[cfg(feature = "file-signer")]
 #[derive(serde::Deserialize)]
 struct CredentialFile {
     #[serde(alias = "secret_key")]
     private_key: String,
 }
 
+#[cfg(feature = "file-signer")]
 impl FileSigner {
     /// Load credentials for an account from the standard NEAR credentials directory.
     ///
@@ -554,6 +558,7 @@ impl FileSigner {
     }
 }
 
+#[cfg(feature = "file-signer")]
 impl std::fmt::Debug for FileSigner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FileSigner")
@@ -563,6 +568,7 @@ impl std::fmt::Debug for FileSigner {
     }
 }
 
+#[cfg(feature = "file-signer")]
 impl Signer for FileSigner {
     fn account_id(&self) -> &AccountId {
         self.inner.account_id()
