@@ -15,7 +15,8 @@
 //!     .wait_until(Final)
 //!     .await?;
 //!
-//! // Non-executed levels — returns SendTxResponse (hash + sender)
+//! // Non-executed levels — returns SendTxResponse (hash + sender, plus any
+//! // partial outcome the RPC has already produced)
 //! let response = near.transfer("bob.testnet", NearToken::from_near(1))
 //!     .wait_until(Included)
 //!     .await?;
@@ -53,7 +54,9 @@ pub trait WaitLevel: sealed::Sealed + Send + Sync + 'static {
     ///
     /// For executed levels, this extracts the outcome and checks for
     /// `InvalidTxError`. For non-executed levels, this builds a
-    /// [`SendTxResponse`] with the transaction hash and sender ID.
+    /// [`SendTxResponse`] with the transaction hash, sender ID, and any partial
+    /// execution outcome the RPC returned (present from `EXPERIMENTAL_tx_status`,
+    /// absent from `send_tx`).
     #[doc(hidden)]
     fn convert(
         response: RawTransactionResponse,
@@ -65,9 +68,26 @@ pub trait WaitLevel: sealed::Sealed + Send + Sync + 'static {
 // Non-executed wait levels → SendTxResponse
 // =============================================================================
 
+/// Build a [`SendTxResponse`], carrying through any partial execution outcome.
+///
+/// The outcome is present when the response comes from `EXPERIMENTAL_tx_status`
+/// (which returns `receipts_outcome`/`receipts` even at early wait levels) and
+/// absent when it comes from `send_tx` (which returns no outcome at these
+/// levels). The outcome is passed through as-is — not validated — so callers can
+/// inspect partial progress; final-status validation happens at executed levels.
+fn send_tx_response(response: RawTransactionResponse, sender_id: &AccountId) -> SendTxResponse {
+    SendTxResponse {
+        transaction_hash: response.transaction_hash,
+        sender_id: sender_id.clone(),
+        outcome: response.outcome,
+    }
+}
+
 /// Don't wait, return immediately after the RPC accepts the transaction.
 ///
-/// Returns [`SendTxResponse`] (no execution outcome available).
+/// Returns [`SendTxResponse`]. Its `outcome` is populated when polled via
+/// [`Near::tx_status`](crate::Near::tx_status) and the node already has receipt
+/// data; it is [`None`] on the `send_tx` path.
 ///
 /// Named `Submitted` instead of `None` to avoid shadowing `Option::None`.
 #[derive(Clone, Copy, Debug)]
@@ -83,16 +103,15 @@ impl WaitLevel for Submitted {
         response: RawTransactionResponse,
         sender_id: &AccountId,
     ) -> Result<Self::Response, Error> {
-        Ok(SendTxResponse {
-            transaction_hash: response.transaction_hash,
-            sender_id: sender_id.clone(),
-        })
+        Ok(send_tx_response(response, sender_id))
     }
 }
 
 /// Wait for the transaction to be included in a block.
 ///
-/// Returns [`SendTxResponse`] (no execution outcome available).
+/// Returns [`SendTxResponse`]. Its `outcome` is populated when polled via
+/// [`Near::tx_status`](crate::Near::tx_status) and the node already has receipt
+/// data; it is [`None`] on the `send_tx` path.
 #[derive(Clone, Copy, Debug)]
 pub struct Included;
 
@@ -106,16 +125,15 @@ impl WaitLevel for Included {
         response: RawTransactionResponse,
         sender_id: &AccountId,
     ) -> Result<Self::Response, Error> {
-        Ok(SendTxResponse {
-            transaction_hash: response.transaction_hash,
-            sender_id: sender_id.clone(),
-        })
+        Ok(send_tx_response(response, sender_id))
     }
 }
 
 /// Wait for the transaction's block to reach finality.
 ///
-/// Returns [`SendTxResponse`] (no execution outcome available).
+/// Returns [`SendTxResponse`]. Its `outcome` is populated when polled via
+/// [`Near::tx_status`](crate::Near::tx_status) and the node already has receipt
+/// data; it is [`None`] on the `send_tx` path.
 #[derive(Clone, Copy, Debug)]
 pub struct IncludedFinal;
 
@@ -129,10 +147,7 @@ impl WaitLevel for IncludedFinal {
         response: RawTransactionResponse,
         sender_id: &AccountId,
     ) -> Result<Self::Response, Error> {
-        Ok(SendTxResponse {
-            transaction_hash: response.transaction_hash,
-            sender_id: sender_id.clone(),
-        })
+        Ok(send_tx_response(response, sender_id))
     }
 }
 

@@ -431,6 +431,68 @@ async fn test_tx_status_with_receipts() {
     }
 }
 
+/// At an early wait level, `tx_status` must surface the partial execution
+/// outcome (receipts_outcome/receipts) instead of dropping it.
+///
+/// `EXPERIMENTAL_tx_status` returns receipt data even at `Included`/`Submitted`
+/// (the wait level only controls how long the server blocks, not whether it
+/// returns an outcome), so a frontend can poll here to drive a progressive UI.
+/// The transaction is settled first so the outcome is deterministically present.
+#[tokio::test]
+async fn test_tx_status_early_wait_level_surfaces_receipts() {
+    let sandbox = SandboxConfig::shared().await;
+    let near = sandbox.client();
+
+    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+
+    // Execute a transaction and let it settle.
+    let receiver_key = SecretKey::generate_ed25519();
+    let receiver_id = unique_account();
+
+    let outcome = near
+        .transaction(&receiver_id)
+        .create_account()
+        .transfer(NearToken::from_near(2))
+        .add_full_access_key(receiver_key.public_key())
+        .send()
+        .wait_until(Final)
+        .await
+        .unwrap();
+
+    let tx_hash = outcome.transaction_hash();
+
+    // Poll at an early wait level (Included). Previously this dropped the
+    // outcome and returned only hash + sender; now it carries the partial
+    // outcome so the receipts are reachable.
+    let response: SendTxResponse = near
+        .tx_status(tx_hash, &root_account, Included)
+        .await
+        .unwrap();
+
+    assert_eq!(&response.transaction_hash, tx_hash);
+    assert_eq!(response.sender_id, root_account);
+
+    let partial = response
+        .outcome
+        .expect("tx_status at Included should surface the partial outcome, not drop it");
+
+    assert!(
+        !partial.receipts_outcome.is_empty(),
+        "early-level tx_status should expose receipts_outcome for progressive UI"
+    );
+    // EXPERIMENTAL_tx_status also populates full receipt details.
+    assert!(
+        !partial.receipts.is_empty(),
+        "early-level tx_status should expose receipts (receiver_id -> stage mapping)"
+    );
+
+    println!(
+        "Included-level tx_status surfaced {} receipt outcomes / {} receipts",
+        partial.receipts_outcome.len(),
+        partial.receipts.len()
+    );
+}
+
 // ============================================================================
 // Gas Price Tests
 // ============================================================================

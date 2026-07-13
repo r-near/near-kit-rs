@@ -898,7 +898,12 @@ impl Near {
     ///   (with `receipts` populated)
     /// - Non-executed levels ([`Submitted`](crate::types::Submitted),
     ///   [`Included`](crate::types::Included), [`IncludedFinal`](crate::types::IncludedFinal))
-    ///   → [`SendTxResponse`](crate::types::SendTxResponse)
+    ///   → [`SendTxResponse`](crate::types::SendTxResponse), whose
+    ///   [`outcome`](crate::types::SendTxResponse::outcome) carries the *partial*
+    ///   execution outcome (`receipts_outcome`/`receipts`) as soon as the node
+    ///   has it. Unlike `send_tx`, `EXPERIMENTAL_tx_status` returns receipt data
+    ///   even at these early levels, so a frontend can poll here to drive a
+    ///   progressive UI without blocking for finality.
     ///
     /// # Example
     ///
@@ -908,6 +913,12 @@ impl Near {
     /// let outcome = near.tx_status(&tx_hash, "alice.testnet", Final).await?;
     /// println!("Gas used: {}", outcome.total_gas_used());
     /// println!("Receipts: {}", outcome.receipts.len());
+    ///
+    /// // Poll at an early level for progressive per-receipt status:
+    /// let status = near.tx_status(&tx_hash, "alice.testnet", Included).await?;
+    /// if let Some(partial) = &status.outcome {
+    ///     println!("Receipts so far: {}", partial.receipts_outcome.len());
+    /// }
     /// # Ok(())
     /// # }
     /// ```

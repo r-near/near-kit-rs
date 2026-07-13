@@ -1620,6 +1620,7 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                             // W::convert handles the response appropriately:
                             // - Executed levels: extract outcome, check for InvalidTxError
                             // - Non-executed levels: build SendTxResponse with hash + sender
+                            //   (send_tx returns no outcome at these levels, so it stays None)
                             return W::convert(response, &signer_id);
                         }
                         Err(RpcError::InvalidTx(

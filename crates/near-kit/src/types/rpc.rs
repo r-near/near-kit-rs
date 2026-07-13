@@ -640,9 +640,28 @@ pub enum FinalExecutionStatus {
 ///
 /// When you use a non-executed wait level ([`Submitted`](crate::types::Submitted),
 /// [`Included`](crate::types::Included), [`IncludedFinal`](crate::types::IncludedFinal)),
-/// the transaction hasn't been executed yet so there's no outcome to return.
-/// This type gives you the information needed to poll for the result later
-/// via [`Near::tx_status`](crate::Near::tx_status).
+/// the transaction hasn't finished executing, so this type carries the
+/// information needed to poll for the final result later via
+/// [`Near::tx_status`](crate::Near::tx_status).
+///
+/// # The `outcome` field
+///
+/// Whether a (partial) execution outcome is available depends on which RPC
+/// produced the response, not on the wait level alone:
+///
+/// - Via [`Near::send`](crate::Near::send) / `.send()` (the `send_tx` RPC): the
+///   node returns no execution outcome at these early levels, so `outcome` is
+///   [`None`].
+/// - Via [`Near::tx_status`](crate::Near::tx_status) (the `EXPERIMENTAL_tx_status`
+///   RPC): the node returns the *partial* outcome as soon as it has one — its
+///   `receipts_outcome` (per-receipt status) and `receipts` (so a receiver_id
+///   can be mapped to a UI stage) — even at `Submitted`/`Included`. `outcome` is
+///   [`Some`] once that data exists. This is what lets a frontend poll
+///   `tx_status` at an early wait level to drive a progressive UI without
+///   blocking for finality.
+///
+/// The outcome is exposed as-is (not validated); inspect
+/// [`FinalExecutionOutcome::status`] to see how far execution has progressed.
 ///
 /// # Example
 ///
@@ -653,12 +672,18 @@ pub enum FinalExecutionStatus {
 ///     .wait_until(Included)
 ///     .await?;
 ///
-/// // Later, poll for the full outcome:
-/// let outcome = near.tx_status(
+/// // Later, poll for progress without waiting for finality. At early wait
+/// // levels EXPERIMENTAL_tx_status still returns per-receipt data:
+/// let status = near.tx_status(
 ///     &response.transaction_hash,
 ///     &response.sender_id,
-///     Final,
+///     Included,
 /// ).await?;
+/// if let Some(outcome) = &status.outcome {
+///     for receipt_outcome in &outcome.receipts_outcome {
+///         // drive a progressive UI from each receipt's status
+///     }
+/// }
 /// # Ok(())
 /// # }
 /// ```
@@ -668,6 +693,13 @@ pub struct SendTxResponse {
     pub transaction_hash: CryptoHash,
     /// Account ID of the transaction signer.
     pub sender_id: AccountId,
+    /// Partial execution outcome, when the RPC returned one.
+    ///
+    /// Populated (with `receipts_outcome`/`receipts`) when this response comes
+    /// from [`Near::tx_status`](crate::Near::tx_status) and the node already has
+    /// outcome data; [`None`] for the `send_tx` path at these early wait levels.
+    /// See the [type-level docs](SendTxResponse) for details.
+    pub outcome: Option<FinalExecutionOutcome>,
 }
 
 /// Response from `EXPERIMENTAL_receipt_to_tx`: the transaction that produced a receipt.
