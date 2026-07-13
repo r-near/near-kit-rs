@@ -294,7 +294,22 @@ impl RpcError {
     /// Check if this error is retryable.
     pub fn is_retryable(&self) -> bool {
         match self {
-            RpcError::Http(e) => e.is_timeout() || e.is_connect(),
+            RpcError::Http(e) => {
+                // `is_connect()` doesn't exist on reqwest's JS fetch backend
+                // (`wasm32-unknown-unknown` — no hyper connector); `is_request()`
+                // covers transport-level failures there (e.g. offline, DNS,
+                // connection reset) so retries still work.
+                e.is_timeout() || {
+                    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+                    {
+                        e.is_connect()
+                    }
+                    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+                    {
+                        e.is_request()
+                    }
+                }
+            }
             RpcError::Timeout(_) => true,
             RpcError::Network { retryable, .. } => *retryable,
             RpcError::ShardUnavailable(_) => true,

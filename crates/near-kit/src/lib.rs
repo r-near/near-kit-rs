@@ -357,12 +357,58 @@
 //! }
 //! ```
 //!
+//! ## WebAssembly support
+//!
+//! `near-kit` compiles for `wasm32-unknown-unknown` (Dioxus, Leptos, Yew, etc.) with
+//! `default-features = false`. This disables `keyring` and `file-signer` (both use OS
+//! APIs unavailable in the browser); use [`InMemorySigner`] or [`EnvSigner`] instead.
+//!
+//! `near-kit` relies on `getrandom` (via `rand`, `ed25519-dalek`, `k256`, and `ml-dsa`)
+//! for key generation and nonce randomness. On `wasm32-unknown-unknown`, `getrandom`
+//! requires the embedder to pick an entropy backend. If your wasm target runs in a
+//! browser (or another JS host like Node or Deno), enable the `js` feature to use the
+//! host's `crypto.getRandomValues`:
+//!
+//! ```toml
+//! [dependencies]
+//! near-kit = { version = "0.12", default-features = false, features = ["js"] }
+//! ```
+//!
+//! If you're running `wasm32-unknown-unknown` outside a JS host, leave `js` off and
+//! register your own `getrandom` backend instead (see below) — forcing the browser
+//! backend would break your runtime. (WASI targets like `wasm32-wasip1` don't need any
+//! of this: `getrandom` supports them natively, so leave `js` off there too.)
+//!
+//! ### Custom entropy backends
+//!
+//! Non-JS `wasm32-unknown-unknown` embedders must provide entropy for both `getrandom`
+//! major versions in near-kit's dependency graph: 0.2 (via `rand`/`ed25519-dalek`/`k256`)
+//! and 0.4 (via `ml-dsa`/`sha2`/`hmac`).
+//!
+//! ```toml
+//! [dependencies]
+//! near-kit = { version = "0.12", default-features = false }
+//! getrandom = { version = "0.2", features = ["custom"] }
+//! ```
+//!
+//! For getrandom 0.2, the `custom` feature suppresses its wasm compile error; register
+//! your entropy function with its `register_custom_getrandom!` macro. For getrandom 0.4,
+//! build with `RUSTFLAGS='--cfg getrandom_backend="custom"'` and export an `extern
+//! "Rust"` fn named `__getrandom_v03_custom` returning `Result<(), getrandom::Error>` —
+//! note the `v03`: getrandom 0.4 kept the 0.3 symbol name, so `_v04_` won't link. See
+//! the [`getrandom` docs](https://docs.rs/getrandom) for the exact signature. If your
+//! application never generates keys or nonces, `--cfg getrandom_backend="unsupported"`
+//! also works for 0.4: it compiles everywhere and errors at runtime if entropy is ever
+//! requested.
+//!
 //! ## Feature Flags
 //!
-//! | Feature | Description |
-//! |---------|-------------|
-//! | `sandbox` | Integration with `near-sandbox` for local testing |
-//! | `keyring` | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
+//! | Feature | Default | Description |
+//! |---------|---------|-------------|
+//! | `keyring` | Yes | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
+//! | `file-signer` | Yes | [`FileSigner`] for loading keys from `~/.near-credentials` |
+//! | `sandbox` | No | Integration with `near-sandbox` for local testing |
+//! | `js` | No | JS-host entropy backend (`getrandom`'s `js`/`wasm_js`) for `wasm32-unknown-unknown` |
 //!
 //! ## Error Handling
 //!
@@ -389,6 +435,7 @@
 pub mod client;
 pub mod contract;
 pub mod error;
+mod platform;
 pub mod tokens;
 pub mod types;
 
@@ -407,10 +454,13 @@ pub use contract::{Contract, ContractClient};
 // Re-export client types
 pub use client::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, CallBuilder, DelegateOptions,
-    DelegateResult, EnvSigner, FileSigner, FunctionCall, InMemorySigner, Near, NearBuilder,
-    RetryConfig, RotatingSigner, RpcClient, SandboxNetwork, Signer, SigningKey, TransactionBuilder,
+    DelegateResult, EnvSigner, FunctionCall, InMemorySigner, Near, NearBuilder, RetryConfig,
+    RotatingSigner, RpcClient, SandboxNetwork, Signer, SigningKey, TransactionBuilder,
     TransactionSend, ViewCall, ViewCallBorsh,
 };
+
+#[cfg(feature = "file-signer")]
+pub use client::FileSigner;
 
 #[cfg(feature = "keyring")]
 pub use client::KeyringSigner;

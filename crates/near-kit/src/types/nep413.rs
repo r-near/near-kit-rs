@@ -299,6 +299,26 @@ impl Default for VerifyOptions {
 // Core Functions
 // ============================================================================
 
+/// Current time in milliseconds since the Unix epoch.
+///
+/// `std::time::SystemTime::now()` panics on `wasm32-unknown-unknown` (there's no OS
+/// clock without a JS shim), so that target uses `js_sys::Date::now()` instead.
+/// WASI targets have a real clock and take the `SystemTime` path.
+fn now_millis() -> u64 {
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis() as u64
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    {
+        js_sys::Date::now() as u64
+    }
+}
+
 /// Generate a 32-byte nonce with an embedded timestamp for expiration checking.
 ///
 /// The nonce structure:
@@ -322,10 +342,7 @@ pub fn generate_nonce() -> [u8; 32] {
     let mut nonce = [0u8; 32];
 
     // First 8 bytes: timestamp (ms since epoch) as big-endian u64
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_millis() as u64;
+    let timestamp = now_millis();
     nonce[..8].copy_from_slice(&timestamp.to_be_bytes());
 
     // Remaining 24 bytes: random data
@@ -426,10 +443,7 @@ pub fn verify_signature(
     // Check timestamp expiration if the nonce follows the near-kit timestamp convention
     if let NonceValidation::Timestamp { max_age } = nonce_validation.into() {
         let timestamp_ms = extract_timestamp_from_nonce(&params.nonce);
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_millis() as u64;
+        let now_ms = now_millis();
 
         let age_ms = now_ms.saturating_sub(timestamp_ms);
 

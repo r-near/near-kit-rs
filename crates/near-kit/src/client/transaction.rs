@@ -29,8 +29,7 @@
 //! ```
 
 use std::fmt;
-use std::future::{Future, IntoFuture};
-use std::pin::Pin;
+use std::future::IntoFuture;
 use std::sync::{Arc, OnceLock};
 
 use tracing::Instrument;
@@ -1463,7 +1462,7 @@ impl CallBuilder {
 
 impl IntoFuture for CallBuilder {
     type Output = Result<FinalExecutionOutcome, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         self.send().into_future()
@@ -1525,7 +1524,7 @@ impl<W: WaitLevel> TransactionSend<W> {
 
 impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
     type Output = Result<W::Response, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -1676,7 +1675,7 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
 
 impl IntoFuture for TransactionBuilder {
     type Output = Result<FinalExecutionOutcome, Error>;
-    type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send>>;
+    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         self.send().into_future()

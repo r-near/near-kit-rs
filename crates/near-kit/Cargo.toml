@@ -17,8 +17,9 @@ near-token.workspace = true
 near-gas.workspace = true
 near-global-contracts.workspace = true
 
-# Async runtime
-tokio.workspace = true
+# Async runtime — only pull in `sync` here; `time` is added below for every
+# target except JS-host wasm, and `rt` is added by the `sandbox` feature.
+tokio = { version = "1", features = ["sync"] }
 futures.workspace = true
 
 # HTTP client
@@ -44,8 +45,8 @@ k256.workspace = true
 bs58.workspace = true
 hex.workspace = true
 
-# Filesystem
-dirs.workspace = true
+# Filesystem (optional; gated by `file-signer` — no filesystem on JS-host wasm)
+dirs = { workspace = true, optional = true }
 
 # System keyring (optional)
 keyring = { workspace = true, optional = true }
@@ -64,10 +65,34 @@ testcontainers = { workspace = true, optional = true, features = ["watchdog"] }
 libc = { version = "0.2", optional = true }
 serde_with = { version = "3.20", features = ["hex", "base64"] }
 
+# All targets except JS-host wasm (this includes WASI, which has real OS
+# timers): tokio timer support for the RPC retry backoff.
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
+tokio = { version = "1", features = ["sync", "time"] }
+
+# JS-host wasm only (`wasm32-unknown-unknown`, i.e. browsers/Node/Deno — NOT
+# WASI): JS-backed timer and time APIs. `getrandom`/`getrandom_v04` are entropy
+# backends for the transitive `rand`/`ml-dsa` dependency graphs; their
+# `js`/`wasm_js` features are opt-in via the crate's `js` feature (see below) so
+# non-JS wasm embedders can choose their own backend instead.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+gloo-timers = { version = "0.3", features = ["futures"] }
+js-sys = "0.3"
+getrandom = { version = "0.2", default-features = false }
+getrandom_v04 = { package = "getrandom", version = "0.4", default-features = false }
+
 [features]
-default = ["keyring"]
-sandbox = ["dep:testcontainers", "dep:libc"]
+default = ["keyring", "file-signer"]
+sandbox = ["dep:testcontainers", "dep:libc", "tokio/rt"]
 keyring = ["dep:keyring"]
+file-signer = ["dep:dirs"]
+# JS-host entropy backend for `wasm32-unknown-unknown`. Enables `getrandom`'s
+# `js` feature (used transitively by `rand`/`ed25519-dalek`/`k256`) and
+# `getrandom` 0.4's `wasm_js` feature (used transitively by
+# `ml-dsa`/`sha2`/`hmac` via `digest`). Leave this off on non-JS wasm embedders
+# (register your own `getrandom` backend) and on WASI targets (which `getrandom`
+# supports natively).
+js = ["getrandom/js", "getrandom_v04/wasm_js"]
 # Enables `interactive-clap` derives on re-exported `NearToken` and `Gas` types.
 # Useful for CLI tools using `interactive-clap` for argument parsing.
 interactive-clap = ["near-token/interactive-clap", "near-gas/interactive-clap"]
@@ -76,3 +101,8 @@ interactive-clap = ["near-token/interactive-clap", "near-gas/interactive-clap"]
 tokio-test.workspace = true
 tempfile.workspace = true
 tracing-subscriber.workspace = true
+
+# All targets except JS-host wasm: full tokio runtime for tests and doctests
+# (unified with the minimal `sync`/`time` features from the dependency above).
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
