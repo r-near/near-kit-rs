@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0-rc.3](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.12.0-rc.2...near-kit-v0.12.0-rc.3) - 2026-07-13
+
+### Added
+
+- *(client)* surface partial tx outcome at early wait levels ([#243](https://github.com/r-near/near-kit-rs/pull/243))
+
+### Fixed
+
+- *(sandbox)* reject mainnet/testnet chain_id with a clear error ([#238](https://github.com/r-near/near-kit-rs/pull/238))
+
 ## [0.12.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.12.0-rc.1...near-kit-v0.12.0-rc.2) - 2026-07-07
 
 ### Added
