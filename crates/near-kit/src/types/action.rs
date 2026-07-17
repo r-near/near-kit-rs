@@ -116,6 +116,9 @@ pub const DELEGATE_ACTION_PREFIX: u32 = 1_073_742_190;
 /// `DelegateActionV2`) when serializing for signing.
 pub const DELEGATE_V2_ACTION_PREFIX: u32 = 1_073_742_435;
 
+/// Maximum number of parallel nonces that a gas key may allocate.
+pub const MAX_NONCES_FOR_GAS_KEY: u16 = 1024;
+
 /// Gas key information.
 ///
 /// Gas keys are access keys with a prepaid balance to pay for gas costs.
@@ -147,6 +150,9 @@ pub enum AccessKeyPermission {
 }
 
 impl AccessKeyPermission {
+    /// Maximum number of parallel nonces that a gas key may allocate.
+    pub const MAX_NONCES_FOR_GAS_KEY: u16 = MAX_NONCES_FOR_GAS_KEY;
+
     /// Create a function call permission.
     pub fn function_call(
         receiver_id: AccountId,

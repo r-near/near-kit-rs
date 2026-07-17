@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use reqwest::header::{HeaderMap, HeaderValue};
 use serde::de::DeserializeOwned;
 
 use crate::contract::ContractClient;
@@ -1147,6 +1148,7 @@ impl std::fmt::Debug for Near {
 /// ```
 pub struct NearBuilder {
     rpc_url: String,
+    rpc_headers: HeaderMap,
     signer: Option<Arc<dyn Signer>>,
     retry_config: RetryConfig,
     chain_id: ChainId,
@@ -1158,6 +1160,7 @@ impl NearBuilder {
     fn new(rpc_url: impl Into<String>, chain_id: ChainId) -> Self {
         Self {
             rpc_url: rpc_url.into(),
+            rpc_headers: HeaderMap::new(),
             signer: None,
             retry_config: RetryConfig::default(),
             chain_id,
@@ -1211,6 +1214,34 @@ impl NearBuilder {
         self
     }
 
+    /// Add default HTTP headers to every RPC request.
+    ///
+    /// Existing headers with the same name are replaced. Credential-bearing
+    /// values should be marked sensitive before being passed here so their
+    /// `Debug` representation is redacted.
+    pub fn rpc_headers(mut self, headers: HeaderMap) -> Self {
+        self.rpc_headers.extend(headers);
+        self
+    }
+
+    /// Authenticate RPC requests with an `x-api-key` header.
+    ///
+    /// The key is validated as an HTTP header value and marked sensitive so it
+    /// cannot be exposed through header `Debug` output.
+    pub fn rpc_api_key(mut self, api_key: impl AsRef<str>) -> Result<Self, Error> {
+        let api_key = api_key.as_ref();
+        if api_key.is_empty() {
+            return Err(Error::Config("RPC API key cannot be empty".to_string()));
+        }
+
+        let mut value = HeaderValue::from_bytes(api_key.as_bytes()).map_err(|_| {
+            Error::Config("RPC API key is not a valid HTTP header value".to_string())
+        })?;
+        value.set_sensitive(true);
+        self.rpc_headers.insert("x-api-key", value);
+        Ok(self)
+    }
+
     /// Set the maximum number of transaction send attempts on `InvalidNonce` errors.
     ///
     /// When a transaction fails with `InvalidNonce`, the client automatically
@@ -1227,10 +1258,10 @@ impl NearBuilder {
     /// Build the client.
     pub fn build(self) -> Near {
         Near {
-            rpc: Arc::new(RpcClient::with_retry_config(
-                self.rpc_url,
-                self.retry_config,
-            )),
+            rpc: Arc::new(
+                RpcClient::with_retry_config(self.rpc_url, self.retry_config)
+                    .with_default_headers(self.rpc_headers),
+            ),
             signer: self.signer,
             chain_id: self.chain_id,
             max_nonce_retries: self.max_nonce_retries,

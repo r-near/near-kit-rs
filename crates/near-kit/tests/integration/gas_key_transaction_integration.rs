@@ -4,7 +4,7 @@
 //! 1. Create a funded account with an ordinary full-access key.
 //! 2. Add a gas key (`AddKey` with `GasKeyFullAccess`) and fund it
 //!    (`TransferToGasKey`).
-//! 3. Read the gas key's parallel nonce via `EXPERIMENTAL_view_gas_key_nonces`.
+//! 3. Read the gas key's parallel nonce via `view_gas_key_nonces`.
 //! 4. Build a `TransactionV1` whose nonce is a `GasKeyNonce { nonce, nonce_index }`,
 //!    sign it with the gas key, and submit it with `send_tx`.
 //! 5. Assert the transfer landed and the gas key's nonce advanced.
@@ -31,31 +31,17 @@ fn unique_account(prefix: &str) -> AccountId {
         .unwrap()
 }
 
-/// Read a gas key's parallel nonces via `EXPERIMENTAL_view_gas_key_nonces`.
-///
-/// near-kit does not yet have a typed wrapper for this query (it lands with the
-/// RPC track), so the test calls the generic JSON-RPC method directly.
+/// Read a gas key's parallel nonces via the stabilized `query` RPC shape.
 async fn view_gas_key_nonces(
     near: &Near,
     account_id: &AccountId,
     public_key: &PublicKey,
 ) -> Vec<u64> {
-    #[derive(serde::Deserialize)]
-    struct Resp {
-        nonces: Vec<u64>,
-    }
-    let params = serde_json::json!({
-        "request_type": "view_gas_key_nonces",
-        "finality": "final",
-        "account_id": account_id.to_string(),
-        "public_key": public_key.to_string(),
-    });
-    let resp: Resp = near
-        .rpc()
-        .call("query", params)
+    near.rpc()
+        .view_gas_key_nonces(account_id, public_key, BlockReference::final_())
         .await
-        .expect("view_gas_key_nonces query failed");
-    resp.nonces
+        .expect("view_gas_key_nonces query failed")
+        .nonces
 }
 
 #[tokio::test]
@@ -173,9 +159,8 @@ async fn test_gas_key_signed_transaction() {
         "gas-key transaction must serialize as a tagged V1"
     );
 
-    // Submit via the generic send_tx RPC (V1-aware path) and deserialize into
-    // the same typed `RawTransactionResponse` the high-level client uses, so we
-    // assert on the real `FinalExecutionOutcome` rather than poking at raw JSON.
+    // Submit the tagged V1 payload through the generic RPC escape hatch. The
+    // high-level send API intentionally remains V0-only.
     let send_params = serde_json::json!({
         "signed_tx_base64": signed.to_base64(),
         "wait_until": "FINAL",

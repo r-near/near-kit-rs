@@ -4,15 +4,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::error::RpcError;
 use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockEffects, BlockReference,
-    BlockView, CryptoHash, EpochValidatorInfo, GasPrice, MaintenanceWindow, PublicKey,
-    ReceiptToTxResponse, SignedTransaction, StateItem, StatusResponse, TxExecutionStatus,
-    ViewFunctionResult, ViewStateResult,
+    BlockView, CryptoHash, EpochValidatorInfo, GasKeyNoncesView, GasPrice, MaintenanceWindow,
+    PublicKey, ReceiptToTxResponse, SignedTransaction, StateItem, StatusResponse,
+    TxExecutionStatus, ViewFunctionResult, ViewStateResult,
 };
 
 /// Platform-appropriate async sleep, used for retry backoff.
@@ -138,6 +139,7 @@ struct CallFunctionResponse {
 pub struct RpcClient {
     url: String,
     client: reqwest::Client,
+    default_headers: HeaderMap,
     retry_config: RetryConfig,
     request_id: AtomicU64,
 }
@@ -148,6 +150,7 @@ impl RpcClient {
         Self {
             url: url.into(),
             client: reqwest::Client::new(),
+            default_headers: HeaderMap::new(),
             retry_config: RetryConfig::default(),
             request_id: AtomicU64::new(0),
         }
@@ -158,9 +161,21 @@ impl RpcClient {
         Self {
             url: url.into(),
             client: reqwest::Client::new(),
+            default_headers: HeaderMap::new(),
             retry_config,
             request_id: AtomicU64::new(0),
         }
+    }
+
+    /// Add default HTTP headers to every RPC request.
+    ///
+    /// This is useful for authenticated RPC providers. Header values that contain
+    /// credentials should be marked sensitive with
+    /// [`HeaderValue::set_sensitive`](reqwest::header::HeaderValue::set_sensitive)
+    /// before being passed here so their `Debug` representation is redacted.
+    pub fn with_default_headers(mut self, headers: HeaderMap) -> Self {
+        self.default_headers = headers;
+        self
     }
 
     /// Get the RPC URL.
@@ -228,6 +243,7 @@ impl RpcClient {
         let response = self
             .client
             .post(&self.url)
+            .headers(self.default_headers.clone())
             .header("Content-Type", "application/json")
             .json(request)
             .send()
@@ -548,6 +564,26 @@ impl RpcClient {
         self.call("EXPERIMENTAL_view_access_key_list", params).await
     }
 
+    /// View the parallel nonces assigned to a gas key.
+    ///
+    /// This uses the stabilized `query` RPC shape with
+    /// `request_type: "view_gas_key_nonces"`.
+    #[tracing::instrument(skip(self, block), fields(%account_id, %public_key))]
+    pub async fn view_gas_key_nonces(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        block: BlockReference,
+    ) -> Result<GasKeyNoncesView, RpcError> {
+        let mut params = serde_json::json!({
+            "request_type": "view_gas_key_nonces",
+            "account_id": account_id.to_string(),
+            "public_key": public_key.to_string(),
+        });
+        self.merge_block_reference(&mut params, &block);
+        self.call("query", params).await
+    }
+
     /// Call a view function on a contract.
     #[tracing::instrument(skip(self, args, block), fields(contract_id = %account_id, method = method_name))]
     pub async fn view_function(
@@ -756,6 +792,7 @@ impl RpcClient {
     }
 
     /// Send a signed transaction.
+    ///
     #[tracing::instrument(skip(self, signed_tx), fields(
         tx_hash = tracing::field::Empty,
         sender = %signed_tx.transaction.signer_id,
@@ -916,6 +953,7 @@ impl Clone for RpcClient {
         Self {
             url: self.url.clone(),
             client: self.client.clone(),
+            default_headers: self.default_headers.clone(),
             retry_config: self.retry_config.clone(),
             request_id: AtomicU64::new(0),
         }
@@ -997,8 +1035,13 @@ fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) ->
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
 
+    use reqwest::header::{HeaderMap, HeaderValue};
+
+    use super::*;
     // ========================================================================
     // RetryConfig tests
     // ========================================================================
@@ -1066,6 +1109,82 @@ mod tests {
         let debug = format!("{:?}", client);
         assert!(debug.contains("RpcClient"));
         assert!(debug.contains("rpc.testnet.near.org"));
+    }
+
+    #[test]
+    fn test_rpc_client_debug_redacts_default_headers() {
+        let secret = "super-secret-rpc-api-key";
+        let mut value = HeaderValue::from_static(secret);
+        value.set_sensitive(true);
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", value);
+
+        let client = RpcClient::new("https://rpc.testnet.near.org").with_default_headers(headers);
+        let debug = format!("{client:?}");
+
+        assert!(!debug.contains(secret));
+        assert!(!debug.contains("x-api-key"));
+    }
+
+    #[tokio::test]
+    async fn test_near_builder_sends_rpc_api_key_header() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (request_tx, request_rx) = mpsc::channel();
+
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 1024];
+            loop {
+                let read = stream.read(&mut buffer).unwrap();
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            request_tx
+                .send(String::from_utf8(request).unwrap())
+                .unwrap();
+
+            let body = r#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body,
+            )
+            .unwrap();
+        });
+
+        let secret = "test-provider-secret";
+        let near = crate::Near::custom(format!("http://{address}"), "test")
+            .rpc_api_key(secret)
+            .unwrap()
+            .build();
+        let response: serde_json::Value = near.rpc().call("status", ()).await.unwrap();
+        assert_eq!(response, serde_json::json!({ "ok": true }));
+
+        let request = request_rx.recv().unwrap().to_ascii_lowercase();
+        assert!(request.contains(&format!("x-api-key: {secret}")));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn test_near_builder_rejects_invalid_rpc_api_keys_without_echoing_them() {
+        for invalid in ["", "secret\nsecond-header: leaked"] {
+            let result = crate::Near::testnet().rpc_api_key(invalid);
+            let error = match result {
+                Ok(_) => panic!("invalid RPC API key was accepted"),
+                Err(error) => error,
+            };
+            if !invalid.is_empty() {
+                assert!(!error.to_string().contains(invalid));
+            }
+        }
     }
 
     // ========================================================================

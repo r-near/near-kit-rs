@@ -8,7 +8,7 @@ use serde_with::{base64::Base64, serde_as};
 
 use super::block_reference::TxExecutionStatus;
 use super::error::{ActionError, TxExecutionError};
-use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature};
+use super::{AccountId, CryptoHash, Gas, NearToken, Nonce, PublicKey, Signature};
 
 // ============================================================================
 // Constants
@@ -210,6 +210,17 @@ pub struct AccessKeyInfoView {
     pub public_key: PublicKey,
     /// Access key details.
     pub access_key: AccessKeyDetails,
+}
+
+/// Parallel nonces assigned to a gas key by `view_gas_key_nonces`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GasKeyNoncesView {
+    /// Nonces indexed in the same order as the gas key's nonce slots.
+    pub nonces: Vec<Nonce>,
+    /// Block height of the query.
+    pub block_height: u64,
+    /// Block hash of the query.
+    pub block_hash: CryptoHash,
 }
 
 // ============================================================================
@@ -1500,6 +1511,23 @@ mod tests {
     }
 
     #[test]
+    fn test_gas_key_nonces_view_deserialization() {
+        let json = serde_json::json!({
+            "nonces": [7, 11, 42],
+            "block_height": 12345,
+            "block_hash": "11111111111111111111111111111111"
+        });
+
+        let view: GasKeyNoncesView = serde_json::from_value(json).unwrap();
+        assert_eq!(view.nonces, vec![7, 11, 42]);
+        assert_eq!(view.block_height, 12345);
+        assert_eq!(
+            view.block_hash,
+            "11111111111111111111111111111111".parse().unwrap()
+        );
+    }
+
+    #[test]
     fn test_view_state_result_deserializes_with_cursor() {
         // `key`/`value`/`last_key` are base64 on the wire.
         let json = serde_json::json!({
@@ -1806,6 +1834,15 @@ mod tests {
         });
         let entry: GasProfileEntry = serde_json::from_value(json).unwrap();
         assert_eq!(entry.gas_used.as_gas(), 999000000);
+    }
+
+    #[test]
+    fn test_max_nonces_for_gas_key() {
+        assert_eq!(crate::MAX_NONCES_FOR_GAS_KEY, 1024);
+        assert_eq!(
+            crate::AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY,
+            crate::MAX_NONCES_FOR_GAS_KEY
+        );
     }
 
     #[test]
