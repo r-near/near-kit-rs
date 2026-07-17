@@ -12,7 +12,7 @@ use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockEffects, BlockReference,
     BlockView, CryptoHash, EpochValidatorInfo, GasKeyNoncesView, GasPrice, MaintenanceWindow,
-    PublicKey, ReceiptToTxResponse, SignedTransactionPayload, StateItem, StatusResponse,
+    PublicKey, ReceiptToTxResponse, SignedTransaction, StateItem, StatusResponse,
     TxExecutionStatus, ViewFunctionResult, ViewStateResult,
 };
 
@@ -793,23 +793,21 @@ impl RpcClient {
 
     /// Send a signed transaction.
     ///
-    /// Accepts both legacy [`SignedTransaction`](crate::SignedTransaction) values
-    /// and versioned [`SignedTransactionV1`](crate::SignedTransactionV1) values.
     #[tracing::instrument(skip(self, signed_tx), fields(
         tx_hash = tracing::field::Empty,
-        sender = %signed_tx.signer_id(),
-        receiver = %signed_tx.receiver_id(),
+        sender = %signed_tx.transaction.signer_id,
+        receiver = %signed_tx.transaction.receiver_id,
         ?wait_until,
     ))]
     pub async fn send_tx(
         &self,
-        signed_tx: &(impl SignedTransactionPayload + ?Sized),
+        signed_tx: &SignedTransaction,
         wait_until: TxExecutionStatus,
     ) -> Result<RawTransactionResponse, RpcError> {
-        let tx_hash = signed_tx.transaction_hash();
+        let tx_hash = signed_tx.get_hash();
         tracing::Span::current().record("tx_hash", tracing::field::display(&tx_hash));
         let params = serde_json::json!({
-            "signed_tx_base64": signed_tx.encoded_base64(),
+            "signed_tx_base64": signed_tx.to_base64(),
             "wait_until": wait_until.as_str(),
         });
         let mut response: RawTransactionResponse = self.call("send_tx", params).await?;
@@ -1044,106 +1042,6 @@ mod tests {
     use reqwest::header::{HeaderMap, HeaderValue};
 
     use super::*;
-    use crate::{
-        Action, NearToken, SecretKey, SignedTransaction, SignedTransactionPayload,
-        SignedTransactionV1, Transaction, TransactionNonce, TransactionNonceMode, TransactionV1,
-    };
-
-    fn spawn_rpc_capture_server() -> (String, std::thread::JoinHandle<serde_json::Value>) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-
-        let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = Vec::new();
-            let mut buffer = [0u8; 4096];
-            let header_end = loop {
-                let read = stream.read(&mut buffer).unwrap();
-                assert!(read > 0, "connection closed before request headers");
-                request.extend_from_slice(&buffer[..read]);
-                if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n")
-                {
-                    break position + 4;
-                }
-            };
-
-            let headers = std::str::from_utf8(&request[..header_end]).unwrap();
-            let content_length: usize = headers
-                .lines()
-                .find_map(|line| {
-                    let (name, value) = line.split_once(':')?;
-                    name.eq_ignore_ascii_case("content-length")
-                        .then(|| value.trim().parse().unwrap())
-                })
-                .expect("request must include content-length");
-
-            while request.len() < header_end + content_length {
-                let read = stream.read(&mut buffer).unwrap();
-                assert!(read > 0, "connection closed before request body");
-                request.extend_from_slice(&buffer[..read]);
-            }
-
-            let request_json: serde_json::Value =
-                serde_json::from_slice(&request[header_end..header_end + content_length]).unwrap();
-            let response_body = serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": request_json["id"].clone(),
-                "result": { "final_execution_status": "NONE" },
-            })
-            .to_string();
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                response_body.len(),
-                response_body,
-            )
-            .unwrap();
-
-            request_json
-        });
-
-        (format!("http://{address}"), server)
-    }
-
-    async fn capture_send_tx_request(
-        signed_tx: &(impl SignedTransactionPayload + ?Sized),
-        wait_until: TxExecutionStatus,
-    ) -> (serde_json::Value, RawTransactionResponse) {
-        let (url, server) = spawn_rpc_capture_server();
-        let response = RpcClient::new(url)
-            .send_tx(signed_tx, wait_until)
-            .await
-            .unwrap();
-        (server.join().unwrap(), response)
-    }
-
-    fn sample_signed_v0() -> SignedTransaction {
-        let secret = SecretKey::generate_ed25519();
-        Transaction::new(
-            "alice.testnet".parse().unwrap(),
-            secret.public_key(),
-            7,
-            "bob.testnet".parse().unwrap(),
-            CryptoHash::ZERO,
-            vec![Action::transfer(NearToken::from_near(1))],
-        )
-        .sign(&secret)
-    }
-
-    fn sample_signed_v1() -> SignedTransactionV1 {
-        let secret = SecretKey::generate_ed25519();
-        TransactionV1 {
-            signer_id: "alice.testnet".parse().unwrap(),
-            public_key: secret.public_key(),
-            nonce: TransactionNonce::from_nonce_and_index(11, 2),
-            receiver_id: "bob.testnet".parse().unwrap(),
-            block_hash: CryptoHash::ZERO,
-            actions: vec![Action::transfer(NearToken::from_near(2))],
-            nonce_mode: TransactionNonceMode::Strict,
-        }
-        .sign(&secret)
-    }
-
     // ========================================================================
     // RetryConfig tests
     // ========================================================================
@@ -1287,31 +1185,6 @@ mod tests {
                 assert!(!error.to_string().contains(invalid));
             }
         }
-    }
-
-    #[tokio::test]
-    async fn test_send_tx_encodes_legacy_v0_request() {
-        let signed = sample_signed_v0();
-        let (request, response) =
-            capture_send_tx_request(&signed, TxExecutionStatus::Included).await;
-
-        assert_eq!(request["method"], "send_tx");
-        assert_eq!(request["params"]["signed_tx_base64"], signed.to_base64());
-        assert_eq!(request["params"]["wait_until"], "INCLUDED");
-        assert_eq!(response.transaction_hash, signed.get_hash());
-    }
-
-    #[tokio::test]
-    async fn test_send_tx_encodes_versioned_v1_request() {
-        let signed = sample_signed_v1();
-        assert_eq!(signed.to_bytes()[0], 1, "V1 payload must retain its tag");
-
-        let (request, response) = capture_send_tx_request(&signed, TxExecutionStatus::Final).await;
-
-        assert_eq!(request["method"], "send_tx");
-        assert_eq!(request["params"]["signed_tx_base64"], signed.to_base64());
-        assert_eq!(request["params"]["wait_until"], "FINAL");
-        assert_eq!(response.transaction_hash, signed.get_hash());
     }
 
     // ========================================================================

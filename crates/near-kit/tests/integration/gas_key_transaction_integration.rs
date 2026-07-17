@@ -159,15 +159,22 @@ async fn test_gas_key_signed_transaction() {
         "gas-key transaction must serialize as a tagged V1"
     );
 
-    // Submit through the same ergonomic high-level API used for legacy V0
-    // signed transactions. Near::send dispatches the versioned bytes through
-    // RpcClient::send_tx without dropping the V1 tag.
-    let outcome = root_near
-        .send(&signed)
+    // Submit the tagged V1 payload through the generic RPC escape hatch. The
+    // high-level send API intentionally remains V0-only.
+    let send_params = serde_json::json!({
+        "signed_tx_base64": signed.to_base64(),
+        "wait_until": "FINAL",
+    });
+    let resp: RawTransactionResponse = root_near
+        .rpc()
+        .call("send_tx", send_params)
         .await
         .expect("send gas-key signed transaction");
 
     // The transaction must have actually executed and succeeded.
+    let outcome = resp
+        .outcome
+        .expect("send_tx at wait_until=FINAL must return an execution outcome");
     assert!(
         outcome.is_success(),
         "gas-key transaction did not succeed on-chain: status={:?}, failure={:?}",

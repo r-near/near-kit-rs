@@ -107,9 +107,8 @@ pub use rpc_extra::{
     StateChangeValueView, StateChangeWithCauseView, ValidatorKickoutReason, ValidatorKickoutView,
 };
 pub use transaction::{
-    Nonce, NonceIndex, NonceMode as TransactionNonceMode, SignedTransaction,
-    SignedTransactionPayload, SignedTransactionV1, Transaction, TransactionNonce, TransactionV1,
-    VersionedTransaction,
+    Nonce, NonceIndex, NonceMode as TransactionNonceMode, SignedTransaction, SignedTransactionV1,
+    Transaction, TransactionNonce, TransactionV1, VersionedTransaction,
 };
 pub use units::{Gas, IntoGas, IntoNearToken, NearToken};
 pub use wait_level::{

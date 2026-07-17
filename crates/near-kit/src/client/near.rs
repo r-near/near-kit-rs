@@ -840,9 +840,7 @@ impl Near {
     /// Send a pre-signed transaction.
     ///
     /// Use this with transactions signed via `.sign()` for offline signing
-    /// or inspection before sending. Both legacy
-    /// [`SignedTransaction`](crate::SignedTransaction) and versioned
-    /// [`SignedTransactionV1`](crate::SignedTransactionV1) values are accepted.
+    /// or inspection before sending.
     ///
     /// # Example
     ///
@@ -865,7 +863,7 @@ impl Near {
     /// ```
     pub async fn send(
         &self,
-        signed_tx: &(impl crate::types::SignedTransactionPayload + ?Sized),
+        signed_tx: &crate::types::SignedTransaction,
     ) -> Result<crate::types::FinalExecutionOutcome, Error> {
         self.send_with_options(signed_tx, crate::types::ExecutedOptimistic)
             .await
@@ -882,10 +880,10 @@ impl Near {
     ///   → [`SendTxResponse`](crate::types::SendTxResponse)
     pub async fn send_with_options<W: crate::types::WaitLevel>(
         &self,
-        signed_tx: &(impl crate::types::SignedTransactionPayload + ?Sized),
+        signed_tx: &crate::types::SignedTransaction,
         _level: W,
     ) -> Result<W::Response, Error> {
-        let sender_id = signed_tx.signer_id();
+        let sender_id = &signed_tx.transaction.signer_id;
         let response = self.rpc.send_tx(signed_tx, W::status()).await?;
         W::convert(response, sender_id)
     }
