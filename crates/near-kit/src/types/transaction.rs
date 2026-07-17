@@ -121,6 +121,27 @@ pub struct SignedTransaction {
     pub signature: Signature,
 }
 
+/// A signed transaction payload accepted by the transaction submission APIs.
+///
+/// This trait is implemented by both the legacy [`SignedTransaction`] (V0)
+/// and [`SignedTransactionV1`], which can carry either a V0 or V1 transaction.
+/// It allows [`RpcClient::send_tx`](crate::RpcClient::send_tx) and
+/// [`Near::send`](crate::Near::send) to preserve their existing V0 call shape
+/// while also accepting versioned signed transactions.
+pub trait SignedTransactionPayload {
+    /// The transaction hash used to track the submitted transaction.
+    fn transaction_hash(&self) -> CryptoHash;
+
+    /// The account that signed the transaction.
+    fn signer_id(&self) -> &AccountId;
+
+    /// The transaction receiver.
+    fn receiver_id(&self) -> &AccountId;
+
+    /// The borsh-encoded signed transaction as base64 for JSON-RPC submission.
+    fn encoded_base64(&self) -> String;
+}
+
 impl SignedTransaction {
     /// Get the hash of the signed transaction (transaction hash).
     pub fn get_hash(&self) -> CryptoHash {
@@ -176,6 +197,24 @@ impl SignedTransaction {
             crate::error::Error::InvalidTransaction(format!("Invalid base64: {}", e))
         })?;
         Self::from_bytes(&bytes)
+    }
+}
+
+impl SignedTransactionPayload for SignedTransaction {
+    fn transaction_hash(&self) -> CryptoHash {
+        self.get_hash()
+    }
+
+    fn signer_id(&self) -> &AccountId {
+        &self.transaction.signer_id
+    }
+
+    fn receiver_id(&self) -> &AccountId {
+        &self.transaction.receiver_id
+    }
+
+    fn encoded_base64(&self) -> String {
+        self.to_base64()
     }
 }
 
@@ -549,6 +588,24 @@ impl SignedTransactionV1 {
             crate::error::Error::InvalidTransaction(format!("Invalid base64: {}", e))
         })?;
         Self::from_bytes(&bytes)
+    }
+}
+
+impl SignedTransactionPayload for SignedTransactionV1 {
+    fn transaction_hash(&self) -> CryptoHash {
+        self.get_hash()
+    }
+
+    fn signer_id(&self) -> &AccountId {
+        self.transaction.signer_id()
+    }
+
+    fn receiver_id(&self) -> &AccountId {
+        self.transaction.receiver_id()
+    }
+
+    fn encoded_base64(&self) -> String {
+        self.to_base64()
     }
 }
 

@@ -4,15 +4,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::error::RpcError;
 use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockEffects, BlockReference,
-    BlockView, CryptoHash, EpochValidatorInfo, GasPrice, MaintenanceWindow, PublicKey,
-    ReceiptToTxResponse, SignedTransaction, StateItem, StatusResponse, TxExecutionStatus,
-    ViewFunctionResult, ViewStateResult,
+    BlockView, CryptoHash, EpochValidatorInfo, GasKeyNoncesView, GasPrice, MaintenanceWindow,
+    PublicKey, ReceiptToTxResponse, SignedTransactionPayload, StateItem, StatusResponse,
+    TxExecutionStatus, ViewFunctionResult, ViewStateResult,
 };
 
 /// Platform-appropriate async sleep, used for retry backoff.
@@ -138,6 +139,7 @@ struct CallFunctionResponse {
 pub struct RpcClient {
     url: String,
     client: reqwest::Client,
+    default_headers: HeaderMap,
     retry_config: RetryConfig,
     request_id: AtomicU64,
 }
@@ -148,6 +150,7 @@ impl RpcClient {
         Self {
             url: url.into(),
             client: reqwest::Client::new(),
+            default_headers: HeaderMap::new(),
             retry_config: RetryConfig::default(),
             request_id: AtomicU64::new(0),
         }
@@ -158,9 +161,21 @@ impl RpcClient {
         Self {
             url: url.into(),
             client: reqwest::Client::new(),
+            default_headers: HeaderMap::new(),
             retry_config,
             request_id: AtomicU64::new(0),
         }
+    }
+
+    /// Add default HTTP headers to every RPC request.
+    ///
+    /// This is useful for authenticated RPC providers. Header values that contain
+    /// credentials should be marked sensitive with
+    /// [`HeaderValue::set_sensitive`](reqwest::header::HeaderValue::set_sensitive)
+    /// before being passed here so their `Debug` representation is redacted.
+    pub fn with_default_headers(mut self, headers: HeaderMap) -> Self {
+        self.default_headers = headers;
+        self
     }
 
     /// Get the RPC URL.
@@ -228,6 +243,7 @@ impl RpcClient {
         let response = self
             .client
             .post(&self.url)
+            .headers(self.default_headers.clone())
             .header("Content-Type", "application/json")
             .json(request)
             .send()
@@ -548,6 +564,26 @@ impl RpcClient {
         self.call("EXPERIMENTAL_view_access_key_list", params).await
     }
 
+    /// View the parallel nonces assigned to a gas key.
+    ///
+    /// This uses the stabilized `query` RPC shape with
+    /// `request_type: "view_gas_key_nonces"`.
+    #[tracing::instrument(skip(self, block), fields(%account_id, %public_key))]
+    pub async fn view_gas_key_nonces(
+        &self,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        block: BlockReference,
+    ) -> Result<GasKeyNoncesView, RpcError> {
+        let mut params = serde_json::json!({
+            "request_type": "view_gas_key_nonces",
+            "account_id": account_id.to_string(),
+            "public_key": public_key.to_string(),
+        });
+        self.merge_block_reference(&mut params, &block);
+        self.call("query", params).await
+    }
+
     /// Call a view function on a contract.
     #[tracing::instrument(skip(self, args, block), fields(contract_id = %account_id, method = method_name))]
     pub async fn view_function(
@@ -756,21 +792,24 @@ impl RpcClient {
     }
 
     /// Send a signed transaction.
+    ///
+    /// Accepts both legacy [`SignedTransaction`](crate::SignedTransaction) values
+    /// and versioned [`SignedTransactionV1`](crate::SignedTransactionV1) values.
     #[tracing::instrument(skip(self, signed_tx), fields(
         tx_hash = tracing::field::Empty,
-        sender = %signed_tx.transaction.signer_id,
-        receiver = %signed_tx.transaction.receiver_id,
+        sender = %signed_tx.signer_id(),
+        receiver = %signed_tx.receiver_id(),
         ?wait_until,
     ))]
     pub async fn send_tx(
         &self,
-        signed_tx: &SignedTransaction,
+        signed_tx: &(impl SignedTransactionPayload + ?Sized),
         wait_until: TxExecutionStatus,
     ) -> Result<RawTransactionResponse, RpcError> {
-        let tx_hash = signed_tx.get_hash();
+        let tx_hash = signed_tx.transaction_hash();
         tracing::Span::current().record("tx_hash", tracing::field::display(&tx_hash));
         let params = serde_json::json!({
-            "signed_tx_base64": signed_tx.to_base64(),
+            "signed_tx_base64": signed_tx.encoded_base64(),
             "wait_until": wait_until.as_str(),
         });
         let mut response: RawTransactionResponse = self.call("send_tx", params).await?;
@@ -916,6 +955,7 @@ impl Clone for RpcClient {
         Self {
             url: self.url.clone(),
             client: self.client.clone(),
+            default_headers: self.default_headers.clone(),
             retry_config: self.retry_config.clone(),
             request_id: AtomicU64::new(0),
         }
@@ -997,7 +1037,112 @@ fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) ->
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+
+    use reqwest::header::{HeaderMap, HeaderValue};
+
     use super::*;
+    use crate::{
+        Action, NearToken, SecretKey, SignedTransaction, SignedTransactionPayload,
+        SignedTransactionV1, Transaction, TransactionNonce, TransactionNonceMode, TransactionV1,
+    };
+
+    fn spawn_rpc_capture_server() -> (String, std::thread::JoinHandle<serde_json::Value>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            let header_end = loop {
+                let read = stream.read(&mut buffer).unwrap();
+                assert!(read > 0, "connection closed before request headers");
+                request.extend_from_slice(&buffer[..read]);
+                if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n")
+                {
+                    break position + 4;
+                }
+            };
+
+            let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+            let content_length: usize = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse().unwrap())
+                })
+                .expect("request must include content-length");
+
+            while request.len() < header_end + content_length {
+                let read = stream.read(&mut buffer).unwrap();
+                assert!(read > 0, "connection closed before request body");
+                request.extend_from_slice(&buffer[..read]);
+            }
+
+            let request_json: serde_json::Value =
+                serde_json::from_slice(&request[header_end..header_end + content_length]).unwrap();
+            let response_body = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": request_json["id"].clone(),
+                "result": { "final_execution_status": "NONE" },
+            })
+            .to_string();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body,
+            )
+            .unwrap();
+
+            request_json
+        });
+
+        (format!("http://{address}"), server)
+    }
+
+    async fn capture_send_tx_request(
+        signed_tx: &(impl SignedTransactionPayload + ?Sized),
+        wait_until: TxExecutionStatus,
+    ) -> (serde_json::Value, RawTransactionResponse) {
+        let (url, server) = spawn_rpc_capture_server();
+        let response = RpcClient::new(url)
+            .send_tx(signed_tx, wait_until)
+            .await
+            .unwrap();
+        (server.join().unwrap(), response)
+    }
+
+    fn sample_signed_v0() -> SignedTransaction {
+        let secret = SecretKey::generate_ed25519();
+        Transaction::new(
+            "alice.testnet".parse().unwrap(),
+            secret.public_key(),
+            7,
+            "bob.testnet".parse().unwrap(),
+            CryptoHash::ZERO,
+            vec![Action::transfer(NearToken::from_near(1))],
+        )
+        .sign(&secret)
+    }
+
+    fn sample_signed_v1() -> SignedTransactionV1 {
+        let secret = SecretKey::generate_ed25519();
+        TransactionV1 {
+            signer_id: "alice.testnet".parse().unwrap(),
+            public_key: secret.public_key(),
+            nonce: TransactionNonce::from_nonce_and_index(11, 2),
+            receiver_id: "bob.testnet".parse().unwrap(),
+            block_hash: CryptoHash::ZERO,
+            actions: vec![Action::transfer(NearToken::from_near(2))],
+            nonce_mode: TransactionNonceMode::Strict,
+        }
+        .sign(&secret)
+    }
 
     // ========================================================================
     // RetryConfig tests
@@ -1066,6 +1211,107 @@ mod tests {
         let debug = format!("{:?}", client);
         assert!(debug.contains("RpcClient"));
         assert!(debug.contains("rpc.testnet.near.org"));
+    }
+
+    #[test]
+    fn test_rpc_client_debug_redacts_default_headers() {
+        let secret = "super-secret-rpc-api-key";
+        let mut value = HeaderValue::from_static(secret);
+        value.set_sensitive(true);
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", value);
+
+        let client = RpcClient::new("https://rpc.testnet.near.org").with_default_headers(headers);
+        let debug = format!("{client:?}");
+
+        assert!(!debug.contains(secret));
+        assert!(!debug.contains("x-api-key"));
+    }
+
+    #[tokio::test]
+    async fn test_near_builder_sends_rpc_api_key_header() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (request_tx, request_rx) = mpsc::channel();
+
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 1024];
+            loop {
+                let read = stream.read(&mut buffer).unwrap();
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            request_tx
+                .send(String::from_utf8(request).unwrap())
+                .unwrap();
+
+            let body = r#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body,
+            )
+            .unwrap();
+        });
+
+        let secret = "test-provider-secret";
+        let near = crate::Near::custom(format!("http://{address}"), "test")
+            .rpc_api_key(secret)
+            .unwrap()
+            .build();
+        let response: serde_json::Value = near.rpc().call("status", ()).await.unwrap();
+        assert_eq!(response, serde_json::json!({ "ok": true }));
+
+        let request = request_rx.recv().unwrap().to_ascii_lowercase();
+        assert!(request.contains(&format!("x-api-key: {secret}")));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn test_near_builder_rejects_invalid_rpc_api_keys_without_echoing_them() {
+        for invalid in ["", "secret\nsecond-header: leaked"] {
+            let result = crate::Near::testnet().rpc_api_key(invalid);
+            let error = match result {
+                Ok(_) => panic!("invalid RPC API key was accepted"),
+                Err(error) => error,
+            };
+            if !invalid.is_empty() {
+                assert!(!error.to_string().contains(invalid));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_send_tx_encodes_legacy_v0_request() {
+        let signed = sample_signed_v0();
+        let (request, response) =
+            capture_send_tx_request(&signed, TxExecutionStatus::Included).await;
+
+        assert_eq!(request["method"], "send_tx");
+        assert_eq!(request["params"]["signed_tx_base64"], signed.to_base64());
+        assert_eq!(request["params"]["wait_until"], "INCLUDED");
+        assert_eq!(response.transaction_hash, signed.get_hash());
+    }
+
+    #[tokio::test]
+    async fn test_send_tx_encodes_versioned_v1_request() {
+        let signed = sample_signed_v1();
+        assert_eq!(signed.to_bytes()[0], 1, "V1 payload must retain its tag");
+
+        let (request, response) = capture_send_tx_request(&signed, TxExecutionStatus::Final).await;
+
+        assert_eq!(request["method"], "send_tx");
+        assert_eq!(request["params"]["signed_tx_base64"], signed.to_base64());
+        assert_eq!(request["params"]["wait_until"], "FINAL");
+        assert_eq!(response.transaction_hash, signed.get_hash());
     }
 
     // ========================================================================
