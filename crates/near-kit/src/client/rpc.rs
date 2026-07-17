@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::error::RpcError;
@@ -139,7 +138,6 @@ struct CallFunctionResponse {
 pub struct RpcClient {
     url: String,
     client: reqwest::Client,
-    default_headers: HeaderMap,
     retry_config: RetryConfig,
     request_id: AtomicU64,
 }
@@ -147,35 +145,25 @@ pub struct RpcClient {
 impl RpcClient {
     /// Create a new RPC client with the given URL.
     pub fn new(url: impl Into<String>) -> Self {
-        Self {
-            url: url.into(),
-            client: reqwest::Client::new(),
-            default_headers: HeaderMap::new(),
-            retry_config: RetryConfig::default(),
-            request_id: AtomicU64::new(0),
-        }
+        Self::with_http_client_and_retry_config(url, reqwest::Client::new(), RetryConfig::default())
     }
 
     /// Create a new RPC client with custom retry configuration.
     pub fn with_retry_config(url: impl Into<String>, retry_config: RetryConfig) -> Self {
+        Self::with_http_client_and_retry_config(url, reqwest::Client::new(), retry_config)
+    }
+
+    pub(crate) fn with_http_client_and_retry_config(
+        url: impl Into<String>,
+        client: reqwest::Client,
+        retry_config: RetryConfig,
+    ) -> Self {
         Self {
             url: url.into(),
-            client: reqwest::Client::new(),
-            default_headers: HeaderMap::new(),
+            client,
             retry_config,
             request_id: AtomicU64::new(0),
         }
-    }
-
-    /// Add default HTTP headers to every RPC request.
-    ///
-    /// This is useful for authenticated RPC providers. Header values that contain
-    /// credentials should be marked sensitive with
-    /// [`HeaderValue::set_sensitive`](reqwest::header::HeaderValue::set_sensitive)
-    /// before being passed here so their `Debug` representation is redacted.
-    pub fn with_default_headers(mut self, headers: HeaderMap) -> Self {
-        self.default_headers = headers;
-        self
     }
 
     /// Get the RPC URL.
@@ -243,7 +231,6 @@ impl RpcClient {
         let response = self
             .client
             .post(&self.url)
-            .headers(self.default_headers.clone())
             .header("Content-Type", "application/json")
             .json(request)
             .send()
@@ -953,7 +940,6 @@ impl Clone for RpcClient {
         Self {
             url: self.url.clone(),
             client: self.client.clone(),
-            default_headers: self.default_headers.clone(),
             retry_config: self.retry_config.clone(),
             request_id: AtomicU64::new(0),
         }
@@ -1111,23 +1097,8 @@ mod tests {
         assert!(debug.contains("rpc.testnet.near.org"));
     }
 
-    #[test]
-    fn test_rpc_client_debug_redacts_default_headers() {
-        let secret = "super-secret-rpc-api-key";
-        let mut value = HeaderValue::from_static(secret);
-        value.set_sensitive(true);
-        let mut headers = HeaderMap::new();
-        headers.insert("x-api-key", value);
-
-        let client = RpcClient::new("https://rpc.testnet.near.org").with_default_headers(headers);
-        let debug = format!("{client:?}");
-
-        assert!(!debug.contains(secret));
-        assert!(!debug.contains("x-api-key"));
-    }
-
     #[tokio::test]
-    async fn test_near_builder_sends_rpc_api_key_header() {
+    async fn test_near_builder_uses_custom_http_client() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let (request_tx, request_rx) = mpsc::channel();
@@ -1161,30 +1132,26 @@ mod tests {
         });
 
         let secret = "test-provider-secret";
+        let mut headers = HeaderMap::new();
+        let mut api_key = HeaderValue::from_static(secret);
+        api_key.set_sensitive(true);
+        headers.insert("x-api-key", api_key);
+        let http_client = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .unwrap();
         let near = crate::Near::custom(format!("http://{address}"), "test")
-            .rpc_api_key(secret)
-            .unwrap()
+            .http_client(http_client)
             .build();
+        let debug = format!("{:?}", near.rpc());
+        assert!(!debug.contains(secret));
+        assert!(!debug.contains("x-api-key"));
         let response: serde_json::Value = near.rpc().call("status", ()).await.unwrap();
         assert_eq!(response, serde_json::json!({ "ok": true }));
 
         let request = request_rx.recv().unwrap().to_ascii_lowercase();
         assert!(request.contains(&format!("x-api-key: {secret}")));
         server.join().unwrap();
-    }
-
-    #[test]
-    fn test_near_builder_rejects_invalid_rpc_api_keys_without_echoing_them() {
-        for invalid in ["", "secret\nsecond-header: leaked"] {
-            let result = crate::Near::testnet().rpc_api_key(invalid);
-            let error = match result {
-                Ok(_) => panic!("invalid RPC API key was accepted"),
-                Err(error) => error,
-            };
-            if !invalid.is_empty() {
-                assert!(!error.to_string().contains(invalid));
-            }
-        }
     }
 
     // ========================================================================
