@@ -99,7 +99,7 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
         .transfer(NearToken::from_near(20))
         .add_full_access_key(public_key.clone())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await;
     if let Err(e) = &create
         && looks_like_ml_dsa_unsupported(e)
@@ -137,7 +137,7 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(recipient_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -150,7 +150,7 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
         .transaction(&recipient)
         .transfer(NearToken::from_near(5))
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .expect("ML-DSA-65-signed transfer must be accepted on-chain");
 

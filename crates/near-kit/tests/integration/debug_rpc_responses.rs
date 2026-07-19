@@ -160,7 +160,7 @@ async fn debug_transaction_receipts() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -232,7 +232,11 @@ async fn debug_transaction_receipts() {
 
     // Now get full receipt details via EXPERIMENTAL_tx_status
     let tx_hash = outcome.transaction_hash();
-    let full_outcome = near.tx_status(tx_hash, &root_account, Final).await.unwrap();
+    let full_outcome: FinalExecutionOutcome = near
+        .tx_status(tx_hash, &root_account)
+        .wait_until::<Final>()
+        .await
+        .unwrap();
 
     println!("\n========================================");
     println!("FULL RECEIPTS (via EXPERIMENTAL_tx_status)");
@@ -326,7 +330,7 @@ async fn debug_access_key_details() {
             Some(NearToken::from_near(1)), // allowance
         )
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -448,7 +452,7 @@ async fn test_error_invalid_method() {
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 

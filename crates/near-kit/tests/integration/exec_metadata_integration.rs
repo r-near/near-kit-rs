@@ -6,7 +6,7 @@
 //! `#[serde(flatten)] Option<FinalExecutionOutcome>` silently becomes `None`
 //! when any nested field fails to parse, surfacing as "no execution outcome".
 //! This test confirms a real 2.13 outcome round-trips through the typed
-//! `.send().wait_until(Final)` path and exposes the V4 `contracts` field.
+//! `.send().wait_until::<Final>()` path and exposes the V4 `contracts` field.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -38,7 +38,7 @@ async fn test_v4_execution_metadata_parses_through_send() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .expect("create_account outcome must deserialize (incl. V4 metadata)");
 

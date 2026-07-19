@@ -91,7 +91,7 @@ async fn sequential_example() -> Result<(), Error> {
                 for tx_idx in 0..txs_per_key {
                     near.transfer(&recipient, NearToken::from_millinear(1))
                         .send()
-                        .wait_until(Included)
+                        .wait_until::<Included>()
                         .await
                         .unwrap();
                     println!("  key[{key_idx}] tx {tx_idx} included");

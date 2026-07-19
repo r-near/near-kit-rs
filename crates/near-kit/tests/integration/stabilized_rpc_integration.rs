@@ -52,7 +52,7 @@ async fn test_block_effects_returns_changes_for_block() {
         .transfer(NearToken::from_near(3))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .expect("create_account must execute");
 

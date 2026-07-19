@@ -11,10 +11,13 @@ use crate::types::{
     PublishMode, SecretKey, StateInit, TryIntoAccountId,
 };
 
-use super::query::{AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall};
+use super::query::{
+    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, TransactionStatusQuery,
+    ViewCall,
+};
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
 use super::signer::{InMemorySigner, Signer};
-use super::transaction::{CallBuilder, TransactionBuilder};
+use super::transaction::{CallBuilder, SignedTransactionSend, TransactionBuilder};
 
 /// Trait for sandbox network configuration.
 ///
@@ -601,7 +604,7 @@ impl Near {
     ///
     /// // Transfer with wait for finality
     /// near.transfer("bob.testnet", NearToken::from_near(1000))
-    ///     .wait_until(Final)
+    ///     .wait_until::<Final>()
     ///     .await?;
     /// # Ok(())
     /// # }
@@ -855,42 +858,26 @@ impl Near {
     ///     .sign()
     ///     .await?;
     ///
-    /// // Send later
-    /// let outcome = near.send(&signed).await?;
+    /// // Send later. The default waits for optimistic execution.
+    /// let outcome: FinalExecutionOutcome = near.send(&signed).await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn send(
+    pub fn send<'tx>(
         &self,
-        signed_tx: &crate::types::SignedTransaction,
-    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        self.send_with_options(signed_tx, crate::types::ExecutedOptimistic)
-            .await
+        signed_tx: &'tx crate::types::SignedTransaction,
+    ) -> SignedTransactionSend<'tx> {
+        SignedTransactionSend::new(self.rpc.clone(), signed_tx)
     }
 
-    /// Send a pre-signed transaction with a custom wait level.
+    /// Query transaction status and receipt progress.
     ///
-    /// The return type depends on the wait level:
-    /// - Executed levels ([`ExecutedOptimistic`](crate::types::ExecutedOptimistic),
-    ///   [`Executed`](crate::types::Executed), [`Final`](crate::types::Final))
-    ///   → [`FinalExecutionOutcome`](crate::types::FinalExecutionOutcome)
-    /// - Non-executed levels ([`Submitted`](crate::types::Submitted),
-    ///   [`Included`](crate::types::Included), [`IncludedFinal`](crate::types::IncludedFinal))
-    ///   → [`SendTxResponse`](crate::types::SendTxResponse)
-    pub async fn send_with_options<W: crate::types::WaitLevel>(
-        &self,
-        signed_tx: &crate::types::SignedTransaction,
-        _level: W,
-    ) -> Result<W::Response, Error> {
-        let sender_id = &signed_tx.transaction.signer_id;
-        let response = self.rpc.send_tx(signed_tx, W::status()).await?;
-        W::convert(response, sender_id)
-    }
-
-    /// Get transaction status with full receipt details.
-    ///
-    /// Uses `EXPERIMENTAL_tx_status` under the hood. The return type depends
-    /// on the wait level, just like [`send_with_options`](Self::send_with_options):
+    /// Uses `EXPERIMENTAL_tx_status` under the hood and returns an awaitable
+    /// [`TransactionStatusQuery`]. Awaiting it directly uses
+    /// [`Submitted`](crate::types::Submitted), so it returns the node's current
+    /// progress without waiting for a new milestone. Chain
+    /// [`.wait_until::<W>()`](TransactionStatusQuery::wait_until) to wait for a
+    /// specific level.
     ///
     /// - Executed levels ([`ExecutedOptimistic`](crate::types::ExecutedOptimistic),
     ///   [`Executed`](crate::types::Executed), [`Final`](crate::types::Final))
@@ -910,27 +897,27 @@ impl Near {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example(near: &Near, tx_hash: CryptoHash) -> Result<(), Error> {
-    /// let outcome = near.tx_status(&tx_hash, "alice.testnet", Final).await?;
+    /// let outcome = near
+    ///     .tx_status(&tx_hash, "alice.testnet")
+    ///     .wait_until::<Final>()
+    ///     .await?;
     /// println!("Gas used: {}", outcome.total_gas_used());
     /// println!("Receipts: {}", outcome.receipts.len());
     ///
-    /// // Poll at an early level for progressive per-receipt status:
-    /// let status = near.tx_status(&tx_hash, "alice.testnet", Included).await?;
+    /// // Poll current progress without blocking:
+    /// let status = near.tx_status(&tx_hash, "alice.testnet").await?;
     /// if let Some(partial) = &status.outcome {
     ///     println!("Receipts so far: {}", partial.receipts_outcome.len());
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn tx_status<W: crate::types::WaitLevel>(
+    pub fn tx_status(
         &self,
         tx_hash: &crate::types::CryptoHash,
         sender_id: impl crate::types::TryIntoAccountId,
-        _level: W,
-    ) -> Result<W::Response, Error> {
-        let sender_id = sender_id.try_into_account_id()?;
-        let response = self.rpc.tx_status(tx_hash, &sender_id, W::status()).await?;
-        W::convert(response, &sender_id)
+    ) -> TransactionStatusQuery {
+        TransactionStatusQuery::new(self.rpc.clone(), *tx_hash, sender_id)
     }
 
     // ========================================================================

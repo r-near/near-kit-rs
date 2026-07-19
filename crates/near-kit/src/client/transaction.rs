@@ -30,6 +30,7 @@
 
 use std::fmt;
 use std::future::IntoFuture;
+use std::marker::PhantomData;
 use std::sync::{Arc, OnceLock};
 
 use tracing::Instrument;
@@ -683,10 +684,10 @@ impl TransactionBuilder {
 
     /// Set the execution wait level and prepare to send.
     ///
-    /// This is a shorthand for `.send().wait_until(level)`.
+    /// This is a shorthand for `.send().wait_until::<W>()`.
     /// The return type changes based on the wait level — see [`TransactionSend::wait_until`].
-    pub fn wait_until<W: crate::types::WaitLevel>(self, level: W) -> TransactionSend<W> {
-        self.send().wait_until(level)
+    pub fn wait_until<W: crate::types::WaitLevel>(self) -> TransactionSend<W> {
+        self.send().wait_until::<W>()
     }
 
     /// Override the number of nonce retries for this transaction on `InvalidNonce`
@@ -1034,11 +1035,11 @@ impl TransactionBuilder {
     /// Send the transaction.
     ///
     /// Returns a [`TransactionSend`] that defaults to [`crate::types::ExecutedOptimistic`] wait level.
-    /// Chain `.wait_until(...)` to change the wait level before awaiting.
+    /// Chain `.wait_until::<W>()` to change the wait level before awaiting.
     pub fn send(self) -> TransactionSend {
         TransactionSend {
             builder: self,
-            _marker: std::marker::PhantomData,
+            _marker: PhantomData,
         }
     }
 }
@@ -1419,8 +1420,8 @@ impl CallBuilder {
     }
 
     /// Set the execution wait level.
-    pub fn wait_until<W: WaitLevel>(self, level: W) -> TransactionSend<W> {
-        self.finish().wait_until(level)
+    pub fn wait_until<W: WaitLevel>(self) -> TransactionSend<W> {
+        self.finish().wait_until::<W>()
     }
 
     /// Override the number of nonce retries for this transaction on `InvalidNonce`
@@ -1470,6 +1471,70 @@ impl IntoFuture for CallBuilder {
 }
 
 // ============================================================================
+// SignedTransactionSend
+// ============================================================================
+
+/// Awaitable builder for sending a pre-signed transaction.
+///
+/// The type parameter `W` determines the wait level and response type. Awaiting
+/// this builder directly uses [`ExecutedOptimistic`](crate::types::ExecutedOptimistic),
+/// while [`wait_until`](Self::wait_until) selects a different wait level at compile time.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// # async fn example(near: &Near, signed: &SignedTransaction) -> Result<(), Error> {
+/// // Early wait levels return SendTxResponse. Await `near.send(signed)`
+/// // directly instead to use the ExecutedOptimistic default.
+/// let submitted: SendTxResponse = near.send(signed)
+///     .wait_until::<Included>()
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
+#[must_use = "signed transactions are not sent unless awaited"]
+pub struct SignedTransactionSend<'tx, W: WaitLevel = crate::types::ExecutedOptimistic> {
+    rpc: Arc<RpcClient>,
+    signed_tx: &'tx SignedTransaction,
+    _marker: PhantomData<W>,
+}
+
+impl<'tx> SignedTransactionSend<'tx> {
+    pub(crate) fn new(rpc: Arc<RpcClient>, signed_tx: &'tx SignedTransaction) -> Self {
+        Self {
+            rpc,
+            signed_tx,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<'tx, W: WaitLevel> SignedTransactionSend<'tx, W> {
+    /// Select the execution wait level and corresponding response type.
+    pub fn wait_until<W2: WaitLevel>(self) -> SignedTransactionSend<'tx, W2> {
+        SignedTransactionSend {
+            rpc: self.rpc,
+            signed_tx: self.signed_tx,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<'tx, W: WaitLevel> IntoFuture for SignedTransactionSend<'tx, W> {
+    type Output = Result<W::Response, Error>;
+    type IntoFuture = crate::platform::BoxFuture<'tx, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            let sender_id = &self.signed_tx.transaction.signer_id;
+            let response = self.rpc.send_tx(self.signed_tx, W::STATUS).await?;
+            W::convert(response, sender_id)
+        })
+    }
+}
+
+// ============================================================================
 // TransactionSend
 // ============================================================================
 
@@ -1480,9 +1545,10 @@ impl IntoFuture for CallBuilder {
 ///   [`crate::types::Final`]) → [`FinalExecutionOutcome`]
 /// - Non-executed levels ([`crate::types::Submitted`], [`crate::types::Included`],
 ///   [`crate::types::IncludedFinal`]) → [`crate::types::SendTxResponse`]
+#[must_use = "transactions are not sent unless awaited"]
 pub struct TransactionSend<W: WaitLevel = crate::types::ExecutedOptimistic> {
     builder: TransactionBuilder,
-    _marker: std::marker::PhantomData<W>,
+    _marker: PhantomData<W>,
 }
 
 impl<W: WaitLevel> TransactionSend<W> {
@@ -1496,21 +1562,21 @@ impl<W: WaitLevel> TransactionSend<W> {
     /// // Executed levels return FinalExecutionOutcome
     /// let outcome = near.transfer("bob.testnet", NearToken::from_near(1))
     ///     .send()
-    ///     .wait_until(Final)
+    ///     .wait_until::<Final>()
     ///     .await?;
     ///
     /// // Non-executed levels return SendTxResponse
     /// let response = near.transfer("bob.testnet", NearToken::from_near(1))
     ///     .send()
-    ///     .wait_until(Included)
+    ///     .wait_until::<Included>()
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn wait_until<W2: WaitLevel>(self, _level: W2) -> TransactionSend<W2> {
+    pub fn wait_until<W2: WaitLevel>(self) -> TransactionSend<W2> {
         TransactionSend {
             builder: self.builder,
-            _marker: std::marker::PhantomData,
+            _marker: PhantomData,
         }
     }
 
@@ -1560,7 +1626,7 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
 
                 // Retry loop for transient InvalidTxErrors (nonce conflicts, expired block hash)
                 let max_nonce_retries = builder.max_nonce_retries;
-                let wait_until = W::status();
+                let wait_until = W::STATUS;
                 let network = builder.rpc.url().to_string();
                 let mut last_error: Option<Error> = None;
                 let mut last_ak_nonce: Option<u64> = None;

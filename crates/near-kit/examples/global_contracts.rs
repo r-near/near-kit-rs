@@ -48,7 +48,7 @@ async fn global_contracts_example() -> Result<(), Error> {
     publisher_near
         .publish(wasm_code.clone(), PublishMode::Updatable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await?;
 
     println!("Published guestbook contract (updatable)\n");
@@ -74,7 +74,7 @@ async fn global_contracts_example() -> Result<(), Error> {
     user_near
         .deploy_from(&publisher_account)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await?;
 
     println!("Deployed to {user_account} from publisher\n");
@@ -87,7 +87,7 @@ async fn global_contracts_example() -> Result<(), Error> {
         .gas(Gas::from_tgas(30))
         .deposit(NearToken::ZERO)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await?;
 
     let messages: Vec<serde_json::Value> = root_near
@@ -108,7 +108,7 @@ async fn global_contracts_example() -> Result<(), Error> {
     publisher_near
         .publish(wasm_code, PublishMode::Immutable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await?;
 
     println!("Published same contract (immutable)\n");
@@ -134,7 +134,7 @@ async fn global_contracts_example() -> Result<(), Error> {
     user2_near
         .deploy_from(code_hash)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await?;
 
     println!("Deployed to {user2_account} from code hash");
