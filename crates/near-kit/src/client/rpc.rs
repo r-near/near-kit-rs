@@ -7,6 +7,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::error::RpcError;
+use crate::trace;
 use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockEffects, BlockReference,
@@ -173,7 +174,7 @@ impl RpcClient {
     }
 
     /// Make a raw RPC call with retries.
-    #[tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %sanitize_url(&self.url)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %sanitize_url(&self.url))))]
     pub async fn call<P: Serialize, R: DeserializeOwned>(
         &self,
         method: &str,
@@ -198,7 +199,7 @@ impl RpcClient {
                         self.retry_config.initial_delay_ms * 2u64.pow(attempt),
                         self.retry_config.max_delay_ms,
                     );
-                    tracing::warn!(
+                    trace::warn!(
                         attempt = attempt + 1,
                         max_attempts = total_attempts,
                         delay_ms = delay,
@@ -209,7 +210,7 @@ impl RpcClient {
                     continue;
                 }
                 Err(e) => {
-                    tracing::error!(error = %e, "RPC request failed");
+                    trace::error!(error = %e, "RPC request failed");
                     return Err(e);
                 }
             }
@@ -223,6 +224,9 @@ impl RpcClient {
         &self,
         request: &JsonRpcRequest<'_, impl Serialize>,
     ) -> Result<R, RpcError> {
+        // Gated on the feature (not routed through `crate::trace`) because the
+        // no-op macros would leave `json` unused.
+        #[cfg(feature = "tracing")]
         if tracing::enabled!(tracing::Level::TRACE)
             && let Ok(json) = serde_json::to_string(request)
         {
@@ -240,7 +244,7 @@ impl RpcClient {
         let status = response.status();
         let body = response.text().await?;
 
-        tracing::trace!(payload = %body, "RPC response");
+        trace::trace!(payload = %body, "RPC response");
 
         if !status.is_success() {
             // nearcore returns non-2xx (e.g. 422 UNKNOWN_BLOCK, 408 TIMEOUT_ERROR) with
@@ -513,7 +517,7 @@ impl RpcClient {
     // ========================================================================
 
     /// View account information.
-    #[tracing::instrument(skip(self, block), fields(%account_id))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
     pub async fn view_account(
         &self,
         account_id: &AccountId,
@@ -527,7 +531,7 @@ impl RpcClient {
     }
 
     /// View access key information.
-    #[tracing::instrument(skip(self, block), fields(%account_id, %public_key))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id, %public_key)))]
     pub async fn view_access_key(
         &self,
         account_id: &AccountId,
@@ -554,7 +558,7 @@ impl RpcClient {
     }
 
     /// View all access keys for an account.
-    #[tracing::instrument(skip(self, block), fields(%account_id))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
     pub async fn view_access_key_list(
         &self,
         account_id: &AccountId,
@@ -571,7 +575,7 @@ impl RpcClient {
     ///
     /// This uses the stabilized `query` RPC shape with
     /// `request_type: "view_gas_key_nonces"`.
-    #[tracing::instrument(skip(self, block), fields(%account_id, %public_key))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id, %public_key)))]
     pub async fn view_gas_key_nonces(
         &self,
         account_id: &AccountId,
@@ -588,7 +592,7 @@ impl RpcClient {
     }
 
     /// Call a view function on a contract.
-    #[tracing::instrument(skip(self, args, block), fields(contract_id = %account_id, method = method_name))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, args, block), fields(contract_id = %account_id, method = method_name)))]
     pub async fn view_function(
         &self,
         account_id: &AccountId,
@@ -630,7 +634,7 @@ impl RpcClient {
     /// View the WASM code deployed on an account.
     ///
     /// Uses the stabilized `query` RPC shape with `request_type: "view_code"`.
-    #[tracing::instrument(skip(self, block), fields(%account_id))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
     pub async fn view_code(
         &self,
         account_id: &AccountId,
@@ -649,7 +653,7 @@ impl RpcClient {
     /// Picks the request type from the identifier kind:
     /// `view_global_contract_code` for code-hash identifiers,
     /// `view_global_contract_code_by_account_id` for publisher accounts.
-    #[tracing::instrument(skip(self, block), fields(?id))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(?id)))]
     pub async fn view_global_contract_code(
         &self,
         id: &GlobalContractId,
@@ -692,7 +696,7 @@ impl RpcClient {
     ///
     /// Prefer [`RpcClient::view_state_all`] to collect every entry without
     /// managing the cursor yourself.
-    #[tracing::instrument(skip(self, prefix, after_key, block), fields(%account_id))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, prefix, after_key, block), fields(%account_id)))]
     pub async fn view_state(
         &self,
         account_id: &AccountId,
@@ -731,7 +735,7 @@ impl RpcClient {
     ///
     /// All pages are read against the same `block` so the result is a
     /// consistent snapshot.
-    #[tracing::instrument(skip(self, prefix, block), fields(%account_id))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, prefix, block), fields(%account_id)))]
     pub async fn view_state_all(
         &self,
         account_id: &AccountId,
@@ -776,7 +780,7 @@ impl RpcClient {
     }
 
     /// Get block information.
-    #[tracing::instrument(skip(self, block))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block)))]
     pub async fn block(&self, block: BlockReference) -> Result<BlockView, RpcError> {
         let params = block.to_rpc_params();
         self.call("block", params).await
@@ -786,7 +790,7 @@ impl RpcClient {
     ///
     /// Uses the stabilized `block_effects` method (protocol 2.13), the new name
     /// for `EXPERIMENTAL_changes_in_block`.
-    #[tracing::instrument(skip(self, block))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block)))]
     pub async fn block_effects(&self, block: BlockReference) -> Result<BlockEffects, RpcError> {
         let params = block.to_rpc_params();
         self.call("block_effects", params).await
@@ -797,7 +801,7 @@ impl RpcClient {
     /// Uses the stabilized `genesis_config` method (protocol 2.13), the new name
     /// for `EXPERIMENTAL_genesis_config`. The genesis config is a large,
     /// network-specific document, so it is returned as untyped JSON.
-    #[tracing::instrument(skip(self))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub async fn genesis_config(&self) -> Result<serde_json::Value, RpcError> {
         // Send an empty params array (not `null`) — this is what the other
         // no-arg methods here use, and some JSON-RPC servers require `params` to
@@ -810,7 +814,7 @@ impl RpcClient {
     /// Each window is a half-open block-height range during which the validator
     /// has no block/chunk production duties. Uses the stabilized
     /// `maintenance_windows` method (protocol 2.13).
-    #[tracing::instrument(skip(self), fields(%account_id))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%account_id)))]
     pub async fn maintenance_windows(
         &self,
         account_id: &AccountId,
@@ -820,13 +824,13 @@ impl RpcClient {
     }
 
     /// Get node status.
-    #[tracing::instrument(skip(self))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub async fn status(&self) -> Result<StatusResponse, RpcError> {
         self.call("status", serde_json::json!([])).await
     }
 
     /// Get current gas price.
-    #[tracing::instrument(skip(self))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub async fn gas_price(&self, block_hash: Option<&CryptoHash>) -> Result<GasPrice, RpcError> {
         let params = match block_hash {
             Some(hash) => serde_json::json!([hash.to_string()]),
@@ -840,7 +844,7 @@ impl RpcClient {
     /// Pass `None` for the latest epoch, or a block height/hash to query a
     /// specific epoch. Finality and sync-checkpoint variants are treated as
     /// latest (the `validators` RPC accepts only `block_id` or `null`).
-    #[tracing::instrument(skip(self))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub async fn validators(
         &self,
         block: Option<BlockReference>,
@@ -851,19 +855,19 @@ impl RpcClient {
 
     /// Send a signed transaction.
     ///
-    #[tracing::instrument(skip(self, signed_tx), fields(
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, signed_tx), fields(
         tx_hash = tracing::field::Empty,
         sender = %signed_tx.transaction.signer_id,
         receiver = %signed_tx.transaction.receiver_id,
         ?wait_until,
-    ))]
+    )))]
     pub async fn send_tx(
         &self,
         signed_tx: &SignedTransaction,
         wait_until: TxExecutionStatus,
     ) -> Result<RawTransactionResponse, RpcError> {
         let tx_hash = signed_tx.get_hash();
-        tracing::Span::current().record("tx_hash", tracing::field::display(&tx_hash));
+        trace::Span::current().record("tx_hash", trace::field::display(&tx_hash));
         let params = serde_json::json!({
             "signed_tx_base64": signed_tx.to_base64(),
             "wait_until": wait_until.as_str(),
@@ -878,7 +882,7 @@ impl RpcClient {
     /// Uses `EXPERIMENTAL_tx_status` which returns complete receipt information.
     /// When the transaction has been executed, the outcome's `receipts` field
     /// will be populated (unlike `send_tx` which leaves it empty).
-    #[tracing::instrument(skip(self), fields(%tx_hash, sender = %sender_id, ?wait_until))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%tx_hash, sender = %sender_id, ?wait_until)))]
     pub async fn tx_status(
         &self,
         tx_hash: &CryptoHash,
@@ -905,7 +909,7 @@ impl RpcClient {
     /// Uses `EXPERIMENTAL_receipt_to_tx`, available on nodes running
     /// nearcore 2.12 or later. Returns [`RpcError::UnknownReceipt`] if the
     /// node does not know the receipt.
-    #[tracing::instrument(skip(self), fields(%receipt_id))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%receipt_id)))]
     pub async fn receipt_to_tx(
         &self,
         receipt_id: &CryptoHash,
@@ -1048,6 +1052,8 @@ fn block_id_or_null(block: Option<&BlockReference>) -> serde_json::Value {
 ///
 /// RPC provider URLs may carry API keys as query parameters or path tokens.
 /// This returns `scheme://host/path` so credentials don't leak into tracing spans.
+// Without `tracing`, only the unit tests reference this.
+#[cfg_attr(not(feature = "tracing"), allow(dead_code))]
 fn sanitize_url(url: &str) -> &str {
     // Strip query and fragment
     let end = url.find('?').or_else(|| url.find('#')).unwrap_or(url.len());

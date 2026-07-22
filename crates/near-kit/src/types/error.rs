@@ -15,15 +15,15 @@ use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey};
 /// Raw JSON payload of an error this version of near-kit could not parse
 /// into a typed variant.
 ///
-/// Emits a `tracing::warn!` when constructed during deserialization so
-/// fallback misclassification is observable.
+/// Emits a `tracing::warn!` when constructed during deserialization (with the
+/// `tracing` feature enabled) so fallback misclassification is observable.
 #[derive(Debug, Clone)]
 pub struct UnknownError(pub serde_json::Value);
 
 impl<'de> serde::Deserialize<'de> for UnknownError {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
-        tracing::warn!(raw = %value, "unrecognized error variant from RPC, falling back to Unknown");
+        crate::trace::warn!(raw = %value, "unrecognized error variant from RPC, falling back to Unknown");
         Ok(Self(value))
     }
 }

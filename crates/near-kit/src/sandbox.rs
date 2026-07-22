@@ -72,13 +72,13 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use crate::trace::info;
 use testcontainers::{
     ContainerAsync, CopyToContainer, Image,
     core::{ContainerPort, WaitFor},
     runners::AsyncRunner,
 };
 use tokio::sync::OnceCell;
-use tracing::info;
 
 use crate::client::Near;
 
