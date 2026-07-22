@@ -747,9 +747,10 @@ impl GlobalContractQuery {
     /// Check whether the global contract is deployed, instead of fetching
     /// its code.
     ///
-    /// Returns `Ok(false)` when nothing is published under the identifier.
-    /// Note the node still returns the full code on the wire — the RPC has
-    /// no lighter existence check.
+    /// Returns `Ok(false)` when nothing is published under the identifier,
+    /// including when a publisher account does not exist. Note the node
+    /// still returns the full code on the wire — the RPC has no lighter
+    /// existence check.
     pub async fn exists(self) -> Result<bool, Error> {
         match self
             .rpc
@@ -757,7 +758,11 @@ impl GlobalContractQuery {
             .await
         {
             Ok(_) => Ok(true),
-            Err(crate::error::RpcError::GlobalContractNotFound(_)) => Ok(false),
+            // AccountNotFound isn't returned by current nodes (the lookup is
+            // by identifier, not account), but a nonexistent publisher has
+            // published nothing — treat it the same as not-found.
+            Err(crate::error::RpcError::GlobalContractNotFound(_))
+            | Err(crate::error::RpcError::AccountNotFound(_)) => Ok(false),
             Err(e) => Err(e.into()),
         }
     }
