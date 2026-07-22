@@ -1480,13 +1480,19 @@ impl IntoFuture for CallBuilder {
 /// this builder directly uses [`ExecutedOptimistic`](crate::types::ExecutedOptimistic),
 /// while [`wait_until`](Self::wait_until) selects a different wait level at compile time.
 ///
+/// The builder borrows the signed transaction, so the future produced by
+/// [`IntoFuture`] is tied to the `'tx` lifetime rather than `'static`. To
+/// satisfy a `'static` bound (for example `tokio::spawn`), wrap the send in an
+/// `async move` block that owns the transaction.
+///
 /// # Example
 ///
 /// ```rust,no_run
 /// # use near_kit::*;
 /// # async fn example(near: &Near, signed: &SignedTransaction) -> Result<(), Error> {
-/// // Early wait levels return SendTxResponse. Await `near.send(signed)`
-/// // directly instead to use the ExecutedOptimistic default.
+/// // Early wait levels return SendTxResponse, useful for fire-and-track
+/// // workflows. Awaiting directly without `.wait_until` uses the
+/// // ExecutedOptimistic default and returns FinalExecutionOutcome instead.
 /// let submitted: SendTxResponse = near.send(signed)
 ///     .wait_until::<Included>()
 ///     .await?;
