@@ -1599,25 +1599,30 @@ mod tests {
         assert!(matches!(result, RpcError::ContractNotDeployed(_)));
     }
 
-    #[test]
-    fn test_parse_rpc_error_no_global_contract_code() {
-        let client = RpcClient::new("https://example.com");
-
-        // Account-id identifier
-        let error = JsonRpcError {
+    fn no_global_contract_code_error(identifier: serde_json::Value) -> JsonRpcError {
+        JsonRpcError {
             code: -32000,
             message: "No global contract code".to_string(),
             data: None,
             cause: Some(ErrorCause {
                 name: "NO_GLOBAL_CONTRACT_CODE".to_string(),
                 info: Some(serde_json::json!({
-                    "identifier": { "account_id": "publisher.near" },
+                    "identifier": identifier,
                     "block_height": 100,
                     "block_hash": "11111111111111111111111111111111"
                 })),
             }),
             name: None,
-        };
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_no_global_contract_code() {
+        let client = RpcClient::new("https://example.com");
+
+        // Account-id identifier
+        let error =
+            no_global_contract_code_error(serde_json::json!({ "account_id": "publisher.near" }));
         let result = client.parse_rpc_error(&error);
         match result {
             RpcError::GlobalContractNotFound(GlobalContractIdentifierView::AccountId(id)) => {
@@ -1627,20 +1632,35 @@ mod tests {
         }
 
         // Code-hash identifier
-        let error = JsonRpcError {
-            code: -32000,
-            message: "No global contract code".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "NO_GLOBAL_CONTRACT_CODE".to_string(),
-                info: Some(serde_json::json!({
-                    "identifier": { "hash": "11111111111111111111111111111111" },
-                    "block_height": 100,
-                    "block_hash": "11111111111111111111111111111111"
-                })),
-            }),
-            name: None,
-        };
+        let error = no_global_contract_code_error(
+            serde_json::json!({ "hash": "11111111111111111111111111111111" }),
+        );
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(
+            result,
+            RpcError::GlobalContractNotFound(GlobalContractIdentifierView::CodeHash(_))
+        ));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_no_global_contract_code_pre_2_12_shape() {
+        let client = RpcClient::new("https://example.com");
+
+        // Before nearcore#15539 (2.12.0), the identifier serialized with
+        // variant names instead of the view field names.
+        let error =
+            no_global_contract_code_error(serde_json::json!({ "AccountId": "publisher.near" }));
+        let result = client.parse_rpc_error(&error);
+        match result {
+            RpcError::GlobalContractNotFound(GlobalContractIdentifierView::AccountId(id)) => {
+                assert_eq!(id.as_str(), "publisher.near");
+            }
+            other => panic!("expected GlobalContractNotFound(AccountId), got {other:?}"),
+        }
+
+        let error = no_global_contract_code_error(
+            serde_json::json!({ "CodeHash": "11111111111111111111111111111111" }),
+        );
         let result = client.parse_rpc_error(&error);
         assert!(matches!(
             result,
