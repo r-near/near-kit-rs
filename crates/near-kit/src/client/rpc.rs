@@ -384,13 +384,19 @@ impl RpcClient {
                     }
                 }
                 "NO_GLOBAL_CONTRACT_CODE" => {
-                    if let Some(identifier) = info.and_then(|i| i.get("identifier"))
-                        && let Ok(identifier) = serde_json::from_value::<GlobalContractIdentifierView>(
-                            identifier.clone(),
-                        )
-                    {
-                        return RpcError::GlobalContractNotFound(identifier);
-                    }
+                    // The cause name is authoritative; the identifier parse is
+                    // best-effort so an unexpected shape can't demote this to a
+                    // generic error. `view_global_contract_code` patches in the
+                    // caller-known identifier anyway.
+                    let identifier = info
+                        .and_then(|i| i.get("identifier"))
+                        .and_then(|v| {
+                            serde_json::from_value::<GlobalContractIdentifierView>(v.clone()).ok()
+                        })
+                        .unwrap_or_else(|| {
+                            GlobalContractIdentifierView::AccountId("unknown".parse().unwrap())
+                        });
+                    return RpcError::GlobalContractNotFound(identifier);
                 }
                 "TOO_LARGE_CONTRACT_STATE" => {
                     let account_id = info
@@ -660,7 +666,20 @@ impl RpcClient {
             }),
         };
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await
+        self.call("query", params).await.map_err(|e| match e {
+            // Replace the error's best-effort identifier with the one the
+            // caller asked for, so it stays accurate whatever the node's
+            // serialization shape.
+            RpcError::GlobalContractNotFound(_) => RpcError::GlobalContractNotFound(match id {
+                GlobalContractId::CodeHash(hash) => {
+                    GlobalContractIdentifierView::CodeHash(CryptoHash::from_bytes(*hash))
+                }
+                GlobalContractId::AccountId(account_id) => {
+                    GlobalContractIdentifierView::AccountId(account_id.clone())
+                }
+            }),
+            other => other,
+        })
     }
 
     /// View a single page of a contract's state (raw key/value trie entries).
@@ -1666,6 +1685,31 @@ mod tests {
             result,
             RpcError::GlobalContractNotFound(GlobalContractIdentifierView::CodeHash(_))
         ));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_no_global_contract_code_unparseable_identifier() {
+        let client = RpcClient::new("https://example.com");
+
+        // An unrecognized identifier shape must not demote the error to the
+        // generic Rpc variant — the cause name alone identifies it.
+        let error = no_global_contract_code_error(serde_json::json!({ "unexpected": 42 }));
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::GlobalContractNotFound(_)));
+
+        // Same when the identifier field is missing entirely.
+        let error = JsonRpcError {
+            code: -32000,
+            message: "No global contract code".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "NO_GLOBAL_CONTRACT_CODE".to_string(),
+                info: None,
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(matches!(result, RpcError::GlobalContractNotFound(_)));
     }
 
     #[test]
