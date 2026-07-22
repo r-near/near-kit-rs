@@ -63,7 +63,7 @@ async fn test_gas_key_signed_transaction() {
         .transfer(NearToken::from_near(20))
         .add_full_access_key(owner_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .expect("create owner account");
 
@@ -96,7 +96,7 @@ async fn test_gas_key_signed_transaction() {
             NearToken::from_near(5),
         ))
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .expect("add + fund gas key");
 
@@ -130,7 +130,7 @@ async fn test_gas_key_signed_transaction() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(recipient_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .expect("create recipient");
 

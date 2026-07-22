@@ -38,7 +38,7 @@ async fn test_in_memory_signer_from_secret_key() {
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -53,7 +53,7 @@ async fn test_in_memory_signer_from_secret_key() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -78,7 +78,7 @@ async fn test_in_memory_signer_from_seed_phrase() {
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -121,7 +121,7 @@ async fn test_rotating_signer_uses_multiple_keys() {
         .add_full_access_key(key2.public_key())
         .add_full_access_key(key3.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -138,7 +138,7 @@ async fn test_rotating_signer_uses_multiple_keys() {
             .transfer(NearToken::from_near(1))
             .add_full_access_key(SecretKey::generate_ed25519().public_key())
             .send()
-            .wait_until(Final)
+            .wait_until::<Final>()
             .await
             .unwrap();
     }
@@ -165,7 +165,7 @@ async fn test_rotating_signer_with_single_key() {
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -181,7 +181,7 @@ async fn test_rotating_signer_with_single_key() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -230,7 +230,7 @@ async fn test_sign_with_override() {
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key1.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -240,7 +240,7 @@ async fn test_sign_with_override() {
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key2.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -258,7 +258,7 @@ async fn test_sign_with_override() {
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .sign_with(signer2)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -287,7 +287,7 @@ async fn test_wrong_key_for_account() {
         .transfer(NearToken::from_near(50))
         .add_full_access_key(correct_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -303,7 +303,7 @@ async fn test_wrong_key_for_account() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await;
 
     assert!(result.is_err(), "Should fail with wrong key");
@@ -335,7 +335,7 @@ async fn test_deleted_key_fails() {
         .add_full_access_key(key1.public_key())
         .add_full_access_key(key2.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -349,7 +349,7 @@ async fn test_deleted_key_fails() {
 
     near2
         .delete_key(key1.public_key())
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -361,7 +361,7 @@ async fn test_deleted_key_fails() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await;
 
     assert!(result.is_err(), "Should fail with deleted key");
@@ -383,7 +383,7 @@ async fn test_signing_with_ed25519_key() {
         .transfer(NearToken::from_near(50))
         .add_full_access_key(ed_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -398,7 +398,7 @@ async fn test_signing_with_ed25519_key() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(SecretKey::generate_ed25519().public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 

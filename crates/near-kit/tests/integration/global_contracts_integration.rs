@@ -44,7 +44,7 @@ async fn create_funded_account(
         .transfer(funding)
         .add_full_access_key(account_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -73,7 +73,7 @@ async fn test_near_publish_shorthand_updatable() {
     let outcome = publisher_near
         .publish(wasm_code, PublishMode::Updatable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -94,7 +94,7 @@ async fn test_near_publish_shorthand_immutable() {
     let outcome = publisher_near
         .publish(wasm_code, PublishMode::Immutable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -116,7 +116,7 @@ async fn test_near_deploy_from_shorthand_publisher() {
     publisher_near
         .publish(wasm_code, PublishMode::Updatable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -127,7 +127,7 @@ async fn test_near_deploy_from_shorthand_publisher() {
     user_near
         .deploy_from(publisher_id.clone())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -155,7 +155,7 @@ async fn test_near_deploy_from_shorthand_hash() {
     publisher_near
         .publish(wasm_code, PublishMode::Immutable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -166,7 +166,7 @@ async fn test_near_deploy_from_shorthand_hash() {
     user_near
         .deploy_from(code_hash)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -194,7 +194,7 @@ async fn test_publish_deploy_from_call_end_to_end() {
     publisher_near
         .publish(wasm_code, PublishMode::Updatable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -205,7 +205,7 @@ async fn test_publish_deploy_from_call_end_to_end() {
     user_near
         .deploy_from(publisher_id.as_str())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -217,7 +217,7 @@ async fn test_publish_deploy_from_call_end_to_end() {
         .gas(Gas::from_tgas(30))
         .deposit(NearToken::ZERO)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -248,7 +248,7 @@ async fn test_publish_contract_by_account() {
         .transaction(&publisher_id)
         .publish(wasm_code, PublishMode::Updatable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -275,7 +275,7 @@ async fn test_publish_contract_by_hash() {
         .transaction(&publisher_id)
         .publish(wasm_code, PublishMode::Immutable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -302,7 +302,7 @@ async fn test_deploy_from_publisher() {
         .transaction(&publisher_id)
         .publish(wasm_code, PublishMode::Updatable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -315,7 +315,7 @@ async fn test_deploy_from_publisher() {
         .transaction(&user_id)
         .deploy_from(publisher_id.clone())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -356,7 +356,7 @@ async fn test_deploy_from_hash() {
         .transaction(&publisher_id)
         .publish(wasm_code, PublishMode::Immutable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -369,7 +369,7 @@ async fn test_deploy_from_hash() {
         .transaction(&user_id)
         .deploy_from(code_hash)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -407,7 +407,7 @@ async fn test_state_init_by_hash() {
         .transaction(&publisher_id)
         .publish(wasm_code, PublishMode::Immutable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -419,7 +419,7 @@ async fn test_state_init_by_hash() {
     let outcome = publisher_near
         .state_init(si, NearToken::from_near(5))
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -446,7 +446,7 @@ async fn test_state_init_by_publisher() {
         .transaction(&publisher_id)
         .publish(wasm_code, PublishMode::Updatable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -459,7 +459,7 @@ async fn test_state_init_by_publisher() {
     let outcome = publisher_near
         .state_init(si, NearToken::from_near(5))
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -491,7 +491,7 @@ async fn test_action_create_account() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(child_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -515,7 +515,7 @@ async fn test_action_transfer() {
         .transaction(&receiver_id)
         .transfer(NearToken::from_near(3))
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -540,7 +540,7 @@ async fn test_action_deploy_contract() {
         .transaction(&contract_id)
         .deploy(wasm_code)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -565,7 +565,7 @@ async fn test_action_function_call() {
         .transaction(&contract_id)
         .deploy(wasm_code)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -577,7 +577,7 @@ async fn test_action_function_call() {
         .gas(Gas::from_tgas(30))
         .deposit(NearToken::ZERO)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 }
@@ -597,7 +597,7 @@ async fn test_action_add_full_access_key() {
         .transaction(&account_id)
         .add_full_access_key(new_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -627,7 +627,7 @@ async fn test_action_add_function_call_key() {
             Some(NearToken::from_near(1)),
         )
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -652,7 +652,7 @@ async fn test_action_delete_key() {
         .transaction(&account_id)
         .add_full_access_key(second_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -665,7 +665,7 @@ async fn test_action_delete_key() {
         .transaction(&account_id)
         .delete_key(second_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -693,7 +693,7 @@ async fn test_action_delete_account() {
         .transfer(NearToken::from_near(2))
         .add_full_access_key(to_delete_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -707,7 +707,7 @@ async fn test_action_delete_account() {
         .transaction(&to_delete_id)
         .delete_account(&beneficiary_id)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -741,7 +741,7 @@ async fn test_action_stake() {
         .transaction(&staker_id)
         .stake(stake_amount, staker_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -775,7 +775,7 @@ async fn test_multiple_actions() {
         .add_full_access_key(child_key.public_key())
         .deploy(wasm_code)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -806,7 +806,7 @@ async fn test_multiple_function_calls() {
         .transaction(&contract_id)
         .deploy(wasm_code)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -820,7 +820,7 @@ async fn test_multiple_function_calls() {
         .args(serde_json::json!({ "text": "Second message" }))
         .gas(Gas::from_tgas(15))
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 

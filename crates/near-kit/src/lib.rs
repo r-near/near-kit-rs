@@ -172,7 +172,7 @@
 //!
 //! // Wait for different execution levels
 //! near.transfer("bob.testnet", NearToken::from_near(1))
-//!     .wait_until(Final)
+//!     .wait_until::<Final>()
 //!     .await?;
 //! # Ok(())
 //! # }
@@ -455,8 +455,8 @@ pub use contract::{Contract, ContractClient};
 pub use client::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, CallBuilder, DelegateOptions,
     DelegateResult, EnvSigner, FunctionCall, InMemorySigner, Near, NearBuilder, RetryConfig,
-    RotatingSigner, RpcClient, SandboxNetwork, Signer, SigningKey, TransactionBuilder,
-    TransactionSend, ViewCall, ViewCallBorsh,
+    RotatingSigner, RpcClient, SandboxNetwork, SignedTransactionSend, Signer, SigningKey,
+    TransactionBuilder, TransactionSend, TransactionStatusQuery, ViewCall, ViewCallBorsh,
 };
 
 #[cfg(feature = "file-signer")]

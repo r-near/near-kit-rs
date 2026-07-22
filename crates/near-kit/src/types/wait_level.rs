@@ -2,7 +2,7 @@
 //!
 //! Instead of using a runtime enum, each wait level is its own type with an
 //! associated `Response` type. This lets the compiler determine the return type
-//! of `send().wait_until(...)` based on which marker you pass in:
+//! of `send().wait_until::<W>()` from the selected type:
 //!
 //! ```rust,no_run
 //! # use near_kit::*;
@@ -12,13 +12,13 @@
 //!
 //! // Executed levels — also returns FinalExecutionOutcome
 //! near.transfer("bob.testnet", NearToken::from_near(1))
-//!     .wait_until(Final)
+//!     .wait_until::<Final>()
 //!     .await?;
 //!
 //! // Non-executed levels — returns SendTxResponse (hash + sender, plus any
 //! // partial outcome the RPC has already produced)
 //! let response = near.transfer("bob.testnet", NearToken::from_near(1))
-//!     .wait_until(Included)
+//!     .wait_until::<Included>()
 //!     .await?;
 //! println!("tx hash: {}", response.transaction_hash);
 //! # Ok(())
@@ -37,18 +37,18 @@ mod sealed {
 
 /// Trait for type-safe transaction wait levels.
 ///
-/// Each wait level is a zero-sized marker type that carries:
+/// Each wait level is a zero-sized marker type that defines:
 /// - The [`TxExecutionStatus`] to send to the RPC
 /// - An associated [`Response`](WaitLevel::Response) type that determines
-///   what `send().wait_until(...)` returns
+///   what `send().wait_until::<W>()` returns
 ///
 /// This trait is sealed and cannot be implemented outside this crate.
 pub trait WaitLevel: sealed::Sealed + Send + Sync + 'static {
     /// The type returned when awaiting a transaction with this wait level.
     type Response: Send + 'static;
 
-    /// The RPC wait_until value.
-    fn status() -> TxExecutionStatus;
+    /// The RPC `wait_until` value.
+    const STATUS: TxExecutionStatus;
 
     /// Convert a raw RPC response into the appropriate return type.
     ///
@@ -96,9 +96,8 @@ pub struct Submitted;
 impl sealed::Sealed for Submitted {}
 impl WaitLevel for Submitted {
     type Response = SendTxResponse;
-    fn status() -> TxExecutionStatus {
-        TxExecutionStatus::None
-    }
+    const STATUS: TxExecutionStatus = TxExecutionStatus::None;
+
     fn convert(
         response: RawTransactionResponse,
         sender_id: &AccountId,
@@ -118,9 +117,8 @@ pub struct Included;
 impl sealed::Sealed for Included {}
 impl WaitLevel for Included {
     type Response = SendTxResponse;
-    fn status() -> TxExecutionStatus {
-        TxExecutionStatus::Included
-    }
+    const STATUS: TxExecutionStatus = TxExecutionStatus::Included;
+
     fn convert(
         response: RawTransactionResponse,
         sender_id: &AccountId,
@@ -140,9 +138,8 @@ pub struct IncludedFinal;
 impl sealed::Sealed for IncludedFinal {}
 impl WaitLevel for IncludedFinal {
     type Response = SendTxResponse;
-    fn status() -> TxExecutionStatus {
-        TxExecutionStatus::IncludedFinal
-    }
+    const STATUS: TxExecutionStatus = TxExecutionStatus::IncludedFinal;
+
     fn convert(
         response: RawTransactionResponse,
         sender_id: &AccountId,
@@ -187,9 +184,8 @@ pub struct ExecutedOptimistic;
 impl sealed::Sealed for ExecutedOptimistic {}
 impl WaitLevel for ExecutedOptimistic {
     type Response = FinalExecutionOutcome;
-    fn status() -> TxExecutionStatus {
-        TxExecutionStatus::ExecutedOptimistic
-    }
+    const STATUS: TxExecutionStatus = TxExecutionStatus::ExecutedOptimistic;
+
     fn convert(
         response: RawTransactionResponse,
         _sender_id: &AccountId,
@@ -207,9 +203,8 @@ pub struct Executed;
 impl sealed::Sealed for Executed {}
 impl WaitLevel for Executed {
     type Response = FinalExecutionOutcome;
-    fn status() -> TxExecutionStatus {
-        TxExecutionStatus::Executed
-    }
+    const STATUS: TxExecutionStatus = TxExecutionStatus::Executed;
+
     fn convert(
         response: RawTransactionResponse,
         _sender_id: &AccountId,
@@ -227,9 +222,8 @@ pub struct Final;
 impl sealed::Sealed for Final {}
 impl WaitLevel for Final {
     type Response = FinalExecutionOutcome;
-    fn status() -> TxExecutionStatus {
-        TxExecutionStatus::Final
-    }
+    const STATUS: TxExecutionStatus = TxExecutionStatus::Final;
+
     fn convert(
         response: RawTransactionResponse,
         _sender_id: &AccountId,

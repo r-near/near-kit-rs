@@ -43,7 +43,7 @@ async fn test_delegate_v2_relay() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .expect("create sender");
 
@@ -55,7 +55,7 @@ async fn test_delegate_v2_relay() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(relayer_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .expect("create relayer");
 
@@ -67,7 +67,7 @@ async fn test_delegate_v2_relay() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(recipient_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .expect("create recipient");
 

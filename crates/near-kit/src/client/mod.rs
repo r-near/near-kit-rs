@@ -25,6 +25,7 @@
 //! - [`AccountQuery`] — Get full account info
 //! - [`AccountExistsQuery`] — Check if account exists
 //! - [`AccessKeysQuery`] — List access keys
+//! - [`TransactionStatusQuery`] — Poll or wait for transaction progress
 //! - [`ViewCall`] — Call view functions on contracts
 //!
 //! # Transaction Builders
@@ -47,14 +48,16 @@ mod keyring_signer;
 
 pub use near::{Near, NearBuilder, SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_SECRET_KEY, SandboxNetwork};
 pub use query::{
-    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ViewCall, ViewCallBorsh,
+    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, TransactionStatusQuery,
+    ViewCall, ViewCallBorsh,
 };
 pub use rpc::{RetryConfig, RpcClient};
 #[cfg(feature = "file-signer")]
 pub use signer::FileSigner;
 pub use signer::{EnvSigner, InMemorySigner, RotatingSigner, Signer, SigningKey};
 pub use transaction::{
-    CallBuilder, DelegateOptions, DelegateResult, FunctionCall, TransactionBuilder, TransactionSend,
+    CallBuilder, DelegateOptions, DelegateResult, FunctionCall, SignedTransactionSend,
+    TransactionBuilder, TransactionSend,
 };
 
 #[cfg(feature = "keyring")]

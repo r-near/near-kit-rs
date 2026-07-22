@@ -32,7 +32,7 @@ async fn deploy_guestbook(near: &Near, contract_account: &str) {
         .add_full_access_key(new_key.public_key())
         .deploy(wasm_code)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .expect("deploy guestbook");
 }
@@ -52,7 +52,7 @@ async fn test_view_state_pagination_reads_all_entries() {
             .call("add_message")
             .args(serde_json::json!({ "text": format!("message number {i}") }))
             .send()
-            .wait_until(Final)
+            .wait_until::<Final>()
             .await
             .expect("add_message");
     }

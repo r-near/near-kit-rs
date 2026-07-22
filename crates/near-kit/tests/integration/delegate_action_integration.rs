@@ -47,7 +47,7 @@ async fn test_delegate_action_transfer() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -61,7 +61,7 @@ async fn test_delegate_action_transfer() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(relayer_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -75,7 +75,7 @@ async fn test_delegate_action_transfer() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(recipient_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -124,7 +124,7 @@ async fn test_delegate_action_transfer() {
         .transaction(signed_delegate.sender_id())
         .signed_delegate_action(signed_delegate)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -163,7 +163,7 @@ async fn test_delegate_action_function_call() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -177,7 +177,7 @@ async fn test_delegate_action_function_call() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(relayer_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -196,7 +196,7 @@ async fn test_delegate_action_function_call() {
         .add_full_access_key(contract_key.public_key())
         .deploy(wasm_code)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -230,7 +230,7 @@ async fn test_delegate_action_function_call() {
         .transaction(signed_delegate.sender_id())
         .signed_delegate_action(signed_delegate)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -254,7 +254,7 @@ async fn test_delegate_action_multiple_actions() {
         .transfer(NearToken::from_near(20))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -268,7 +268,7 @@ async fn test_delegate_action_multiple_actions() {
         .transfer(NearToken::from_near(10))
         .add_full_access_key(relayer_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -307,7 +307,7 @@ async fn test_delegate_action_multiple_actions() {
         .transaction(signed_delegate.sender_id())
         .signed_delegate_action(signed_delegate)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -340,7 +340,7 @@ async fn test_delegate_action_roundtrip_encoding() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -354,7 +354,7 @@ async fn test_delegate_action_roundtrip_encoding() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(recipient_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -410,7 +410,7 @@ async fn test_delegate_action_validation_errors() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(sender_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 

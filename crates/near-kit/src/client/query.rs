@@ -10,7 +10,8 @@ use serde::de::DeserializeOwned;
 
 use crate::error::Error;
 use crate::types::{
-    AccessKeyListView, AccountBalance, AccountId, AccountView, BlockReference, CryptoHash, Finality,
+    AccessKeyListView, AccountBalance, AccountId, AccountView, BlockReference, CryptoHash,
+    Finality, Submitted, TryIntoAccountId, WaitLevel,
 };
 
 use super::rpc::RpcClient;
@@ -296,6 +297,102 @@ impl IntoFuture for AccessKeysQuery {
                 .view_access_key_list(&self.account_id, self.block_ref)
                 .await?;
             Ok(list)
+        })
+    }
+}
+
+// ============================================================================
+// TransactionStatusQuery
+// ============================================================================
+
+/// Awaitable query for transaction execution status.
+///
+/// Awaiting this query directly uses [`Submitted`], which asks the node for its
+/// current progress without waiting for a new execution milestone. Use
+/// [`wait_until`](Self::wait_until) to block until a specific type-safe level.
+/// The selected wait-level type also determines the response type.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// # async fn example(
+/// #     near: &Near,
+/// #     tx_hash: &CryptoHash,
+/// #     sender_id: &AccountId,
+/// # ) -> Result<(), Error> {
+/// // The default is a non-blocking progress query.
+/// let progress: SendTxResponse = near.tx_status(tx_hash, sender_id).await?;
+///
+/// // Waiting for execution returns a full execution outcome.
+/// let outcome: FinalExecutionOutcome = near
+///     .tx_status(tx_hash, sender_id)
+///     .wait_until::<Final>()
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// Wait levels compose naturally in generic helpers because they are selected
+/// entirely in type position:
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// async fn status_at<W: WaitLevel>(
+///     near: &Near,
+///     tx_hash: &CryptoHash,
+///     sender_id: &AccountId,
+/// ) -> Result<W::Response, Error> {
+///     near.tx_status(tx_hash, sender_id).wait_until::<W>().await
+/// }
+/// ```
+#[must_use = "transaction status queries do nothing unless awaited"]
+pub struct TransactionStatusQuery<W: WaitLevel = Submitted> {
+    rpc: Arc<RpcClient>,
+    tx_hash: CryptoHash,
+    sender_id: Result<AccountId, Error>,
+    _marker: PhantomData<W>,
+}
+
+impl TransactionStatusQuery {
+    pub(crate) fn new(
+        rpc: Arc<RpcClient>,
+        tx_hash: CryptoHash,
+        sender_id: impl TryIntoAccountId,
+    ) -> Self {
+        Self {
+            rpc,
+            tx_hash,
+            sender_id: sender_id.try_into_account_id().map_err(Error::from),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<W: WaitLevel> TransactionStatusQuery<W> {
+    /// Select the execution wait level and corresponding response type.
+    pub fn wait_until<W2: WaitLevel>(self) -> TransactionStatusQuery<W2> {
+        TransactionStatusQuery {
+            rpc: self.rpc,
+            tx_hash: self.tx_hash,
+            sender_id: self.sender_id,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<W: WaitLevel> IntoFuture for TransactionStatusQuery<W> {
+    type Output = Result<W::Response, Error>;
+    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            let sender_id = self.sender_id?;
+            let response = self
+                .rpc
+                .tx_status(&self.tx_hash, &sender_id, W::STATUS)
+                .await?;
+            W::convert(response, &sender_id)
         })
     }
 }

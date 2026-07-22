@@ -681,16 +681,15 @@ pub enum FinalExecutionStatus {
 /// # use near_kit::*;
 /// # async fn example(near: &Near) -> Result<(), Error> {
 /// let response = near.transfer("bob.testnet", NearToken::from_near(1))
-///     .wait_until(Included)
+///     .wait_until::<Included>()
 ///     .await?;
 ///
 /// // Later, poll for progress without waiting for finality. At early wait
 /// // levels EXPERIMENTAL_tx_status still returns per-receipt data:
-/// let status = near.tx_status(
-///     &response.transaction_hash,
-///     &response.sender_id,
-///     Included,
-/// ).await?;
+/// let status = near
+///     .tx_status(&response.transaction_hash, &response.sender_id)
+///     .wait_until::<Included>()
+///     .await?;
 /// if let Some(outcome) = &status.outcome {
 ///     for receipt_outcome in &outcome.receipts_outcome {
 ///         // drive a progressive UI from each receipt's status

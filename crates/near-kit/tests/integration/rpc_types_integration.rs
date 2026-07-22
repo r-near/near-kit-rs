@@ -265,7 +265,7 @@ async fn test_final_execution_outcome_full_fields() {
         .transfer(NearToken::from_near(5))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -337,7 +337,7 @@ async fn test_execution_metadata_and_gas_profile() {
         .transfer(NearToken::from_near(1))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -385,14 +385,18 @@ async fn test_tx_status_with_receipts() {
         .transfer(NearToken::from_near(2))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
     let tx_hash = outcome.transaction_hash();
 
     // Now get the full transaction status with receipts
-    let status_outcome = near.tx_status(tx_hash, &root_account, Final).await.unwrap();
+    let status_outcome: FinalExecutionOutcome = near
+        .tx_status(tx_hash, &root_account)
+        .wait_until::<Final>()
+        .await
+        .unwrap();
 
     // Same FinalExecutionOutcome type as send() returns, with receipts populated
     assert!(status_outcome.is_success(), "Transaction should succeed");
@@ -455,17 +459,28 @@ async fn test_tx_status_early_wait_level_surfaces_receipts() {
         .transfer(NearToken::from_near(2))
         .add_full_access_key(receiver_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
     let tx_hash = outcome.transaction_hash();
 
+    // A bare status query defaults to Submitted: it returns the node's current
+    // progress immediately instead of waiting for a later milestone.
+    let current: SendTxResponse = near.tx_status(tx_hash, &root_account).await.unwrap();
+    assert_eq!(&current.transaction_hash, tx_hash);
+    assert_eq!(&current.sender_id, &root_account);
+    assert!(
+        current.outcome.is_some(),
+        "default tx_status should surface the settled transaction's progress"
+    );
+
     // Poll at an early wait level (Included). Previously this dropped the
     // outcome and returned only hash + sender; now it carries the partial
     // outcome so the receipts are reachable.
     let response: SendTxResponse = near
-        .tx_status(tx_hash, &root_account, Included)
+        .tx_status(tx_hash, &root_account)
+        .wait_until::<Included>()
         .await
         .unwrap();
 
@@ -535,7 +550,7 @@ async fn test_action_view_variants() {
         .transfer(NearToken::from_near(3))
         .add_full_access_key(account1_key.public_key())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
