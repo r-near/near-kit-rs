@@ -848,7 +848,7 @@ async fn test_global_contract_query_by_account() {
     publisher_near
         .publish(wasm_code.clone(), PublishMode::Updatable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -880,7 +880,7 @@ async fn test_global_contract_query_by_hash() {
     publisher_near
         .publish(wasm_code.clone(), PublishMode::Immutable)
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
@@ -948,7 +948,7 @@ async fn test_contract_code_query() {
     account_near
         .deploy(wasm_code.clone())
         .send()
-        .wait_until(Final)
+        .wait_until::<Final>()
         .await
         .unwrap();
 
