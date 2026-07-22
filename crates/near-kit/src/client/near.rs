@@ -12,8 +12,8 @@ use crate::types::{
 };
 
 use super::query::{
-    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, TransactionStatusQuery,
-    ViewCall,
+    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ContractCodeQuery,
+    GlobalContractQuery, TransactionStatusQuery, ViewCall,
 };
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
 use super::signer::{InMemorySigner, Signer};
@@ -508,6 +508,67 @@ impl Near {
             .try_into_account_id()
             .expect("invalid account ID");
         AccessKeysQuery::new(self.rpc.clone(), account_id)
+    }
+
+    /// Get the WASM code deployed on an account.
+    ///
+    /// Returns the code bytes plus their SHA-256 hash. Use `.exists()` to
+    /// check for a deployed contract without caring about the code itself.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    ///
+    /// let contract = near.contract_code("app.near").await?;
+    /// println!("code hash: {}, {} bytes", contract.hash, contract.code.len());
+    ///
+    /// if near.contract_code("app.near").exists().await? {
+    ///     println!("Contract deployed!");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn contract_code(&self, account_id: impl TryIntoAccountId) -> ContractCodeQuery {
+        let account_id = account_id
+            .try_into_account_id()
+            .expect("invalid account ID");
+        ContractCodeQuery::new(self.rpc.clone(), account_id)
+    }
+
+    /// Get a global contract's code and hash.
+    ///
+    /// Accepts the same identifiers as [`Near::deploy_from`]: a publisher
+    /// account ID (updatable contracts, where `hash` reflects the currently
+    /// published version) or a code hash (immutable contracts). Use
+    /// `.exists()` to check whether anything is published under the
+    /// identifier.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(code_hash: CryptoHash) -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    ///
+    /// // By publisher account (updatable)
+    /// let contract = near.global_contract("publisher.near").await?;
+    /// println!("current code hash: {}", contract.hash);
+    ///
+    /// // By code hash (immutable)
+    /// let contract = near.global_contract(code_hash).await?;
+    ///
+    /// // Deployment check
+    /// if near.global_contract("publisher.near").exists().await? {
+    ///     println!("Global contract published!");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn global_contract(&self, id: impl IntoGlobalContractId) -> GlobalContractQuery {
+        GlobalContractQuery::new(self.rpc.clone(), id.into_identifier())
     }
 
     // ========================================================================

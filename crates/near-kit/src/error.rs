@@ -53,7 +53,9 @@
 
 use thiserror::Error;
 
-use crate::types::{AccountId, DelegateDecodeError, InvalidTxError, PublicKey};
+use crate::types::{
+    AccountId, DelegateDecodeError, GlobalContractIdentifierView, InvalidTxError, PublicKey,
+};
 
 /// Error parsing an account ID.
 ///
@@ -213,6 +215,9 @@ pub enum RpcError {
 
     #[error("Contract state too large for account: {0}")]
     ContractStateTooLarge(AccountId),
+
+    #[error("Global contract not found: {0}")]
+    GlobalContractNotFound(GlobalContractIdentifierView),
 
     #[error("Contract execution failed on {contract_id}: {message}")]
     ContractExecution {
@@ -405,6 +410,11 @@ impl RpcError {
     /// Returns true if this error indicates a contract is not deployed.
     pub fn is_contract_not_deployed(&self) -> bool {
         matches!(self, RpcError::ContractNotDeployed(_))
+    }
+
+    /// Returns true if this error indicates a global contract was not found.
+    pub fn is_global_contract_not_found(&self) -> bool {
+        matches!(self, RpcError::GlobalContractNotFound(_))
     }
 }
 

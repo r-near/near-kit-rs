@@ -258,6 +258,26 @@ pub struct ViewStateResult {
 }
 
 // ============================================================================
+// view_code / view_global_contract_code
+// ============================================================================
+
+/// A contract's WASM code and its hash, as returned by `view_code` and
+/// `view_global_contract_code` queries.
+///
+/// `code` is raw WASM bytes; it is base64-encoded on the wire. `hash` is the
+/// SHA-256 hash of the code.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ContractCodeView {
+    /// Raw WASM bytes of the contract.
+    #[serde(rename = "code_base64")]
+    #[serde_as(as = "Base64")]
+    pub code: Vec<u8>,
+    /// SHA-256 hash of the code.
+    pub hash: CryptoHash,
+}
+
+// ============================================================================
 // Stabilized RPC method responses (protocol 2.13)
 // ============================================================================
 
