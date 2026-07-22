@@ -258,6 +258,26 @@ pub struct ViewStateResult {
 }
 
 // ============================================================================
+// view_code / view_global_contract_code
+// ============================================================================
+
+/// A contract's WASM code and its hash, as returned by `view_code` and
+/// `view_global_contract_code` queries.
+///
+/// `code` is raw WASM bytes; it is base64-encoded on the wire. `hash` is the
+/// SHA-256 hash of the code.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ContractCodeView {
+    /// Raw WASM bytes of the contract.
+    #[serde(rename = "code_base64")]
+    #[serde_as(as = "Base64")]
+    pub code: Vec<u8>,
+    /// SHA-256 hash of the code.
+    pub hash: CryptoHash,
+}
+
+// ============================================================================
 // Stabilized RPC method responses (protocol 2.13)
 // ============================================================================
 
@@ -946,13 +966,27 @@ pub struct TransactionView {
 
 /// Backward-compatible deserialization helper for `GlobalContractIdentifierView`.
 ///
-/// Handles both the new format (`{"hash": "<base58>"}` / `{"account_id": "alice.near"}`)
+/// Handles the view format (`{"hash": "<base58>"}` / `{"account_id": "alice.near"}`),
+/// the pre-2.12 identifier format (`{"CodeHash": "<base58>"}` / `{"AccountId":
+/// "alice.near"}`, used by `NO_GLOBAL_CONTRACT_CODE` errors before nearcore#15539),
 /// and the deprecated format (bare string `"<base58>"` / `"alice.near"`).
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum GlobalContractIdCompat {
-    CodeHash { hash: CryptoHash },
-    AccountId { account_id: AccountId },
+    CodeHash {
+        hash: CryptoHash,
+    },
+    AccountId {
+        account_id: AccountId,
+    },
+    LegacyCodeHash {
+        #[serde(rename = "CodeHash")]
+        hash: CryptoHash,
+    },
+    LegacyAccountId {
+        #[serde(rename = "AccountId")]
+        account_id: AccountId,
+    },
     DeprecatedCodeHash(CryptoHash),
     DeprecatedAccountId(AccountId),
 }
@@ -975,8 +1009,10 @@ impl From<GlobalContractIdCompat> for GlobalContractIdentifierView {
     fn from(compat: GlobalContractIdCompat) -> Self {
         match compat {
             GlobalContractIdCompat::CodeHash { hash }
+            | GlobalContractIdCompat::LegacyCodeHash { hash }
             | GlobalContractIdCompat::DeprecatedCodeHash(hash) => Self::CodeHash(hash),
             GlobalContractIdCompat::AccountId { account_id }
+            | GlobalContractIdCompat::LegacyAccountId { account_id }
             | GlobalContractIdCompat::DeprecatedAccountId(account_id) => {
                 Self::AccountId(account_id)
             }

@@ -151,6 +151,14 @@
 //! let optimistic = near.balance("alice.testnet")
 //!     .finality(Finality::Optimistic)
 //!     .await?;
+//!
+//! // Contract code — regular accounts and the global registry
+//! let contract = near.contract_code("app.near").await?;
+//! let global = near.global_contract("publisher.near").await?;
+//! println!("current global code hash: {}", global.hash);
+//! if near.global_contract("publisher.near").exists().await? {
+//!     println!("published!");
+//! }
 //! # Ok(())
 //! # }
 //! ```
@@ -453,10 +461,11 @@ pub use contract::{Contract, ContractClient};
 
 // Re-export client types
 pub use client::{
-    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, CallBuilder, DelegateOptions,
-    DelegateResult, EnvSigner, FunctionCall, InMemorySigner, Near, NearBuilder, RetryConfig,
-    RotatingSigner, RpcClient, SandboxNetwork, SignedTransactionSend, Signer, SigningKey,
-    TransactionBuilder, TransactionSend, TransactionStatusQuery, ViewCall, ViewCallBorsh,
+    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, CallBuilder,
+    ContractCodeQuery, DelegateOptions, DelegateResult, EnvSigner, FunctionCall,
+    GlobalContractQuery, InMemorySigner, Near, NearBuilder, RetryConfig, RotatingSigner, RpcClient,
+    SandboxNetwork, SignedTransactionSend, Signer, SigningKey, TransactionBuilder, TransactionSend,
+    TransactionStatusQuery, ViewCall, ViewCallBorsh,
 };
 
 #[cfg(feature = "file-signer")]

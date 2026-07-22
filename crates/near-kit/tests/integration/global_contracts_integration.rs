@@ -829,3 +829,131 @@ async fn test_multiple_function_calls() {
         outcome.total_gas_used()
     );
 }
+
+// =============================================================================
+// Global Contract Query Tests (near.global_contract / near.contract_code)
+// =============================================================================
+
+/// Query a published (updatable) global contract by publisher account.
+#[tokio::test]
+async fn test_global_contract_query_by_account() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+
+    let (publisher_near, publisher_id, _) =
+        create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
+
+    let wasm_code = load_test_contract();
+
+    publisher_near
+        .publish(wasm_code.clone(), PublishMode::Updatable)
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    let contract = root_near.global_contract(&publisher_id).await.unwrap();
+    assert_eq!(contract.code, wasm_code);
+    assert_eq!(contract.hash, CryptoHash::hash(&wasm_code));
+
+    assert!(
+        root_near
+            .global_contract(&publisher_id)
+            .exists()
+            .await
+            .unwrap()
+    );
+}
+
+/// Query a published (immutable) global contract by code hash.
+#[tokio::test]
+async fn test_global_contract_query_by_hash() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+
+    let (publisher_near, _, _) =
+        create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
+
+    let wasm_code = load_test_contract();
+    let code_hash = CryptoHash::hash(&wasm_code);
+
+    publisher_near
+        .publish(wasm_code.clone(), PublishMode::Immutable)
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    let contract = root_near.global_contract(code_hash).await.unwrap();
+    assert_eq!(contract.code, wasm_code);
+    assert_eq!(contract.hash, code_hash);
+
+    assert!(root_near.global_contract(code_hash).exists().await.unwrap());
+}
+
+/// Missing global contracts surface a typed error, and exists() returns false.
+#[tokio::test]
+async fn test_global_contract_query_not_found() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+
+    // An account that never published anything
+    let unpublished_account = unique_account();
+    let err = root_near
+        .global_contract(&unpublished_account)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, Error::Rpc(e) if e.is_global_contract_not_found()),
+        "unexpected error: {err:?}"
+    );
+
+    assert!(
+        !root_near
+            .global_contract(&unpublished_account)
+            .exists()
+            .await
+            .unwrap()
+    );
+
+    // A hash nothing was published under
+    let bogus_hash = CryptoHash::hash(b"no contract with this hash");
+    assert!(
+        !root_near
+            .global_contract(bogus_hash)
+            .exists()
+            .await
+            .unwrap()
+    );
+}
+
+/// near.contract_code() returns the code deployed on a regular account.
+#[tokio::test]
+async fn test_contract_code_query() {
+    let sandbox = SandboxConfig::shared().await;
+    let root_near = sandbox.client();
+
+    let (account_near, account_id, _) =
+        create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
+
+    // No contract deployed yet
+    assert!(!root_near.contract_code(&account_id).exists().await.unwrap());
+    let err = root_near.contract_code(&account_id).await.unwrap_err();
+    assert!(
+        matches!(&err, Error::Rpc(e) if e.is_contract_not_deployed()),
+        "unexpected error: {err:?}"
+    );
+
+    let wasm_code = load_test_contract();
+    account_near
+        .deploy(wasm_code.clone())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    let contract = root_near.contract_code(&account_id).await.unwrap();
+    assert_eq!(contract.code, wasm_code);
+    assert_eq!(contract.hash, CryptoHash::hash(&wasm_code));
+    assert!(root_near.contract_code(&account_id).exists().await.unwrap());
+}

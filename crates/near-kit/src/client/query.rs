@@ -10,8 +10,8 @@ use serde::de::DeserializeOwned;
 
 use crate::error::Error;
 use crate::types::{
-    AccessKeyListView, AccountBalance, AccountId, AccountView, BlockReference, CryptoHash,
-    Finality, Submitted, TryIntoAccountId, WaitLevel,
+    AccessKeyListView, AccountBalance, AccountId, AccountView, BlockReference, ContractCodeView,
+    CryptoHash, Finality, GlobalContractId, Submitted, TryIntoAccountId, WaitLevel,
 };
 
 use super::rpc::RpcClient;
@@ -594,6 +594,191 @@ impl<T: borsh::BorshDeserialize + Send + 'static> IntoFuture for ViewCallBorsh<T
                 .view_function(&self.contract_id, &self.method, &self.args, self.block_ref)
                 .await?;
             result.borsh().map_err(|e| Error::Borsh(e.to_string()))
+        })
+    }
+}
+
+// ============================================================================
+// ContractCodeQuery
+// ============================================================================
+
+/// Query builder for fetching the WASM code deployed on an account.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// # async fn example() -> Result<(), near_kit::Error> {
+/// let near = Near::testnet().build();
+///
+/// let contract = near.contract_code("app.near").await?;
+/// println!("code hash: {}, {} bytes", contract.hash, contract.code.len());
+///
+/// // Check whether a contract is deployed at all
+/// if near.contract_code("app.near").exists().await? {
+///     println!("Contract deployed!");
+/// }
+/// # Ok(())
+/// # }
+/// ```
+pub struct ContractCodeQuery {
+    rpc: Arc<RpcClient>,
+    account_id: AccountId,
+    block_ref: BlockReference,
+}
+
+impl ContractCodeQuery {
+    pub(crate) fn new(rpc: Arc<RpcClient>, account_id: AccountId) -> Self {
+        Self {
+            rpc,
+            account_id,
+            block_ref: BlockReference::default(),
+        }
+    }
+
+    /// Query at a specific block height.
+    pub fn at_block(mut self, height: u64) -> Self {
+        self.block_ref = BlockReference::Height(height);
+        self
+    }
+
+    /// Query at a specific block hash.
+    pub fn at_block_hash(mut self, hash: CryptoHash) -> Self {
+        self.block_ref = BlockReference::Hash(hash);
+        self
+    }
+
+    /// Query with specific finality.
+    pub fn finality(mut self, finality: Finality) -> Self {
+        self.block_ref = BlockReference::Finality(finality);
+        self
+    }
+
+    /// Check whether a contract is deployed, instead of fetching its code.
+    ///
+    /// Returns `Ok(false)` when the account has no contract or does not
+    /// exist. Note the node still returns the full code on the wire — the
+    /// RPC has no lighter existence check.
+    pub async fn exists(self) -> Result<bool, Error> {
+        match self.rpc.view_code(&self.account_id, self.block_ref).await {
+            Ok(_) => Ok(true),
+            Err(crate::error::RpcError::ContractNotDeployed(_))
+            | Err(crate::error::RpcError::AccountNotFound(_)) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+impl IntoFuture for ContractCodeQuery {
+    type Output = Result<ContractCodeView, Error>;
+    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            let view = self.rpc.view_code(&self.account_id, self.block_ref).await?;
+            Ok(view)
+        })
+    }
+}
+
+// ============================================================================
+// GlobalContractQuery
+// ============================================================================
+
+/// Query builder for fetching a global contract's code and hash.
+///
+/// Accepts the same identifiers as `deploy_from`: a publisher account ID
+/// (updatable contracts) or a code hash (immutable contracts).
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # use near_kit::*;
+/// # async fn example(code_hash: CryptoHash) -> Result<(), near_kit::Error> {
+/// let near = Near::testnet().build();
+///
+/// // By publisher account (updatable) — `hash` is the current version
+/// let contract = near.global_contract("publisher.near").await?;
+/// println!("current code hash: {}", contract.hash);
+///
+/// // By code hash (immutable)
+/// let contract = near.global_contract(code_hash).await?;
+///
+/// // Deployment check
+/// if near.global_contract("publisher.near").exists().await? {
+///     println!("Global contract published!");
+/// }
+/// # Ok(())
+/// # }
+/// ```
+pub struct GlobalContractQuery {
+    rpc: Arc<RpcClient>,
+    id: GlobalContractId,
+    block_ref: BlockReference,
+}
+
+impl GlobalContractQuery {
+    pub(crate) fn new(rpc: Arc<RpcClient>, id: GlobalContractId) -> Self {
+        Self {
+            rpc,
+            id,
+            block_ref: BlockReference::default(),
+        }
+    }
+
+    /// Query at a specific block height.
+    pub fn at_block(mut self, height: u64) -> Self {
+        self.block_ref = BlockReference::Height(height);
+        self
+    }
+
+    /// Query at a specific block hash.
+    pub fn at_block_hash(mut self, hash: CryptoHash) -> Self {
+        self.block_ref = BlockReference::Hash(hash);
+        self
+    }
+
+    /// Query with specific finality.
+    pub fn finality(mut self, finality: Finality) -> Self {
+        self.block_ref = BlockReference::Finality(finality);
+        self
+    }
+
+    /// Check whether the global contract is deployed, instead of fetching
+    /// its code.
+    ///
+    /// Returns `Ok(false)` when nothing is published under the identifier,
+    /// including when a publisher account does not exist. Note the node
+    /// still returns the full code on the wire — the RPC has no lighter
+    /// existence check.
+    pub async fn exists(self) -> Result<bool, Error> {
+        match self
+            .rpc
+            .view_global_contract_code(&self.id, self.block_ref)
+            .await
+        {
+            Ok(_) => Ok(true),
+            // AccountNotFound isn't returned by current nodes (the lookup is
+            // by identifier, not account), but a nonexistent publisher has
+            // published nothing — treat it the same as not-found.
+            Err(crate::error::RpcError::GlobalContractNotFound(_))
+            | Err(crate::error::RpcError::AccountNotFound(_)) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+impl IntoFuture for GlobalContractQuery {
+    type Output = Result<ContractCodeView, Error>;
+    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            let view = self
+                .rpc
+                .view_global_contract_code(&self.id, self.block_ref)
+                .await?;
+            Ok(view)
         })
     }
 }

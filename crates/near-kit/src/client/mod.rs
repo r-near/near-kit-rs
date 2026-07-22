@@ -48,8 +48,8 @@ mod keyring_signer;
 
 pub use near::{Near, NearBuilder, SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_SECRET_KEY, SandboxNetwork};
 pub use query::{
-    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, TransactionStatusQuery,
-    ViewCall, ViewCallBorsh,
+    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ContractCodeQuery,
+    GlobalContractQuery, TransactionStatusQuery, ViewCall, ViewCallBorsh,
 };
 pub use rpc::{RetryConfig, RpcClient};
 #[cfg(feature = "file-signer")]
