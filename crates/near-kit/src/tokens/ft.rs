@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
+use crate::trace::{self, Instrument};
 use serde::Serialize;
 use tokio::sync::OnceCell;
-use tracing::Instrument;
 
 use crate::client::{CallBuilder, RpcClient, Signer, TransactionBuilder};
 use crate::error::Error;
@@ -162,7 +162,7 @@ impl FungibleToken {
     /// ```
     pub async fn balance_of(&self, account_id: impl TryIntoAccountId) -> Result<FtAmount, Error> {
         let account_id: AccountId = account_id.try_into_account_id()?;
-        let span = tracing::debug_span!("ft_balance_of", contract = %self.contract_id, %account_id);
+        let span = trace::debug_span!("ft_balance_of", contract = %self.contract_id, %account_id);
 
         async {
             let metadata = self.metadata().await?;
@@ -380,7 +380,7 @@ impl FungibleToken {
         let receiver_id: AccountId = receiver_id
             .try_into_account_id()
             .expect("invalid account ID");
-        tracing::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer");
+        trace::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer");
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -460,7 +460,7 @@ impl FungibleToken {
         let receiver_id: AccountId = receiver_id
             .try_into_account_id()
             .expect("invalid account ID");
-        tracing::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer_call");
+        trace::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer_call");
 
         #[derive(Serialize)]
         struct TransferCallArgs {

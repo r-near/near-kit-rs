@@ -23,6 +23,7 @@ mod signer_edge_cases_integration;
 mod stabilized_rpc_integration;
 mod token_error_integration;
 mod token_integration;
+#[cfg(feature = "tracing")]
 mod tracing_integration;
 mod transaction_failure_integration;
 mod transaction_outcome_integration;

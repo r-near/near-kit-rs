@@ -200,6 +200,7 @@ Available known tokens: `tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`
 |---------|-------------|
 | `sandbox` | Local testing with [near-sandbox](https://crates.io/crates/near-sandbox) |
 | `keyring` | System keyring integration for desktop apps |
+| `tracing` | [`tracing`](https://crates.io/crates/tracing) spans and events for RPC calls and transactions (on by default; drop it with `default-features = false`) |
 | `interactive-clap` | Enables `interactive-clap` derives on re-exported `NearToken` and `Gas` for CLI tools |
 
 ### A note on `near-token` / `near-gas`

@@ -26,6 +26,8 @@ jobs:
           cache-on-failure: "true"
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --all-features
+      # Covers the tracing-off no-op facade (and sandbox without tracing)
+      - run: cargo clippy -p near-kit --all-targets --no-default-features --features sandbox
 
   test:
     name: Test

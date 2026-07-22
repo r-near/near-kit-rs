@@ -370,6 +370,8 @@
 //! `near-kit` compiles for `wasm32-unknown-unknown` (Dioxus, Leptos, Yew, etc.) with
 //! `default-features = false`. This disables `keyring` and `file-signer` (both use OS
 //! APIs unavailable in the browser); use [`InMemorySigner`] or [`EnvSigner`] instead.
+//! It also disables `tracing`; add `features = ["tracing"]` back if you want spans
+//! (the `tracing` crate itself is wasm-compatible).
 //!
 //! `near-kit` relies on `getrandom` (via `rand`, `ed25519-dalek`, `k256`, and `ml-dsa`)
 //! for key generation and nonce randomness. On `wasm32-unknown-unknown`, `getrandom`
@@ -415,6 +417,7 @@
 //! |---------|---------|-------------|
 //! | `keyring` | Yes | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
 //! | `file-signer` | Yes | [`FileSigner`] for loading keys from `~/.near-credentials` |
+//! | `tracing` | Yes | [`tracing`](https://docs.rs/tracing) spans and events for RPC calls and transactions |
 //! | `sandbox` | No | Integration with `near-sandbox` for local testing |
 //! | `js` | No | JS-host entropy backend (`getrandom`'s `js`/`wasm_js`) for `wasm32-unknown-unknown` |
 //!
@@ -445,6 +448,7 @@ pub mod contract;
 pub mod error;
 mod platform;
 pub mod tokens;
+mod trace;
 pub mod types;
 
 // Sandbox module - only available with "sandbox" feature

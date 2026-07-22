@@ -33,7 +33,7 @@ use std::future::IntoFuture;
 use std::marker::PhantomData;
 use std::sync::{Arc, OnceLock};
 
-use tracing::Instrument;
+use crate::trace::{self, Instrument};
 
 use crate::error::{Error, RpcError};
 use crate::types::{
@@ -57,6 +57,7 @@ fn nonce_manager() -> &'static NonceManager {
 /// Produce a comma-separated summary of action types for tracing spans.
 ///
 /// Function calls include the method name, e.g. `"create_account,transfer,function_call(init)"`.
+#[cfg(feature = "tracing")]
 fn actions_summary(actions: &[Action]) -> String {
     use std::fmt::Write;
     let mut out = String::new();
@@ -90,6 +91,7 @@ fn actions_summary(actions: &[Action]) -> String {
 /// When the actions contain exactly one function call, records `method`, `gas`,
 /// and `deposit` on the current span. Multiple function calls emit a debug event
 /// per call instead, since span fields can't repeat.
+#[cfg(feature = "tracing")]
 fn record_function_call_fields(actions: &[Action]) {
     let function_calls: Vec<_> = actions
         .iter()
@@ -101,14 +103,14 @@ fn record_function_call_fields(actions: &[Action]) {
 
     match function_calls.as_slice() {
         [fc] => {
-            let span = tracing::Span::current();
+            let span = trace::Span::current();
             span.record("method", fc.method_name.as_str());
-            span.record("gas", tracing::field::display(&fc.gas));
-            span.record("deposit", tracing::field::display(&fc.deposit));
+            span.record("gas", trace::field::display(&fc.gas));
+            span.record("deposit", trace::field::display(&fc.deposit));
         }
         multiple if !multiple.is_empty() => {
             for fc in multiple {
-                tracing::debug!(
+                trace::debug!(
                     method = %fc.method_name,
                     gas = %fc.gas,
                     deposit = %fc.deposit,
@@ -748,21 +750,21 @@ impl TransactionBuilder {
             .ok_or(Error::NoSigner)?;
 
         let signer_id = signer.account_id().clone();
-        let action_count = self.actions.len();
 
-        let span = tracing::info_span!(
+        let span = trace::info_span!(
             "build_transaction",
             sender = %signer_id,
             receiver = %self.receiver_id,
-            action_count,
+            action_count = self.actions.len(),
             actions = %actions_summary(&self.actions),
-            method = tracing::field::Empty,
-            gas = tracing::field::Empty,
-            deposit = tracing::field::Empty,
+            method = trace::field::Empty,
+            gas = trace::field::Empty,
+            deposit = trace::field::Empty,
         );
 
         let actions = self.actions;
         async move {
+            #[cfg(feature = "tracing")]
             record_function_call_fields(&actions);
 
             // Use public_key() directly to avoid side effects from key() —
@@ -796,7 +798,7 @@ impl TransactionBuilder {
                 actions,
             );
 
-            tracing::debug!(tx_hash = %tx.get_hash(), nonce, "Transaction built (unsigned)");
+            trace::debug!(tx_hash = %tx.get_hash(), nonce, "Transaction built (unsigned)");
 
             Ok(tx)
         }
@@ -894,21 +896,21 @@ impl TransactionBuilder {
             .ok_or(Error::NoSigner)?;
 
         let signer_id = signer.account_id().clone();
-        let action_count = self.actions.len();
 
-        let span = tracing::info_span!(
+        let span = trace::info_span!(
             "sign_transaction",
             sender = %signer_id,
             receiver = %self.receiver_id,
-            action_count,
+            action_count = self.actions.len(),
             actions = %actions_summary(&self.actions),
-            method = tracing::field::Empty,
-            gas = tracing::field::Empty,
-            deposit = tracing::field::Empty,
+            method = trace::field::Empty,
+            gas = trace::field::Empty,
+            deposit = trace::field::Empty,
         );
 
         let actions = self.actions;
         async move {
+            #[cfg(feature = "tracing")]
             record_function_call_fields(&actions);
 
             // Get a signing key atomically. For RotatingSigner, this claims the next
@@ -950,7 +952,7 @@ impl TransactionBuilder {
             let tx_hash = tx.get_hash();
             let signature = key.sign(tx_hash.as_bytes()).await?;
 
-            tracing::debug!(tx_hash = %tx_hash, nonce, "Transaction signed");
+            trace::debug!(tx_hash = %tx_hash, nonce, "Transaction signed");
 
             Ok(SignedTransaction {
                 transaction: tx,
@@ -1616,18 +1618,19 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
 
             let signer_id = signer.account_id().clone();
 
-            let span = tracing::info_span!(
+            let span = trace::info_span!(
                 "send_transaction",
                 sender = %signer_id,
                 receiver = %builder.receiver_id,
                 action_count = builder.actions.len(),
                 actions = %actions_summary(&builder.actions),
-                method = tracing::field::Empty,
-                gas = tracing::field::Empty,
-                deposit = tracing::field::Empty,
+                method = trace::field::Empty,
+                gas = trace::field::Empty,
+                deposit = trace::field::Empty,
             );
 
             async move {
+                #[cfg(feature = "tracing")]
                 record_function_call_fields(&builder.actions);
 
                 // Retry loop for transient InvalidTxErrors (nonce conflicts, expired block hash)
@@ -1699,7 +1702,7 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                         Err(RpcError::InvalidTx(
                             crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
                         )) if attempt < max_nonce_retries => {
-                            tracing::warn!(
+                            trace::warn!(
                                 tx_nonce = tx_nonce,
                                 ak_nonce = ak_nonce,
                                 attempt = attempt + 1,
@@ -1715,7 +1718,7 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                         Err(RpcError::InvalidTx(crate::types::InvalidTxError::Expired))
                             if attempt + 1 < max_nonce_retries =>
                         {
-                            tracing::warn!(
+                            trace::warn!(
                                 attempt = attempt + 1,
                                 "Transaction expired (stale block hash), retrying with fresh block hash"
                             );
@@ -1729,7 +1732,7 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                             continue;
                         }
                         Err(e) => {
-                            tracing::error!(error = %e, "Transaction send failed");
+                            trace::error!(error = %e, "Transaction send failed");
                             return Err(e.into());
                         }
                     }

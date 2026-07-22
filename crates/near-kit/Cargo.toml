@@ -54,8 +54,8 @@ keyring = { workspace = true, optional = true }
 # Error handling
 thiserror.workspace = true
 
-# Logging
-tracing.workspace = true
+# Logging (optional; gated by `tracing` — see src/trace.rs for the no-op fallback)
+tracing = { workspace = true, optional = true }
 
 # Proc macros for typed contracts
 near-kit-macros.workspace = true
@@ -82,10 +82,13 @@ getrandom = { version = "0.2", default-features = false }
 getrandom_v04 = { package = "getrandom", version = "0.4", default-features = false }
 
 [features]
-default = ["keyring", "file-signer"]
+default = ["keyring", "file-signer", "tracing"]
 sandbox = ["dep:testcontainers", "dep:libc", "tokio/rt"]
 keyring = ["dep:keyring"]
 file-signer = ["dep:dirs"]
+# Emit `tracing` spans and events for RPC calls, transactions, and token
+# operations. Disable (via `default-features = false`) to drop the dependency.
+tracing = ["dep:tracing"]
 # JS-host entropy backend for `wasm32-unknown-unknown`. Enables `getrandom`'s
 # `js` feature (used transitively by `rand`/`ed25519-dalek`/`k256`) and
 # `getrandom` 0.4's `wasm_js` feature (used transitively by
@@ -100,6 +103,9 @@ interactive-clap = ["near-token/interactive-clap", "near-gas/interactive-clap"]
 [dev-dependencies]
 tokio-test.workspace = true
 tempfile.workspace = true
+# The tracing integration tests need the real `tracing` crate regardless of
+# how the optional main dependency is configured.
+tracing.workspace = true
 tracing-subscriber.workspace = true
 
 # All targets except JS-host wasm: full tokio runtime for tests and doctests

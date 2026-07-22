@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
+use crate::trace::{self, Instrument};
 use serde::Serialize;
 use tokio::sync::OnceCell;
-use tracing::Instrument;
 
 use crate::client::{CallBuilder, RpcClient, Signer, TransactionBuilder};
 use crate::error::Error;
@@ -148,7 +148,7 @@ impl NonFungibleToken {
     /// ```
     pub async fn token(&self, token_id: impl AsRef<str>) -> Result<Option<NftToken>, Error> {
         let token_id = token_id.as_ref();
-        let span = tracing::debug_span!("nft_token", contract = %self.contract_id, token_id);
+        let span = trace::debug_span!("nft_token", contract = %self.contract_id, token_id);
 
         async {
             #[derive(Serialize)]
@@ -205,7 +205,7 @@ impl NonFungibleToken {
     ) -> Result<Vec<NftToken>, Error> {
         let account_id: AccountId = account_id.try_into_account_id()?;
         let span =
-            tracing::debug_span!("nft_tokens_for_owner", contract = %self.contract_id, %account_id);
+            trace::debug_span!("nft_tokens_for_owner", contract = %self.contract_id, %account_id);
 
         async {
             #[derive(Serialize)]
@@ -327,7 +327,7 @@ impl NonFungibleToken {
         let receiver_id: AccountId = receiver_id
             .try_into_account_id()
             .expect("invalid account ID");
-        tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), receiver = %receiver_id, "nft_transfer");
+        trace::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), receiver = %receiver_id, "nft_transfer");
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -430,7 +430,7 @@ impl NonFungibleToken {
         let receiver_id: AccountId = receiver_id
             .try_into_account_id()
             .expect("invalid account ID");
-        tracing::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), receiver = %receiver_id, "nft_transfer_call");
+        trace::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), receiver = %receiver_id, "nft_transfer_call");
         #[derive(Serialize)]
         struct TransferCallArgs {
             receiver_id: String,
