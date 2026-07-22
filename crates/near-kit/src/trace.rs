@@ -30,7 +30,7 @@ mod noop {
             Span
         }
 
-        pub(crate) fn record<V>(&self, _field: &str, _value: V) -> &Self {
+        pub(crate) fn record<Q: ?Sized, V>(&self, _field: &Q, _value: V) -> &Self {
             self
         }
     }
