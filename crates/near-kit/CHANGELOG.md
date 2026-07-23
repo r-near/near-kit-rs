@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.12.1...near-kit-v0.13.0) - 2026-07-22
+
+### Added
+
+- put tracing behind a feature flag ([#256](https://github.com/r-near/near-kit-rs/pull/256))
+- add query builders for contract code and global contract code ([#255](https://github.com/r-near/near-kit-rs/pull/255))
+- [**breaking**] make transaction wait levels type-only ([#252](https://github.com/r-near/near-kit-rs/pull/252))
+
 ## [0.12.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.12.0...near-kit-v0.12.1) - 2026-07-17
 
 ### Added
