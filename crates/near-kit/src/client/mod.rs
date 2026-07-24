@@ -76,11 +76,18 @@ pub use transaction::{
 };
 #[cfg(feature = "rpc")]
 pub use transport::{BoxFuture, RpcTransport, TransportResponse};
-// Only the built-in transport matching the build target exists; the other side
-// of the cfg pair would reference a dependency that isn't compiled in.
+// Only the built-in transport matching the build configuration exists:
+// reqwest everywhere except WASI, the wasi:http transport on wasm32-wasip2
+// with the `wasi-http` feature — and neither on WASI without it (inject a
+// custom transport via `NearBuilder::transport` there).
 #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
 pub use transport::ReqwestTransport;
-#[cfg(all(feature = "rpc", target_arch = "wasm32", target_os = "wasi"))]
+#[cfg(all(
+    feature = "wasi-http",
+    target_arch = "wasm32",
+    target_os = "wasi",
+    target_env = "p2"
+))]
 pub use transport::WasiHttpTransport;
 
 #[cfg(feature = "keyring")]

@@ -89,5 +89,8 @@ jobs:
       - run: cargo check --target wasm32-unknown-unknown -p near-kit --no-default-features --features js,rpc
       # WASI: the offline core (types, signing, tx building) without a transport
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features
-      # WASI with the RPC layer: the built-in wasi:http transport
+      # WASI with the RPC layer but no built-in transport (hosts without
+      # wasi:http; the caller injects one via NearBuilder::transport)
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features rpc
+      # WASI with the built-in wasi:http transport
+      - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features wasi-http

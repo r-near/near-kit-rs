@@ -7,12 +7,16 @@
 //! - **Every target except WASI** (native + `wasm32-unknown-unknown`):
 //!   [`ReqwestTransport`]. reqwest's fetch backend covers browsers/JS hosts;
 //!   its native stack covers everything else.
-//! - **`wasm32-wasip2`**: `WasiHttpTransport` (only nameable when compiling
-//!   for WASI), which speaks `wasi:http/outgoing-handler` through the `wasi`
-//!   crate's raw bindings.
+//! - **`wasm32-wasip2`** with the default-on `wasi-http` feature:
+//!   `WasiHttpTransport` (only nameable there), which speaks
+//!   `wasi:http/outgoing-handler` through the `wasi` crate's raw bindings.
 //!   reqwest has no WASI support (its native stack drags in an `aws-lc-sys` C
 //!   cross-compile and hyper's tokio `net`, neither of which builds for wasm),
 //!   so a wasip2 component needs a `wasi:http`-native client instead.
+//! - **WASI without `wasi-http`**: no built-in transport. The feature split
+//!   matters because compiling the built-in transport at all makes the
+//!   component import `wasi:http`, which hosts lacking that interface refuse
+//!   to instantiate — with only `rpc` enabled, those imports never appear.
 //!
 //! Custom implementations plug in via
 //! [`NearBuilder::transport`](super::NearBuilder::transport) (or
@@ -25,6 +29,22 @@ use std::sync::Arc;
 use crate::error::RpcError;
 pub use crate::platform::BoxFuture;
 use crate::platform::{MaybeSend, MaybeSync};
+
+// The built-in WASI transport speaks the `wasi:http` component-model
+// interface, which only exists on WASI Preview 2. On earlier WASI targets,
+// fail loudly at build time instead of emitting an artifact whose `wasi:http`
+// imports no preview1 host can satisfy.
+#[cfg(all(
+    feature = "wasi-http",
+    target_arch = "wasm32",
+    target_os = "wasi",
+    not(target_env = "p2")
+))]
+compile_error!(
+    "near-kit's `wasi-http` feature requires wasm32-wasip2 (the wasi:http interface does not \
+     exist on earlier WASI targets); disable it and supply a custom transport via \
+     `NearBuilder::transport` instead"
+);
 
 /// A raw HTTP response handed back from an [`RpcTransport`].
 ///
@@ -105,6 +125,17 @@ impl<T: RpcTransport + ?Sized> RpcTransport for Arc<T> {
 }
 
 /// The transport used when the caller doesn't supply one.
+///
+/// Only compiled when a built-in transport exists for the configuration:
+/// reqwest everywhere except WASI, the `wasi:http` transport on wasm32-wasip2
+/// with the `wasi-http` feature. A WASI build without `wasi-http` has no
+/// default — the caller injects one (`NearBuilder::transport`), and because
+/// this function doesn't exist there, nothing can drag `wasi:http` imports
+/// into such a component.
+#[cfg(any(
+    not(all(target_arch = "wasm32", target_os = "wasi")),
+    all(feature = "wasi-http", target_env = "p2")
+))]
 pub(crate) fn default_transport() -> Arc<dyn RpcTransport> {
     #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
     {
@@ -179,24 +210,37 @@ impl RpcTransport for ReqwestTransport {
 }
 
 // ============================================================================
-// WASI (wasm32-wasip2): wasi:http/outgoing-handler
+// WASI (wasm32-wasip2, `wasi-http` feature): wasi:http/outgoing-handler
 // ============================================================================
 
-/// The default [`RpcTransport`] on `wasm32-wasip2`, backed by
-/// `wasi:http/outgoing-handler`.
+/// The default [`RpcTransport`] on `wasm32-wasip2` (behind the default-on
+/// `wasi-http` feature), backed by `wasi:http/outgoing-handler`.
 ///
 /// The host must provide the `wasi:http` interface — e.g. `wasmtime run -S
-/// http`, or any runtime targeting the `wasi:http/proxy` world.
+/// http`, or any runtime targeting the `wasi:http/proxy` world. For WASI
+/// hosts *without* `wasi:http`, disable the `wasi-http` feature (keeping
+/// `rpc`) and inject the platform's transport via
+/// [`NearBuilder::transport`](super::NearBuilder::transport) instead.
 ///
 /// The exchange is *blocking*: the guest parks on a wasi pollable until the
 /// response arrives, so exactly one request is in flight at a time. That is
 /// the natural shape for a single-threaded component; concurrent RPC calls
 /// from the same guest serialize rather than interleave.
-#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+#[cfg(all(
+    feature = "wasi-http",
+    target_arch = "wasm32",
+    target_os = "wasi",
+    target_env = "p2"
+))]
 #[derive(Clone, Debug, Default)]
 pub struct WasiHttpTransport;
 
-#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+#[cfg(all(
+    feature = "wasi-http",
+    target_arch = "wasm32",
+    target_os = "wasi",
+    target_env = "p2"
+))]
 impl WasiHttpTransport {
     /// Create a new wasi:http transport.
     pub fn new() -> Self {
@@ -204,7 +248,12 @@ impl WasiHttpTransport {
     }
 }
 
-#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+#[cfg(all(
+    feature = "wasi-http",
+    target_arch = "wasm32",
+    target_os = "wasi",
+    target_env = "p2"
+))]
 impl RpcTransport for WasiHttpTransport {
     fn post_json(
         &self,
@@ -215,12 +264,18 @@ impl RpcTransport for WasiHttpTransport {
     }
 }
 
-#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+#[cfg(all(
+    feature = "wasi-http",
+    target_arch = "wasm32",
+    target_os = "wasi",
+    target_env = "p2"
+))]
 mod wasi_http {
     use std::future::Future;
     use std::pin::Pin;
     use std::task::{Context, Poll};
 
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
     use wasi::http::outgoing_handler;
     use wasi::http::types::{
         ErrorCode, Fields, IncomingBody, Method, OutgoingBody, OutgoingRequest, Scheme,
@@ -271,17 +326,25 @@ mod wasi_http {
 
     /// The synchronous `wasi:http/outgoing-handler` exchange.
     fn exchange(url: &str, body: &[u8]) -> Result<TransportResponse, RpcError> {
-        let (scheme, authority, path_with_query) = split_url(url)?;
+        let UrlParts {
+            scheme,
+            authority,
+            path_with_query,
+            authorization,
+        } = split_url(url)?;
 
-        // Rejected headers mean a malformed request — not retryable.
-        let headers = Fields::from_list(&[
+        let mut header_list = vec![
             ("content-type".to_string(), b"application/json".to_vec()),
             (
                 "content-length".to_string(),
                 body.len().to_string().into_bytes(),
             ),
-        ])
-        .map_err(|e| {
+        ];
+        if let Some(value) = authorization {
+            header_list.push(("authorization".to_string(), value));
+        }
+        // Rejected headers mean a malformed request — not retryable.
+        let headers = Fields::from_list(&header_list).map_err(|e| {
             RpcError::network(
                 format!("wasi:http rejected request headers: {e:?}"),
                 None,
@@ -406,20 +469,43 @@ mod wasi_http {
         Ok(TransportResponse { status, body: buf })
     }
 
-    /// Split a URL into the `wasi:http` request parts: scheme, authority, and
-    /// path-with-query. (No `url`-crate dependency; RPC endpoint URLs are
-    /// simple enough for direct splitting.)
-    fn split_url(url: &str) -> Result<(Scheme, String, String), RpcError> {
+    /// The `wasi:http` request parts extracted from an RPC endpoint URL.
+    struct UrlParts {
+        scheme: Scheme,
+        /// Host (and optional port), with any URL userinfo stripped.
+        authority: String,
+        path_with_query: String,
+        /// `Authorization` header value synthesized from URL userinfo
+        /// (`https://user:pass@host/`), as reqwest does on other targets.
+        authorization: Option<Vec<u8>>,
+    }
+
+    /// Split a URL into the `wasi:http` request parts. (No `url`-crate
+    /// dependency; RPC endpoint URLs are simple enough for direct splitting.)
+    fn split_url(url: &str) -> Result<UrlParts, RpcError> {
         let (scheme_raw, rest) = url
             .split_once("://")
             .ok_or_else(|| invalid_url(url, "missing scheme"))?;
-        let scheme = match scheme_raw {
-            "http" => Scheme::Http,
-            "https" => Scheme::Https,
-            other => Scheme::Other(other.to_string()),
+        // Scheme names are case-insensitive (the `url` crate lowercases them
+        // on other targets). Anything but http/https is deterministically
+        // wrong for an RPC endpoint — reject it here, non-retryably, instead
+        // of letting the host fail the dispatch with a retryable-looking
+        // protocol error.
+        let scheme = if scheme_raw.eq_ignore_ascii_case("http") {
+            Scheme::Http
+        } else if scheme_raw.eq_ignore_ascii_case("https") {
+            Scheme::Https
+        } else {
+            return Err(invalid_url(url, "scheme must be http or https"));
         };
         let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
         let (authority, tail) = rest.split_at(authority_end);
+        // URL userinfo is not part of the wire-format authority: like reqwest,
+        // turn `user:pass@host` into an `Authorization: Basic` header.
+        let (authorization, authority) = match authority.rsplit_once('@') {
+            Some((userinfo, host)) => (basic_auth(userinfo), host),
+            None => (None, authority),
+        };
         if authority.is_empty() {
             return Err(invalid_url(url, "missing host"));
         }
@@ -432,7 +518,62 @@ mod wasi_http {
         } else {
             tail.to_string()
         };
-        Ok((scheme, authority.to_string(), path_with_query))
+        Ok(UrlParts {
+            scheme,
+            authority: authority.to_string(),
+            path_with_query,
+            authorization,
+        })
+    }
+
+    /// `Authorization: Basic` value for a URL userinfo segment (`user` or
+    /// `user:pass`). Both halves are percent-decoded before base64-encoding,
+    /// mirroring reqwest's conversion on other targets.
+    fn basic_auth(userinfo: &str) -> Option<Vec<u8>> {
+        if userinfo.is_empty() {
+            return None;
+        }
+        let (user, pass) = match userinfo.split_once(':') {
+            Some((user, pass)) => (user, Some(pass)),
+            None => (userinfo, None),
+        };
+        let mut credentials = percent_decode(user);
+        credentials.push(b':');
+        if let Some(pass) = pass {
+            credentials.extend(percent_decode(pass));
+        }
+        Some(format!("Basic {}", STANDARD.encode(credentials)).into_bytes())
+    }
+
+    /// Minimal percent-decoding for URL userinfo (`%40` → `@`, ...). Invalid
+    /// escapes pass through verbatim, matching lenient URL-parser behavior.
+    fn percent_decode(s: &str) -> Vec<u8> {
+        fn hex_val(b: u8) -> Option<u8> {
+            match b {
+                b'0'..=b'9' => Some(b - b'0'),
+                b'a'..=b'f' => Some(b - b'a' + 10),
+                b'A'..=b'F' => Some(b - b'A' + 10),
+                _ => None,
+            }
+        }
+        let bytes = s.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%'
+                && let (Some(hi), Some(lo)) = (
+                    bytes.get(i + 1).copied().and_then(hex_val),
+                    bytes.get(i + 2).copied().and_then(hex_val),
+                )
+            {
+                out.push((hi << 4) | lo);
+                i += 3;
+            } else {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+        out
     }
 
     /// A malformed URL is deterministic — never retryable.

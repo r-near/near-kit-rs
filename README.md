@@ -198,7 +198,8 @@ Available known tokens: `tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`
 
 | Feature | Description |
 |---------|-------------|
-| `rpc` | The RPC layer: the `Near` client, queries, transactions, token helpers, and the HTTP transport — reqwest, or `wasi:http` on `wasm32-wasip2` (on by default) |
+| `rpc` | The RPC layer: the `Near` client, queries, transactions, token helpers, and the HTTP transport — reqwest, except on WASI (on by default) |
+| `wasi-http` | Built-in `wasi:http` transport for `wasm32-wasip2`; implies `rpc`, no-op elsewhere (on by default) |
 | `sandbox` | Local testing with [near-sandbox](https://crates.io/crates/near-sandbox) |
 | `keyring` | System keyring integration for desktop apps |
 | `tracing` | [`tracing`](https://crates.io/crates/tracing) spans and events for RPC calls and transactions (on by default; drop it with `default-features = false`) |
@@ -206,14 +207,16 @@ Available known tokens: `tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`
 
 ### WASI (`wasm32-wasip2`)
 
-near-kit runs inside WASI Preview 2 components with full RPC support — on this target the `rpc` feature uses a built-in `wasi:http/outgoing-handler` transport instead of reqwest:
+near-kit runs inside WASI Preview 2 components with full RPC support — the `wasi-http` feature (implies `rpc`) provides a built-in `wasi:http/outgoing-handler` transport in place of reqwest:
 
 ```toml
 [dependencies]
-near-kit = { version = "0.13", default-features = false, features = ["rpc"] }
+near-kit = { version = "0.14", default-features = false, features = ["wasi-http"] }
 ```
 
-The host must provide the `wasi:http` interface (e.g. `wasmtime run -S http`, or any runtime targeting the `wasi:http/proxy` world). The transport is blocking — one request in flight at a time — which is the natural shape for a single-threaded component. On WASI hosts without `wasi:http`, plug your platform's transport in via `NearBuilder::transport`, or go fully offline (below).
+The host must provide the `wasi:http` interface (e.g. `wasmtime run -S http`, or any runtime targeting the `wasi:http/proxy` world). The transport is blocking — one request in flight at a time, the natural shape for a single-threaded component — and does not follow HTTP redirects, so point it at the final RPC URL.
+
+On WASI hosts without `wasi:http`, enable only `rpc` and plug your platform's transport in via `NearBuilder::transport` — `wasi-http` must stay off there, because merely compiling the built-in transport makes the component import `wasi:http`, which such hosts refuse to instantiate. Or go fully offline (below).
 
 ### Offline / no-network usage
 

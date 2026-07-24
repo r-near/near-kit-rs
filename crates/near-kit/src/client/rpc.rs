@@ -7,7 +7,14 @@ use std::time::Duration;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use super::transport::{self, RpcTransport};
+use super::transport::RpcTransport;
+// The module itself is only referenced for `default_transport`, which doesn't
+// exist on WASI builds without the `wasi-http` feature (no built-in transport).
+#[cfg(any(
+    not(all(target_arch = "wasm32", target_os = "wasi")),
+    all(feature = "wasi-http", target_env = "p2")
+))]
+use super::transport;
 use crate::error::RpcError;
 use crate::trace;
 use crate::types::rpc::RawTransactionResponse;
@@ -156,6 +163,14 @@ pub struct RpcClient {
 
 impl RpcClient {
     /// Create a new RPC client with the given URL.
+    ///
+    /// Only exists where a built-in transport does (every target except WASI
+    /// without the `wasi-http` feature) — otherwise construct via
+    /// [`with_transport_and_retry_config`](Self::with_transport_and_retry_config).
+    #[cfg(any(
+        not(all(target_arch = "wasm32", target_os = "wasi")),
+        all(feature = "wasi-http", target_env = "p2")
+    ))]
     pub fn new(url: impl Into<String>) -> Self {
         Self::with_transport_and_retry_config(
             url,
@@ -165,6 +180,12 @@ impl RpcClient {
     }
 
     /// Create a new RPC client with custom retry configuration.
+    ///
+    /// Only exists where a built-in transport does — see [`RpcClient::new`].
+    #[cfg(any(
+        not(all(target_arch = "wasm32", target_os = "wasi")),
+        all(feature = "wasi-http", target_env = "p2")
+    ))]
     pub fn with_retry_config(url: impl Into<String>, retry_config: RetryConfig) -> Self {
         Self::with_transport_and_retry_config(url, transport::default_transport(), retry_config)
     }
