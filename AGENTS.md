@@ -167,6 +167,14 @@ uses — e.g. ed25519-dalek, k256 (secp256k1), sha2, sha3, ml-dsa (FIPS-204
 ML-DSA-65), bip39, hmac. The bar for a new crypto dependency is that it
 implements a standard primitive the protocol requires and is auditable.
 
+Also allowed: *platform bindings* for wasm targets, when they are the
+canonical thin binding to a host interface and are declared only in that
+target's `[target.'cfg(...)']` table — `js-sys`/`gloo-timers`/`getrandom` on
+JS-host wasm (`wasm32-unknown-unknown`), and `wasi` (the Bytecode Alliance's
+generated WASI 0.2 bindings) on `wasm32-wasip2` for the `wasi:http` transport.
+These play the role reqwest/tokio play natively; hand-rolling them would mean
+maintaining generated FFI by hand.
+
 **Not allowed**: near-primitives, near-crypto, near-jsonrpc-client (we hand-roll
 the NEAR types/borsh ourselves; this rule forbids the NEAR-specific crates, not
 crypto primitives).
