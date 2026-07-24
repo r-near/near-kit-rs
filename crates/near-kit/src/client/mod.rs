@@ -5,6 +5,8 @@
 //! - [`Near`] — The main client, the single entry point for all operations
 //! - [`NearBuilder`] — Fluent builder for configuring the client
 //! - [`RpcClient`] — Low-level JSON-RPC client with retry logic
+//! - [`RpcTransport`] — Pluggable HTTP layer under [`RpcClient`] (reqwest by
+//!   default; `wasi:http` on `wasm32-wasip2`)
 //!
 //! # Signers
 //!
@@ -49,6 +51,8 @@ mod rpc;
 mod signer;
 #[cfg(feature = "rpc")]
 mod transaction;
+#[cfg(feature = "rpc")]
+mod transport;
 
 #[cfg(feature = "keyring")]
 mod keyring_signer;
@@ -70,6 +74,14 @@ pub use transaction::{
     CallBuilder, DelegateOptions, DelegateResult, FunctionCall, SignedTransactionSend,
     TransactionBuilder, TransactionSend,
 };
+#[cfg(feature = "rpc")]
+pub use transport::{BoxFuture, RpcTransport, TransportResponse};
+// Only the built-in transport matching the build target exists; the other side
+// of the cfg pair would reference a dependency that isn't compiled in.
+#[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
+pub use transport::ReqwestTransport;
+#[cfg(all(feature = "rpc", target_arch = "wasm32", target_os = "wasi"))]
+pub use transport::WasiHttpTransport;
 
 #[cfg(feature = "keyring")]
 pub use keyring_signer::KeyringSigner;

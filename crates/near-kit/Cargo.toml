@@ -22,8 +22,8 @@ near-global-contracts.workspace = true
 tokio = { version = "1", features = ["sync"] }
 futures.workspace = true
 
-# HTTP client (optional; gated by `rpc` — the offline build has no transport)
-reqwest = { workspace = true, optional = true }
+# HTTP client: target-specific — see the two `rpc`-gated target tables below
+# (reqwest everywhere except WASI; `wasi:http` bindings on WASI).
 
 # Serialization
 serde.workspace = true
@@ -65,10 +65,23 @@ testcontainers = { workspace = true, optional = true, features = ["watchdog"] }
 libc = { version = "0.2", optional = true }
 serde_with = { version = "3.20", features = ["hex", "base64"] }
 
-# All targets except JS-host wasm (this includes WASI, which has real OS
-# timers): tokio timer support for the RPC retry backoff.
-[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
+# Native targets: tokio timer support for the RPC retry backoff. Wasm targets
+# sleep differently — the JS host's timers on `wasm32-unknown-unknown` (below),
+# `std::thread::sleep` on single-threaded WASI guests (see client/rpc.rs).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = ["sync", "time"] }
+
+# HTTP transport, part 1 — every target except WASI (native + JS-host wasm,
+# which uses reqwest's fetch backend). Optional; pulled in by the `rpc` feature.
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "wasi")))'.dependencies]
+reqwest = { workspace = true, optional = true }
+
+# HTTP transport, part 2 — WASI only: raw `wasi:http/outgoing-handler` bindings
+# for the built-in blocking transport. reqwest has no WASI support (its native
+# stack needs an aws-lc-sys C cross-compile and hyper's tokio `net`, neither of
+# which builds for wasm). Optional; pulled in by the `rpc` feature.
+[target.'cfg(all(target_arch = "wasm32", target_os = "wasi"))'.dependencies]
+wasi = { version = "0.14", optional = true }
 
 # JS-host wasm only (`wasm32-unknown-unknown`, i.e. browsers/Node/Deno — NOT
 # WASI): JS-backed timer and time APIs. `getrandom`/`getrandom_v04` are entropy
@@ -84,11 +97,12 @@ getrandom_v04 = { package = "getrandom", version = "0.4", default-features = fal
 [features]
 default = ["rpc", "keyring", "file-signer", "tracing"]
 # The JSON-RPC layer: the `Near` client, query/transaction builders, contract
-# and token helpers, and the HTTP transport underneath them. Disable (via
-# `default-features = false`) for offline use — types, signing, and transaction
-# building without a network stack (e.g. on wasm32-wasip2, where reqwest
-# doesn't build).
-rpc = ["dep:reqwest"]
+# and token helpers, and the HTTP transport underneath them. Pulls in the HTTP
+# client appropriate to the target: reqwest off-WASI, `wasi:http` on WASI
+# (`dep:` on a target-inactive optional dependency is a no-op, so only the
+# matching one compiles). Disable (via `default-features = false`) for offline
+# use — types, signing, and transaction building without a network stack.
+rpc = ["dep:reqwest", "dep:wasi"]
 sandbox = ["rpc", "dep:testcontainers", "dep:libc", "tokio/rt"]
 keyring = ["dep:keyring"]
 file-signer = ["dep:dirs"]

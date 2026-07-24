@@ -87,6 +87,7 @@ jobs:
           cache-on-failure: "true"
       # Browser: the full client over reqwest's JS `fetch` backend
       - run: cargo check --target wasm32-unknown-unknown -p near-kit --no-default-features --features js,rpc
-      # WASI: the offline core (types, signing, tx building) — no HTTP transport
-      # builds for this target yet, so `rpc` stays off
+      # WASI: the offline core (types, signing, tx building) without a transport
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features
+      # WASI with the RPC layer: the built-in wasi:http transport
+      - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features rpc

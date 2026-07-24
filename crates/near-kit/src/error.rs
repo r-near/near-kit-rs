@@ -175,9 +175,10 @@ pub enum KeyStoreError {
 #[non_exhaustive]
 pub enum RpcError {
     // ─── Network/Transport ───
-    // reqwest only compiles with the `rpc` feature, so this variant (and its
-    // `is_retryable` arm below) exists only there.
-    #[cfg(feature = "rpc")]
+    // reqwest only compiles with the `rpc` feature and never on WASI (the
+    // wasi:http transport reports failures as `Network` instead), so this
+    // variant (and its `is_retryable` arm below) exists only there.
+    #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 
@@ -308,7 +309,7 @@ impl RpcError {
     /// Check if this error is retryable.
     pub fn is_retryable(&self) -> bool {
         match self {
-            #[cfg(feature = "rpc")]
+            #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
             RpcError::Http(e) => {
                 // `is_connect()` doesn't exist on reqwest's JS fetch backend
                 // (`wasm32-unknown-unknown` — no hyper connector); `is_request()`

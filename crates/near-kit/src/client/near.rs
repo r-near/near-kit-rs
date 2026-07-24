@@ -18,6 +18,7 @@ use super::query::{
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
 use super::signer::{InMemorySigner, Signer};
 use super::transaction::{CallBuilder, SignedTransactionSend, TransactionBuilder};
+use super::transport::{self, RpcTransport};
 
 /// Trait for sandbox network configuration.
 ///
@@ -1195,7 +1196,7 @@ impl std::fmt::Debug for Near {
 /// ```
 pub struct NearBuilder {
     rpc_url: String,
-    http_client: reqwest::Client,
+    transport: Arc<dyn RpcTransport>,
     signer: Option<Arc<dyn Signer>>,
     retry_config: RetryConfig,
     chain_id: ChainId,
@@ -1207,7 +1208,7 @@ impl NearBuilder {
     fn new(rpc_url: impl Into<String>, chain_id: ChainId) -> Self {
         Self {
             rpc_url: rpc_url.into(),
-            http_client: reqwest::Client::new(),
+            transport: transport::default_transport(),
             signer: None,
             retry_config: RetryConfig::default(),
             chain_id,
@@ -1266,8 +1267,24 @@ impl NearBuilder {
     /// This allows callers to configure transport concerns such as default
     /// headers, proxies, TLS, and timeouts without expanding near-kit's API for
     /// each individual HTTP setting.
+    ///
+    /// Not available on WASI, where reqwest doesn't build — see
+    /// [`NearBuilder::transport`] for full transport replacement.
+    #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
     pub fn http_client(mut self, client: reqwest::Client) -> Self {
-        self.http_client = client;
+        self.transport = Arc::new(transport::ReqwestTransport::with_client(client));
+        self
+    }
+
+    /// Replace the HTTP transport entirely with a custom [`RpcTransport`].
+    ///
+    /// This is the injection point for platforms whose HTTP stack near-kit
+    /// doesn't know about — e.g. a runtime that proxies RPC traffic through a
+    /// host call instead of exposing raw HTTP. For merely *configuring* the
+    /// default reqwest transport (headers, proxies, TLS), prefer
+    /// [`NearBuilder::http_client`].
+    pub fn transport(mut self, transport: impl RpcTransport + 'static) -> Self {
+        self.transport = Arc::new(transport);
         self
     }
 
@@ -1287,9 +1304,9 @@ impl NearBuilder {
     /// Build the client.
     pub fn build(self) -> Near {
         Near {
-            rpc: Arc::new(RpcClient::with_http_client_and_retry_config(
+            rpc: Arc::new(RpcClient::with_transport_and_retry_config(
                 self.rpc_url,
-                self.http_client,
+                self.transport,
                 self.retry_config,
             )),
             signer: self.signer,

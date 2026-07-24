@@ -1,11 +1,13 @@
 //! Low-level JSON-RPC client for NEAR.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
+use super::transport::{self, RpcTransport};
 use crate::error::RpcError;
 use crate::trace;
 use crate::types::rpc::RawTransactionResponse;
@@ -19,13 +21,21 @@ use crate::types::{
 
 /// Platform-appropriate async sleep, used for retry backoff.
 ///
-/// Dispatches to `tokio::time::sleep` everywhere except `wasm32-unknown-unknown`,
-/// which has no OS timer APIs and uses the JS host's timers via `gloo-timers`
-/// instead. WASI targets take the tokio path.
+/// - Native (non-wasm): `tokio::time::sleep`.
+/// - WASI: `std::thread::sleep`. A WASI guest is single-threaded with no tokio
+///   runtime, so `tokio::time::sleep` would panic ("no reactor running") —
+///   and blocking the one thread is fine, since the whole guest is already
+///   blocked on this future (the wasi:http transport is blocking too).
+/// - `wasm32-unknown-unknown`: no OS timers — use the JS host's via `gloo-timers`.
 async fn async_sleep(duration: Duration) {
-    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    #[cfg(not(target_arch = "wasm32"))]
     {
         tokio::time::sleep(duration).await;
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+    {
+        std::thread::sleep(duration);
     }
 
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
@@ -139,7 +149,7 @@ struct CallFunctionResponse {
 /// Low-level JSON-RPC client for NEAR.
 pub struct RpcClient {
     url: String,
-    client: reqwest::Client,
+    transport: Arc<dyn RpcTransport>,
     retry_config: RetryConfig,
     request_id: AtomicU64,
 }
@@ -147,22 +157,32 @@ pub struct RpcClient {
 impl RpcClient {
     /// Create a new RPC client with the given URL.
     pub fn new(url: impl Into<String>) -> Self {
-        Self::with_http_client_and_retry_config(url, reqwest::Client::new(), RetryConfig::default())
+        Self::with_transport_and_retry_config(
+            url,
+            transport::default_transport(),
+            RetryConfig::default(),
+        )
     }
 
     /// Create a new RPC client with custom retry configuration.
     pub fn with_retry_config(url: impl Into<String>, retry_config: RetryConfig) -> Self {
-        Self::with_http_client_and_retry_config(url, reqwest::Client::new(), retry_config)
+        Self::with_transport_and_retry_config(url, transport::default_transport(), retry_config)
     }
 
-    pub(crate) fn with_http_client_and_retry_config(
+    /// Create a new RPC client with a custom [`RpcTransport`] and retry
+    /// configuration.
+    ///
+    /// This is the low-level injection point for platforms whose HTTP stack
+    /// near-kit doesn't know about. Most callers should use
+    /// [`NearBuilder::transport`](super::NearBuilder::transport) instead.
+    pub fn with_transport_and_retry_config(
         url: impl Into<String>,
-        client: reqwest::Client,
+        transport: Arc<dyn RpcTransport>,
         retry_config: RetryConfig,
     ) -> Self {
         Self {
             url: url.into(),
-            client,
+            transport,
             retry_config,
             request_id: AtomicU64::new(0),
         }
@@ -233,20 +253,18 @@ impl RpcClient {
             tracing::trace!(payload = %json, "RPC request");
         }
 
-        let response = self
-            .client
-            .post(&self.url)
-            .header("Content-Type", "application/json")
-            .json(request)
-            .send()
-            .await?;
+        let request_body = serde_json::to_vec(request).map_err(RpcError::Json)?;
+        let response = self.transport.post_json(&self.url, request_body).await?;
 
-        let status = response.status();
-        let body = response.text().await?;
+        let status = response.status;
+        // Lossy decode matches what reqwest's `text()` did here before the
+        // transport seam: the RPC's JSON bodies are UTF-8, and anything mangled
+        // by a proxy fails in the JSON parse below with the payload visible.
+        let body = String::from_utf8_lossy(&response.body);
 
         trace::trace!(payload = %body, "RPC response");
 
-        if !status.is_success() {
+        if !(200..300).contains(&status) {
             // nearcore returns non-2xx (e.g. 422 UNKNOWN_BLOCK, 408 TIMEOUT_ERROR) with
             // a well-formed JSON-RPC error body — try to decode that first so callers
             // get typed variants instead of an opaque Network error. Falls back to the
@@ -256,15 +274,13 @@ impl RpcClient {
             {
                 let parsed_err = self.parse_rpc_error(&error);
                 return Err(preserve_http_retry_classification(
-                    parsed_err,
-                    status.as_u16(),
-                    &body,
+                    parsed_err, status, &body,
                 ));
             }
-            let retryable = is_retryable_status(status.as_u16());
+            let retryable = is_retryable_status(status);
             return Err(RpcError::network(
                 format!("HTTP {}: {}", status, body),
-                Some(status.as_u16()),
+                Some(status),
                 retryable,
             ));
         }
@@ -1014,7 +1030,7 @@ impl Clone for RpcClient {
     fn clone(&self) -> Self {
         Self {
             url: self.url.clone(),
-            client: self.client.clone(),
+            transport: self.transport.clone(),
             retry_config: self.retry_config.clone(),
             request_id: AtomicU64::new(0),
         }

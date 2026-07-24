@@ -402,6 +402,29 @@
 //! below) works. (WASI targets like `wasm32-wasip1` don't need any of this:
 //! `getrandom` supports them natively, so leave `js` off there too.)
 //!
+//! ### WASI (`wasm32-wasip2`)
+//!
+//! near-kit also runs inside WASI Preview 2 components, with full RPC support:
+//! on this target the `rpc` feature swaps reqwest for a built-in
+//! `WasiHttpTransport` speaking `wasi:http/outgoing-handler`.
+//!
+//! ```toml
+//! [dependencies]
+//! near-kit = { version = "0.13", default-features = false, features = ["rpc"] }
+//! ```
+//!
+//! The host must provide the `wasi:http` interface — `wasmtime run -S http`, or
+//! any runtime targeting the `wasi:http/proxy` world. Two semantic differences
+//! from native:
+//!
+//! - The transport is *blocking*: the guest parks until each response arrives,
+//!   so one request is in flight at a time and concurrent RPC calls serialize.
+//! - Retry backoff uses `std::thread::sleep` (no async runtime in the guest).
+//!
+//! On WASI hosts without `wasi:http`, either stay offline (drop the `rpc`
+//! feature — see below) or plug in whatever the platform does provide via
+//! [`NearBuilder::transport`].
+//!
 //! ### Custom entropy backends
 //!
 //! Non-JS `wasm32-unknown-unknown` embedders must provide entropy for both `getrandom`
@@ -434,8 +457,8 @@
 //! (`new` → `sign` → `to_bytes`), and NEP-413 [`nep413::verify_signature`].
 //! The fluent [`TransactionBuilder`] is part of the RPC layer — it is created
 //! from a [`Near`] client — so it requires `rpc`.
-//! The motivating target is `wasm32-wasip2`, where the HTTP client doesn't
-//! build — sign transactions and messages in the component, send them elsewhere:
+//! This is what you want on targets with no network stack at all — sign
+//! transactions and messages locally, send them elsewhere:
 //!
 //! ```toml
 //! [dependencies]
@@ -446,7 +469,7 @@
 //!
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
-//! | `rpc` | Yes | The RPC layer: [`Near`], queries, transactions, tokens, and the HTTP client. Disable for offline signing/verification (e.g. on `wasm32-wasip2`) |
+//! | `rpc` | Yes | The RPC layer: [`Near`], queries, transactions, tokens, and the HTTP transport (reqwest; `wasi:http` on `wasm32-wasip2`). Disable for offline signing/verification |
 //! | `keyring` | Yes | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
 //! | `file-signer` | Yes | [`FileSigner`] for loading keys from `~/.near-credentials` |
 //! | `tracing` | Yes | [`tracing`](https://docs.rs/tracing) spans and events for RPC calls and transactions |
@@ -502,11 +525,17 @@ pub use contract::{Contract, ContractClient};
 // Re-export client types
 #[cfg(feature = "rpc")]
 pub use client::{
-    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, CallBuilder,
+    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, BoxFuture, CallBuilder,
     ContractCodeQuery, DelegateOptions, DelegateResult, FunctionCall, GlobalContractQuery, Near,
-    NearBuilder, RetryConfig, RpcClient, SandboxNetwork, SignedTransactionSend, TransactionBuilder,
-    TransactionSend, TransactionStatusQuery, ViewCall, ViewCallBorsh,
+    NearBuilder, RetryConfig, RpcClient, RpcTransport, SandboxNetwork, SignedTransactionSend,
+    TransactionBuilder, TransactionSend, TransactionStatusQuery, TransportResponse, ViewCall,
+    ViewCallBorsh,
 };
+// Only the built-in transport matching the build target exists (see client/mod.rs).
+#[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
+pub use client::ReqwestTransport;
+#[cfg(all(feature = "rpc", target_arch = "wasm32", target_os = "wasi"))]
+pub use client::WasiHttpTransport;
 // The signers do local cryptography only — they stay available offline.
 pub use client::{EnvSigner, InMemorySigner, RotatingSigner, Signer, SigningKey};
 

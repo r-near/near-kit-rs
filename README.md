@@ -198,15 +198,26 @@ Available known tokens: `tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`
 
 | Feature | Description |
 |---------|-------------|
-| `rpc` | The RPC layer: the `Near` client, queries, transactions, token helpers, and the HTTP client (on by default) |
+| `rpc` | The RPC layer: the `Near` client, queries, transactions, token helpers, and the HTTP transport — reqwest, or `wasi:http` on `wasm32-wasip2` (on by default) |
 | `sandbox` | Local testing with [near-sandbox](https://crates.io/crates/near-sandbox) |
 | `keyring` | System keyring integration for desktop apps |
 | `tracing` | [`tracing`](https://crates.io/crates/tracing) spans and events for RPC calls and transactions (on by default; drop it with `default-features = false`) |
 | `interactive-clap` | Enables `interactive-clap` derives on re-exported `NearToken` and `Gas` for CLI tools |
 
+### WASI (`wasm32-wasip2`)
+
+near-kit runs inside WASI Preview 2 components with full RPC support — on this target the `rpc` feature uses a built-in `wasi:http/outgoing-handler` transport instead of reqwest:
+
+```toml
+[dependencies]
+near-kit = { version = "0.13", default-features = false, features = ["rpc"] }
+```
+
+The host must provide the `wasi:http` interface (e.g. `wasmtime run -S http`, or any runtime targeting the `wasi:http/proxy` world). The transport is blocking — one request in flight at a time — which is the natural shape for a single-threaded component. On WASI hosts without `wasi:http`, plug your platform's transport in via `NearBuilder::transport`, or go fully offline (below).
+
 ### Offline / no-network usage
 
-With `default-features = false` the RPC layer drops out and near-kit becomes a pure offline toolkit: all the types, the signers, transaction construction and signing via `Transaction` (`new` → `sign` → `to_bytes`), and NEP-413 `verify_signature`. This is what you want on targets without an HTTP stack — the motivating example is `wasm32-wasip2`, where you can sign transactions and messages inside a component and hand them off for submission elsewhere. Note the fluent `TransactionBuilder` belongs to the RPC layer (it is created from a `Near` client), so it requires the `rpc` feature.
+With `default-features = false` the RPC layer drops out and near-kit becomes a pure offline toolkit: all the types, the signers, transaction construction and signing via `Transaction` (`new` → `sign` → `to_bytes`), and NEP-413 `verify_signature`. This is what you want on targets without any network stack: sign transactions and messages locally and hand them off for submission elsewhere. Note the fluent `TransactionBuilder` belongs to the RPC layer (it is created from a `Near` client), so it requires the `rpc` feature.
 
 ### A note on `near-token` / `near-gas`
 
