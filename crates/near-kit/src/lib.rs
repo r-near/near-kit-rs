@@ -392,7 +392,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.13", default-features = false, features = ["js", "rpc"] }
+//! near-kit = { version = "0.14", default-features = false, features = ["js", "rpc"] }
 //! ```
 //!
 //! If you're running `wasm32-unknown-unknown` outside a JS host, leave `js` off and
@@ -410,7 +410,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.13", default-features = false }
+//! near-kit = { version = "0.14", default-features = false }
 //! getrandom = { version = "0.2", features = ["custom"] }
 //! ```
 //!
@@ -430,13 +430,16 @@
 //! token helpers, and the HTTP client underneath — is gated behind the default-on
 //! `rpc` feature. With `default-features = false` you keep the offline core:
 //! all the types, the signers ([`InMemorySigner`], [`EnvSigner`], ...),
-//! transaction building and signing, and NEP-413 [`nep413::verify_signature`].
+//! transaction construction and signing via [`Transaction`](types::Transaction)
+//! (`new` → `sign` → `to_bytes`), and NEP-413 [`nep413::verify_signature`].
+//! The fluent [`TransactionBuilder`] is part of the RPC layer — it is created
+//! from a [`Near`] client — so it requires `rpc`.
 //! The motivating target is `wasm32-wasip2`, where the HTTP client doesn't
 //! build — sign transactions and messages in the component, send them elsewhere:
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.13", default-features = false }
+//! near-kit = { version = "0.14", default-features = false }
 //! ```
 //!
 //! ## Feature Flags

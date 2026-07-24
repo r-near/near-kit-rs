@@ -206,7 +206,7 @@ Available known tokens: `tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`
 
 ### Offline / no-network usage
 
-With `default-features = false` the RPC layer drops out and near-kit becomes a pure offline toolkit: all the types, the signers, transaction building and signing, and NEP-413 `verify_signature`. This is what you want on targets without an HTTP stack — the motivating example is `wasm32-wasip2`, where you can sign transactions and messages inside a component and hand them off for submission elsewhere.
+With `default-features = false` the RPC layer drops out and near-kit becomes a pure offline toolkit: all the types, the signers, transaction construction and signing via `Transaction` (`new` → `sign` → `to_bytes`), and NEP-413 `verify_signature`. This is what you want on targets without an HTTP stack — the motivating example is `wasm32-wasip2`, where you can sign transactions and messages inside a component and hand them off for submission elsewhere. Note the fluent `TransactionBuilder` belongs to the RPC layer (it is created from a `Near` client), so it requires the `rpc` feature.
 
 ### A note on `near-token` / `near-gas`
 
