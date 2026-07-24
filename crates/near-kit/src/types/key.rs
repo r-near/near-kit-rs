@@ -13,7 +13,7 @@ use rand::rngs::OsRng;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use sha2::Digest;
 
-use super::hd::{derive_ed25519_slip10, parse_hd_path};
+use super::hd::{derive_ed25519_slip10, derive_ml_dsa65_slip10, parse_hd_path};
 use crate::error::{ParseKeyError, SignerError};
 
 /// ML-DSA-65 public key length in bytes (FIPS 204).
@@ -761,28 +761,105 @@ impl SecretKey {
         hd_path: impl AsRef<str>,
         passphrase: Option<&str>,
     ) -> Result<Self, SignerError> {
-        // Normalize and parse mnemonic
-        let normalized = phrase
-            .as_ref()
-            .trim()
-            .to_lowercase()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-
-        let mnemonic: Mnemonic = normalized
-            .parse()
-            .map_err(|_| SignerError::InvalidSeedPhrase)?;
-
-        // Convert mnemonic to seed (64 bytes)
-        let seed = mnemonic.to_seed(passphrase.unwrap_or(""));
-
-        // Parse HD path and derive via SLIP-10 (Ed25519)
+        let seed = mnemonic_to_seed(phrase, passphrase)?;
         let path = parse_hd_path(hd_path.as_ref())
             .map_err(|e| SignerError::KeyDerivationFailed(format!("Invalid HD path: {e}")))?;
         let derived = derive_ed25519_slip10(&seed, &path);
 
         Ok(Self::ed25519_from_bytes(derived))
+    }
+
+    /// Derive an ML-DSA-65 secret key from a BIP-39 seed phrase.
+    ///
+    /// Uses the post-quantum SLIP-10 construction from satoshilabs/slips#1968
+    /// with the default NEAR HD path (`m/44'/397'/0'`): the 32-byte node secret
+    /// is the FIPS-204 seed ξ fed to ML-DSA-65 KeyGen.
+    ///
+    /// The master HMAC salt differs from the Ed25519 branch (`"ML-DSA-65 seed"`
+    /// vs `"ed25519 seed"`), so the ML-DSA-65 key derived from a phrase is
+    /// **unrelated** to the Ed25519 key derived from the same phrase.
+    ///
+    /// # Arguments
+    ///
+    /// * `phrase` - BIP-39 mnemonic phrase (12, 15, 18, 21, or 24 words)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::SecretKey;
+    ///
+    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    /// let secret_key = SecretKey::ml_dsa65_from_seed_phrase(phrase).unwrap();
+    /// assert!(secret_key.to_string().starts_with("ml-dsa-65:"));
+    /// ```
+    pub fn ml_dsa65_from_seed_phrase(phrase: impl AsRef<str>) -> Result<Self, SignerError> {
+        Self::ml_dsa65_from_seed_phrase_with_path(phrase, DEFAULT_HD_PATH)
+    }
+
+    /// Derive an ML-DSA-65 secret key from a BIP-39 seed phrase with a custom
+    /// HD path.
+    ///
+    /// Uses the satoshilabs/slips#1968 SLIP-10 construction. Only hardened
+    /// derivation paths are supported (all path components must use `'`).
+    ///
+    /// # Arguments
+    ///
+    /// * `phrase` - BIP-39 mnemonic phrase (12, 15, 18, 21, or 24 words)
+    /// * `hd_path` - BIP-32 derivation path (e.g., `"m/44'/397'/0'"`)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::SecretKey;
+    ///
+    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    /// let secret_key = SecretKey::ml_dsa65_from_seed_phrase_with_path(phrase, "m/44'/397'/1'").unwrap();
+    /// ```
+    pub fn ml_dsa65_from_seed_phrase_with_path(
+        phrase: impl AsRef<str>,
+        hd_path: impl AsRef<str>,
+    ) -> Result<Self, SignerError> {
+        Self::ml_dsa65_from_seed_phrase_with_path_and_passphrase(phrase, hd_path, None)
+    }
+
+    /// Derive an ML-DSA-65 secret key from a BIP-39 seed phrase with a
+    /// passphrase.
+    ///
+    /// The passphrase provides additional entropy for seed generation (BIP-39
+    /// feature). An empty passphrase is equivalent to no passphrase. Derivation
+    /// otherwise follows satoshilabs/slips#1968 — see
+    /// [`SecretKey::ml_dsa65_from_seed_phrase`] for the salt caveat.
+    ///
+    /// # Arguments
+    ///
+    /// * `phrase` - BIP-39 mnemonic phrase
+    /// * `hd_path` - BIP-32 derivation path
+    /// * `passphrase` - Optional passphrase for additional entropy
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::SecretKey;
+    ///
+    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    /// let secret_key = SecretKey::ml_dsa65_from_seed_phrase_with_path_and_passphrase(
+    ///     phrase,
+    ///     "m/44'/397'/0'",
+    ///     Some("my-passphrase"),
+    /// )
+    /// .unwrap();
+    /// ```
+    pub fn ml_dsa65_from_seed_phrase_with_path_and_passphrase(
+        phrase: impl AsRef<str>,
+        hd_path: impl AsRef<str>,
+        passphrase: Option<&str>,
+    ) -> Result<Self, SignerError> {
+        let seed = mnemonic_to_seed(phrase, passphrase)?;
+        let path = parse_hd_path(hd_path.as_ref())
+            .map_err(|e| SignerError::KeyDerivationFailed(format!("Invalid HD path: {e}")))?;
+        let derived = derive_ml_dsa65_slip10(&seed, &path);
+
+        Ok(Self::ml_dsa65_from_seed(derived))
     }
 
     /// Generate a new random seed phrase and derive the corresponding secret key.
@@ -1160,6 +1237,32 @@ impl BorshDeserialize for Signature {
 // Seed Phrase Generation
 // ============================================================================
 
+/// Normalize a BIP-39 mnemonic and derive its 64-byte seed, applying an
+/// optional passphrase.
+///
+/// Shared by the Ed25519 and ML-DSA-65 seed-phrase constructors: the mnemonic
+/// is trimmed, lowercased, and whitespace-collapsed before parsing, then run
+/// through BIP-39's PBKDF2 seed derivation. The two key branches differ only
+/// downstream, in the SLIP-10 master salt.
+fn mnemonic_to_seed(
+    phrase: impl AsRef<str>,
+    passphrase: Option<&str>,
+) -> Result<[u8; 64], SignerError> {
+    let normalized = phrase
+        .as_ref()
+        .trim()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let mnemonic: Mnemonic = normalized
+        .parse()
+        .map_err(|_| SignerError::InvalidSeedPhrase)?;
+
+    Ok(mnemonic.to_seed(passphrase.unwrap_or("")))
+}
+
 /// Generate a random BIP-39 seed phrase.
 ///
 /// # Arguments
@@ -1340,6 +1443,27 @@ impl KeyPair {
     /// ```
     pub fn from_seed_phrase(phrase: impl AsRef<str>) -> Result<Self, SignerError> {
         let secret_key = SecretKey::from_seed_phrase(phrase)?;
+        Ok(Self::from_secret_key(secret_key))
+    }
+
+    /// Create an ML-DSA-65 key pair from a seed phrase using the default NEAR
+    /// HD path.
+    ///
+    /// Derives the post-quantum key via satoshilabs/slips#1968; see
+    /// [`SecretKey::ml_dsa65_from_seed_phrase`] for details (including why it is
+    /// unrelated to the Ed25519 key from the same phrase).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::KeyPair;
+    ///
+    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    /// let keypair = KeyPair::ml_dsa65_from_seed_phrase(phrase).unwrap();
+    /// assert!(keypair.public_key.to_string().starts_with("ml-dsa-65:"));
+    /// ```
+    pub fn ml_dsa65_from_seed_phrase(phrase: impl AsRef<str>) -> Result<Self, SignerError> {
+        let secret_key = SecretKey::ml_dsa65_from_seed_phrase(phrase)?;
         Ok(Self::from_secret_key(secret_key))
     }
 
@@ -2108,5 +2232,96 @@ mod tests {
 
         let short_handle = format!("ml-dsa-65-hash:{}", bs58::encode([0u8; 16]).into_string());
         assert!(short_handle.parse::<PublicKey>().is_err());
+    }
+
+    // ========================================================================
+    // ML-DSA-65 Seed Phrase Tests
+    // ========================================================================
+
+    #[test]
+    fn test_ml_dsa65_from_seed_phrase_cross_sdk_vector() {
+        // Cross-SDK regression: the ML-DSA-65 key derived from this phrase at
+        // the default NEAR path must match the value locked in by the
+        // TypeScript SDK (r-near/near-kit#224). This proves both SDKs derive
+        // byte-identically. ML-DSA-65 secret keys serialize as their 32-byte
+        // FIPS-204 seed under the `ml-dsa-65:` prefix.
+        let secret = SecretKey::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
+        assert_eq!(secret.key_type(), KeyType::MlDsa65);
+        assert_eq!(
+            secret.to_string(),
+            "ml-dsa-65:7t9yn5gKtyA9EwqwGCHe6WeDdDhDQkRDVhASM7ZvRoum"
+        );
+    }
+
+    #[test]
+    fn test_ml_dsa65_from_seed_phrase_deterministic() {
+        let key1 = SecretKey::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
+        let key2 = SecretKey::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
+        assert_eq!(key1.as_bytes(), key2.as_bytes());
+        assert_eq!(key1.public_key(), key2.public_key());
+    }
+
+    #[test]
+    fn test_ml_dsa65_from_seed_phrase_different_paths() {
+        let key1 =
+            SecretKey::ml_dsa65_from_seed_phrase_with_path(TEST_PHRASE, "m/44'/397'/0'").unwrap();
+        let key2 =
+            SecretKey::ml_dsa65_from_seed_phrase_with_path(TEST_PHRASE, "m/44'/397'/1'").unwrap();
+        assert_ne!(key1.public_key(), key2.public_key());
+    }
+
+    #[test]
+    fn test_ml_dsa65_from_seed_phrase_with_passphrase() {
+        let no_pass = SecretKey::ml_dsa65_from_seed_phrase_with_path_and_passphrase(
+            TEST_PHRASE,
+            DEFAULT_HD_PATH,
+            None,
+        )
+        .unwrap();
+        let with_pass = SecretKey::ml_dsa65_from_seed_phrase_with_path_and_passphrase(
+            TEST_PHRASE,
+            DEFAULT_HD_PATH,
+            Some("my-password"),
+        )
+        .unwrap();
+        assert_ne!(no_pass.public_key(), with_pass.public_key());
+    }
+
+    #[test]
+    fn test_ml_dsa65_seed_phrase_differs_from_ed25519() {
+        // The ML-DSA-65 and Ed25519 branches share the SLIP-10 machinery but
+        // use different master salts, so the same phrase yields unrelated keys.
+        let ml = SecretKey::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
+        let ed = SecretKey::from_seed_phrase(TEST_PHRASE).unwrap();
+        assert_eq!(ml.key_type(), KeyType::MlDsa65);
+        assert_eq!(ed.key_type(), KeyType::Ed25519);
+        // The 32-byte node secrets (both keys' `as_bytes`) must not collide.
+        assert_ne!(ml.as_bytes(), ed.as_bytes());
+    }
+
+    #[test]
+    fn test_ml_dsa65_from_seed_phrase_invalid() {
+        let result = SecretKey::ml_dsa65_from_seed_phrase("invalid words that are not a mnemonic");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ml_dsa65_seed_phrase_key_can_sign() {
+        let secret = SecretKey::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
+        let public = secret.public_key();
+        let message = b"post-quantum seed phrase";
+        assert!(secret.sign(message).verify(message, &public));
+    }
+
+    #[test]
+    fn test_ml_dsa65_keypair_from_seed_phrase() {
+        let keypair = KeyPair::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
+        assert_eq!(keypair.public_key.key_type(), KeyType::MlDsa65);
+        assert_eq!(
+            keypair.secret_key.to_string(),
+            "ml-dsa-65:7t9yn5gKtyA9EwqwGCHe6WeDdDhDQkRDVhASM7ZvRoum"
+        );
+        // The bundled public key matches re-deriving it from the secret.
+        assert_eq!(keypair.public_key, keypair.secret_key.public_key());
     }
 }
