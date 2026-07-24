@@ -26,7 +26,7 @@ const ED25519_SEED_SALT: &[u8] = b"ed25519 seed";
 /// Master HMAC salt for the ML-DSA-65 branch (satoshilabs/slips#1968).
 const ML_DSA65_SEED_SALT: &[u8] = b"ML-DSA-65 seed";
 
-/// Error parsing a BIP-32 path string for Ed25519 SLIP-10 derivation.
+/// Error parsing a BIP-32 path string for SLIP-10 derivation.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum HdPathError {
     /// A path segment was empty (e.g. `"m//0'"` or a trailing `/`).
@@ -35,7 +35,8 @@ pub(crate) enum HdPathError {
     InvalidIndex(String),
     /// The raw index was ≥ 2^31 (the hardened bit position).
     IndexOutOfRange(String),
-    /// Ed25519 SLIP-10 requires every component to be hardened (`'` or `H` suffix).
+    /// SLIP-10 (both the Ed25519 and ML-DSA-65 branches) requires every
+    /// component to be hardened (`'` or `H` suffix).
     NotHardened(String),
 }
 
@@ -46,7 +47,7 @@ impl std::fmt::Display for HdPathError {
             Self::InvalidIndex(s) => write!(f, "invalid path index {s:?}"),
             Self::IndexOutOfRange(s) => write!(f, "path index out of range {s:?}"),
             Self::NotHardened(s) => {
-                write!(f, "ed25519 requires hardened derivation, got {s:?}")
+                write!(f, "SLIP-10 requires hardened derivation, got {s:?}")
             }
         }
     }
