@@ -18,7 +18,8 @@
 //!
 //! No credentials needed for querying blockchain state:
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
 //!
 //! #[tokio::main]
@@ -41,7 +42,8 @@
 //!
 //! For state-changing operations, configure a signer:
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
 //!
 //! #[tokio::main]
@@ -118,7 +120,8 @@
 //!
 //! Many builder methods also accept strings directly:
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! # use near_kit::*;
 //! # async fn example(near: &Near) -> Result<(), Error> {
 //! near.call("contract.testnet", "method")
@@ -133,7 +136,8 @@
 //!
 //! Read operations return query builders that can be customized before awaiting:
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
 //!
 //! # async fn example() -> Result<(), Error> {
@@ -167,7 +171,8 @@
 //!
 //! Write operations return transaction builders for customization:
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
 //!
 //! # async fn example(near: &Near) -> Result<(), Error> {
@@ -190,7 +195,8 @@
 //!
 //! Chain multiple actions into a single atomic transaction:
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
 //!
 //! # async fn example(near: &Near) -> Result<(), Box<dyn std::error::Error>> {
@@ -219,7 +225,8 @@
 //! to avoid copy-pasting addresses. They automatically resolve to the correct address
 //! based on the network:
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
 //!
 //! # async fn example() -> Result<(), Error> {
@@ -295,7 +302,8 @@
 //! | [`RotatingSigner`] | High-throughput with multiple keys (avoids nonce collisions) |
 //! | [`KeyringSigner`] | System keyring (macOS Keychain, etc.) — requires `keyring` feature |
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
 //!
 //! # fn example() -> Result<(), Error> {
@@ -320,7 +328,8 @@
 //! For production apps that manage multiple accounts, use [`Near::with_signer`] to
 //! derive clients that share the same RPC connection but sign as different accounts:
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
 //!
 //! # fn example() -> Result<(), Error> {
@@ -371,7 +380,9 @@
 //! `default-features = false`. This disables `keyring` and `file-signer` (both use OS
 //! APIs unavailable in the browser); use [`InMemorySigner`] or [`EnvSigner`] instead.
 //! It also disables `tracing`; add `features = ["tracing"]` back if you want spans
-//! (the `tracing` crate itself is wasm-compatible).
+//! (the `tracing` crate itself is wasm-compatible). And it disables `rpc` — add it
+//! back to keep the [`Near`] client, which speaks HTTP through the browser's `fetch`
+//! on this target.
 //!
 //! `near-kit` relies on `getrandom` (via `rand`, `ed25519-dalek`, `k256`, and `ml-dsa`)
 //! for key generation and nonce randomness. On `wasm32-unknown-unknown`, `getrandom`
@@ -381,13 +392,15 @@
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.12", default-features = false, features = ["js"] }
+//! near-kit = { version = "0.13", default-features = false, features = ["js", "rpc"] }
 //! ```
 //!
 //! If you're running `wasm32-unknown-unknown` outside a JS host, leave `js` off and
 //! register your own `getrandom` backend instead (see below) — forcing the browser
-//! backend would break your runtime. (WASI targets like `wasm32-wasip1` don't need any
-//! of this: `getrandom` supports them natively, so leave `js` off there too.)
+//! backend would break your runtime. Leave `rpc` off there too: the HTTP client is
+//! `fetch`-backed on this target, so without a JS host only the offline core (see
+//! below) works. (WASI targets like `wasm32-wasip1` don't need any of this:
+//! `getrandom` supports them natively, so leave `js` off there too.)
 //!
 //! ### Custom entropy backends
 //!
@@ -397,7 +410,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.12", default-features = false }
+//! near-kit = { version = "0.13", default-features = false }
 //! getrandom = { version = "0.2", features = ["custom"] }
 //! ```
 //!
@@ -442,7 +455,8 @@
 //! All operations return `Result<T, near_kit::Error>`. The [`Error`] type provides
 //! detailed information about failures:
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
 //!
 //! # async fn example() -> Result<(), Error> {

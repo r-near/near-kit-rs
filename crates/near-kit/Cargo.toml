@@ -106,6 +106,17 @@ js = ["getrandom/js", "getrandom_v04/wasm_js"]
 # Useful for CLI tools using `interactive-clap` for argument parsing.
 interactive-clap = ["near-token/interactive-clap", "near-gas/interactive-clap"]
 
+# These two examples drive a live `Near` client end to end, so they only build
+# with the RPC layer. The remaining examples compile without `rpc`: their
+# client usage sits behind `#[cfg(feature = "sandbox")]` with stub fallbacks.
+[[example]]
+name = "quickstart"
+required-features = ["rpc"]
+
+[[example]]
+name = "meta_transactions"
+required-features = ["rpc"]
+
 [dev-dependencies]
 tokio-test.workspace = true
 tempfile.workspace = true

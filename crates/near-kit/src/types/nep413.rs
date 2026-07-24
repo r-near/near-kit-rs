@@ -5,7 +5,8 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::{Near, InMemorySigner, nep413};
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
@@ -162,7 +163,8 @@ impl AuthPayload {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+    #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
     /// use near_kit::{Near, nep413};
     ///
     /// # async fn example() -> Result<(), near_kit::Error> {

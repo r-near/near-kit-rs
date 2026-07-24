@@ -1,4 +1,5 @@
 //! The `#[near_kit::contract]` macro must derive `Debug` + `Clone` on the generated marker and client types.
+#![cfg(feature = "rpc")]
 use near_kit::*;
 
 #[contract]

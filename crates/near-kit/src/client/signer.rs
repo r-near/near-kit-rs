@@ -13,7 +13,8 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::{Near, InMemorySigner};
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
@@ -684,7 +685,8 @@ impl Signer for EnvSigner {
 /// Keys can be loaded from any storage backend (file, keyring, env) via
 /// [`from_signers()`](Self::from_signers):
 ///
-/// ```rust,no_run
+#[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 /// # use near_kit::*;
 /// let rotating = RotatingSigner::from_signers(vec![
 ///     FileSigner::from_file("keys/bot-key-0.json", "bot.testnet")?.into_inner(),
@@ -764,7 +766,8 @@ impl RotatingSigner {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+    #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
     /// use near_kit::{RotatingSigner, FileSigner};
     ///
     /// // Load keys from separate credential files for the same account
