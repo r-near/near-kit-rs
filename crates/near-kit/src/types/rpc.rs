@@ -697,7 +697,8 @@ pub enum FinalExecutionStatus {
 ///
 /// # Example
 ///
-/// ```rust,no_run
+#[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 /// # use near_kit::*;
 /// # async fn example(near: &Near) -> Result<(), Error> {
 /// let response = near.transfer("bob.testnet", NearToken::from_near(1))

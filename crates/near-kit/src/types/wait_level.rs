@@ -4,7 +4,8 @@
 //! associated `Response` type. This lets the compiler determine the return type
 //! of `send().wait_until::<W>()` from the selected type:
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! # use near_kit::*;
 //! # async fn example(near: &Near) -> Result<(), Error> {
 //! // Default — returns FinalExecutionOutcome

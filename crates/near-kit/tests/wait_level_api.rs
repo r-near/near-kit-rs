@@ -1,4 +1,5 @@
 //! Compile-time examples for the type-only transaction wait-level API.
+#![cfg(feature = "rpc")]
 
 use near_kit::*;
 

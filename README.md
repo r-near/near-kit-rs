@@ -198,10 +198,15 @@ Available known tokens: `tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`
 
 | Feature | Description |
 |---------|-------------|
+| `rpc` | The RPC layer: the `Near` client, queries, transactions, token helpers, and the HTTP client (on by default) |
 | `sandbox` | Local testing with [near-sandbox](https://crates.io/crates/near-sandbox) |
 | `keyring` | System keyring integration for desktop apps |
 | `tracing` | [`tracing`](https://crates.io/crates/tracing) spans and events for RPC calls and transactions (on by default; drop it with `default-features = false`) |
 | `interactive-clap` | Enables `interactive-clap` derives on re-exported `NearToken` and `Gas` for CLI tools |
+
+### Offline / no-network usage
+
+With `default-features = false` the RPC layer drops out and near-kit becomes a pure offline toolkit: all the types, the signers, transaction construction and signing via `Transaction` (`new` → `sign` → `to_bytes`), and NEP-413 `verify_signature`. This is what you want on targets without an HTTP stack — the motivating example is `wasm32-wasip2`, where you can sign transactions and messages inside a component and hand them off for submission elsewhere. Note the fluent `TransactionBuilder` belongs to the RPC layer (it is created from a `Near` client), so it requires the `rpc` feature.
 
 ### A note on `near-token` / `near-gas`
 

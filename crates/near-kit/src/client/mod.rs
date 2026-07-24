@@ -36,25 +36,36 @@
 //! - [`CallBuilder`] — Function call builder (part of transactions)
 //! - [`FunctionCall`] — Standalone function call for composable transactions
 
+// Everything that talks to the network lives behind the `rpc` feature; the
+// signers stay available in offline builds (they only do local cryptography).
+#[cfg(feature = "rpc")]
 mod near;
+#[cfg(feature = "rpc")]
 mod nonce_manager;
+#[cfg(feature = "rpc")]
 mod query;
+#[cfg(feature = "rpc")]
 mod rpc;
 mod signer;
+#[cfg(feature = "rpc")]
 mod transaction;
 
 #[cfg(feature = "keyring")]
 mod keyring_signer;
 
+#[cfg(feature = "rpc")]
 pub use near::{Near, NearBuilder, SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_SECRET_KEY, SandboxNetwork};
+#[cfg(feature = "rpc")]
 pub use query::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ContractCodeQuery,
     GlobalContractQuery, TransactionStatusQuery, ViewCall, ViewCallBorsh,
 };
+#[cfg(feature = "rpc")]
 pub use rpc::{RetryConfig, RpcClient};
 #[cfg(feature = "file-signer")]
 pub use signer::FileSigner;
 pub use signer::{EnvSigner, InMemorySigner, RotatingSigner, Signer, SigningKey};
+#[cfg(feature = "rpc")]
 pub use transaction::{
     CallBuilder, DelegateOptions, DelegateResult, FunctionCall, SignedTransactionSend,
     TransactionBuilder, TransactionSend,

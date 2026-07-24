@@ -5,7 +5,8 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::{Near, InMemorySigner, nep413};
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
@@ -57,9 +58,15 @@ use borsh::BorshSerialize;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{hex::Hex, serde_as};
 
+// These three are only used by the RPC-backed `verify()`; the offline
+// `verify_signature()` path doesn't need them.
+#[cfg(feature = "rpc")]
 use crate::Near;
+#[cfg(feature = "rpc")]
 use crate::error::Error;
-use crate::types::{AccountId, BlockReference, CryptoHash, PublicKey, Signature};
+#[cfg(feature = "rpc")]
+use crate::types::BlockReference;
+use crate::types::{AccountId, CryptoHash, PublicKey, Signature};
 
 /// NEP-413 tag prefix: 2^31 + 413 = 2147484061
 ///
@@ -156,7 +163,8 @@ impl AuthPayload {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+    #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
     /// use near_kit::{Near, nep413};
     ///
     /// # async fn example() -> Result<(), near_kit::Error> {
@@ -513,6 +521,7 @@ pub fn verify_signature(
 /// # Ok(())
 /// # }
 /// ```
+#[cfg(feature = "rpc")]
 pub async fn verify(
     signed: &SignedMessage,
     params: &SignMessageParams,
