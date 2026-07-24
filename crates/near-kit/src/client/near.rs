@@ -8,8 +8,14 @@ use crate::contract::ContractClient;
 use crate::error::Error;
 use crate::types::{
     AccountId, ChainId, Gas, IntoGlobalContractId, IntoNearToken, NearToken, PublicKey,
-    PublishMode, SecretKey, StateInit, TryIntoAccountId,
+    PublishMode, StateInit, TryIntoAccountId,
 };
+// Only used by `Near::sandbox`, which needs a built-in transport (see below).
+#[cfg(any(
+    not(all(target_arch = "wasm32", target_os = "wasi")),
+    all(feature = "wasi-http", target_env = "p2")
+))]
+use crate::types::SecretKey;
 
 use super::query::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ContractCodeQuery,
@@ -18,6 +24,14 @@ use super::query::{
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
 use super::signer::{InMemorySigner, Signer};
 use super::transaction::{CallBuilder, SignedTransactionSend, TransactionBuilder};
+use super::transport::RpcTransport;
+// The module itself is only referenced for the built-in transports, which
+// don't exist on WASI builds without the `wasi-http` feature.
+#[cfg(any(
+    not(all(target_arch = "wasm32", target_os = "wasi")),
+    all(feature = "wasi-http", target_env = "p2")
+))]
+use super::transport;
 
 /// Trait for sandbox network configuration.
 ///
@@ -258,6 +272,13 @@ impl Near {
     /// // Root account credentials are auto-configured - ready for transactions!
     /// near.transfer("alice.sandbox", "10 NEAR").await?;
     /// ```
+    /// Only exists where a built-in transport does (every configuration except
+    /// WASI without the `wasi-http` feature): it connects immediately, so it
+    /// needs a transport nobody injected.
+    #[cfg(any(
+        not(all(target_arch = "wasm32", target_os = "wasi")),
+        all(feature = "wasi-http", target_env = "p2")
+    ))]
     pub fn sandbox(network: &impl SandboxNetwork) -> Near {
         let secret_key: SecretKey = network
             .root_secret_key()
@@ -1195,7 +1216,10 @@ impl std::fmt::Debug for Near {
 /// ```
 pub struct NearBuilder {
     rpc_url: String,
-    http_client: reqwest::Client,
+    /// `None` until [`NearBuilder::build`] — resolved lazily so that injecting
+    /// a transport never constructs the built-in one (which doesn't even exist
+    /// on WASI without the `wasi-http` feature).
+    transport: Option<Arc<dyn RpcTransport>>,
     signer: Option<Arc<dyn Signer>>,
     retry_config: RetryConfig,
     chain_id: ChainId,
@@ -1207,7 +1231,7 @@ impl NearBuilder {
     fn new(rpc_url: impl Into<String>, chain_id: ChainId) -> Self {
         Self {
             rpc_url: rpc_url.into(),
-            http_client: reqwest::Client::new(),
+            transport: None,
             signer: None,
             retry_config: RetryConfig::default(),
             chain_id,
@@ -1266,8 +1290,26 @@ impl NearBuilder {
     /// This allows callers to configure transport concerns such as default
     /// headers, proxies, TLS, and timeouts without expanding near-kit's API for
     /// each individual HTTP setting.
+    ///
+    /// Not available on WASI, where reqwest doesn't build — see
+    /// [`NearBuilder::transport`] for full transport replacement.
+    #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
     pub fn http_client(mut self, client: reqwest::Client) -> Self {
-        self.http_client = client;
+        self.transport = Some(Arc::new(transport::ReqwestTransport::with_client(client)));
+        self
+    }
+
+    /// Replace the HTTP transport entirely with a custom [`RpcTransport`].
+    ///
+    /// This is the injection point for platforms whose HTTP stack near-kit
+    /// doesn't know about — e.g. a runtime that proxies RPC traffic through a
+    /// host call instead of exposing raw HTTP. On WASI builds without the
+    /// `wasi-http` feature it is the *only* way to reach the network — there
+    /// is no built-in transport there. For merely *configuring* the default
+    /// reqwest transport (headers, proxies, TLS), prefer
+    /// [`NearBuilder::http_client`].
+    pub fn transport(mut self, transport: impl RpcTransport + 'static) -> Self {
+        self.transport = Some(Arc::new(transport));
         self
     }
 
@@ -1285,11 +1327,34 @@ impl NearBuilder {
     }
 
     /// Build the client.
+    ///
+    /// # Panics
+    ///
+    /// On WASI without the `wasi-http` feature there is no built-in HTTP
+    /// transport, so one must have been injected with
+    /// [`NearBuilder::transport`]; panics otherwise. Every other configuration
+    /// has a built-in default and never panics.
     pub fn build(self) -> Near {
+        // A built-in default exists everywhere except WASI-without-`wasi-http`
+        // (see `transport::default_transport`).
+        #[cfg(any(
+            not(all(target_arch = "wasm32", target_os = "wasi")),
+            all(feature = "wasi-http", target_env = "p2")
+        ))]
+        let transport = self.transport.unwrap_or_else(transport::default_transport);
+        #[cfg(all(
+            target_arch = "wasm32",
+            target_os = "wasi",
+            not(all(feature = "wasi-http", target_env = "p2"))
+        ))]
+        let transport = self.transport.expect(
+            "no built-in HTTP transport on WASI without the `wasi-http` feature; \
+             supply one with `NearBuilder::transport`",
+        );
         Near {
-            rpc: Arc::new(RpcClient::with_http_client_and_retry_config(
+            rpc: Arc::new(RpcClient::with_transport_and_retry_config(
                 self.rpc_url,
-                self.http_client,
+                transport,
                 self.retry_config,
             )),
             signer: self.signer,
