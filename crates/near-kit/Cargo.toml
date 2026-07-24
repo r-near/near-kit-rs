@@ -22,8 +22,8 @@ near-global-contracts.workspace = true
 tokio = { version = "1", features = ["sync"] }
 futures.workspace = true
 
-# HTTP client
-reqwest.workspace = true
+# HTTP client (optional; gated by `rpc` — the offline build has no transport)
+reqwest = { workspace = true, optional = true }
 
 # Serialization
 serde.workspace = true
@@ -82,8 +82,14 @@ getrandom = { version = "0.2", default-features = false }
 getrandom_v04 = { package = "getrandom", version = "0.4", default-features = false }
 
 [features]
-default = ["keyring", "file-signer", "tracing"]
-sandbox = ["dep:testcontainers", "dep:libc", "tokio/rt"]
+default = ["rpc", "keyring", "file-signer", "tracing"]
+# The JSON-RPC layer: the `Near` client, query/transaction builders, contract
+# and token helpers, and the HTTP transport underneath them. Disable (via
+# `default-features = false`) for offline use — types, signing, and transaction
+# building without a network stack (e.g. on wasm32-wasip2, where reqwest
+# doesn't build).
+rpc = ["dep:reqwest"]
+sandbox = ["rpc", "dep:testcontainers", "dep:libc", "tokio/rt"]
 keyring = ["dep:keyring"]
 file-signer = ["dep:dirs"]
 # Emit `tracing` spans and events for RPC calls, transactions, and token

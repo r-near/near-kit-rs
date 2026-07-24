@@ -28,6 +28,8 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features
       # Covers the tracing-off no-op facade (and sandbox without tracing)
       - run: cargo clippy -p near-kit --all-targets --no-default-features --features sandbox
+      # Covers the offline (no `rpc`) configuration
+      - run: cargo check -p near-kit --no-default-features
 
   test:
     name: Test
@@ -73,10 +75,13 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown,wasm32-wasip2
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: wasm
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
       - run: cargo check --target wasm32-unknown-unknown -p near-kit --no-default-features --features js
+      # WASI: the offline core (types, signing, tx building) — no HTTP transport
+      # builds for this target yet, so `rpc` stays off
+      - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features

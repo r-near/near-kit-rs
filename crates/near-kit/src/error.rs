@@ -169,6 +169,9 @@ pub enum KeyStoreError {
 #[derive(Debug, Error)]
 pub enum RpcError {
     // ─── Network/Transport ───
+    // reqwest only compiles with the `rpc` feature, so this variant (and its
+    // `is_retryable` arm below) exists only there.
+    #[cfg(feature = "rpc")]
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 
@@ -299,6 +302,7 @@ impl RpcError {
     /// Check if this error is retryable.
     pub fn is_retryable(&self) -> bool {
         match self {
+            #[cfg(feature = "rpc")]
             RpcError::Http(e) => {
                 // `is_connect()` doesn't exist on reqwest's JS fetch backend
                 // (`wasm32-unknown-unknown` — no hyper connector); `is_request()`
