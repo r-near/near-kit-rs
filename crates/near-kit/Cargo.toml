@@ -92,7 +92,7 @@ wasi = { version = "0.14", optional = true }
 # `js`/`wasm_js` features are opt-in via the crate's `js` feature (see below) so
 # non-JS wasm embedders can choose their own backend instead.
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-gloo-timers = { version = "0.3", features = ["futures"] }
+gloo-timers = { version = "0.4", features = ["futures"] }
 js-sys = "0.3"
 getrandom = { version = "0.2", default-features = false }
 getrandom_v04 = { package = "getrandom", version = "0.4", default-features = false }
