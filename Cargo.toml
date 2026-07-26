@@ -35,7 +35,11 @@ borsh = { version = "1", features = ["derive"] }
 base64 = "0.23"
 
 # Cryptography
-ed25519-dalek = { version = "3", features = ["rand_core"] }
+# No `rand_core` feature: `SigningKey::generate` is generic over `rand_core`
+# 0.10's `CryptoRng`, but `k256` 0.13 pins the graph to `rand_core` 0.6 (via
+# `elliptic-curve` 0.13), so `rand` stays on 0.8 and key generation draws its
+# own seed bytes from `OsRng` — see `SecretKey::generate_ed25519`.
+ed25519-dalek = "3"
 sha2 = "0.11"
 sha3 = "0.12"
 ml-dsa = "0.1"

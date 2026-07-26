@@ -7,7 +7,10 @@ use bip39::Mnemonic;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
 use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
-use ml_dsa::signature::{Signer as _, Verifier as _};
+// `Signer` is already in scope from `ed25519_dalek` above: dalek 3 and `ml-dsa`
+// both sit on `signature` 3, so it is literally the same trait and importing it
+// from both paths warns.
+use ml_dsa::signature::Verifier as _;
 use ml_dsa::{B32, EncodedSignature, EncodedVerifyingKey, ExpandedSigningKeyBytes, MlDsa65};
 use rand::rngs::OsRng;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
@@ -508,8 +511,17 @@ pub enum SecretKey {
 impl SecretKey {
     /// Generate a new random Ed25519 key pair.
     pub fn generate_ed25519() -> Self {
-        let signing_key = SigningKey::generate(&mut OsRng);
-        Self::Ed25519(signing_key.to_bytes())
+        use rand::RngCore;
+        // NOTE: not `SigningKey::generate` — that is generic over
+        // `rand_core` 0.10's `CryptoRng`, which `rand` 0.8's `OsRng` (on
+        // `rand_core` 0.6) does not implement, and `rand` cannot be bumped past
+        // 0.8 while `k256` 0.13 still wants `rand_core` 0.6 below. Every
+        // 32-byte string is a valid Ed25519 seed, and `generate` does exactly
+        // this internally (fill 32 bytes, `SigningKey::from_bytes`), so drawing
+        // the seed straight from the OS CSPRNG is equivalent.
+        let mut seed = [0u8; 32];
+        OsRng.fill_bytes(&mut seed);
+        Self::Ed25519(seed)
     }
 
     /// Create an Ed25519 secret key from raw 32 bytes.
