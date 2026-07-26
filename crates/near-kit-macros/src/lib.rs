@@ -48,7 +48,7 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
-    FnArg, Ident, ItemTrait, Pat, ReturnType, TraitItem, TraitItemFn, Type,
+    FnArg, Ident, ItemTrait, Pat, ReceiverKind, ReturnType, TraitItem, TraitItemFn, Type,
     parse::{Parse, ParseStream},
     parse_macro_input,
     spanned::Spanned,
@@ -137,16 +137,19 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
     // Check receiver type
     let receiver = method.sig.receiver();
     let (is_view, is_mut) = match receiver {
-        Some(recv) => {
-            if recv.reference.is_some() {
-                (recv.mutability.is_none(), recv.mutability.is_some())
-            } else {
+        // Note: for reference receivers, syn stores the `mut` inside
+        // `ReceiverKind::Reference` rather than in `Receiver::mutability`.
+        Some(recv) => match &recv.kind {
+            ReceiverKind::Reference(_, _, mutability) => {
+                (mutability.is_none(), mutability.is_some())
+            }
+            _ => {
                 return Err(syn::Error::new(
                     recv.span(),
                     "contract methods must take &self or &mut self",
                 ));
             }
-        }
+        },
         None => {
             return Err(syn::Error::new(
                 method.sig.span(),
@@ -420,7 +423,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
             "#[near_kit::contract] does not support unsafe traits",
         ));
     }
-    if let Some(auto_token) = input.auto_token {
+    if let Some(auto_token) = input.modifiers.auto_token {
         return Err(syn::Error::new(
             auto_token.span(),
             "#[near_kit::contract] does not support auto traits",
