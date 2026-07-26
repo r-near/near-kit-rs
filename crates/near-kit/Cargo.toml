@@ -120,9 +120,9 @@ file-signer = ["dep:dirs"]
 # operations. Disable (via `default-features = false`) to drop the dependency.
 tracing = ["dep:tracing"]
 # JS-host entropy backend for `wasm32-unknown-unknown`. Enables `getrandom`'s
-# `js` feature (used transitively by `rand`/`ed25519-dalek`/`k256`) and
-# `getrandom` 0.4's `wasm_js` feature (used transitively by
-# `ml-dsa`/`sha2`/`hmac` via `digest`). Leave this off on non-JS wasm embedders
+# `js` feature (used transitively by `rand`/`k256`) and `getrandom` 0.4's
+# `wasm_js` feature (used transitively by `ml-dsa`/`sha2`/`hmac`/`ed25519-dalek`
+# via `digest`). Leave this off on non-JS wasm embedders
 # (register your own `getrandom` backend) and on WASI targets (which `getrandom`
 # supports natively).
 js = ["getrandom/js", "getrandom_v04/wasm_js"]

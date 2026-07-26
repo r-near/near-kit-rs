@@ -435,8 +435,8 @@
 //! ### Custom entropy backends
 //!
 //! Non-JS `wasm32-unknown-unknown` embedders must provide entropy for both `getrandom`
-//! major versions in near-kit's dependency graph: 0.2 (via `rand`/`ed25519-dalek`/`k256`)
-//! and 0.4 (via `ml-dsa`/`sha2`/`hmac`).
+//! major versions in near-kit's dependency graph: 0.2 (via `rand`/`k256`) and 0.4 (via
+//! `ml-dsa`/`sha2`/`sha3`/`hmac`/`ed25519-dalek`).
 //!
 //! ```toml
 //! [dependencies]
