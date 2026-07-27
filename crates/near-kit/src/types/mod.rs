@@ -47,6 +47,7 @@
 mod account;
 mod action;
 mod block_reference;
+mod csprng;
 mod error;
 mod hash;
 mod hd;

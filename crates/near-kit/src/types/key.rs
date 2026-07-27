@@ -6,16 +6,17 @@ use std::str::FromStr;
 use bip39::Mnemonic;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
-use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
+use k256::elliptic_curve::Generate as _;
+use k256::elliptic_curve::sec1::{FromSec1Point, ToSec1Point};
 // `Signer` is already in scope from `ed25519_dalek` above: dalek 3 and `ml-dsa`
 // both sit on `signature` 3, so it is literally the same trait and importing it
 // from both paths warns.
 use ml_dsa::signature::Verifier as _;
 use ml_dsa::{B32, EncodedSignature, EncodedVerifyingKey, ExpandedSigningKeyBytes, MlDsa65};
-use rand::rngs::OsRng;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 use sha2::Digest;
 
+use super::csprng::{fill_random, os_csprng};
 use super::hd::{derive_ed25519_slip10, derive_ml_dsa65_slip10, parse_hd_path};
 use crate::error::{ParseKeyError, SignerError};
 
@@ -145,9 +146,9 @@ impl PublicKey {
         let mut uncompressed = [0u8; 65];
         uncompressed[0] = 0x04;
         uncompressed[1..].copy_from_slice(&bytes);
-        let encoded = k256::EncodedPoint::from_bytes(uncompressed.as_ref())
+        let encoded = k256::Sec1Point::from_bytes(uncompressed.as_ref())
             .expect("invalid secp256k1 SEC1 encoding");
-        let point = k256::AffinePoint::from_encoded_point(&encoded);
+        let point = k256::AffinePoint::from_sec1_point(&encoded);
         assert!(bool::from(point.is_some()), "invalid secp256k1 curve point");
 
         Self::Secp256k1(bytes)
@@ -162,13 +163,13 @@ impl PublicKey {
     ///
     /// Panics if the bytes do not represent a valid point on the secp256k1 curve.
     pub fn secp256k1_from_compressed(bytes: [u8; 33]) -> Self {
-        let encoded = k256::EncodedPoint::from_bytes(bytes.as_ref())
-            .expect("invalid secp256k1 SEC1 encoding");
-        let point = k256::AffinePoint::from_encoded_point(&encoded);
+        let encoded =
+            k256::Sec1Point::from_bytes(bytes.as_ref()).expect("invalid secp256k1 SEC1 encoding");
+        let point = k256::AffinePoint::from_sec1_point(&encoded);
         let point: k256::AffinePoint = Option::from(point).expect("invalid secp256k1 curve point");
 
         // Re-encode as uncompressed (65 bytes with 0x04 prefix)
-        let uncompressed = point.to_encoded_point(false);
+        let uncompressed = point.to_sec1_point(false);
         let uncompressed_bytes: &[u8] = uncompressed.as_bytes();
         assert_eq!(uncompressed_bytes.len(), 65);
         assert_eq!(uncompressed_bytes[0], 0x04);
@@ -189,9 +190,9 @@ impl PublicKey {
     ///
     /// Panics if the bytes do not represent a valid point on the secp256k1 curve.
     pub fn secp256k1_from_uncompressed(bytes: [u8; 65]) -> Self {
-        let encoded = k256::EncodedPoint::from_bytes(bytes.as_ref())
-            .expect("invalid secp256k1 SEC1 encoding");
-        let point = k256::AffinePoint::from_encoded_point(&encoded);
+        let encoded =
+            k256::Sec1Point::from_bytes(bytes.as_ref()).expect("invalid secp256k1 SEC1 encoding");
+        let point = k256::AffinePoint::from_sec1_point(&encoded);
         assert!(bool::from(point.is_some()), "invalid secp256k1 curve point");
 
         // Store without the 0x04 prefix (64 bytes)
@@ -335,9 +336,9 @@ impl FromStr for PublicKey {
                 let mut uncompressed = [0u8; 65];
                 uncompressed[0] = 0x04;
                 uncompressed[1..].copy_from_slice(&data);
-                let encoded = k256::EncodedPoint::from_bytes(uncompressed)
+                let encoded = k256::Sec1Point::from_bytes(uncompressed)
                     .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
-                let point = k256::AffinePoint::from_encoded_point(&encoded);
+                let point = k256::AffinePoint::from_sec1_point(&encoded);
                 if point.is_none().into() {
                     return Err(ParseKeyError::InvalidCurvePoint);
                 }
@@ -444,13 +445,13 @@ impl BorshDeserialize for PublicKey {
                 let mut uncompressed = [0u8; 65];
                 uncompressed[0] = 0x04;
                 uncompressed[1..].copy_from_slice(&bytes);
-                let encoded = k256::EncodedPoint::from_bytes(uncompressed).map_err(|_| {
+                let encoded = k256::Sec1Point::from_bytes(uncompressed).map_err(|_| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
                         "invalid secp256k1 encoding",
                     )
                 })?;
-                let point = k256::AffinePoint::from_encoded_point(&encoded);
+                let point = k256::AffinePoint::from_sec1_point(&encoded);
                 if point.is_none().into() {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
@@ -511,17 +512,7 @@ pub enum SecretKey {
 impl SecretKey {
     /// Generate a new random Ed25519 key pair.
     pub fn generate_ed25519() -> Self {
-        use rand::RngCore;
-        // NOTE: not `SigningKey::generate` — that is generic over
-        // `rand_core` 0.10's `CryptoRng`, which `rand` 0.8's `OsRng` (on
-        // `rand_core` 0.6) does not implement, and `rand` cannot be bumped past
-        // 0.8 while `k256` 0.13 still wants `rand_core` 0.6 below. Every
-        // 32-byte string is a valid Ed25519 seed, and `generate` does exactly
-        // this internally (fill 32 bytes, `SigningKey::from_bytes`), so drawing
-        // the seed straight from the OS CSPRNG is equivalent.
-        let mut seed = [0u8; 32];
-        OsRng.fill_bytes(&mut seed);
-        Self::Ed25519(seed)
+        Self::Ed25519(SigningKey::generate(&mut os_csprng()).to_bytes())
     }
 
     /// Create an Ed25519 secret key from raw 32 bytes.
@@ -531,7 +522,7 @@ impl SecretKey {
 
     /// Generate a new random Secp256k1 key pair.
     pub fn generate_secp256k1() -> Self {
-        let secret_key = k256::SecretKey::random(&mut OsRng);
+        let secret_key = k256::SecretKey::generate_from_rng(&mut os_csprng());
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(&secret_key.to_bytes());
         Self::Secp256k1(bytes)
@@ -548,9 +539,8 @@ impl SecretKey {
 
     /// Generate a new random ML-DSA-65 key pair (FIPS 204).
     pub fn generate_ml_dsa65() -> Self {
-        use rand::RngCore;
         let mut seed = Box::new([0u8; ML_DSA_65_SEED_LENGTH]);
-        OsRng.fill_bytes(seed.as_mut_slice());
+        fill_random(seed.as_mut_slice());
         Self::MlDsa65(MlDsa65SecretKey::Seed(seed))
     }
 
@@ -638,7 +628,7 @@ impl SecretKey {
                     k256::SecretKey::from_bytes(bytes.into()).expect("invalid secp256k1 key");
                 let public_key = secret_key.public_key();
                 // Get uncompressed encoding (65 bytes with 0x04 prefix)
-                let uncompressed = public_key.to_encoded_point(false);
+                let uncompressed = public_key.to_sec1_point(false);
                 let uncompressed_bytes: &[u8] = uncompressed.as_bytes();
                 assert_eq!(uncompressed_bytes.len(), 65);
                 // Store without the 0x04 prefix (64 bytes)
@@ -670,9 +660,7 @@ impl SecretKey {
 
                 // NEAR protocol: hash message with SHA-256 before signing
                 let hash = sha2::Sha256::digest(message);
-                let (signature, recovery_id) = signing_key
-                    .sign_prehash_recoverable(&hash)
-                    .expect("secp256k1 signing failed");
+                let (signature, recovery_id) = signing_key.sign_prehash_recoverable(&hash);
 
                 // NEAR format: [r (32) | s (32) | v (1)]
                 let mut sig_bytes = [0u8; 65];
@@ -1107,8 +1095,7 @@ impl Signature {
                     return false;
                 }
 
-                let Ok(signature) = k256::ecdsa::Signature::from_bytes((&sig_bytes[..64]).into())
-                else {
+                let Ok(signature) = k256::ecdsa::Signature::from_slice(&sig_bytes[..64]) else {
                     return false;
                 };
 
@@ -1290,8 +1277,6 @@ fn mnemonic_to_seed(
 /// assert_eq!(phrase.split_whitespace().count(), 12);
 /// ```
 pub fn generate_seed_phrase(word_count: usize) -> Result<String, SignerError> {
-    use rand::RngCore;
-
     // Word count to entropy bytes: 12->16, 15->20, 18->24, 21->28, 24->32
     let entropy_bytes = match word_count {
         12 => 16,
@@ -1308,7 +1293,7 @@ pub fn generate_seed_phrase(word_count: usize) -> Result<String, SignerError> {
     };
 
     let mut entropy = vec![0u8; entropy_bytes];
-    OsRng.fill_bytes(&mut entropy);
+    fill_random(&mut entropy);
 
     let mnemonic = Mnemonic::from_entropy(&entropy).map_err(|e| {
         SignerError::KeyDerivationFailed(format!("Failed to generate mnemonic: {}", e))
@@ -1926,9 +1911,9 @@ mod tests {
         uncompressed[0] = 0x04;
         uncompressed[1..].copy_from_slice(pk_bytes);
         let encoded =
-            k256::EncodedPoint::from_bytes(uncompressed.as_ref()).expect("valid encoded point");
-        let point = k256::AffinePoint::from_encoded_point(&encoded).expect("valid point on curve");
-        let compressed = point.to_encoded_point(true);
+            k256::Sec1Point::from_bytes(uncompressed.as_ref()).expect("valid encoded point");
+        let point = k256::AffinePoint::from_sec1_point(&encoded).expect("valid point on curve");
+        let compressed = point.to_sec1_point(true);
         let compressed_bytes: [u8; 33] = compressed
             .as_bytes()
             .try_into()
