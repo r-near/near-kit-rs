@@ -434,25 +434,36 @@
 //!
 //! ### Custom entropy backends
 //!
-//! Non-JS `wasm32-unknown-unknown` embedders must provide entropy for both `getrandom`
-//! major versions in near-kit's dependency graph: 0.2 (via `rand`/`k256`) and 0.4 (via
-//! `ml-dsa`/`sha2`/`sha3`/`hmac`/`ed25519-dalek`).
+//! Non-JS `wasm32-unknown-unknown` embedders must register one entropy backend, for
+//! getrandom 0.4 — the only major version reachable on that target, which `rand`,
+//! `k256`, `ed25519-dalek`, and `ml-dsa` all share through `rand_core` 0.10. (A
+//! native `cargo tree` also shows getrandom 0.2/0.3 behind the `rpc` and `sandbox`
+//! features, via `ring`/`rustls` and `testcontainers`; neither builds for
+//! `wasm32-unknown-unknown`, so neither needs a backend here.)
 //!
 //! ```toml
 //! [dependencies]
 //! near-kit = { version = "0.14", default-features = false }
-//! getrandom = { version = "0.2", features = ["custom"] }
 //! ```
 //!
-//! For getrandom 0.2, the `custom` feature suppresses its wasm compile error; register
-//! your entropy function with its `register_custom_getrandom!` macro. For getrandom 0.4,
-//! build with `RUSTFLAGS='--cfg getrandom_backend="custom"'` and export an `extern
-//! "Rust"` fn named `__getrandom_v03_custom` returning `Result<(), getrandom::Error>` —
-//! note the `v03`: getrandom 0.4 kept the 0.3 symbol name, so `_v04_` won't link. See
-//! the [`getrandom` docs](https://docs.rs/getrandom) for the exact signature. If your
-//! application never generates keys or nonces, `--cfg getrandom_backend="unsupported"`
-//! also works for 0.4: it compiles everywhere and errors at runtime if entropy is ever
-//! requested.
+//! Build with `RUSTFLAGS='--cfg getrandom_backend="custom"'` and export an `extern
+//! "Rust"` fn named `__getrandom_v03_custom` returning `Result<(), getrandom::Error>`
+//! — note the `v03`: getrandom 0.4 kept the 0.3 symbol name, so `_v04_` won't link.
+//! See the [`getrandom` docs](https://docs.rs/getrandom) for the exact signature. If
+//! your application never generates keys or nonces,
+//! `--cfg getrandom_backend="unsupported"` also works: it compiles everywhere and
+//! errors at runtime if entropy is ever requested.
+//!
+//! <div class="warning">
+//!
+//! **Changed since 0.14:** near-kit used to pull in *two* getrandom majors (0.2 and
+//! 0.4) and needed a backend for each — the 0.2 one registered with
+//! `register_custom_getrandom!` behind its `custom` feature. Unifying the crypto
+//! graph on `rand_core` 0.10 dropped getrandom 0.2 entirely, so that half of the
+//! setup (and the direct `getrandom = "0.2"` dependency it required) should now be
+//! removed.
+//!
+//! </div>
 //!
 //! ## Offline / no-network usage
 //!
@@ -482,7 +493,7 @@
 //! | `file-signer` | Yes | [`FileSigner`] for loading keys from `~/.near-credentials` |
 //! | `tracing` | Yes | [`tracing`](https://docs.rs/tracing) spans and events for RPC calls and transactions |
 //! | `sandbox` | No | Integration with `near-sandbox` for local testing (implies `rpc`) |
-//! | `js` | No | JS-host entropy backend (`getrandom`'s `js`/`wasm_js`) for `wasm32-unknown-unknown` |
+//! | `js` | No | JS-host entropy backend (`getrandom`'s `wasm_js`) for `wasm32-unknown-unknown` |
 //!
 //! ## Error Handling
 //!

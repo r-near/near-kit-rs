@@ -354,7 +354,7 @@ pub fn generate_nonce() -> [u8; 32] {
     nonce[..8].copy_from_slice(&timestamp.to_be_bytes());
 
     // Remaining 24 bytes: random data
-    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce[8..]);
+    super::csprng::fill_random(&mut nonce[8..]);
 
     nonce
 }
