@@ -236,7 +236,7 @@ pub enum RpcError {
     /// as [`ContractNotDeployed`](Self::ContractNotDeployed),
     /// [`MethodNotFound`](Self::MethodNotFound), and
     /// [`ContractPanic`](Self::ContractPanic), respectively.
-    #[error("Contract execution failed on {contract_id}: {message}")]
+    #[error("contract execution failed on {contract_id}: {message}")]
     ContractExecution {
         contract_id: AccountId,
         method_name: Option<String>,
@@ -244,7 +244,7 @@ pub enum RpcError {
     },
 
     /// The requested method is not exported by the deployed contract.
-    #[error("Contract method not found: {contract_id}.{method_name}")]
+    #[error("contract method not found: `{contract_id}::{method_name}`")]
     MethodNotFound {
         contract_id: AccountId,
         method_name: String,
@@ -254,22 +254,8 @@ pub enum RpcError {
     ///
     /// Transaction function-call panics are reported in the transaction
     /// outcome instead; see [`crate::types::FunctionCallError`].
-    #[error("Contract panic: {message}")]
+    #[error("contract panic: {message}")]
     ContractPanic { message: String },
-
-    /// A manually constructed function-call error with optional panic and log
-    /// details.
-    ///
-    /// Built-in view calls use the more specific contract error variants
-    /// above. This variant is retained for callers of
-    /// [`RpcError::function_call`].
-    #[error("Function call error on {contract_id}.{method_name}: {}", panic.as_deref().unwrap_or("unknown error"))]
-    FunctionCall {
-        contract_id: AccountId,
-        method_name: String,
-        panic: Option<String>,
-        logs: Vec<String>,
-    },
 
     // ─── Block/Chunk Errors ───
     #[error(
@@ -413,21 +399,6 @@ impl RpcError {
         }
 
         None
-    }
-
-    /// Create a function call error.
-    pub fn function_call(
-        contract_id: AccountId,
-        method_name: impl Into<String>,
-        panic: Option<String>,
-        logs: Vec<String>,
-    ) -> Self {
-        RpcError::FunctionCall {
-            contract_id,
-            method_name: method_name.into(),
-            panic,
-            logs,
-        }
     }
 }
 
@@ -907,31 +878,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_error_function_call_constructor() {
-        let account_id: AccountId = "contract.near".parse().unwrap();
-        let err = RpcError::function_call(
-            account_id.clone(),
-            "my_method",
-            Some("assertion failed".to_string()),
-            vec!["log1".to_string(), "log2".to_string()],
-        );
-        match err {
-            RpcError::FunctionCall {
-                contract_id,
-                method_name,
-                panic,
-                logs,
-            } => {
-                assert_eq!(contract_id, account_id);
-                assert_eq!(method_name, "my_method");
-                assert_eq!(panic, Some("assertion failed".to_string()));
-                assert_eq!(logs, vec!["log1", "log2"]);
-            }
-            _ => panic!("Expected FunctionCall error"),
-        }
-    }
-
-    #[test]
     fn test_rpc_error_is_account_not_found() {
         let account_id: AccountId = "alice.near".parse().unwrap();
         assert!(RpcError::AccountNotFound(account_id).is_account_not_found());
@@ -971,7 +917,7 @@ mod tests {
         };
         assert_eq!(
             err.to_string(),
-            "Contract method not found: contract.near.missing"
+            "contract method not found: `contract.near::missing`"
         );
     }
 
@@ -985,34 +931,16 @@ mod tests {
         };
         assert_eq!(
             err.to_string(),
-            "Contract execution failed on contract.near: execution failed"
+            "contract execution failed on contract.near: execution failed"
         );
     }
 
     #[test]
-    fn test_rpc_error_function_call_display() {
-        let account_id: AccountId = "contract.near".parse().unwrap();
-        let err = RpcError::FunctionCall {
-            contract_id: account_id.clone(),
-            method_name: "my_method".to_string(),
-            panic: Some("assertion failed".to_string()),
-            logs: vec![],
+    fn test_rpc_error_contract_panic_display() {
+        let panic = RpcError::ContractPanic {
+            message: "assertion failed".to_string(),
         };
-        assert_eq!(
-            err.to_string(),
-            "Function call error on contract.near.my_method: assertion failed"
-        );
-
-        let err_no_panic = RpcError::FunctionCall {
-            contract_id: account_id,
-            method_name: "other_method".to_string(),
-            panic: None,
-            logs: vec![],
-        };
-        assert_eq!(
-            err_no_panic.to_string(),
-            "Function call error on contract.near.other_method: unknown error"
-        );
+        assert_eq!(panic.to_string(), "contract panic: assertion failed");
     }
 
     #[test]
