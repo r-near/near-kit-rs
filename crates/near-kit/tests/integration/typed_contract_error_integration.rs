@@ -185,12 +185,18 @@ async fn test_typed_contract_view_on_wrong_contract_type() {
     let err = result.unwrap_err();
     println!("Guestbook call on FT contract: {:?}", err);
 
-    // Should be a contract execution error (method not found)
     match err {
-        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractExecution { .. }) => { /* Expected */
-        }
-        Error::Rpc(_) => { /* Other RPC errors acceptable */ }
-        _ => panic!("Expected RPC error, got: {:?}", err),
+        Error::Rpc(e) => match e.as_ref() {
+            RpcError::MethodNotFound {
+                contract_id: actual_contract_id,
+                method_name,
+            } => {
+                assert_eq!(actual_contract_id, &contract_id);
+                assert_eq!(method_name, "total_messages");
+            }
+            other => panic!("Expected MethodNotFound, got: {other:?}"),
+        },
+        other => panic!("Expected RPC error, got: {other:?}"),
     }
 }
 

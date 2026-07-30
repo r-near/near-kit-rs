@@ -20,10 +20,11 @@ use crate::trace;
 use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockEffects, BlockReference,
-    BlockView, ContractCodeView, CryptoHash, EpochValidatorInfo, GasKeyNoncesView, GasPrice,
-    GlobalContractId, GlobalContractIdentifierView, MaintenanceWindow, PublicKey,
-    ReceiptToTxResponse, SignedTransaction, StateItem, StatusResponse, TxExecutionStatus,
-    ViewFunctionResult, ViewStateResult,
+    BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
+    FunctionCallError, GasKeyNoncesView, GasPrice, GlobalContractId, GlobalContractIdentifierView,
+    HostError, MaintenanceWindow, MethodResolveError, PublicKey, ReceiptToTxResponse,
+    SignedTransaction, StateItem, StatusResponse, TxExecutionStatus, ViewFunctionResult,
+    ViewStateResult,
 };
 
 /// Platform-appropriate async sleep, used for retry backoff.
@@ -139,6 +140,80 @@ struct ErrorCause {
     name: String,
     #[serde(default)]
     info: Option<serde_json::Value>,
+}
+
+/// Extract nearcore's structured `FunctionCallError` from a handler error.
+///
+/// Current nodes use `info.vm_error`; the initial structured endpoint shape
+/// used `info.error`. Accept both so providers on either nearcore generation
+/// get the same typed classification.
+fn parse_function_call_error(info: Option<&serde_json::Value>) -> Option<FunctionCallError> {
+    let info = info?;
+
+    ["vm_error", "error"].into_iter().find_map(|key| {
+        let value = info.get(key)?;
+        // The legacy `query` endpoint also has a `vm_error` string. It is not
+        // structured and should not mask a structured `error` sibling.
+        if !value.is_object() {
+            return None;
+        }
+        let value = value.get("FunctionCallError").unwrap_or(value);
+        match serde_json::from_value(value.clone()).ok()? {
+            FunctionCallError::Unknown(_) => None,
+            error => Some(error),
+        }
+    })
+}
+
+/// Map the function-call cases callers need to branch on independently.
+fn classify_function_call_error(
+    error: &FunctionCallError,
+    contract_id: &AccountId,
+    method_name: Option<&str>,
+) -> Option<RpcError> {
+    match error {
+        FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist { account_id }) => {
+            Some(RpcError::ContractNotDeployed(account_id.clone()))
+        }
+        FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound) => {
+            Some(RpcError::MethodNotFound {
+                contract_id: contract_id.clone(),
+                method_name: method_name.unwrap_or("unknown").to_string(),
+            })
+        }
+        FunctionCallError::HostError(HostError::GuestPanic { panic_msg }) => {
+            Some(RpcError::ContractPanic {
+                message: panic_msg.clone(),
+            })
+        }
+        FunctionCallError::ExecutionError(message) => extract_contract_panic_message(message)
+            .map(|message| RpcError::ContractPanic { message }),
+        _ => None,
+    }
+}
+
+/// nearcore collapses current execution failures to strings, but retains a
+/// stable prefix for explicit guest panics.
+fn extract_contract_panic_message(message: &str) -> Option<String> {
+    const PREFIX: &str = "Smart contract panicked";
+
+    let candidate_prefix = message.get(..PREFIX.len())?;
+    if !candidate_prefix.eq_ignore_ascii_case(PREFIX) {
+        return None;
+    }
+
+    match &message[PREFIX.len()..] {
+        "" => Some(message.to_string()),
+        rest if rest.starts_with(':') => {
+            let panic_message = rest[1..].trim_start();
+            Some(if panic_message.is_empty() {
+                message.to_string()
+            } else {
+                panic_message.to_string()
+            })
+        }
+        _ => None,
+    }
 }
 
 /// Response from EXPERIMENTAL_call_function.
@@ -449,47 +524,42 @@ impl RpcClient {
                     }
                 }
                 "CONTRACT_EXECUTION_ERROR" => {
-                    // Check for CodeDoesNotExist inside vm_error
-                    // (EXPERIMENTAL_call_function wraps this as CONTRACT_EXECUTION_ERROR)
-                    if let Some(vm_error) = info.and_then(|i| i.get("vm_error"))
-                        && let Some(compilation_err) = vm_error.get("CompilationError")
-                        && let Some(code_not_exist) = compilation_err.get("CodeDoesNotExist")
-                        && let Some(account_id) = code_not_exist
-                            .get("account_id")
-                            .and_then(|a| a.as_str())
-                            .and_then(|a| a.parse().ok())
-                    {
-                        return RpcError::ContractNotDeployed(account_id);
-                    }
-
                     // Legacy `query` includes contract_id/method_name;
                     // EXPERIMENTAL_call_function does not (the caller
                     // already knows them). Fall back to "unknown".
                     let contract_id = info
                         .and_then(|i| i.get("contract_id"))
                         .and_then(|c| c.as_str())
-                        .unwrap_or("unknown");
+                        .unwrap_or("unknown")
+                        .parse()
+                        .unwrap_or_else(|_| "unknown".parse().unwrap());
                     let method_name = info
                         .and_then(|i| i.get("method_name"))
                         .and_then(|m| m.as_str())
                         .map(String::from);
+                    let function_call_error = parse_function_call_error(info);
+                    if let Some(specific_error) = function_call_error.as_ref().and_then(|error| {
+                        classify_function_call_error(error, &contract_id, method_name.as_deref())
+                    }) {
+                        return specific_error;
+                    }
+
                     let message = data
                         .as_ref()
                         .and_then(|d| d.as_str())
                         .map(|s| s.to_string())
+                        .or_else(|| function_call_error.as_ref().map(ToString::to_string))
                         .or_else(|| {
                             // EXPERIMENTAL endpoint: use vm_error as fallback
                             // when data isn't a string
                             info.and_then(|i| i.get("vm_error")).map(|v| v.to_string())
                         })
                         .unwrap_or_else(|| error.message.clone());
-                    if let Ok(contract_id) = contract_id.parse() {
-                        return RpcError::ContractExecution {
-                            contract_id,
-                            method_name,
-                            message,
-                        };
-                    }
+                    return RpcError::ContractExecution {
+                        contract_id,
+                        method_name,
+                        message,
+                    };
                 }
                 "UNAVAILABLE_SHARD" => {
                     return RpcError::ShardUnavailable(error.message.clone());
@@ -656,6 +726,10 @@ impl RpcClient {
                     contract_id: account_id.clone(),
                     method_name: Some(method_name.to_string()),
                     message,
+                },
+                RpcError::MethodNotFound { .. } => RpcError::MethodNotFound {
+                    contract_id: account_id.clone(),
+                    method_name: method_name.to_string(),
                 },
                 other => other,
             })?;
@@ -1137,11 +1211,55 @@ fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) ->
 mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::mpsc;
+    use std::sync::{Arc, mpsc};
 
     use reqwest::header::{HeaderMap, HeaderValue};
 
     use super::*;
+    use crate::client::{BoxFuture, TransportResponse};
+
+    struct StaticResponseTransport {
+        body: Vec<u8>,
+    }
+
+    impl RpcTransport for StaticResponseTransport {
+        fn post_json(
+            &self,
+            _url: &str,
+            _body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            let body = self.body.clone();
+            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+        }
+    }
+
+    fn rpc_with_handler_error(cause_name: &str, info: serde_json::Value) -> RpcClient {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": {
+                "name": "HANDLER_ERROR",
+                "cause": {
+                    "name": cause_name,
+                    "info": info,
+                },
+                "code": -32000,
+                "message": "Server error",
+                "data": "view function failed",
+            },
+        }))
+        .unwrap();
+
+        RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            Arc::new(StaticResponseTransport { body }),
+            RetryConfig {
+                max_retries: 0,
+                ..RetryConfig::default()
+            },
+        )
+    }
+
     // ========================================================================
     // RetryConfig tests
     // ========================================================================
@@ -1209,6 +1327,93 @@ mod tests {
         let debug = format!("{:?}", client);
         assert!(debug.contains("RpcClient"));
         assert!(debug.contains("rpc.testnet.near.org"));
+    }
+
+    #[tokio::test]
+    async fn test_view_function_distinguishes_contract_errors() {
+        let missing_account: AccountId = "missing.near".parse().unwrap();
+        let error = rpc_with_handler_error(
+            "UNKNOWN_ACCOUNT",
+            serde_json::json!({ "requested_account_id": missing_account }),
+        )
+        .view_function(
+            &missing_account,
+            "nep413_get_message",
+            &[],
+            BlockReference::final_(),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            RpcError::AccountNotFound(account_id) if account_id == missing_account
+        ));
+
+        let account_without_code: AccountId = "no-code.near".parse().unwrap();
+        let error = rpc_with_handler_error(
+            "CONTRACT_EXECUTION_ERROR",
+            serde_json::json!({
+                "vm_error": {
+                    "CompilationError": {
+                        "CodeDoesNotExist": {
+                            "account_id": account_without_code,
+                        },
+                    },
+                },
+            }),
+        )
+        .view_function(
+            &account_without_code,
+            "nep413_get_message",
+            &[],
+            BlockReference::final_(),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            RpcError::ContractNotDeployed(account_id) if account_id == account_without_code
+        ));
+
+        let contract_id: AccountId = "contract.near".parse().unwrap();
+        let missing_method = "nep413_get_message";
+        let error = rpc_with_handler_error(
+            "CONTRACT_EXECUTION_ERROR",
+            serde_json::json!({
+                "vm_error": {
+                    "MethodResolveError": "MethodNotFound",
+                },
+            }),
+        )
+        .view_function(&contract_id, missing_method, &[], BlockReference::final_())
+        .await
+        .unwrap_err();
+        match error {
+            RpcError::MethodNotFound {
+                contract_id: actual_contract_id,
+                method_name,
+            } => {
+                assert_eq!(actual_contract_id, contract_id);
+                assert_eq!(method_name, missing_method);
+            }
+            other => panic!("expected MethodNotFound, got {other:?}"),
+        }
+
+        let error = rpc_with_handler_error(
+            "CONTRACT_EXECUTION_ERROR",
+            serde_json::json!({
+                "vm_error": {
+                    "ExecutionError": "Smart contract panicked: invalid payload",
+                },
+            }),
+        )
+        .view_function(&contract_id, "verify_nep413", &[], BlockReference::final_())
+        .await
+        .unwrap_err();
+        match error {
+            RpcError::ContractPanic { message } => assert_eq!(message, "invalid payload"),
+            other => panic!("expected ContractPanic, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -1945,7 +2150,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_rpc_error_contract_execution_experimental() {
+    fn test_parse_rpc_error_method_not_found_current_shape() {
         // EXPERIMENTAL_call_function omits contract_id/method_name from info,
         // but includes vm_error and a data string
         let client = RpcClient::new("https://example.com");
@@ -1967,16 +2172,117 @@ mod tests {
         };
         let result = client.parse_rpc_error(&error);
         match result {
-            RpcError::ContractExecution {
+            RpcError::MethodNotFound {
                 contract_id,
-                message,
-                ..
+                method_name,
             } => {
-                // contract_id falls back to "unknown" — caller enriches it
+                // The high-level view_function caller enriches both fields.
                 assert_eq!(contract_id.as_str(), "unknown");
-                assert!(message.contains("MethodResolveError"));
+                assert_eq!(method_name, "unknown");
             }
-            _ => panic!("Expected ContractExecution error, got {:?}", result),
+            _ => panic!("Expected MethodNotFound error, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_method_not_found_legacy_error_field() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "CONTRACT_EXECUTION_ERROR".to_string(),
+                info: Some(serde_json::json!({
+                    // The endpoint's initial structured shape called this
+                    // field `error`; current nearcore calls it `vm_error`.
+                    "error": { "MethodResolveError": "MethodNotFound" },
+                })),
+            }),
+            name: Some("HANDLER_ERROR".to_string()),
+        };
+
+        assert!(matches!(
+            client.parse_rpc_error(&error),
+            RpcError::MethodNotFound { .. }
+        ));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_contract_panic_current_shape() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "CONTRACT_EXECUTION_ERROR".to_string(),
+                info: Some(serde_json::json!({
+                    "vm_error": {
+                        "ExecutionError": "Smart contract panicked: invalid signature"
+                    },
+                })),
+            }),
+            name: Some("HANDLER_ERROR".to_string()),
+        };
+
+        match client.parse_rpc_error(&error) {
+            RpcError::ContractPanic { message } => assert_eq!(message, "invalid signature"),
+            other => panic!("Expected ContractPanic error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_non_panic_execution_error_stays_generic() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "CONTRACT_EXECUTION_ERROR".to_string(),
+                info: Some(serde_json::json!({
+                    "vm_error": {
+                        "ExecutionError": "memory access violation"
+                    },
+                })),
+            }),
+            name: Some("HANDLER_ERROR".to_string()),
+        };
+
+        match client.parse_rpc_error(&error) {
+            RpcError::ContractExecution { message, .. } => {
+                assert!(message.contains("memory access violation"));
+            }
+            other => panic!("Expected ContractExecution error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_contract_panic_legacy_guest_panic_shape() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "CONTRACT_EXECUTION_ERROR".to_string(),
+                info: Some(serde_json::json!({
+                    "error": {
+                        "HostError": {
+                            "GuestPanic": {
+                                "panic_msg": "legacy panic"
+                            }
+                        }
+                    },
+                })),
+            }),
+            name: Some("HANDLER_ERROR".to_string()),
+        };
+
+        match client.parse_rpc_error(&error) {
+            RpcError::ContractPanic { message } => assert_eq!(message, "legacy panic"),
+            other => panic!("Expected ContractPanic error, got {other:?}"),
         }
     }
 

@@ -197,17 +197,17 @@ async fn test_error_view_nonexistent_method() {
     );
     let err = result.unwrap_err();
 
-    // The query endpoint returns view-call errors in different formats depending
-    // on the RPC version (structured ContractExecution vs inline result.error).
-    // Just verify we get an Rpc error with MethodNotFound somewhere in it.
     match err {
-        Error::Rpc(ref e) => {
-            let msg = format!("{e:?}");
-            assert!(
-                msg.contains("MethodNotFound") || msg.contains("MethodResolveError"),
-                "Expected method not found error, got: {msg}"
-            );
-        }
+        Error::Rpc(e) => match e.as_ref() {
+            RpcError::MethodNotFound {
+                contract_id: actual_contract_id,
+                method_name,
+            } => {
+                assert_eq!(actual_contract_id, &contract_id);
+                assert_eq!(method_name, "this_method_does_not_exist");
+            }
+            other => panic!("Expected MethodNotFound, got: {other:?}"),
+        },
         other => panic!("Expected Rpc error, got: {:?}", other),
     }
 }

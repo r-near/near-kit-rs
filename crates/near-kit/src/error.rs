@@ -229,6 +229,13 @@ pub enum RpcError {
     #[error("Global contract not found: {0}")]
     GlobalContractNotFound(GlobalContractIdentifierView),
 
+    /// A view function failed for a reason that does not have a more specific
+    /// [`RpcError`] variant.
+    ///
+    /// Missing contract code, missing methods, and contract panics are exposed
+    /// as [`ContractNotDeployed`](Self::ContractNotDeployed),
+    /// [`MethodNotFound`](Self::MethodNotFound), and
+    /// [`ContractPanic`](Self::ContractPanic), respectively.
     #[error("Contract execution failed on {contract_id}: {message}")]
     ContractExecution {
         contract_id: AccountId,
@@ -236,9 +243,26 @@ pub enum RpcError {
         message: String,
     },
 
+    /// The requested method is not exported by the deployed contract.
+    #[error("Contract method not found: {contract_id}.{method_name}")]
+    MethodNotFound {
+        contract_id: AccountId,
+        method_name: String,
+    },
+
+    /// A view method explicitly panicked during contract execution.
+    ///
+    /// Transaction function-call panics are reported in the transaction
+    /// outcome instead; see [`crate::types::FunctionCallError`].
     #[error("Contract panic: {message}")]
     ContractPanic { message: String },
 
+    /// A manually constructed function-call error with optional panic and log
+    /// details.
+    ///
+    /// Built-in view calls use the more specific contract error variants
+    /// above. This variant is retained for callers of
+    /// [`RpcError::function_call`].
     #[error("Function call error on {contract_id}.{method_name}: {}", panic.as_deref().unwrap_or("unknown error"))]
     FunctionCall {
         contract_id: AccountId,
@@ -421,6 +445,17 @@ impl RpcError {
     /// Returns true if this error indicates a contract is not deployed.
     pub fn is_contract_not_deployed(&self) -> bool {
         matches!(self, RpcError::ContractNotDeployed(_))
+    }
+
+    /// Returns true if this error indicates the requested contract method was
+    /// not found.
+    pub fn is_method_not_found(&self) -> bool {
+        matches!(self, RpcError::MethodNotFound { .. })
+    }
+
+    /// Returns true if this error indicates a view method panicked.
+    pub fn is_contract_panic(&self) -> bool {
+        matches!(self, RpcError::ContractPanic { .. })
     }
 
     /// Returns true if this error indicates a global contract was not found.
@@ -908,6 +943,36 @@ mod tests {
         let account_id: AccountId = "alice.near".parse().unwrap();
         assert!(RpcError::ContractNotDeployed(account_id).is_contract_not_deployed());
         assert!(!RpcError::Timeout(3).is_contract_not_deployed());
+    }
+
+    #[test]
+    fn test_rpc_error_view_call_classification_helpers() {
+        let account_id: AccountId = "contract.near".parse().unwrap();
+        let method_not_found = RpcError::MethodNotFound {
+            contract_id: account_id,
+            method_name: "missing".to_string(),
+        };
+        assert!(method_not_found.is_method_not_found());
+        assert!(!method_not_found.is_contract_panic());
+
+        let panic = RpcError::ContractPanic {
+            message: "boom".to_string(),
+        };
+        assert!(panic.is_contract_panic());
+        assert!(!panic.is_method_not_found());
+    }
+
+    #[test]
+    fn test_rpc_error_method_not_found_display() {
+        let account_id: AccountId = "contract.near".parse().unwrap();
+        let err = RpcError::MethodNotFound {
+            contract_id: account_id,
+            method_name: "missing".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Contract method not found: contract.near.missing"
+        );
     }
 
     #[test]
