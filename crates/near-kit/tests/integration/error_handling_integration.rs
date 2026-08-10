@@ -41,7 +41,7 @@ async fn test_error_balance_nonexistent_account() {
     match err {
         Error::Rpc(ref rpc_err) => {
             assert!(
-                matches!(rpc_err.as_ref(), RpcError::AccountNotFound(_)),
+                matches!(rpc_err.as_ref(), RpcError::AccountNotFound { .. }),
                 "Expected AccountNotFound, got: {:?}",
                 rpc_err
             );
@@ -63,7 +63,7 @@ async fn test_error_account_info_nonexistent() {
 
     match err {
         Error::Rpc(ref e) => match e.as_ref() {
-            RpcError::AccountNotFound(account_id) => {
+            RpcError::AccountNotFound { account_id, .. } => {
                 assert_eq!(account_id.as_str(), "nonexistent-account-xyz.sandbox");
             }
             other => panic!("Expected AccountNotFound, got: {:?}", other),
@@ -202,6 +202,7 @@ async fn test_error_view_nonexistent_method() {
             RpcError::MethodNotFound {
                 contract_id: actual_contract_id,
                 method_name,
+                ..
             } => {
                 assert_eq!(actual_contract_id, &contract_id);
                 assert_eq!(method_name, "this_method_does_not_exist");

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- [**breaking**] preserve block height and hash metadata on applicable view RPC
+  error variants when returned by the node
+
 ### Fixed
 
 - distinguish missing accounts, undeployed contracts, missing methods, and

@@ -55,7 +55,8 @@
 use thiserror::Error;
 
 use crate::types::{
-    AccountId, DelegateDecodeError, GlobalContractIdentifierView, InvalidTxError, PublicKey,
+    AccountId, CryptoHash, DelegateDecodeError, GlobalContractIdentifierView, InvalidTxError,
+    PublicKey,
 };
 
 /// Error parsing an account ID.
@@ -207,8 +208,12 @@ pub enum RpcError {
     },
 
     // ─── Account Errors ───
-    #[error("Account not found: {0}")]
-    AccountNotFound(AccountId),
+    #[error("Account not found: {account_id}")]
+    AccountNotFound {
+        account_id: AccountId,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
+    },
 
     #[error("Invalid account ID: {0}")]
     InvalidAccount(String),
@@ -220,8 +225,12 @@ pub enum RpcError {
     },
 
     // ─── Contract Errors ───
-    #[error("Contract not deployed on account: {0}")]
-    ContractNotDeployed(AccountId),
+    #[error("Contract not deployed on account: {account_id}")]
+    ContractNotDeployed {
+        account_id: AccountId,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
+    },
 
     #[error("Contract state too large for account: {0}")]
     ContractStateTooLarge(AccountId),
@@ -241,6 +250,8 @@ pub enum RpcError {
         contract_id: AccountId,
         method_name: Option<String>,
         message: String,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
     },
 
     /// The requested method is not exported by the deployed contract.
@@ -248,6 +259,8 @@ pub enum RpcError {
     MethodNotFound {
         contract_id: AccountId,
         method_name: String,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
     },
 
     /// A view method explicitly panicked during contract execution.
@@ -255,7 +268,11 @@ pub enum RpcError {
     /// Transaction function-call panics are reported in the transaction
     /// outcome instead; see [`crate::types::FunctionCallError`].
     #[error("contract panic: {message}")]
-    ContractPanic { message: String },
+    ContractPanic {
+        message: String,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
+    },
 
     // ─── Block/Chunk Errors ───
     #[error(
@@ -410,12 +427,12 @@ impl RpcError {
 impl RpcError {
     /// Returns true if this error indicates the account was not found.
     pub fn is_account_not_found(&self) -> bool {
-        matches!(self, RpcError::AccountNotFound(_))
+        matches!(self, RpcError::AccountNotFound { .. })
     }
 
     /// Returns true if this error indicates a contract is not deployed.
     pub fn is_contract_not_deployed(&self) -> bool {
-        matches!(self, RpcError::ContractNotDeployed(_))
+        matches!(self, RpcError::ContractNotDeployed { .. })
     }
 
     /// Returns true if this error indicates the requested contract method was
@@ -432,6 +449,30 @@ impl RpcError {
     /// Returns true if this error indicates a global contract was not found.
     pub fn is_global_contract_not_found(&self) -> bool {
         matches!(self, RpcError::GlobalContractNotFound(_))
+    }
+
+    /// Returns the block height attached to a view RPC error, if available.
+    pub fn block_height(&self) -> Option<u64> {
+        match self {
+            RpcError::AccountNotFound { block_height, .. }
+            | RpcError::ContractNotDeployed { block_height, .. }
+            | RpcError::ContractExecution { block_height, .. }
+            | RpcError::MethodNotFound { block_height, .. }
+            | RpcError::ContractPanic { block_height, .. } => *block_height,
+            _ => None,
+        }
+    }
+
+    /// Returns the block hash attached to a view RPC error, if available.
+    pub fn block_hash(&self) -> Option<CryptoHash> {
+        match self {
+            RpcError::AccountNotFound { block_hash, .. }
+            | RpcError::ContractNotDeployed { block_hash, .. }
+            | RpcError::ContractExecution { block_hash, .. }
+            | RpcError::MethodNotFound { block_hash, .. }
+            | RpcError::ContractPanic { block_hash, .. } => *block_hash,
+            _ => None,
+        }
     }
 }
 
@@ -698,7 +739,12 @@ mod tests {
             "Invalid response: missing result"
         );
         assert_eq!(
-            RpcError::AccountNotFound(account_id.clone()).to_string(),
+            RpcError::AccountNotFound {
+                account_id: account_id.clone(),
+                block_height: None,
+                block_hash: None,
+            }
+            .to_string(),
             "Account not found: alice.near"
         );
         assert_eq!(
@@ -706,7 +752,12 @@ mod tests {
             "Invalid account ID: bad-account"
         );
         assert_eq!(
-            RpcError::ContractNotDeployed(account_id.clone()).to_string(),
+            RpcError::ContractNotDeployed {
+                account_id: account_id.clone(),
+                block_height: None,
+                block_hash: None,
+            }
+            .to_string(),
             "Contract not deployed on account: alice.near"
         );
         assert_eq!(
@@ -800,8 +851,22 @@ mod tests {
 
         // Non-retryable errors
         let account_id: AccountId = "alice.near".parse().unwrap();
-        assert!(!RpcError::AccountNotFound(account_id.clone()).is_retryable());
-        assert!(!RpcError::ContractNotDeployed(account_id.clone()).is_retryable());
+        assert!(
+            !RpcError::AccountNotFound {
+                account_id: account_id.clone(),
+                block_height: None,
+                block_hash: None,
+            }
+            .is_retryable()
+        );
+        assert!(
+            !RpcError::ContractNotDeployed {
+                account_id: account_id.clone(),
+                block_height: None,
+                block_hash: None,
+            }
+            .is_retryable()
+        );
         assert!(!RpcError::InvalidAccount("bad".to_string()).is_retryable());
         assert!(!RpcError::UnknownBlock("12345".to_string()).is_retryable());
         assert!(!RpcError::ParseError("bad json".to_string()).is_retryable());
@@ -880,32 +945,57 @@ mod tests {
     #[test]
     fn test_rpc_error_is_account_not_found() {
         let account_id: AccountId = "alice.near".parse().unwrap();
-        assert!(RpcError::AccountNotFound(account_id).is_account_not_found());
+        assert!(
+            RpcError::AccountNotFound {
+                account_id,
+                block_height: None,
+                block_hash: None,
+            }
+            .is_account_not_found()
+        );
         assert!(!RpcError::Timeout(3).is_account_not_found());
     }
 
     #[test]
     fn test_rpc_error_is_contract_not_deployed() {
         let account_id: AccountId = "alice.near".parse().unwrap();
-        assert!(RpcError::ContractNotDeployed(account_id).is_contract_not_deployed());
+        assert!(
+            RpcError::ContractNotDeployed {
+                account_id,
+                block_height: None,
+                block_hash: None,
+            }
+            .is_contract_not_deployed()
+        );
         assert!(!RpcError::Timeout(3).is_contract_not_deployed());
     }
 
     #[test]
     fn test_rpc_error_view_call_classification_helpers() {
         let account_id: AccountId = "contract.near".parse().unwrap();
+        let block_hash = CryptoHash::hash(b"block");
         let method_not_found = RpcError::MethodNotFound {
             contract_id: account_id,
             method_name: "missing".to_string(),
+            block_height: Some(42),
+            block_hash: Some(block_hash),
         };
         assert!(method_not_found.is_method_not_found());
         assert!(!method_not_found.is_contract_panic());
+        assert_eq!(method_not_found.block_height(), Some(42));
+        assert_eq!(method_not_found.block_hash(), Some(block_hash));
 
         let panic = RpcError::ContractPanic {
             message: "boom".to_string(),
+            block_height: None,
+            block_hash: None,
         };
         assert!(panic.is_contract_panic());
         assert!(!panic.is_method_not_found());
+        assert_eq!(panic.block_height(), None);
+        assert_eq!(panic.block_hash(), None);
+        assert_eq!(RpcError::Timeout(3).block_height(), None);
+        assert_eq!(RpcError::Timeout(3).block_hash(), None);
     }
 
     #[test]
@@ -914,6 +1004,8 @@ mod tests {
         let err = RpcError::MethodNotFound {
             contract_id: account_id,
             method_name: "missing".to_string(),
+            block_height: None,
+            block_hash: None,
         };
         assert_eq!(
             err.to_string(),
@@ -928,6 +1020,8 @@ mod tests {
             contract_id: account_id,
             method_name: Some("my_method".to_string()),
             message: "execution failed".to_string(),
+            block_height: None,
+            block_hash: None,
         };
         assert_eq!(
             err.to_string(),
@@ -939,6 +1033,8 @@ mod tests {
     fn test_rpc_error_contract_panic_display() {
         let panic = RpcError::ContractPanic {
             message: "assertion failed".to_string(),
+            block_height: None,
+            block_hash: None,
         };
         assert_eq!(panic.to_string(), "contract panic: assertion failed");
     }

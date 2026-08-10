@@ -51,7 +51,7 @@ async fn test_ft_metadata_on_non_contract_account() {
     // Should be ContractNotDeployed or similar error
     println!("FT metadata on non-contract: {:?}", err);
     match err {
-        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed(_)) => {
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed { .. }) => {
             // Expected
         }
         Error::Rpc(_) => {
@@ -195,6 +195,7 @@ async fn test_ft_on_wrong_contract_type() {
             RpcError::MethodNotFound {
                 contract_id: actual_contract_id,
                 method_name,
+                ..
             } => {
                 assert_eq!(actual_contract_id, &contract_id);
                 assert_eq!(method_name, "ft_metadata");

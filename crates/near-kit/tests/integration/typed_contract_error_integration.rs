@@ -71,9 +71,9 @@ async fn test_typed_contract_view_on_nonexistent_account() {
 
     // Should be AccountNotFound or ContractNotDeployed
     match err {
-        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::AccountNotFound(_)) => { /* Expected */
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::AccountNotFound { .. }) => { /* Expected */
         }
-        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed(_)) => { /* Also acceptable */
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed { .. }) => { /* Also acceptable */
         }
         _ => panic!(
             "Expected AccountNotFound or ContractNotDeployed, got: {:?}",
@@ -109,7 +109,7 @@ async fn test_typed_contract_view_on_account_without_contract() {
     println!("View on account without contract: {:?}", err);
 
     match err {
-        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed(_)) => { /* Expected */
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed { .. }) => { /* Expected */
         }
         Error::Rpc(_) => { /* Other RPC errors acceptable */ }
         _ => panic!("Expected RPC error, got: {:?}", err),
@@ -190,6 +190,7 @@ async fn test_typed_contract_view_on_wrong_contract_type() {
             RpcError::MethodNotFound {
                 contract_id: actual_contract_id,
                 method_name,
+                ..
             } => {
                 assert_eq!(actual_contract_id, &contract_id);
                 assert_eq!(method_name, "total_messages");
