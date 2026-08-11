@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.12.0...near-kit-macros-v0.12.1) - 2026-08-11
+
+### Other
+
+- *(deps)* bump syn from 2.0.119 to 3.0.3 ([#265](https://github.com/r-near/near-kit-rs/pull/265))
+
 ## [0.12.0](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.12.0-rc.1...near-kit-macros-v0.12.0) - 2026-07-13
 
 First stable release of the 0.12 line. No changes since `0.12.0-rc.1`.
