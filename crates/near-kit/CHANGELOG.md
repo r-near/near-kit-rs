@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.14.0...near-kit-v0.15.0) - 2026-08-11
+
+### Added
+
+- derive Copy for BlockReference ([#274](https://github.com/r-near/near-kit-rs/pull/274))
+- derive ML-DSA-65 keys from BIP-39 seed phrases ([#261](https://github.com/r-near/near-kit-rs/pull/261))
+
+### Fixed
+
+- [**breaking**] distinguish view function RPC errors ([#272](https://github.com/r-near/near-kit-rs/pull/272))
+
+### Other
+
+- *(deps)* unify rand_core on 0.10 by bumping k256 and rand ([#268](https://github.com/r-near/near-kit-rs/pull/268))
+- *(deps)* bump ed25519-dalek from 2.2.0 to 3.0.0 ([#241](https://github.com/r-near/near-kit-rs/pull/241))
+- *(deps)* bump gloo-timers from 0.3.0 to 0.4.0 ([#264](https://github.com/r-near/near-kit-rs/pull/264))
+
 ### Changed
 
 - [**breaking**] preserve block height and hash metadata on applicable view RPC
