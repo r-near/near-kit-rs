@@ -225,7 +225,7 @@ impl IntoFuture for AccountExistsQuery {
                 .await
             {
                 Ok(_) => Ok(true),
-                Err(crate::error::RpcError::AccountNotFound(_)) => Ok(false),
+                Err(crate::error::RpcError::AccountNotFound { .. }) => Ok(false),
                 Err(e) => Err(e.into()),
             }
         })
@@ -662,8 +662,8 @@ impl ContractCodeQuery {
     pub async fn exists(self) -> Result<bool, Error> {
         match self.rpc.view_code(&self.account_id, self.block_ref).await {
             Ok(_) => Ok(true),
-            Err(crate::error::RpcError::ContractNotDeployed(_))
-            | Err(crate::error::RpcError::AccountNotFound(_)) => Ok(false),
+            Err(crate::error::RpcError::ContractNotDeployed { .. })
+            | Err(crate::error::RpcError::AccountNotFound { .. }) => Ok(false),
             Err(e) => Err(e.into()),
         }
     }
@@ -762,7 +762,7 @@ impl GlobalContractQuery {
             // by identifier, not account), but a nonexistent publisher has
             // published nothing — treat it the same as not-found.
             Err(crate::error::RpcError::GlobalContractNotFound(_))
-            | Err(crate::error::RpcError::AccountNotFound(_)) => Ok(false),
+            | Err(crate::error::RpcError::AccountNotFound { .. }) => Ok(false),
             Err(e) => Err(e.into()),
         }
     }

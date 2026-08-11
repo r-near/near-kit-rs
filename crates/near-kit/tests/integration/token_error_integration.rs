@@ -51,7 +51,7 @@ async fn test_ft_metadata_on_non_contract_account() {
     // Should be ContractNotDeployed or similar error
     println!("FT metadata on non-contract: {:?}", err);
     match err {
-        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed(_)) => {
+        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed { .. }) => {
             // Expected
         }
         Error::Rpc(_) => {
@@ -190,12 +190,19 @@ async fn test_ft_on_wrong_contract_type() {
     let err = result.unwrap_err();
     println!("FT metadata on guestbook: {:?}", err);
 
-    // Could be ContractExecution or other RPC error
     match err {
-        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractExecution { .. }) => { /* Expected */
-        }
-        Error::Rpc(_) => { /* Other RPC errors are acceptable too */ }
-        _ => panic!("Expected RPC error, got: {:?}", err),
+        Error::Rpc(e) => match e.as_ref() {
+            RpcError::MethodNotFound {
+                contract_id: actual_contract_id,
+                method_name,
+                ..
+            } => {
+                assert_eq!(actual_contract_id, &contract_id);
+                assert_eq!(method_name, "ft_metadata");
+            }
+            other => panic!("Expected MethodNotFound, got: {other:?}"),
+        },
+        other => panic!("Expected RPC error, got: {other:?}"),
     }
 }
 

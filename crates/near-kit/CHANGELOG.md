@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- [**breaking**] preserve block height and hash metadata on applicable view RPC
+  error variants when returned by the node
+
+### Fixed
+
+- distinguish missing accounts, undeployed contracts, missing methods, and
+  contract panics returned by view function calls
+
+### Removed
+
+- [**breaking**] remove the unused `RpcError::FunctionCall` variant and
+  `RpcError::function_call` constructor
+
 ## [0.14.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.13.0...near-kit-v0.14.0) - 2026-07-24
 
 ### Added

@@ -55,7 +55,8 @@
 use thiserror::Error;
 
 use crate::types::{
-    AccountId, DelegateDecodeError, GlobalContractIdentifierView, InvalidTxError, PublicKey,
+    AccountId, CryptoHash, DelegateDecodeError, GlobalContractIdentifierView, InvalidTxError,
+    PublicKey,
 };
 
 /// Error parsing an account ID.
@@ -207,8 +208,12 @@ pub enum RpcError {
     },
 
     // ─── Account Errors ───
-    #[error("Account not found: {0}")]
-    AccountNotFound(AccountId),
+    #[error("Account not found: {account_id}")]
+    AccountNotFound {
+        account_id: AccountId,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
+    },
 
     #[error("Invalid account ID: {0}")]
     InvalidAccount(String),
@@ -220,8 +225,12 @@ pub enum RpcError {
     },
 
     // ─── Contract Errors ───
-    #[error("Contract not deployed on account: {0}")]
-    ContractNotDeployed(AccountId),
+    #[error("Contract not deployed on account: {account_id}")]
+    ContractNotDeployed {
+        account_id: AccountId,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
+    },
 
     #[error("Contract state too large for account: {0}")]
     ContractStateTooLarge(AccountId),
@@ -229,22 +238,40 @@ pub enum RpcError {
     #[error("Global contract not found: {0}")]
     GlobalContractNotFound(GlobalContractIdentifierView),
 
-    #[error("Contract execution failed on {contract_id}: {message}")]
+    /// A view function failed for a reason that does not have a more specific
+    /// [`RpcError`] variant.
+    ///
+    /// Missing contract code, missing methods, and contract panics are exposed
+    /// as [`ContractNotDeployed`](Self::ContractNotDeployed),
+    /// [`MethodNotFound`](Self::MethodNotFound), and
+    /// [`ContractPanic`](Self::ContractPanic), respectively.
+    #[error("contract execution failed on {contract_id}: {message}")]
     ContractExecution {
         contract_id: AccountId,
         method_name: Option<String>,
         message: String,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
     },
 
-    #[error("Contract panic: {message}")]
-    ContractPanic { message: String },
-
-    #[error("Function call error on {contract_id}.{method_name}: {}", panic.as_deref().unwrap_or("unknown error"))]
-    FunctionCall {
+    /// The requested method is not exported by the deployed contract.
+    #[error("contract method not found: `{contract_id}::{method_name}`")]
+    MethodNotFound {
         contract_id: AccountId,
         method_name: String,
-        panic: Option<String>,
-        logs: Vec<String>,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
+    },
+
+    /// A view method explicitly panicked during contract execution.
+    ///
+    /// Transaction function-call panics are reported in the transaction
+    /// outcome instead; see [`crate::types::FunctionCallError`].
+    #[error("contract panic: {message}")]
+    ContractPanic {
+        message: String,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
     },
 
     // ─── Block/Chunk Errors ───
@@ -390,21 +417,6 @@ impl RpcError {
 
         None
     }
-
-    /// Create a function call error.
-    pub fn function_call(
-        contract_id: AccountId,
-        method_name: impl Into<String>,
-        panic: Option<String>,
-        logs: Vec<String>,
-    ) -> Self {
-        RpcError::FunctionCall {
-            contract_id,
-            method_name: method_name.into(),
-            panic,
-            logs,
-        }
-    }
 }
 
 // ============================================================================
@@ -415,17 +427,52 @@ impl RpcError {
 impl RpcError {
     /// Returns true if this error indicates the account was not found.
     pub fn is_account_not_found(&self) -> bool {
-        matches!(self, RpcError::AccountNotFound(_))
+        matches!(self, RpcError::AccountNotFound { .. })
     }
 
     /// Returns true if this error indicates a contract is not deployed.
     pub fn is_contract_not_deployed(&self) -> bool {
-        matches!(self, RpcError::ContractNotDeployed(_))
+        matches!(self, RpcError::ContractNotDeployed { .. })
+    }
+
+    /// Returns true if this error indicates the requested contract method was
+    /// not found.
+    pub fn is_method_not_found(&self) -> bool {
+        matches!(self, RpcError::MethodNotFound { .. })
+    }
+
+    /// Returns true if this error indicates a view method panicked.
+    pub fn is_contract_panic(&self) -> bool {
+        matches!(self, RpcError::ContractPanic { .. })
     }
 
     /// Returns true if this error indicates a global contract was not found.
     pub fn is_global_contract_not_found(&self) -> bool {
         matches!(self, RpcError::GlobalContractNotFound(_))
+    }
+
+    /// Returns the block height attached to a view RPC error, if available.
+    pub fn block_height(&self) -> Option<u64> {
+        match self {
+            RpcError::AccountNotFound { block_height, .. }
+            | RpcError::ContractNotDeployed { block_height, .. }
+            | RpcError::ContractExecution { block_height, .. }
+            | RpcError::MethodNotFound { block_height, .. }
+            | RpcError::ContractPanic { block_height, .. } => *block_height,
+            _ => None,
+        }
+    }
+
+    /// Returns the block hash attached to a view RPC error, if available.
+    pub fn block_hash(&self) -> Option<CryptoHash> {
+        match self {
+            RpcError::AccountNotFound { block_hash, .. }
+            | RpcError::ContractNotDeployed { block_hash, .. }
+            | RpcError::ContractExecution { block_hash, .. }
+            | RpcError::MethodNotFound { block_hash, .. }
+            | RpcError::ContractPanic { block_hash, .. } => *block_hash,
+            _ => None,
+        }
     }
 }
 
@@ -692,7 +739,12 @@ mod tests {
             "Invalid response: missing result"
         );
         assert_eq!(
-            RpcError::AccountNotFound(account_id.clone()).to_string(),
+            RpcError::AccountNotFound {
+                account_id: account_id.clone(),
+                block_height: None,
+                block_hash: None,
+            }
+            .to_string(),
             "Account not found: alice.near"
         );
         assert_eq!(
@@ -700,7 +752,12 @@ mod tests {
             "Invalid account ID: bad-account"
         );
         assert_eq!(
-            RpcError::ContractNotDeployed(account_id.clone()).to_string(),
+            RpcError::ContractNotDeployed {
+                account_id: account_id.clone(),
+                block_height: None,
+                block_hash: None,
+            }
+            .to_string(),
             "Contract not deployed on account: alice.near"
         );
         assert_eq!(
@@ -794,8 +851,22 @@ mod tests {
 
         // Non-retryable errors
         let account_id: AccountId = "alice.near".parse().unwrap();
-        assert!(!RpcError::AccountNotFound(account_id.clone()).is_retryable());
-        assert!(!RpcError::ContractNotDeployed(account_id.clone()).is_retryable());
+        assert!(
+            !RpcError::AccountNotFound {
+                account_id: account_id.clone(),
+                block_height: None,
+                block_hash: None,
+            }
+            .is_retryable()
+        );
+        assert!(
+            !RpcError::ContractNotDeployed {
+                account_id: account_id.clone(),
+                block_height: None,
+                block_hash: None,
+            }
+            .is_retryable()
+        );
         assert!(!RpcError::InvalidAccount("bad".to_string()).is_retryable());
         assert!(!RpcError::UnknownBlock("12345".to_string()).is_retryable());
         assert!(!RpcError::ParseError("bad json".to_string()).is_retryable());
@@ -872,42 +943,74 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_error_function_call_constructor() {
-        let account_id: AccountId = "contract.near".parse().unwrap();
-        let err = RpcError::function_call(
-            account_id.clone(),
-            "my_method",
-            Some("assertion failed".to_string()),
-            vec!["log1".to_string(), "log2".to_string()],
-        );
-        match err {
-            RpcError::FunctionCall {
-                contract_id,
-                method_name,
-                panic,
-                logs,
-            } => {
-                assert_eq!(contract_id, account_id);
-                assert_eq!(method_name, "my_method");
-                assert_eq!(panic, Some("assertion failed".to_string()));
-                assert_eq!(logs, vec!["log1", "log2"]);
-            }
-            _ => panic!("Expected FunctionCall error"),
-        }
-    }
-
-    #[test]
     fn test_rpc_error_is_account_not_found() {
         let account_id: AccountId = "alice.near".parse().unwrap();
-        assert!(RpcError::AccountNotFound(account_id).is_account_not_found());
+        assert!(
+            RpcError::AccountNotFound {
+                account_id,
+                block_height: None,
+                block_hash: None,
+            }
+            .is_account_not_found()
+        );
         assert!(!RpcError::Timeout(3).is_account_not_found());
     }
 
     #[test]
     fn test_rpc_error_is_contract_not_deployed() {
         let account_id: AccountId = "alice.near".parse().unwrap();
-        assert!(RpcError::ContractNotDeployed(account_id).is_contract_not_deployed());
+        assert!(
+            RpcError::ContractNotDeployed {
+                account_id,
+                block_height: None,
+                block_hash: None,
+            }
+            .is_contract_not_deployed()
+        );
         assert!(!RpcError::Timeout(3).is_contract_not_deployed());
+    }
+
+    #[test]
+    fn test_rpc_error_view_call_classification_helpers() {
+        let account_id: AccountId = "contract.near".parse().unwrap();
+        let block_hash = CryptoHash::hash(b"block");
+        let method_not_found = RpcError::MethodNotFound {
+            contract_id: account_id,
+            method_name: "missing".to_string(),
+            block_height: Some(42),
+            block_hash: Some(block_hash),
+        };
+        assert!(method_not_found.is_method_not_found());
+        assert!(!method_not_found.is_contract_panic());
+        assert_eq!(method_not_found.block_height(), Some(42));
+        assert_eq!(method_not_found.block_hash(), Some(block_hash));
+
+        let panic = RpcError::ContractPanic {
+            message: "boom".to_string(),
+            block_height: None,
+            block_hash: None,
+        };
+        assert!(panic.is_contract_panic());
+        assert!(!panic.is_method_not_found());
+        assert_eq!(panic.block_height(), None);
+        assert_eq!(panic.block_hash(), None);
+        assert_eq!(RpcError::Timeout(3).block_height(), None);
+        assert_eq!(RpcError::Timeout(3).block_hash(), None);
+    }
+
+    #[test]
+    fn test_rpc_error_method_not_found_display() {
+        let account_id: AccountId = "contract.near".parse().unwrap();
+        let err = RpcError::MethodNotFound {
+            contract_id: account_id,
+            method_name: "missing".to_string(),
+            block_height: None,
+            block_hash: None,
+        };
+        assert_eq!(
+            err.to_string(),
+            "contract method not found: `contract.near::missing`"
+        );
     }
 
     #[test]
@@ -917,36 +1020,60 @@ mod tests {
             contract_id: account_id,
             method_name: Some("my_method".to_string()),
             message: "execution failed".to_string(),
+            block_height: None,
+            block_hash: None,
         };
         assert_eq!(
             err.to_string(),
-            "Contract execution failed on contract.near: execution failed"
+            "contract execution failed on contract.near: execution failed"
         );
     }
 
     #[test]
-    fn test_rpc_error_function_call_display() {
-        let account_id: AccountId = "contract.near".parse().unwrap();
-        let err = RpcError::FunctionCall {
-            contract_id: account_id.clone(),
-            method_name: "my_method".to_string(),
-            panic: Some("assertion failed".to_string()),
-            logs: vec![],
+    fn test_rpc_error_contract_panic_display() {
+        let panic = RpcError::ContractPanic {
+            message: "assertion failed".to_string(),
+            block_height: None,
+            block_hash: None,
         };
-        assert_eq!(
-            err.to_string(),
-            "Function call error on contract.near.my_method: assertion failed"
-        );
+        assert_eq!(panic.to_string(), "contract panic: assertion failed");
+    }
 
-        let err_no_panic = RpcError::FunctionCall {
-            contract_id: account_id,
-            method_name: "other_method".to_string(),
-            panic: None,
-            logs: vec![],
-        };
+    #[test]
+    fn test_view_call_error_display_preserves_message_casing() {
+        let contract_id: AccountId = "contract.near".parse().unwrap();
+
+        // Messages that come from the node are embedded exactly as they
+        // arrived — nothing re-cases the first letter.
         assert_eq!(
-            err_no_panic.to_string(),
-            "Function call error on contract.near.other_method: unknown error"
+            RpcError::ContractPanic {
+                message: "ERR_NOT_ENOUGH_DEPOSIT".to_string(),
+                block_height: None,
+                block_hash: None,
+            }
+            .to_string(),
+            "contract panic: ERR_NOT_ENOUGH_DEPOSIT"
+        );
+        assert_eq!(
+            RpcError::ContractExecution {
+                contract_id: contract_id.clone(),
+                method_name: Some("ft_balance_of".to_string()),
+                message: "Memory access violation".to_string(),
+                block_height: None,
+                block_hash: None,
+            }
+            .to_string(),
+            "contract execution failed on contract.near: Memory access violation"
+        );
+        assert_eq!(
+            RpcError::MethodNotFound {
+                contract_id,
+                method_name: "Nep413GetMessage".to_string(),
+                block_height: None,
+                block_hash: None,
+            }
+            .to_string(),
+            "contract method not found: `contract.near::Nep413GetMessage`"
         );
     }
 
