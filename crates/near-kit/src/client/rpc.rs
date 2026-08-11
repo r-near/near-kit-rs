@@ -936,13 +936,7 @@ impl RpcClient {
         let mut after_key: Option<Vec<u8>> = None;
         loop {
             let page = self
-                .view_state(
-                    account_id,
-                    prefix,
-                    after_key.as_deref(),
-                    limit,
-                    fixed_block.clone(),
-                )
+                .view_state(account_id, prefix, after_key.as_deref(), limit, fixed_block)
                 .await?;
             all.extend(page.values);
             match page.last_key {

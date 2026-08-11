@@ -17,7 +17,7 @@ pub enum SyncCheckpoint {
 /// Reference to a specific block for RPC queries.
 ///
 /// Every NEAR RPC query operates on state at a specific block.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlockReference {
     /// Query at latest block with specified finality.
     Finality(Finality),
@@ -387,10 +387,10 @@ mod tests {
     }
 
     #[test]
-    fn test_block_reference_clone_and_eq() {
+    fn test_block_reference_copy_and_eq() {
         let original = BlockReference::Height(12345);
-        let cloned = original.clone();
-        assert_eq!(original, cloned);
+        let copied = original;
+        assert_eq!(original, copied);
     }
 
     #[test]
