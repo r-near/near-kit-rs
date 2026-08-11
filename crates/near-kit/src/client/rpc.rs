@@ -2369,6 +2369,93 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_rpc_error_contract_panic_real_testnet_payload() {
+        // Verbatim testnet `EXPERIMENTAL_call_function` response for a near-sdk
+        // contract that panicked while deserializing its arguments.
+        let client = RpcClient::new("https://example.com");
+        let panic_msg = "panicked at 'Failed to deserialize input from JSON.: Error(\"missing field `keys`\", line: 1, column: 2)', contract/src/api.rs:54:1";
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: Some(serde_json::json!(format!(
+                "Function call returned an error: ExecutionError({:?})",
+                format!("Smart contract panicked: {panic_msg}")
+            ))),
+            cause: Some(ErrorCause {
+                name: "CONTRACT_EXECUTION_ERROR".to_string(),
+                info: Some(serde_json::json!({
+                    "vm_error": {
+                        "ExecutionError": format!("Smart contract panicked: {panic_msg}"),
+                    },
+                    "block_height": 263803636u64,
+                    "block_hash": "B7UiEhkg1AeXvUoJUEaf8cqEc8Py7XhZ66vt7jJJUHw5",
+                })),
+            }),
+            name: Some("HANDLER_ERROR".to_string()),
+        };
+
+        match client.parse_rpc_error(&error) {
+            RpcError::ContractPanic {
+                message,
+                block_height,
+                block_hash,
+            } => {
+                assert_eq!(message, panic_msg);
+                assert_eq!(block_height, Some(263_803_636));
+                assert_eq!(
+                    block_hash,
+                    Some(
+                        "B7UiEhkg1AeXvUoJUEaf8cqEc8Py7XhZ66vt7jJJUHw5"
+                            .parse()
+                            .unwrap()
+                    )
+                );
+            }
+            other => panic!("Expected ContractPanic error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_extract_contract_panic_message_preserves_source_casing() {
+        // The text after the prefix belongs to the contract author, so it is
+        // passed through byte for byte rather than re-cased.
+        assert_eq!(
+            extract_contract_panic_message("Smart contract panicked: Insufficient balance"),
+            Some("Insufficient balance".to_string())
+        );
+        assert_eq!(
+            extract_contract_panic_message("Smart contract panicked: ERR_NOT_ENOUGH_DEPOSIT"),
+            Some("ERR_NOT_ENOUGH_DEPOSIT".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_contract_panic_message_ignores_non_panic_errors() {
+        assert_eq!(
+            extract_contract_panic_message("memory access violation"),
+            None
+        );
+        assert_eq!(extract_contract_panic_message("Smart contract"), None);
+        assert_eq!(
+            extract_contract_panic_message("Smart contract panicked unexpectedly"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_extract_contract_panic_message_keeps_prefix_without_a_message() {
+        // Stripping would leave nothing to show, so the raw string is kept.
+        assert_eq!(
+            extract_contract_panic_message("Smart contract panicked"),
+            Some("Smart contract panicked".to_string())
+        );
+        assert_eq!(
+            extract_contract_panic_message("Smart contract panicked:   "),
+            Some("Smart contract panicked:   ".to_string())
+        );
+    }
+
+    #[test]
     fn test_parse_rpc_error_non_panic_execution_error_stays_generic() {
         let client = RpcClient::new("https://example.com");
         let error = JsonRpcError {

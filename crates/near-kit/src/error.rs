@@ -1040,6 +1040,44 @@ mod tests {
     }
 
     #[test]
+    fn test_view_call_error_display_preserves_message_casing() {
+        let contract_id: AccountId = "contract.near".parse().unwrap();
+
+        // Messages that come from the node are embedded exactly as they
+        // arrived — nothing re-cases the first letter.
+        assert_eq!(
+            RpcError::ContractPanic {
+                message: "ERR_NOT_ENOUGH_DEPOSIT".to_string(),
+                block_height: None,
+                block_hash: None,
+            }
+            .to_string(),
+            "contract panic: ERR_NOT_ENOUGH_DEPOSIT"
+        );
+        assert_eq!(
+            RpcError::ContractExecution {
+                contract_id: contract_id.clone(),
+                method_name: Some("ft_balance_of".to_string()),
+                message: "Memory access violation".to_string(),
+                block_height: None,
+                block_hash: None,
+            }
+            .to_string(),
+            "contract execution failed on contract.near: Memory access violation"
+        );
+        assert_eq!(
+            RpcError::MethodNotFound {
+                contract_id,
+                method_name: "Nep413GetMessage".to_string(),
+                block_height: None,
+                block_hash: None,
+            }
+            .to_string(),
+            "contract method not found: `contract.near::Nep413GetMessage`"
+        );
+    }
+
+    #[test]
     fn test_rpc_error_invalid_tx_display() {
         use crate::types::InvalidTxError;
         let err = RpcError::InvalidTx(InvalidTxError::InvalidNonce {
