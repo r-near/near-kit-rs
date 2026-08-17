@@ -479,6 +479,21 @@ pub const DEFAULT_HD_PATH: &str = "m/44'/397'/0'";
 /// Default number of words in generated seed phrases.
 pub const DEFAULT_WORD_COUNT: usize = 12;
 
+/// Default number of words in seed phrases generated for ML-DSA-65 keys.
+///
+/// NEP-649 (<https://github.com/near/NEPs/pull/649>) requires a *newly
+/// generated* ML-DSA-65 mnemonic to carry at least 18 words: 12 words is 128
+/// bits of entropy, below ML-DSA-65's NIST Category 3 security level. The NEP's
+/// own test vectors use 24 words, so that is the default here.
+///
+/// Recovery is unaffected — [`SecretKey::ml_dsa65_from_seed_phrase`] and
+/// friends still accept any valid 12–24-word BIP-39 phrase.
+pub const DEFAULT_ML_DSA_65_WORD_COUNT: usize = 24;
+
+/// Minimum number of words NEP-649 allows in a newly generated ML-DSA-65 seed
+/// phrase.
+const MIN_ML_DSA_65_WORD_COUNT: usize = 18;
+
 /// A NEAR secret key.
 ///
 /// ML-DSA-65 keys are stored as their canonical 32-byte FIPS-204 seed (ξ),
@@ -771,13 +786,18 @@ impl SecretKey {
 
     /// Derive an ML-DSA-65 secret key from a BIP-39 seed phrase.
     ///
-    /// Uses the post-quantum SLIP-10 construction from satoshilabs/slips#1968
+    /// Uses the post-quantum SLIP-10 construction from satoshilabs/slips#1968,
+    /// specified for NEAR by NEP-649 (<https://github.com/near/NEPs/pull/649>),
     /// with the default NEAR HD path (`m/44'/397'/0'`): the 32-byte node secret
     /// is the FIPS-204 seed ξ fed to ML-DSA-65 KeyGen.
     ///
     /// The master HMAC salt differs from the Ed25519 branch (`"ML-DSA-65 seed"`
     /// vs `"ed25519 seed"`), so the ML-DSA-65 key derived from a phrase is
     /// **unrelated** to the Ed25519 key derived from the same phrase.
+    ///
+    /// This is a *recovery* entry point and accepts any valid 12–24-word BIP-39
+    /// phrase. Newly generated phrases have a higher floor — see
+    /// [`SecretKey::ml_dsa65_generate_with_seed_phrase`].
     ///
     /// # Arguments
     ///
@@ -799,7 +819,8 @@ impl SecretKey {
     /// Derive an ML-DSA-65 secret key from a BIP-39 seed phrase with a custom
     /// HD path.
     ///
-    /// Uses the satoshilabs/slips#1968 SLIP-10 construction. Only hardened
+    /// Uses the satoshilabs/slips#1968 SLIP-10 construction, as specified by
+    /// NEP-649 (<https://github.com/near/NEPs/pull/649>). Only hardened
     /// derivation paths are supported (all path components must use `'`).
     ///
     /// # Arguments
@@ -827,7 +848,8 @@ impl SecretKey {
     ///
     /// The passphrase provides additional entropy for seed generation (BIP-39
     /// feature). An empty passphrase is equivalent to no passphrase. Derivation
-    /// otherwise follows satoshilabs/slips#1968 — see
+    /// otherwise follows satoshilabs/slips#1968 / NEP-649
+    /// (<https://github.com/near/NEPs/pull/649>) — see
     /// [`SecretKey::ml_dsa65_from_seed_phrase`] for the salt caveat.
     ///
     /// # Arguments
@@ -866,6 +888,12 @@ impl SecretKey {
     ///
     /// Returns both the seed phrase (for backup) and the derived secret key.
     /// Uses 12 words by default and the standard NEAR HD path.
+    ///
+    /// If you intend to derive an ML-DSA-65 key from the phrase, use
+    /// [`SecretKey::ml_dsa65_generate_with_seed_phrase`] instead (or pass at
+    /// least 18 words), since NEP-649
+    /// (<https://github.com/near/NEPs/pull/649>) requires a newly generated
+    /// ML-DSA-65 mnemonic to carry at least 18 words.
     ///
     /// # Example
     ///
@@ -914,6 +942,93 @@ impl SecretKey {
         let phrase = generate_seed_phrase(word_count)?;
         let secret_key =
             Self::from_seed_phrase_with_path_and_passphrase(&phrase, hd_path, passphrase)?;
+        Ok((phrase, secret_key))
+    }
+
+    /// Generate a new random seed phrase and derive the corresponding
+    /// ML-DSA-65 secret key.
+    ///
+    /// Returns both the seed phrase (for backup) and the derived secret key.
+    /// Uses [`DEFAULT_ML_DSA_65_WORD_COUNT`] (24) words and the standard NEAR
+    /// HD path.
+    ///
+    /// NEP-649 (<https://github.com/near/NEPs/pull/649>) requires a newly
+    /// generated ML-DSA-65 mnemonic to carry at least 18 words — 12 words is
+    /// 128 bits of entropy, below ML-DSA-65's NIST Category 3 level — and its
+    /// own vectors use 24. Recovery is unaffected:
+    /// [`SecretKey::ml_dsa65_from_seed_phrase`] and friends still accept any
+    /// valid 12–24-word BIP-39 phrase.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::SecretKey;
+    ///
+    /// let (phrase, secret_key) = SecretKey::ml_dsa65_generate_with_seed_phrase().unwrap();
+    /// assert_eq!(phrase.split_whitespace().count(), 24);
+    /// assert!(secret_key.to_string().starts_with("ml-dsa-65:"));
+    /// println!("Backup your seed phrase: {}", phrase);
+    /// ```
+    pub fn ml_dsa65_generate_with_seed_phrase() -> Result<(String, Self), SignerError> {
+        Self::ml_dsa65_generate_with_seed_phrase_custom(
+            DEFAULT_ML_DSA_65_WORD_COUNT,
+            DEFAULT_HD_PATH,
+            None,
+        )
+    }
+
+    /// Generate a new random ML-DSA-65 seed phrase with custom word count.
+    ///
+    /// # Arguments
+    ///
+    /// * `word_count` - Number of words (18, 21, or 24). Per NEP-649
+    ///   (<https://github.com/near/NEPs/pull/649>), 12 and 15 are rejected for
+    ///   newly generated ML-DSA-65 phrases.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::SecretKey;
+    ///
+    /// let (phrase, secret_key) = SecretKey::ml_dsa65_generate_with_seed_phrase_words(18).unwrap();
+    /// assert_eq!(phrase.split_whitespace().count(), 18);
+    /// assert!(SecretKey::ml_dsa65_generate_with_seed_phrase_words(12).is_err());
+    /// ```
+    pub fn ml_dsa65_generate_with_seed_phrase_words(
+        word_count: usize,
+    ) -> Result<(String, Self), SignerError> {
+        Self::ml_dsa65_generate_with_seed_phrase_custom(word_count, DEFAULT_HD_PATH, None)
+    }
+
+    /// Generate a new random ML-DSA-65 seed phrase with full customization.
+    ///
+    /// # Arguments
+    ///
+    /// * `word_count` - Number of words (18, 21, or 24)
+    /// * `hd_path` - BIP-32 derivation path
+    /// * `passphrase` - Optional passphrase for additional entropy
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SignerError::KeyDerivationFailed`] if `word_count` is below
+    /// the 18-word NEP-649 floor for newly generated ML-DSA-65 phrases, or is
+    /// not one of the valid BIP-39 word counts.
+    pub fn ml_dsa65_generate_with_seed_phrase_custom(
+        word_count: usize,
+        hd_path: impl AsRef<str>,
+        passphrase: Option<&str>,
+    ) -> Result<(String, Self), SignerError> {
+        if word_count < MIN_ML_DSA_65_WORD_COUNT {
+            return Err(SignerError::KeyDerivationFailed(format!(
+                "Invalid word count: {}. NEP-649 requires at least {} words for a newly \
+                 generated ML-DSA-65 seed phrase (12 words is 128 bits of entropy, below \
+                 ML-DSA-65's NIST Category 3 level); use 18, 21, or 24",
+                word_count, MIN_ML_DSA_65_WORD_COUNT
+            )));
+        }
+        let phrase = generate_seed_phrase(word_count)?;
+        let secret_key =
+            Self::ml_dsa65_from_seed_phrase_with_path_and_passphrase(&phrase, hd_path, passphrase)?;
         Ok((phrase, secret_key))
     }
 }
@@ -1446,7 +1561,8 @@ impl KeyPair {
     /// Create an ML-DSA-65 key pair from a seed phrase using the default NEAR
     /// HD path.
     ///
-    /// Derives the post-quantum key via satoshilabs/slips#1968; see
+    /// Derives the post-quantum key via satoshilabs/slips#1968 / NEP-649
+    /// (<https://github.com/near/NEPs/pull/649>); see
     /// [`SecretKey::ml_dsa65_from_seed_phrase`] for details (including why it is
     /// unrelated to the Ed25519 key from the same phrase).
     ///
@@ -1479,6 +1595,27 @@ impl KeyPair {
     /// ```
     pub fn random_with_seed_phrase() -> Result<(String, Self), SignerError> {
         let (phrase, secret_key) = SecretKey::generate_with_seed_phrase()?;
+        Ok((phrase, Self::from_secret_key(secret_key)))
+    }
+
+    /// Generate a new random ML-DSA-65 key pair with a seed phrase for backup.
+    ///
+    /// Returns the seed phrase (for backup) and the key pair. The phrase is 24
+    /// words: NEP-649 (<https://github.com/near/NEPs/pull/649>) requires at
+    /// least 18 for a newly generated ML-DSA-65 mnemonic. See
+    /// [`SecretKey::ml_dsa65_generate_with_seed_phrase`].
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::KeyPair;
+    ///
+    /// let (phrase, keypair) = KeyPair::random_ml_dsa65_with_seed_phrase().unwrap();
+    /// assert_eq!(phrase.split_whitespace().count(), 24);
+    /// assert!(keypair.public_key.to_string().starts_with("ml-dsa-65:"));
+    /// ```
+    pub fn random_ml_dsa65_with_seed_phrase() -> Result<(String, Self), SignerError> {
+        let (phrase, secret_key) = SecretKey::ml_dsa65_generate_with_seed_phrase()?;
         Ok((phrase, Self::from_secret_key(secret_key)))
     }
 }
@@ -2308,6 +2445,83 @@ mod tests {
         let public = secret.public_key();
         let message = b"post-quantum seed phrase";
         assert!(secret.sign(message).verify(message, &public));
+    }
+
+    #[test]
+    fn test_ml_dsa65_generate_with_seed_phrase_defaults_to_24_words() {
+        let (phrase, secret) = SecretKey::ml_dsa65_generate_with_seed_phrase().unwrap();
+
+        assert_eq!(DEFAULT_ML_DSA_65_WORD_COUNT, 24);
+        assert_eq!(
+            phrase.split_whitespace().count(),
+            DEFAULT_ML_DSA_65_WORD_COUNT
+        );
+        assert!(matches!(secret, SecretKey::MlDsa65(_)));
+        assert_eq!(secret.key_type(), KeyType::MlDsa65);
+    }
+
+    #[test]
+    fn test_ml_dsa65_generate_with_seed_phrase_roundtrips() {
+        let (phrase, secret) = SecretKey::ml_dsa65_generate_with_seed_phrase().unwrap();
+
+        // Re-deriving from the returned phrase yields the same key.
+        let derived = SecretKey::ml_dsa65_from_seed_phrase(&phrase).unwrap();
+        assert_eq!(secret.public_key(), derived.public_key());
+    }
+
+    #[test]
+    fn test_ml_dsa65_generate_with_seed_phrase_rejects_short_word_counts() {
+        // NEP-649: a newly generated ML-DSA-65 mnemonic needs at least 18 words.
+        for word_count in [12, 15] {
+            let err = SecretKey::ml_dsa65_generate_with_seed_phrase_words(word_count).unwrap_err();
+            assert!(
+                matches!(err, SignerError::KeyDerivationFailed(ref msg) if msg.contains("NEP-649")),
+                "unexpected error for {word_count} words: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_ml_dsa65_generate_with_seed_phrase_accepts_18_21_24() {
+        for word_count in [18, 21, 24] {
+            let (phrase, secret) =
+                SecretKey::ml_dsa65_generate_with_seed_phrase_words(word_count).unwrap();
+            assert_eq!(phrase.split_whitespace().count(), word_count);
+            assert_eq!(secret.key_type(), KeyType::MlDsa65);
+        }
+    }
+
+    #[test]
+    fn test_ml_dsa65_generate_with_seed_phrase_custom() {
+        let (phrase, secret) =
+            SecretKey::ml_dsa65_generate_with_seed_phrase_custom(18, "m/44'/397'/1'", Some("pw"))
+                .unwrap();
+        assert_eq!(phrase.split_whitespace().count(), 18);
+
+        let derived = SecretKey::ml_dsa65_from_seed_phrase_with_path_and_passphrase(
+            &phrase,
+            "m/44'/397'/1'",
+            Some("pw"),
+        )
+        .unwrap();
+        assert_eq!(secret.public_key(), derived.public_key());
+    }
+
+    #[test]
+    fn test_ed25519_generate_with_seed_phrase_still_12_words() {
+        // The NEP-649 floor applies only to the ML-DSA-65 path.
+        let (phrase, secret) = SecretKey::generate_with_seed_phrase().unwrap();
+        assert_eq!(DEFAULT_WORD_COUNT, 12);
+        assert_eq!(phrase.split_whitespace().count(), DEFAULT_WORD_COUNT);
+        assert_eq!(secret.key_type(), KeyType::Ed25519);
+    }
+
+    #[test]
+    fn test_ml_dsa65_keypair_random_with_seed_phrase() {
+        let (phrase, keypair) = KeyPair::random_ml_dsa65_with_seed_phrase().unwrap();
+        assert_eq!(phrase.split_whitespace().count(), 24);
+        assert_eq!(keypair.public_key.key_type(), KeyType::MlDsa65);
+        assert_eq!(keypair.public_key, keypair.secret_key.public_key());
     }
 
     #[test]
