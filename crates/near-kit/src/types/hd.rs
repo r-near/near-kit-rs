@@ -3,7 +3,8 @@
 //! Implements the Ed25519 branch of SLIP-0010
 //! (<https://github.com/satoshilabs/slips/blob/master/slip-0010.md>) and the
 //! ML-DSA-65 branch of the analogous post-quantum construction from
-//! satoshilabs/slips#1968 (adopted by near/devex#58). Both branches share the
+//! satoshilabs/slips#1968 (adopted by near/devex#58), specified for NEAR by
+//! NEP-649 (<https://github.com/near/NEPs/pull/649>). Both branches share the
 //! identical SLIP-10 machinery — the same hardened-only child step over
 //! HMAC-SHA512 — and differ *only* in the master HMAC salt: `"ed25519 seed"`
 //! for Ed25519, `"ML-DSA-65 seed"` for ML-DSA-65. As a result the two keys
@@ -145,7 +146,8 @@ pub(crate) fn derive_ed25519_slip10(seed: &[u8], path: &[u32]) -> [u8; 32] {
 }
 
 /// Derive a 32-byte ML-DSA-65 node secret (the FIPS-204 seed ξ) from `seed`
-/// along `path` using the SLIP-10 construction from satoshilabs/slips#1968
+/// along `path` using the SLIP-10 construction from satoshilabs/slips#1968,
+/// specified for NEAR by NEP-649 (<https://github.com/near/NEPs/pull/649>)
 /// (master salt `"ML-DSA-65 seed"`). Feed the result to ML-DSA-65 KeyGen.
 ///
 /// `path` must be a slice of already-hardened indexes (each with the high
@@ -252,7 +254,8 @@ mod tests {
     }
 
     // ------------------------------------------------------------------------
-    // ML-DSA-65 test vectors (satoshilabs/slips#1968, adopted by near/devex#58)
+    // ML-DSA-65 test vectors (satoshilabs/slips#1968, adopted by near/devex#58
+    // and specified for NEAR by NEP-649, https://github.com/near/NEPs/pull/649)
     //
     // Same SLIP-10 machinery as the ed25519 vectors above, but with the master
     // salt "ML-DSA-65 seed"; the 32-byte node secret I_L is the FIPS-204 seed ξ
