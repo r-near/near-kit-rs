@@ -24,8 +24,8 @@ use crate::types::{
     BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
     FunctionCallError, GasKeyNoncesView, GasPrice, GlobalContractId, GlobalContractIdentifierView,
     HostError, MaintenanceWindow, MethodResolveError, PublicKey, PublicKeyHandle,
-    ReceiptToTxResponse, SignedTransaction, StateItem, StatusResponse, TxExecutionStatus,
-    ViewFunctionResult, ViewStateResult,
+    ReceiptToTxResponse, SignedTransaction, StatusResponse, TxExecutionStatus, ViewFunctionResult,
+    ViewStateAllResult, ViewStateResult,
 };
 
 /// Platform-appropriate async sleep, used for retry backoff.
@@ -1319,8 +1319,10 @@ impl RpcClient {
     ///
     /// Repeatedly calls [`RpcClient::view_state`] with `page_size` per request,
     /// following the `last_key` cursor until the node reports no more entries,
-    /// and returns all matching [`StateItem`]s. Pass an empty `prefix` for the
-    /// whole state. `page_size` of `0` means the default page size,
+    /// and returns all matching [`StateItem`](crate::types::StateItem)s as a
+    /// [`ViewStateAllResult`] together with the `block_height`/`block_hash`
+    /// the state was read at. Pass an empty `prefix` for the whole state.
+    /// `page_size` of `0` means the default page size,
     /// [`RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`].
     ///
     /// Every request carries a positive `limit`, so the node treats it as
@@ -1329,8 +1331,11 @@ impl RpcClient {
     /// unpaginated single-shot queries. Use [`RpcClient::view_state`] with
     /// `limit: None` if you want that one-shot behavior.
     ///
-    /// All pages are read against the same `block` so the result is a
-    /// consistent snapshot.
+    /// The first page is read at `block`; every later page is pinned to the
+    /// `block_hash` that first page reports, so the result is a consistent
+    /// snapshot of exactly one block even when `block` is a moving reference
+    /// (a finality, a height that could still be reorganized, or a sync
+    /// checkpoint). The returned block fields identify that snapshot.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, prefix, block), fields(%account_id)))]
     pub async fn view_state_all(
         &self,
@@ -1338,21 +1343,7 @@ impl RpcClient {
         prefix: &[u8],
         page_size: u32,
         block: BlockReference,
-    ) -> Result<Vec<StateItem>, RpcError> {
-        // Pin a fixed block for the whole scan so every page reads a consistent
-        // snapshot. A moving finality reference (`Final`/`Optimistic`/
-        // `NearFinal`) would re-resolve to a possibly different block on each
-        // page, which can drop or duplicate entries across the cursor; resolve
-        // it to a concrete block hash once up front. Already-fixed references
-        // (`Height`/`Hash`/`SyncCheckpoint`) are used as-is.
-        let fixed_block = match block {
-            BlockReference::Finality(_) => {
-                let header_hash = self.block(block).await?.header.hash;
-                BlockReference::at_hash(header_hash)
-            }
-            already_fixed => already_fixed,
-        };
-
+    ) -> Result<ViewStateAllResult, RpcError> {
         // Always send a positive limit: an omitted `limit` on the first page
         // would make the node treat that request as unpaginated and apply
         // its `TOO_LARGE_CONTRACT_STATE` size gate.
@@ -1361,25 +1352,33 @@ impl RpcClient {
         } else {
             Self::DEFAULT_VIEW_STATE_PAGE_SIZE
         };
-        let mut all = Vec::new();
-        let mut after_key: Option<Vec<u8>> = None;
-        loop {
+        // Read the first page at the caller's reference, then pin every later
+        // page to the concrete block hash it reports. A moving reference
+        // (`final`/`optimistic`, a height near the tip that can still be
+        // reorganized, `earliest_available`) could otherwise resolve to a
+        // different block between pages, dropping or duplicating entries
+        // across the cursor and leaving the reported block describing only
+        // part of the result.
+        let first = self
+            .view_state(account_id, prefix, None, Some(limit), block)
+            .await?;
+        let block_height = first.block_height;
+        let block_hash = first.block_hash;
+        let pinned = BlockReference::at_hash(block_hash);
+        let mut values = first.values;
+        let mut after_key = first.last_key;
+        while let Some(cursor) = after_key {
             let page = self
-                .view_state(
-                    account_id,
-                    prefix,
-                    after_key.as_deref(),
-                    Some(limit),
-                    fixed_block,
-                )
+                .view_state(account_id, prefix, Some(&cursor), Some(limit), pinned)
                 .await?;
-            all.extend(page.values);
-            match page.last_key {
-                Some(cursor) => after_key = Some(cursor),
-                None => break,
-            }
+            values.extend(page.values);
+            after_key = page.last_key;
         }
-        Ok(all)
+        Ok(ViewStateAllResult {
+            values,
+            block_height,
+            block_hash,
+        })
     }
 
     /// Get block information.
@@ -2318,6 +2317,14 @@ mod tests {
             .unwrap();
         let keys: Vec<&[u8]> = all.iter().map(|item| item.key.as_slice()).collect();
         assert_eq!(keys, [b"sea", b"seb", b"sec"]);
+        // The block fields come from the first page (all pages are pinned to it).
+        assert_eq!(all.block_height, 9);
+        assert_eq!(
+            all.block_hash,
+            "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+                .parse::<CryptoHash>()
+                .unwrap()
+        );
 
         let params = transport.params();
         assert_eq!(params.len(), 2, "one request per page");
@@ -2328,9 +2335,46 @@ mod tests {
             params[0].get("after_key_base64").is_none(),
             "first page has no cursor"
         );
-        // The second page continues from `last_key` and stays paginated.
+        // The second page continues from `last_key`, stays paginated, and is
+        // pinned to the block hash the first page reported rather than
+        // re-sending the caller's (possibly moving) reference.
         assert_eq!(params[1]["limit"], RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE);
         assert_eq!(params[1]["after_key_base64"], STANDARD.encode(b"seb"));
+        assert_eq!(params[0]["block_id"], 1);
+        assert_eq!(
+            params[1]["block_id"],
+            "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_view_state_all_pins_later_pages_without_resolving_finality_up_front() {
+        // A finality reference goes straight to the first `view_state` page (no
+        // separate `block` round trip); later pages use that page's hash.
+        let transport = RecordingTransport::new([
+            view_state_page(&[b"a"], Some(b"a")),
+            view_state_page(&[b"b"], None),
+        ]);
+        let account: AccountId = "app.near".parse().unwrap();
+
+        let all = transport
+            .client()
+            .view_state_all(&account, b"", 1, BlockReference::final_())
+            .await
+            .unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all.block_height, 9);
+
+        let params = transport.params();
+        assert_eq!(params.len(), 2, "two pages, no extra block lookup");
+        assert_eq!(params[0]["request_type"], "view_state");
+        assert_eq!(params[0]["finality"], "final");
+        assert!(params[0].get("block_id").is_none());
+        assert!(params[1].get("finality").is_none());
+        assert_eq!(
+            params[1]["block_id"],
+            "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+        );
     }
 
     #[tokio::test]
@@ -2344,10 +2388,39 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(all.len(), 1);
+        assert_eq!(all.block_height, 9);
 
         let params = transport.params();
         assert_eq!(params.len(), 1);
         assert_eq!(params[0]["limit"], 25);
+    }
+
+    #[tokio::test]
+    async fn test_view_state_all_result_is_ergonomic() {
+        // `ViewStateAllResult` derefs to `[StateItem]`, iterates by value and
+        // by reference, and `into_values` hands back the bare entries.
+        let transport = RecordingTransport::new([
+            view_state_page(&[b"a"], Some(b"a")),
+            view_state_page(&[b"b"], None),
+        ]);
+        let account: AccountId = "app.near".parse().unwrap();
+
+        let all = transport
+            .client()
+            .view_state_all(&account, b"", 1, BlockReference::at_height(1))
+            .await
+            .unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].key, b"a");
+        assert!(all.iter().all(|item| item.value == b"v"));
+        let by_ref: Vec<&crate::types::StateItem> = (&all).into_iter().collect();
+        assert_eq!(by_ref.len(), 2);
+        let mut by_value = Vec::new();
+        for item in all.clone() {
+            by_value.push(item.key);
+        }
+        assert_eq!(by_value, [b"a".to_vec(), b"b".to_vec()]);
+        assert_eq!(all.clone().into_values(), all.values);
     }
 
     // ========================================================================

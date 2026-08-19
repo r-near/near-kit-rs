@@ -101,7 +101,7 @@ pub use rpc::{
     STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator, StateChangeKindView, StateItem,
     StatusResponse, SyncInfo, TransactionNonceView, TransactionView, TrieSplit, ValidatorInfo,
     ValidatorStakeView, ValidatorStakeViewV1, VersionedDelegateActionPayloadView,
-    ViewFunctionResult, ViewStateResult,
+    ViewFunctionResult, ViewStateAllResult, ViewStateResult,
 };
 pub use rpc_extra::{
     BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,

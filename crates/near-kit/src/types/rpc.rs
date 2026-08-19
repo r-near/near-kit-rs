@@ -1,6 +1,7 @@
 //! RPC response types.
 
 use std::collections::BTreeMap;
+use std::ops::Deref;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
@@ -289,6 +290,62 @@ pub struct ViewStateResult {
     pub block_height: u64,
     /// Block hash of the query.
     pub block_hash: CryptoHash,
+}
+
+/// A contract's full state as collected by `view_state_all`.
+///
+/// `values` holds every matching [`StateItem`] across all pages. Like every
+/// `query` view it carries the block the state was read at: `block_height` and
+/// `block_hash` come from the first page, and every subsequent page was
+/// requested against that same `block_hash`, so the whole result is a
+/// consistent snapshot of one block.
+///
+/// The type derefs to `[StateItem]` and iterates over its entries, so
+/// `result.len()`, `result.iter()`, `&result[0]` and `for item in result` all
+/// work directly; use [`ViewStateAllResult::into_values`] to take ownership of
+/// the entries alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewStateAllResult {
+    /// Every contract state entry matching the prefix, in trie order.
+    pub values: Vec<StateItem>,
+    /// Block height the state was read at (taken from the first page).
+    pub block_height: u64,
+    /// Block hash the state was read at (taken from the first page); every
+    /// page was read against this hash.
+    pub block_hash: CryptoHash,
+}
+
+impl ViewStateAllResult {
+    /// Consume the result and return just the state entries.
+    pub fn into_values(self) -> Vec<StateItem> {
+        self.values
+    }
+}
+
+impl Deref for ViewStateAllResult {
+    type Target = [StateItem];
+
+    fn deref(&self) -> &Self::Target {
+        &self.values
+    }
+}
+
+impl IntoIterator for ViewStateAllResult {
+    type Item = StateItem;
+    type IntoIter = std::vec::IntoIter<StateItem>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.values.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a ViewStateAllResult {
+    type Item = &'a StateItem;
+    type IntoIter = std::slice::Iter<'a, StateItem>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.values.iter()
+    }
 }
 
 // ============================================================================

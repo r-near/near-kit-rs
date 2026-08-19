@@ -104,7 +104,7 @@ async fn test_view_state_pagination_reads_all_entries() {
         .expect("view_state_all with default page size");
 
     assert_eq!(
-        all_small_pages, all_default_page,
+        all_small_pages.values, all_default_page.values,
         "small-page and node-default-page reads must collect the same entries"
     );
     assert!(
@@ -112,6 +112,16 @@ async fn test_view_state_pagination_reads_all_entries() {
         "expected at least {N} state entries, got {}",
         all_small_pages.len()
     );
+    // The paginated read reports the block it was pinned to, like every other
+    // typed view. The two reads resolved `final` separately so their blocks
+    // may differ; check the reported hash/height agree with the node instead.
+    assert!(all_small_pages.block_height > 0);
+    let pinned = near
+        .rpc()
+        .block(BlockReference::at_hash(all_small_pages.block_hash))
+        .await
+        .expect("block view_state_all was pinned to");
+    assert_eq!(pinned.header.height, all_small_pages.block_height);
 
     // Prefix filtering: every returned key must start with the requested prefix.
     let prefix = &all_small_pages[0].key[..1];
