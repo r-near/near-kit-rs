@@ -205,6 +205,10 @@ Available known tokens: `tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`
 | `tracing` | [`tracing`](https://crates.io/crates/tracing) spans and events for RPC calls and transactions (on by default; drop it with `default-features = false`) |
 | `interactive-clap` | Enables `interactive-clap` derives on re-exported `NearToken` and `Gas` for CLI tools |
 
+### Tracing
+
+With `tracing` on, RPC calls and transactions run inside spans (`call`, `view_function`, `send_transaction`, ...) and emit events at DEBUG (retries, failed requests, transaction lifecycle) and TRACE (raw request/response payloads); the `sandbox` feature additionally reports container start-up at INFO. near-kit never logs at WARN or ERROR for an error it returns to you — that is the caller's decision — so a WARN-level subscriber stays quiet on expected failures such as probing a contract for a method it doesn't export. The one WARN is reserved for an anomaly that is *not* surfaced as an error: an RPC error variant this version couldn't parse and mapped to `Unknown`.
+
 ### WASI (`wasm32-wasip2`)
 
 near-kit runs inside WASI Preview 2 components with full RPC support — the `wasi-http` feature (implies `rpc`) provides a built-in `wasi:http/outgoing-handler` transport in place of reqwest:
