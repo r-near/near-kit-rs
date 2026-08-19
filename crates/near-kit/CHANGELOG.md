@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.15.0...near-kit-v0.16.0) - 2026-08-19
+
+### Added
+
+- add TryFrom<ActionView> for Action and document that Deploy* views carry the code hash ([#290](https://github.com/r-near/near-kit-rs/pull/290))
+- [**breaking**] include block_height/block_hash on ContractCodeView and ViewStateResult ([#291](https://github.com/r-near/near-kit-rs/pull/291))
+- *(keys)* export ML-DSA-65 secret keys in nearcore's 4032-byte expanded form ([#287](https://github.com/r-near/near-kit-rs/pull/287))
+- *(keys)* add ML-DSA-65 seed-phrase generation defaulting to 24 words (NEP-649) ([#278](https://github.com/r-near/near-kit-rs/pull/278))
+
+### Fixed
+
+- always paginate view_state_all so page_size 0 doesn't trip TOO_LARGE_CONTRACT_STATE ([#298](https://github.com/r-near/near-kit-rs/pull/298))
+- [**breaking**] model ML-DSA-65 view handles as PublicKeyHandle instead of a PublicKey variant ([#293](https://github.com/r-near/near-kit-rs/pull/293))
+- read contract_account_id for TOO_LARGE_CONTRACT_STATE ([#297](https://github.com/r-near/near-kit-rs/pull/297))
+- stop RpcClient::call retrying InvalidNonce; add RetryConfig::none() ([#289](https://github.com/r-near/near-kit-rs/pull/289))
+- *(tracing)* log returned RPC/transaction errors at DEBUG, not WARN/ERROR ([#292](https://github.com/r-near/near-kit-rs/pull/292))
+- classify legacy string-form vm errors into typed view-call variants ([#288](https://github.com/r-near/near-kit-rs/pull/288))
+
+### Other
+
+- drop hand-written changelog entry (release-plz owns the changelog) ([#296](https://github.com/r-near/near-kit-rs/pull/296))
+
 ## [0.15.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.14.0...near-kit-v0.15.0) - 2026-08-11
 
 ### Added
