@@ -494,17 +494,23 @@ pub const DEFAULT_ML_DSA_65_WORD_COUNT: usize = 24;
 /// phrase.
 const MIN_ML_DSA_65_WORD_COUNT: usize = 18;
 
-/// A NEAR secret key.
-///
-/// ML-DSA-65 keys are stored as their canonical 32-byte FIPS-204 seed (ξ),
-/// matching nearcore's seed-based key derivation. The 4032-byte expanded
-/// private key is recomputed on demand for signing.
 /// Storage for an ML-DSA-65 secret key.
 ///
 /// near-kit prefers the 32-byte FIPS-204 seed (the smallest, canonical form),
 /// but NEAR tooling exports the 4032-byte expanded private key under the same
 /// `ml-dsa-65:` prefix. The seed cannot be recovered from the expanded key, so
 /// both forms are kept as-imported and round-trip byte-for-byte.
+///
+/// **Interoperability:** nearcore's `near-crypto` (and everything built on it:
+/// near-api-rs, near-workspaces, `near-validator`, ...) only parses the
+/// 4032-byte *expanded* form, so the `ml-dsa-65:` string a [`Seed`] key
+/// displays as is not readable there. near-kit itself reads both. Use
+/// [`SecretKey::to_ml_dsa65_expanded`] (or
+/// [`SecretKey::generate_ml_dsa65_expanded`]) to obtain the same key in the
+/// [`Expanded`] form when it has to leave near-kit.
+///
+/// [`Seed`]: MlDsa65SecretKey::Seed
+/// [`Expanded`]: MlDsa65SecretKey::Expanded
 #[derive(Clone)]
 pub enum MlDsa65SecretKey {
     /// 32-byte FIPS-204 seed (ξ); the signing key is derived on demand.
@@ -513,6 +519,13 @@ pub enum MlDsa65SecretKey {
     Expanded(Box<[u8; ML_DSA_65_SECRET_KEY_LENGTH]>),
 }
 
+/// A NEAR secret key.
+///
+/// ML-DSA-65 keys are held as either the 32-byte FIPS-204 seed (ξ) that
+/// [`SecretKey::generate_ml_dsa65`] produces or the 4032-byte expanded private
+/// key that nearcore exports; the expanded key is recomputed from a seed on
+/// demand for signing. See [`MlDsa65SecretKey`] for the interoperability
+/// caveat between the two forms.
 #[derive(Clone, SerializeDisplay, DeserializeFromStr)]
 pub enum SecretKey {
     /// Ed25519 secret key (32-byte seed).
@@ -553,10 +566,38 @@ impl SecretKey {
     }
 
     /// Generate a new random ML-DSA-65 key pair (FIPS 204).
+    ///
+    /// The key is held as its 32-byte FIPS-204 seed, so [`Display`] prints
+    /// `ml-dsa-65:<base58 of 32 bytes>`. nearcore's `near-crypto` cannot parse
+    /// that form (it requires the 4032-byte expanded key under the same
+    /// prefix); if the key has to be handed to nearcore-based tooling, use
+    /// [`SecretKey::generate_ml_dsa65_expanded`] or convert with
+    /// [`SecretKey::to_ml_dsa65_expanded`].
     pub fn generate_ml_dsa65() -> Self {
         let mut seed = Box::new([0u8; ML_DSA_65_SEED_LENGTH]);
         fill_random(seed.as_mut_slice());
         Self::MlDsa65(MlDsa65SecretKey::Seed(seed))
+    }
+
+    /// Generate a new random ML-DSA-65 key pair (FIPS 204), held in the
+    /// 4032-byte expanded form that nearcore's `near-crypto` parses.
+    ///
+    /// Equivalent to `generate_ml_dsa65().to_ml_dsa65_expanded()`. Prefer
+    /// [`SecretKey::generate_ml_dsa65`] when the key stays inside near-kit; the
+    /// seed is 126x smaller and either form signs and verifies identically.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::SecretKey;
+    ///
+    /// let secret_key = SecretKey::generate_ml_dsa65_expanded();
+    /// assert_eq!(secret_key.as_bytes().len(), near_kit::ML_DSA_65_SECRET_KEY_LENGTH);
+    /// ```
+    pub fn generate_ml_dsa65_expanded() -> Self {
+        Self::generate_ml_dsa65()
+            .to_ml_dsa65_expanded()
+            .expect("generate_ml_dsa65 returns an ML-DSA-65 key")
     }
 
     /// Create an ML-DSA-65 secret key from a 32-byte FIPS-204 seed.
@@ -610,6 +651,57 @@ impl SecretKey {
             Self::Secp256k1(bytes) => bytes.as_slice(),
             Self::MlDsa65(MlDsa65SecretKey::Seed(seed)) => seed.as_slice(),
             Self::MlDsa65(MlDsa65SecretKey::Expanded(sk)) => sk.as_slice(),
+        }
+    }
+
+    /// Return this ML-DSA-65 key in its 4032-byte expanded form (FIPS-204
+    /// `skEncode`), the encoding nearcore's `near-crypto` requires.
+    ///
+    /// A key held as a 32-byte seed is expanded (deterministically: the same
+    /// seed always yields the same bytes); a key already held in expanded form
+    /// is cloned. The result signs and verifies identically to `self` and has
+    /// the same [`SecretKey::public_key`], but its [`Display`] output,
+    /// `ml-dsa-65:<base58 of 4032 bytes>`, parses with
+    /// `near_crypto::SecretKey::from_str` and the tooling built on it. Note that
+    /// the seed is not recoverable from the expanded key.
+    ///
+    /// Returns `None` for Ed25519 and Secp256k1 keys.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::SecretKey;
+    ///
+    /// let seed_key = SecretKey::generate_ml_dsa65();
+    /// let expanded = seed_key.to_ml_dsa65_expanded().unwrap();
+    /// assert_eq!(expanded.public_key(), seed_key.public_key());
+    /// assert_eq!(expanded.as_bytes().len(), near_kit::ML_DSA_65_SECRET_KEY_LENGTH);
+    ///
+    /// assert!(SecretKey::generate_ed25519().to_ml_dsa65_expanded().is_none());
+    /// ```
+    pub fn to_ml_dsa65_expanded(&self) -> Option<Self> {
+        self.to_ml_dsa65_expanded_bytes()
+            .map(|bytes| Self::MlDsa65(MlDsa65SecretKey::Expanded(bytes)))
+    }
+
+    /// Return the raw 4032-byte expanded form (FIPS-204 `skEncode`) of this
+    /// ML-DSA-65 key.
+    ///
+    /// Same as [`SecretKey::to_ml_dsa65_expanded`] but yields the bytes rather
+    /// than a [`SecretKey`]. Returns `None` for Ed25519 and Secp256k1 keys.
+    pub fn to_ml_dsa65_expanded_bytes(&self) -> Option<Box<[u8; ML_DSA_65_SECRET_KEY_LENGTH]>> {
+        match self {
+            Self::MlDsa65(MlDsa65SecretKey::Expanded(bytes)) => Some(bytes.clone()),
+            Self::MlDsa65(sk @ MlDsa65SecretKey::Seed(_)) => {
+                // `to_expanded` is deprecated upstream in favor of seed keygen,
+                // but the expanded encoding is what nearcore interoperates on.
+                #[allow(deprecated)]
+                let enc = Self::ml_dsa65_signing_key(sk).to_expanded();
+                let mut bytes = Box::new([0u8; ML_DSA_65_SECRET_KEY_LENGTH]);
+                bytes.copy_from_slice(enc.as_slice());
+                Some(bytes)
+            }
+            Self::Ed25519(_) | Self::Secp256k1(_) => None,
         }
     }
 
@@ -1116,6 +1208,15 @@ impl TryFrom<&str> for SecretKey {
     }
 }
 
+/// Formats the key as `<key-type>:<base58 payload>`, where the payload is
+/// [`SecretKey::as_bytes`].
+///
+/// For ML-DSA-65 the payload is whichever form the key is held in: the 32-byte
+/// seed (for keys from [`SecretKey::generate_ml_dsa65`] and friends) or the
+/// 4032-byte expanded private key. Only the latter is parseable by nearcore's
+/// `near-crypto`; convert with [`SecretKey::to_ml_dsa65_expanded`] before
+/// printing a key for nearcore-based tooling. near-kit's own [`FromStr`]
+/// accepts both.
 impl Display for SecretKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -2195,6 +2296,82 @@ mod tests {
         // A malformed 4032-byte blob is rejected.
         let bad = Box::new([0xABu8; ML_DSA_65_SECRET_KEY_LENGTH]);
         assert!(SecretKey::ml_dsa65_from_expanded(bad).is_err());
+    }
+
+    #[test]
+    fn test_ml_dsa65_to_expanded_from_seed() {
+        // Seed-held key -> expanded: same key, but in the 4032-byte encoding
+        // that nearcore's `near-crypto` parses.
+        let seed = SecretKey::ml_dsa65_from_seed([7u8; ML_DSA_65_SEED_LENGTH]);
+        let expanded = seed.to_ml_dsa65_expanded().unwrap();
+
+        assert!(matches!(
+            expanded,
+            SecretKey::MlDsa65(MlDsa65SecretKey::Expanded(_))
+        ));
+        assert_eq!(expanded.as_bytes().len(), ML_DSA_65_SECRET_KEY_LENGTH);
+        assert_eq!(
+            expanded.to_ml_dsa65_expanded_bytes().unwrap().as_slice(),
+            seed.to_ml_dsa65_expanded_bytes().unwrap().as_slice()
+        );
+        assert_eq!(expanded.public_key(), seed.public_key());
+
+        // Deterministic: the same seed always expands to the same bytes.
+        let again = SecretKey::ml_dsa65_from_seed([7u8; ML_DSA_65_SEED_LENGTH])
+            .to_ml_dsa65_expanded()
+            .unwrap();
+        assert_eq!(again.as_bytes(), expanded.as_bytes());
+
+        // Display emits `ml-dsa-65:<bs58 of 4032 bytes>` and re-parses as Expanded.
+        let s = expanded.to_string();
+        let (prefix, payload) = s.split_once(':').unwrap();
+        assert_eq!(prefix, "ml-dsa-65");
+        assert_eq!(
+            bs58::decode(payload).into_vec().unwrap().len(),
+            ML_DSA_65_SECRET_KEY_LENGTH
+        );
+        let reparsed: SecretKey = s.parse().unwrap();
+        assert!(matches!(
+            reparsed,
+            SecretKey::MlDsa65(MlDsa65SecretKey::Expanded(_))
+        ));
+        assert_eq!(reparsed.as_bytes(), expanded.as_bytes());
+
+        // Signatures are interchangeable between the two forms.
+        let msg = b"seed vs expanded";
+        assert!(seed.sign(msg).verify(msg, &expanded.public_key()));
+        assert!(expanded.sign(msg).verify(msg, &seed.public_key()));
+        assert!(reparsed.sign(msg).verify(msg, &seed.public_key()));
+    }
+
+    #[test]
+    fn test_ml_dsa65_to_expanded_is_identity_for_expanded_and_none_otherwise() {
+        let expanded = SecretKey::generate_ml_dsa65_expanded();
+        assert!(matches!(
+            expanded,
+            SecretKey::MlDsa65(MlDsa65SecretKey::Expanded(_))
+        ));
+        assert_eq!(expanded.as_bytes().len(), ML_DSA_65_SECRET_KEY_LENGTH);
+
+        let same = expanded.to_ml_dsa65_expanded().unwrap();
+        assert_eq!(same.as_bytes(), expanded.as_bytes());
+        assert_eq!(same.public_key(), expanded.public_key());
+
+        assert!(
+            SecretKey::generate_ed25519()
+                .to_ml_dsa65_expanded()
+                .is_none()
+        );
+        assert!(
+            SecretKey::generate_ed25519()
+                .to_ml_dsa65_expanded_bytes()
+                .is_none()
+        );
+        assert!(
+            SecretKey::generate_secp256k1()
+                .to_ml_dsa65_expanded()
+                .is_none()
+        );
     }
 
     #[test]
