@@ -247,9 +247,10 @@ fn classify_legacy_function_call_error(
         rest.strip_prefix(prefix).map_or(rest, str::trim_start)
     });
 
-    // Container variants first: their payload is free text that could embed
-    // any of the tokens matched below.
-    if let Some(rest) = find_after(error, "ExecutionError(") {
+    // Anchor on the outer variant. String-bearing variants (`LinkError`,
+    // `ExecutionError`, ...) carry free text that could embed any of these
+    // tokens, so only a match at the start of the rendering counts.
+    if let Some(rest) = error.strip_prefix("ExecutionError(") {
         // `ExecutionError("Smart contract panicked: ...")`
         let inner = parse_debug_str(rest)
             .unwrap_or_else(|| rest.trim_end().trim_end_matches(')').to_string());
@@ -259,10 +260,11 @@ fn classify_legacy_function_call_error(
             block_hash,
         });
     }
-    if let Some(rest) = find_after(error, "HostError(GuestPanic") {
+    if let Some(rest) = error.strip_prefix("HostError(GuestPanic") {
         // `HostError(GuestPanic { panic_msg: "..." })`
-        let message = find_after(rest, "panic_msg:")
-            .and_then(|rest| parse_debug_str(rest.trim_start()))
+        let message = rest
+            .split_once("panic_msg:")
+            .and_then(|(_, rest)| parse_debug_str(rest.trim_start()))
             .unwrap_or_else(|| error.to_string());
         return Some(RpcError::ContractPanic {
             message,
@@ -270,10 +272,11 @@ fn classify_legacy_function_call_error(
             block_hash,
         });
     }
-    if let Some(rest) = find_after(error, "CompilationError(CodeDoesNotExist") {
+    if let Some(rest) = error.strip_prefix("CompilationError(CodeDoesNotExist") {
         // `CompilationError(CodeDoesNotExist { account_id: AccountId("x.near") })`
-        let account_id = find_after(rest, "account_id:")
-            .and_then(|rest| rest.find('"').map(|index| &rest[index..]))
+        let account_id = rest
+            .split_once("account_id:")
+            .and_then(|(_, rest)| rest.find('"').map(|index| &rest[index..]))
             .and_then(parse_debug_str)
             .and_then(|account_id| account_id.parse().ok())
             .unwrap_or_else(|| contract_id.clone());
@@ -283,7 +286,7 @@ fn classify_legacy_function_call_error(
             block_hash,
         });
     }
-    if error.contains("MethodResolveError(MethodNotFound)") {
+    if error.starts_with("MethodResolveError(MethodNotFound)") {
         return Some(RpcError::MethodNotFound {
             contract_id: contract_id.clone(),
             method_name: method_name.unwrap_or("unknown").to_string(),
@@ -298,13 +301,6 @@ fn classify_legacy_function_call_error(
         block_height,
         block_hash,
     })
-}
-
-/// Return the text following the first occurrence of `needle` in `haystack`.
-fn find_after<'a>(haystack: &'a str, needle: &str) -> Option<&'a str> {
-    haystack
-        .find(needle)
-        .map(|index| &haystack[index + needle.len()..])
 }
 
 /// Parse a Rust `Debug`-formatted string literal (`"..."`, with escapes) at the
@@ -2838,21 +2834,19 @@ mod tests {
     #[test]
     fn test_parse_rpc_error_legacy_string_unknown_stays_generic() {
         let client = RpcClient::new("https://example.com");
-        let data = "Function call returned an error: WasmTrap(Unreachable)";
-        let error = legacy_string_error(Some(data), None);
-
-        match client.parse_rpc_error(&error) {
-            RpcError::ContractExecution { message, .. } => assert_eq!(message, data),
-            other => panic!("Expected ContractExecution error, got {other:?}"),
-        }
-
-        // A non-panic ExecutionError must not be promoted either, even though
-        // it shares the container variant with panics.
-        let data = "Function call returned an error: ExecutionError(\"memory access violation\")";
-        let error = legacy_string_error(Some(data), None);
-        match client.parse_rpc_error(&error) {
-            RpcError::ContractExecution { message, .. } => assert_eq!(message, data),
-            other => panic!("Expected ContractExecution error, got {other:?}"),
+        for data in [
+            "Function call returned an error: WasmTrap(Unreachable)",
+            // A non-panic ExecutionError shares the container variant with
+            // panics but must not be promoted.
+            "Function call returned an error: ExecutionError(\"memory access violation\")",
+            // A known token embedded in another variant's free text does not
+            // make that variant the outer error.
+            "Function call returned an error: LinkError { msg: \"MethodResolveError(MethodNotFound)\" }",
+        ] {
+            match client.parse_rpc_error(&legacy_string_error(Some(data), None)) {
+                RpcError::ContractExecution { message, .. } => assert_eq!(message, data),
+                other => panic!("Expected ContractExecution error for {data:?}, got {other:?}"),
+            }
         }
     }
 
