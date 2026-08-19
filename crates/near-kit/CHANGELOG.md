@@ -7,14 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- [**breaking**] `ContractCodeView` and `ViewStateResult` now carry
-  `block_height` / `block_hash`, so `view_code`, `view_global_contract_code`,
-  `view_state` and the `contract_code` / `global_contract` query builders report
-  the block they were read at, like every other typed `query` view. If you
-  construct these structs yourself, add the two fields.
-
 ## [0.15.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.14.0...near-kit-v0.15.0) - 2026-08-11
 
 ### Added
