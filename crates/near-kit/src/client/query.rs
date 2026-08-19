@@ -766,7 +766,7 @@ impl GlobalContractQuery {
             // AccountNotFound isn't returned by current nodes (the lookup is
             // by identifier, not account), but a nonexistent publisher has
             // published nothing — treat it the same as not-found.
-            Err(crate::error::RpcError::GlobalContractNotFound(_))
+            Err(crate::error::RpcError::GlobalContractNotFound { .. })
             | Err(crate::error::RpcError::AccountNotFound { .. }) => Ok(false),
             Err(e) => Err(e.into()),
         }

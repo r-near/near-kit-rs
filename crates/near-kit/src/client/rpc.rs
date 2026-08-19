@@ -650,25 +650,40 @@ impl RpcClient {
                         .and_then(|i| i.get("requested_account_id"))
                         .and_then(|a| a.as_str())
                         .unwrap_or("unknown");
-                    return RpcError::InvalidAccount(account_id.to_string());
+                    return RpcError::InvalidAccount {
+                        account_id: account_id.to_string(),
+                        block_height,
+                        block_hash,
+                    };
                 }
-                "UNKNOWN_ACCESS_KEY" => {
+                "UNKNOWN_ACCESS_KEY" | "UNKNOWN_GAS_KEY" => {
                     if let Some(public_key) = info
                         .and_then(|i| i.get("public_key"))
                         .and_then(|k| k.as_str())
                         .and_then(|k| k.parse().ok())
                     {
-                        // Legacy `query` includes requested_account_id;
-                        // EXPERIMENTAL_view_access_key does not (the caller
-                        // already knows the account). Fall back to "unknown".
+                        // nearcore's payload only carries the public key
+                        // (`requested_account_id` is a legacy `query` extra);
+                        // the typed helpers patch in the caller-known account.
+                        // Fall back to "unknown".
                         let account_id = info
                             .and_then(|i| i.get("requested_account_id"))
                             .and_then(|a| a.as_str())
                             .and_then(|a| a.parse().ok())
                             .unwrap_or_else(|| "unknown".parse().unwrap());
+                        if cause_name == "UNKNOWN_GAS_KEY" {
+                            return RpcError::GasKeyNotFound {
+                                account_id,
+                                public_key,
+                                block_height,
+                                block_hash,
+                            };
+                        }
                         return RpcError::AccessKeyNotFound {
                             account_id,
                             public_key,
+                            block_height,
+                            block_hash,
                         };
                     }
                 }
@@ -730,7 +745,11 @@ impl RpcClient {
                         .unwrap_or_else(|| {
                             GlobalContractIdentifierView::AccountId("unknown".parse().unwrap())
                         });
-                    return RpcError::GlobalContractNotFound(identifier);
+                    return RpcError::GlobalContractNotFound {
+                        identifier,
+                        block_height,
+                        block_hash,
+                    };
                 }
                 "TOO_LARGE_CONTRACT_STATE" => {
                     // nearcore's `RpcQueryError::TooLargeContractState` puts the
@@ -746,7 +765,11 @@ impl RpcClient {
                         .and_then(|a| a.as_str())
                         .and_then(|a| a.parse().ok())
                     {
-                        return RpcError::ContractStateTooLarge(account_id);
+                        return RpcError::ContractStateTooLarge {
+                            account_id,
+                            block_height,
+                            block_hash,
+                        };
                     }
                 }
                 "CONTRACT_EXECUTION_ERROR" => {
@@ -916,9 +939,16 @@ impl RpcClient {
                 // The EXPERIMENTAL endpoint's UNKNOWN_ACCESS_KEY error omits
                 // the account_id from its info payload. Patch it in from the
                 // request params so callers get a complete error.
-                RpcError::AccessKeyNotFound { public_key, .. } => RpcError::AccessKeyNotFound {
+                RpcError::AccessKeyNotFound {
+                    public_key,
+                    block_height,
+                    block_hash,
+                    ..
+                } => RpcError::AccessKeyNotFound {
                     account_id: account_id.clone(),
                     public_key,
+                    block_height,
+                    block_hash,
                 },
                 other => other,
             })
@@ -955,7 +985,22 @@ impl RpcClient {
             "public_key": public_key.to_string(),
         });
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await
+        self.call("query", params).await.map_err(|e| match e {
+            // UNKNOWN_GAS_KEY's payload omits the account; patch it in from
+            // the request params so callers get a complete error.
+            RpcError::GasKeyNotFound {
+                public_key,
+                block_height,
+                block_hash,
+                ..
+            } => RpcError::GasKeyNotFound {
+                account_id: account_id.clone(),
+                public_key,
+                block_height,
+                block_hash,
+            },
+            other => other,
+        })
     }
 
     /// Call a view function on a contract.
@@ -1058,14 +1103,22 @@ impl RpcClient {
             // Replace the error's best-effort identifier with the one the
             // caller asked for, so it stays accurate whatever the node's
             // serialization shape.
-            RpcError::GlobalContractNotFound(_) => RpcError::GlobalContractNotFound(match id {
-                GlobalContractId::CodeHash(hash) => {
-                    GlobalContractIdentifierView::CodeHash(CryptoHash::from_bytes(*hash))
-                }
-                GlobalContractId::AccountId(account_id) => {
-                    GlobalContractIdentifierView::AccountId(account_id.clone())
-                }
-            }),
+            RpcError::GlobalContractNotFound {
+                block_height,
+                block_hash,
+                ..
+            } => RpcError::GlobalContractNotFound {
+                identifier: match id {
+                    GlobalContractId::CodeHash(hash) => {
+                        GlobalContractIdentifierView::CodeHash(CryptoHash::from_bytes(*hash))
+                    }
+                    GlobalContractId::AccountId(account_id) => {
+                        GlobalContractIdentifierView::AccountId(account_id.clone())
+                    }
+                },
+                block_height,
+                block_hash,
+            },
             other => other,
         })
     }
@@ -2334,9 +2387,13 @@ mod tests {
             RpcError::AccessKeyNotFound {
                 account_id,
                 public_key,
+                block_height,
+                block_hash,
             } => {
                 assert_eq!(account_id.as_str(), "alice.near");
                 assert!(public_key.to_string().contains("ed25519:"));
+                assert_eq!(block_height, None);
+                assert_eq!(block_hash, None);
             }
             _ => panic!("Expected AccessKeyNotFound error, got {:?}", result),
         }
@@ -2367,13 +2424,94 @@ mod tests {
             RpcError::AccessKeyNotFound {
                 account_id,
                 public_key,
+                block_height,
+                block_hash,
             } => {
                 // account_id falls back to "unknown" — caller enriches it
                 assert_eq!(account_id.as_str(), "unknown");
                 assert!(public_key.to_string().contains("ed25519:"));
+                assert_eq!(block_height, Some(243_789_592));
+                assert_eq!(
+                    block_hash.map(|h| h.to_string()).as_deref(),
+                    Some("EC5A7qc6rixfN8T4T9Gkt78H5pAsvdcjAos8Z7kFLJgi")
+                );
             }
             _ => panic!("Expected AccessKeyNotFound error, got {:?}", result),
         }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_unknown_gas_key() {
+        // nearcore's `RpcQueryError::UnknownGasKey { public_key, block_height,
+        // block_hash }` as serialized by the `query` endpoint for
+        // `view_gas_key_nonces`; the account is not on the wire.
+        let client = RpcClient::new("https://example.com");
+        let error: JsonRpcError = serde_json::from_value(serde_json::json!({
+            "code": -32000,
+            "message": "Server error",
+            "data": "Gas key for public key ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp does not exist while viewing",
+            "name": "HANDLER_ERROR",
+            "cause": {
+                "name": "UNKNOWN_GAS_KEY",
+                "info": {
+                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                    "block_height": 243789592,
+                    "block_hash": "EC5A7qc6rixfN8T4T9Gkt78H5pAsvdcjAos8Z7kFLJgi"
+                }
+            }
+        }))
+        .unwrap();
+        match client.parse_rpc_error(&error) {
+            RpcError::GasKeyNotFound {
+                account_id,
+                public_key,
+                block_height,
+                block_hash,
+            } => {
+                assert_eq!(account_id.as_str(), "unknown");
+                assert_eq!(
+                    public_key.to_string(),
+                    "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                );
+                assert_eq!(block_height, Some(243_789_592));
+                assert_eq!(
+                    block_hash.map(|h| h.to_string()).as_deref(),
+                    Some("EC5A7qc6rixfN8T4T9Gkt78H5pAsvdcjAos8Z7kFLJgi")
+                );
+            }
+            other => panic!("expected GasKeyNotFound, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_view_gas_key_nonces_patches_account_into_gas_key_not_found() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+            .parse()
+            .unwrap();
+        let error = rpc_with_handler_error(
+            "UNKNOWN_GAS_KEY",
+            serde_json::json!({
+                "public_key": public_key,
+                "block_height": 100,
+                "block_hash": "11111111111111111111111111111111",
+            }),
+        )
+        .view_gas_key_nonces(&account_id, &public_key, BlockReference::final_())
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                RpcError::GasKeyNotFound {
+                    account_id: actual_account,
+                    public_key: actual_key,
+                    block_height: Some(100),
+                    block_hash: Some(CryptoHash::ZERO),
+                } if *actual_account == account_id && *actual_key == public_key
+            ),
+            "got {error:?}"
+        );
     }
 
     #[test]
@@ -2386,13 +2524,25 @@ mod tests {
             cause: Some(ErrorCause {
                 name: "INVALID_ACCOUNT".to_string(),
                 info: Some(serde_json::json!({
-                    "requested_account_id": "invalid@account"
+                    "requested_account_id": "invalid@account",
+                    "block_height": 243803761,
+                    "block_hash": "11111111111111111111111111111111"
                 })),
             }),
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::InvalidAccount(_)));
+        assert!(
+            matches!(
+                &result,
+                RpcError::InvalidAccount {
+                    account_id,
+                    block_height: Some(243_803_761),
+                    block_hash: Some(CryptoHash::ZERO),
+                } if account_id == "invalid@account"
+            ),
+            "got {result:?}"
+        );
     }
 
     #[test]
@@ -2582,8 +2732,14 @@ mod tests {
             no_global_contract_code_error(serde_json::json!({ "account_id": "publisher.near" }));
         let result = client.parse_rpc_error(&error);
         match result {
-            RpcError::GlobalContractNotFound(GlobalContractIdentifierView::AccountId(id)) => {
+            RpcError::GlobalContractNotFound {
+                identifier: GlobalContractIdentifierView::AccountId(id),
+                block_height,
+                block_hash,
+            } => {
                 assert_eq!(id.as_str(), "publisher.near");
+                assert_eq!(block_height, Some(100));
+                assert_eq!(block_hash, Some(CryptoHash::ZERO));
             }
             other => panic!("expected GlobalContractNotFound(AccountId), got {other:?}"),
         }
@@ -2595,7 +2751,10 @@ mod tests {
         let result = client.parse_rpc_error(&error);
         assert!(matches!(
             result,
-            RpcError::GlobalContractNotFound(GlobalContractIdentifierView::CodeHash(_))
+            RpcError::GlobalContractNotFound {
+                identifier: GlobalContractIdentifierView::CodeHash(_),
+                ..
+            }
         ));
     }
 
@@ -2609,7 +2768,10 @@ mod tests {
             no_global_contract_code_error(serde_json::json!({ "AccountId": "publisher.near" }));
         let result = client.parse_rpc_error(&error);
         match result {
-            RpcError::GlobalContractNotFound(GlobalContractIdentifierView::AccountId(id)) => {
+            RpcError::GlobalContractNotFound {
+                identifier: GlobalContractIdentifierView::AccountId(id),
+                ..
+            } => {
                 assert_eq!(id.as_str(), "publisher.near");
             }
             other => panic!("expected GlobalContractNotFound(AccountId), got {other:?}"),
@@ -2621,7 +2783,10 @@ mod tests {
         let result = client.parse_rpc_error(&error);
         assert!(matches!(
             result,
-            RpcError::GlobalContractNotFound(GlobalContractIdentifierView::CodeHash(_))
+            RpcError::GlobalContractNotFound {
+                identifier: GlobalContractIdentifierView::CodeHash(_),
+                ..
+            }
         ));
     }
 
@@ -2633,7 +2798,7 @@ mod tests {
         // generic Rpc variant — the cause name alone identifies it.
         let error = no_global_contract_code_error(serde_json::json!({ "unexpected": 42 }));
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::GlobalContractNotFound(_)));
+        assert!(matches!(result, RpcError::GlobalContractNotFound { .. }));
 
         // Same when the identifier field is missing entirely.
         let error = JsonRpcError {
@@ -2647,7 +2812,7 @@ mod tests {
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::GlobalContractNotFound(_)));
+        assert!(matches!(result, RpcError::GlobalContractNotFound { .. }));
     }
 
     #[test]
@@ -2671,8 +2836,17 @@ mod tests {
         }))
         .unwrap();
         match client.parse_rpc_error(&error) {
-            RpcError::ContractStateTooLarge(account_id) => {
+            RpcError::ContractStateTooLarge {
+                account_id,
+                block_height,
+                block_hash,
+            } => {
                 assert_eq!(account_id.as_str(), "wrap.near");
+                assert_eq!(block_height, Some(211_889_547));
+                assert_eq!(
+                    block_hash.map(|h| h.to_string()).as_deref(),
+                    Some("E83FeM6Z7HDJ1W4VtZyhRHdpP6YYttJQe6T7N9LQNW2S")
+                );
             }
             other => panic!("expected ContractStateTooLarge, got {other:?}"),
         }
@@ -2694,7 +2868,11 @@ mod tests {
             name: None,
         };
         match client.parse_rpc_error(&error) {
-            RpcError::ContractStateTooLarge(account_id) => {
+            RpcError::ContractStateTooLarge {
+                account_id,
+                block_height: None,
+                block_hash: None,
+            } => {
                 assert_eq!(account_id.as_str(), "large-state.near");
             }
             other => panic!("expected ContractStateTooLarge, got {other:?}"),

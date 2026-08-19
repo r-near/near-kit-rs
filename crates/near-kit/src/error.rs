@@ -260,13 +260,42 @@ pub enum RpcError {
         block_hash: Option<CryptoHash>,
     },
 
-    #[error("Invalid account ID: {0}")]
-    InvalidAccount(String),
+    /// The requested account ID is malformed (`INVALID_ACCOUNT`).
+    ///
+    /// `account_id` is the raw string the node rejected; it is not an
+    /// [`AccountId`] because it failed validation.
+    #[error("Invalid account ID: {account_id}")]
+    InvalidAccount {
+        account_id: String,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
+    },
 
+    /// The access key does not exist on the account (`UNKNOWN_ACCESS_KEY`).
+    ///
+    /// `EXPERIMENTAL_view_access_key` omits the account from its payload; the
+    /// typed helpers patch in the requested account, so it is only `unknown`
+    /// when parsing a raw response directly.
     #[error("Access key not found: {account_id} / {public_key}")]
     AccessKeyNotFound {
         account_id: AccountId,
         public_key: PublicKey,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
+    },
+
+    /// The gas key does not exist on the account (`UNKNOWN_GAS_KEY`, from
+    /// `view_gas_key_nonces`).
+    ///
+    /// The wire payload only carries the public key; the typed helpers patch
+    /// in the requested account, so it is only `unknown` when parsing a raw
+    /// response directly.
+    #[error("Gas key not found: {account_id} / {public_key}")]
+    GasKeyNotFound {
+        account_id: AccountId,
+        public_key: PublicKey,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
     },
 
     // ─── Contract Errors ───
@@ -277,11 +306,24 @@ pub enum RpcError {
         block_hash: Option<CryptoHash>,
     },
 
-    #[error("Contract state too large for account: {0}")]
-    ContractStateTooLarge(AccountId),
+    /// The node refused an unpaginated `view_state` because the contract's
+    /// state exceeds its limit (`TOO_LARGE_CONTRACT_STATE`). Use the paginated
+    /// form instead.
+    #[error("Contract state too large for account: {account_id}")]
+    ContractStateTooLarge {
+        account_id: AccountId,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
+    },
 
-    #[error("Global contract not found: {0}")]
-    GlobalContractNotFound(GlobalContractIdentifierView),
+    /// No global contract is published under `identifier`
+    /// (`NO_GLOBAL_CONTRACT_CODE`).
+    #[error("Global contract not found: {identifier}")]
+    GlobalContractNotFound {
+        identifier: GlobalContractIdentifierView,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
+    },
 
     /// A view function failed for a reason that does not have a more specific
     /// [`RpcError`] variant.
@@ -518,7 +560,7 @@ impl RpcError {
 
     /// Returns true if this error indicates a global contract was not found.
     pub fn is_global_contract_not_found(&self) -> bool {
-        matches!(self, RpcError::GlobalContractNotFound(_))
+        matches!(self, RpcError::GlobalContractNotFound { .. })
     }
 
     /// The variant name, for structured `tracing` fields.
@@ -539,11 +581,12 @@ impl RpcError {
             RpcError::InvalidResponse(_) => "InvalidResponse",
             RpcError::Rpc { .. } => "Rpc",
             RpcError::AccountNotFound { .. } => "AccountNotFound",
-            RpcError::InvalidAccount(_) => "InvalidAccount",
+            RpcError::InvalidAccount { .. } => "InvalidAccount",
             RpcError::AccessKeyNotFound { .. } => "AccessKeyNotFound",
+            RpcError::GasKeyNotFound { .. } => "GasKeyNotFound",
             RpcError::ContractNotDeployed { .. } => "ContractNotDeployed",
-            RpcError::ContractStateTooLarge(_) => "ContractStateTooLarge",
-            RpcError::GlobalContractNotFound(_) => "GlobalContractNotFound",
+            RpcError::ContractStateTooLarge { .. } => "ContractStateTooLarge",
+            RpcError::GlobalContractNotFound { .. } => "GlobalContractNotFound",
             RpcError::ContractExecution { .. } => "ContractExecution",
             RpcError::MethodNotFound { .. } => "MethodNotFound",
             RpcError::ContractPanic { .. } => "ContractPanic",
@@ -566,7 +609,12 @@ impl RpcError {
     pub fn block_height(&self) -> Option<u64> {
         match self {
             RpcError::AccountNotFound { block_height, .. }
+            | RpcError::InvalidAccount { block_height, .. }
+            | RpcError::AccessKeyNotFound { block_height, .. }
+            | RpcError::GasKeyNotFound { block_height, .. }
             | RpcError::ContractNotDeployed { block_height, .. }
+            | RpcError::ContractStateTooLarge { block_height, .. }
+            | RpcError::GlobalContractNotFound { block_height, .. }
             | RpcError::ContractExecution { block_height, .. }
             | RpcError::MethodNotFound { block_height, .. }
             | RpcError::ContractPanic { block_height, .. } => *block_height,
@@ -578,7 +626,12 @@ impl RpcError {
     pub fn block_hash(&self) -> Option<CryptoHash> {
         match self {
             RpcError::AccountNotFound { block_hash, .. }
+            | RpcError::InvalidAccount { block_hash, .. }
+            | RpcError::AccessKeyNotFound { block_hash, .. }
+            | RpcError::GasKeyNotFound { block_hash, .. }
             | RpcError::ContractNotDeployed { block_hash, .. }
+            | RpcError::ContractStateTooLarge { block_hash, .. }
+            | RpcError::GlobalContractNotFound { block_hash, .. }
             | RpcError::ContractExecution { block_hash, .. }
             | RpcError::MethodNotFound { block_hash, .. }
             | RpcError::ContractPanic { block_hash, .. } => *block_hash,
@@ -859,7 +912,12 @@ mod tests {
             "Account not found: alice.near"
         );
         assert_eq!(
-            RpcError::InvalidAccount("bad-account".to_string()).to_string(),
+            RpcError::InvalidAccount {
+                account_id: "bad-account".to_string(),
+                block_height: None,
+                block_hash: None,
+            }
+            .to_string(),
             "Invalid account ID: bad-account"
         );
         assert_eq!(
@@ -872,7 +930,12 @@ mod tests {
             "Contract not deployed on account: alice.near"
         );
         assert_eq!(
-            RpcError::ContractStateTooLarge(account_id.clone()).to_string(),
+            RpcError::ContractStateTooLarge {
+                account_id: account_id.clone(),
+                block_height: None,
+                block_hash: None,
+            }
+            .to_string(),
             "Contract state too large for account: alice.near"
         );
         assert_eq!(
@@ -979,7 +1042,14 @@ mod tests {
             }
             .is_retryable()
         );
-        assert!(!RpcError::InvalidAccount("bad".to_string()).is_retryable());
+        assert!(
+            !RpcError::InvalidAccount {
+                account_id: "bad".to_string(),
+                block_height: None,
+                block_hash: None,
+            }
+            .is_retryable()
+        );
         assert!(!RpcError::UnknownBlock("12345".to_string()).is_retryable());
         assert!(!RpcError::ParseError("bad json".to_string()).is_retryable());
         // InvalidNonce is transient at the transaction layer (re-sign with a
@@ -1121,6 +1191,43 @@ mod tests {
     }
 
     #[test]
+    fn test_rpc_error_block_context_accessors_cover_handler_errors() {
+        let account_id: AccountId = "contract.near".parse().unwrap();
+        let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+            .parse()
+            .unwrap();
+        let block_hash = CryptoHash::hash(b"block");
+        let errors = [
+            RpcError::InvalidAccount {
+                account_id: "bad@id".to_string(),
+                block_height: Some(7),
+                block_hash: Some(block_hash),
+            },
+            RpcError::AccessKeyNotFound {
+                account_id: account_id.clone(),
+                public_key,
+                block_height: Some(7),
+                block_hash: Some(block_hash),
+            },
+            RpcError::ContractStateTooLarge {
+                account_id: account_id.clone(),
+                block_height: Some(7),
+                block_hash: Some(block_hash),
+            },
+            RpcError::GlobalContractNotFound {
+                identifier: GlobalContractIdentifierView::AccountId(account_id),
+                block_height: Some(7),
+                block_hash: Some(block_hash),
+            },
+        ];
+        for err in errors {
+            assert_eq!(err.block_height(), Some(7), "{err:?}");
+            assert_eq!(err.block_hash(), Some(block_hash), "{err:?}");
+            assert!(!err.is_retryable(), "{err:?}");
+        }
+    }
+
+    #[test]
     fn test_rpc_error_method_not_found_display() {
         let account_id: AccountId = "contract.near".parse().unwrap();
         let err = RpcError::MethodNotFound {
@@ -1219,9 +1326,32 @@ mod tests {
         let err = RpcError::AccessKeyNotFound {
             account_id,
             public_key: public_key.clone(),
+            block_height: None,
+            block_hash: None,
         };
         assert!(err.to_string().contains("alice.near"));
         assert!(err.to_string().contains(&public_key.to_string()));
+    }
+
+    #[test]
+    fn test_rpc_error_gas_key_not_found_display() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+            .parse()
+            .unwrap();
+        let err = RpcError::GasKeyNotFound {
+            account_id,
+            public_key: public_key.clone(),
+            block_height: Some(7),
+            block_hash: Some(CryptoHash::ZERO),
+        };
+        assert_eq!(
+            err.to_string(),
+            format!("Gas key not found: alice.near / {public_key}")
+        );
+        assert_eq!(err.block_height(), Some(7));
+        assert_eq!(err.block_hash(), Some(CryptoHash::ZERO));
+        assert!(!err.is_retryable());
     }
 
     #[test]
