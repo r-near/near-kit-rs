@@ -127,6 +127,7 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
         public_key.to_ml_dsa65_hash(),
         "view handle must match locally-computed SHA3-256 handle"
     );
+    assert!(listed.refers_to(&public_key));
 
     // Now sign a transfer FROM this account using the ML-DSA-65 secret key.
     // Acceptance proves the node verified an ML-DSA-65 signature.
