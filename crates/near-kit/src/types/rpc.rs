@@ -204,10 +204,22 @@ pub enum AccessKeyPermissionView {
 }
 
 /// Access key list from view_access_key_list RPC.
+///
+/// One page of an account's access keys. The node caps how many keys a single
+/// response carries (100 by default), so a listing can be truncated:
+/// [`last_key`](Self::last_key) is then the continuation cursor. The fetch-all
+/// helper (`RpcClient::view_access_key_list`, `Near::access_keys`) follows that
+/// cursor for you and always returns `last_key: None`; only
+/// `RpcClient::view_access_key_list_page` hands it back for manual paging.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AccessKeyListView {
     /// List of access keys.
     pub keys: Vec<AccessKeyInfoView>,
+    /// Pagination cursor. `Some` means this page was truncated: pass it as
+    /// `after_key` to fetch the keys after it. `None` means this was the last
+    /// page (or the full list).
+    #[serde(default)]
+    pub last_key: Option<PublicKeyHandle>,
     /// Block height of the query.
     pub block_height: u64,
     /// Block hash of the query.
@@ -1946,7 +1958,8 @@ mod tests {
     fn test_access_key_list_parses_ml_dsa65_hash_handle() {
         // A 2.13 node returns ML-DSA-65 access keys as a 32-byte `ml-dsa-65-hash:`
         // handle (the full pubkey is not stored on-trie). View parsing must
-        // accept it without panicking.
+        // accept it without panicking — in the key list and as the `last_key`
+        // pagination cursor, which is the same handle type.
         let handle = format!("ml-dsa-65-hash:{}", bs58::encode([3u8; 32]).into_string());
         let json = serde_json::json!({
             "keys": [
@@ -1959,6 +1972,7 @@ mod tests {
                     "access_key": { "nonce": 2u64, "permission": "FullAccess" }
                 }
             ],
+            "last_key": handle,
             "block_height": 42u64,
             "block_hash": "11111111111111111111111111111111"
         });
@@ -1976,6 +1990,25 @@ mod tests {
             ed.to_string(),
             "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
         );
+        // The cursor round-trips to the exact wire string, so it can be sent
+        // back verbatim as `after_key`.
+        let last_key = list.last_key.expect("last_key present");
+        assert_eq!(last_key, list.keys[0].public_key);
+        assert_eq!(last_key.to_string(), handle);
+    }
+
+    #[test]
+    fn test_access_key_list_without_last_key_is_final_page() {
+        // Pre-pagination nodes (and the last page of a paginated listing) omit
+        // `last_key` entirely.
+        let json = serde_json::json!({
+            "keys": [],
+            "block_height": 42u64,
+            "block_hash": "11111111111111111111111111111111"
+        });
+        let list: AccessKeyListView = serde_json::from_value(json).unwrap();
+        assert!(list.keys.is_empty());
+        assert_eq!(list.last_key, None);
     }
 
     #[test]

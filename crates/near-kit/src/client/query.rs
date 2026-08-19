@@ -4,6 +4,7 @@
 
 use std::future::IntoFuture;
 use std::marker::PhantomData;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
@@ -11,7 +12,8 @@ use serde::de::DeserializeOwned;
 use crate::error::Error;
 use crate::types::{
     AccessKeyListView, AccountBalance, AccountId, AccountView, BlockReference, ContractCodeView,
-    CryptoHash, Finality, GlobalContractId, Submitted, TryIntoAccountId, WaitLevel,
+    CryptoHash, Finality, GlobalContractId, PublicKeyHandle, Submitted, TryIntoAccountId,
+    WaitLevel,
 };
 
 use super::rpc::RpcClient;
@@ -238,6 +240,10 @@ impl IntoFuture for AccountExistsQuery {
 
 /// Query builder for listing access keys.
 ///
+/// Awaiting it returns *every* key: the node caps one response at 100 keys by
+/// default, so the query pages through [`RpcClient::view_access_key_list`]
+/// transparently. Use [`page`](Self::page) to fetch one page at a time.
+///
 /// # Example
 ///
 /// ```rust,no_run
@@ -283,6 +289,27 @@ impl AccessKeysQuery {
     pub fn finality(mut self, finality: Finality) -> Self {
         self.block_ref = BlockReference::Finality(finality);
         self
+    }
+
+    /// Fetch a single page instead of the whole list.
+    ///
+    /// `after_key` is the previous page's
+    /// [`last_key`](AccessKeyListView::last_key) and `limit` the page size;
+    /// see [`RpcClient::view_access_key_list_page`] for the semantics,
+    /// including [`RpcError::TooManyAccessKeys`](crate::RpcError::TooManyAccessKeys)
+    /// when both are `None` and the account is over the cap. Pin follow-up
+    /// pages to the first page's snapshot with
+    /// [`at_block_hash(first.block_hash)`](Self::at_block_hash) so a moving
+    /// finality reference cannot drift between pages.
+    pub async fn page(
+        self,
+        after_key: Option<&PublicKeyHandle>,
+        limit: Option<NonZeroU32>,
+    ) -> Result<AccessKeyListView, Error> {
+        Ok(self
+            .rpc
+            .view_access_key_list_page(&self.account_id, after_key, limit, self.block_ref)
+            .await?)
     }
 }
 

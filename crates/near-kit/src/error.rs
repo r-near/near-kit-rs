@@ -422,6 +422,24 @@ pub enum RpcError {
         message: String,
         transaction_hash: Option<String>,
     },
+
+    // ─── Access Key Listing ───
+    /// An unpaginated `view_access_key_list` request hit the node's cap.
+    ///
+    /// nearcore only returns an account's keys in one shot when there are at
+    /// most `limit` of them (100 by default); anything larger has to be listed
+    /// with `limit`/`after_key`. `RpcClient::view_access_key_list` (and
+    /// `Near::access_keys`) always paginate, so this only surfaces from
+    /// `RpcClient::view_access_key_list_page` called without a `limit`.
+    #[error(
+        "account {account_id} has more than {limit} access keys; use a paginated view_access_key_list request"
+    )]
+    TooManyAccessKeys {
+        account_id: AccountId,
+        limit: u32,
+        block_height: Option<u64>,
+        block_hash: Option<CryptoHash>,
+    },
 }
 
 impl RpcError {
@@ -602,6 +620,7 @@ impl RpcError {
             RpcError::InternalError(_) => "InternalError",
             RpcError::ParseError(_) => "ParseError",
             RpcError::RequestTimeout { .. } => "RequestTimeout",
+            RpcError::TooManyAccessKeys { .. } => "TooManyAccessKeys",
         }
     }
 
@@ -617,7 +636,8 @@ impl RpcError {
             | RpcError::GlobalContractNotFound { block_height, .. }
             | RpcError::ContractExecution { block_height, .. }
             | RpcError::MethodNotFound { block_height, .. }
-            | RpcError::ContractPanic { block_height, .. } => *block_height,
+            | RpcError::ContractPanic { block_height, .. }
+            | RpcError::TooManyAccessKeys { block_height, .. } => *block_height,
             _ => None,
         }
     }
@@ -634,7 +654,8 @@ impl RpcError {
             | RpcError::GlobalContractNotFound { block_hash, .. }
             | RpcError::ContractExecution { block_hash, .. }
             | RpcError::MethodNotFound { block_hash, .. }
-            | RpcError::ContractPanic { block_hash, .. } => *block_hash,
+            | RpcError::ContractPanic { block_hash, .. }
+            | RpcError::TooManyAccessKeys { block_hash, .. } => *block_hash,
             _ => None,
         }
     }

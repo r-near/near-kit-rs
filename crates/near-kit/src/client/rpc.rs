@@ -1,5 +1,6 @@
 //! Low-level JSON-RPC client for NEAR.
 
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -22,9 +23,9 @@ use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockEffects, BlockReference,
     BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
     FunctionCallError, GasKeyNoncesView, GasPrice, GlobalContractId, GlobalContractIdentifierView,
-    HostError, MaintenanceWindow, MethodResolveError, PublicKey, ReceiptToTxResponse,
-    SignedTransaction, StateItem, StatusResponse, TxExecutionStatus, ViewFunctionResult,
-    ViewStateResult,
+    HostError, MaintenanceWindow, MethodResolveError, PublicKey, PublicKeyHandle,
+    ReceiptToTxResponse, SignedTransaction, StateItem, StatusResponse, TxExecutionStatus,
+    ViewFunctionResult, ViewStateResult,
 };
 
 /// Platform-appropriate async sleep, used for retry backoff.
@@ -431,6 +432,17 @@ impl RpcClient {
     /// and only paginated queries are exempt from the `TOO_LARGE_CONTRACT_STATE`
     /// size gate.
     pub const DEFAULT_VIEW_STATE_PAGE_SIZE: u32 = 10_000;
+
+    /// Page size [`RpcClient::view_access_key_list`] requests per round trip.
+    ///
+    /// This is nearcore's default `view_access_keys_limit`. The node clamps a
+    /// larger `limit` down to its configured cap, so asking for more would not
+    /// save round trips. What matters is that a `limit` is always sent:
+    /// nearcore only treats a `view_access_key_list` request as paginated when
+    /// `limit` or `after_key` is present, and an unpaginated request for an
+    /// account with more keys than the cap fails with
+    /// [`RpcError::TooManyAccessKeys`] instead of returning the list.
+    pub const DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE: u32 = 100;
 
     /// Create a new RPC client with the given URL.
     ///
@@ -872,6 +884,29 @@ impl RpcClient {
                 "INTERNAL_ERROR" => {
                     return RpcError::InternalError(error.message.clone());
                 }
+                "TOO_MANY_ACCESS_KEYS" => {
+                    // nearcore's `RpcQueryError::TooManyAccessKeys`: an
+                    // unpaginated `view_access_key_list` on an account with
+                    // more than `limit` keys. Both identifying fields are
+                    // required; without them fall through to the generic error
+                    // rather than inventing an account id or cap.
+                    let account_id = info
+                        .and_then(|i| i.get("requested_account_id"))
+                        .and_then(|a| a.as_str())
+                        .and_then(|a| a.parse().ok());
+                    let limit = info
+                        .and_then(|i| i.get("limit"))
+                        .and_then(serde_json::Value::as_u64)
+                        .and_then(|l| u32::try_from(l).ok());
+                    if let (Some(account_id), Some(limit)) = (account_id, limit) {
+                        return RpcError::TooManyAccessKeys {
+                            account_id,
+                            limit,
+                            block_height,
+                            block_hash,
+                        };
+                    }
+                }
                 _ => {}
             }
         }
@@ -954,18 +989,114 @@ impl RpcClient {
             })
     }
 
-    /// View all access keys for an account.
+    /// View all access keys for an account, transparently following pagination.
+    ///
+    /// nearcore caps how many keys one `view_access_key_list` response carries
+    /// (100 by default) and rejects an *unpaginated* request for a larger
+    /// account with [`RpcError::TooManyAccessKeys`]. This helper is cap-safe by
+    /// construction: every request carries
+    /// `limit = `[`DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE`](Self::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE)
+    /// and it follows the [`last_key`](AccessKeyListView::last_key) cursor with
+    /// `after_key` until the node reports no more keys.
+    ///
+    /// The first page is read at `block`; every later page is pinned to that
+    /// page's `block_hash`, so a moving reference (`Final`/`Optimistic`) cannot
+    /// drift between pages and drop or duplicate keys. The returned view holds
+    /// every key, `last_key: None`, and the first page's block fields.
+    ///
+    /// Use [`RpcClient::view_access_key_list_page`] to drive the cursor
+    /// yourself.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
     pub async fn view_access_key_list(
         &self,
         account_id: &AccountId,
         block: BlockReference,
     ) -> Result<AccessKeyListView, RpcError> {
+        let limit = NonZeroU32::new(Self::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE)
+            .expect("DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE is non-zero");
+        let mut list = self
+            .view_access_key_list_page(account_id, None, Some(limit), block)
+            .await?;
+        let pinned = BlockReference::at_hash(list.block_hash);
+        while let Some(cursor) = list.last_key.take() {
+            let page = self
+                .view_access_key_list_page(account_id, Some(&cursor), Some(limit), pinned)
+                .await?;
+            list.keys.extend(page.keys);
+            list.last_key = page.last_key;
+        }
+        Ok(list)
+    }
+
+    /// View a single page of an account's access keys.
+    ///
+    /// `after_key` is the continuation cursor from a previous page's
+    /// [`last_key`](AccessKeyListView::last_key) (the listing resumes strictly
+    /// after it) and `limit` caps the number of keys returned; the node clamps
+    /// it to its own cap (100 by default). When the result's `last_key` is
+    /// `Some`, more keys remain — call again with `after_key = last_key`.
+    ///
+    /// Pin every follow-up page to the first page's `block_hash`. A moving
+    /// reference (`Final`/`Optimistic`) re-resolves on every request, so keys
+    /// added or deleted between pages can be duplicated or skipped when the
+    /// cursor is applied to a different snapshot.
+    ///
+    /// A request with neither `after_key` nor `limit` is *unpaginated*: the
+    /// node returns the whole list only if it fits under the cap, and fails
+    /// with [`RpcError::TooManyAccessKeys`] otherwise. Prefer
+    /// [`RpcClient::view_access_key_list`] to collect every key without
+    /// managing the cursor yourself.
+    ///
+    /// This uses the stabilized `query` RPC shape with
+    /// `request_type: "view_access_key_list"` (like [`view_state`](Self::view_state)):
+    /// unlike `EXPERIMENTAL_view_access_key_list`, it reports the cap as a
+    /// structured `TOO_MANY_ACCESS_KEYS` error rather than a generic
+    /// `INTERNAL_ERROR`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use std::num::NonZeroU32;
+    /// # use near_kit::{AccountId, BlockReference, RpcClient};
+    /// # async fn example(rpc: &RpcClient, account: &AccountId) -> Result<(), near_kit::RpcError> {
+    /// let page_size = NonZeroU32::new(50);
+    /// let mut page = rpc
+    ///     .view_access_key_list_page(account, None, page_size, BlockReference::final_())
+    ///     .await?;
+    /// // Later pages read the snapshot the first page was taken at.
+    /// let snapshot = BlockReference::at_hash(page.block_hash);
+    /// let mut keys = page.keys;
+    /// while let Some(cursor) = page.last_key {
+    ///     page = rpc
+    ///         .view_access_key_list_page(account, Some(&cursor), page_size, snapshot)
+    ///         .await?;
+    ///     keys.extend(page.keys);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, after_key, block), fields(%account_id)))]
+    pub async fn view_access_key_list_page(
+        &self,
+        account_id: &AccountId,
+        after_key: Option<&PublicKeyHandle>,
+        limit: Option<NonZeroU32>,
+        block: BlockReference,
+    ) -> Result<AccessKeyListView, RpcError> {
         let mut params = serde_json::json!({
+            "request_type": "view_access_key_list",
             "account_id": account_id.to_string(),
         });
+        if let Some(obj) = params.as_object_mut() {
+            if let Some(after) = after_key {
+                obj.insert("after_key".to_string(), after.to_string().into());
+            }
+            if let Some(limit) = limit {
+                obj.insert("limit".to_string(), limit.get().into());
+            }
+        }
         self.merge_block_reference(&mut params, &block);
-        self.call("EXPERIMENTAL_view_access_key_list", params).await
+        self.call("query", params).await
     }
 
     /// View the parallel nonces assigned to a gas key.
@@ -2196,6 +2327,227 @@ mod tests {
         let params = transport.params();
         assert_eq!(params.len(), 1);
         assert_eq!(params[0]["limit"], 25);
+    }
+
+    // ========================================================================
+    // view_access_key_list pagination
+    // ========================================================================
+
+    const PAGE_ONE_HASH: &str = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj";
+    const ED_KEY: &str = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";
+    const SECP_KEY: &str = "secp256k1:5r22SrjrDvgY3wdQsnjgxkeAbU1VcM71FYvALEQWihjM3Xk4Be1CpETTqFccChQr4iJwDroSDVmgaWZv2AcXvYeL";
+
+    /// One `view_access_key_list` page listing `keys` (all full-access) with
+    /// an optional `last_key` cursor, read at `block_hash`.
+    fn access_key_page(
+        keys: &[&str],
+        last_key: Option<&str>,
+        block_hash: &str,
+    ) -> serde_json::Value {
+        let keys: Vec<_> = keys
+            .iter()
+            .map(|key| {
+                serde_json::json!({
+                    "public_key": key,
+                    "access_key": { "nonce": 1u64, "permission": "FullAccess" },
+                })
+            })
+            .collect();
+        let mut page = serde_json::json!({
+            "keys": keys,
+            "block_height": 9u64,
+            "block_hash": block_hash,
+        });
+        if let Some(cursor) = last_key {
+            page["last_key"] = cursor.into();
+        }
+        page
+    }
+
+    #[tokio::test]
+    async fn test_view_access_key_list_single_page_is_one_paginated_request() {
+        let transport = RecordingTransport::new([access_key_page(&[ED_KEY], None, PAGE_ONE_HASH)]);
+        let account: AccountId = "alice.near".parse().unwrap();
+
+        let list = transport
+            .client()
+            .view_access_key_list(&account, BlockReference::final_())
+            .await
+            .unwrap();
+        assert_eq!(list.keys.len(), 1);
+        assert_eq!(list.keys[0].public_key.to_string(), ED_KEY);
+        assert_eq!(list.last_key, None);
+
+        let params = transport.params();
+        assert_eq!(params.len(), 1, "no `last_key` means no second request");
+        assert_eq!(params[0]["request_type"], "view_access_key_list");
+        assert_eq!(params[0]["account_id"], "alice.near");
+        assert_eq!(params[0]["finality"], "final");
+        // Always paginated: an omitted `limit` would make the node treat the
+        // request as unpaginated and fail past 100 keys.
+        assert_eq!(
+            params[0]["limit"],
+            RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE
+        );
+        assert_eq!(params[0]["limit"], 100);
+        assert!(
+            params[0].get("after_key").is_none(),
+            "first page has no cursor"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_view_access_key_list_follows_last_key_pinned_to_first_block() {
+        // The second page is read at a later block by a drifting node; the
+        // helper must still have asked for the first page's block.
+        let transport = RecordingTransport::new([
+            access_key_page(&[ED_KEY], Some(ED_KEY), PAGE_ONE_HASH),
+            access_key_page(&[SECP_KEY], None, "11111111111111111111111111111111"),
+        ]);
+        let account: AccountId = "relayer.near".parse().unwrap();
+
+        let list = transport
+            .client()
+            .view_access_key_list(&account, BlockReference::final_())
+            .await
+            .unwrap();
+        let keys: Vec<String> = list.keys.iter().map(|k| k.public_key.to_string()).collect();
+        assert_eq!(keys, [ED_KEY, SECP_KEY]);
+        assert_eq!(list.last_key, None, "the concatenated view is complete");
+        assert_eq!(list.block_hash.to_string(), PAGE_ONE_HASH);
+        assert_eq!(list.block_height, 9);
+
+        let params = transport.params();
+        assert_eq!(params.len(), 2, "one request per page");
+        assert_eq!(params[0]["finality"], "final");
+        assert!(params[0].get("block_id").is_none());
+        // Page 2 resumes after the first page's `last_key`, at its block hash.
+        assert_eq!(params[1]["after_key"], ED_KEY);
+        assert_eq!(params[1]["block_id"], PAGE_ONE_HASH);
+        assert!(params[1].get("finality").is_none());
+        assert_eq!(
+            params[1]["limit"],
+            RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE
+        );
+    }
+
+    #[tokio::test]
+    async fn test_view_access_key_list_page_passes_cursor_and_limit_through() {
+        let ml_dsa_hash = format!("ml-dsa-65-hash:{}", bs58::encode([7u8; 32]).into_string());
+        let transport = RecordingTransport::new([access_key_page(
+            &[SECP_KEY, &ml_dsa_hash],
+            Some(&ml_dsa_hash),
+            PAGE_ONE_HASH,
+        )]);
+        let account: AccountId = "relayer.near".parse().unwrap();
+        let after: PublicKeyHandle = ED_KEY.parse().unwrap();
+
+        let page = transport
+            .client()
+            .view_access_key_list_page(
+                &account,
+                Some(&after),
+                NonZeroU32::new(2),
+                BlockReference::at_height(1),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.keys.len(), 2);
+        // The cursor comes back as a handle, ready to send as `after_key`.
+        let last_key = page.last_key.expect("truncated page carries a cursor");
+        assert!(last_key.is_ml_dsa65_hash());
+        assert_eq!(last_key.to_string(), ml_dsa_hash);
+
+        let params = transport.params();
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0]["request_type"], "view_access_key_list");
+        assert_eq!(params[0]["after_key"], ED_KEY);
+        assert_eq!(params[0]["limit"], 2);
+        assert_eq!(params[0]["block_id"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_view_access_key_list_page_unpaginated_sends_neither_param() {
+        let transport = RecordingTransport::new([access_key_page(&[], None, PAGE_ONE_HASH)]);
+        let account: AccountId = "alice.near".parse().unwrap();
+
+        let page = transport
+            .client()
+            .view_access_key_list_page(&account, None, None, BlockReference::final_())
+            .await
+            .unwrap();
+        assert!(page.keys.is_empty());
+
+        let params = transport.params();
+        assert!(params[0].get("after_key").is_none());
+        assert!(params[0].get("limit").is_none());
+    }
+
+    #[test]
+    fn test_parse_rpc_error_too_many_access_keys() {
+        let client = RpcClient::new("https://example.com");
+        // Wire shape of nearcore's `RpcQueryError::TooManyAccessKeys`.
+        let error: JsonRpcError = serde_json::from_value(serde_json::json!({
+            "code": -32000,
+            "message": "Server error",
+            "data": "Account relayer.near has more than 100 access keys; use a paginated view_access_key_list request",
+            "name": "HANDLER_ERROR",
+            "cause": {
+                "name": "TOO_MANY_ACCESS_KEYS",
+                "info": {
+                    "requested_account_id": "relayer.near",
+                    "limit": 100,
+                    "block_height": 211889547,
+                    "block_hash": PAGE_ONE_HASH,
+                }
+            }
+        }))
+        .unwrap();
+        let parsed = client.parse_rpc_error(&error);
+        match &parsed {
+            RpcError::TooManyAccessKeys {
+                account_id,
+                limit,
+                block_height,
+                block_hash,
+            } => {
+                assert_eq!(account_id.as_str(), "relayer.near");
+                assert_eq!(*limit, 100);
+                assert_eq!(*block_height, Some(211889547));
+                assert_eq!(
+                    block_hash.map(|h| h.to_string()).as_deref(),
+                    Some(PAGE_ONE_HASH)
+                );
+            }
+            other => panic!("expected TooManyAccessKeys, got {other:?}"),
+        }
+        // Deterministic: re-sending the same unpaginated request can't help.
+        assert!(!parsed.is_retryable());
+        assert_eq!(parsed.block_height(), Some(211889547));
+        assert_eq!(
+            parsed.to_string(),
+            "account relayer.near has more than 100 access keys; use a paginated view_access_key_list request"
+        );
+    }
+
+    #[test]
+    fn test_parse_rpc_error_too_many_access_keys_without_limit_falls_through() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "TOO_MANY_ACCESS_KEYS".to_string(),
+                info: Some(serde_json::json!({ "requested_account_id": "relayer.near" })),
+            }),
+            name: None,
+        };
+        let result = client.parse_rpc_error(&error);
+        assert!(
+            matches!(result, RpcError::Rpc { code: -32000, .. }),
+            "expected generic Rpc error, got {result:?}"
+        );
     }
 
     // ========================================================================
