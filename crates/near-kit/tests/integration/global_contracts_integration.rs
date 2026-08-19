@@ -54,6 +54,28 @@ async fn create_funded_account(
     (near, account_id, account_key)
 }
 
+/// Poll until a published global contract is visible at the final block.
+///
+/// `DeployGlobalContract` hands the code to each shard through a separate
+/// `GlobalContractDistribution` receipt. That receipt has no execution outcome
+/// and is applied in a later block than the deploy action, so
+/// `wait_until::<Final>()` on the publish transaction does not cover it. A
+/// query at `final` straight after the publish normally works only because
+/// the gas-refund receipt (which the outcome does cover) happens to land in
+/// the same block as the distribution; under load the distribution can land
+/// later and the query sees `GlobalContractNotFound`. Bounded so a genuinely
+/// failed publish still fails the test instead of hanging.
+async fn wait_for_global_contract(near: &Near, id: impl IntoGlobalContractId + Clone) {
+    const ATTEMPTS: u32 = 50;
+    for _ in 0..ATTEMPTS {
+        if near.global_contract(id.clone()).exists().await.unwrap() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    panic!("global contract not visible at final after {ATTEMPTS} polls");
+}
+
 // =============================================================================
 // Global Contract Tests
 // =============================================================================
@@ -851,6 +873,7 @@ async fn test_global_contract_query_by_account() {
         .wait_until::<Final>()
         .await
         .unwrap();
+    wait_for_global_contract(&root_near, &publisher_id).await;
 
     let contract = root_near.global_contract(&publisher_id).await.unwrap();
     assert_eq!(contract.code, wasm_code);
@@ -883,6 +906,7 @@ async fn test_global_contract_query_by_hash() {
         .wait_until::<Final>()
         .await
         .unwrap();
+    wait_for_global_contract(&root_near, code_hash).await;
 
     let contract = root_near.global_contract(code_hash).await.unwrap();
     assert_eq!(contract.code, wasm_code);

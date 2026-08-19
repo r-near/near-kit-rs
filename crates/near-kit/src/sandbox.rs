@@ -71,10 +71,11 @@
 
 use std::borrow::Cow;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::trace::info;
 use testcontainers::{
-    ContainerAsync, CopyToContainer, Image,
+    ContainerAsync, CopyToContainer, Healthcheck, Image, ImageExt,
     core::{ContainerPort, WaitFor},
     runners::AsyncRunner,
 };
@@ -94,6 +95,24 @@ const DEFAULT_VERSION: &str = "2.13.0-rc.2";
 
 /// The RPC port exposed by the NEAR sandbox container.
 const RPC_PORT: ContainerPort = ContainerPort::Tcp(3030);
+
+/// Grace period before Docker starts counting failed healthcheck probes.
+///
+/// The image's own healthcheck (10s start period, 5s interval, 3 retries)
+/// flips the container to `unhealthy` after roughly 25–30s without a
+/// successful `/status` probe. That is too tight on a loaded Docker host —
+/// e.g. several sandbox suites starting containers at once — where neard can
+/// take longer than that just to initialize, and testcontainers then fails the
+/// start. A successful probe still marks the container healthy immediately, so
+/// a longer grace period only delays reporting a node that never comes up.
+/// The probe command, interval and retries are inherited from the image.
+const HEALTHCHECK_START_PERIOD: Duration = Duration::from_secs(90);
+
+/// Overall budget for the container to become healthy (testcontainers defaults
+/// to 60s). Kept above [`HEALTHCHECK_START_PERIOD`] plus the image's
+/// `retries × interval` so a node that never comes up is reported as
+/// `Unhealthy` rather than as a bare startup timeout.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// A [`testcontainers::Image`] for the NEAR sandbox Docker image
 /// (`nearprotocol/sandbox`).
@@ -291,6 +310,8 @@ impl Sandbox {
             image = image.with_chain_id(id);
         }
         let container = image
+            .with_health_check(Healthcheck::empty().with_start_period(HEALTHCHECK_START_PERIOD))
+            .with_startup_timeout(STARTUP_TIMEOUT)
             .start()
             .await
             .expect("Failed to start sandbox container");
