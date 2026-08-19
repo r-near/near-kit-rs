@@ -612,7 +612,12 @@ impl<T: borsh::BorshDeserialize + Send + 'static> IntoFuture for ViewCallBorsh<T
 /// let near = Near::testnet().build();
 ///
 /// let contract = near.contract_code("app.near").await?;
-/// println!("code hash: {}, {} bytes", contract.hash, contract.code.len());
+/// println!(
+///     "code hash: {}, {} bytes, read at block {}",
+///     contract.hash,
+///     contract.code.len(),
+///     contract.block_height
+/// );
 ///
 /// // Check whether a contract is deployed at all
 /// if near.contract_code("app.near").exists().await? {

@@ -246,6 +246,8 @@ pub struct StateItem {
 /// When the trie holds more entries than `limit`, [`ViewStateResult::last_key`]
 /// is the continuation cursor: pass it back as `after_key` to fetch the next
 /// page. It is `None` on the last page.
+///
+/// Like every `query` view, it carries the block the page was read at.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ViewStateResult {
@@ -255,6 +257,10 @@ pub struct ViewStateResult {
     #[serde_as(as = "Option<Base64>")]
     #[serde(default)]
     pub last_key: Option<Vec<u8>>,
+    /// Block height of the query.
+    pub block_height: u64,
+    /// Block hash of the query.
+    pub block_hash: CryptoHash,
 }
 
 // ============================================================================
@@ -265,7 +271,8 @@ pub struct ViewStateResult {
 /// `view_global_contract_code` queries.
 ///
 /// `code` is raw WASM bytes; it is base64-encoded on the wire. `hash` is the
-/// SHA-256 hash of the code.
+/// SHA-256 hash of the code. Like every `query` view, it carries the block the
+/// code was read at.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ContractCodeView {
@@ -275,6 +282,10 @@ pub struct ContractCodeView {
     pub code: Vec<u8>,
     /// SHA-256 hash of the code.
     pub hash: CryptoHash,
+    /// Block height of the query.
+    pub block_height: u64,
+    /// Block hash of the query.
+    pub block_hash: CryptoHash,
 }
 
 // ============================================================================
@@ -1571,7 +1582,9 @@ mod tests {
                 { "key": STANDARD.encode(b"STATE"), "value": STANDARD.encode(b"v1") },
                 { "key": STANDARD.encode(b"k2"), "value": STANDARD.encode([0u8, 1, 2]) }
             ],
-            "last_key": STANDARD.encode(b"k2")
+            "last_key": STANDARD.encode(b"k2"),
+            "block_height": 12345,
+            "block_hash": "11111111111111111111111111111111"
         });
         let result: ViewStateResult = serde_json::from_value(json).unwrap();
         assert_eq!(result.values.len(), 2);
@@ -1579,13 +1592,20 @@ mod tests {
         assert_eq!(result.values[0].value, b"v1");
         assert_eq!(result.values[1].value, vec![0u8, 1, 2]);
         assert_eq!(result.last_key.as_deref(), Some(b"k2".as_slice()));
+        assert_eq!(result.block_height, 12345);
+        assert_eq!(
+            result.block_hash,
+            "11111111111111111111111111111111".parse().unwrap()
+        );
     }
 
     #[test]
     fn test_view_state_result_last_page_has_no_cursor() {
         // The final page omits `last_key`.
         let json = serde_json::json!({
-            "values": [{ "key": STANDARD.encode(b"k"), "value": STANDARD.encode(b"v") }]
+            "values": [{ "key": STANDARD.encode(b"k"), "value": STANDARD.encode(b"v") }],
+            "block_height": 12345,
+            "block_hash": "11111111111111111111111111111111"
         });
         let result: ViewStateResult = serde_json::from_value(json).unwrap();
         assert_eq!(result.values.len(), 1);

@@ -3718,4 +3718,76 @@ mod tests {
             assert_eq!(retry.field("max_attempts"), Some("2"));
         }
     }
+
+    // ========================================================================
+    // Block metadata on typed `query` views
+    // ========================================================================
+
+    fn rpc_with_result(result: serde_json::Value) -> RpcClient {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "result": result,
+        }))
+        .unwrap();
+        RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            Arc::new(StaticResponseTransport { body }),
+            RetryConfig {
+                max_retries: 0,
+                ..RetryConfig::default()
+            },
+        )
+    }
+
+    const QUERY_BLOCK_HASH: &str = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj";
+
+    #[tokio::test]
+    async fn test_view_code_keeps_block_metadata() {
+        let code_hash = CryptoHash::hash(b"\0asm");
+        let rpc = rpc_with_result(serde_json::json!({
+            "code_base64": STANDARD.encode(b"\0asm"),
+            "hash": code_hash.to_string(),
+            "block_height": 42u64,
+            "block_hash": QUERY_BLOCK_HASH,
+        }));
+        let account: AccountId = "app.near".parse().unwrap();
+
+        let view = rpc
+            .view_code(&account, BlockReference::final_())
+            .await
+            .unwrap();
+        assert_eq!(view.code, b"\0asm");
+        assert_eq!(view.hash, code_hash);
+        assert_eq!(view.block_height, 42);
+        assert_eq!(view.block_hash, QUERY_BLOCK_HASH.parse().unwrap());
+
+        // Same wire shape for the global-contract lookups.
+        let id = GlobalContractId::CodeHash(*code_hash.as_bytes());
+        let global = rpc
+            .view_global_contract_code(&id, BlockReference::final_())
+            .await
+            .unwrap();
+        assert_eq!(global, view);
+    }
+
+    #[tokio::test]
+    async fn test_view_state_keeps_block_metadata() {
+        let rpc = rpc_with_result(serde_json::json!({
+            "values": [{ "key": STANDARD.encode(b"k"), "value": STANDARD.encode(b"v") }],
+            "block_height": 9u64,
+            "block_hash": QUERY_BLOCK_HASH,
+        }));
+        let account: AccountId = "app.near".parse().unwrap();
+
+        let page = rpc
+            .view_state(&account, b"", None, None, BlockReference::final_())
+            .await
+            .unwrap();
+        assert_eq!(page.values.len(), 1);
+        assert_eq!(page.values[0].key, b"k");
+        assert_eq!(page.last_key, None);
+        assert_eq!(page.block_height, 9);
+        assert_eq!(page.block_hash, QUERY_BLOCK_HASH.parse().unwrap());
+    }
 }
