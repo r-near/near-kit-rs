@@ -694,6 +694,27 @@ impl RpcClient {
                         .unwrap_or(&error.message);
                     return RpcError::UnknownBlock(block_ref.to_string());
                 }
+                "GARBAGE_COLLECTED_BLOCK" => {
+                    // A height-based `query` past the node's GC horizon
+                    // (`RpcQueryError::GarbageCollectedBlock`). Same remedy as
+                    // an unknown block (archival node), and equally
+                    // deterministic, so it must not land on the retryable
+                    // catch-all. nearcore fills `block_hash` with
+                    // `unwrap_or_default()` when the header is gone too, so
+                    // the all-zero hash is noise and is left out.
+                    let block_ref = match (block_height, block_hash) {
+                        (Some(height), Some(hash)) if !hash.is_zero() => {
+                            format!("#{height} ({hash})")
+                        }
+                        (Some(height), _) => format!("#{height}"),
+                        (None, _) => data
+                            .as_ref()
+                            .and_then(|d| d.as_str())
+                            .unwrap_or(&error.message)
+                            .to_string(),
+                    };
+                    return RpcError::UnknownBlock(block_ref);
+                }
                 "UNKNOWN_CHUNK" => {
                     let chunk_ref = info
                         .and_then(|i| i.get("chunk_hash"))
@@ -2563,6 +2584,80 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_rpc_error_garbage_collected_block() {
+        let client = RpcClient::new("https://example.com");
+        // Real wire payload from rpc.mainnet.near.org (`view_account` at
+        // `block_id: 100000000`, HTTP 200).
+        let error: JsonRpcError = serde_json::from_value(serde_json::json!({
+            "name": "HANDLER_ERROR",
+            "cause": {
+                "name": "GARBAGE_COLLECTED_BLOCK",
+                "info": {
+                    "block_hash": "GLCuCE2yNJWH2EfWJu7pSM8swd5qd1RG71pwV4YFbUz7",
+                    "block_height": 100000000
+                }
+            },
+            "code": -32000,
+            "message": "Server error",
+            "data": "The data for block #100000000 is garbage collected on this node, use an archival node to fetch historical data"
+        }))
+        .unwrap();
+        let result = client.parse_rpc_error(&error);
+        match &result {
+            RpcError::UnknownBlock(block_ref) => {
+                assert_eq!(
+                    block_ref,
+                    "#100000000 (GLCuCE2yNJWH2EfWJu7pSM8swd5qd1RG71pwV4YFbUz7)"
+                );
+            }
+            other => panic!("expected UnknownBlock, got {other:?}"),
+        }
+        // Deterministic: must not inherit the catch-all's -32000 retry.
+        assert!(!result.is_retryable());
+
+        // rpc.testnet.near.org returns the all-zero hash when the header is
+        // gone too (`unwrap_or_default()` in nearcore); don't print it.
+        let error: JsonRpcError = serde_json::from_value(serde_json::json!({
+            "name": "HANDLER_ERROR",
+            "cause": {
+                "name": "GARBAGE_COLLECTED_BLOCK",
+                "info": {
+                    "block_hash": "11111111111111111111111111111111",
+                    "block_height": 100000000
+                }
+            },
+            "code": -32000,
+            "message": "Server error",
+            "data": "The data for block #100000000 is garbage collected on this node, use an archival node to fetch historical data"
+        }))
+        .unwrap();
+        match client.parse_rpc_error(&error) {
+            RpcError::UnknownBlock(block_ref) => assert_eq!(block_ref, "#100000000"),
+            other => panic!("expected UnknownBlock, got {other:?}"),
+        }
+
+        // No usable info: fall back to the descriptive `data` string.
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: Some(serde_json::json!(
+                "The data for block #5 is garbage collected"
+            )),
+            cause: Some(ErrorCause {
+                name: "GARBAGE_COLLECTED_BLOCK".to_string(),
+                info: None,
+            }),
+            name: None,
+        };
+        match client.parse_rpc_error(&error) {
+            RpcError::UnknownBlock(block_ref) => {
+                assert_eq!(block_ref, "The data for block #5 is garbage collected");
+            }
+            other => panic!("expected UnknownBlock, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_parse_rpc_error_unknown_chunk() {
         let client = RpcClient::new("https://example.com");
         let error = JsonRpcError {
@@ -3939,10 +4034,11 @@ mod tests {
     #[cfg(feature = "tracing")]
     mod tracing_events {
         use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::{Arc, Mutex};
+        use std::sync::{Arc, Mutex, Once};
 
         use tracing::field::{Field, Visit};
-        use tracing::{Event, Level, Subscriber};
+        use tracing::subscriber::Interest;
+        use tracing::{Event, Level, Subscriber, span};
         use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
         use super::*;
@@ -3993,9 +4089,53 @@ mod tests {
             }
         }
 
+        /// Permanent, do-nothing global subscriber that keeps callsites
+        /// "sometimes" interested.
+        ///
+        /// `tracing` caches each callsite's interest process-wide. While only
+        /// one dispatcher is registered, that cache is rebuilt from whichever
+        /// thread's *current* dispatcher first hits the callsite; a sibling
+        /// test driving the same RPC path on another thread with no subscriber
+        /// pins it to `never`, and the thread-scoped `EventLog` below never
+        /// sees the event (`cargo test --lib -- error` reproduced this).
+        /// Registering a second dispatcher that answers `sometimes` forces the
+        /// per-event `enabled` check to consult the thread-local subscriber
+        /// instead, so the scoped log is honored whatever the scheduling.
+        struct KeepAlive;
+
+        impl Subscriber for KeepAlive {
+            fn register_callsite(&self, _: &'static tracing::Metadata<'static>) -> Interest {
+                Interest::sometimes()
+            }
+
+            fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+                false
+            }
+
+            fn new_span(&self, _: &span::Attributes<'_>) -> span::Id {
+                span::Id::from_u64(1)
+            }
+
+            fn record(&self, _: &span::Id, _: &span::Record<'_>) {}
+
+            fn record_follows_from(&self, _: &span::Id, _: &span::Id) {}
+
+            fn event(&self, _: &Event<'_>) {}
+
+            fn enter(&self, _: &span::Id) {}
+
+            fn exit(&self, _: &span::Id) {}
+        }
+
         impl EventLog {
             /// Install as the thread-default subscriber for the current test.
             fn install(&self) -> tracing::subscriber::DefaultGuard {
+                static KEEP_ALIVE: Once = Once::new();
+                // Ignore the error: another global default is just as good
+                // for our purpose (anything but the no-op default works).
+                KEEP_ALIVE.call_once(|| {
+                    let _ = tracing::subscriber::set_global_default(KeepAlive);
+                });
                 tracing::subscriber::set_default(tracing_subscriber::registry().with(self.clone()))
             }
 
