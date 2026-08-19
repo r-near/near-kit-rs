@@ -339,6 +339,22 @@ pub enum RpcError {
 
 impl RpcError {
     /// Check if this error is retryable.
+    ///
+    /// "Retryable" means re-sending the *same* request may succeed: transient
+    /// transport failures, timeouts, and server-side conditions like an
+    /// unsynced node or a 5xx. This is what `RpcClient::call` consults
+    /// between attempts.
+    ///
+    /// For [`RpcError::InvalidTx`] the signed payload is fixed at this layer,
+    /// so only rejections that can clear while the *same* bytes are re-sent
+    /// count: `ShardCongested` and `ShardStuck`. `InvalidNonce` is transient
+    /// too ([`InvalidTxError::is_retryable`] says so) but re-sending the
+    /// rejected transaction byte-for-byte can never succeed — it needs a
+    /// fresh nonce and a new signature. That refresh-and-re-sign loop lives
+    /// in the transaction layer (`Near::send*`), where retrying can actually
+    /// change the outcome, so it is `false` here.
+    ///
+    /// [`InvalidTxError::is_retryable`]: crate::types::InvalidTxError::is_retryable
     pub fn is_retryable(&self) -> bool {
         match self {
             #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
@@ -364,6 +380,10 @@ impl RpcError {
             RpcError::NodeNotSynced(_) => true,
             RpcError::InternalError(_) => true,
             RpcError::RequestTimeout { .. } => true,
+            // The payload is fixed here, so `InvalidNonce` can't be fixed by
+            // re-sending it (the transaction layer re-signs instead); shard
+            // congestion/stalls can clear on their own. See the doc comment.
+            RpcError::InvalidTx(InvalidTxError::InvalidNonce { .. }) => false,
             RpcError::InvalidTx(e) => e.is_retryable(),
             RpcError::Rpc { code, .. } => {
                 // Retry on server errors
@@ -864,16 +884,17 @@ mod tests {
             }
             .is_retryable()
         );
+        // Shard congestion can clear while the same signed bytes are re-sent.
         assert!(
-            RpcError::InvalidTx(InvalidTxError::InvalidNonce {
-                tx_nonce: 5,
-                ak_nonce: 10
+            RpcError::InvalidTx(InvalidTxError::ShardCongested {
+                congestion_level: 1.0,
+                shard_id: 0,
             })
             .is_retryable()
         );
         assert!(
-            RpcError::InvalidTx(InvalidTxError::ShardCongested {
-                congestion_level: 1.0,
+            RpcError::InvalidTx(InvalidTxError::ShardStuck {
+                missed_chunks: 3,
                 shard_id: 0,
             })
             .is_retryable()
@@ -916,6 +937,16 @@ mod tests {
         assert!(!RpcError::InvalidAccount("bad".to_string()).is_retryable());
         assert!(!RpcError::UnknownBlock("12345".to_string()).is_retryable());
         assert!(!RpcError::ParseError("bad json".to_string()).is_retryable());
+        // InvalidNonce is transient at the transaction layer (re-sign with a
+        // fresh nonce) but terminal here: the signed payload can't change
+        // between attempts, so re-sending it can't succeed.
+        assert!(
+            !RpcError::InvalidTx(InvalidTxError::InvalidNonce {
+                tx_nonce: 5,
+                ak_nonce: 10
+            })
+            .is_retryable()
+        );
         assert!(
             !RpcError::InvalidTx(InvalidTxError::NotEnoughBalance {
                 signer_id: account_id.clone(),
