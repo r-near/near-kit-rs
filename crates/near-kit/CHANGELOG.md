@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.16.0...near-kit-v0.17.0) - 2026-08-19
+
+### Added
+
+- [**breaking**] return block_height/block_hash from view_state_all via ViewStateAllResult ([#303](https://github.com/r-near/near-kit-rs/pull/303))
+- [**breaking**] paginate view_access_key_list (after_key/limit/last_key) and map TOO_MANY_ACCESS_KEYS ([#305](https://github.com/r-near/near-kit-rs/pull/305))
+
+### Fixed
+
+- map GARBAGE_COLLECTED_BLOCK to UnknownBlock; scope tracing test subscriber ([#309](https://github.com/r-near/near-kit-rs/pull/309))
+- [**breaking**] carry block context on ContractStateTooLarge (and other lossy handler errors); map UNKNOWN_GAS_KEY ([#304](https://github.com/r-near/near-kit-rs/pull/304))
+
+### Other
+
+- de-flake global contract sandbox tests by waiting for deploy finality ([#306](https://github.com/r-near/near-kit-rs/pull/306))
+
 ## [0.16.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.15.0...near-kit-v0.16.0) - 2026-08-19
 
 ### Added
