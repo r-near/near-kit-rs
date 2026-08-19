@@ -459,7 +459,10 @@ impl RpcClient {
                         self.retry_config.initial_delay_ms * 2u64.pow(attempt),
                         self.retry_config.max_delay_ms,
                     );
-                    trace::warn!(
+                    // DEBUG, not WARN: the retry is routine and the caller
+                    // sees the final outcome either way. Retryable variants
+                    // are never enriched downstream, so `Display` is accurate.
+                    trace::debug!(
                         attempt = attempt + 1,
                         max_attempts = total_attempts,
                         delay_ms = delay,
@@ -470,7 +473,12 @@ impl RpcClient {
                     continue;
                 }
                 Err(e) => {
-                    trace::error!(error = %e, "RPC request failed");
+                    // DEBUG, not ERROR: the error is returned to the caller,
+                    // who decides whether it is worth reporting. Only the
+                    // variant is logged — the typed helpers may still patch
+                    // caller-known context (contract, method, ...) into it,
+                    // so its `Display` text can be misleading here.
+                    trace::debug!(error.kind = e.variant_name(), "RPC request failed");
                     return Err(e);
                 }
             }
@@ -3253,5 +3261,202 @@ mod tests {
         let block = BlockReference::genesis();
         let result = block_id_or_null(Some(&block));
         assert!(result.is_null(), "sync checkpoint should map to null");
+    }
+
+    // ========================================================================
+    // Tracing event tests
+    // ========================================================================
+
+    /// The library must not log above DEBUG for errors it hands back to the
+    /// caller. These install a capturing subscriber and check the level and
+    /// fields of every event `RpcClient::call` emits.
+    #[cfg(feature = "tracing")]
+    mod tracing_events {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, Mutex};
+
+        use tracing::field::{Field, Visit};
+        use tracing::{Event, Level, Subscriber};
+        use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+
+        use super::*;
+
+        /// A captured event: its level plus every field rendered as text.
+        #[derive(Clone, Debug)]
+        struct CapturedEvent {
+            level: Level,
+            fields: Vec<(&'static str, String)>,
+        }
+
+        impl CapturedEvent {
+            fn field(&self, name: &str) -> Option<&str> {
+                self.fields
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .map(|(_, v)| v.as_str())
+            }
+
+            fn message(&self) -> Option<&str> {
+                self.field("message")
+            }
+        }
+
+        struct FieldVisitor<'a>(&'a mut Vec<(&'static str, String)>);
+
+        impl Visit for FieldVisitor<'_> {
+            fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+                self.0.push((field.name(), format!("{value:?}")));
+            }
+
+            fn record_str(&mut self, field: &Field, value: &str) {
+                self.0.push((field.name(), value.to_string()));
+            }
+        }
+
+        #[derive(Clone, Default)]
+        struct EventLog(Arc<Mutex<Vec<CapturedEvent>>>);
+
+        impl<S: Subscriber> Layer<S> for EventLog {
+            fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+                let mut fields = Vec::new();
+                event.record(&mut FieldVisitor(&mut fields));
+                self.0.lock().unwrap().push(CapturedEvent {
+                    level: *event.metadata().level(),
+                    fields,
+                });
+            }
+        }
+
+        impl EventLog {
+            /// Install as the thread-default subscriber for the current test.
+            fn install(&self) -> tracing::subscriber::DefaultGuard {
+                tracing::subscriber::set_default(tracing_subscriber::registry().with(self.clone()))
+            }
+
+            fn events(&self) -> Vec<CapturedEvent> {
+                self.0.lock().unwrap().clone()
+            }
+        }
+
+        fn assert_nothing_above_debug(events: &[CapturedEvent]) {
+            let loud: Vec<_> = events
+                .iter()
+                .filter(|e| matches!(e.level, Level::INFO | Level::WARN | Level::ERROR))
+                .collect();
+            assert!(
+                loud.is_empty(),
+                "expected no events above DEBUG, got: {loud:?}"
+            );
+        }
+
+        /// Fails the first request with a retryable HTTP status, then succeeds.
+        struct FlakyTransport {
+            calls: AtomicUsize,
+        }
+
+        impl RpcTransport for FlakyTransport {
+            fn post_json(
+                &self,
+                _url: &str,
+                _body: Vec<u8>,
+            ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+                let attempt = self.calls.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    Ok(if attempt == 0 {
+                        TransportResponse {
+                            status: 503,
+                            body: b"upstream unavailable".to_vec(),
+                        }
+                    } else {
+                        TransportResponse {
+                            status: 200,
+                            body: br#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#.to_vec(),
+                        }
+                    })
+                })
+            }
+        }
+
+        #[tokio::test]
+        async fn terminal_error_is_debug_and_names_the_variant() {
+            let log = EventLog::default();
+            let _guard = log.install();
+
+            // The EXPERIMENTAL endpoint omits contract_id/method_name, so the
+            // parser produces `unknown::unknown` and `view_function` patches in
+            // the real names afterwards.
+            let contract_id: AccountId = "contract.near".parse().unwrap();
+            let error = rpc_with_handler_error(
+                "CONTRACT_EXECUTION_ERROR",
+                serde_json::json!({ "vm_error": { "MethodResolveError": "MethodNotFound" } }),
+            )
+            .view_function(
+                &contract_id,
+                "no_such_method",
+                &[],
+                BlockReference::final_(),
+            )
+            .await
+            .unwrap_err();
+            assert!(
+                matches!(&error, RpcError::MethodNotFound { method_name, .. } if method_name == "no_such_method"),
+                "expected enriched MethodNotFound, got {error:?}"
+            );
+
+            let events = log.events();
+            assert_nothing_above_debug(&events);
+
+            let failed = events
+                .iter()
+                .find(|e| e.message() == Some("RPC request failed"))
+                .unwrap_or_else(|| panic!("no terminal failure event in {events:?}"));
+            assert_eq!(failed.level, Level::DEBUG);
+            assert_eq!(failed.field("error.kind"), Some("MethodNotFound"));
+
+            // The pre-enrichment `Display` text must not leak into any event.
+            let leaked: Vec<_> = events
+                .iter()
+                .filter(|e| e.fields.iter().any(|(_, v)| v.contains("unknown::unknown")))
+                .collect();
+            assert!(
+                leaked.is_empty(),
+                "pre-enrichment error text leaked: {leaked:?}"
+            );
+        }
+
+        #[tokio::test]
+        async fn retry_is_debug() {
+            let log = EventLog::default();
+            let _guard = log.install();
+
+            let transport = Arc::new(FlakyTransport {
+                calls: AtomicUsize::new(0),
+            });
+            let client = RpcClient::with_transport_and_retry_config(
+                "https://example.com",
+                transport.clone(),
+                RetryConfig {
+                    max_retries: 1,
+                    initial_delay_ms: 0,
+                    max_delay_ms: 0,
+                },
+            );
+
+            let result: serde_json::Value =
+                client.call("status", serde_json::json!({})).await.unwrap();
+            assert_eq!(result["ok"], true);
+            assert_eq!(transport.calls.load(Ordering::SeqCst), 2);
+
+            let events = log.events();
+            assert_nothing_above_debug(&events);
+
+            let retry = events
+                .iter()
+                .find(|e| e.message() == Some("RPC request failed, retrying"))
+                .unwrap_or_else(|| panic!("no retry event in {events:?}"));
+            assert_eq!(retry.level, Level::DEBUG);
+            assert_eq!(retry.field("attempt"), Some("1"));
+            assert_eq!(retry.field("max_attempts"), Some("2"));
+        }
     }
 }

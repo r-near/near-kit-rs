@@ -456,6 +456,47 @@ impl RpcError {
         matches!(self, RpcError::GlobalContractNotFound(_))
     }
 
+    /// The variant name, for structured `tracing` fields.
+    ///
+    /// Used instead of the `Display` text in RPC-layer events: some variants
+    /// are only fully populated after the typed helpers patch in caller-known
+    /// context (e.g. [`MethodNotFound`](Self::MethodNotFound) reads
+    /// `unknown::unknown` straight out of the parser), so their message would
+    /// be misleading in a log line.
+    #[cfg(all(feature = "rpc", feature = "tracing"))]
+    pub(crate) fn variant_name(&self) -> &'static str {
+        match self {
+            #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
+            RpcError::Http(_) => "Http",
+            RpcError::Network { .. } => "Network",
+            RpcError::Timeout(_) => "Timeout",
+            RpcError::Json(_) => "Json",
+            RpcError::InvalidResponse(_) => "InvalidResponse",
+            RpcError::Rpc { .. } => "Rpc",
+            RpcError::AccountNotFound { .. } => "AccountNotFound",
+            RpcError::InvalidAccount(_) => "InvalidAccount",
+            RpcError::AccessKeyNotFound { .. } => "AccessKeyNotFound",
+            RpcError::ContractNotDeployed { .. } => "ContractNotDeployed",
+            RpcError::ContractStateTooLarge(_) => "ContractStateTooLarge",
+            RpcError::GlobalContractNotFound(_) => "GlobalContractNotFound",
+            RpcError::ContractExecution { .. } => "ContractExecution",
+            RpcError::MethodNotFound { .. } => "MethodNotFound",
+            RpcError::ContractPanic { .. } => "ContractPanic",
+            RpcError::UnknownBlock(_) => "UnknownBlock",
+            RpcError::UnknownChunk(_) => "UnknownChunk",
+            RpcError::UnknownEpoch(_) => "UnknownEpoch",
+            RpcError::InvalidShardId(_) => "InvalidShardId",
+            RpcError::UnknownReceipt(_) => "UnknownReceipt",
+            RpcError::InvalidTx(_) => "InvalidTx",
+            RpcError::InvalidTransaction { .. } => "InvalidTransaction",
+            RpcError::ShardUnavailable(_) => "ShardUnavailable",
+            RpcError::NodeNotSynced(_) => "NodeNotSynced",
+            RpcError::InternalError(_) => "InternalError",
+            RpcError::ParseError(_) => "ParseError",
+            RpcError::RequestTimeout { .. } => "RequestTimeout",
+        }
+    }
+
     /// Returns the block height attached to a view RPC error, if available.
     pub fn block_height(&self) -> Option<u64> {
         match self {

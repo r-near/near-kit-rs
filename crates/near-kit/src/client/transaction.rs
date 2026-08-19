@@ -1702,7 +1702,7 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                         Err(RpcError::InvalidTx(
                             crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
                         )) if attempt < max_nonce_retries => {
-                            trace::warn!(
+                            trace::debug!(
                                 tx_nonce = tx_nonce,
                                 ak_nonce = ak_nonce,
                                 attempt = attempt + 1,
@@ -1718,7 +1718,7 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                         Err(RpcError::InvalidTx(crate::types::InvalidTxError::Expired))
                             if attempt + 1 < max_nonce_retries =>
                         {
-                            trace::warn!(
+                            trace::debug!(
                                 attempt = attempt + 1,
                                 "Transaction expired (stale block hash), retrying with fresh block hash"
                             );
@@ -1732,7 +1732,9 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                             continue;
                         }
                         Err(e) => {
-                            trace::error!(error = %e, "Transaction send failed");
+                            // DEBUG, not ERROR: the error is returned to the
+                            // caller (see `RpcClient::call`).
+                            trace::debug!(error = %e, "Transaction send failed");
                             return Err(e.into());
                         }
                     }

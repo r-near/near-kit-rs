@@ -491,9 +491,21 @@
 //! | `wasi-http` | Yes | Built-in `wasi:http` transport for `wasm32-wasip2` (implies `rpc`; no-op elsewhere). Disable on WASI hosts without `wasi:http` and inject a transport via [`NearBuilder::transport`] |
 //! | `keyring` | Yes | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
 //! | `file-signer` | Yes | [`FileSigner`] for loading keys from `~/.near-credentials` |
-//! | `tracing` | Yes | [`tracing`](https://docs.rs/tracing) spans and events for RPC calls and transactions |
+//! | `tracing` | Yes | [`tracing`](https://docs.rs/tracing) spans and events for RPC calls and transactions (see below) |
 //! | `sandbox` | No | Integration with `near-sandbox` for local testing (implies `rpc`) |
 //! | `js` | No | JS-host entropy backend (`getrandom`'s `wasm_js`) for `wasm32-unknown-unknown` |
+//!
+//! ### Tracing
+//!
+//! With `tracing` on, RPC calls and transactions run inside spans (`call`,
+//! `view_function`, `send_transaction`, ...) and emit events at DEBUG (retries,
+//! failed requests, transaction lifecycle) and TRACE (raw request/response
+//! payloads); the `sandbox` feature additionally reports container start-up at
+//! INFO. near-kit never logs at WARN or ERROR for an error it returns to you —
+//! that is the caller's decision — so a WARN-level subscriber stays quiet on
+//! expected failures such as probing a contract for a method it doesn't export.
+//! The one WARN is reserved for an anomaly that is *not* surfaced as an error:
+//! an RPC error variant this version couldn't parse and mapped to `Unknown`.
 //!
 //! ## Error Handling
 //!
