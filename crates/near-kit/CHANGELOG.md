@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `SecretKey::to_ml_dsa65_expanded()`, `SecretKey::to_ml_dsa65_expanded_bytes()`
+  and `SecretKey::generate_ml_dsa65_expanded()` to export ML-DSA-65 secret keys
+  in the 4032-byte expanded form that nearcore's `near-crypto` parses; document
+  that the 32-byte seed form `generate_ml_dsa65()` prints is near-kit-only
+
 ## [0.15.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.14.0...near-kit-v0.15.0) - 2026-08-11
 
 ### Added
