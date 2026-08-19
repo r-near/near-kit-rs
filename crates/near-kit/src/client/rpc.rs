@@ -221,6 +221,125 @@ fn classify_function_call_error(
     }
 }
 
+/// Classify the string form of a `FunctionCallError` when no usable structured
+/// `vm_error` accompanies it.
+///
+/// Older nodes and some providers only report the `Debug` rendering of the
+/// error, wrapped in `Function call returned an error: ...` (RPC `data`) or
+/// `wasm execution failed with error: ...` (legacy `query` `vm_error`
+/// string). Map the same cases as [`classify_function_call_error`] so callers
+/// can rely on the typed variants regardless of which shape the provider
+/// returns. Anything unrecognized stays `None` so the caller keeps the raw
+/// message in [`RpcError::ContractExecution`].
+fn classify_legacy_function_call_error(
+    message: &str,
+    contract_id: &AccountId,
+    method_name: Option<&str>,
+    block_height: Option<u64>,
+    block_hash: Option<CryptoHash>,
+) -> Option<RpcError> {
+    const ENVELOPES: [&str; 2] = [
+        "Function call returned an error:",
+        "wasm execution failed with error:",
+    ];
+
+    let error = ENVELOPES.iter().fold(message.trim(), |rest, prefix| {
+        rest.strip_prefix(prefix).map_or(rest, str::trim_start)
+    });
+
+    // Container variants first: their payload is free text that could embed
+    // any of the tokens matched below.
+    if let Some(rest) = find_after(error, "ExecutionError(") {
+        // `ExecutionError("Smart contract panicked: ...")`
+        let inner = parse_debug_str(rest)
+            .unwrap_or_else(|| rest.trim_end().trim_end_matches(')').to_string());
+        return extract_contract_panic_message(&inner).map(|message| RpcError::ContractPanic {
+            message,
+            block_height,
+            block_hash,
+        });
+    }
+    if let Some(rest) = find_after(error, "HostError(GuestPanic") {
+        // `HostError(GuestPanic { panic_msg: "..." })`
+        let message = find_after(rest, "panic_msg:")
+            .and_then(|rest| parse_debug_str(rest.trim_start()))
+            .unwrap_or_else(|| error.to_string());
+        return Some(RpcError::ContractPanic {
+            message,
+            block_height,
+            block_hash,
+        });
+    }
+    if let Some(rest) = find_after(error, "CompilationError(CodeDoesNotExist") {
+        // `CompilationError(CodeDoesNotExist { account_id: AccountId("x.near") })`
+        let account_id = find_after(rest, "account_id:")
+            .and_then(|rest| rest.find('"').map(|index| &rest[index..]))
+            .and_then(parse_debug_str)
+            .and_then(|account_id| account_id.parse().ok())
+            .unwrap_or_else(|| contract_id.clone());
+        return Some(RpcError::ContractNotDeployed {
+            account_id,
+            block_height,
+            block_hash,
+        });
+    }
+    if error.contains("MethodResolveError(MethodNotFound)") {
+        return Some(RpcError::MethodNotFound {
+            contract_id: contract_id.clone(),
+            method_name: method_name.unwrap_or("unknown").to_string(),
+            block_height,
+            block_hash,
+        });
+    }
+
+    // `Display` rendering of a guest panic.
+    extract_contract_panic_message(error).map(|message| RpcError::ContractPanic {
+        message,
+        block_height,
+        block_hash,
+    })
+}
+
+/// Return the text following the first occurrence of `needle` in `haystack`.
+fn find_after<'a>(haystack: &'a str, needle: &str) -> Option<&'a str> {
+    haystack
+        .find(needle)
+        .map(|index| &haystack[index + needle.len()..])
+}
+
+/// Parse a Rust `Debug`-formatted string literal (`"..."`, with escapes) at the
+/// start of `input`, returning its unescaped contents.
+fn parse_debug_str(input: &str) -> Option<String> {
+    let mut chars = input.strip_prefix('"')?.chars();
+    let mut out = String::new();
+    loop {
+        match chars.next()? {
+            '"' => return Some(out),
+            '\\' => match chars.next()? {
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
+                '0' => out.push('\0'),
+                'u' => {
+                    // `\u{XXXX}`
+                    if chars.next()? != '{' {
+                        return None;
+                    }
+                    let hex: String = chars.by_ref().take_while(|c| *c != '}').collect();
+                    out.push(
+                        u32::from_str_radix(&hex, 16)
+                            .ok()
+                            .and_then(char::from_u32)?,
+                    );
+                }
+                // `\"`, `\\`, `\'`
+                escaped => out.push(escaped),
+            },
+            c => out.push(c),
+        }
+    }
+}
+
 /// nearcore collapses current execution failures to strings, but retains a
 /// stable prefix for explicit guest panics.
 fn extract_contract_panic_message(message: &str) -> Option<String> {
@@ -585,6 +704,28 @@ impl RpcClient {
                             block_hash,
                         )
                     }) {
+                        return specific_error;
+                    }
+
+                    // Legacy shape: no usable structured `vm_error`, only the
+                    // Debug rendering of the error in `data` (or in the legacy
+                    // `query` endpoint's `vm_error` string).
+                    let legacy_messages = [
+                        data.as_ref().and_then(|d| d.as_str()),
+                        info.and_then(|i| i.get("vm_error"))
+                            .and_then(|v| v.as_str()),
+                    ];
+                    if let Some(specific_error) =
+                        legacy_messages.into_iter().flatten().find_map(|message| {
+                            classify_legacy_function_call_error(
+                                message,
+                                &contract_id,
+                                method_name.as_deref(),
+                                block_height,
+                                block_hash,
+                            )
+                        })
+                    {
                         return specific_error;
                     }
 
@@ -2556,6 +2697,191 @@ mod tests {
             }
             _ => panic!("Expected ContractNotDeployed error, got {:?}", result),
         }
+    }
+
+    /// Build a `CONTRACT_EXECUTION_ERROR` whose only description of the
+    /// failure is the string form: no structured `vm_error` anywhere.
+    fn legacy_string_error(data: Option<&str>, info: Option<serde_json::Value>) -> JsonRpcError {
+        JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: data.map(|d| serde_json::json!(d)),
+            cause: Some(ErrorCause {
+                name: "CONTRACT_EXECUTION_ERROR".to_string(),
+                info,
+            }),
+            name: Some("HANDLER_ERROR".to_string()),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_legacy_string_method_not_found() {
+        let client = RpcClient::new("https://example.com");
+        let error = legacy_string_error(
+            Some("Function call returned an error: MethodResolveError(MethodNotFound)"),
+            None,
+        );
+
+        match client.parse_rpc_error(&error) {
+            RpcError::MethodNotFound {
+                contract_id,
+                method_name,
+                block_height: None,
+                block_hash: None,
+            } => {
+                assert_eq!(contract_id.as_str(), "unknown");
+                assert_eq!(method_name, "unknown");
+            }
+            other => panic!("Expected MethodNotFound error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_legacy_string_method_not_found_with_info_context() {
+        // `info` is present (legacy `query` shape with contract/method and
+        // block context) but carries no structured `vm_error`.
+        let client = RpcClient::new("https://example.com");
+        let error = legacy_string_error(
+            Some("Function call returned an error: MethodResolveError(MethodNotFound)"),
+            Some(serde_json::json!({
+                "contract_id": "contract.near",
+                "method_name": "my_method",
+                "block_height": 243803767,
+                "block_hash": "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+            })),
+        );
+
+        match client.parse_rpc_error(&error) {
+            RpcError::MethodNotFound {
+                contract_id,
+                method_name,
+                block_height,
+                block_hash,
+            } => {
+                assert_eq!(contract_id.as_str(), "contract.near");
+                assert_eq!(method_name, "my_method");
+                assert_eq!(block_height, Some(243_803_767));
+                assert_eq!(
+                    block_hash,
+                    Some(
+                        "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+                            .parse()
+                            .unwrap()
+                    )
+                );
+            }
+            other => panic!("Expected MethodNotFound error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_legacy_string_code_does_not_exist() {
+        let client = RpcClient::new("https://example.com");
+        let error = legacy_string_error(
+            Some(
+                "Function call returned an error: CompilationError(CodeDoesNotExist { account_id: AccountId(\"nonexistent.testnet\") })",
+            ),
+            Some(serde_json::json!({
+                "block_height": 243803764,
+                "block_hash": "11111111111111111111111111111111"
+            })),
+        );
+
+        match client.parse_rpc_error(&error) {
+            RpcError::ContractNotDeployed {
+                account_id,
+                block_height: Some(243_803_764),
+                block_hash: Some(CryptoHash::ZERO),
+            } => assert_eq!(account_id.as_str(), "nonexistent.testnet"),
+            other => panic!("Expected ContractNotDeployed error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_legacy_string_guest_panic_in_vm_error_string() {
+        // Legacy `query` shape: `vm_error` is the Debug rendering as a string,
+        // and there is no `data` at all.
+        let client = RpcClient::new("https://example.com");
+        let error = legacy_string_error(
+            None,
+            Some(serde_json::json!({
+                "vm_error": "wasm execution failed with error: HostError(GuestPanic { panic_msg: \"assertion failed: \\\"a\\\" != \\\"b\\\"\" })",
+            })),
+        );
+
+        match client.parse_rpc_error(&error) {
+            RpcError::ContractPanic { message, .. } => {
+                assert_eq!(message, "assertion failed: \"a\" != \"b\"");
+            }
+            other => panic!("Expected ContractPanic error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_legacy_string_execution_error_panic() {
+        let client = RpcClient::new("https://example.com");
+        let panic_msg = "panicked at 'Failed to deserialize input from JSON.: Error(\"missing field `keys`\", line: 1, column: 2)', contract/src/api.rs:54:1";
+        let error = legacy_string_error(
+            Some(&format!(
+                "Function call returned an error: ExecutionError({:?})",
+                format!("Smart contract panicked: {panic_msg}")
+            )),
+            None,
+        );
+
+        match client.parse_rpc_error(&error) {
+            RpcError::ContractPanic { message, .. } => assert_eq!(message, panic_msg),
+            other => panic!("Expected ContractPanic error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_legacy_string_unknown_stays_generic() {
+        let client = RpcClient::new("https://example.com");
+        let data = "Function call returned an error: WasmTrap(Unreachable)";
+        let error = legacy_string_error(Some(data), None);
+
+        match client.parse_rpc_error(&error) {
+            RpcError::ContractExecution { message, .. } => assert_eq!(message, data),
+            other => panic!("Expected ContractExecution error, got {other:?}"),
+        }
+
+        // A non-panic ExecutionError must not be promoted either, even though
+        // it shares the container variant with panics.
+        let data = "Function call returned an error: ExecutionError(\"memory access violation\")";
+        let error = legacy_string_error(Some(data), None);
+        match client.parse_rpc_error(&error) {
+            RpcError::ContractExecution { message, .. } => assert_eq!(message, data),
+            other => panic!("Expected ContractExecution error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_structured_vm_error_wins_over_legacy_string() {
+        // When both shapes are present the structured field is authoritative,
+        // even if the string disagrees.
+        let client = RpcClient::new("https://example.com");
+        let error = legacy_string_error(
+            Some("Function call returned an error: MethodResolveError(MethodNotFound)"),
+            Some(serde_json::json!({
+                "vm_error": { "HostError": { "GuestPanic": { "panic_msg": "structured" } } },
+            })),
+        );
+
+        match client.parse_rpc_error(&error) {
+            RpcError::ContractPanic { message, .. } => assert_eq!(message, "structured"),
+            other => panic!("Expected ContractPanic error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_debug_str_unescapes_rust_debug_output() {
+        let original = "quote \" backslash \\ newline \n tab \t bell \u{7} unicode é 🚀";
+        let rendered = format!("{original:?} trailing");
+        assert_eq!(parse_debug_str(&rendered).as_deref(), Some(original));
+        // Unterminated or non-literal input is rejected rather than guessed.
+        assert_eq!(parse_debug_str("\"unterminated"), None);
+        assert_eq!(parse_debug_str("not a literal"), None);
     }
 
     #[test]
