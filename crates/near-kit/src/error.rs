@@ -164,14 +164,6 @@ pub enum ActionViewConversionError {
         actual: usize,
     },
 
-    /// The view carried an `ml-dsa-65-hash:` handle where an action needs a
-    /// full public key. Handles are on-trie digests and cannot be serialized
-    /// into an action.
-    #[error(
-        "Public key `{0}` is an ml-dsa-65-hash handle, not a full key; it cannot be used in an action"
-    )]
-    MlDsa65HashHandle(PublicKey),
-
     /// A `Delegate` / `DelegateV2` view contained a nested delegate action,
     /// which the protocol forbids.
     #[error("A delegate action must not contain a nested delegate action")]

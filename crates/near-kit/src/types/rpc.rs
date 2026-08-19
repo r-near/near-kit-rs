@@ -1364,15 +1364,6 @@ fn decode_code_hash(code: &str) -> Result<CryptoHash, ActionViewConversionError>
     })
 }
 
-/// Reject `ml-dsa-65-hash:` handles: an action needs a full public key.
-fn require_full_key(public_key: PublicKey) -> Result<PublicKey, ActionViewConversionError> {
-    if public_key.is_ml_dsa65_hash() {
-        Err(ActionViewConversionError::MlDsa65HashHandle(public_key))
-    } else {
-        Ok(public_key)
-    }
-}
-
 /// Convert the inner actions of a delegate view, rejecting nested delegates.
 fn non_delegate_actions(
     views: Vec<ActionView>,
@@ -1390,7 +1381,7 @@ impl TryFrom<DelegateActionView> for DelegateAction {
             actions: non_delegate_actions(view.actions)?,
             nonce: view.nonce,
             max_block_height: view.max_block_height,
-            public_key: require_full_key(view.public_key)?,
+            public_key: view.public_key,
         })
     }
 }
@@ -1405,7 +1396,7 @@ impl TryFrom<DelegateActionV2View> for DelegateActionV2 {
             actions: non_delegate_actions(view.actions)?,
             nonce: view.nonce.into(),
             max_block_height: view.max_block_height,
-            public_key: require_full_key(view.public_key)?,
+            public_key: view.public_key,
         })
     }
 }
@@ -1442,10 +1433,6 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 ///
 /// * Invalid base64 in `args`, `code`, or state-init `data` →
 ///   [`ActionViewConversionError::InvalidBase64`].
-/// * An `ml-dsa-65-hash:` public-key handle anywhere an action needs a full
-///   key (`Stake`, `AddKey`, `DeleteKey`, gas-key actions, delegate signers)
-///   → [`ActionViewConversionError::MlDsa65HashHandle`]; handles cannot be
-///   serialized into an action.
 /// * A delegate action nested inside a `Delegate` / `DelegateV2` view →
 ///   [`ActionViewConversionError::NestedDelegate`].
 ///
@@ -1513,20 +1500,17 @@ impl TryFrom<ActionView> for Action {
                 deposit,
             }),
             ActionView::Transfer { deposit } => Self::Transfer(TransferAction { deposit }),
-            ActionView::Stake { stake, public_key } => Self::Stake(StakeAction {
-                stake,
-                public_key: require_full_key(public_key)?,
-            }),
+            ActionView::Stake { stake, public_key } => {
+                Self::Stake(StakeAction { stake, public_key })
+            }
             ActionView::AddKey {
                 public_key,
                 access_key,
             } => Self::AddKey(AddKeyAction {
-                public_key: require_full_key(public_key)?,
+                public_key,
                 access_key: access_key.into(),
             }),
-            ActionView::DeleteKey { public_key } => Self::DeleteKey(DeleteKeyAction {
-                public_key: require_full_key(public_key)?,
-            }),
+            ActionView::DeleteKey { public_key } => Self::DeleteKey(DeleteKeyAction { public_key }),
             ActionView::DeleteAccount { beneficiary_id } => {
                 Self::DeleteAccount(DeleteAccountAction { beneficiary_id })
             }
@@ -1593,14 +1577,11 @@ impl TryFrom<ActionView> for Action {
                 public_key,
                 deposit,
             } => Self::TransferToGasKey(TransferToGasKeyAction {
-                public_key: require_full_key(public_key)?,
+                public_key,
                 deposit,
             }),
             ActionView::WithdrawFromGasKey { public_key, amount } => {
-                Self::WithdrawFromGasKey(WithdrawFromGasKeyAction {
-                    public_key: require_full_key(public_key)?,
-                    amount,
-                })
+                Self::WithdrawFromGasKey(WithdrawFromGasKeyAction { public_key, amount })
             }
         })
     }
@@ -3459,27 +3440,5 @@ mod action_view_conversion_tests {
             convert(json),
             Err(ActionViewConversionError::NestedDelegate)
         );
-    }
-
-    #[test]
-    fn ml_dsa65_hash_handle_is_rejected() {
-        let handle = format!("ml-dsa-65-hash:{}", bs58::encode([3u8; 32]).into_string());
-        let json = serde_json::json!({
-            "AddKey": {
-                "public_key": handle,
-                "access_key": { "nonce": 0_u64, "permission": "FullAccess" }
-            }
-        });
-        match convert(json) {
-            Err(ActionViewConversionError::MlDsa65HashHandle(pk)) => {
-                assert!(pk.is_ml_dsa65_hash())
-            }
-            other => panic!("expected MlDsa65HashHandle, got {other:?}"),
-        }
-        let json = serde_json::json!({ "DeleteKey": { "public_key": handle } });
-        assert!(matches!(
-            convert(json),
-            Err(ActionViewConversionError::MlDsa65HashHandle(_))
-        ));
     }
 }
