@@ -345,14 +345,14 @@ impl RpcError {
     /// unsynced node or a 5xx. This is what `RpcClient::call` consults
     /// between attempts.
     ///
-    /// [`RpcError::InvalidTx`] is deliberately *not* retryable here, even for
-    /// variants that [`InvalidTxError::is_retryable`] flags as transient
-    /// (`InvalidNonce`, `ShardCongested`, `ShardStuck`). At this layer the
-    /// signed payload is fixed, and a transaction the node has already
-    /// rejected cannot succeed by re-sending it byte-for-byte — an
-    /// `InvalidNonce` needs a fresh nonce and a new signature. That refresh
-    /// and re-sign loop lives in the transaction layer (`Near::send*`), which
-    /// is where retrying can actually change the outcome.
+    /// For [`RpcError::InvalidTx`] the signed payload is fixed at this layer,
+    /// so only rejections that can clear while the *same* bytes are re-sent
+    /// count: `ShardCongested` and `ShardStuck`. `InvalidNonce` is transient
+    /// too ([`InvalidTxError::is_retryable`] says so) but re-sending the
+    /// rejected transaction byte-for-byte can never succeed — it needs a
+    /// fresh nonce and a new signature. That refresh-and-re-sign loop lives
+    /// in the transaction layer (`Near::send*`), where retrying can actually
+    /// change the outcome, so it is `false` here.
     ///
     /// [`InvalidTxError::is_retryable`]: crate::types::InvalidTxError::is_retryable
     pub fn is_retryable(&self) -> bool {
@@ -380,9 +380,11 @@ impl RpcError {
             RpcError::NodeNotSynced(_) => true,
             RpcError::InternalError(_) => true,
             RpcError::RequestTimeout { .. } => true,
-            // Terminal at this layer: the payload was already signed and
-            // rejected, so re-sending it cannot help. See the doc comment.
-            RpcError::InvalidTx(_) => false,
+            // The payload is fixed here, so `InvalidNonce` can't be fixed by
+            // re-sending it (the transaction layer re-signs instead); shard
+            // congestion/stalls can clear on their own. See the doc comment.
+            RpcError::InvalidTx(InvalidTxError::InvalidNonce { .. }) => false,
+            RpcError::InvalidTx(e) => e.is_retryable(),
             RpcError::Rpc { code, .. } => {
                 // Retry on server errors
                 *code == -32000 || *code == -32603
@@ -882,6 +884,21 @@ mod tests {
             }
             .is_retryable()
         );
+        // Shard congestion can clear while the same signed bytes are re-sent.
+        assert!(
+            RpcError::InvalidTx(InvalidTxError::ShardCongested {
+                congestion_level: 1.0,
+                shard_id: 0,
+            })
+            .is_retryable()
+        );
+        assert!(
+            RpcError::InvalidTx(InvalidTxError::ShardStuck {
+                missed_chunks: 3,
+                shard_id: 0,
+            })
+            .is_retryable()
+        );
         assert!(
             RpcError::Network {
                 message: "connection reset".to_string(),
@@ -920,20 +937,13 @@ mod tests {
         assert!(!RpcError::InvalidAccount("bad".to_string()).is_retryable());
         assert!(!RpcError::UnknownBlock("12345".to_string()).is_retryable());
         assert!(!RpcError::ParseError("bad json".to_string()).is_retryable());
-        // InvalidTx is terminal at the RPC layer even for variants that are
-        // transient at the transaction layer: the signed payload can't change
+        // InvalidNonce is transient at the transaction layer (re-sign with a
+        // fresh nonce) but terminal here: the signed payload can't change
         // between attempts, so re-sending it can't succeed.
         assert!(
             !RpcError::InvalidTx(InvalidTxError::InvalidNonce {
                 tx_nonce: 5,
                 ak_nonce: 10
-            })
-            .is_retryable()
-        );
-        assert!(
-            !RpcError::InvalidTx(InvalidTxError::ShardCongested {
-                congestion_level: 1.0,
-                shard_id: 0,
             })
             .is_retryable()
         );

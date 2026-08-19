@@ -81,10 +81,10 @@ pub const TESTNET: NetworkConfig = NetworkConfig {
 /// [`RpcError::is_retryable`] is `true`). Delays grow exponentially from
 /// `initial_delay_ms`, capped at `max_delay_ms`.
 ///
-/// Errors the node returned for a specific signed payload
-/// ([`RpcError::InvalidTx`]) are never retried here — re-sending the same
-/// bytes can't change the outcome. Nonce refresh and re-signing happen one
-/// layer up, in the `Near::send*` transaction path.
+/// A transaction rejected with `InvalidNonce` is never retried here —
+/// re-sending the same signed bytes can't change the outcome. Nonce refresh
+/// and re-signing happen one layer up, in the `Near::send*` transaction path
+/// (see `NearBuilder::max_nonce_retries`).
 ///
 /// Use [`RetryConfig::none()`] to disable retries entirely, e.g. when the
 /// caller runs its own retry loop.
@@ -477,9 +477,10 @@ impl RpcClient {
     /// Make a raw RPC call with retries.
     ///
     /// Transient failures ([`RpcError::is_retryable`]) are retried according
-    /// to the client's [`RetryConfig`]. [`RpcError::InvalidTx`] is terminal:
-    /// the node has rejected this exact signed payload, so it is returned
-    /// after a single attempt without retrying.
+    /// to the client's [`RetryConfig`]. An `InvalidNonce` rejection is
+    /// terminal here: the node has rejected this exact signed payload, so it
+    /// is returned after a single attempt without retrying (the transaction
+    /// layer re-signs with a fresh nonce instead).
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %sanitize_url(&self.url))))]
     pub async fn call<P: Serialize, R: DeserializeOwned>(
         &self,
@@ -1625,10 +1626,10 @@ mod tests {
     // ========================================================================
 
     #[tokio::test]
-    async fn test_call_does_not_retry_invalid_tx() {
-        // A signed payload the node already rejected is fixed at this layer:
-        // re-sending it byte-for-byte can't succeed, so `InvalidTx` must be
-        // terminal even though `InvalidNonce` is transient one layer up.
+    async fn test_call_does_not_retry_invalid_nonce() {
+        // The signed payload is fixed at this layer: re-sending it
+        // byte-for-byte can't fix an `InvalidNonce`, so it must be terminal
+        // here even though it is transient one layer up (re-sign).
         let transport = CountingTransport::new(200, invalid_nonce_body());
         let client = RpcClient::with_transport_and_retry_config(
             "https://example.com",
@@ -1654,7 +1655,54 @@ mod tests {
             ),
             "expected InvalidTx(InvalidNonce), got {err:?}"
         );
-        assert_eq!(transport.calls(), 1, "InvalidTx must not be re-sent");
+        assert_eq!(transport.calls(), 1, "InvalidNonce must not be re-sent");
+    }
+
+    #[tokio::test]
+    async fn test_call_retries_shard_congested() {
+        // Congestion can clear while the same signed bytes are re-sent, so
+        // this InvalidTx variant keeps the transport-level retry loop.
+        let body = serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": {
+                "name": "HANDLER_ERROR",
+                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
+                "code": -32000,
+                "message": "Server error",
+                "data": {
+                    "TxExecutionError": {
+                        "InvalidTxError": {
+                            "ShardCongested": { "congestion_level": 1.0, "shard_id": 0 }
+                        }
+                    }
+                },
+            },
+        }))
+        .unwrap();
+        let transport = CountingTransport::new(200, body);
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(2),
+        );
+
+        let err = client
+            .call::<_, serde_json::Value>(
+                "send_tx",
+                serde_json::json!({ "signed_tx_base64": "AA==", "wait_until": "NONE" }),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                RpcError::InvalidTx(crate::types::InvalidTxError::ShardCongested { .. })
+            ),
+            "expected InvalidTx(ShardCongested), got {err:?}"
+        );
+        assert_eq!(transport.calls(), 3, "1 attempt + 2 retries");
     }
 
     #[tokio::test]
