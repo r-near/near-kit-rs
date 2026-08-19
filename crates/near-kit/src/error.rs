@@ -244,7 +244,12 @@ pub enum RpcError {
     /// Missing contract code, missing methods, and contract panics are exposed
     /// as [`ContractNotDeployed`](Self::ContractNotDeployed),
     /// [`MethodNotFound`](Self::MethodNotFound), and
-    /// [`ContractPanic`](Self::ContractPanic), respectively.
+    /// [`ContractPanic`](Self::ContractPanic), respectively. Those are
+    /// recognized from the node's structured `vm_error` field and, when a
+    /// provider only returns the legacy string form (for example
+    /// `Function call returned an error: MethodResolveError(MethodNotFound)`),
+    /// from that string as well. This variant is the catch-all left after both
+    /// classifications, so matching on `message` for those cases is not needed.
     #[error("contract execution failed on {contract_id}: {message}")]
     ContractExecution {
         contract_id: AccountId,
