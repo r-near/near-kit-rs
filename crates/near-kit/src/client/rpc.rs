@@ -1036,6 +1036,11 @@ impl RpcClient {
     /// it to its own cap (100 by default). When the result's `last_key` is
     /// `Some`, more keys remain — call again with `after_key = last_key`.
     ///
+    /// Pin every follow-up page to the first page's `block_hash`. A moving
+    /// reference (`Final`/`Optimistic`) re-resolves on every request, so keys
+    /// added or deleted between pages can be duplicated or skipped when the
+    /// cursor is applied to a different snapshot.
+    ///
     /// A request with neither `after_key` nor `limit` is *unpaginated*: the
     /// node returns the whole list only if it fits under the cap, and fails
     /// with [`RpcError::TooManyAccessKeys`] otherwise. Prefer
@@ -1047,6 +1052,29 @@ impl RpcClient {
     /// unlike `EXPERIMENTAL_view_access_key_list`, it reports the cap as a
     /// structured `TOO_MANY_ACCESS_KEYS` error rather than a generic
     /// `INTERNAL_ERROR`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use std::num::NonZeroU32;
+    /// # use near_kit::{AccountId, BlockReference, RpcClient};
+    /// # async fn example(rpc: &RpcClient, account: &AccountId) -> Result<(), near_kit::RpcError> {
+    /// let page_size = NonZeroU32::new(50);
+    /// let mut page = rpc
+    ///     .view_access_key_list_page(account, None, page_size, BlockReference::final_())
+    ///     .await?;
+    /// // Later pages read the snapshot the first page was taken at.
+    /// let snapshot = BlockReference::at_hash(page.block_hash);
+    /// let mut keys = page.keys;
+    /// while let Some(cursor) = page.last_key {
+    ///     page = rpc
+    ///         .view_access_key_list_page(account, Some(&cursor), page_size, snapshot)
+    ///         .await?;
+    ///     keys.extend(page.keys);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, after_key, block), fields(%account_id)))]
     pub async fn view_access_key_list_page(
         &self,

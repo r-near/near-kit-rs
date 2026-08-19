@@ -297,7 +297,10 @@ impl AccessKeysQuery {
     /// [`last_key`](AccessKeyListView::last_key) and `limit` the page size;
     /// see [`RpcClient::view_access_key_list_page`] for the semantics,
     /// including [`RpcError::TooManyAccessKeys`](crate::RpcError::TooManyAccessKeys)
-    /// when both are `None` and the account is over the cap.
+    /// when both are `None` and the account is over the cap. Pin follow-up
+    /// pages to the first page's snapshot with
+    /// [`at_block_hash(first.block_hash)`](Self::at_block_hash) so a moving
+    /// finality reference cannot drift between pages.
     pub async fn page(
         self,
         after_key: Option<&PublicKeyHandle>,
