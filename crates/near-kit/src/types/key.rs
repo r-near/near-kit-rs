@@ -103,10 +103,12 @@ impl TryFrom<u8> for KeyType {
 /// transactions and `AddKey` actions. On-chain, however, an ML-DSA-65 access
 /// key is stored only as a 32-byte SHA3-256 digest, and view RPCs
 /// (`view_access_key_list`) return it as `ml-dsa-65-hash:<base58>`. The full
-/// 1952-byte key is *not* recoverable from that digest, so it is parsed into a
-/// distinct [`PublicKey::MlDsa65Hash`] variant. A handle round-trips for
-/// display and equality but **cannot** sign, verify, or be borsh-serialized
-/// into an action (there is no full key to put on the wire).
+/// 1952-byte key is *not* recoverable from that digest, so that form is **not**
+/// a `PublicKey`: it is modelled by [`PublicKeyHandle`] (as in nearcore), and
+/// parsing it as a `PublicKey` fails with [`ParseKeyError::MlDsa65HashHandle`].
+/// Every `PublicKey` is therefore a real, borsh-serializable key that can sign
+/// (given its secret key) and verify. Use [`PublicKey::to_ml_dsa65_hash`] to
+/// compute the handle the chain stores for a full ML-DSA-65 key.
 #[derive(Clone, PartialEq, Eq, Hash, SerializeDisplay, DeserializeFromStr)]
 pub enum PublicKey {
     /// Ed25519 public key (32 bytes).
@@ -119,10 +121,6 @@ pub enum PublicKey {
     /// ML-DSA-65 public key (1952 bytes, FIPS 204). Boxed to keep the enum
     /// from bloating every `PublicKey` to ~2 KiB.
     MlDsa65(Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>),
-    /// On-trie handle for an ML-DSA-65 access key: the 32-byte SHA3-256 digest
-    /// returned by view RPCs as `ml-dsa-65-hash:`. Not a usable public key —
-    /// it cannot sign, verify, or be serialized into an action.
-    MlDsa65Hash([u8; ML_DSA_65_HASH_LENGTH]),
 }
 
 impl PublicKey {
@@ -211,20 +209,16 @@ impl PublicKey {
         match self {
             Self::Ed25519(_) => KeyType::Ed25519,
             Self::Secp256k1(_) => KeyType::Secp256k1,
-            // A hash handle still identifies an ML-DSA-65 key.
-            Self::MlDsa65(_) | Self::MlDsa65Hash(_) => KeyType::MlDsa65,
+            Self::MlDsa65(_) => KeyType::MlDsa65,
         }
     }
 
     /// Get the raw key bytes as a slice.
-    ///
-    /// For [`PublicKey::MlDsa65Hash`] this is the 32-byte digest, not a key.
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             Self::Ed25519(bytes) => bytes.as_slice(),
             Self::Secp256k1(bytes) => bytes.as_slice(),
             Self::MlDsa65(bytes) => bytes.as_slice(),
-            Self::MlDsa65Hash(bytes) => bytes.as_slice(),
         }
     }
 
@@ -245,9 +239,7 @@ impl PublicKey {
         }
     }
 
-    /// Get the 1952-byte ML-DSA-65 public key, if this is a full ML-DSA-65 key.
-    ///
-    /// Returns `None` for a [`PublicKey::MlDsa65Hash`] handle.
+    /// Get the 1952-byte ML-DSA-65 public key, if this is an ML-DSA-65 key.
     pub fn as_ml_dsa65_bytes(&self) -> Option<&[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]> {
         match self {
             Self::MlDsa65(bytes) => Some(bytes),
@@ -255,17 +247,12 @@ impl PublicKey {
         }
     }
 
-    /// Whether this is an ML-DSA-65 *hash handle* (from a view response) rather
-    /// than a full public key. Handles cannot sign, verify, or be serialized
-    /// into an action.
-    pub fn is_ml_dsa65_hash(&self) -> bool {
-        matches!(self, Self::MlDsa65Hash(_))
-    }
-
-    /// Compute the on-trie handle (`ml-dsa-65-hash:`) for a full ML-DSA-65 key:
-    /// the SHA3-256 of (domain tag || raw pubkey bytes). For a handle this just
-    /// returns the handle itself; for ed25519/secp256k1 keys it returns `None`.
-    pub fn to_ml_dsa65_hash(&self) -> Option<PublicKey> {
+    /// Compute the on-trie handle (`ml-dsa-65-hash:`) for an ML-DSA-65 key: the
+    /// SHA3-256 of (domain tag || raw pubkey bytes), which is what
+    /// `view_access_key_list` returns for the key. Returns `None` for
+    /// ed25519/secp256k1 keys (those are stored, and listed, in full — see
+    /// [`PublicKeyHandle::from`]).
+    pub fn to_ml_dsa65_hash(&self) -> Option<PublicKeyHandle> {
         match self {
             Self::MlDsa65(bytes) => {
                 use sha3::{Digest as _, Sha3_256};
@@ -274,9 +261,8 @@ impl PublicKey {
                 hasher.update(bytes.as_slice());
                 let mut out = [0u8; ML_DSA_65_HASH_LENGTH];
                 out.copy_from_slice(&hasher.finalize());
-                Some(Self::MlDsa65Hash(out))
+                Some(PublicKeyHandle::MlDsa65Hash(out))
             }
-            Self::MlDsa65Hash(_) => Some(self.clone()),
             _ => None,
         }
     }
@@ -285,29 +271,21 @@ impl PublicKey {
 impl FromStr for PublicKey {
     type Err = ParseKeyError;
 
+    /// Parse a full public key: `ed25519:`, `secp256k1:` or `ml-dsa-65:`.
+    ///
+    /// The `ml-dsa-65-hash:` view handle is **not** a public key and is
+    /// rejected with [`ParseKeyError::MlDsa65HashHandle`]; parse it as a
+    /// [`PublicKeyHandle`] instead.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (prefix, data_str) = s.split_once(':').ok_or(ParseKeyError::InvalidFormat)?;
-
-        // The `ml-dsa-65-hash:` view handle is a distinct prefix, handled
-        // before the normal `KeyType` prefixes.
-        if prefix == "ml-dsa-65-hash" {
-            let data = bs58::decode(data_str)
-                .into_vec()
-                .map_err(|e| ParseKeyError::InvalidBase58(e.to_string()))?;
-            let bytes: [u8; ML_DSA_65_HASH_LENGTH] =
-                data.as_slice()
-                    .try_into()
-                    .map_err(|_| ParseKeyError::InvalidLength {
-                        expected: ML_DSA_65_HASH_LENGTH,
-                        actual: data.len(),
-                    })?;
-            return Ok(Self::MlDsa65Hash(bytes));
-        }
 
         let key_type = match prefix {
             "ed25519" => KeyType::Ed25519,
             "secp256k1" => KeyType::Secp256k1,
             "ml-dsa-65" => KeyType::MlDsa65,
+            // Not unknown — a pointed error, since this is exactly what users
+            // copy-paste out of `view_access_key_list`.
+            ML_DSA_65_HASH_PREFIX => return Err(ParseKeyError::MlDsa65HashHandle),
             other => return Err(ParseKeyError::UnknownKeyType(other.to_string())),
         };
 
@@ -377,15 +355,10 @@ impl TryFrom<&str> for PublicKey {
 
 impl Display for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // A hash handle prints with its own `ml-dsa-65-hash:` prefix.
-        let prefix = match self {
-            Self::MlDsa65Hash(_) => "ml-dsa-65-hash",
-            _ => self.key_type().as_str(),
-        };
         write!(
             f,
             "{}:{}",
-            prefix,
+            self.key_type().as_str(),
             bs58::encode(self.as_bytes()).into_string()
         )
     }
@@ -394,8 +367,7 @@ impl Display for PublicKey {
 impl Debug for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // ML-DSA-65 keys are ~2 KiB; printing the full base58 in `{:?}` would
-        // bloat logs and allocate heavily. Show a truncated form instead. The
-        // hash handle is small (32 bytes) so it prints in full.
+        // bloat logs and allocate heavily. Show a truncated form instead.
         match self {
             Self::MlDsa65(_) => write!(f, "PublicKey(ml-dsa-65:<1952 bytes>)"),
             _ => write!(f, "PublicKey({})", self),
@@ -405,15 +377,6 @@ impl Debug for PublicKey {
 
 impl BorshSerialize for PublicKey {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        // A hash handle has no full key, so it has no wire representation as a
-        // `PublicKey` (it only ever appears in view JSON). Refuse to encode it
-        // rather than emit a malformed `[2][32]` action pubkey.
-        if matches!(self, Self::MlDsa65Hash(_)) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "cannot borsh-serialize an ml-dsa-65-hash handle as a PublicKey",
-            ));
-        }
         borsh::BorshSerialize::serialize(&(self.key_type() as u8), writer)?;
         writer.write_all(self.as_bytes())?;
         Ok(())
@@ -462,12 +425,174 @@ impl BorshDeserialize for PublicKey {
             }
             KeyType::MlDsa65 => {
                 // The wire form of an ML-DSA-65 `PublicKey` is always the full
-                // 1952-byte key (`[2][1952]`); the 32-byte handle never appears
-                // in borsh, only in view JSON.
+                // 1952-byte key (`[2][1952]`); the 32-byte handle
+                // (`PublicKeyHandle`) never appears in borsh, only in view JSON.
                 let mut bytes = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
                 reader.read_exact(bytes.as_mut_slice())?;
                 Ok(Self::MlDsa65(bytes))
             }
+        }
+    }
+}
+
+/// String prefix of an ML-DSA-65 access-key handle (`ml-dsa-65-hash:<base58>`).
+const ML_DSA_65_HASH_PREFIX: &str = "ml-dsa-65-hash";
+
+/// How the chain refers to an access key: the full public key for ed25519 and
+/// secp256k1, or a 32-byte SHA3-256 *handle* for ML-DSA-65.
+///
+/// Mirrors nearcore's `PublicKeyHandle`. On-chain, an ML-DSA-65 access key is
+/// stored only as a domain-tagged SHA3-256 digest of the 1952-byte key, and
+/// view RPCs (`view_access_key_list`, state-change views) return it as
+/// `ml-dsa-65-hash:<base58>`. The full key is not recoverable from the digest,
+/// so such a value cannot sign, verify, or go into a transaction — which is why
+/// it is a separate type rather than a [`PublicKey`] variant. Fields that can
+/// only ever carry full keys (transactions, actions, receipts, validators) stay
+/// `PublicKey`.
+///
+/// - [`full_pubkey`](Self::full_pubkey) / [`into_full`](Self::into_full) get
+///   the usable key back when there is one.
+/// - [`PublicKey::to_ml_dsa65_hash`] computes the handle for a full ML-DSA-65
+///   key; [`refers_to`](Self::refers_to) checks a handle against a full key.
+/// - `From<PublicKey>` wraps a full key as [`PublicKeyHandle::Full`] without
+///   hashing.
+///
+/// Parses from and prints as either form; there is deliberately no borsh impl
+/// (a handle never goes on the wire).
+///
+/// # Example
+///
+/// ```rust
+/// # use near_kit::{PublicKey, PublicKeyHandle};
+/// let full: PublicKeyHandle = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
+/// assert!(full.full_pubkey().is_some());
+///
+/// let handle: PublicKeyHandle =
+///     "ml-dsa-65-hash:GsDTSpXDhiutJazktZEpKNQZit7U91LskL2Fq541u8PJ".parse()?;
+/// assert!(handle.full_pubkey().is_none());
+/// // ...and the same string is *not* a PublicKey:
+/// assert!("ml-dsa-65-hash:GsDTSpXDhiutJazktZEpKNQZit7U91LskL2Fq541u8PJ"
+///     .parse::<PublicKey>()
+///     .is_err());
+/// # Ok::<(), near_kit::error::ParseKeyError>(())
+/// ```
+#[derive(Clone, PartialEq, Eq, Hash, SerializeDisplay, DeserializeFromStr)]
+pub enum PublicKeyHandle {
+    /// A full public key, as stored on-chain for ed25519/secp256k1 access keys.
+    Full(PublicKey),
+    /// The 32-byte SHA3-256 handle under which an ML-DSA-65 access key is stored.
+    MlDsa65Hash([u8; ML_DSA_65_HASH_LENGTH]),
+}
+
+impl PublicKeyHandle {
+    /// The full public key, if this handle carries one (ed25519/secp256k1, or a
+    /// full ML-DSA-65 key wrapped via `From<PublicKey>`). `None` for an
+    /// ML-DSA-65 hash: the key is not recoverable from the digest.
+    pub fn full_pubkey(&self) -> Option<&PublicKey> {
+        match self {
+            Self::Full(pk) => Some(pk),
+            Self::MlDsa65Hash(_) => None,
+        }
+    }
+
+    /// Owned version of [`full_pubkey`](Self::full_pubkey).
+    pub fn into_full(self) -> Option<PublicKey> {
+        match self {
+            Self::Full(pk) => Some(pk),
+            Self::MlDsa65Hash(_) => None,
+        }
+    }
+
+    /// The key type. An ML-DSA-65 hash reports [`KeyType::MlDsa65`]: the
+    /// storage form differs, the scheme does not.
+    pub fn key_type(&self) -> KeyType {
+        match self {
+            Self::Full(pk) => pk.key_type(),
+            Self::MlDsa65Hash(_) => KeyType::MlDsa65,
+        }
+    }
+
+    /// The raw bytes: the key bytes for a full key, the 32-byte digest for a
+    /// hash.
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Full(pk) => pk.as_bytes(),
+            Self::MlDsa65Hash(bytes) => bytes.as_slice(),
+        }
+    }
+
+    /// Whether this is an ML-DSA-65 hash handle rather than a full key.
+    pub fn is_ml_dsa65_hash(&self) -> bool {
+        matches!(self, Self::MlDsa65Hash(_))
+    }
+
+    /// Whether this handle identifies `key`: equal to it when full, or equal to
+    /// [`key.to_ml_dsa65_hash()`](PublicKey::to_ml_dsa65_hash) when a hash.
+    /// This is the check to use for "is my key in `view_access_key_list`".
+    pub fn refers_to(&self, key: &PublicKey) -> bool {
+        match self {
+            Self::Full(pk) => pk == key,
+            Self::MlDsa65Hash(_) => key.to_ml_dsa65_hash().as_ref() == Some(self),
+        }
+    }
+}
+
+impl From<PublicKey> for PublicKeyHandle {
+    /// Wraps the key as [`PublicKeyHandle::Full`] (no hashing). To get the
+    /// handle the chain stores for an ML-DSA-65 key, use
+    /// [`PublicKey::to_ml_dsa65_hash`].
+    fn from(key: PublicKey) -> Self {
+        Self::Full(key)
+    }
+}
+
+impl FromStr for PublicKeyHandle {
+    type Err = ParseKeyError;
+
+    /// Accepts every [`PublicKey`] form plus `ml-dsa-65-hash:<base58 32 bytes>`.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split_once(':') {
+            Some((ML_DSA_65_HASH_PREFIX, data_str)) => {
+                let data = bs58::decode(data_str)
+                    .into_vec()
+                    .map_err(|e| ParseKeyError::InvalidBase58(e.to_string()))?;
+                let bytes: [u8; ML_DSA_65_HASH_LENGTH] =
+                    data.as_slice()
+                        .try_into()
+                        .map_err(|_| ParseKeyError::InvalidLength {
+                            expected: ML_DSA_65_HASH_LENGTH,
+                            actual: data.len(),
+                        })?;
+                Ok(Self::MlDsa65Hash(bytes))
+            }
+            _ => s.parse().map(Self::Full),
+        }
+    }
+}
+
+impl Display for PublicKeyHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Full(pk) => Display::fmt(pk, f),
+            Self::MlDsa65Hash(bytes) => write!(
+                f,
+                "{}:{}",
+                ML_DSA_65_HASH_PREFIX,
+                bs58::encode(bytes).into_string()
+            ),
+        }
+    }
+}
+
+impl Debug for PublicKeyHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            // Full ML-DSA-65 keys stay truncated, as in PublicKey's Debug; the
+            // 32-byte hash and the other key types print in full.
+            Self::Full(PublicKey::MlDsa65(_)) => {
+                write!(f, "PublicKeyHandle(ml-dsa-65:<1952 bytes>)")
+            }
+            _ => write!(f, "PublicKeyHandle({})", self),
         }
     }
 }
@@ -1283,9 +1408,6 @@ impl Signature {
     }
 
     /// Verify this signature against a message and public key.
-    ///
-    /// Returns `false` for an [`PublicKey::MlDsa65Hash`] handle, which carries
-    /// no key material to verify against.
     pub fn verify(&self, message: &[u8], public_key: &PublicKey) -> bool {
         match (self, public_key) {
             (Self::Ed25519(sig_bytes), PublicKey::Ed25519(pk_bytes)) => {
@@ -1336,7 +1458,7 @@ impl Signature {
                 };
                 verifying_key.verify(message, &signature).is_ok()
             }
-            // Mismatched key types (or an ml-dsa-65-hash handle, which can't verify)
+            // Mismatched key types.
             _ => false,
         }
     }
@@ -2451,23 +2573,115 @@ mod tests {
     }
 
     #[test]
-    fn test_ml_dsa65_hash_handle_parses_without_panic() {
+    fn test_ml_dsa65_hash_handle_is_not_a_public_key() {
         // A `view_access_key_list` response stores an ML-DSA-65 key as a 32-byte
-        // SHA3-256 handle. It must parse into a distinct handle variant.
+        // SHA3-256 handle. That string is a PublicKeyHandle, never a PublicKey:
+        // the strict parser rejects it with a pointed error (matching nearcore)
+        // so a copy-pasted handle fails at the parse site, not in signing.
         let secret = SecretKey::generate_ml_dsa65();
         let full = secret.public_key();
         let handle = full.to_ml_dsa65_hash().unwrap();
         assert!(handle.is_ml_dsa65_hash());
+        assert!(handle.full_pubkey().is_none());
         assert_eq!(handle.key_type(), KeyType::MlDsa65);
+        assert_eq!(handle.as_bytes().len(), ML_DSA_65_HASH_LENGTH);
 
         let s = handle.to_string();
         assert!(s.starts_with("ml-dsa-65-hash:"));
+        assert_eq!(
+            s.parse::<PublicKey>(),
+            Err(ParseKeyError::MlDsa65HashHandle)
+        );
+        assert_eq!(
+            PublicKey::try_from(s.as_str()),
+            Err(ParseKeyError::MlDsa65HashHandle)
+        );
+        // The prefix alone is enough to reject; the payload isn't inspected.
+        assert_eq!(
+            "ml-dsa-65-hash:".parse::<PublicKey>(),
+            Err(ParseKeyError::MlDsa65HashHandle)
+        );
 
-        // Parsing the handle string round-trips for display/equality...
-        let parsed: PublicKey = s.parse().unwrap();
-        assert_eq!(handle, parsed);
-        // ...but it is NOT equal to the full key.
-        assert_ne!(handle, full);
+        // ...but it round-trips as a PublicKeyHandle, and identifies the key.
+        let parsed: PublicKeyHandle = s.parse().unwrap();
+        assert_eq!(parsed, handle);
+        assert!(parsed.refers_to(&full));
+        assert!(!parsed.refers_to(&SecretKey::generate_ml_dsa65().public_key()));
+        assert!(!parsed.refers_to(&SecretKey::generate_ed25519().public_key()));
+        // Wrapping the full key is lossless and distinct from its hash.
+        let wrapped = PublicKeyHandle::from(full.clone());
+        assert_ne!(wrapped, handle);
+        assert_eq!(wrapped.full_pubkey(), Some(&full));
+        assert!(wrapped.refers_to(&full));
+        assert_eq!(wrapped.clone().into_full(), Some(full.clone()));
+        assert_eq!(wrapped.to_string(), full.to_string());
+        assert_eq!(
+            format!("{wrapped:?}"),
+            "PublicKeyHandle(ml-dsa-65:<1952 bytes>)"
+        );
+        assert_eq!(format!("{handle:?}"), format!("PublicKeyHandle({s})"));
+    }
+
+    #[test]
+    fn test_public_key_handle_full_keys_roundtrip() {
+        // Full ed25519/secp256k1 keys parse/print identically as PublicKeyHandle
+        // and PublicKey; ed25519/secp256k1 have no ML-DSA-65 hash.
+        for pk in [
+            SecretKey::generate_ed25519().public_key(),
+            SecretKey::generate_secp256k1().public_key(),
+        ] {
+            let s = pk.to_string();
+            let handle: PublicKeyHandle = s.parse().unwrap();
+            assert_eq!(handle, PublicKeyHandle::Full(pk.clone()));
+            assert_eq!(handle.to_string(), s);
+            assert_eq!(handle.key_type(), pk.key_type());
+            assert_eq!(handle.as_bytes(), pk.as_bytes());
+            assert!(!handle.is_ml_dsa65_hash());
+            assert!(handle.refers_to(&pk));
+            assert_eq!(pk.to_ml_dsa65_hash(), None);
+            // A key recovered from a handle is a normal key: it goes straight
+            // into an action and the transaction hashes/signs (borsh) fine.
+            let recovered = handle.into_full().unwrap();
+            let signer = SecretKey::generate_ed25519();
+            let tx = crate::types::Transaction::new(
+                "alice.near".parse().unwrap(),
+                signer.public_key(),
+                1,
+                "alice.near".parse().unwrap(),
+                crate::types::CryptoHash::ZERO,
+                vec![crate::types::Action::add_full_access_key(recovered)],
+            );
+            assert!(!tx.sign(&signer).to_bytes().is_empty());
+        }
+        assert!("nope".parse::<PublicKeyHandle>().is_err());
+        assert!("ed25519:zzz".parse::<PublicKeyHandle>().is_err());
+        assert_eq!(
+            "rsa:abc".parse::<PublicKeyHandle>(),
+            Err(ParseKeyError::UnknownKeyType("rsa".into()))
+        );
+    }
+
+    #[test]
+    fn test_public_key_handle_serde() {
+        let handle = SecretKey::generate_ml_dsa65()
+            .public_key()
+            .to_ml_dsa65_hash()
+            .unwrap();
+        let json = serde_json::to_string(&handle).unwrap();
+        assert!(json.starts_with("\"ml-dsa-65-hash:"));
+        assert_eq!(
+            serde_json::from_str::<PublicKeyHandle>(&json).unwrap(),
+            handle
+        );
+        // A handle string is rejected when a PublicKey is expected.
+        assert!(serde_json::from_str::<PublicKey>(&json).is_err());
+
+        let full = SecretKey::generate_ed25519().public_key();
+        let json = serde_json::to_string(&full).unwrap();
+        assert_eq!(
+            serde_json::from_str::<PublicKeyHandle>(&json).unwrap(),
+            PublicKeyHandle::Full(full)
+        );
     }
 
     #[test]
@@ -2485,27 +2699,7 @@ mod tests {
         let expected: [u8; 32] = hasher.finalize().into();
 
         let handle = public.to_ml_dsa65_hash().unwrap();
-        assert_eq!(handle, PublicKey::MlDsa65Hash(expected));
-    }
-
-    #[test]
-    fn test_ml_dsa65_hash_handle_cannot_borsh_serialize() {
-        // A handle has no wire form as a PublicKey; serializing must error
-        // rather than emit a malformed action pubkey.
-        let handle = SecretKey::generate_ml_dsa65()
-            .public_key()
-            .to_ml_dsa65_hash()
-            .unwrap();
-        assert!(borsh::to_vec(&handle).is_err());
-    }
-
-    #[test]
-    fn test_ml_dsa65_hash_handle_cannot_verify() {
-        let secret = SecretKey::generate_ml_dsa65();
-        let handle = secret.public_key().to_ml_dsa65_hash().unwrap();
-        let sig = secret.sign(b"msg");
-        // Verifying against the handle (no key material) must fail, not panic.
-        assert!(!sig.verify(b"msg", &handle));
+        assert_eq!(handle, PublicKeyHandle::MlDsa65Hash(expected));
     }
 
     #[test]
@@ -2542,7 +2736,13 @@ mod tests {
         assert!(short_sig.parse::<Signature>().is_err());
 
         let short_handle = format!("ml-dsa-65-hash:{}", bs58::encode([0u8; 16]).into_string());
-        assert!(short_handle.parse::<PublicKey>().is_err());
+        assert_eq!(
+            short_handle.parse::<PublicKeyHandle>(),
+            Err(ParseKeyError::InvalidLength {
+                expected: ML_DSA_65_HASH_LENGTH,
+                actual: 16
+            })
+        );
     }
 
     // ========================================================================

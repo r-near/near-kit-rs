@@ -8,7 +8,7 @@ use serde_with::{base64::Base64, serde_as};
 
 use super::block_reference::TxExecutionStatus;
 use super::error::{ActionError, TxExecutionError};
-use super::{AccountId, CryptoHash, Gas, NearToken, Nonce, PublicKey, Signature};
+use super::{AccountId, CryptoHash, Gas, NearToken, Nonce, PublicKey, PublicKeyHandle, Signature};
 
 // ============================================================================
 // Constants
@@ -206,8 +206,13 @@ pub struct AccessKeyListView {
 /// Single access key info in list.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AccessKeyInfoView {
-    /// Public key.
-    pub public_key: PublicKey,
+    /// How the chain identifies the key: the full public key for
+    /// ed25519/secp256k1, or the `ml-dsa-65-hash:` digest for ML-DSA-65 (the
+    /// full key is not stored on-chain). Use
+    /// [`full_pubkey()`](PublicKeyHandle::full_pubkey) to get a usable
+    /// [`PublicKey`], or [`refers_to()`](PublicKeyHandle::refers_to) to check
+    /// it against one.
+    pub public_key: PublicKeyHandle,
     /// Access key details.
     pub access_key: AccessKeyDetails,
 }
@@ -1553,8 +1558,16 @@ mod tests {
         let list: AccessKeyListView = serde_json::from_value(json).unwrap();
         assert_eq!(list.keys.len(), 2);
         assert!(list.keys[0].public_key.is_ml_dsa65_hash());
+        assert!(list.keys[0].public_key.full_pubkey().is_none());
         assert_eq!(list.keys[0].public_key.key_type(), KeyType::MlDsa65);
-        assert_eq!(list.keys[1].public_key.key_type(), KeyType::Ed25519);
+        assert_eq!(list.keys[0].public_key.to_string(), handle);
+        // The ed25519 entry is a full, usable key.
+        let ed = list.keys[1].public_key.full_pubkey().unwrap();
+        assert_eq!(ed.key_type(), KeyType::Ed25519);
+        assert_eq!(
+            ed.to_string(),
+            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+        );
     }
 
     #[test]

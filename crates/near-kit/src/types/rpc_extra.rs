@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde::Deserialize;
 
 use super::rpc::{AccessKeyDetails, ValidatorStakeView};
-use super::{AccountId, CryptoHash, NearToken, PublicKey, Signature};
+use super::{AccountId, CryptoHash, NearToken, PublicKey, PublicKeyHandle, Signature};
 
 // ============================================================================
 // Validators / Epoch types
@@ -295,8 +295,8 @@ pub enum StateChangeValueView {
     AccessKeyUpdate {
         /// Account ID.
         account_id: AccountId,
-        /// Public key.
-        public_key: PublicKey,
+        /// On-chain key identifier (full key, or `ml-dsa-65-hash:` for ML-DSA-65).
+        public_key: PublicKeyHandle,
         /// New access key.
         access_key: AccessKeyDetails,
     },
@@ -304,15 +304,15 @@ pub enum StateChangeValueView {
     AccessKeyDeletion {
         /// Account ID.
         account_id: AccountId,
-        /// Public key.
-        public_key: PublicKey,
+        /// On-chain key identifier (full key, or `ml-dsa-65-hash:` for ML-DSA-65).
+        public_key: PublicKeyHandle,
     },
     /// Gas key nonce updated.
     GasKeyNonceUpdate {
         /// Account ID.
         account_id: AccountId,
-        /// Public key.
-        public_key: PublicKey,
+        /// On-chain key identifier (full key, or `ml-dsa-65-hash:` for ML-DSA-65).
+        public_key: PublicKeyHandle,
         /// Nonce index.
         index: u16,
         /// Nonce value.

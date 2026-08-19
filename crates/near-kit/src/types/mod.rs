@@ -10,8 +10,9 @@
 //! | [`AccountId`] | Validated NEAR account identifier |
 //! | [`NearToken`] | Token amount with yoctoNEAR (10⁻²⁴) precision |
 //! | [`Gas`] | Gas units for transactions |
-//! | [`PublicKey`] | Ed25519 or Secp256k1 public key |
-//! | [`SecretKey`] | Ed25519 or Secp256k1 secret key |
+//! | [`PublicKey`] | Ed25519, Secp256k1 or ML-DSA-65 public key |
+//! | [`PublicKeyHandle`] | How the chain lists an access key (full key, or ML-DSA-65 hash) |
+//! | [`SecretKey`] | Ed25519, Secp256k1 or ML-DSA-65 secret key |
 //! | [`CryptoHash`] | 32-byte SHA-256 hash (blocks, transactions) |
 //!
 //! # Amount Types
@@ -83,8 +84,8 @@ pub use hash::CryptoHash;
 pub use key::{
     DEFAULT_HD_PATH, DEFAULT_ML_DSA_65_WORD_COUNT, DEFAULT_WORD_COUNT, KeyPair, KeyType,
     ML_DSA_65_HASH_LENGTH, ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SECRET_KEY_LENGTH,
-    ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH, MlDsa65SecretKey, PublicKey, SecretKey,
-    Signature, generate_seed_phrase,
+    ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH, MlDsa65SecretKey, PublicKey,
+    PublicKeyHandle, SecretKey, Signature, generate_seed_phrase,
 };
 pub use network::ChainId;
 pub use rpc::{

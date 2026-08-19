@@ -113,6 +113,16 @@ pub enum ParseKeyError {
 
     #[error("Invalid scalar: secret key bytes are not a valid scalar for this curve")]
     InvalidScalar,
+
+    /// The string is an `ml-dsa-65-hash:` handle — the on-chain identifier
+    /// (SHA3-256 digest) of an ML-DSA-65 access key that view RPCs return —
+    /// not a public key. Parse it as a [`PublicKeyHandle`](crate::PublicKeyHandle)
+    /// instead; to sign or build a transaction, supply the full `ml-dsa-65:` key.
+    #[error(
+        "'ml-dsa-65-hash:' is the on-chain handle (hash) of an ML-DSA-65 key, not a public key; \
+         supply the full 'ml-dsa-65:' key, or parse it as a PublicKeyHandle"
+    )]
+    MlDsa65HashHandle,
 }
 
 /// Error parsing a crypto hash.
