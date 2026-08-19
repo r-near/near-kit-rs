@@ -1761,7 +1761,13 @@ impl IntoFuture for TransactionBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
+    use crate::client::{BoxFuture, InMemorySigner, RpcTransport, TransportResponse};
+    use crate::types::{SecretKey, Submitted};
 
     /// Create a TransactionBuilder for unit tests (no real network needed).
     fn test_builder() -> TransactionBuilder {
@@ -1911,5 +1917,134 @@ mod tests {
         let builder = test_builder().add_action(action1).add_action(action2);
 
         assert_eq!(builder.actions.len(), 2);
+    }
+
+    // ========================================================================
+    // Nonce refresh + re-sign on InvalidNonce (mock transport)
+    // ========================================================================
+
+    /// Transport that answers `EXPERIMENTAL_view_access_key` with a fixed key
+    /// (nonce 5), scripts `send_tx` responses in order, and records every
+    /// signed payload it received.
+    struct NonceRetryTransport {
+        send_tx_responses: Mutex<VecDeque<Vec<u8>>>,
+        sent: Mutex<Vec<String>>,
+        access_key_queries: AtomicUsize,
+    }
+
+    impl NonceRetryTransport {
+        fn new(send_tx_responses: Vec<Vec<u8>>) -> Arc<Self> {
+            Arc::new(Self {
+                send_tx_responses: Mutex::new(send_tx_responses.into()),
+                sent: Mutex::new(Vec::new()),
+                access_key_queries: AtomicUsize::new(0),
+            })
+        }
+    }
+
+    impl RpcTransport for NonceRetryTransport {
+        fn post_json(
+            &self,
+            _url: &str,
+            body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            let body = match request["method"].as_str().unwrap() {
+                "EXPERIMENTAL_view_access_key" => {
+                    self.access_key_queries.fetch_add(1, Ordering::SeqCst);
+                    serde_json::to_vec(&serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": 0,
+                        "result": {
+                            "nonce": 5,
+                            "permission": "FullAccess",
+                            "block_height": 100,
+                            "block_hash": "11111111111111111111111111111111",
+                        },
+                    }))
+                    .unwrap()
+                }
+                "send_tx" => {
+                    let signed = request["params"]["signed_tx_base64"]
+                        .as_str()
+                        .unwrap()
+                        .to_string();
+                    self.sent.lock().unwrap().push(signed);
+                    self.send_tx_responses
+                        .lock()
+                        .unwrap()
+                        .pop_front()
+                        .expect("unexpected extra send_tx")
+                }
+                other => panic!("unexpected RPC method {other}"),
+            };
+            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+        }
+    }
+
+    fn invalid_nonce_body(tx_nonce: u64, ak_nonce: u64) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": {
+                "name": "HANDLER_ERROR",
+                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
+                "code": -32000,
+                "message": "Server error",
+                "data": {
+                    "TxExecutionError": {
+                        "InvalidTxError": {
+                            "InvalidNonce": { "tx_nonce": tx_nonce, "ak_nonce": ak_nonce }
+                        }
+                    }
+                },
+            },
+        }))
+        .unwrap()
+    }
+
+    fn accepted_body() -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "result": { "final_execution_status": "NONE" },
+        }))
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn send_refreshes_nonce_and_resigns_on_invalid_nonce() {
+        // First send_tx is rejected with InvalidNonce (the key's real nonce is
+        // 20); the second is accepted.
+        let transport = NonceRetryTransport::new(vec![invalid_nonce_body(6, 20), accepted_body()]);
+        let signer =
+            InMemorySigner::from_secret_key("alice.testnet", SecretKey::generate_ed25519())
+                .unwrap();
+        // Default RetryConfig on purpose: the raw RPC layer must not add
+        // identical resends of the rejected payload before this loop runs.
+        let near = crate::Near::custom("http://mock.invalid", "test")
+            .transport(transport.clone())
+            .signer(signer)
+            .build();
+
+        near.transfer("bob.testnet", NearToken::from_near(1))
+            .wait_until::<Submitted>()
+            .await
+            .expect("second attempt is accepted");
+
+        let sent = transport.sent.lock().unwrap();
+        assert_eq!(sent.len(), 2, "exactly one InvalidNonce retry");
+        let first = SignedTransaction::from_base64(&sent[0]).unwrap();
+        let second = SignedTransaction::from_base64(&sent[1]).unwrap();
+        // First attempt: access key nonce (5) + 1. Retry: ak_nonce from the
+        // error (20) + 1, freshly signed.
+        assert_eq!(first.transaction.nonce, 6);
+        assert_eq!(second.transaction.nonce, 21);
+        assert_ne!(first.signature, second.signature, "retry must be re-signed");
+        assert_eq!(
+            transport.access_key_queries.load(Ordering::SeqCst),
+            2,
+            "each attempt re-fetches the access key for a fresh block hash"
+        );
     }
 }

@@ -75,17 +75,58 @@ pub const TESTNET: NetworkConfig = NetworkConfig {
 };
 
 /// Retry configuration for RPC calls.
+///
+/// Governs how [`RpcClient::call`] retries transient failures (transport
+/// errors, timeouts, 5xx / server-side errors — anything where
+/// [`RpcError::is_retryable`] is `true`). Delays grow exponentially from
+/// `initial_delay_ms`, capped at `max_delay_ms`.
+///
+/// Errors the node returned for a specific signed payload
+/// ([`RpcError::InvalidTx`]) are never retried here — re-sending the same
+/// bytes can't change the outcome. Nonce refresh and re-signing happen one
+/// layer up, in the `Near::send*` transaction path.
+///
+/// Use [`RetryConfig::none()`] to disable retries entirely, e.g. when the
+/// caller runs its own retry loop.
 #[derive(Clone, Debug)]
 pub struct RetryConfig {
-    /// Maximum number of retries.
+    /// Maximum number of retries after the first attempt (`0` = one attempt).
     pub max_retries: u32,
-    /// Initial delay in milliseconds.
+    /// Delay before the first retry, in milliseconds. Doubles on each
+    /// subsequent retry.
     pub initial_delay_ms: u64,
-    /// Maximum delay in milliseconds.
+    /// Upper bound on the delay between retries, in milliseconds.
     pub max_delay_ms: u64,
 }
 
+impl RetryConfig {
+    /// Disable retries: every call makes exactly one attempt and returns the
+    /// first error, retryable or not.
+    ///
+    /// Useful when the caller owns its retry policy (a CLI with its own
+    /// "retry?" prompt, a relayer with its own backoff), so near-kit's
+    /// built-in loop doesn't add hidden delay on top.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::{Near, RetryConfig};
+    ///
+    /// let near = Near::testnet()
+    ///     .retry_config(RetryConfig::none())
+    ///     .build();
+    /// ```
+    pub fn none() -> Self {
+        Self {
+            max_retries: 0,
+            ..Self::default()
+        }
+    }
+}
+
 impl Default for RetryConfig {
+    /// Three retries (four attempts total) with exponential backoff starting
+    /// at 500 ms and capped at 5 s: 500 ms, 1 s, 2 s.
     fn default() -> Self {
         Self {
             max_retries: 3,
@@ -434,6 +475,11 @@ impl RpcClient {
     }
 
     /// Make a raw RPC call with retries.
+    ///
+    /// Transient failures ([`RpcError::is_retryable`]) are retried according
+    /// to the client's [`RetryConfig`]. [`RpcError::InvalidTx`] is terminal:
+    /// the node has rejected this exact signed payload, so it is returned
+    /// after a single attempt without retrying.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %sanitize_url(&self.url))))]
     pub async fn call<P: Serialize, R: DeserializeOwned>(
         &self,
@@ -1413,6 +1459,7 @@ fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) ->
 mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, mpsc};
 
     use reqwest::header::{HeaderMap, HeaderValue};
@@ -1433,6 +1480,73 @@ mod tests {
             let body = self.body.clone();
             Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
         }
+    }
+
+    /// Transport that returns the same response every time and counts how
+    /// many requests it received, so tests can assert on retry attempts.
+    struct CountingTransport {
+        status: u16,
+        body: Vec<u8>,
+        calls: AtomicUsize,
+    }
+
+    impl CountingTransport {
+        fn new(status: u16, body: impl Into<Vec<u8>>) -> Arc<Self> {
+            Arc::new(Self {
+                status,
+                body: body.into(),
+                calls: AtomicUsize::new(0),
+            })
+        }
+
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    impl RpcTransport for CountingTransport {
+        fn post_json(
+            &self,
+            _url: &str,
+            _body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let status = self.status;
+            let body = self.body.clone();
+            Box::pin(async move { Ok(TransportResponse { status, body }) })
+        }
+    }
+
+    /// Retry config with `max_retries` retries and negligible backoff, so
+    /// retry-loop tests don't sleep for real.
+    fn fast_retries(max_retries: u32) -> RetryConfig {
+        RetryConfig {
+            max_retries,
+            initial_delay_ms: 1,
+            max_delay_ms: 1,
+        }
+    }
+
+    /// JSON-RPC error body for a `send_tx` rejected with `InvalidNonce`.
+    fn invalid_nonce_body() -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": {
+                "name": "HANDLER_ERROR",
+                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
+                "code": -32000,
+                "message": "Server error",
+                "data": {
+                    "TxExecutionError": {
+                        "InvalidTxError": {
+                            "InvalidNonce": { "tx_nonce": 6, "ak_nonce": 20 }
+                        }
+                    }
+                },
+            },
+        }))
+        .unwrap()
     }
 
     fn rpc_with_handler_error(cause_name: &str, info: serde_json::Value) -> RpcClient {
@@ -1493,6 +1607,103 @@ mod tests {
         let debug = format!("{:?}", config);
         assert!(debug.contains("RetryConfig"));
         assert!(debug.contains("max_retries"));
+    }
+
+    #[test]
+    fn test_retry_config_none() {
+        let config = RetryConfig::none();
+        assert_eq!(config.max_retries, 0);
+        // Delays are irrelevant with zero retries; keep the defaults so a
+        // caller doing `RetryConfig { max_retries: 1, ..RetryConfig::none() }`
+        // gets sane backoff.
+        assert_eq!(config.initial_delay_ms, 500);
+        assert_eq!(config.max_delay_ms, 5000);
+    }
+
+    // ========================================================================
+    // Retry-loop tests (mock transport, counted attempts)
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_call_does_not_retry_invalid_tx() {
+        // A signed payload the node already rejected is fixed at this layer:
+        // re-sending it byte-for-byte can't succeed, so `InvalidTx` must be
+        // terminal even though `InvalidNonce` is transient one layer up.
+        let transport = CountingTransport::new(200, invalid_nonce_body());
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(3),
+        );
+
+        let err = client
+            .call::<_, serde_json::Value>(
+                "send_tx",
+                serde_json::json!({ "signed_tx_base64": "AA==", "wait_until": "NONE" }),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {
+                    tx_nonce: 6,
+                    ak_nonce: 20
+                })
+            ),
+            "expected InvalidTx(InvalidNonce), got {err:?}"
+        );
+        assert_eq!(transport.calls(), 1, "InvalidTx must not be re-sent");
+    }
+
+    #[tokio::test]
+    async fn test_call_retries_transient_transport_errors() {
+        // A retryable transport failure (5xx) is retried `max_retries` times.
+        let transport = CountingTransport::new(503, "service unavailable");
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(2),
+        );
+
+        let err = client
+            .call::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                RpcError::Network {
+                    status_code: Some(503),
+                    retryable: true,
+                    ..
+                }
+            ),
+            "expected retryable Network error, got {err:?}"
+        );
+        assert_eq!(transport.calls(), 3, "1 attempt + 2 retries");
+    }
+
+    #[tokio::test]
+    async fn test_retry_config_none_makes_a_single_attempt() {
+        // With retries disabled, even a retryable error is returned after one
+        // attempt — the caller owns the retry policy.
+        let transport = CountingTransport::new(503, "service unavailable");
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            RetryConfig::none(),
+        );
+
+        let err = client
+            .call::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
+            .await
+            .unwrap_err();
+
+        assert!(err.is_retryable(), "503 is retryable in principle: {err:?}");
+        assert_eq!(transport.calls(), 1);
     }
 
     // ========================================================================
