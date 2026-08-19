@@ -723,11 +723,19 @@ impl RpcClient {
                     return RpcError::GlobalContractNotFound(identifier);
                 }
                 "TOO_LARGE_CONTRACT_STATE" => {
-                    let account_id = info
-                        .and_then(|i| i.get("account_id").or_else(|| i.get("contract_id")))
+                    // nearcore's `RpcQueryError::TooLargeContractState` puts the
+                    // account under `contract_account_id`; the other keys are
+                    // lenient fallbacks. If none parses, fall through to the
+                    // generic error rather than inventing an account id.
+                    if let Some(account_id) = info
+                        .and_then(|i| {
+                            i.get("contract_account_id")
+                                .or_else(|| i.get("account_id"))
+                                .or_else(|| i.get("contract_id"))
+                        })
                         .and_then(|a| a.as_str())
-                        .unwrap_or("unknown");
-                    if let Ok(account_id) = account_id.parse() {
+                        .and_then(|a| a.parse().ok())
+                    {
                         return RpcError::ContractStateTooLarge(account_id);
                     }
                 }
@@ -2480,6 +2488,34 @@ mod tests {
     #[test]
     fn test_parse_rpc_error_too_large_contract_state() {
         let client = RpcClient::new("https://example.com");
+        // Real wire payload from rpc.mainnet.near.org: nearcore keys the
+        // account as `contract_account_id`, not `account_id`.
+        let error: JsonRpcError = serde_json::from_value(serde_json::json!({
+            "code": -32000,
+            "message": "Server error",
+            "data": "State of contract wrap.near is too large to be viewed",
+            "name": "HANDLER_ERROR",
+            "cause": {
+                "name": "TOO_LARGE_CONTRACT_STATE",
+                "info": {
+                    "block_hash": "E83FeM6Z7HDJ1W4VtZyhRHdpP6YYttJQe6T7N9LQNW2S",
+                    "block_height": 211889547,
+                    "contract_account_id": "wrap.near"
+                }
+            }
+        }))
+        .unwrap();
+        match client.parse_rpc_error(&error) {
+            RpcError::ContractStateTooLarge(account_id) => {
+                assert_eq!(account_id.as_str(), "wrap.near");
+            }
+            other => panic!("expected ContractStateTooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_too_large_contract_state_legacy_account_id_key() {
+        let client = RpcClient::new("https://example.com");
         let error = JsonRpcError {
             code: -32000,
             message: "Contract state too large".to_string(),
@@ -2492,8 +2528,36 @@ mod tests {
             }),
             name: None,
         };
+        match client.parse_rpc_error(&error) {
+            RpcError::ContractStateTooLarge(account_id) => {
+                assert_eq!(account_id.as_str(), "large-state.near");
+            }
+            other => panic!("expected ContractStateTooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_rpc_error_too_large_contract_state_without_account_falls_through() {
+        let client = RpcClient::new("https://example.com");
+        // No recognizable account key: don't invent "unknown", surface the
+        // raw handler error instead.
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Contract state too large".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "TOO_LARGE_CONTRACT_STATE".to_string(),
+                info: Some(serde_json::json!({
+                    "block_height": 211889547
+                })),
+            }),
+            name: None,
+        };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::ContractStateTooLarge(_)));
+        assert!(
+            matches!(result, RpcError::Rpc { code: -32000, .. }),
+            "expected generic Rpc error, got {result:?}"
+        );
     }
 
     #[test]
