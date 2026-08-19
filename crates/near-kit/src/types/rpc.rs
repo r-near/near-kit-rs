@@ -6,9 +6,20 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use serde_with::{base64::Base64, serde_as};
 
+use super::action::{
+    AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction, DelegateAction,
+    DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
+    DeployGlobalContractAction, DeterministicStateInitAction, FunctionCallAction,
+    FunctionCallPermission, GasKeyInfo, GlobalContractDeployMode, GlobalContractId,
+    NonDelegateAction, SignedDelegateAction, StakeAction, StateInit, StateInitV1, TransferAction,
+    TransferToGasKeyAction, UseGlobalContractAction, VersionedDelegateActionPayload,
+    VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
+};
 use super::block_reference::TxExecutionStatus;
 use super::error::{ActionError, TxExecutionError};
+use super::transaction::TransactionNonce;
 use super::{AccountId, CryptoHash, Gas, NearToken, Nonce, PublicKey, PublicKeyHandle, Signature};
+use crate::error::ActionViewConversionError;
 
 // ============================================================================
 // Constants
@@ -1119,12 +1130,33 @@ pub enum VersionedDelegateActionPayloadView {
 }
 
 /// Action view in transaction.
+///
+/// This is the node's JSON rendering of an [`Action`], as found in
+/// `tx_status` responses ([`TransactionView::actions`]) and in action receipts.
+/// It can be turned back into an [`Action`] with
+/// [`TryFrom<ActionView>`](Action#impl-TryFrom<ActionView>-for-Action).
+///
+/// # Deploy views carry the code *hash*, not the WASM
+///
+/// [`DeployContract`](Self::DeployContract),
+/// [`DeployGlobalContract`](Self::DeployGlobalContract) and
+/// [`DeployGlobalContractByAccountId`](Self::DeployGlobalContractByAccountId)
+/// do **not** contain the contract code. The node replaces the WASM with the
+/// base64 of its 32-byte SHA-256 code hash before serving the view (nearcore
+/// `views.rs`: `hash(&action.code).as_ref().to_vec()`). Use
+/// [`deploy_code_hash`](Self::deploy_code_hash) to read it as a
+/// [`CryptoHash`]; do not treat the decoded bytes as WASM, and do not hash
+/// them again.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum ActionView {
     CreateAccount,
+    /// Deploy a contract to the account.
+    ///
+    /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
+    /// See [`ActionView::deploy_code_hash`].
     DeployContract {
-        code: String, // base64
+        code: String, // base64 of the 32-byte code hash (NOT the WASM)
     },
     FunctionCall {
         method_name: String,
@@ -1157,13 +1189,21 @@ pub enum ActionView {
         delegate_action: VersionedDelegateActionPayloadView,
         signature: Signature,
     },
+    /// Publish a global contract, identified by its code hash.
+    ///
+    /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
+    /// See [`ActionView::deploy_code_hash`].
     #[serde(rename = "DeployGlobalContract")]
     DeployGlobalContract {
-        code: String,
+        code: String, // base64 of the 32-byte code hash (NOT the WASM)
     },
+    /// Publish a global contract, identified by the publisher's account ID.
+    ///
+    /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
+    /// See [`ActionView::deploy_code_hash`].
     #[serde(rename = "DeployGlobalContractByAccountId")]
     DeployGlobalContractByAccountId {
-        code: String,
+        code: String, // base64 of the 32-byte code hash (NOT the WASM)
     },
     #[serde(rename = "UseGlobalContract")]
     UseGlobalContract {
@@ -1188,6 +1228,374 @@ pub enum ActionView {
         public_key: PublicKey,
         amount: NearToken,
     },
+}
+
+// ============================================================================
+// View -> wire conversions (ActionView -> Action, AccessKey*View -> AccessKey)
+// ============================================================================
+
+impl From<AccessKeyPermissionView> for AccessKeyPermission {
+    fn from(view: AccessKeyPermissionView) -> Self {
+        match view {
+            AccessKeyPermissionView::FullAccess => Self::FullAccess,
+            AccessKeyPermissionView::FunctionCall {
+                allowance,
+                receiver_id,
+                method_names,
+            } => Self::FunctionCall(FunctionCallPermission {
+                allowance,
+                receiver_id,
+                method_names,
+            }),
+            AccessKeyPermissionView::GasKeyFunctionCall {
+                balance,
+                num_nonces,
+                allowance,
+                receiver_id,
+                method_names,
+            } => Self::GasKeyFunctionCall(
+                GasKeyInfo {
+                    balance,
+                    num_nonces,
+                },
+                FunctionCallPermission {
+                    allowance,
+                    receiver_id,
+                    method_names,
+                },
+            ),
+            AccessKeyPermissionView::GasKeyFullAccess {
+                balance,
+                num_nonces,
+            } => Self::GasKeyFullAccess(GasKeyInfo {
+                balance,
+                num_nonces,
+            }),
+        }
+    }
+}
+
+impl From<AccessKeyDetails> for AccessKey {
+    fn from(view: AccessKeyDetails) -> Self {
+        Self {
+            nonce: view.nonce,
+            permission: view.permission.into(),
+        }
+    }
+}
+
+/// Drops the block metadata (`block_height` / `block_hash`) and keeps the
+/// nonce and permission.
+impl From<AccessKeyView> for AccessKey {
+    fn from(view: AccessKeyView) -> Self {
+        Self {
+            nonce: view.nonce,
+            permission: view.permission.into(),
+        }
+    }
+}
+
+impl From<GlobalContractIdentifierView> for GlobalContractId {
+    fn from(view: GlobalContractIdentifierView) -> Self {
+        match view {
+            GlobalContractIdentifierView::CodeHash(hash) => Self::CodeHash(*hash.as_bytes()),
+            GlobalContractIdentifierView::AccountId(account_id) => Self::AccountId(account_id),
+        }
+    }
+}
+
+impl From<TransactionNonceView> for TransactionNonce {
+    fn from(view: TransactionNonceView) -> Self {
+        match view {
+            TransactionNonceView::Nonce { nonce } => Self::from_nonce(nonce),
+            TransactionNonceView::GasKeyNonce { nonce, nonce_index } => {
+                Self::from_nonce_and_index(nonce, nonce_index)
+            }
+        }
+    }
+}
+
+impl ActionView {
+    /// The code hash carried by a `DeployContract` / `DeployGlobalContract` /
+    /// `DeployGlobalContractByAccountId` view; `None` for every other variant.
+    ///
+    /// The node does not serve the WASM in these views: the `code` field is the
+    /// base64 of the 32-byte SHA-256 hash of the code (see the
+    /// [enum-level note](ActionView#deploy-views-carry-the-code-hash-not-the-wasm)).
+    /// This accessor decodes it into a [`CryptoHash`], failing if `code` is not
+    /// valid base64 or does not decode to exactly 32 bytes.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::{ActionView, CryptoHash};
+    ///
+    /// // `code` is base64(sha256(wasm)); here the WASM is the empty byte string.
+    /// let view: ActionView = serde_json::from_value(serde_json::json!({
+    ///     "DeployContract": { "code": "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=" }
+    /// }))?;
+    ///
+    /// let hash = view.deploy_code_hash().expect("a deploy view")?;
+    /// assert_eq!(hash, CryptoHash::hash(b""));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn deploy_code_hash(&self) -> Option<Result<CryptoHash, ActionViewConversionError>> {
+        match self {
+            Self::DeployContract { code }
+            | Self::DeployGlobalContract { code }
+            | Self::DeployGlobalContractByAccountId { code } => Some(decode_code_hash(code)),
+            _ => None,
+        }
+    }
+}
+
+/// Decode a base64 view field, naming the field in the error.
+fn decode_view_base64(field: &'static str, s: &str) -> Result<Vec<u8>, ActionViewConversionError> {
+    STANDARD
+        .decode(s)
+        .map_err(|source| ActionViewConversionError::InvalidBase64 { field, source })
+}
+
+/// Decode the `code` field of a deploy view into the 32-byte code hash it holds.
+fn decode_code_hash(code: &str) -> Result<CryptoHash, ActionViewConversionError> {
+    let bytes = decode_view_base64("code", code)?;
+    CryptoHash::try_from(bytes.as_slice()).map_err(|_| ActionViewConversionError::InvalidCodeHash {
+        actual: bytes.len(),
+    })
+}
+
+/// Convert the inner actions of a delegate view, rejecting nested delegates.
+fn non_delegate_actions(
+    views: Vec<ActionView>,
+) -> Result<Vec<NonDelegateAction>, ActionViewConversionError> {
+    views.into_iter().map(NonDelegateAction::try_from).collect()
+}
+
+impl TryFrom<DelegateActionView> for DelegateAction {
+    type Error = ActionViewConversionError;
+
+    fn try_from(view: DelegateActionView) -> Result<Self, Self::Error> {
+        Ok(Self {
+            sender_id: view.sender_id,
+            receiver_id: view.receiver_id,
+            actions: non_delegate_actions(view.actions)?,
+            nonce: view.nonce,
+            max_block_height: view.max_block_height,
+            public_key: view.public_key,
+        })
+    }
+}
+
+impl TryFrom<DelegateActionV2View> for DelegateActionV2 {
+    type Error = ActionViewConversionError;
+
+    fn try_from(view: DelegateActionV2View) -> Result<Self, Self::Error> {
+        Ok(Self {
+            sender_id: view.sender_id,
+            receiver_id: view.receiver_id,
+            actions: non_delegate_actions(view.actions)?,
+            nonce: view.nonce.into(),
+            max_block_height: view.max_block_height,
+            public_key: view.public_key,
+        })
+    }
+}
+
+impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayload {
+    type Error = ActionViewConversionError;
+
+    fn try_from(view: VersionedDelegateActionPayloadView) -> Result<Self, Self::Error> {
+        match view {
+            VersionedDelegateActionPayloadView::V2(d) => Ok(Self::V2(d.try_into()?)),
+        }
+    }
+}
+
+/// Convert a node-reported action view back into a wire [`Action`], e.g. to
+/// re-sign or replay a transaction fetched with `tx_status`.
+///
+/// Mirrors nearcore's `TryFrom<ActionView> for Action`, including its one big
+/// caveat:
+///
+/// # Deploy actions come back with the code *hash* in `code`
+///
+/// `DeployContract`, `DeployGlobalContract` and `DeployGlobalContractByAccountId`
+/// views carry the base64 of the 32-byte SHA-256 code hash, **not** the WASM
+/// (see [`ActionView`]). The resulting
+/// [`DeployContractAction::code`] / [`DeployGlobalContractAction::code`] therefore
+/// holds those 32 hash bytes — exactly as nearcore's own conversion does. Such an
+/// action is not deployable as-is; fetch the real code (e.g. `view_code` on an
+/// archival node) and verify it against [`ActionView::deploy_code_hash`]. A
+/// `code` that does not decode to exactly 32 bytes is rejected with
+/// [`ActionViewConversionError::InvalidCodeHash`].
+///
+/// # Other errors
+///
+/// * Invalid base64 in `args`, `code`, or state-init `data` →
+///   [`ActionViewConversionError::InvalidBase64`].
+/// * A delegate action nested inside a `Delegate` / `DelegateV2` view →
+///   [`ActionViewConversionError::NestedDelegate`].
+///
+/// # Example
+///
+/// The `transaction.actions` of a `tx_status` response, converted back to
+/// [`Action`]s (one action shown, deserialized from the JSON the node returns):
+///
+/// ```rust
+/// use near_kit::{Action, ActionView, Gas, NearToken};
+///
+/// let view: ActionView = serde_json::from_value(serde_json::json!({
+///     "FunctionCall": {
+///         "method_name": "set_greeting",
+///         "args": "eyJncmVldGluZyI6ImhpIn0=",
+///         "gas": 30000000000000u64,
+///         "deposit": "0"
+///     }
+/// }))?;
+///
+/// let action = Action::try_from(view)?;
+/// assert_eq!(
+///     action,
+///     Action::function_call(
+///         "set_greeting",
+///         br#"{"greeting":"hi"}"#.to_vec(),
+///         Gas::from_tgas(30),
+///         NearToken::from_yoctonear(0),
+///     )
+/// );
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// With a live client (requires the `rpc` feature):
+///
+/// ```rust,ignore
+/// let outcome = near.tx_status(&tx_hash, "alice.near").wait_until::<Final>().await?;
+/// let actions = outcome
+///     .transaction
+///     .actions
+///     .into_iter()
+///     .map(Action::try_from)
+///     .collect::<Result<Vec<_>, _>>()?;
+/// ```
+impl TryFrom<ActionView> for Action {
+    type Error = ActionViewConversionError;
+
+    fn try_from(view: ActionView) -> Result<Self, Self::Error> {
+        Ok(match view {
+            ActionView::CreateAccount => Self::CreateAccount(CreateAccountAction),
+            // NOTE: `code` is the base64 of the code *hash*, not the WASM. The
+            // resulting action holds the 32 hash bytes, as in nearcore.
+            ActionView::DeployContract { code } => Self::DeployContract(DeployContractAction {
+                code: decode_code_hash(&code)?.to_vec(),
+            }),
+            ActionView::FunctionCall {
+                method_name,
+                args,
+                gas,
+                deposit,
+            } => Self::FunctionCall(FunctionCallAction {
+                method_name,
+                args: decode_view_base64("args", &args)?,
+                gas,
+                deposit,
+            }),
+            ActionView::Transfer { deposit } => Self::Transfer(TransferAction { deposit }),
+            ActionView::Stake { stake, public_key } => {
+                Self::Stake(StakeAction { stake, public_key })
+            }
+            ActionView::AddKey {
+                public_key,
+                access_key,
+            } => Self::AddKey(AddKeyAction {
+                public_key,
+                access_key: access_key.into(),
+            }),
+            ActionView::DeleteKey { public_key } => Self::DeleteKey(DeleteKeyAction { public_key }),
+            ActionView::DeleteAccount { beneficiary_id } => {
+                Self::DeleteAccount(DeleteAccountAction { beneficiary_id })
+            }
+            ActionView::Delegate {
+                delegate_action,
+                signature,
+            } => Self::Delegate(Box::new(SignedDelegateAction {
+                delegate_action: delegate_action.try_into()?,
+                signature,
+            })),
+            ActionView::DelegateV2 {
+                delegate_action,
+                signature,
+            } => Self::DelegateV2(Box::new(VersionedSignedDelegateAction {
+                delegate_action: delegate_action.try_into()?,
+                signature,
+            })),
+            // NOTE: as for DeployContract, `code` is the code hash, not the WASM.
+            ActionView::DeployGlobalContract { code } => {
+                Self::DeployGlobalContract(DeployGlobalContractAction {
+                    code: decode_code_hash(&code)?.to_vec(),
+                    deploy_mode: GlobalContractDeployMode::CodeHash,
+                })
+            }
+            ActionView::DeployGlobalContractByAccountId { code } => {
+                Self::DeployGlobalContract(DeployGlobalContractAction {
+                    code: decode_code_hash(&code)?.to_vec(),
+                    deploy_mode: GlobalContractDeployMode::AccountId,
+                })
+            }
+            ActionView::UseGlobalContract { code_hash } => {
+                Self::UseGlobalContract(UseGlobalContractAction {
+                    contract_identifier: GlobalContractId::CodeHash(*code_hash.as_bytes()),
+                })
+            }
+            ActionView::UseGlobalContractByAccountId { account_id } => {
+                Self::UseGlobalContract(UseGlobalContractAction {
+                    contract_identifier: GlobalContractId::AccountId(account_id),
+                })
+            }
+            ActionView::DeterministicStateInit {
+                code,
+                data,
+                deposit,
+            } => {
+                let data = data
+                    .into_iter()
+                    .map(|(k, v)| {
+                        Ok((
+                            decode_view_base64("data", &k)?,
+                            decode_view_base64("data", &v)?,
+                        ))
+                    })
+                    .collect::<Result<BTreeMap<_, _>, ActionViewConversionError>>()?;
+                Self::DeterministicStateInit(DeterministicStateInitAction {
+                    state_init: StateInit::V1(StateInitV1 {
+                        code: code.into(),
+                        data,
+                    }),
+                    deposit,
+                })
+            }
+            ActionView::TransferToGasKey {
+                public_key,
+                deposit,
+            } => Self::TransferToGasKey(TransferToGasKeyAction {
+                public_key,
+                deposit,
+            }),
+            ActionView::WithdrawFromGasKey { public_key, amount } => {
+                Self::WithdrawFromGasKey(WithdrawFromGasKeyAction { public_key, amount })
+            }
+        })
+    }
+}
+
+/// Like [`TryFrom<ActionView> for Action`](Action#impl-TryFrom<ActionView>-for-Action),
+/// additionally rejecting `Delegate` / `DelegateV2` views with
+/// [`ActionViewConversionError::NestedDelegate`].
+impl TryFrom<ActionView> for NonDelegateAction {
+    type Error = ActionViewConversionError;
+
+    fn try_from(view: ActionView) -> Result<Self, Self::Error> {
+        Self::from_action(Action::try_from(view)?).ok_or(ActionViewConversionError::NestedDelegate)
+    }
 }
 
 /// Merkle path item for cryptographic proofs.
@@ -2627,5 +3035,410 @@ mod tests {
             "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
         );
         assert_eq!(response.sender_account_id.as_str(), "alice.near");
+    }
+}
+
+// Round-trips from the JSON the node returns for an `ActionView` back into the
+// wire `Action`. Kept in its own module so it stays a self-contained block.
+#[cfg(test)]
+mod action_view_conversion_tests {
+    use super::*;
+    use crate::types::StateInitExt as _;
+
+    const PK: &str = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";
+    const SIG: &str = "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5";
+
+    fn pk() -> PublicKey {
+        PK.parse().unwrap()
+    }
+
+    fn convert(json: serde_json::Value) -> Result<Action, ActionViewConversionError> {
+        let view: ActionView = serde_json::from_value(json).unwrap();
+        Action::try_from(view)
+    }
+
+    #[test]
+    fn function_call_decodes_base64_args() {
+        let expected = Action::function_call(
+            "set_greeting",
+            br#"{"greeting":"hi"}"#.to_vec(),
+            Gas::from_tgas(30),
+            NearToken::from_near(1),
+        );
+        let json = serde_json::json!({
+            "FunctionCall": {
+                "method_name": "set_greeting",
+                "args": STANDARD.encode(br#"{"greeting":"hi"}"#),
+                "gas": 30000000000000_u64,
+                "deposit": "1000000000000000000000000"
+            }
+        });
+        assert_eq!(convert(json).unwrap(), expected);
+    }
+
+    #[test]
+    fn function_call_rejects_invalid_base64_args() {
+        let json = serde_json::json!({
+            "FunctionCall": {
+                "method_name": "m",
+                "args": "not*base64",
+                "gas": 1_u64,
+                "deposit": "0"
+            }
+        });
+        assert!(matches!(
+            convert(json),
+            Err(ActionViewConversionError::InvalidBase64 { field: "args", .. })
+        ));
+    }
+
+    #[test]
+    fn simple_actions_round_trip() {
+        assert_eq!(
+            convert(serde_json::json!("CreateAccount")).unwrap(),
+            Action::create_account()
+        );
+        assert_eq!(
+            convert(serde_json::json!({ "Transfer": { "deposit": "5" } })).unwrap(),
+            Action::transfer(NearToken::from_yoctonear(5))
+        );
+        assert_eq!(
+            convert(serde_json::json!({ "Stake": { "stake": "7", "public_key": PK } })).unwrap(),
+            Action::stake(NearToken::from_yoctonear(7), pk())
+        );
+        assert_eq!(
+            convert(serde_json::json!({ "DeleteKey": { "public_key": PK } })).unwrap(),
+            Action::delete_key(pk())
+        );
+        assert_eq!(
+            convert(serde_json::json!({ "DeleteAccount": { "beneficiary_id": "bob.near" } }))
+                .unwrap(),
+            Action::delete_account("bob.near".parse().unwrap())
+        );
+        assert_eq!(
+            convert(serde_json::json!({
+                "TransferToGasKey": { "public_key": PK, "deposit": "3" }
+            }))
+            .unwrap(),
+            Action::transfer_to_gas_key(pk(), NearToken::from_yoctonear(3))
+        );
+        assert_eq!(
+            convert(serde_json::json!({
+                "WithdrawFromGasKey": { "public_key": PK, "amount": "4" }
+            }))
+            .unwrap(),
+            Action::withdraw_from_gas_key(pk(), NearToken::from_yoctonear(4))
+        );
+    }
+
+    #[test]
+    fn add_key_function_call_permission_round_trips() {
+        let json = serde_json::json!({
+            "AddKey": {
+                "public_key": PK,
+                "access_key": {
+                    "nonce": 9_u64,
+                    "permission": {
+                        "FunctionCall": {
+                            "allowance": "250000000000000000000000",
+                            "receiver_id": "contract.near",
+                            "method_names": ["a", "b"]
+                        }
+                    }
+                }
+            }
+        });
+        let expected = Action::AddKey(AddKeyAction {
+            public_key: pk(),
+            access_key: AccessKey {
+                nonce: 9,
+                permission: AccessKeyPermission::function_call(
+                    "contract.near".parse().unwrap(),
+                    vec!["a".into(), "b".into()],
+                    Some(NearToken::from_millinear(250)),
+                ),
+            },
+        });
+        assert_eq!(convert(json).unwrap(), expected);
+    }
+
+    #[test]
+    fn add_key_gas_key_permissions_round_trip() {
+        let json = serde_json::json!({
+            "AddKey": {
+                "public_key": PK,
+                "access_key": {
+                    "nonce": 0_u64,
+                    "permission": {
+                        "GasKeyFunctionCall": {
+                            "balance": "1000",
+                            "num_nonces": 8,
+                            "allowance": null,
+                            "receiver_id": "contract.near",
+                            "method_names": []
+                        }
+                    }
+                }
+            }
+        });
+        let expected = Action::AddKey(AddKeyAction {
+            public_key: pk(),
+            access_key: AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::GasKeyFunctionCall(
+                    GasKeyInfo {
+                        balance: NearToken::from_yoctonear(1000),
+                        num_nonces: 8,
+                    },
+                    FunctionCallPermission {
+                        allowance: None,
+                        receiver_id: "contract.near".parse().unwrap(),
+                        method_names: vec![],
+                    },
+                ),
+            },
+        });
+        assert_eq!(convert(json).unwrap(), expected);
+
+        let full: AccessKeyPermission = serde_json::from_value::<AccessKeyPermissionView>(
+            serde_json::json!({ "GasKeyFullAccess": { "balance": "1", "num_nonces": 2 } }),
+        )
+        .unwrap()
+        .into();
+        assert_eq!(
+            full,
+            AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
+                balance: NearToken::from_yoctonear(1),
+                num_nonces: 2,
+            })
+        );
+        let full_access: AccessKeyPermission =
+            serde_json::from_value::<AccessKeyPermissionView>(serde_json::json!("FullAccess"))
+                .unwrap()
+                .into();
+        assert_eq!(full_access, AccessKeyPermission::FullAccess);
+    }
+
+    #[test]
+    fn access_key_view_drops_block_metadata() {
+        let view: AccessKeyView = serde_json::from_value(serde_json::json!({
+            "nonce": 5_u64,
+            "permission": "FullAccess",
+            "block_height": 1_u64,
+            "block_hash": "11111111111111111111111111111111"
+        }))
+        .unwrap();
+        assert_eq!(
+            AccessKey::from(view),
+            AccessKey {
+                nonce: 5,
+                permission: AccessKeyPermission::FullAccess
+            }
+        );
+    }
+
+    #[test]
+    fn deploy_contract_view_yields_code_hash_bytes_not_wasm() {
+        // The node serves base64(sha256(wasm)) in `code`, so the converted
+        // action holds the 32 hash bytes (as nearcore's own TryFrom does).
+        let wasm = b"\0asm\x01\0\0\0 not really a contract";
+        let hash = CryptoHash::hash(wasm);
+        let json = serde_json::json!({ "DeployContract": { "code": STANDARD.encode(hash) } });
+        let view: ActionView = serde_json::from_value(json).unwrap();
+        assert_eq!(view.deploy_code_hash().unwrap().unwrap(), hash);
+        match Action::try_from(view).unwrap() {
+            Action::DeployContract(DeployContractAction { code }) => {
+                assert_eq!(code, hash.to_vec());
+                assert_ne!(code, wasm.to_vec());
+            }
+            other => panic!("expected DeployContract, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn deploy_global_contract_views_carry_mode_and_hash() {
+        let hash = CryptoHash::hash(b"global");
+        for (tag, mode) in [
+            ("DeployGlobalContract", GlobalContractDeployMode::CodeHash),
+            (
+                "DeployGlobalContractByAccountId",
+                GlobalContractDeployMode::AccountId,
+            ),
+        ] {
+            let json = serde_json::json!({ tag: { "code": STANDARD.encode(hash) } });
+            let view: ActionView = serde_json::from_value(json).unwrap();
+            assert_eq!(view.deploy_code_hash().unwrap().unwrap(), hash);
+            assert_eq!(
+                Action::try_from(view).unwrap(),
+                Action::DeployGlobalContract(DeployGlobalContractAction {
+                    code: hash.to_vec(),
+                    deploy_mode: mode,
+                })
+            );
+        }
+        // Non-deploy views have no code hash.
+        let view: ActionView = serde_json::from_value(serde_json::json!("CreateAccount")).unwrap();
+        assert!(view.deploy_code_hash().is_none());
+    }
+
+    #[test]
+    fn deploy_view_with_wrong_length_code_is_rejected() {
+        // Someone (or some tool) put actual WASM bytes in `code` instead of the hash.
+        let json = serde_json::json!({ "DeployContract": { "code": STANDARD.encode(b"\0asm\x01\0\0\0") } });
+        let view: ActionView = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            view.deploy_code_hash().unwrap(),
+            Err(ActionViewConversionError::InvalidCodeHash { actual: 8 })
+        );
+        assert_eq!(
+            Action::try_from(view),
+            Err(ActionViewConversionError::InvalidCodeHash { actual: 8 })
+        );
+    }
+
+    #[test]
+    fn use_global_contract_by_hash_and_account() {
+        let hash = CryptoHash::hash(b"x");
+        assert_eq!(
+            convert(serde_json::json!({
+                "UseGlobalContract": { "code_hash": hash.to_string() }
+            }))
+            .unwrap(),
+            Action::deploy_from_hash(hash)
+        );
+        assert_eq!(
+            convert(serde_json::json!({
+                "UseGlobalContractByAccountId": { "account_id": "publisher.near" }
+            }))
+            .unwrap(),
+            Action::deploy_from_account("publisher.near".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn deterministic_state_init_decodes_base64_data() {
+        let hash = CryptoHash::hash(b"y");
+        let json = serde_json::json!({
+            "DeterministicStateInit": {
+                "code": { "hash": hash.to_string() },
+                "data": { STANDARD.encode(b"key"): STANDARD.encode(b"value") },
+                "deposit": "1"
+            }
+        });
+        let expected = Action::state_init(
+            StateInit::by_hash(hash, BTreeMap::from([(b"key".to_vec(), b"value".to_vec())])),
+            NearToken::from_yoctonear(1),
+        );
+        assert_eq!(convert(json).unwrap(), expected);
+    }
+
+    #[test]
+    fn delegate_with_nested_function_call_round_trips() {
+        let json = serde_json::json!({
+            "Delegate": {
+                "delegate_action": {
+                    "sender_id": "alice.near",
+                    "receiver_id": "contract.near",
+                    "actions": [{
+                        "FunctionCall": {
+                            "method_name": "hi",
+                            "args": STANDARD.encode(b"{}"),
+                            "gas": 5000000000000_u64,
+                            "deposit": "0"
+                        }
+                    }],
+                    "nonce": 42_u64,
+                    "max_block_height": 100_u64,
+                    "public_key": PK
+                },
+                "signature": SIG
+            }
+        });
+        let inner = Action::function_call(
+            "hi",
+            b"{}".to_vec(),
+            Gas::from_tgas(5),
+            NearToken::from_yoctonear(0),
+        );
+        let expected = Action::Delegate(Box::new(SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: "alice.near".parse().unwrap(),
+                receiver_id: "contract.near".parse().unwrap(),
+                actions: vec![NonDelegateAction::from_action(inner).unwrap()],
+                nonce: 42,
+                max_block_height: 100,
+                public_key: pk(),
+            },
+            signature: SIG.parse().unwrap(),
+        }));
+        assert_eq!(convert(json).unwrap(), expected);
+    }
+
+    #[test]
+    fn delegate_v2_with_gas_key_nonce_round_trips() {
+        let json = serde_json::json!({
+            "DelegateV2": {
+                "delegate_action": {
+                    "V2": {
+                        "sender_id": "alice.near",
+                        "receiver_id": "bob.near",
+                        "actions": [{ "Transfer": { "deposit": "1" } }],
+                        "nonce": { "GasKeyNonce": { "nonce": 42, "nonce_index": 3 } },
+                        "max_block_height": 100,
+                        "public_key": PK
+                    }
+                },
+                "signature": SIG
+            }
+        });
+        let expected = Action::DelegateV2(Box::new(VersionedSignedDelegateAction {
+            delegate_action: VersionedDelegateActionPayload::V2(DelegateActionV2 {
+                sender_id: "alice.near".parse().unwrap(),
+                receiver_id: "bob.near".parse().unwrap(),
+                actions: vec![
+                    NonDelegateAction::from_action(Action::transfer(NearToken::from_yoctonear(1)))
+                        .unwrap(),
+                ],
+                nonce: TransactionNonce::from_nonce_and_index(42, 3),
+                max_block_height: 100,
+                public_key: pk(),
+            }),
+            signature: SIG.parse().unwrap(),
+        }));
+        assert_eq!(convert(json).unwrap(), expected);
+    }
+
+    #[test]
+    fn nested_delegate_is_rejected() {
+        let inner_delegate = serde_json::json!({
+            "Delegate": {
+                "delegate_action": {
+                    "sender_id": "alice.near",
+                    "receiver_id": "bob.near",
+                    "actions": [],
+                    "nonce": 1_u64,
+                    "max_block_height": 1_u64,
+                    "public_key": PK
+                },
+                "signature": SIG
+            }
+        });
+        let json = serde_json::json!({
+            "Delegate": {
+                "delegate_action": {
+                    "sender_id": "alice.near",
+                    "receiver_id": "bob.near",
+                    "actions": [inner_delegate],
+                    "nonce": 1_u64,
+                    "max_block_height": 1_u64,
+                    "public_key": PK
+                },
+                "signature": SIG
+            }
+        });
+        assert_eq!(
+            convert(json),
+            Err(ActionViewConversionError::NestedDelegate)
+        );
     }
 }

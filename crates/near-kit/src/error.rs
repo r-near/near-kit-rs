@@ -135,6 +135,41 @@ pub enum ParseHashError {
     InvalidLength(usize),
 }
 
+/// Error converting an RPC view back into a wire type
+/// (`TryFrom<ActionView> for Action`).
+///
+/// View types are what the node *reports*; wire types are what gets signed and
+/// sent. Most conversions are lossless, but a few views cannot be turned back
+/// into an action, and those are surfaced here rather than silently producing
+/// an action that would be rejected on the wire.
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+pub enum ActionViewConversionError {
+    /// A base64-encoded field of the view failed to decode.
+    #[error("Invalid base64 in `{field}`: {source}")]
+    InvalidBase64 {
+        /// Name of the view field that failed to decode.
+        field: &'static str,
+        /// The underlying base64 decode error.
+        source: base64::DecodeError,
+    },
+
+    /// A `DeployContract` / `DeployGlobalContract*` view carried something
+    /// other than a 32-byte code hash in its `code` field.
+    ///
+    /// The node replaces the WASM with the SHA-256 hash of the code in these
+    /// views, so `code` must decode to exactly 32 bytes.
+    #[error("Expected a 32-byte code hash in the deploy action view's `code`, got {actual} bytes")]
+    InvalidCodeHash {
+        /// Number of bytes `code` actually decoded to.
+        actual: usize,
+    },
+
+    /// A `Delegate` / `DelegateV2` view contained a nested delegate action,
+    /// which the protocol forbids.
+    #[error("A delegate action must not contain a nested delegate action")]
+    NestedDelegate,
+}
+
 /// Error during signing operations.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum SignerError {
