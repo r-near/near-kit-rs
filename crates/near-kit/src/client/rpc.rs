@@ -422,6 +422,16 @@ pub struct RpcClient {
 }
 
 impl RpcClient {
+    /// Page size [`RpcClient::view_state_all`] uses when asked for `0`.
+    ///
+    /// This is nearcore's `MAX_VIEW_STATE_PAGE_ITEMS`; the node also caps every
+    /// page at ~50 KB of state, so the exact value rarely matters. What does
+    /// matter is that a `limit` is always sent: nearcore only treats a
+    /// `view_state` query as paginated when `limit` or `after_key` is present,
+    /// and only paginated queries are exempt from the `TOO_LARGE_CONTRACT_STATE`
+    /// size gate.
+    pub const DEFAULT_VIEW_STATE_PAGE_SIZE: u32 = 10_000;
+
     /// Create a new RPC client with the given URL.
     ///
     /// Only exists where a built-in transport does (every target except WASI
@@ -1105,7 +1115,14 @@ impl RpcClient {
     /// Repeatedly calls [`RpcClient::view_state`] with `page_size` per request,
     /// following the `last_key` cursor until the node reports no more entries,
     /// and returns all matching [`StateItem`]s. Pass an empty `prefix` for the
-    /// whole state. `page_size` of `0` lets the node choose its default.
+    /// whole state. `page_size` of `0` means the default page size,
+    /// [`RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`].
+    ///
+    /// Every request carries a positive `limit`, so the node treats it as
+    /// paginated and does not reject large states with
+    /// [`RpcError::ContractStateTooLarge`] — that gate only applies to
+    /// unpaginated single-shot queries. Use [`RpcClient::view_state`] with
+    /// `limit: None` if you want that one-shot behavior.
     ///
     /// All pages are read against the same `block` so the result is a
     /// consistent snapshot.
@@ -1131,12 +1148,25 @@ impl RpcClient {
             already_fixed => already_fixed,
         };
 
-        let limit = (page_size > 0).then_some(page_size);
+        // Always send a positive limit: an omitted `limit` on the first page
+        // would make the node treat that request as unpaginated and apply
+        // its `TOO_LARGE_CONTRACT_STATE` size gate.
+        let limit = if page_size > 0 {
+            page_size
+        } else {
+            Self::DEFAULT_VIEW_STATE_PAGE_SIZE
+        };
         let mut all = Vec::new();
         let mut after_key: Option<Vec<u8>> = None;
         loop {
             let page = self
-                .view_state(account_id, prefix, after_key.as_deref(), limit, fixed_block)
+                .view_state(
+                    account_id,
+                    prefix,
+                    after_key.as_deref(),
+                    Some(limit),
+                    fixed_block,
+                )
                 .await?;
             all.extend(page.values);
             match page.last_key {
@@ -1466,10 +1496,11 @@ fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) ->
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::atomic::AtomicUsize;
-    use std::sync::{Arc, mpsc};
+    use std::sync::{Arc, Mutex, mpsc};
 
     use reqwest::header::{HeaderMap, HeaderValue};
 
@@ -1978,6 +2009,140 @@ mod tests {
         let request = request_rx.recv().unwrap().to_ascii_lowercase();
         assert!(request.contains(&format!("x-api-key: {secret}")));
         server.join().unwrap();
+    }
+
+    // ========================================================================
+    // view_state_all pagination
+    // ========================================================================
+
+    /// Transport that replays queued JSON-RPC results in order and records the
+    /// `params` of every request it was sent.
+    struct RecordingTransport {
+        responses: Mutex<VecDeque<Vec<u8>>>,
+        params: Mutex<Vec<serde_json::Value>>,
+    }
+
+    impl RecordingTransport {
+        fn new(results: impl IntoIterator<Item = serde_json::Value>) -> Arc<Self> {
+            let responses = results
+                .into_iter()
+                .map(|result| {
+                    serde_json::to_vec(&serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": 0,
+                        "result": result,
+                    }))
+                    .unwrap()
+                })
+                .collect();
+            Arc::new(Self {
+                responses: Mutex::new(responses),
+                params: Mutex::new(Vec::new()),
+            })
+        }
+
+        fn client(self: &Arc<Self>) -> RpcClient {
+            RpcClient::with_transport_and_retry_config(
+                "https://example.com",
+                self.clone(),
+                RetryConfig {
+                    max_retries: 0,
+                    ..RetryConfig::default()
+                },
+            )
+        }
+
+        fn params(&self) -> Vec<serde_json::Value> {
+            self.params.lock().unwrap().clone()
+        }
+    }
+
+    impl RpcTransport for RecordingTransport {
+        fn post_json(
+            &self,
+            _url: &str,
+            body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            self.params.lock().unwrap().push(request["params"].clone());
+            let body = self
+                .responses
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("more RPC requests than queued responses");
+            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+        }
+    }
+
+    /// One `view_state` page holding `keys` (all with value `b"v"`), with an
+    /// optional `last_key` continuation cursor.
+    fn view_state_page(keys: &[&[u8]], last_key: Option<&[u8]>) -> serde_json::Value {
+        let values: Vec<_> = keys
+            .iter()
+            .map(|key| {
+                serde_json::json!({ "key": STANDARD.encode(key), "value": STANDARD.encode(b"v") })
+            })
+            .collect();
+        let mut page = serde_json::json!({
+            "values": values,
+            "block_height": 9u64,
+            "block_hash": "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj",
+        });
+        if let Some(cursor) = last_key {
+            page["last_key"] = STANDARD.encode(cursor).into();
+        }
+        page
+    }
+
+    #[tokio::test]
+    async fn test_view_state_all_page_size_zero_still_sends_default_limit() {
+        // Regression for #294: an omitted `limit` makes nearcore treat the first
+        // request as unpaginated and apply the TOO_LARGE_CONTRACT_STATE gate,
+        // so `page_size == 0` must still put a positive `limit` on the wire.
+        let transport = RecordingTransport::new([
+            view_state_page(&[b"sea", b"seb"], Some(b"seb")),
+            view_state_page(&[b"sec"], None),
+        ]);
+        let account: AccountId = "poolv1.near".parse().unwrap();
+
+        let all = transport
+            .client()
+            .view_state_all(&account, b"se", 0, BlockReference::at_height(1))
+            .await
+            .unwrap();
+        let keys: Vec<&[u8]> = all.iter().map(|item| item.key.as_slice()).collect();
+        assert_eq!(keys, [b"sea", b"seb", b"sec"]);
+
+        let params = transport.params();
+        assert_eq!(params.len(), 2, "one request per page");
+        assert_eq!(params[0]["limit"], RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE);
+        assert_eq!(params[0]["limit"], 10_000);
+        assert_eq!(params[0]["prefix_base64"], STANDARD.encode(b"se"));
+        assert!(
+            params[0].get("after_key_base64").is_none(),
+            "first page has no cursor"
+        );
+        // The second page continues from `last_key` and stays paginated.
+        assert_eq!(params[1]["limit"], RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE);
+        assert_eq!(params[1]["after_key_base64"], STANDARD.encode(b"seb"));
+    }
+
+    #[tokio::test]
+    async fn test_view_state_all_forwards_explicit_page_size() {
+        let transport = RecordingTransport::new([view_state_page(&[b"k"], None)]);
+        let account: AccountId = "app.near".parse().unwrap();
+
+        let all = transport
+            .client()
+            .view_state_all(&account, b"", 25, BlockReference::at_height(1))
+            .await
+            .unwrap();
+        assert_eq!(all.len(), 1);
+
+        let params = transport.params();
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0]["limit"], 25);
     }
 
     // ========================================================================

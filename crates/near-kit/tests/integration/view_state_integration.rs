@@ -91,7 +91,7 @@ async fn test_view_state_pagination_reads_all_entries() {
     );
 
     // The paginating helper must collect every entry regardless of page size:
-    // a small explicit limit vs. the node-default page size (page_size = 0).
+    // a small explicit limit vs. the default page size (page_size = 0).
     let all_small_pages = near
         .rpc()
         .view_state_all(&contract, &[], 2, BlockReference::final_())
@@ -101,7 +101,7 @@ async fn test_view_state_pagination_reads_all_entries() {
         .rpc()
         .view_state_all(&contract, &[], 0, BlockReference::final_())
         .await
-        .expect("view_state_all with node-default page size");
+        .expect("view_state_all with default page size");
 
     assert_eq!(
         all_small_pages, all_default_page,
