@@ -137,6 +137,7 @@ async fn test_typed_contract_call_methods() {
         .add_message(AddMessageArgs {
             text: "Hello from typed contract!".to_string(),
         })
+        .send()
         .wait_until::<Final>()
         .await
         .expect("Failed to add message");
@@ -183,6 +184,7 @@ async fn test_typed_contract_multiple_messages() {
             .add_message(AddMessageArgs {
                 text: text.to_string(),
             })
+            .send()
             .wait_until::<Final>()
             .await
             .expect("Failed to add message");
@@ -230,6 +232,7 @@ async fn test_typed_contract_with_custom_gas() {
             text: "Message with custom gas".to_string(),
         })
         .gas("50 Tgas")
+        .send()
         .wait_until::<Final>()
         .await
         .expect("Failed to add message with custom gas");
@@ -264,6 +267,7 @@ async fn test_typed_contract_block_reference() {
         .add_message(AddMessageArgs {
             text: "Test message".to_string(),
         })
+        .send()
         .wait_until::<Final>()
         .await
         .expect("Failed to add message");
@@ -300,6 +304,7 @@ async fn test_typed_contract_call_with_deposit() {
         .add_message(AddMessageArgs {
             text: "Regular message".to_string(),
         })
+        .send()
         .wait_until::<Final>()
         .await
         .expect("Failed to add regular message");
@@ -310,6 +315,7 @@ async fn test_typed_contract_call_with_deposit() {
             text: "Premium message".to_string(),
         })
         .deposit("1 NEAR")
+        .send()
         .wait_until::<Final>()
         .await
         .expect("Failed to add premium message");
@@ -374,6 +380,7 @@ async fn test_typed_contract_no_args_view() {
         .add_message(AddMessageArgs {
             text: "Test message".to_string(),
         })
+        .send()
         .wait_until::<Final>()
         .await
         .expect("Failed to add message");

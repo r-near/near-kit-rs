@@ -46,7 +46,7 @@ use crate::types::{
 
 use super::nonce_manager::NonceManager;
 use super::rpc::RpcClient;
-use super::signer::Signer;
+use super::signer::{Signer, SigningKey};
 
 /// Global nonce manager shared across all TransactionBuilder instances.
 /// This is an implementation detail - not exposed to users.
@@ -259,24 +259,107 @@ impl fmt::Debug for TransactionBuilder {
     }
 }
 
-impl TransactionBuilder {
-    pub(crate) fn new(
-        rpc: Arc<RpcClient>,
-        signer: Option<Arc<dyn Signer>>,
-        receiver_id: AccountId,
-        max_nonce_retries: u32,
-    ) -> Self {
-        Self {
-            rpc,
-            signer,
-            receiver_id: Ok(receiver_id),
-            actions: Vec::new(),
-            construction_error: None,
-            signer_override: None,
-            max_nonce_retries,
-        }
+/// A transaction whose receiver and actions have passed builder validation.
+///
+/// Keeping this stage private lets every terminal path share input validation,
+/// signer selection, online nonce resolution, and signing without exposing
+/// partially prepared state in the public API.
+struct PreparedTransaction {
+    rpc: Arc<RpcClient>,
+    signer: Option<Arc<dyn Signer>>,
+    receiver_id: AccountId,
+    actions: Vec<Action>,
+    max_nonce_retries: u32,
+}
+
+impl PreparedTransaction {
+    /// Peek at the configured signer without claiming a rotating key.
+    fn peek_signer(&self) -> Result<(AccountId, PublicKey), Error> {
+        let signer = self.signer.as_ref().ok_or(Error::NoSigner)?;
+        Ok((signer.account_id().clone(), signer.public_key()))
     }
 
+    /// Claim one signing key for the logical operation.
+    fn claim_signer(&self) -> Result<(AccountId, SigningKey), Error> {
+        let signer = self.signer.as_ref().ok_or(Error::NoSigner)?;
+        Ok((signer.account_id().clone(), signer.key()))
+    }
+
+    /// Resolve the next nonce and block hash for one online attempt.
+    async fn online_context(
+        &self,
+        signer_id: &AccountId,
+        public_key: &PublicKey,
+        nonce_floor: Option<u64>,
+    ) -> Result<(u64, CryptoHash), Error> {
+        let access_key = self
+            .rpc
+            .view_access_key(
+                signer_id,
+                public_key,
+                BlockReference::Finality(Finality::Final),
+            )
+            .await?;
+        let nonce = nonce_manager().next(
+            self.rpc.url().to_string(),
+            signer_id.clone(),
+            public_key.clone(),
+            nonce_floor.unwrap_or(access_key.nonce),
+        );
+        Ok((nonce, access_key.block_hash))
+    }
+
+    fn transaction(
+        &self,
+        signer_id: AccountId,
+        public_key: PublicKey,
+        nonce: u64,
+        block_hash: CryptoHash,
+    ) -> Transaction {
+        Transaction::new(
+            signer_id,
+            public_key,
+            nonce,
+            self.receiver_id.clone(),
+            block_hash,
+            self.actions.clone(),
+        )
+    }
+
+    fn into_transaction(
+        self,
+        signer_id: AccountId,
+        public_key: PublicKey,
+        nonce: u64,
+        block_hash: CryptoHash,
+    ) -> Transaction {
+        Transaction::new(
+            signer_id,
+            public_key,
+            nonce,
+            self.receiver_id,
+            block_hash,
+            self.actions,
+        )
+    }
+
+    async fn sign_transaction(
+        transaction: Transaction,
+        key: &SigningKey,
+    ) -> Result<(SignedTransaction, CryptoHash), Error> {
+        let tx_hash = transaction.get_hash();
+        let signature = key.sign(tx_hash.as_bytes()).await?;
+        Ok((
+            SignedTransaction {
+                transaction,
+                signature,
+            },
+            tx_hash,
+        ))
+    }
+}
+
+impl TransactionBuilder {
     pub(crate) fn new_fallible(
         rpc: Arc<RpcClient>,
         signer: Option<Arc<dyn Signer>>,
@@ -298,6 +381,24 @@ impl TransactionBuilder {
         if self.construction_error.is_none() {
             self.construction_error = Some(error);
         }
+    }
+
+    fn prepare(self, empty_error: &'static str) -> Result<PreparedTransaction, Error> {
+        let receiver_id = self.receiver_id?;
+        if let Some(error) = self.construction_error {
+            return Err(error);
+        }
+        if self.actions.is_empty() {
+            return Err(Error::InvalidTransaction(empty_error.to_string()));
+        }
+
+        Ok(PreparedTransaction {
+            rpc: self.rpc,
+            signer: self.signer_override.or(self.signer),
+            receiver_id,
+            actions: self.actions,
+            max_nonce_retries: self.max_nonce_retries,
+        })
     }
 
     pub(crate) fn with_validation(mut self, validation: Result<(), Error>) -> Self {
@@ -369,6 +470,7 @@ impl TransactionBuilder {
     ///         .args(serde_json::json!({ "greeting": "Hello" }))
     ///         .gas(Gas::from_tgas(10))
     ///         .deposit(NearToken::ZERO)
+    ///     .finish()
     ///     .call("another_method")
     ///         .args(serde_json::json!({ "value": 42 }))
     ///     .send()
@@ -490,6 +592,7 @@ impl TransactionBuilder {
     ///     .call("add_message")
     ///         .args(serde_json::json!({ "text": "Hello!" }))
     ///         .gas(Gas::from_tgas(30))
+    ///     .finish()
     ///     .delegate(Default::default())
     ///     .await?;
     ///
@@ -499,18 +602,10 @@ impl TransactionBuilder {
     /// # }
     /// ```
     pub async fn delegate(self, options: DelegateOptions) -> Result<DelegateResult, Error> {
-        let receiver_id = self.receiver_id?;
-        if let Some(error) = self.construction_error {
-            return Err(error);
-        }
-        if self.actions.is_empty() {
-            return Err(Error::InvalidTransaction(
-                "Delegate action requires at least one action".to_string(),
-            ));
-        }
+        let prepared = self.prepare("Delegate action requires at least one action")?;
 
         // Verify no nested delegates (of any version)
-        for action in &self.actions {
+        for action in &prepared.actions {
             if action.is_delegate() {
                 return Err(Error::InvalidTransaction(
                     "Delegate actions cannot contain nested signed delegate actions".to_string(),
@@ -518,24 +613,14 @@ impl TransactionBuilder {
             }
         }
 
-        // Get the signer
-        let signer = self
-            .signer_override
-            .as_ref()
-            .or(self.signer.as_ref())
-            .ok_or(Error::NoSigner)?;
-
-        let sender_id = signer.account_id().clone();
-
-        // Get a signing key atomically
-        let key = signer.key();
+        let (sender_id, key) = prepared.claim_signer()?;
         let public_key = key.public_key().clone();
 
         // Get nonce
         let nonce = if let Some(n) = options.nonce {
             n
         } else {
-            let access_key = self
+            let access_key = prepared
                 .rpc
                 .view_access_key(
                     &sender_id,
@@ -550,14 +635,19 @@ impl TransactionBuilder {
         let max_block_height = if let Some(h) = options.max_block_height {
             h
         } else {
-            let status = self.rpc.status().await?;
+            let status = prepared.rpc.status().await?;
             let offset = options.block_height_offset.unwrap_or(200);
             status.sync_info.latest_block_height + offset
         };
 
+        let PreparedTransaction {
+            receiver_id,
+            actions,
+            ..
+        } = prepared;
+
         // Convert actions to NonDelegateAction
-        let delegate_actions: Vec<NonDelegateAction> = self
-            .actions
+        let delegate_actions: Vec<NonDelegateAction> = actions
             .into_iter()
             .filter_map(NonDelegateAction::from_action)
             .collect();
@@ -791,69 +881,29 @@ impl TransactionBuilder {
     /// # }
     /// ```
     pub async fn build(self) -> Result<Transaction, Error> {
-        let receiver_id = self.receiver_id?;
-        if let Some(error) = self.construction_error {
-            return Err(error);
-        }
-        if self.actions.is_empty() {
-            return Err(Error::InvalidTransaction(
-                "Transaction must have at least one action".to_string(),
-            ));
-        }
-
-        let signer = self
-            .signer_override
-            .or(self.signer)
-            .ok_or(Error::NoSigner)?;
-
-        let signer_id = signer.account_id().clone();
+        let prepared = self.prepare("Transaction must have at least one action")?;
+        // Do not claim a rotating key merely to build an unsigned transaction.
+        let (signer_id, public_key) = prepared.peek_signer()?;
 
         let span = trace::info_span!(
             "build_transaction",
             sender = %signer_id,
-            receiver = %receiver_id,
-            action_count = self.actions.len(),
-            actions = %actions_summary(&self.actions),
+            receiver = %prepared.receiver_id,
+            action_count = prepared.actions.len(),
+            actions = %actions_summary(&prepared.actions),
             method = trace::field::Empty,
             gas = trace::field::Empty,
             deposit = trace::field::Empty,
         );
 
-        let actions = self.actions;
         async move {
             #[cfg(feature = "tracing")]
-            record_function_call_fields(&actions);
+            record_function_call_fields(&prepared.actions);
 
-            // Use public_key() directly to avoid side effects from key() —
-            // e.g. RotatingSigner advances its rotation counter on key().
-            let public_key = signer.public_key().clone();
-
-            let access_key = self
-                .rpc
-                .view_access_key(
-                    &signer_id,
-                    &public_key,
-                    BlockReference::Finality(Finality::Final),
-                )
+            let (nonce, block_hash) = prepared
+                .online_context(&signer_id, &public_key, None)
                 .await?;
-            let block_hash = access_key.block_hash;
-
-            let network = self.rpc.url().to_string();
-            let nonce = nonce_manager().next(
-                network,
-                signer_id.clone(),
-                public_key.clone(),
-                access_key.nonce,
-            );
-
-            let tx = Transaction::new(
-                signer_id,
-                public_key,
-                nonce,
-                receiver_id,
-                block_hash,
-                actions,
-            );
+            let tx = prepared.into_transaction(signer_id, public_key, nonce, block_hash);
 
             trace::debug!(tx_hash = %tx.get_hash(), nonce, "Transaction built (unsigned)");
 
@@ -899,26 +949,10 @@ impl TransactionBuilder {
         block_hash: CryptoHash,
         nonce: u64,
     ) -> Result<Transaction, Error> {
-        let receiver_id = self.receiver_id?;
-        if let Some(error) = self.construction_error {
-            return Err(error);
-        }
-        if self.actions.is_empty() {
-            return Err(Error::InvalidTransaction(
-                "Transaction must have at least one action".to_string(),
-            ));
-        }
-
+        let prepared = self.prepare("Transaction must have at least one action")?;
         let signer_id: AccountId = signer_id.try_into_account_id()?;
 
-        Ok(Transaction::new(
-            signer_id,
-            public_key,
-            nonce,
-            receiver_id,
-            block_hash,
-            self.actions,
-        ))
+        Ok(prepared.into_transaction(signer_id, public_key, nonce, block_hash))
     }
 
     /// Sign the transaction without sending it.
@@ -945,84 +979,34 @@ impl TransactionBuilder {
     /// # }
     /// ```
     pub async fn sign(self) -> Result<SignedTransaction, Error> {
-        let receiver_id = self.receiver_id?;
-        if let Some(error) = self.construction_error {
-            return Err(error);
-        }
-        if self.actions.is_empty() {
-            return Err(Error::InvalidTransaction(
-                "Transaction must have at least one action".to_string(),
-            ));
-        }
-
-        let signer = self
-            .signer_override
-            .or(self.signer)
-            .ok_or(Error::NoSigner)?;
-
-        let signer_id = signer.account_id().clone();
+        let prepared = self.prepare("Transaction must have at least one action")?;
+        let (signer_id, key) = prepared.claim_signer()?;
+        let public_key = key.public_key().clone();
 
         let span = trace::info_span!(
             "sign_transaction",
             sender = %signer_id,
-            receiver = %receiver_id,
-            action_count = self.actions.len(),
-            actions = %actions_summary(&self.actions),
+            receiver = %prepared.receiver_id,
+            action_count = prepared.actions.len(),
+            actions = %actions_summary(&prepared.actions),
             method = trace::field::Empty,
             gas = trace::field::Empty,
             deposit = trace::field::Empty,
         );
 
-        let actions = self.actions;
         async move {
             #[cfg(feature = "tracing")]
-            record_function_call_fields(&actions);
+            record_function_call_fields(&prepared.actions);
 
-            // Get a signing key atomically. For RotatingSigner, this claims the next
-            // key in rotation. The key contains both the public key and signing capability.
-            let key = signer.key();
-            let public_key = key.public_key().clone();
-
-            // Single view_access_key call provides both nonce and block_hash.
-            // Uses Finality::Final for block hash stability.
-            let access_key = self
-                .rpc
-                .view_access_key(
-                    &signer_id,
-                    &public_key,
-                    BlockReference::Finality(Finality::Final),
-                )
+            let (nonce, block_hash) = prepared
+                .online_context(&signer_id, &public_key, None)
                 .await?;
-            let block_hash = access_key.block_hash;
-
-            let network = self.rpc.url().to_string();
-            let nonce = nonce_manager().next(
-                network,
-                signer_id.clone(),
-                public_key.clone(),
-                access_key.nonce,
-            );
-
-            // Build transaction
-            let tx = Transaction::new(
-                signer_id,
-                public_key,
-                nonce,
-                receiver_id,
-                block_hash,
-                actions,
-            );
-
-            // Sign with the key
-            let tx_hash = tx.get_hash();
-            let signature = key.sign(tx_hash.as_bytes()).await?;
+            let tx = prepared.into_transaction(signer_id, public_key, nonce, block_hash);
+            let (signed_tx, tx_hash) = PreparedTransaction::sign_transaction(tx, &key).await?;
 
             trace::debug!(tx_hash = %tx_hash, nonce, "Transaction signed");
 
-            Ok(SignedTransaction {
-                transaction: tx,
-                signature,
-            })
+            Ok(signed_tx)
         }
         .instrument(span)
         .await
@@ -1063,44 +1047,14 @@ impl TransactionBuilder {
         block_hash: CryptoHash,
         nonce: u64,
     ) -> Result<SignedTransaction, Error> {
-        let receiver_id = self.receiver_id?;
-        if let Some(error) = self.construction_error {
-            return Err(error);
-        }
-        if self.actions.is_empty() {
-            return Err(Error::InvalidTransaction(
-                "Transaction must have at least one action".to_string(),
-            ));
-        }
-
-        let signer = self
-            .signer_override
-            .or(self.signer)
-            .ok_or(Error::NoSigner)?;
-
-        let signer_id = signer.account_id().clone();
-
-        // Get a signing key atomically
-        let key = signer.key();
+        let prepared = self.prepare("Transaction must have at least one action")?;
+        let (signer_id, key) = prepared.claim_signer()?;
         let public_key = key.public_key().clone();
 
-        // Build transaction with provided block_hash and nonce
-        let tx = Transaction::new(
-            signer_id,
-            public_key,
-            nonce,
-            receiver_id,
-            block_hash,
-            self.actions,
-        );
-
-        // Sign
-        let signature = key.sign(tx.get_hash().as_bytes()).await?;
-
-        Ok(SignedTransaction {
-            transaction: tx,
-            signature,
-        })
+        let tx = prepared.into_transaction(signer_id, public_key, nonce, block_hash);
+        PreparedTransaction::sign_transaction(tx, &key)
+            .await
+            .map(|(signed_tx, _)| signed_tx)
     }
 
     /// Send the transaction.
@@ -1293,7 +1247,8 @@ impl TryFrom<FunctionCall> for Action {
 /// Builder for configuring a function call within a transaction.
 ///
 /// Created via [`TransactionBuilder::call`]. Allows setting args, gas, and deposit
-/// before continuing to chain more actions or sending.
+/// before extracting the action, returning to the transaction with
+/// [`finish`](Self::finish), or sending it as a one-shot call.
 pub struct CallBuilder {
     builder: TransactionBuilder,
     call: FunctionCall,
@@ -1432,140 +1387,14 @@ impl CallBuilder {
     ///
     /// This is useful when you need to conditionally add actions to a
     /// transaction, since it gives back the [`TransactionBuilder`] so you can
-    /// branch on runtime state before starting the next action.
+    /// branch on runtime state before starting the next action. Transaction
+    /// configuration and additional actions are available on that returned
+    /// builder rather than being duplicated here.
     pub fn finish(self) -> TransactionBuilder {
         self.builder.add_action(self.call)
     }
 
-    // ========================================================================
-    // Chaining methods (delegate to TransactionBuilder after finishing)
-    // ========================================================================
-
-    /// Add a pre-built action to the transaction.
-    ///
-    /// Finishes this function call, then adds the given action.
-    /// See [`TransactionBuilder::add_action`] for details.
-    pub fn add_action<A>(self, action: A) -> TransactionBuilder
-    where
-        A: TryInto<Action>,
-        Error: From<A::Error>,
-    {
-        self.finish().add_action(action)
-    }
-
-    /// Add another function call.
-    pub fn call(self, method: &str) -> CallBuilder {
-        self.finish().call(method)
-    }
-
-    /// Add a create account action.
-    pub fn create_account(self) -> TransactionBuilder {
-        self.finish().create_account()
-    }
-
-    /// Add a transfer action.
-    pub fn transfer(self, amount: impl IntoNearToken) -> TransactionBuilder {
-        self.finish().transfer(amount)
-    }
-
-    /// Add a deploy contract action.
-    pub fn deploy(self, code: impl Into<Vec<u8>>) -> TransactionBuilder {
-        self.finish().deploy(code)
-    }
-
-    /// Add a full access key.
-    pub fn add_full_access_key(self, public_key: PublicKey) -> TransactionBuilder {
-        self.finish().add_full_access_key(public_key)
-    }
-
-    /// Add a function call access key.
-    pub fn add_function_call_key(
-        self,
-        public_key: PublicKey,
-        receiver_id: impl TryIntoAccountId,
-        method_names: Vec<String>,
-        allowance: Option<NearToken>,
-    ) -> TransactionBuilder {
-        self.finish()
-            .add_function_call_key(public_key, receiver_id, method_names, allowance)
-    }
-
-    /// Delete an access key.
-    pub fn delete_key(self, public_key: PublicKey) -> TransactionBuilder {
-        self.finish().delete_key(public_key)
-    }
-
-    /// Delete the account.
-    pub fn delete_account(self, beneficiary_id: impl TryIntoAccountId) -> TransactionBuilder {
-        self.finish().delete_account(beneficiary_id)
-    }
-
-    /// Add a stake action.
-    pub fn stake(self, amount: impl IntoNearToken, public_key: PublicKey) -> TransactionBuilder {
-        self.finish().stake(amount, public_key)
-    }
-
-    /// Publish a contract to the global registry.
-    pub fn publish(self, code: impl Into<Vec<u8>>, mode: PublishMode) -> TransactionBuilder {
-        self.finish().publish(code, mode)
-    }
-
-    /// Deploy a contract from the global registry.
-    pub fn deploy_from(self, contract_ref: impl TryIntoGlobalContractId) -> TransactionBuilder {
-        self.finish().deploy_from(contract_ref)
-    }
-
-    /// Create a NEP-616 deterministic state init action.
-    pub fn state_init(
-        self,
-        state_init: StateInit,
-        deposit: impl IntoNearToken,
-    ) -> TransactionBuilder {
-        self.finish().state_init(state_init, deposit)
-    }
-
-    /// Override the signer.
-    pub fn sign_with(self, signer: impl Signer + 'static) -> TransactionBuilder {
-        self.finish().sign_with(signer)
-    }
-
-    /// Set the execution wait level.
-    pub fn wait_until<W: WaitLevel>(self) -> TransactionSend<W> {
-        self.finish().wait_until::<W>()
-    }
-
-    /// Override the number of nonce retries for this transaction on `InvalidNonce`
-    /// errors. `0` means no retries (send once), `1` means one retry, etc.
-    pub fn max_nonce_retries(self, retries: u32) -> TransactionBuilder {
-        self.finish().max_nonce_retries(retries)
-    }
-
-    /// Build and sign a delegate action for meta-transactions (NEP-366).
-    ///
-    /// This finishes the current function call and then creates a delegate action.
-    pub async fn delegate(self, options: DelegateOptions) -> Result<DelegateResult, crate::Error> {
-        self.finish().delegate(options).await
-    }
-
-    /// Sign the transaction offline without network access.
-    ///
-    /// See [`TransactionBuilder::sign_offline`] for details.
-    pub async fn sign_offline(
-        self,
-        block_hash: CryptoHash,
-        nonce: u64,
-    ) -> Result<SignedTransaction, Error> {
-        self.finish().sign_offline(block_hash, nonce).await
-    }
-
-    /// Sign the transaction without sending it.
-    ///
-    /// See [`TransactionBuilder::sign`] for details.
-    pub async fn sign(self) -> Result<SignedTransaction, Error> {
-        self.finish().sign().await
-    }
-
-    /// Send the transaction.
+    /// Finish this call and send its transaction.
     pub fn send(self) -> TransactionSend {
         self.finish().send()
     }
@@ -1710,32 +1539,20 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let builder = self.builder;
-            let receiver_id = builder.receiver_id?;
-            if let Some(error) = builder.construction_error {
-                return Err(error);
-            }
-
-            if builder.actions.is_empty() {
-                return Err(Error::InvalidTransaction(
-                    "Transaction must have at least one action".to_string(),
-                ));
-            }
-
-            let signer = builder
-                .signer_override
-                .as_ref()
-                .or(builder.signer.as_ref())
-                .ok_or(Error::NoSigner)?;
-
-            let signer_id = signer.account_id().clone();
+            let prepared = self
+                .builder
+                .prepare("Transaction must have at least one action")?;
+            // Claim one key for the entire logical send. Retries must keep
+            // nonce state and signatures paired with that same access key.
+            let (signer_id, key) = prepared.claim_signer()?;
+            let public_key = key.public_key().clone();
 
             let span = trace::info_span!(
                 "send_transaction",
                 sender = %signer_id,
-                receiver = %receiver_id,
-                action_count = builder.actions.len(),
-                actions = %actions_summary(&builder.actions),
+                receiver = %prepared.receiver_id,
+                action_count = prepared.actions.len(),
+                actions = %actions_summary(&prepared.actions),
                 method = trace::field::Empty,
                 gas = trace::field::Empty,
                 deposit = trace::field::Empty,
@@ -1743,65 +1560,29 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
 
             async move {
                 #[cfg(feature = "tracing")]
-                record_function_call_fields(&builder.actions);
+                record_function_call_fields(&prepared.actions);
 
                 // Retry loop for transient InvalidTxErrors (nonce conflicts, expired block hash)
-                let max_nonce_retries = builder.max_nonce_retries;
+                let max_nonce_retries = prepared.max_nonce_retries;
                 let wait_until = W::STATUS;
-                let network = builder.rpc.url().to_string();
                 let mut last_error: Option<Error> = None;
                 let mut last_ak_nonce: Option<u64> = None;
-                // Claim one key for the entire logical send. Retries must keep
-                // nonce state and signatures paired with that same access key.
-                let key = signer.key();
-                let public_key = key.public_key().clone();
 
                 for attempt in 0..=max_nonce_retries {
-                    // Single view_access_key call provides both nonce and block_hash.
-                    // Uses Finality::Final for block hash stability.
-                    let access_key = builder
-                        .rpc
-                        .view_access_key(
-                            &signer_id,
-                            &public_key,
-                            BlockReference::Finality(Finality::Final),
-                        )
+                    let (nonce, block_hash) = prepared
+                        .online_context(&signer_id, &public_key, last_ak_nonce.take())
                         .await?;
-                    let block_hash = access_key.block_hash;
 
-                    // Resolve nonce: prefer ak_nonce from a prior InvalidNonce
-                    // error (more recent than the view_access_key result), then
-                    // fall back to the chain nonce. The nonce manager takes
-                    // max(cached, provided) so stale values are harmless.
-                    let nonce = nonce_manager().next(
-                        network.clone(),
-                        signer_id.clone(),
-                        public_key.clone(),
-                        last_ak_nonce.take().unwrap_or(access_key.nonce),
-                    );
-
-                    // Build transaction
-                    let tx = Transaction::new(
+                    let tx = prepared.transaction(
                         signer_id.clone(),
                         public_key.clone(),
                         nonce,
-                        receiver_id.clone(),
                         block_hash,
-                        builder.actions.clone(),
                     );
-
-                    // Sign with the key
-                    let signature = match key.sign(tx.get_hash().as_bytes()).await {
-                        Ok(sig) => sig,
-                        Err(e) => return Err(Error::Signing(e)),
-                    };
-                    let signed_tx = crate::types::SignedTransaction {
-                        transaction: tx,
-                        signature,
-                    };
+                    let (signed_tx, _) = PreparedTransaction::sign_transaction(tx, &key).await?;
 
                     // Send
-                    match builder.rpc.send_tx(&signed_tx, wait_until).await {
+                    match prepared.rpc.send_tx(&signed_tx, wait_until).await {
                         Ok(response) => {
                             // W::convert handles the response appropriately:
                             // - Executed levels: extract outcome, check for InvalidTxError
@@ -1907,7 +1688,7 @@ mod tests {
     fn test_builder() -> TransactionBuilder {
         let rpc = Arc::new(RpcClient::new("https://rpc.testnet.near.org"));
         let receiver: AccountId = "contract.testnet".parse().unwrap();
-        TransactionBuilder::new(rpc, None, receiver, 0)
+        TransactionBuilder::new_fallible(rpc, None, Ok(receiver), 0)
     }
 
     #[test]
@@ -1937,13 +1718,14 @@ mod tests {
     }
 
     #[test]
-    fn add_action_works_after_call_builder() {
+    fn finish_returns_to_transaction_composition() {
         let extra_action = Action::transfer(NearToken::from_near(1));
 
         let builder = test_builder()
             .call("setup")
             .args(serde_json::json!({ "admin": "alice.testnet" }))
             .gas(Gas::from_tgas(50))
+            .finish()
             .add_action(extra_action);
 
         // Should have two actions: the function call from CallBuilder + the transfer
@@ -2309,6 +2091,32 @@ mod tests {
             },
         }))
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn build_peeks_without_claiming_a_rotating_key() {
+        let transport = NonceRetryTransport::new(vec![]);
+        let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
+        let first_public_key = keys[0].public_key();
+        let signer = RotatingSigner::new("alice.testnet", keys).unwrap();
+        let near = crate::Near::custom("http://build-peek.invalid", "test")
+            .transport(transport)
+            .signer(signer)
+            .build();
+
+        let unsigned = near
+            .transfer("bob.testnet", NearToken::from_near(1))
+            .build()
+            .await
+            .unwrap();
+        let signed = near
+            .transfer("bob.testnet", NearToken::from_near(1))
+            .sign_offline(CryptoHash::ZERO, 1)
+            .await
+            .unwrap();
+
+        assert_eq!(unsigned.public_key, first_public_key);
+        assert_eq!(signed.transaction.public_key, first_public_key);
     }
 
     #[tokio::test]

@@ -838,6 +838,7 @@ async fn test_multiple_function_calls() {
         .call("add_message")
         .args(serde_json::json!({ "text": "First message" }))
         .gas(Gas::from_tgas(15))
+        .finish()
         .call("add_message")
         .args(serde_json::json!({ "text": "Second message" }))
         .gas(Gas::from_tgas(15))

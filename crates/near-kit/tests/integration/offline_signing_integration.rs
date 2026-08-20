@@ -159,6 +159,7 @@ async fn test_sign_offline_function_call() {
         .call(&contract_id, "add_message")
         .args(serde_json::json!({ "text": "Hello from offline!" }))
         .gas(Gas::from_tgas(30))
+        .finish()
         .sign_offline(block_hash, nonce)
         .await
         .unwrap();

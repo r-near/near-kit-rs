@@ -52,7 +52,7 @@ async fn send_transaction_at<W: WaitLevel>(
 
 #[allow(dead_code)]
 async fn send_call_at<W: WaitLevel>(call: CallBuilder) -> Result<W::Response, Error> {
-    call.wait_until::<W>().await
+    call.send().wait_until::<W>().await
 }
 
 #[allow(dead_code)]

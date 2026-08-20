@@ -216,6 +216,7 @@ async fn test_ft_transfer() {
     // First, register receiver for storage
     let bounds = ft.storage_balance_bounds().await.unwrap();
     ft.storage_deposit(&receiver_id, bounds.min)
+        .send()
         .wait_until::<Final>()
         .await
         .unwrap();
@@ -235,6 +236,7 @@ async fn test_ft_transfer() {
     let transfer_amount = 100_000_000_000_000_000_000_u128; // 100 tokens (18 decimals)
 
     ft.transfer_with_memo(&receiver_id, transfer_amount, "Test transfer")
+        .send()
         .wait_until::<Final>()
         .await
         .unwrap();
@@ -306,6 +308,7 @@ async fn test_ft_storage_deposit() {
     // Register user
     let bounds = ft.storage_balance_bounds().await.unwrap();
     ft.storage_deposit(&user_id, bounds.min)
+        .send()
         .wait_until::<Final>()
         .await
         .unwrap();
@@ -584,6 +587,7 @@ async fn test_nft_transfer() {
     let nft_with_signer = owner_near.nft(&nft_id).unwrap();
     nft_with_signer
         .transfer_with_memo(&receiver_id, "transfer-test", "Gift for you!")
+        .send()
         .wait_until::<Final>()
         .await
         .unwrap();

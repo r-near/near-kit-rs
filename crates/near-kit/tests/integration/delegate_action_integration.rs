@@ -214,6 +214,7 @@ async fn test_delegate_action_function_call() {
         .call("add_message")
         .args(serde_json::json!({ "text": "Hello from delegate!" }))
         .gas(Gas::from_tgas(30))
+        .finish()
         .delegate(DelegateOptions::with_offset(200))
         .await
         .unwrap();

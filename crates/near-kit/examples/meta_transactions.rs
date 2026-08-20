@@ -28,6 +28,7 @@ async fn user_creates_delegate(
         .call("add_message")
         .args(serde_json::json!({ "text": "Gasless transaction from near-kit-rs!" }))
         .gas(Gas::from_tgas(30))
+        .finish()
         .delegate(DelegateOptions::default())
         .await?;
 
