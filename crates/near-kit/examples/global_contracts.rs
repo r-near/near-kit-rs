@@ -12,6 +12,13 @@
 use near_kit::*;
 
 #[cfg(feature = "sandbox")]
+use near_kit::protocol::PublishMode;
+#[cfg(feature = "sandbox")]
+use near_kit::signer::{InMemorySigner, KeyPair};
+#[cfg(feature = "sandbox")]
+use near_kit::transaction::Final;
+
+#[cfg(feature = "sandbox")]
 use near_kit::sandbox::{Sandbox, SandboxConfig};
 
 #[cfg(feature = "sandbox")]

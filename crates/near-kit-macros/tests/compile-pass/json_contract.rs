@@ -1,5 +1,8 @@
 //! Test that JSON contract macro generates valid code.
 
+use near_kit::rpc::ViewCall;
+use near_kit::signer::InMemorySigner;
+use near_kit::transaction::{CallBuilder, FunctionCall};
 use near_kit::*;
 use serde::{Deserialize, Serialize};
 

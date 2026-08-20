@@ -7,6 +7,7 @@
 //!
 //! ```rust,no_run
 //! # use near_kit::*;
+//! # use near_kit::signer::PublicKey;
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let near = Near::testnet()
 //!     .credentials("ed25519:...", "alice.testnet")?
@@ -208,6 +209,7 @@ impl DelegateResult {
 ///
 /// ```rust,no_run
 /// # use near_kit::*;
+/// # use near_kit::signer::PublicKey;
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet()
 ///     .credentials("ed25519:...", "alice.testnet")?
@@ -551,6 +553,7 @@ impl TransactionBuilder {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::protocol::SignedDelegateAction;
     /// # async fn example(relayer: Near, payload: &str) -> Result<(), near_kit::Error> {
     /// // Relayer receives base64 payload from user
     /// let signed_delegate = SignedDelegateAction::from_base64(payload)?;
@@ -694,6 +697,7 @@ impl TransactionBuilder {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::protocol::PublishMode;
     /// # async fn example(near: Near) -> Result<(), Box<dyn std::error::Error>> {
     /// let wasm_code = std::fs::read("contract.wasm")?;
     ///
@@ -755,6 +759,7 @@ impl TransactionBuilder {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::protocol::{StateInit, StateInitExt};
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
     /// let si = StateInit::by_hash(code_hash, Default::default());
     /// let outcome = near.transaction("alice.testnet")
@@ -790,6 +795,7 @@ impl TransactionBuilder {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::protocol::Action;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// let action = Action::function_call(
     ///     "transfer",
@@ -929,6 +935,7 @@ impl TransactionBuilder {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::signer::PublicKey;
     /// # fn example(near: Near) -> Result<(), near_kit::Error> {
     /// let block_hash = CryptoHash::ZERO;
     /// let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse().unwrap();
@@ -1059,7 +1066,7 @@ impl TransactionBuilder {
 
     /// Send the transaction.
     ///
-    /// Returns a [`TransactionSend`] that defaults to [`crate::types::ExecutedOptimistic`] wait level.
+    /// Returns a [`TransactionSend`] that defaults to [`crate::transaction::ExecutedOptimistic`] wait level.
     /// Chain `.wait_until::<W>()` to change the wait level before awaiting.
     pub fn send(self) -> TransactionSend {
         TransactionSend {
@@ -1087,6 +1094,7 @@ impl TransactionBuilder {
 ///
 /// ```rust,no_run
 /// # use near_kit::*;
+/// # use near_kit::transaction::FunctionCall;
 /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
 /// // Pre-build calls independently
 /// let init = FunctionCall::new("init")
@@ -1108,6 +1116,7 @@ impl TransactionBuilder {
 ///
 /// ```rust,no_run
 /// # use near_kit::*;
+/// # use near_kit::transaction::FunctionCall;
 /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
 /// // Dynamic composition in a loop
 /// let calls = vec![
@@ -1416,7 +1425,7 @@ impl IntoFuture for CallBuilder {
 /// Awaitable builder for sending a pre-signed transaction.
 ///
 /// The type parameter `W` determines the wait level and response type. Awaiting
-/// this builder directly uses [`ExecutedOptimistic`](crate::types::ExecutedOptimistic),
+/// this builder directly uses [`ExecutedOptimistic`](crate::transaction::ExecutedOptimistic),
 /// while [`wait_until`](Self::wait_until) selects a different wait level at compile time.
 ///
 /// The builder borrows the signed transaction, so the future produced by
@@ -1428,6 +1437,9 @@ impl IntoFuture for CallBuilder {
 ///
 /// ```rust,no_run
 /// # use near_kit::*;
+/// # use near_kit::protocol::SignedTransaction;
+/// # use near_kit::rpc::SendTxResponse;
+/// # use near_kit::transaction::Included;
 /// # async fn example(near: &Near, signed: &SignedTransaction) -> Result<(), Error> {
 /// // Early wait levels return SendTxResponse, useful for fire-and-track
 /// // workflows. Awaiting directly without `.wait_until` uses the
@@ -1486,10 +1498,10 @@ impl<'tx, W: WaitLevel> IntoFuture for SignedTransactionSend<'tx, W> {
 /// Future for sending a transaction.
 ///
 /// The type parameter `W` determines the wait level and the return type:
-/// - Executed levels ([`crate::types::ExecutedOptimistic`], [`crate::types::Executed`],
-///   [`crate::types::Final`]) → [`FinalExecutionOutcome`]
-/// - Non-executed levels ([`crate::types::Submitted`], [`crate::types::Included`],
-///   [`crate::types::IncludedFinal`]) → [`crate::types::SendTxResponse`]
+/// - Executed levels ([`crate::transaction::ExecutedOptimistic`], [`crate::transaction::Executed`],
+///   [`crate::transaction::Final`]) → [`FinalExecutionOutcome`]
+/// - Non-executed levels ([`crate::transaction::Submitted`], [`crate::transaction::Included`],
+///   [`crate::transaction::IncludedFinal`]) → [`crate::rpc::SendTxResponse`]
 #[must_use = "transactions are not sent unless awaited"]
 pub struct TransactionSend<W: WaitLevel = crate::types::ExecutedOptimistic> {
     builder: TransactionBuilder,
@@ -1503,6 +1515,7 @@ impl<W: WaitLevel> TransactionSend<W> {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::transaction::{Final, Included};
     /// # async fn example(near: &Near) -> Result<(), Error> {
     /// // Executed levels return FinalExecutionOutcome
     /// let outcome = near.transfer("bob.testnet", NearToken::from_near(1))

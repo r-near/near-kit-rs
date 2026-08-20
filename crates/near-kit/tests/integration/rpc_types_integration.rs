@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
-use near_kit::{AccessKeyPermissionView, ActionView, MerkleDirection, ReceiptContent};
+use near_kit::{rpc::*, signer::SecretKey, transaction::*};
 
 /// Counter for generating unique subaccount names
 static COUNTER: AtomicUsize = AtomicUsize::new(0);

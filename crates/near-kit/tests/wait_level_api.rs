@@ -1,7 +1,31 @@
 //! Compile-time examples for the type-only transaction wait-level API.
 #![cfg(feature = "rpc")]
 
+use near_kit::protocol::SignedTransaction;
+use near_kit::rpc::{
+    FinalExecutionOutcome, RpcClient, RpcError, SandboxNetwork, SendTxResponse, TxExecutionStatus,
+};
+use near_kit::transaction::{
+    CallBuilder, Executed, ExecutedOptimistic, Final, Included, IncludedFinal, Submitted,
+    TransactionBuilder, TransactionSend, WaitLevel,
+};
 use near_kit::*;
+
+struct ExternalSandbox;
+
+impl SandboxNetwork for ExternalSandbox {
+    fn rpc_url(&self) -> &str {
+        "http://127.0.0.1:3030"
+    }
+
+    fn root_account_id(&self) -> &str {
+        "sandbox"
+    }
+
+    fn root_secret_key(&self) -> &str {
+        "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJnpBKWieC73hVTpBeA6FZiCc5tfyZL3a3tHeQJegQe4qGSv8FLsYp7TYd1r6"
+    }
+}
 
 #[test]
 fn transaction_builders_select_wait_levels_in_type_position() {
@@ -14,6 +38,12 @@ fn transaction_builders_select_wait_levels_in_type_position() {
     let _final_send: TransactionSend<Final> = near
         .transfer("bob.testnet", NearToken::from_near(1))
         .wait_until::<Final>();
+}
+
+#[test]
+fn sandbox_network_is_implementable_without_the_sandbox_feature() {
+    let near = Near::sandbox(&ExternalSandbox);
+    assert_eq!(near.rpc_url(), "http://127.0.0.1:3030");
 }
 
 #[test]
@@ -42,6 +72,12 @@ async fn status_query_reports_invalid_sender_when_awaited() {
 
 // These helpers are intentionally compile-only. Their signatures document and
 // verify the response type selected by each default and generic wait level.
+
+#[allow(dead_code)]
+async fn generic_rpc_call_remains_public(client: &RpcClient) -> Result<(), RpcError> {
+    let _: serde_json::Value = client.call("status", serde_json::json!({})).await?;
+    Ok(())
+}
 
 #[allow(dead_code)]
 async fn send_transaction_at<W: WaitLevel>(

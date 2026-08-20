@@ -10,7 +10,11 @@
 use near_kit::*;
 
 #[cfg(feature = "sandbox")]
+use near_kit::rpc::FinalExecutionOutcome;
+#[cfg(feature = "sandbox")]
 use near_kit::sandbox::{Sandbox, SandboxConfig};
+#[cfg(feature = "sandbox")]
+use near_kit::signer::{InMemorySigner, KeyPair, RotatingSigner, SecretKey};
 
 #[cfg(feature = "sandbox")]
 async fn high_throughput_example() -> Result<(), Error> {

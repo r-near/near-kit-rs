@@ -9,6 +9,8 @@
 //!   USER_ACCOUNT_ID / USER_PRIVATE_KEY - The user who signs (doesn't pay gas)
 //!   RELAYER_ACCOUNT_ID / RELAYER_PRIVATE_KEY - The relayer who submits (pays gas)
 
+use near_kit::rpc::FinalExecutionOutcome;
+use near_kit::transaction::{DelegateOptions, DelegateResult};
 use near_kit::*;
 
 // ============================================================================

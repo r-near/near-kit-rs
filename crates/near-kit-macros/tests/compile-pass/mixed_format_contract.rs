@@ -2,6 +2,8 @@
 //!
 //! Note: We use primitive types to avoid needing external borsh/serde derives.
 
+use near_kit::rpc::{ViewCall, ViewCallBorsh};
+use near_kit::transaction::{CallBuilder, FunctionCall};
 use near_kit::*;
 
 /// Mixed contract - JSON default with Borsh overrides

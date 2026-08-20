@@ -17,7 +17,7 @@ use super::action::{
 };
 use super::block_reference::TxExecutionStatus;
 use super::error::{ActionError, TxExecutionError};
-use super::transaction::TransactionNonce;
+use super::transaction::{NonceMode, TransactionNonce};
 use super::{AccountId, CryptoHash, Gas, NearToken, Nonce, PublicKey, PublicKeyHandle, Signature};
 use crate::error::ActionViewConversionError;
 
@@ -764,8 +764,8 @@ pub enum FinalExecutionStatus {
 
 /// Response returned for non-executed wait levels.
 ///
-/// When you use a non-executed wait level ([`Submitted`](crate::types::Submitted),
-/// [`Included`](crate::types::Included), [`IncludedFinal`](crate::types::IncludedFinal)),
+/// When you use a non-executed wait level ([`Submitted`](crate::transaction::Submitted),
+/// [`Included`](crate::transaction::Included), [`IncludedFinal`](crate::transaction::IncludedFinal)),
 /// the transaction hasn't finished executing, so this type carries the
 /// information needed to poll for the final result later via
 /// [`Near::tx_status`](crate::Near::tx_status).
@@ -795,6 +795,7 @@ pub enum FinalExecutionStatus {
 #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 /// # use near_kit::*;
+/// # use near_kit::transaction::Included;
 /// # async fn example(near: &Near) -> Result<(), Error> {
 /// let response = near.transfer("bob.testnet", NearToken::from_near(1))
 ///     .wait_until::<Included>()
@@ -844,7 +845,7 @@ pub struct ReceiptToTxResponse {
 ///
 /// Used internally to deserialize responses from `send_tx` and
 /// `EXPERIMENTAL_tx_status` before converting to user-facing types
-/// via [`WaitLevel::convert`](crate::types::WaitLevel::convert).
+/// via [`WaitLevel::convert`](crate::transaction::WaitLevel::convert).
 #[doc(hidden)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawTransactionResponse {
@@ -977,7 +978,7 @@ impl FinalExecutionOutcome {
 /// The `Failure` variant contains an [`ActionError`] rather than
 /// [`TxExecutionError`] because receipt execution outcomes can only fail with
 /// action errors. Transaction-validation errors (`InvalidTxError`) are caught
-/// earlier in the send path and surfaced as [`crate::error::Error::InvalidTx`].
+/// earlier in the send path and surfaced as [`crate::Error::InvalidTx`].
 ///
 /// The NEAR RPC serialises the failure as `{"Failure": {"ActionError": {…}}}`.
 /// A custom [`Deserialize`] impl unwraps the outer `TxExecutionError` envelope.
@@ -1015,16 +1016,6 @@ impl<'de> serde::Deserialize<'de> for ExecutionStatus {
             Raw::SuccessReceiptId(h) => Ok(Self::SuccessReceiptId(h)),
         }
     }
-}
-
-/// Controls how the transaction nonce is validated against the access key nonce.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum NonceMode {
-    /// Any nonce strictly greater than the current access key nonce (default behavior).
-    Monotonic,
-    /// Nonce must be exactly `ak_nonce + 1` (sequential ordering).
-    Strict,
 }
 
 /// Transaction view in outcome.
@@ -1398,7 +1389,8 @@ impl ActionView {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::{ActionView, CryptoHash};
+    /// use near_kit::CryptoHash;
+    /// use near_kit::rpc::ActionView;
     ///
     /// // `code` is base64(sha256(wasm)); here the WASM is the empty byte string.
     /// let view: ActionView = serde_json::from_value(serde_json::json!({
@@ -1507,7 +1499,9 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 /// [`Action`]s (one action shown, deserialized from the JSON the node returns):
 ///
 /// ```rust
-/// use near_kit::{Action, ActionView, Gas, NearToken};
+/// use near_kit::{Gas, NearToken};
+/// use near_kit::protocol::Action;
+/// use near_kit::rpc::ActionView;
 ///
 /// let view: ActionView = serde_json::from_value(serde_json::json!({
 ///     "FunctionCall": {
@@ -1994,7 +1988,8 @@ pub struct NodeVersion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::KeyType;
+    use crate::protocol::{AccessKeyPermission, MAX_NONCES_FOR_GAS_KEY};
+    use crate::signer::KeyType;
 
     #[test]
     fn test_access_key_list_parses_ml_dsa65_hash_handle() {
@@ -2390,10 +2385,10 @@ mod tests {
 
     #[test]
     fn test_max_nonces_for_gas_key() {
-        assert_eq!(crate::MAX_NONCES_FOR_GAS_KEY, 1024);
+        assert_eq!(MAX_NONCES_FOR_GAS_KEY, 1024);
         assert_eq!(
-            crate::AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY,
-            crate::MAX_NONCES_FOR_GAS_KEY
+            AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY,
+            MAX_NONCES_FOR_GAS_KEY
         );
     }
 
@@ -3090,12 +3085,6 @@ mod tests {
         });
         let tx: TransactionView = serde_json::from_value(json).unwrap();
         assert_eq!(tx.nonce_mode, Some(NonceMode::Strict));
-    }
-
-    #[test]
-    fn test_nonce_mode_monotonic() {
-        let mode: NonceMode = serde_json::from_value(serde_json::json!("monotonic")).unwrap();
-        assert_eq!(mode, NonceMode::Monotonic);
     }
 
     #[test]

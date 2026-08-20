@@ -18,7 +18,8 @@ use crate::error::{ParseAmountError, ParseGasError};
 /// # Example
 ///
 /// ```
-/// use near_kit::{IntoNearToken, NearToken};
+/// use near_kit::NearToken;
+/// use near_kit::protocol::IntoNearToken;
 ///
 /// fn example(amount: impl IntoNearToken) {
 ///     let token = amount.into_near_token().unwrap();
@@ -71,7 +72,8 @@ impl IntoNearToken for &String {
 /// # Example
 ///
 /// ```
-/// use near_kit::{Gas, IntoGas};
+/// use near_kit::Gas;
+/// use near_kit::protocol::IntoGas;
 ///
 /// fn example(gas: impl IntoGas) {
 ///     let g = gas.into_gas().unwrap();

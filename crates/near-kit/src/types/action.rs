@@ -28,14 +28,21 @@ pub use near_global_contracts::{GlobalContractId, StateInit, StateInitV1};
 /// Publish mode for global contracts.
 ///
 /// Determines how a published contract will be identified in the global registry.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The user-facing names map directly onto nearcore's wire names:
+/// `Immutable` is encoded as `CodeHash` (`0`) and `Updatable` as `AccountId` (`1`).
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize,
+)]
+#[repr(u8)]
 pub enum PublishMode {
-    /// Contract is identified by the signer's account ID.
-    /// The signer can update the contract later.
-    Updatable,
     /// Contract is identified by its code hash.
     /// The contract cannot be updated after publishing.
+    #[serde(rename = "CodeHash")]
     Immutable,
+    /// Contract is identified by the signer's account ID.
+    /// The signer can update the contract later.
+    #[serde(rename = "AccountId")]
+    Updatable,
 }
 
 /// Fallible conversion into a global contract identifier.
@@ -326,20 +333,6 @@ pub struct DeleteAccountAction {
 // Global Contract Actions
 // ============================================================================
 
-/// Deploy mode for global contracts.
-///
-/// Determines how the contract will be identified in the global registry.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
-#[repr(u8)]
-pub enum GlobalContractDeployMode {
-    /// Contract is identified by its code hash (immutable).
-    /// Other accounts reference it by the hash.
-    CodeHash,
-    /// Contract is identified by the signer's account ID (updatable).
-    /// The signer can update the contract later.
-    AccountId,
-}
-
 /// Publish a contract to the global registry.
 ///
 /// Global contracts are deployed once and can be referenced by multiple accounts,
@@ -350,7 +343,7 @@ pub struct DeployGlobalContractAction {
     /// The WASM code to publish.
     pub code: Vec<u8>,
     /// How the contract will be identified.
-    pub deploy_mode: GlobalContractDeployMode,
+    pub deploy_mode: PublishMode,
 }
 
 /// Deploy a contract from the global registry.
@@ -473,7 +466,7 @@ pub struct SignedDelegateAction {
 ///
 /// Like the NEP-366 [`DelegateAction`] but its `nonce` is a [`TransactionNonce`]
 /// (so it can select one of a gas key's parallel nonces), mirroring
-/// [`TransactionV1`](crate::TransactionV1). Carried inside
+/// [`TransactionV1`](crate::protocol::TransactionV1). Carried inside
 /// [`VersionedDelegateActionPayload`] and signed under the V2 domain tag.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct DelegateActionV2 {
@@ -745,10 +738,7 @@ impl Action {
     pub fn publish(code: Vec<u8>, mode: PublishMode) -> Self {
         Self::DeployGlobalContract(DeployGlobalContractAction {
             code,
-            deploy_mode: match mode {
-                PublishMode::Updatable => GlobalContractDeployMode::AccountId,
-                PublishMode::Immutable => GlobalContractDeployMode::CodeHash,
-            },
+            deploy_mode: mode,
         })
     }
 
@@ -1139,15 +1129,28 @@ mod tests {
     }
 
     #[test]
-    fn test_global_contract_deploy_mode_serialization() {
-        // Verify deploy mode serialization
-        let by_hash = GlobalContractDeployMode::CodeHash;
+    fn test_publish_mode_wire_compatibility() {
+        let by_hash = PublishMode::Immutable;
         let bytes = borsh::to_vec(&by_hash).unwrap();
         assert_eq!(bytes, vec![0], "CodeHash mode should serialize to 0");
+        assert_eq!(serde_json::to_string(&by_hash).unwrap(), r#""CodeHash""#);
 
-        let by_account = GlobalContractDeployMode::AccountId;
+        let by_account = PublishMode::Updatable;
         let bytes = borsh::to_vec(&by_account).unwrap();
         assert_eq!(bytes, vec![1], "AccountId mode should serialize to 1");
+        assert_eq!(
+            serde_json::to_string(&by_account).unwrap(),
+            r#""AccountId""#
+        );
+
+        assert_eq!(
+            serde_json::from_str::<PublishMode>(r#""CodeHash""#).unwrap(),
+            PublishMode::Immutable
+        );
+        assert_eq!(
+            serde_json::from_str::<PublishMode>(r#""AccountId""#).unwrap(),
+            PublishMode::Updatable
+        );
     }
 
     #[test]
@@ -1180,14 +1183,14 @@ mod tests {
         let code = vec![0, 97, 115, 109]; // WASM magic bytes
         let action = DeployGlobalContractAction {
             code: code.clone(),
-            deploy_mode: GlobalContractDeployMode::CodeHash,
+            deploy_mode: PublishMode::Immutable,
         };
 
         let bytes = borsh::to_vec(&action).unwrap();
         let decoded: DeployGlobalContractAction = borsh::from_slice(&bytes).unwrap();
 
         assert_eq!(decoded.code, code);
-        assert_eq!(decoded.deploy_mode, GlobalContractDeployMode::CodeHash);
+        assert_eq!(decoded.deploy_mode, PublishMode::Immutable);
     }
 
     #[test]
@@ -1237,14 +1240,14 @@ mod tests {
         let action = Action::publish(code.clone(), PublishMode::Immutable);
         if let Action::DeployGlobalContract(inner) = action {
             assert_eq!(inner.code, code);
-            assert_eq!(inner.deploy_mode, GlobalContractDeployMode::CodeHash);
+            assert_eq!(inner.deploy_mode, PublishMode::Immutable);
         } else {
             panic!("Expected DeployGlobalContract");
         }
 
         let action = Action::publish(code.clone(), PublishMode::Updatable);
         if let Action::DeployGlobalContract(inner) = action {
-            assert_eq!(inner.deploy_mode, GlobalContractDeployMode::AccountId);
+            assert_eq!(inner.deploy_mode, PublishMode::Updatable);
         } else {
             panic!("Expected DeployGlobalContract");
         }

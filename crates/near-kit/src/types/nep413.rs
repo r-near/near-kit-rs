@@ -7,7 +7,9 @@
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::{Near, InMemorySigner, nep413};
+//! use near_kit::Near;
+//! use near_kit::signer::InMemorySigner;
+//! use near_kit::standards::nep413;
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let signer = InMemorySigner::new(
@@ -112,7 +114,7 @@ pub struct SignMessageParams {
 /// # Example
 ///
 /// ```rust,no_run
-/// use near_kit::nep413::{AuthPayload, verify_signature, DEFAULT_MAX_AGE};
+/// use near_kit::standards::nep413::{AuthPayload, verify_signature, DEFAULT_MAX_AGE};
 ///
 /// // Parse JSON from HTTP request body (in a real app, from req.body)
 /// fn handle_login(body: &str) -> bool {
@@ -165,7 +167,8 @@ impl AuthPayload {
     ///
     #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
     #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-    /// use near_kit::{Near, nep413};
+    /// use near_kit::Near;
+    /// use near_kit::standards::nep413;
     ///
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet()
@@ -341,7 +344,7 @@ fn now_millis() -> u64 {
 /// # Example
 ///
 /// ```rust
-/// use near_kit::nep413;
+/// use near_kit::standards::nep413;
 ///
 /// let nonce = nep413::generate_nonce();
 /// assert_eq!(nonce.len(), 32);
@@ -379,7 +382,7 @@ pub fn extract_timestamp_from_nonce(nonce: &[u8; 32]) -> u64 {
 /// # Example
 ///
 /// ```rust
-/// use near_kit::nep413::{self, SignMessageParams};
+/// use near_kit::standards::nep413::{self, SignMessageParams};
 ///
 /// let params = SignMessageParams {
 ///     message: "Hello".to_string(),
@@ -436,7 +439,7 @@ pub fn serialize_message(params: &SignMessageParams) -> CryptoHash {
 /// [`NonceValidation::None`] and handle replay protection yourself:
 ///
 /// ```rust,no_run
-/// use near_kit::nep413::{verify_signature, NonceValidation};
+/// use near_kit::standards::nep413::{verify_signature, NonceValidation};
 ///
 /// # let (signed, params) = todo!();
 /// // The app embeds its own structure in the nonce — don't interpret it as a timestamp.
@@ -488,7 +491,8 @@ pub fn verify_signature(
 /// # Example
 ///
 /// ```rust,no_run
-/// use near_kit::{Near, nep413};
+/// use near_kit::Near;
+/// use near_kit::standards::nep413;
 ///
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet().build();
@@ -505,8 +509,8 @@ pub fn verify_signature(
 /// handle replay protection yourself:
 ///
 /// ```rust,no_run
-/// use near_kit::{Near, nep413};
-/// use near_kit::nep413::{NonceValidation, VerifyOptions};
+/// use near_kit::Near;
+/// use near_kit::standards::nep413::{self, NonceValidation, VerifyOptions};
 ///
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet().build();

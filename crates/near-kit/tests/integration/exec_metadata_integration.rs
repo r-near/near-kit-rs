@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
+use near_kit::{signer::SecretKey, transaction::Final};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 

@@ -32,7 +32,7 @@ use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 ///
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::mainnet().build();
-/// let usdc = near.ft(tokens::USDC)?;
+/// let usdc = near.ft(standards::USDC)?;
 ///
 /// // Get metadata
 /// let meta = usdc.metadata().await?;
@@ -76,6 +76,7 @@ impl FungibleToken {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::signer::InMemorySigner;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().credentials("ed25519:...", "alice.testnet")?.build();
     /// let ft = near.ft("wrap.testnet")?;
@@ -128,7 +129,7 @@ impl FungibleToken {
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::mainnet().build();
-    /// let usdc = near.ft(tokens::USDC)?;
+    /// let usdc = near.ft(standards::USDC)?;
     ///
     /// let balance = usdc.balance_of("alice.near").await?;
     /// println!("Balance: {}", balance);  // "1.5 USDC"
@@ -251,7 +252,7 @@ impl FungibleToken {
     /// let near = Near::mainnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let usdc = near.ft(tokens::USDC)?;
+    /// let usdc = near.ft(standards::USDC)?;
     ///
     /// // Register bob with auto-detected minimum deposit
     /// let bounds = usdc.storage_balance_bounds().await?;
@@ -307,7 +308,7 @@ impl FungibleToken {
     /// let near = Near::mainnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let usdc = near.ft(tokens::USDC)?;
+    /// let usdc = near.ft(standards::USDC)?;
     ///
     /// // Transfer 1.5 USDC (raw amount for 6 decimals)
     /// usdc.transfer("bob.near", 1_500_000_u128).await?;
@@ -373,7 +374,7 @@ impl FungibleToken {
     /// let near = Near::mainnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let usdc = near.ft(tokens::USDC)?;
+    /// let usdc = near.ft(standards::USDC)?;
     ///
     /// // Deposit USDC into a DeFi contract
     /// usdc.transfer_call("defi.near", 1_000_000_u128, r#"{"action":"deposit"}"#)

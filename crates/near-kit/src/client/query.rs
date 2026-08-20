@@ -74,6 +74,7 @@ macro_rules! impl_block_query_options {
 ///
 /// ```rust,no_run
 /// # use near_kit::*;
+/// # use near_kit::rpc::Finality;
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet().build();
 ///
@@ -247,7 +248,8 @@ impl AccessKeysQuery {
     /// `after_key` is the previous page's
     /// [`last_key`](AccessKeyListView::last_key) and `limit` the page size;
     /// see [`RpcClient::view_access_key_list_page`] for the semantics,
-    /// including [`RpcError::TooManyAccessKeys`](crate::RpcError::TooManyAccessKeys)
+    /// including
+    /// [`RpcError::TooManyAccessKeys`](crate::rpc::RpcError::TooManyAccessKeys)
     /// when both are `None` and the account is over the cap. Pin follow-up
     /// pages to the first page's snapshot with
     /// [`at_block_hash(first.block_hash)`](Self::at_block_hash) so a moving
@@ -292,6 +294,8 @@ impl IntoFuture for AccessKeysQuery {
 ///
 /// ```rust,no_run
 /// # use near_kit::*;
+/// # use near_kit::rpc::{FinalExecutionOutcome, SendTxResponse};
+/// # use near_kit::transaction::Final;
 /// # async fn example(
 /// #     near: &Near,
 /// #     tx_hash: &CryptoHash,
@@ -314,6 +318,7 @@ impl IntoFuture for AccessKeysQuery {
 ///
 /// ```rust,no_run
 /// # use near_kit::*;
+/// # use near_kit::transaction::WaitLevel;
 /// async fn status_at<W: WaitLevel>(
 ///     near: &Near,
 ///     tx_hash: &CryptoHash,

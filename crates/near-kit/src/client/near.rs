@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::contract::ContractClient;
+use crate::contract_support::ContractClient;
 use crate::error::Error;
 use crate::types::{
     AccountId, ChainId, IntoNearToken, PublicKey, PublishMode, StateInit, TryIntoAccountId,
@@ -105,6 +105,7 @@ pub trait SandboxNetwork {
 ///
 /// ```rust,no_run
 /// # use near_kit::*;
+/// # use near_kit::signer::InMemorySigner;
 /// # fn example() -> Result<(), Error> {
 /// let near = Near::testnet().build();
 ///
@@ -328,7 +329,8 @@ impl Near {
 
     /// Get the signer's public key, if a signer is configured.
     ///
-    /// This does not advance the rotation counter on [`RotatingSigner`](crate::RotatingSigner).
+    /// This does not advance the rotation counter on
+    /// [`RotatingSigner`](crate::signer::RotatingSigner).
     pub fn public_key(&self) -> Option<PublicKey> {
         self.signer.as_ref().map(|s| s.public_key())
     }
@@ -375,6 +377,7 @@ impl Near {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::signer::InMemorySigner;
     /// # fn example() -> Result<(), Error> {
     /// // Set up a shared connection
     /// let near = Near::testnet().build();
@@ -411,6 +414,7 @@ impl Near {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::rpc::Finality;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
     ///
@@ -613,6 +617,7 @@ impl Near {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::standards::nep413;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet()
     ///     .credentials("ed25519:...", "alice.testnet")?
@@ -656,6 +661,7 @@ impl Near {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::transaction::Final;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet()
     ///         .credentials("ed25519:...", "alice.testnet")?
@@ -771,6 +777,7 @@ impl Near {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::protocol::PublishMode;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet()
     ///         .credentials("ed25519:...", "alice.testnet")?
@@ -828,6 +835,7 @@ impl Near {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::signer::PublicKey;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet()
     ///     .credentials("ed25519:...", "alice.testnet")?
@@ -872,6 +880,7 @@ impl Near {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::protocol::{StateInit, StateInitExt};
     /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
     /// let si = StateInit::by_hash(code_hash, Default::default());
     /// let outcome = near.state_init(si, NearToken::from_near(5))
@@ -902,6 +911,7 @@ impl Near {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::rpc::FinalExecutionOutcome;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet()
     ///     .credentials("ed25519:...", "alice.testnet")?
@@ -928,19 +938,19 @@ impl Near {
     ///
     /// Uses `EXPERIMENTAL_tx_status` under the hood and returns an awaitable
     /// [`TransactionStatusQuery`]. Awaiting it directly uses
-    /// [`Submitted`](crate::types::Submitted), so it returns the node's current
+    /// [`Submitted`](crate::transaction::Submitted), so it returns the node's current
     /// progress without waiting for a new milestone. Chain
     /// [`.wait_until::<W>()`](TransactionStatusQuery::wait_until) to wait for a
     /// specific level.
     ///
-    /// - Executed levels ([`ExecutedOptimistic`](crate::types::ExecutedOptimistic),
-    ///   [`Executed`](crate::types::Executed), [`Final`](crate::types::Final))
-    ///   → [`FinalExecutionOutcome`](crate::types::FinalExecutionOutcome)
+    /// - Executed levels ([`ExecutedOptimistic`](crate::transaction::ExecutedOptimistic),
+    ///   [`Executed`](crate::transaction::Executed), [`Final`](crate::transaction::Final))
+    ///   → [`FinalExecutionOutcome`](crate::rpc::FinalExecutionOutcome)
     ///   (with `receipts` populated)
-    /// - Non-executed levels ([`Submitted`](crate::types::Submitted),
-    ///   [`Included`](crate::types::Included), [`IncludedFinal`](crate::types::IncludedFinal))
-    ///   → [`SendTxResponse`](crate::types::SendTxResponse), whose
-    ///   [`outcome`](crate::types::SendTxResponse::outcome) carries the *partial*
+    /// - Non-executed levels ([`Submitted`](crate::transaction::Submitted),
+    ///   [`Included`](crate::transaction::Included), [`IncludedFinal`](crate::transaction::IncludedFinal))
+    ///   → [`SendTxResponse`](crate::rpc::SendTxResponse), whose
+    ///   [`outcome`](crate::rpc::SendTxResponse::outcome) carries the *partial*
     ///   execution outcome (`receipts_outcome`/`receipts`) as soon as the node
     ///   has it. Unlike `send_tx`, `EXPERIMENTAL_tx_status` returns receipt data
     ///   even at these early levels, so a frontend can poll here to drive a
@@ -950,6 +960,7 @@ impl Near {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::transaction::Final;
     /// # async fn example(near: &Near, tx_hash: CryptoHash) -> Result<(), Error> {
     /// let outcome = near
     ///     .tx_status(&tx_hash, "alice.testnet")
@@ -1037,10 +1048,10 @@ impl Near {
     /// Get a fungible token client for a NEP-141 contract.
     ///
     /// Accepts either a string/`AccountId` for raw addresses, or a [`KnownToken`]
-    /// constant (like [`tokens::USDC`]) which auto-resolves based on the network.
+    /// constant (like [`standards::USDC`]) which auto-resolves based on the network.
     ///
-    /// [`KnownToken`]: crate::tokens::KnownToken
-    /// [`tokens::USDC`]: crate::tokens::USDC
+    /// [`KnownToken`]: crate::standards::KnownToken
+    /// [`standards::USDC`]: crate::standards::USDC
     ///
     /// # Example
     ///
@@ -1050,7 +1061,7 @@ impl Near {
     /// let near = Near::mainnet().build();
     ///
     /// // Use a known token - auto-resolves based on network
-    /// let usdc = near.ft(tokens::USDC)?;
+    /// let usdc = near.ft(standards::USDC)?;
     ///
     /// // Or use a raw address
     /// let custom = near.ft("custom-token.near")?;
@@ -1078,7 +1089,7 @@ impl Near {
     /// Accepts either a string/`AccountId` for raw addresses, or a contract
     /// identifier that implements [`IntoContractId`].
     ///
-    /// [`IntoContractId`]: crate::tokens::IntoContractId
+    /// [`IntoContractId`]: crate::standards::IntoContractId
     ///
     /// # Example
     ///
@@ -1214,7 +1225,8 @@ impl NearBuilder {
     /// near-kit fails fast and leaves the decision to them:
     ///
     /// ```rust
-    /// use near_kit::{Near, RetryConfig};
+    /// use near_kit::Near;
+    /// use near_kit::rpc::RetryConfig;
     ///
     /// let near = Near::testnet()
     ///     .retry_config(RetryConfig::none())
@@ -1311,11 +1323,13 @@ impl From<NearBuilder> for Near {
 }
 
 /// Default sandbox root account ID.
+#[cfg(any(feature = "sandbox", test))]
 pub const SANDBOX_ROOT_ACCOUNT: &str = "sandbox";
 
 /// Default sandbox root secret key.
 ///
 /// Deterministic key generated via `near-sandbox init --test-seed sandbox`.
+#[cfg(any(feature = "sandbox", test))]
 pub const SANDBOX_ROOT_SECRET_KEY: &str = "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJnpBKWieC73hVTpBeA6FZiCc5tfyZL3a3tHeQJegQe4qGSv8FLsYp7TYd1r6";
 
 #[cfg(test)]

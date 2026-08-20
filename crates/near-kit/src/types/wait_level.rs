@@ -7,6 +7,7 @@
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! # use near_kit::*;
+//! # use near_kit::transaction::{Final, Included};
 //! # async fn example(near: &Near) -> Result<(), Error> {
 //! // Default — returns FinalExecutionOutcome
 //! near.transfer("bob.testnet", NearToken::from_near(1)).await?;

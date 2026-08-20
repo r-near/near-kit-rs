@@ -18,7 +18,8 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use near_kit::{KeyringSigner, Near};
+//! use near_kit::Near;
+//! use near_kit::signer::KeyringSigner;
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! // Load a key stored by near-cli-rs
@@ -54,11 +55,11 @@ use crate::types::{AccountId, PublicKey, SecretKey, TryIntoAccountId};
 ///
 /// # Construction
 ///
-/// Unlike [`FileSigner`](crate::FileSigner), `KeyringSigner` requires the public key
+/// Unlike [`FileSigner`](crate::signer::FileSigner), `KeyringSigner` requires the public key
 /// because keyring entries are keyed by `{account_id}:{public_key}`.
 ///
 /// ```rust,no_run
-/// use near_kit::KeyringSigner;
+/// use near_kit::signer::KeyringSigner;
 ///
 /// let signer = KeyringSigner::new(
 ///     "testnet",
@@ -91,7 +92,7 @@ impl KeyringSigner {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use near_kit::KeyringSigner;
+    /// use near_kit::signer::KeyringSigner;
     ///
     /// let signer = KeyringSigner::new(
     ///     "testnet",
@@ -181,6 +182,10 @@ impl Signer for KeyringSigner {
 
     fn key(&self) -> SigningKey {
         self.inner.key()
+    }
+
+    fn public_key(&self) -> PublicKey {
+        Signer::public_key(&self.inner)
     }
 }
 

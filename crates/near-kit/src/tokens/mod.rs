@@ -14,12 +14,12 @@
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! // Mainnet client - USDC resolves to the mainnet address
 //! let near = Near::mainnet().build();
-//! let usdc = near.ft(tokens::USDC)?;
+//! let usdc = near.ft(standards::USDC)?;
 //! let balance = usdc.balance_of("alice.near").await?;
 //!
 //! // Testnet client - USDC resolves to the testnet address
 //! let near = Near::testnet().build();
-//! let usdc = near.ft(tokens::USDC)?;
+//! let usdc = near.ft(standards::USDC)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -51,7 +51,7 @@
 //! let near = Near::mainnet().build();
 //!
 //! // Get a fungible token client using a known token
-//! let usdc = near.ft(tokens::USDC)?;
+//! let usdc = near.ft(standards::USDC)?;
 //!
 //! // Query metadata (cached after first call)
 //! let metadata = usdc.metadata().await?;
@@ -65,7 +65,7 @@
 //! let near = Near::mainnet()
 //!     .credentials("ed25519:...", "alice.near")?
 //!     .build();
-//! let usdc = near.ft(tokens::USDC)?;
+//! let usdc = near.ft(standards::USDC)?;
 //!
 //! usdc.transfer("bob.near", 1_500_000_u128).await?;
 //!

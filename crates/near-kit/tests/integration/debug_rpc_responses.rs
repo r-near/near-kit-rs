@@ -6,9 +6,9 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
+use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig, SandboxNetwork};
 use near_kit::*;
-use near_kit::{ActionView, ReceiptContent};
+use near_kit::{rpc::*, signer::SecretKey, transaction::Final};
 
 /// Counter for generating unique subaccount names
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -348,10 +348,10 @@ async fn debug_access_key_details() {
         println!("    Public key: {}", key_info.public_key);
         println!("    Nonce: {}", key_info.access_key.nonce);
         match &key_info.access_key.permission {
-            near_kit::AccessKeyPermissionView::FullAccess => {
+            AccessKeyPermissionView::FullAccess => {
                 println!("    Permission: FullAccess");
             }
-            near_kit::AccessKeyPermissionView::FunctionCall {
+            AccessKeyPermissionView::FunctionCall {
                 allowance,
                 receiver_id,
                 method_names,
@@ -361,10 +361,10 @@ async fn debug_access_key_details() {
                 println!("      Allowance: {:?}", allowance);
                 println!("      Method names: {:?}", method_names);
             }
-            near_kit::AccessKeyPermissionView::GasKeyFunctionCall { balance, .. } => {
+            AccessKeyPermissionView::GasKeyFunctionCall { balance, .. } => {
                 println!("    Permission: GasKeyFunctionCall (balance: {})", balance);
             }
-            near_kit::AccessKeyPermissionView::GasKeyFullAccess { balance, .. } => {
+            AccessKeyPermissionView::GasKeyFullAccess { balance, .. } => {
                 println!("    Permission: GasKeyFullAccess (balance: {})", balance);
             }
         }

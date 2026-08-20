@@ -222,7 +222,7 @@ impl Image for NearSandbox {
 // ============================================================================
 
 // Re-export sandbox constants and trait from client module
-pub use crate::client::{SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_SECRET_KEY, SandboxNetwork};
+pub use crate::client::near::{SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_SECRET_KEY, SandboxNetwork};
 
 // ============================================================================
 // Global shared sandbox
@@ -598,7 +598,7 @@ impl SandboxBuilder {
 
     /// Set the sandbox version to use.
     ///
-    /// If not specified, uses [`DEFAULT_VERSION`].
+    /// If not specified, uses the bundled default nearcore version.
     ///
     /// # Example
     ///
@@ -626,7 +626,7 @@ impl SandboxBuilder {
     ///     .await;
     /// // Sub-accounts will be "alice.sb" instead of "alice.sandbox"
     /// ```
-    pub fn root_account(mut self, name: impl crate::TryIntoAccountId) -> Self {
+    pub fn root_account(mut self, name: impl crate::types::TryIntoAccountId) -> Self {
         let account_id = name
             .try_into_account_id()
             .expect("invalid sandbox root account name");

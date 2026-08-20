@@ -50,7 +50,7 @@ pub struct FtMetadata {
 /// of decimal places and includes the symbol:
 ///
 /// ```
-/// use near_kit::FtAmount;
+/// use near_kit::standards::FtAmount;
 ///
 /// let amount = FtAmount::new(1_500_000, 6, "USDC");
 /// assert_eq!(format!("{}", amount), "1.5 USDC");
@@ -85,7 +85,7 @@ impl FtAmount {
     /// # Example
     ///
     /// ```
-    /// use near_kit::FtAmount;
+    /// use near_kit::standards::FtAmount;
     ///
     /// let amount = FtAmount::parse("1.5", 6, "USDC").unwrap();
     /// assert_eq!(amount.raw(), 1_500_000);

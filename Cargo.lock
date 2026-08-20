@@ -1922,6 +1922,7 @@ name = "near-kit-macros"
 version = "0.12.1"
 dependencies = [
  "near-kit",
+ "proc-macro-crate",
  "proc-macro2",
  "quote",
  "serde",

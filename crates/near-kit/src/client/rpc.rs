@@ -57,22 +57,16 @@ async fn async_sleep(duration: Duration) {
 pub struct NetworkConfig {
     /// The RPC URL for this network.
     pub rpc_url: &'static str,
-    /// The network identifier (e.g., "mainnet", "testnet").
-    /// Reserved for future use in transaction signing.
-    #[allow(dead_code)]
-    pub network_id: &'static str,
 }
 
 /// Mainnet configuration.
 pub const MAINNET: NetworkConfig = NetworkConfig {
     rpc_url: "https://free.rpc.fastnear.com",
-    network_id: "mainnet",
 };
 
 /// Testnet configuration.
 pub const TESTNET: NetworkConfig = NetworkConfig {
     rpc_url: "https://test.rpc.fastnear.com",
-    network_id: "testnet",
 };
 
 /// Retry configuration for RPC calls.
@@ -111,7 +105,8 @@ impl RetryConfig {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::{Near, RetryConfig};
+    /// use near_kit::Near;
+    /// use near_kit::rpc::RetryConfig;
     ///
     /// let near = Near::testnet()
     ///     .retry_config(RetryConfig::none())
@@ -1078,8 +1073,9 @@ impl RpcClient {
     ///
     /// ```rust,no_run
     /// # use std::num::NonZeroU32;
-    /// # use near_kit::{AccountId, BlockReference, RpcClient};
-    /// # async fn example(rpc: &RpcClient, account: &AccountId) -> Result<(), near_kit::RpcError> {
+    /// # use near_kit::AccountId;
+    /// # use near_kit::rpc::{BlockReference, RpcClient, RpcError};
+    /// # async fn example(rpc: &RpcClient, account: &AccountId) -> Result<(), RpcError> {
     /// let page_size = NonZeroU32::new(50);
     /// let mut page = rpc
     ///     .view_access_key_list_page(account, None, page_size, BlockReference::final_())
@@ -1319,7 +1315,7 @@ impl RpcClient {
     ///
     /// Repeatedly calls [`RpcClient::view_state`] with `page_size` per request,
     /// following the `last_key` cursor until the node reports no more entries,
-    /// and returns all matching [`StateItem`](crate::types::StateItem)s as a
+    /// and returns all matching [`StateItem`](crate::rpc::StateItem)s as a
     /// [`ViewStateAllResult`] together with the `block_height`/`block_hash`
     /// the state was read at. Pass an empty `prefix` for the whole state.
     /// `page_size` of `0` means the default page size,
@@ -2770,13 +2766,11 @@ mod tests {
     #[test]
     fn test_mainnet_config() {
         assert!(MAINNET.rpc_url.contains("fastnear"));
-        assert_eq!(MAINNET.network_id, "mainnet");
     }
 
     #[test]
     fn test_testnet_config() {
         assert!(TESTNET.rpc_url.contains("fastnear") || TESTNET.rpc_url.contains("test"));
-        assert_eq!(TESTNET.network_id, "testnet");
     }
 
     // ========================================================================

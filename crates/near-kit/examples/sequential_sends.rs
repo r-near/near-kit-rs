@@ -15,6 +15,10 @@ use near_kit::*;
 
 #[cfg(feature = "sandbox")]
 use near_kit::sandbox::{Sandbox, SandboxConfig};
+#[cfg(feature = "sandbox")]
+use near_kit::signer::{InMemorySigner, KeyPair, RotatingSigner, SecretKey};
+#[cfg(feature = "sandbox")]
+use near_kit::transaction::Included;
 
 #[cfg(feature = "sandbox")]
 async fn sequential_example() -> Result<(), Error> {

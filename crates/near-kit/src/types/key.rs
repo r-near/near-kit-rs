@@ -463,7 +463,7 @@ const ML_DSA_65_HASH_PREFIX: &str = "ml-dsa-65-hash";
 /// # Example
 ///
 /// ```rust
-/// # use near_kit::{PublicKey, PublicKeyHandle};
+/// # use near_kit::signer::{PublicKey, PublicKeyHandle};
 /// let full: PublicKeyHandle = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
 /// assert!(full.full_pubkey().is_some());
 ///
@@ -474,7 +474,7 @@ const ML_DSA_65_HASH_PREFIX: &str = "ml-dsa-65-hash";
 /// assert!("ml-dsa-65-hash:GsDTSpXDhiutJazktZEpKNQZit7U91LskL2Fq541u8PJ"
 ///     .parse::<PublicKey>()
 ///     .is_err());
-/// # Ok::<(), near_kit::error::ParseKeyError>(())
+/// # Ok::<(), near_kit::signer::ParseKeyError>(())
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash, SerializeDisplay, DeserializeFromStr)]
 pub enum PublicKeyHandle {
@@ -714,10 +714,10 @@ impl SecretKey {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::SecretKey;
+    /// use near_kit::signer::SecretKey;
     ///
     /// let secret_key = SecretKey::generate_ml_dsa65_expanded();
-    /// assert_eq!(secret_key.as_bytes().len(), near_kit::ML_DSA_65_SECRET_KEY_LENGTH);
+    /// assert_eq!(secret_key.as_bytes().len(), near_kit::signer::ML_DSA_65_SECRET_KEY_LENGTH);
     /// ```
     pub fn generate_ml_dsa65_expanded() -> Self {
         Self::generate_ml_dsa65()
@@ -795,12 +795,12 @@ impl SecretKey {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::SecretKey;
+    /// use near_kit::signer::SecretKey;
     ///
     /// let seed_key = SecretKey::generate_ml_dsa65();
     /// let expanded = seed_key.to_ml_dsa65_expanded().unwrap();
     /// assert_eq!(expanded.public_key(), seed_key.public_key());
-    /// assert_eq!(expanded.as_bytes().len(), near_kit::ML_DSA_65_SECRET_KEY_LENGTH);
+    /// assert_eq!(expanded.as_bytes().len(), near_kit::signer::ML_DSA_65_SECRET_KEY_LENGTH);
     ///
     /// assert!(SecretKey::generate_ed25519().to_ml_dsa65_expanded().is_none());
     /// ```
@@ -930,7 +930,7 @@ impl SecretKey {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::SecretKey;
+    /// use near_kit::signer::SecretKey;
     ///
     /// // Valid BIP-39 mnemonic (all zeros entropy)
     /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
@@ -953,7 +953,7 @@ impl SecretKey {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::SecretKey;
+    /// use near_kit::signer::SecretKey;
     ///
     /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     /// let secret_key = SecretKey::from_seed_phrase_with_path(phrase, "m/44'/397'/1'").unwrap();
@@ -979,7 +979,7 @@ impl SecretKey {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::SecretKey;
+    /// use near_kit::signer::SecretKey;
     ///
     /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     /// let secret_key = SecretKey::from_seed_phrase_with_path_and_passphrase(
@@ -1023,7 +1023,7 @@ impl SecretKey {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::SecretKey;
+    /// use near_kit::signer::SecretKey;
     ///
     /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     /// let secret_key = SecretKey::ml_dsa65_from_seed_phrase(phrase).unwrap();
@@ -1048,7 +1048,7 @@ impl SecretKey {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::SecretKey;
+    /// use near_kit::signer::SecretKey;
     ///
     /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     /// let secret_key = SecretKey::ml_dsa65_from_seed_phrase_with_path(phrase, "m/44'/397'/1'").unwrap();
@@ -1078,7 +1078,7 @@ impl SecretKey {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::SecretKey;
+    /// use near_kit::signer::SecretKey;
     ///
     /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     /// let secret_key = SecretKey::ml_dsa65_from_seed_phrase_with_path_and_passphrase(
@@ -1115,7 +1115,7 @@ impl SecretKey {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::SecretKey;
+    /// use near_kit::signer::SecretKey;
     ///
     /// let (phrase, secret_key) = SecretKey::generate_with_seed_phrase().unwrap();
     /// println!("Backup your seed phrase: {}", phrase);
@@ -1133,7 +1133,7 @@ impl SecretKey {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::SecretKey;
+    /// use near_kit::signer::SecretKey;
     ///
     /// let (phrase, secret_key) = SecretKey::generate_with_seed_phrase_words(24).unwrap();
     /// assert_eq!(phrase.split_whitespace().count(), 24);
@@ -1179,7 +1179,7 @@ impl SecretKey {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::SecretKey;
+    /// use near_kit::signer::SecretKey;
     ///
     /// let (phrase, secret_key) = SecretKey::ml_dsa65_generate_with_seed_phrase().unwrap();
     /// assert_eq!(phrase.split_whitespace().count(), 24);
@@ -1205,7 +1205,7 @@ impl SecretKey {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::SecretKey;
+    /// use near_kit::signer::SecretKey;
     ///
     /// let (phrase, secret_key) = SecretKey::ml_dsa65_generate_with_seed_phrase_words(18).unwrap();
     /// assert_eq!(phrase.split_whitespace().count(), 18);
@@ -1609,7 +1609,7 @@ fn mnemonic_to_seed(
 /// # Example
 ///
 /// ```rust
-/// use near_kit::generate_seed_phrase;
+/// use near_kit::signer::generate_seed_phrase;
 ///
 /// let phrase = generate_seed_phrase(12).unwrap();
 /// assert_eq!(phrase.split_whitespace().count(), 12);
@@ -1653,7 +1653,7 @@ pub fn generate_seed_phrase(word_count: usize) -> Result<String, SignerError> {
 /// # Example
 ///
 /// ```rust
-/// use near_kit::KeyPair;
+/// use near_kit::signer::KeyPair;
 ///
 /// // Generate a random Ed25519 key pair
 /// let keypair = KeyPair::random();
@@ -1683,7 +1683,7 @@ impl KeyPair {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::KeyPair;
+    /// use near_kit::signer::KeyPair;
     ///
     /// let keypair = KeyPair::random();
     /// ```
@@ -1696,7 +1696,7 @@ impl KeyPair {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::KeyPair;
+    /// use near_kit::signer::KeyPair;
     ///
     /// let keypair = KeyPair::random_ed25519();
     /// assert!(keypair.public_key.to_string().starts_with("ed25519:"));
@@ -1715,7 +1715,7 @@ impl KeyPair {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::KeyPair;
+    /// use near_kit::signer::KeyPair;
     ///
     /// let keypair = KeyPair::random_secp256k1();
     /// assert!(keypair.public_key.to_string().starts_with("secp256k1:"));
@@ -1734,7 +1734,7 @@ impl KeyPair {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::KeyPair;
+    /// use near_kit::signer::KeyPair;
     ///
     /// let keypair = KeyPair::random_ml_dsa65();
     /// assert!(keypair.public_key.to_string().starts_with("ml-dsa-65:"));
@@ -1753,7 +1753,7 @@ impl KeyPair {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::{KeyPair, SecretKey};
+    /// use near_kit::signer::{KeyPair, SecretKey};
     ///
     /// let secret_key: SecretKey = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr".parse().unwrap();
     /// let keypair = KeyPair::from_secret_key(secret_key);
@@ -1771,7 +1771,7 @@ impl KeyPair {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::KeyPair;
+    /// use near_kit::signer::KeyPair;
     ///
     /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     /// let keypair = KeyPair::from_seed_phrase(phrase).unwrap();
@@ -1792,7 +1792,7 @@ impl KeyPair {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::KeyPair;
+    /// use near_kit::signer::KeyPair;
     ///
     /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     /// let keypair = KeyPair::ml_dsa65_from_seed_phrase(phrase).unwrap();
@@ -1810,7 +1810,7 @@ impl KeyPair {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::KeyPair;
+    /// use near_kit::signer::KeyPair;
     ///
     /// let (phrase, keypair) = KeyPair::random_with_seed_phrase().unwrap();
     /// println!("Backup your seed phrase: {}", phrase);
@@ -1831,7 +1831,7 @@ impl KeyPair {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::KeyPair;
+    /// use near_kit::signer::KeyPair;
     ///
     /// let (phrase, keypair) = KeyPair::random_ml_dsa65_with_seed_phrase().unwrap();
     /// assert_eq!(phrase.split_whitespace().count(), 24);

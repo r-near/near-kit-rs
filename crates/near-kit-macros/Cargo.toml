@@ -16,6 +16,7 @@ proc-macro = true
 syn.workspace = true
 quote.workspace = true
 proc-macro2.workspace = true
+proc-macro-crate = "3"
 
 [dev-dependencies]
 trybuild = "1.0"

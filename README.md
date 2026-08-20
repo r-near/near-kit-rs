@@ -77,11 +77,17 @@ For CI/CD, configure via environment variables:
 let near = Near::from_env()?;
 ```
 
+Advanced APIs are grouped by purpose: `near_kit::rpc`, `near_kit::transaction`,
+`near_kit::signer`, `near_kit::protocol`, and `near_kit::standards`. The crate
+root keeps the main client, errors, account IDs, hashes, and gas/token units.
+
 ## Multiple Accounts
 
 Transport and signing are separate concerns. Set up the connection once, then derive clients for different accounts with `with_signer`. They share the same RPC connection, so there's no overhead:
 
 ```rust
+use near_kit::signer::InMemorySigner;
+
 let near = Near::testnet().build(); // read-only, shared connection
 
 let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
@@ -122,6 +128,8 @@ near.transaction("sub.alice.testnet")
 For more dynamic use cases, you can conditionally add actions or work with pre-built actions directly:
 
 ```rust
+use near_kit::transaction::FunctionCall;
+
 let mut tx = near.transaction("contract.testnet");
 
 if needs_funding {
@@ -163,11 +171,11 @@ Different situations call for different key management. near-kit supports severa
 
 | Signer | When to use it |
 |--------|----------------|
-| `InMemorySigner` | Scripts and bots with a hardcoded or loaded key |
-| `FileSigner` | Local development — reads from `~/.near-credentials` |
-| `EnvSigner` | CI/CD pipelines via `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` |
-| `RotatingSigner` | High-throughput apps that need multiple keys to avoid nonce conflicts. Use `into_per_key_signers()` to split into per-key signers for sequential send queues |
-| `KeyringSigner` | Desktop apps using the system keychain (requires `keyring` feature) |
+| `signer::InMemorySigner` | Scripts and bots with a hardcoded or loaded key |
+| `signer::FileSigner` | Local development — reads from `~/.near-credentials` |
+| `signer::EnvSigner` | CI/CD pipelines via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` |
+| `signer::RotatingSigner` | High-throughput apps that need multiple keys to avoid nonce conflicts. Use `into_per_key_signers()` to split into per-key signers for sequential send queues |
+| `signer::KeyringSigner` | Desktop apps using the system keychain (requires `keyring` feature) |
 
 ## Token Standards
 
@@ -176,9 +184,11 @@ Working with fungible or non-fungible tokens? near-kit includes helpers for NEP-
 For common tokens like USDC, USDT, and wNEAR, use the provided constants to avoid copy-pasting addresses. They automatically resolve to the correct address based on the network:
 
 ```rust
+use near_kit::standards;
+
 // Known tokens auto-resolve based on network
 let near = Near::mainnet().build();
-let usdc = near.ft(tokens::USDC)?;
+let usdc = near.ft(standards::USDC)?;
 let balance = usdc.balance_of("alice.near").await?;
 println!("Balance: {}", balance);  // "1.50 USDC"
 
@@ -192,7 +202,7 @@ if let Some(token) = nft.token("token-123").await? {
 }
 ```
 
-Available known tokens: `tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`
+Available known tokens: `standards::USDC`, `standards::USDT`, `standards::W_NEAR`
 
 ## Feature Flags
 
@@ -224,7 +234,7 @@ On WASI hosts without `wasi:http`, enable only `rpc` and plug your platform's tr
 
 ### Offline / no-network usage
 
-With `default-features = false` the RPC layer drops out and near-kit becomes a pure offline toolkit: all the types, the signers, transaction construction and signing via `Transaction` (`new` → `sign` → `to_bytes`), and NEP-413 `verify_signature`. This is what you want on targets without any network stack: sign transactions and messages locally and hand them off for submission elsewhere. Note the fluent `TransactionBuilder` belongs to the RPC layer (it is created from a `Near` client), so it requires the `rpc` feature.
+With `default-features = false` the RPC layer drops out and near-kit becomes a pure offline toolkit: protocol types under `near_kit::protocol`, signers under `near_kit::signer`, transaction construction and signing via `protocol::Transaction` (`new` → `sign` → `to_bytes`), and NEP-413 verification under `near_kit::standards::nep413`. This is what you want on targets without any network stack: sign transactions and messages locally and hand them off for submission elsewhere. Note the fluent `transaction::TransactionBuilder` belongs to the RPC layer (it is created from a `Near` client), so it requires the `rpc` feature.
 
 ### A note on `near-token` / `near-gas`
 

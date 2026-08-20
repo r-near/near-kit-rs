@@ -8,6 +8,7 @@
 //!   NEAR_ACCOUNT_ID=your-account.testnet
 //!   NEAR_PRIVATE_KEY=ed25519:...
 
+use near_kit::signer::{InMemorySigner, KeyPair};
 use near_kit::*;
 
 // ============================================================================

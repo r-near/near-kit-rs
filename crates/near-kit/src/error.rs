@@ -6,7 +6,7 @@
 //!
 //! - [`Error`](enum@Error) — Main error type, returned by most operations
 //!   - [`RpcError`] — RPC/network errors (connectivity, account not found, etc.)
-//!   - [`InvalidTxError`][crate::types::InvalidTxError] — Transaction was rejected
+//!   - [`InvalidTxError`][crate::protocol::InvalidTxError] — Transaction was rejected
 //!     before execution (bad nonce, insufficient balance, expired, etc.)
 //!
 //! Action errors (contract panics, missing keys, etc.) are **not** `Err` — the
@@ -45,7 +45,7 @@
 //! ## Checking Retryable Errors
 //!
 //! ```rust,no_run
-//! use near_kit::RpcError;
+//! use near_kit::rpc::RpcError;
 //!
 //! fn should_retry(err: &RpcError) -> bool {
 //!     err.is_retryable()
@@ -116,7 +116,8 @@ pub enum ParseKeyError {
 
     /// The string is an `ml-dsa-65-hash:` handle — the on-chain identifier
     /// (SHA3-256 digest) of an ML-DSA-65 access key that view RPCs return —
-    /// not a public key. Parse it as a [`PublicKeyHandle`](crate::PublicKeyHandle)
+    /// not a public key. Parse it as a
+    /// [`PublicKeyHandle`](crate::signer::PublicKeyHandle)
     /// instead; to sign or build a transaction, supply the full `ml-dsa-65:` key.
     #[error(
         "'ml-dsa-65-hash:' is the on-chain handle (hash) of an ML-DSA-65 key, not a public key; \
@@ -368,7 +369,7 @@ pub enum RpcError {
     /// A view method explicitly panicked during contract execution.
     ///
     /// Transaction function-call panics are reported in the transaction
-    /// outcome instead; see [`crate::types::FunctionCallError`].
+    /// outcome instead; see [`crate::protocol::FunctionCallError`].
     #[error("contract panic: {message}")]
     ContractPanic {
         message: String,
@@ -406,7 +407,7 @@ pub enum RpcError {
     InvalidTx(crate::types::InvalidTxError),
 
     /// Fallback when the RPC returns `INVALID_TRANSACTION` but the structured
-    /// error could not be deserialized into [`InvalidTxError`][crate::types::InvalidTxError].
+    /// error could not be deserialized into [`InvalidTxError`][crate::protocol::InvalidTxError].
     #[error("Invalid transaction: {message}")]
     InvalidTransaction {
         message: String,
@@ -469,7 +470,7 @@ impl RpcError {
     /// in the transaction layer (`Near::send*`), where retrying can actually
     /// change the outcome, so it is `false` here.
     ///
-    /// [`InvalidTxError::is_retryable`]: crate::types::InvalidTxError::is_retryable
+    /// [`InvalidTxError::is_retryable`]: crate::protocol::InvalidTxError::is_retryable
     pub fn is_retryable(&self) -> bool {
         match self {
             #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]

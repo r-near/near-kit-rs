@@ -67,11 +67,11 @@ pub use action::{
     DELEGATE_ACTION_PREFIX, DELEGATE_V2_ACTION_PREFIX, DecodeError as DelegateDecodeError,
     DelegateAction, DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     DeployGlobalContractAction, DeterministicStateInitAction, FunctionCallAction,
-    FunctionCallPermission, GasKeyInfo, GlobalContractDeployMode, GlobalContractId,
-    MAX_NONCES_FOR_GAS_KEY, NonDelegateAction, PublishMode, SignedDelegateAction, StakeAction,
-    StateInit, StateInitExt, StateInitV1, TransferAction, TransferToGasKeyAction,
-    TryIntoGlobalContractId, UseGlobalContractAction, VersionedDelegateActionPayload,
-    VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
+    FunctionCallPermission, GasKeyInfo, GlobalContractId, MAX_NONCES_FOR_GAS_KEY,
+    NonDelegateAction, PublishMode, SignedDelegateAction, StakeAction, StateInit, StateInitExt,
+    StateInitV1, TransferAction, TransferToGasKeyAction, TryIntoGlobalContractId,
+    UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
+    WithdrawFromGasKeyAction,
 };
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{
@@ -97,11 +97,11 @@ pub use rpc::{
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
     FinalExecutionStatus, GasKeyNoncesView, GasPrice, GasProfileEntry,
     GlobalContractIdentifierView, MaintenanceWindow, MerkleDirection, MerklePathItem, NodeVersion,
-    NonceMode, RawTransactionResponse, Receipt, ReceiptContent, ReceiptToTxResponse,
-    STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator, StateChangeKindView, StateItem,
-    StatusResponse, SyncInfo, TransactionNonceView, TransactionView, TrieSplit, ValidatorInfo,
-    ValidatorStakeView, ValidatorStakeViewV1, VersionedDelegateActionPayloadView,
-    ViewFunctionResult, ViewStateAllResult, ViewStateResult,
+    RawTransactionResponse, Receipt, ReceiptContent, ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE,
+    SendTxResponse, SlashedValidator, StateChangeKindView, StateItem, StatusResponse, SyncInfo,
+    TransactionNonceView, TransactionView, TrieSplit, ValidatorInfo, ValidatorStakeView,
+    ValidatorStakeViewV1, VersionedDelegateActionPayloadView, ViewFunctionResult,
+    ViewStateAllResult, ViewStateResult,
 };
 pub use rpc_extra::{
     BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,
@@ -109,8 +109,8 @@ pub use rpc_extra::{
     StateChangeValueView, StateChangeWithCauseView, ValidatorKickoutReason, ValidatorKickoutView,
 };
 pub use transaction::{
-    Nonce, NonceIndex, NonceMode as TransactionNonceMode, SignedTransaction, SignedTransactionV1,
-    Transaction, TransactionNonce, TransactionV1, VersionedTransaction,
+    Nonce, NonceIndex, NonceMode, SignedTransaction, SignedTransactionV1, Transaction,
+    TransactionNonce, TransactionV1, VersionedTransaction,
 };
 pub use units::{Gas, IntoGas, IntoNearToken, NearToken};
 pub use wait_level::{

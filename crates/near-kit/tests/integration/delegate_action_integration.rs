@@ -9,7 +9,10 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use near_kit::protocol::SignedDelegateAction;
 use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
+use near_kit::signer::{InMemorySigner, SecretKey};
+use near_kit::transaction::{DelegateOptions, Final};
 use near_kit::*;
 
 /// Counter for generating unique subaccount names

@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use near_kit::sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use near_kit::*;
+use near_kit::{protocol::*, signer::*, transaction::Final};
 
 /// Counter for generating unique subaccount names
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -437,7 +438,7 @@ async fn test_state_init_by_hash() {
     let initial_data: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
 
     // Use state_init to create a deterministic account
-    let si = near_kit::StateInit::by_hash(code_hash, initial_data);
+    let si = StateInit::by_hash(code_hash, initial_data);
     let outcome = publisher_near
         .state_init(si, NearToken::from_near(5))
         .send()
@@ -477,7 +478,7 @@ async fn test_state_init_by_publisher() {
     initial_data.insert(b"key1".to_vec(), b"value1".to_vec());
 
     // Use state_init to create a deterministic account
-    let si = near_kit::StateInit::by_publisher(publisher_id.clone(), initial_data);
+    let si = StateInit::by_publisher(publisher_id.clone(), initial_data);
     let outcome = publisher_near
         .state_init(si, NearToken::from_near(5))
         .send()

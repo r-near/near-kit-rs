@@ -6,13 +6,13 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use near_kit::{Near, tokens};
+//! use near_kit::{Near, standards};
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let near = Near::mainnet().build();
 //!
 //! // Use known token constants - auto-resolves based on network
-//! let usdc = near.ft(tokens::USDC)?;
+//! let usdc = near.ft(standards::USDC)?;
 //! let balance = usdc.balance_of("alice.near").await?;
 //!
 //! // Still works with raw addresses
