@@ -25,9 +25,13 @@ jobs:
           save-if: false
           cache-on-failure: "true"
       - run: cargo fmt --all -- --check
+      # The published default is intentionally just `rpc`.
+      - run: cargo clippy -p near-kit --all-targets
       - run: cargo clippy --workspace --all-targets --all-features
       # Covers the tracing-off no-op facade (and sandbox without tracing)
       - run: cargo clippy -p near-kit --all-targets --no-default-features --features sandbox
+      # `contracts` is independently opt-in and implies `rpc`.
+      - run: cargo check -p near-kit --all-targets --no-default-features --features contracts
       # Covers the offline (no `rpc`) configuration, including tests/examples gating
       - run: cargo check -p near-kit --all-targets --no-default-features
 
@@ -47,14 +51,20 @@ jobs:
           cache-all-crates: "true"
           workspaces: ". -> target"
       - uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Run tests with coverage
-        run: cargo llvm-cov --workspace --features sandbox --lcov --output-path lcov.info
-      - name: Run doctests
-        run: cargo test --workspace --doc
+      - name: Run all-feature tests with coverage
+        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
+      - name: Run default-feature library tests
+        run: cargo test -p near-kit --lib
+      - name: Run default-feature doctests
+        run: cargo test -p near-kit --doc
+      - name: Run all-feature doctests
+        run: cargo test -p near-kit --all-features --doc
       # The offline (no `rpc`) configuration keeps its own doctests compiling;
       # examples that need the RPC layer are cfg_attr'd to `ignore` without it
       - name: Run offline doctests
         run: cargo test -p near-kit --no-default-features --doc
+      - name: Run contract macro compile tests
+        run: cargo test -p near-kit-macros --test trybuild
       - uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -70,7 +80,8 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
-      - run: cargo check --workspace --all-targets
+      - run: cargo check -p near-kit --all-targets
+      - run: cargo check --workspace --all-targets --all-features
 
   wasm:
     name: WASM
@@ -87,10 +98,14 @@ jobs:
           cache-on-failure: "true"
       # Browser: the full client over reqwest's JS `fetch` backend
       - run: cargo check --target wasm32-unknown-unknown -p near-kit --no-default-features --features js,rpc
+      # Browser: typed-contract macro expansion on top of the RPC client
+      - run: cargo check --target wasm32-unknown-unknown -p near-kit --no-default-features --features js,contracts
       # WASI: the offline core (types, signing, tx building) without a transport
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features
       # WASI with the RPC layer but no built-in transport (hosts without
       # wasi:http; the caller injects one via NearBuilder::transport)
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features rpc
+      # WASI with typed-contract support and an injected transport
+      - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features contracts
       # WASI with the built-in wasi:http transport
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features wasi-http

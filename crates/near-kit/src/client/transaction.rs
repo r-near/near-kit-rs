@@ -1009,9 +1009,9 @@ impl TransactionBuilder {
                 .online_context(&signer_id, &public_key, None)
                 .await?;
             let tx = prepared.into_transaction(signer_id, public_key, nonce, block_hash);
-            let (signed_tx, tx_hash) = PreparedTransaction::sign_transaction(tx, &key).await?;
+            let (signed_tx, _tx_hash) = PreparedTransaction::sign_transaction(tx, &key).await?;
 
-            trace::debug!(tx_hash = %tx_hash, nonce, "Transaction signed");
+            trace::debug!(tx_hash = %_tx_hash, nonce, "Transaction signed");
 
             Ok(signed_tx)
         }

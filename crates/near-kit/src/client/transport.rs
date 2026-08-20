@@ -7,7 +7,7 @@
 //! - **Every target except WASI** (native + `wasm32-unknown-unknown`):
 //!   [`ReqwestTransport`]. reqwest's fetch backend covers browsers/JS hosts;
 //!   its native stack covers everything else.
-//! - **`wasm32-wasip2`** with the default-on `wasi-http` feature:
+//! - **`wasm32-wasip2`** with the opt-in `wasi-http` feature:
 //!   `WasiHttpTransport` (only nameable there), which speaks
 //!   `wasi:http/outgoing-handler` through the `wasi` crate's raw bindings.
 //!   reqwest has no WASI support (its native stack drags in an `aws-lc-sys` C
@@ -213,7 +213,7 @@ impl RpcTransport for ReqwestTransport {
 // WASI (wasm32-wasip2, `wasi-http` feature): wasi:http/outgoing-handler
 // ============================================================================
 
-/// The default [`RpcTransport`] on `wasm32-wasip2` (behind the default-on
+/// The built-in [`RpcTransport`] on `wasm32-wasip2` (behind the opt-in
 /// `wasi-http` feature), backed by `wasi:http/outgoing-handler`.
 ///
 /// The host must provide the `wasi:http` interface — e.g. `wasmtime run -S

@@ -55,7 +55,7 @@ use crate::types::{AccountId, PublicKey, SecretKey, TryIntoAccountId};
 ///
 /// # Construction
 ///
-/// Unlike [`FileSigner`](crate::signer::FileSigner), `KeyringSigner` requires the public key
+/// Unlike `FileSigner`, `KeyringSigner` requires the public key
 /// because keyring entries are keyed by `{account_id}:{public_key}`.
 ///
 /// ```rust,no_run

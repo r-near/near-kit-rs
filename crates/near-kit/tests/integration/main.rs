@@ -27,7 +27,9 @@ mod token_integration;
 mod tracing_integration;
 mod transaction_failure_integration;
 mod transaction_outcome_integration;
+#[cfg(feature = "contracts")]
 mod typed_contract_error_integration;
+#[cfg(feature = "contracts")]
 mod typed_contract_integration;
 mod typed_error_integration;
 mod view_state_integration;

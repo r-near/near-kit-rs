@@ -1,6 +1,6 @@
 //! Internal facade over the `tracing` crate.
 //!
-//! With the `tracing` feature enabled (the default) this re-exports the real
+//! With the opt-in `tracing` feature enabled, this re-exports the real
 //! macros and types. Without it, everything compiles down to no-ops so call
 //! sites don't need `cfg` guards. The one thing this can't cover is the
 //! `#[tracing::instrument]` attribute macro — those sites use

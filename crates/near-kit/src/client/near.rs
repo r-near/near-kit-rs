@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+#[cfg(feature = "contracts")]
 use crate::contract_support::ContractClient;
 use crate::error::Error;
 use crate::types::{
@@ -1033,6 +1034,7 @@ impl Near {
     /// # Errors
     ///
     /// Returns an error if `contract_id` is not a valid NEAR account ID.
+    #[cfg(feature = "contracts")]
     pub fn contract<T: crate::Contract>(
         &self,
         contract_id: impl TryIntoAccountId,

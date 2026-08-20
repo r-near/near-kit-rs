@@ -25,7 +25,8 @@ It's a ground-up implementation focused on developer experience:
 - **One entry point.** Everything flows through the `Near` client — no hunting for the right module.
 - **Configure once.** Set your network and credentials at startup, then just write your logic.
 - **Explicit units.** No more wondering if that's yoctoNEAR or NEAR. Write `NearToken::from_near(5)` or `"5 NEAR"`.
-- **Batteries included.** Built-in support for FT/NFT standards, typed contracts, multiple signers, and automatic retries.
+- **Batteries included.** Built-in FT/NFT helpers, multiple signer options,
+  automatic retries, and opt-in typed-contract interfaces.
 
 ## Quick Start
 
@@ -150,6 +151,14 @@ tx.add_action(FunctionCall::new("notify").args(serde_json::json!({ "msg": "hello
 
 Tired of stringly-typed method names and `serde_json::json!` everywhere? Define a trait for your contract and get compile-time checking:
 
+Typed interfaces are opt-in so the default RPC client does not pull in proc-macro
+dependencies:
+
+```toml
+[dependencies]
+near-kit = { version = "0.17", features = ["contracts"] }
+```
+
 ```rust
 #[near_kit::contract]
 pub trait Counter {
@@ -172,7 +181,7 @@ Different situations call for different key management. near-kit supports severa
 | Signer | When to use it |
 |--------|----------------|
 | `signer::InMemorySigner` | Scripts and bots with a hardcoded or loaded key |
-| `signer::FileSigner` | Local development — reads from `~/.near-credentials` |
+| `signer::FileSigner` | Local development — reads from `~/.near-credentials` (requires `file-signer`) |
 | `signer::EnvSigner` | CI/CD pipelines via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` |
 | `signer::RotatingSigner` | High-throughput apps that need multiple keys to avoid nonce conflicts. Use `into_per_key_signers()` to split into per-key signers for sequential send queues |
 | `signer::KeyringSigner` | Desktop apps using the system keychain (requires `keyring` feature) |
@@ -206,14 +215,16 @@ Available known tokens: `standards::USDC`, `standards::USDT`, `standards::W_NEAR
 
 ## Feature Flags
 
-| Feature | Description |
-|---------|-------------|
-| `rpc` | The RPC layer: the `Near` client, queries, transactions, token helpers, and the HTTP transport — reqwest, except on WASI (on by default) |
-| `wasi-http` | Built-in `wasi:http` transport for `wasm32-wasip2`; implies `rpc`, no-op elsewhere (on by default) |
-| `sandbox` | Local testing with [near-sandbox](https://crates.io/crates/near-sandbox) |
-| `keyring` | System keyring integration for desktop apps |
-| `tracing` | [`tracing`](https://crates.io/crates/tracing) spans and events for RPC calls and transactions (on by default; drop it with `default-features = false`) |
-| `interactive-clap` | Enables `interactive-clap` derives on re-exported `NearToken` and `Gas` for CLI tools |
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `rpc` | Yes | The `Near` client, queries, transactions, token helpers, and the HTTP transport — reqwest, except on WASI |
+| `contracts` | No | Typed contract interfaces and macros; implies `rpc` |
+| `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2`; implies `rpc`, no-op elsewhere |
+| `sandbox` | No | Local testing with [near-sandbox](https://crates.io/crates/near-sandbox); implies `rpc` |
+| `keyring` | No | System keyring integration for desktop apps |
+| `file-signer` | No | Load signers from `~/.near-credentials` |
+| `tracing` | No | [`tracing`](https://crates.io/crates/tracing) spans and events for RPC calls and transactions |
+| `js` | No | JS-host entropy backend for `wasm32-unknown-unknown` |
 
 ### Tracing
 
@@ -238,7 +249,7 @@ With `default-features = false` the RPC layer drops out and near-kit becomes a p
 
 ### A note on `near-token` / `near-gas`
 
-near-kit depends on and re-exports [`near-token`](https://crates.io/crates/near-token) and [`near-gas`](https://crates.io/crates/near-gas) — so `near_kit::NearToken` and `near_kit::Gas` *are* those crates' types. If you need a feature that near-kit doesn't expose directly (anything beyond `interactive-clap`), add `near-token` or `near-gas` as a direct dependency alongside near-kit with the feature you need.
+near-kit depends on and re-exports [`near-token`](https://crates.io/crates/near-token) and [`near-gas`](https://crates.io/crates/near-gas) — so `near_kit::NearToken` and `near_kit::Gas` *are* those crates' types. If you need an optional feature from either upstream crate, add `near-token` or `near-gas` as a direct dependency alongside near-kit with that feature enabled.
 
 Use a version range compatible with near-kit's (check `cargo tree` if you're unsure). When only one version is resolved, Cargo unifies features across the graph and the re-exported types remain the same type — no conversions required. If you pin an incompatible semver range, Cargo will select two versions and the types will not be interchangeable.
 

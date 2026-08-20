@@ -15,7 +15,7 @@
 //! | Signer | Use Case |
 //! |--------|----------|
 //! | [`InMemorySigner`] | Simple scripts with a private key in memory |
-//! | [`FileSigner`] | Load from `~/.near-credentials` (near-cli compatible) |
+//! | `FileSigner` | Load from `~/.near-credentials` (requires `file-signer`) |
 //! | [`EnvSigner`] | CI/CD via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` env vars |
 //! | [`RotatingSigner`] | High-throughput with multiple keys (avoids nonce collisions) |
 //!

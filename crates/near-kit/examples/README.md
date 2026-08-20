@@ -12,12 +12,12 @@ Essential operations: balance, view, call, transfer, multi-action transactions, 
 
 ```bash
 # View operations (no credentials needed)
-cargo run --example quickstart
+cargo run --example quickstart --features contracts
 
 # All operations (requires testnet credentials)
 NEAR_ACCOUNT_ID=your-account.testnet \
 NEAR_PRIVATE_KEY=ed25519:... \
-cargo run --example quickstart
+cargo run --example quickstart --features contracts
 ```
 
 ### [`meta_transactions.rs`](./meta_transactions.rs)

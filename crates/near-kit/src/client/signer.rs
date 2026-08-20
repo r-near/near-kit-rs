@@ -9,7 +9,7 @@
 //! # Implementations
 //!
 //! - [`InMemorySigner`] - Single key stored in memory
-//! - [`FileSigner`] - Key loaded from ~/.near-credentials
+//! - `FileSigner` - Key loaded from ~/.near-credentials (requires `file-signer`)
 //! - [`EnvSigner`] - Key loaded from environment variables
 //! - [`RotatingSigner`] - Multiple keys with round-robin rotation
 //!
@@ -527,8 +527,8 @@ impl Signer for InMemorySigner {
 ///
 /// Compatible with credentials created by near-cli and near-cli-rs.
 ///
-/// Requires the `file-signer` feature (enabled by default; not usable on
-/// `wasm32-unknown-unknown`, which has no filesystem).
+/// Requires the opt-in `file-signer` feature and is not usable on
+/// `wasm32-unknown-unknown`, which has no filesystem.
 ///
 /// # Example
 ///
@@ -759,8 +759,8 @@ impl Signer for EnvSigner {
 /// Keys can be loaded from any storage backend (file, keyring, env) via
 /// [`from_signers()`](Self::from_signers):
 ///
-#[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
+#[cfg_attr(feature = "file-signer", doc = "```rust,no_run")]
+#[cfg_attr(not(feature = "file-signer"), doc = "```rust,ignore")]
 /// # use near_kit::signer::{FileSigner, RotatingSigner};
 /// let rotating = RotatingSigner::from_signers(vec![
 ///     FileSigner::from_file("keys/bot-key-0.json", "bot.testnet")?.into_inner(),
@@ -840,8 +840,8 @@ impl RotatingSigner {
     ///
     /// # Example
     ///
-    #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-    #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
+    #[cfg_attr(feature = "file-signer", doc = "```rust,no_run")]
+    #[cfg_attr(not(feature = "file-signer"), doc = "```rust,ignore")]
     /// use near_kit::signer::{FileSigner, RotatingSigner};
     ///
     /// // Load keys from separate credential files for the same account
