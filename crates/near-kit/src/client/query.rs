@@ -13,10 +13,56 @@ use crate::error::Error;
 use crate::types::{
     AccessKeyListView, AccountBalance, AccountId, AccountView, BlockReference, ContractCodeView,
     CryptoHash, Finality, GlobalContractId, PublicKeyHandle, Submitted, TryIntoAccountId,
-    TryIntoGlobalContractId, WaitLevel,
+    TryIntoGlobalContractId, ViewFunctionResult, WaitLevel,
 };
 
 use super::rpc::RpcClient;
+
+struct BlockQueryState<T> {
+    rpc: Arc<RpcClient>,
+    target: Result<T, Error>,
+    block_ref: BlockReference,
+}
+
+impl<T> BlockQueryState<T> {
+    fn new(rpc: Arc<RpcClient>, target: Result<T, Error>) -> Self {
+        Self {
+            rpc,
+            target,
+            block_ref: BlockReference::default(),
+        }
+    }
+
+    fn into_parts(self) -> Result<(Arc<RpcClient>, T, BlockReference), Error> {
+        Ok((self.rpc, self.target?, self.block_ref))
+    }
+}
+
+macro_rules! impl_block_query_options {
+    ($($query:ident),+ $(,)?) => {
+        $(
+            impl $query {
+                /// Query at a specific block height.
+                pub fn at_block(mut self, height: u64) -> Self {
+                    self.state.block_ref = BlockReference::Height(height);
+                    self
+                }
+
+                /// Query at a specific block hash.
+                pub fn at_block_hash(mut self, hash: CryptoHash) -> Self {
+                    self.state.block_ref = BlockReference::Hash(hash);
+                    self
+                }
+
+                /// Query with specific finality.
+                pub fn finality(mut self, finality: Finality) -> Self {
+                    self.state.block_ref = BlockReference::Finality(finality);
+                    self
+                }
+            }
+        )+
+    };
+}
 
 // ============================================================================
 // BalanceQuery
@@ -47,36 +93,14 @@ use super::rpc::RpcClient;
 /// # }
 /// ```
 pub struct BalanceQuery {
-    rpc: Arc<RpcClient>,
-    account_id: Result<AccountId, Error>,
-    block_ref: BlockReference,
+    state: BlockQueryState<AccountId>,
 }
 
 impl BalanceQuery {
     pub(crate) fn new(rpc: Arc<RpcClient>, account_id: impl TryIntoAccountId) -> Self {
         Self {
-            rpc,
-            account_id: account_id.try_into_account_id().map_err(Error::from),
-            block_ref: BlockReference::default(),
+            state: BlockQueryState::new(rpc, account_id.try_into_account_id().map_err(Error::from)),
         }
-    }
-
-    /// Query at a specific block height.
-    pub fn at_block(mut self, height: u64) -> Self {
-        self.block_ref = BlockReference::Height(height);
-        self
-    }
-
-    /// Query at a specific block hash.
-    pub fn at_block_hash(mut self, hash: CryptoHash) -> Self {
-        self.block_ref = BlockReference::Hash(hash);
-        self
-    }
-
-    /// Query with specific finality.
-    pub fn finality(mut self, finality: Finality) -> Self {
-        self.block_ref = BlockReference::Finality(finality);
-        self
     }
 }
 
@@ -86,8 +110,8 @@ impl IntoFuture for BalanceQuery {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let account_id = self.account_id?;
-            let view = self.rpc.view_account(&account_id, self.block_ref).await?;
+            let (rpc, account_id, block_ref) = self.state.into_parts()?;
+            let view = rpc.view_account(&account_id, block_ref).await?;
             Ok(AccountBalance::from(view))
         })
     }
@@ -112,36 +136,14 @@ impl IntoFuture for BalanceQuery {
 /// # }
 /// ```
 pub struct AccountQuery {
-    rpc: Arc<RpcClient>,
-    account_id: Result<AccountId, Error>,
-    block_ref: BlockReference,
+    state: BlockQueryState<AccountId>,
 }
 
 impl AccountQuery {
     pub(crate) fn new(rpc: Arc<RpcClient>, account_id: impl TryIntoAccountId) -> Self {
         Self {
-            rpc,
-            account_id: account_id.try_into_account_id().map_err(Error::from),
-            block_ref: BlockReference::default(),
+            state: BlockQueryState::new(rpc, account_id.try_into_account_id().map_err(Error::from)),
         }
-    }
-
-    /// Query at a specific block height.
-    pub fn at_block(mut self, height: u64) -> Self {
-        self.block_ref = BlockReference::Height(height);
-        self
-    }
-
-    /// Query at a specific block hash.
-    pub fn at_block_hash(mut self, hash: CryptoHash) -> Self {
-        self.block_ref = BlockReference::Hash(hash);
-        self
-    }
-
-    /// Query with specific finality.
-    pub fn finality(mut self, finality: Finality) -> Self {
-        self.block_ref = BlockReference::Finality(finality);
-        self
     }
 }
 
@@ -151,8 +153,8 @@ impl IntoFuture for AccountQuery {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let account_id = self.account_id?;
-            let view = self.rpc.view_account(&account_id, self.block_ref).await?;
+            let (rpc, account_id, block_ref) = self.state.into_parts()?;
+            let view = rpc.view_account(&account_id, block_ref).await?;
             Ok(view)
         })
     }
@@ -178,36 +180,14 @@ impl IntoFuture for AccountQuery {
 /// # }
 /// ```
 pub struct AccountExistsQuery {
-    rpc: Arc<RpcClient>,
-    account_id: Result<AccountId, Error>,
-    block_ref: BlockReference,
+    state: BlockQueryState<AccountId>,
 }
 
 impl AccountExistsQuery {
     pub(crate) fn new(rpc: Arc<RpcClient>, account_id: impl TryIntoAccountId) -> Self {
         Self {
-            rpc,
-            account_id: account_id.try_into_account_id().map_err(Error::from),
-            block_ref: BlockReference::default(),
+            state: BlockQueryState::new(rpc, account_id.try_into_account_id().map_err(Error::from)),
         }
-    }
-
-    /// Query at a specific block height.
-    pub fn at_block(mut self, height: u64) -> Self {
-        self.block_ref = BlockReference::Height(height);
-        self
-    }
-
-    /// Query at a specific block hash.
-    pub fn at_block_hash(mut self, hash: CryptoHash) -> Self {
-        self.block_ref = BlockReference::Hash(hash);
-        self
-    }
-
-    /// Query with specific finality.
-    pub fn finality(mut self, finality: Finality) -> Self {
-        self.block_ref = BlockReference::Finality(finality);
-        self
     }
 }
 
@@ -217,8 +197,8 @@ impl IntoFuture for AccountExistsQuery {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let account_id = self.account_id?;
-            match self.rpc.view_account(&account_id, self.block_ref).await {
+            let (rpc, account_id, block_ref) = self.state.into_parts()?;
+            match rpc.view_account(&account_id, block_ref).await {
                 Ok(_) => Ok(true),
                 Err(crate::error::RpcError::AccountNotFound { .. }) => Ok(false),
                 Err(e) => Err(e.into()),
@@ -252,36 +232,14 @@ impl IntoFuture for AccountExistsQuery {
 /// # }
 /// ```
 pub struct AccessKeysQuery {
-    rpc: Arc<RpcClient>,
-    account_id: Result<AccountId, Error>,
-    block_ref: BlockReference,
+    state: BlockQueryState<AccountId>,
 }
 
 impl AccessKeysQuery {
     pub(crate) fn new(rpc: Arc<RpcClient>, account_id: impl TryIntoAccountId) -> Self {
         Self {
-            rpc,
-            account_id: account_id.try_into_account_id().map_err(Error::from),
-            block_ref: BlockReference::default(),
+            state: BlockQueryState::new(rpc, account_id.try_into_account_id().map_err(Error::from)),
         }
-    }
-
-    /// Query at a specific block height.
-    pub fn at_block(mut self, height: u64) -> Self {
-        self.block_ref = BlockReference::Height(height);
-        self
-    }
-
-    /// Query at a specific block hash.
-    pub fn at_block_hash(mut self, hash: CryptoHash) -> Self {
-        self.block_ref = BlockReference::Hash(hash);
-        self
-    }
-
-    /// Query with specific finality.
-    pub fn finality(mut self, finality: Finality) -> Self {
-        self.block_ref = BlockReference::Finality(finality);
-        self
     }
 
     /// Fetch a single page instead of the whole list.
@@ -299,10 +257,9 @@ impl AccessKeysQuery {
         after_key: Option<&PublicKeyHandle>,
         limit: Option<NonZeroU32>,
     ) -> Result<AccessKeyListView, Error> {
-        let account_id = self.account_id?;
-        Ok(self
-            .rpc
-            .view_access_key_list_page(&account_id, after_key, limit, self.block_ref)
+        let (rpc, account_id, block_ref) = self.state.into_parts()?;
+        Ok(rpc
+            .view_access_key_list_page(&account_id, after_key, limit, block_ref)
             .await?)
     }
 }
@@ -313,11 +270,8 @@ impl IntoFuture for AccessKeysQuery {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let account_id = self.account_id?;
-            let list = self
-                .rpc
-                .view_access_key_list(&account_id, self.block_ref)
-                .await?;
+            let (rpc, account_id, block_ref) = self.state.into_parts()?;
+            let list = rpc.view_access_key_list(&account_id, block_ref).await?;
             Ok(list)
         })
     }
@@ -423,6 +377,71 @@ impl<W: WaitLevel> IntoFuture for TransactionStatusQuery<W> {
 // ViewCall
 // ============================================================================
 
+struct ViewCallRequest {
+    rpc: Arc<RpcClient>,
+    contract_id: Result<AccountId, Error>,
+    method: String,
+    args: Result<Vec<u8>, Error>,
+    block_ref: BlockReference,
+}
+
+impl ViewCallRequest {
+    fn new(rpc: Arc<RpcClient>, contract_id: impl TryIntoAccountId, method: String) -> Self {
+        Self {
+            rpc,
+            contract_id: contract_id.try_into_account_id().map_err(Error::from),
+            method,
+            args: Ok(Vec::new()),
+            block_ref: BlockReference::default(),
+        }
+    }
+
+    fn replace_args(&mut self, args: Result<Vec<u8>, Error>) {
+        self.args = args;
+    }
+
+    async fn execute(self) -> Result<ViewFunctionResult, Error> {
+        let contract_id = self.contract_id?;
+        let args = self.args?;
+        Ok(self
+            .rpc
+            .view_function(&contract_id, &self.method, &args, self.block_ref)
+            .await?)
+    }
+}
+
+trait ViewResponseDecoder<T> {
+    fn decode(response: ViewFunctionResult) -> Result<T, Error>;
+}
+
+struct JsonResponse;
+
+impl<T: DeserializeOwned> ViewResponseDecoder<T> for JsonResponse {
+    fn decode(response: ViewFunctionResult) -> Result<T, Error> {
+        Ok(response.json()?)
+    }
+}
+
+struct BorshResponse;
+
+impl<T: borsh::BorshDeserialize> ViewResponseDecoder<T> for BorshResponse {
+    fn decode(response: ViewFunctionResult) -> Result<T, Error> {
+        response
+            .borsh()
+            .map_err(|error| Error::Borsh(error.to_string()))
+    }
+}
+
+fn view_call_future<T, D>(
+    request: ViewCallRequest,
+) -> crate::platform::BoxFuture<'static, Result<T, Error>>
+where
+    T: Send + 'static,
+    D: ViewResponseDecoder<T>,
+{
+    Box::pin(async move { D::decode(request.execute().await?) })
+}
+
 /// Query builder for calling view functions on contracts.
 ///
 /// # Example
@@ -448,11 +467,7 @@ impl<W: WaitLevel> IntoFuture for TransactionStatusQuery<W> {
 /// # }
 /// ```
 pub struct ViewCall<T> {
-    rpc: Arc<RpcClient>,
-    contract_id: Result<AccountId, Error>,
-    method: String,
-    args: Result<Vec<u8>, Error>,
-    block_ref: BlockReference,
+    request: ViewCallRequest,
     _phantom: PhantomData<T>,
 }
 
@@ -463,11 +478,7 @@ impl<T> ViewCall<T> {
         method: String,
     ) -> Self {
         Self {
-            rpc,
-            contract_id: contract_id.try_into_account_id().map_err(Error::from),
-            method,
-            args: Ok(vec![]),
-            block_ref: BlockReference::default(),
+            request: ViewCallRequest::new(rpc, contract_id, method),
             _phantom: PhantomData,
         }
     }
@@ -475,38 +486,48 @@ impl<T> ViewCall<T> {
     /// Set JSON arguments for the view call.
     ///
     /// The arguments will be serialized to JSON.
+    /// If another argument setter was called earlier, this replaces its bytes
+    /// or serialization error; the last argument setter wins.
     pub fn args<A: serde::Serialize>(mut self, args: A) -> Self {
-        self.args = serde_json::to_vec(&args).map_err(Error::from);
+        self.request
+            .replace_args(serde_json::to_vec(&args).map_err(Error::from));
         self
     }
 
     /// Set raw byte arguments (e.g., Borsh encoded).
+    ///
+    /// If another argument setter was called earlier, this replaces its bytes
+    /// or serialization error; the last argument setter wins.
     pub fn args_raw(mut self, args: Vec<u8>) -> Self {
-        self.args = Ok(args);
+        self.request.replace_args(Ok(args));
         self
     }
 
     /// Set Borsh-encoded arguments.
+    ///
+    /// If another argument setter was called earlier, this replaces its bytes
+    /// or serialization error; the last argument setter wins.
     pub fn args_borsh<A: borsh::BorshSerialize>(mut self, args: A) -> Self {
-        self.args = borsh::to_vec(&args).map_err(|error| Error::Borsh(error.to_string()));
+        self.request
+            .replace_args(borsh::to_vec(&args).map_err(|error| Error::Borsh(error.to_string())));
         self
     }
 
     /// Query at a specific block height.
     pub fn at_block(mut self, height: u64) -> Self {
-        self.block_ref = BlockReference::Height(height);
+        self.request.block_ref = BlockReference::Height(height);
         self
     }
 
     /// Query at a specific block hash.
     pub fn at_block_hash(mut self, hash: CryptoHash) -> Self {
-        self.block_ref = BlockReference::Hash(hash);
+        self.request.block_ref = BlockReference::Hash(hash);
         self
     }
 
     /// Query with specific finality.
     pub fn finality(mut self, finality: Finality) -> Self {
-        self.block_ref = BlockReference::Finality(finality);
+        self.request.block_ref = BlockReference::Finality(finality);
         self
     }
 
@@ -537,11 +558,7 @@ impl<T> ViewCall<T> {
     /// ```
     pub fn borsh(self) -> ViewCallBorsh<T> {
         ViewCallBorsh {
-            rpc: self.rpc,
-            contract_id: self.contract_id,
-            method: self.method,
-            args: self.args,
-            block_ref: self.block_ref,
+            request: self.request,
             _phantom: PhantomData,
         }
     }
@@ -552,15 +569,7 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for ViewCall<T> {
     type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move {
-            let contract_id = self.contract_id?;
-            let args = self.args?;
-            let result = self
-                .rpc
-                .view_function(&contract_id, &self.method, &args, self.block_ref)
-                .await?;
-            Ok(result.json()?)
-        })
+        view_call_future::<T, JsonResponse>(self.request)
     }
 }
 
@@ -603,11 +612,7 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for ViewCall<T> {
 /// }
 /// ```
 pub struct ViewCallBorsh<T> {
-    rpc: Arc<RpcClient>,
-    contract_id: Result<AccountId, Error>,
-    method: String,
-    args: Result<Vec<u8>, Error>,
-    block_ref: BlockReference,
+    request: ViewCallRequest,
     _phantom: PhantomData<T>,
 }
 
@@ -616,15 +621,7 @@ impl<T: borsh::BorshDeserialize + Send + 'static> IntoFuture for ViewCallBorsh<T
     type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move {
-            let contract_id = self.contract_id?;
-            let args = self.args?;
-            let result = self
-                .rpc
-                .view_function(&contract_id, &self.method, &args, self.block_ref)
-                .await?;
-            result.borsh().map_err(|e| Error::Borsh(e.to_string()))
-        })
+        view_call_future::<T, BorshResponse>(self.request)
     }
 }
 
@@ -657,36 +654,14 @@ impl<T: borsh::BorshDeserialize + Send + 'static> IntoFuture for ViewCallBorsh<T
 /// # }
 /// ```
 pub struct ContractCodeQuery {
-    rpc: Arc<RpcClient>,
-    account_id: Result<AccountId, Error>,
-    block_ref: BlockReference,
+    state: BlockQueryState<AccountId>,
 }
 
 impl ContractCodeQuery {
     pub(crate) fn new(rpc: Arc<RpcClient>, account_id: impl TryIntoAccountId) -> Self {
         Self {
-            rpc,
-            account_id: account_id.try_into_account_id().map_err(Error::from),
-            block_ref: BlockReference::default(),
+            state: BlockQueryState::new(rpc, account_id.try_into_account_id().map_err(Error::from)),
         }
-    }
-
-    /// Query at a specific block height.
-    pub fn at_block(mut self, height: u64) -> Self {
-        self.block_ref = BlockReference::Height(height);
-        self
-    }
-
-    /// Query at a specific block hash.
-    pub fn at_block_hash(mut self, hash: CryptoHash) -> Self {
-        self.block_ref = BlockReference::Hash(hash);
-        self
-    }
-
-    /// Query with specific finality.
-    pub fn finality(mut self, finality: Finality) -> Self {
-        self.block_ref = BlockReference::Finality(finality);
-        self
     }
 
     /// Check whether a contract is deployed, instead of fetching its code.
@@ -695,8 +670,8 @@ impl ContractCodeQuery {
     /// exist. Note the node still returns the full code on the wire — the
     /// RPC has no lighter existence check.
     pub async fn exists(self) -> Result<bool, Error> {
-        let account_id = self.account_id?;
-        match self.rpc.view_code(&account_id, self.block_ref).await {
+        let (rpc, account_id, block_ref) = self.state.into_parts()?;
+        match rpc.view_code(&account_id, block_ref).await {
             Ok(_) => Ok(true),
             Err(crate::error::RpcError::ContractNotDeployed { .. })
             | Err(crate::error::RpcError::AccountNotFound { .. }) => Ok(false),
@@ -711,8 +686,8 @@ impl IntoFuture for ContractCodeQuery {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let account_id = self.account_id?;
-            let view = self.rpc.view_code(&account_id, self.block_ref).await?;
+            let (rpc, account_id, block_ref) = self.state.into_parts()?;
+            let view = rpc.view_code(&account_id, block_ref).await?;
             Ok(view)
         })
     }
@@ -749,36 +724,14 @@ impl IntoFuture for ContractCodeQuery {
 /// # }
 /// ```
 pub struct GlobalContractQuery {
-    rpc: Arc<RpcClient>,
-    id: Result<GlobalContractId, Error>,
-    block_ref: BlockReference,
+    state: BlockQueryState<GlobalContractId>,
 }
 
 impl GlobalContractQuery {
     pub(crate) fn new(rpc: Arc<RpcClient>, id: impl TryIntoGlobalContractId) -> Self {
         Self {
-            rpc,
-            id: id.try_into_identifier().map_err(Error::from),
-            block_ref: BlockReference::default(),
+            state: BlockQueryState::new(rpc, id.try_into_identifier().map_err(Error::from)),
         }
-    }
-
-    /// Query at a specific block height.
-    pub fn at_block(mut self, height: u64) -> Self {
-        self.block_ref = BlockReference::Height(height);
-        self
-    }
-
-    /// Query at a specific block hash.
-    pub fn at_block_hash(mut self, hash: CryptoHash) -> Self {
-        self.block_ref = BlockReference::Hash(hash);
-        self
-    }
-
-    /// Query with specific finality.
-    pub fn finality(mut self, finality: Finality) -> Self {
-        self.block_ref = BlockReference::Finality(finality);
-        self
     }
 
     /// Check whether the global contract is deployed, instead of fetching
@@ -789,12 +742,8 @@ impl GlobalContractQuery {
     /// still returns the full code on the wire — the RPC has no lighter
     /// existence check.
     pub async fn exists(self) -> Result<bool, Error> {
-        let id = self.id?;
-        match self
-            .rpc
-            .view_global_contract_code(&id, self.block_ref)
-            .await
-        {
+        let (rpc, id, block_ref) = self.state.into_parts()?;
+        match rpc.view_global_contract_code(&id, block_ref).await {
             Ok(_) => Ok(true),
             // AccountNotFound isn't returned by current nodes (the lookup is
             // by identifier, not account), but a nonexistent publisher has
@@ -812,15 +761,21 @@ impl IntoFuture for GlobalContractQuery {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let id = self.id?;
-            let view = self
-                .rpc
-                .view_global_contract_code(&id, self.block_ref)
-                .await?;
+            let (rpc, id, block_ref) = self.state.into_parts()?;
+            let view = rpc.view_global_contract_code(&id, block_ref).await?;
             Ok(view)
         })
     }
 }
+
+impl_block_query_options!(
+    BalanceQuery,
+    AccountQuery,
+    AccountExistsQuery,
+    AccessKeysQuery,
+    ContractCodeQuery,
+    GlobalContractQuery,
+);
 
 #[cfg(test)]
 mod tests {
@@ -853,14 +808,14 @@ mod tests {
         let account_id: AccountId = "alice.testnet".parse().unwrap();
 
         let query = BalanceQuery::new(rpc.clone(), account_id.clone());
-        assert_eq!(query.block_ref, BlockReference::default());
+        assert_eq!(query.state.block_ref, BlockReference::default());
 
         let query = BalanceQuery::new(rpc.clone(), account_id.clone()).at_block(12345);
-        assert_eq!(query.block_ref, BlockReference::Height(12345));
+        assert_eq!(query.state.block_ref, BlockReference::Height(12345));
 
         let query = BalanceQuery::new(rpc.clone(), account_id).finality(Finality::Optimistic);
         assert_eq!(
-            query.block_ref,
+            query.state.block_ref,
             BlockReference::Finality(Finality::Optimistic)
         );
     }
@@ -889,12 +844,36 @@ mod tests {
     }
 
     #[test]
-    fn later_raw_args_replace_a_serialization_error() {
+    fn last_argument_setter_wins() {
         let rpc = Arc::new(RpcClient::new("http://unused.invalid"));
-        let query = ViewCall::<serde_json::Value>::new(rpc, "contract.testnet", "method".into())
-            .args(FailingJson)
-            .args_raw(vec![1, 2, 3]);
+        let raw_after_json_error =
+            ViewCall::<serde_json::Value>::new(rpc.clone(), "contract.testnet", "method".into())
+                .args(FailingJson)
+                .args_raw(vec![1, 2, 3]);
+        assert_eq!(raw_after_json_error.request.args.unwrap(), vec![1, 2, 3]);
 
-        assert_eq!(query.args.unwrap(), vec![1, 2, 3]);
+        let json_after_borsh_error =
+            ViewCall::<serde_json::Value>::new(rpc.clone(), "contract.testnet", "method".into())
+                .args_borsh(FailingBorsh)
+                .args(serde_json::json!({ "valid": true }));
+        assert_eq!(
+            json_after_borsh_error.request.args.unwrap(),
+            br#"{"valid":true}"#
+        );
+
+        let json_error_last =
+            ViewCall::<serde_json::Value>::new(rpc.clone(), "contract.testnet", "method".into())
+                .args_raw(vec![1, 2, 3])
+                .args(FailingJson);
+        assert!(matches!(json_error_last.request.args, Err(Error::Json(_))));
+
+        let borsh_error_last =
+            ViewCall::<serde_json::Value>::new(rpc, "contract.testnet", "method".into())
+                .args_raw(vec![1, 2, 3])
+                .args_borsh(FailingBorsh);
+        assert!(matches!(
+            borsh_error_last.request.args,
+            Err(Error::Borsh(_))
+        ));
     }
 }
