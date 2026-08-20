@@ -18,7 +18,10 @@ async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
     let sandbox: Sandbox = SandboxConfig::fresh().await?;
 
     let root_near = sandbox.client();
-    let root_account = root_near.account_id().to_string();
+    let root_account = root_near
+        .account_id()
+        .expect("sandbox client has a root signer")
+        .to_string();
 
     // Generate 5 keypairs dynamically
     let num_keys = 5;

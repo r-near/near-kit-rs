@@ -61,7 +61,7 @@ mod transaction;
 mod units;
 mod wait_level;
 
-pub use account::{AccountId, AccountIdExt, AccountIdRef, AccountType, TryIntoAccountId};
+pub use account::{AccountId, AccountIdRef, TryIntoAccountId};
 pub use action::{
     AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction,
     DELEGATE_ACTION_PREFIX, DELEGATE_V2_ACTION_PREFIX, DecodeError as DelegateDecodeError,

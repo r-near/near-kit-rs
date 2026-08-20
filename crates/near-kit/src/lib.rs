@@ -420,9 +420,10 @@
 //! the platform does provide via [`NearBuilder::transport`]. The `wasi-http`
 //! feature must stay off there: merely compiling the built-in transport makes
 //! the component import `wasi:http`, which such hosts refuse to instantiate.
-//! With `rpc` alone those imports never appear — but there is then no built-in
-//! transport, so [`NearBuilder::build`] panics unless one was injected. (Or
-//! stay fully offline by dropping `rpc` too — see below.)
+//! With `rpc` alone those imports never appear. A client can still be built,
+//! but its RPC calls return a non-retryable [`rpc::RpcError::Network`] until a
+//! transport is injected. (Or stay fully offline by dropping `rpc` too — see
+//! below.)
 //!
 //! ### Custom entropy backends
 //!

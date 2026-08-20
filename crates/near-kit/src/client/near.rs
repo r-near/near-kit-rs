@@ -17,14 +17,7 @@ use super::query::{
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
 use super::signer::{InMemorySigner, Signer};
 use super::transaction::{CallBuilder, SignedTransactionSend, TransactionBuilder};
-use super::transport::RpcTransport;
-// The module itself is only referenced for the built-in transports, which
-// don't exist on WASI builds without the `wasi-http` feature.
-#[cfg(any(
-    not(all(target_arch = "wasm32", target_os = "wasi")),
-    all(feature = "wasi-http", target_env = "p2")
-))]
-use super::transport;
+use super::transport::{self, RpcTransport};
 
 /// Trait for sandbox network configuration.
 ///
@@ -288,21 +281,8 @@ impl Near {
         self.rpc.url()
     }
 
-    /// Get the signer's account ID.
-    ///
-    /// # Panics
-    ///
-    /// Panics if no signer is configured. Use [`try_account_id`](Self::try_account_id)
-    /// if you need to handle the no-signer case.
-    pub fn account_id(&self) -> &AccountId {
-        self.signer
-            .as_ref()
-            .expect("account_id() called on a Near client without a signer configured — use try_account_id() or configure a signer")
-            .account_id()
-    }
-
     /// Get the signer's account ID, if a signer is configured.
-    pub fn try_account_id(&self) -> Option<&AccountId> {
+    pub fn account_id(&self) -> Option<&AccountId> {
         self.signer.as_ref().map(|s| s.account_id())
     }
 
@@ -711,12 +691,10 @@ impl Near {
     /// # }
     /// ```
     ///
-    /// # Panics
-    ///
-    /// Panics if no signer is configured.
+    /// If no signer is configured, the returned builder retains
+    /// [`Error::NoSigner`] and returns it when built, signed, delegated, or sent.
     pub fn deploy(&self, code: impl Into<Vec<u8>>) -> TransactionBuilder {
-        let account_id = self.account_id().clone();
-        self.transaction(account_id).deploy(code)
+        self.signer_account_transaction().deploy(code)
     }
 
     /// Deploy a contract from the global registry.
@@ -742,12 +720,10 @@ impl Near {
     /// # }
     /// ```
     ///
-    /// # Panics
-    ///
-    /// Panics if no signer is configured.
+    /// If no signer is configured, the returned builder retains
+    /// [`Error::NoSigner`] and returns it when built, signed, delegated, or sent.
     pub fn deploy_from(&self, contract_ref: impl TryIntoGlobalContractId) -> TransactionBuilder {
-        let account_id = self.account_id().clone();
-        self.transaction(account_id).deploy_from(contract_ref)
+        self.signer_account_transaction().deploy_from(contract_ref)
     }
 
     /// Publish a contract to the global registry.
@@ -773,32 +749,27 @@ impl Near {
     /// # }
     /// ```
     ///
-    /// # Panics
-    ///
-    /// Panics if no signer is configured.
+    /// If no signer is configured, the returned builder retains
+    /// [`Error::NoSigner`] and returns it when built, signed, delegated, or sent.
     pub fn publish(&self, code: impl Into<Vec<u8>>, mode: PublishMode) -> TransactionBuilder {
-        let account_id = self.account_id().clone();
-        self.transaction(account_id).publish(code, mode)
+        self.signer_account_transaction().publish(code, mode)
     }
 
     /// Add a full access key to the signer's account.
     ///
-    /// # Panics
-    ///
-    /// Panics if no signer is configured.
+    /// If no signer is configured, the returned builder retains
+    /// [`Error::NoSigner`] and returns it when built, signed, delegated, or sent.
     pub fn add_full_access_key(&self, public_key: PublicKey) -> TransactionBuilder {
-        let account_id = self.account_id().clone();
-        self.transaction(account_id).add_full_access_key(public_key)
+        self.signer_account_transaction()
+            .add_full_access_key(public_key)
     }
 
     /// Delete an access key from the signer's account.
     ///
-    /// # Panics
-    ///
-    /// Panics if no signer is configured.
+    /// If no signer is configured, the returned builder retains
+    /// [`Error::NoSigner`] and returns it when built, signed, delegated, or sent.
     pub fn delete_key(&self, public_key: PublicKey) -> TransactionBuilder {
-        let account_id = self.account_id().clone();
-        self.transaction(account_id).delete_key(public_key)
+        self.signer_account_transaction().delete_key(public_key)
     }
 
     // ========================================================================
@@ -848,6 +819,19 @@ impl Near {
             receiver_id.try_into_account_id().map_err(Error::from),
             self.max_nonce_retries,
         )
+    }
+
+    fn signer_account_transaction(&self) -> TransactionBuilder {
+        match self.account_id() {
+            Some(account_id) => self.transaction(account_id),
+            // The receiver is never observed because the retained validation
+            // error wins at every terminal operation. Keeping NoSigner in the
+            // sticky validation slot also prevents a later receiver-changing
+            // action from accidentally clearing it.
+            None => self
+                .transaction("system")
+                .with_validation(Err(Error::NoSigner)),
+        }
     }
 
     /// Create a NEP-616 deterministic state init transaction.
@@ -1094,7 +1078,7 @@ impl std::fmt::Debug for Near {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Near")
             .field("rpc", &self.rpc)
-            .field("account_id", &self.try_account_id())
+            .field("account_id", &self.account_id())
             .finish()
     }
 }
@@ -1118,8 +1102,8 @@ impl std::fmt::Debug for Near {
 pub struct NearBuilder {
     rpc_url: String,
     /// `None` until [`NearBuilder::build`] — resolved lazily so that injecting
-    /// a transport never constructs the built-in one (which doesn't even exist
-    /// on WASI without the `wasi-http` feature).
+    /// a transport never constructs the target's default. On WASI without
+    /// `wasi-http`, that default reports a non-retryable transport error.
     transport: Option<Arc<dyn RpcTransport>>,
     signer: Option<Arc<dyn Signer>>,
     retry_config: RetryConfig,
@@ -1225,9 +1209,9 @@ impl NearBuilder {
     /// This is the injection point for platforms whose HTTP stack near-kit
     /// doesn't know about — e.g. a runtime that proxies RPC traffic through a
     /// host call instead of exposing raw HTTP. On WASI builds without the
-    /// `wasi-http` feature it is the *only* way to reach the network — there
-    /// is no built-in transport there. For merely *configuring* the default
-    /// reqwest transport (headers, proxies, TLS), prefer
+    /// `wasi-http` feature it is the *only* way to reach the network — the
+    /// default there only returns a typed transport error. For merely
+    /// *configuring* the default reqwest transport (headers, proxies, TLS), prefer
     /// [`NearBuilder::http_client`].
     pub fn transport(mut self, transport: impl RpcTransport + 'static) -> Self {
         self.transport = Some(Arc::new(transport));
@@ -1249,29 +1233,12 @@ impl NearBuilder {
 
     /// Build the client.
     ///
-    /// # Panics
-    ///
-    /// On WASI without the `wasi-http` feature there is no built-in HTTP
-    /// transport, so one must have been injected with
-    /// [`NearBuilder::transport`]; panics otherwise. Every other configuration
-    /// has a built-in default and never panics.
+    /// On WASI without the `wasi-http` feature, a client built without an
+    /// injected transport returns a non-retryable
+    /// [`RpcError::Network`](crate::error::RpcError::Network) from RPC calls.
+    /// Use [`NearBuilder::transport`] to make that client operational.
     pub fn build(self) -> Near {
-        // A built-in default exists everywhere except WASI-without-`wasi-http`
-        // (see `transport::default_transport`).
-        #[cfg(any(
-            not(all(target_arch = "wasm32", target_os = "wasi")),
-            all(feature = "wasi-http", target_env = "p2")
-        ))]
         let transport = self.transport.unwrap_or_else(transport::default_transport);
-        #[cfg(all(
-            target_arch = "wasm32",
-            target_os = "wasi",
-            not(all(feature = "wasi-http", target_env = "p2"))
-        ))]
-        let transport = self.transport.expect(
-            "no built-in HTTP transport on WASI without the `wasi-http` feature; \
-             supply one with `NearBuilder::transport`",
-        );
         Near {
             rpc: Arc::new(RpcClient::with_transport_and_retry_config(
                 self.rpc_url,
@@ -1304,14 +1271,14 @@ mod tests {
     fn test_near_mainnet_builder() {
         let near = Near::mainnet().build();
         assert!(near.rpc_url().contains("fastnear") || near.rpc_url().contains("near"));
-        assert!(near.try_account_id().is_none()); // No signer configured
+        assert!(near.account_id().is_none()); // No signer configured
     }
 
     #[test]
     fn test_near_testnet_builder() {
         let near = Near::testnet().build();
         assert!(near.rpc_url().contains("fastnear") || near.rpc_url().contains("test"));
-        assert!(near.try_account_id().is_none());
+        assert!(near.account_id().is_none());
     }
 
     #[test]
@@ -1337,7 +1304,7 @@ mod tests {
             .unwrap()
             .build();
 
-        assert_eq!(near.account_id().as_str(), "alice.testnet");
+        assert_eq!(near.account_id().unwrap().as_str(), "alice.testnet");
     }
 
     #[test]
@@ -1349,7 +1316,7 @@ mod tests {
 
         let near = Near::testnet().signer(signer).build();
 
-        assert_eq!(near.account_id().as_str(), "bob.testnet");
+        assert_eq!(near.account_id().unwrap().as_str(), "bob.testnet");
     }
 
     #[test]
@@ -1392,6 +1359,54 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(deposit_error, Error::ParseAmount(_)));
+    }
+
+    #[test]
+    fn signer_account_builders_retain_no_signer_errors() {
+        let near = Near::custom("http://127.0.0.1:1", "test").build();
+        let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+            .parse()
+            .unwrap();
+
+        let builders = [
+            near.deploy(Vec::new()),
+            near.deploy_from(crate::types::CryptoHash::ZERO),
+            near.publish(Vec::new(), PublishMode::Updatable),
+            near.add_full_access_key(public_key.clone()),
+            near.delete_key(public_key.clone()),
+        ];
+
+        for builder in builders {
+            let error = builder
+                .build_offline(
+                    "offline-signer.test",
+                    public_key.clone(),
+                    crate::types::CryptoHash::ZERO,
+                    1,
+                )
+                .unwrap_err();
+            assert!(matches!(error, Error::NoSigner));
+        }
+    }
+
+    #[tokio::test]
+    async fn signer_account_builder_uses_configured_account() {
+        let near = Near::custom("http://127.0.0.1:1", "test")
+            .credentials(
+                "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
+                "alice.testnet",
+            )
+            .unwrap()
+            .build();
+        let account_id = near.account_id().unwrap().clone();
+
+        let transaction = near
+            .deploy(Vec::new())
+            .sign_offline(crate::types::CryptoHash::ZERO, 1)
+            .await
+            .unwrap();
+
+        assert_eq!(transaction.transaction.receiver_id, account_id);
     }
 
     #[test]
@@ -1509,7 +1524,7 @@ mod tests {
 
         let near = Near::sandbox(&mock);
         assert_eq!(near.rpc_url(), "http://127.0.0.1:3030");
-        assert_eq!(near.account_id().as_str(), "sandbox");
+        assert_eq!(near.account_id().unwrap().as_str(), "sandbox");
     }
 
     // ========================================================================
@@ -1526,7 +1541,7 @@ mod tests {
     #[test]
     fn test_near_with_signer_derived() {
         let near = Near::testnet().build();
-        assert!(near.try_account_id().is_none());
+        assert!(near.account_id().is_none());
 
         let signer = InMemorySigner::new(
             "alice.testnet",
@@ -1534,9 +1549,9 @@ mod tests {
         ).unwrap();
 
         let alice = near.with_signer(signer);
-        assert_eq!(alice.account_id().as_str(), "alice.testnet");
+        assert_eq!(alice.account_id().unwrap().as_str(), "alice.testnet");
         assert_eq!(alice.rpc_url(), near.rpc_url()); // Same transport
-        assert!(near.try_account_id().is_none()); // Original unchanged
+        assert!(near.account_id().is_none()); // Original unchanged
     }
 
     #[test]
@@ -1553,8 +1568,8 @@ mod tests {
             "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
         ).unwrap());
 
-        assert_eq!(alice.account_id().as_str(), "alice.testnet");
-        assert_eq!(bob.account_id().as_str(), "bob.testnet");
+        assert_eq!(alice.account_id().unwrap().as_str(), "alice.testnet");
+        assert_eq!(bob.account_id().unwrap().as_str(), "bob.testnet");
         assert_eq!(alice.rpc_url(), bob.rpc_url()); // Shared transport
     }
 
@@ -1601,7 +1616,7 @@ mod tests {
                 "Expected testnet URL, got: {}",
                 near.rpc_url()
             );
-            assert!(near.try_account_id().is_none());
+            assert!(near.account_id().is_none());
         }
 
         // Scenario 2: Mainnet network
@@ -1616,7 +1631,7 @@ mod tests {
                 "Expected mainnet URL, got: {}",
                 near.rpc_url()
             );
-            assert!(near.try_account_id().is_none());
+            assert!(near.account_id().is_none());
         }
 
         // Scenario 3: Custom URL
@@ -1641,7 +1656,7 @@ mod tests {
         }
         {
             let near = Near::from_env().unwrap();
-            assert_eq!(near.account_id().as_str(), "alice.testnet");
+            assert_eq!(near.account_id().unwrap().as_str(), "alice.testnet");
         }
 
         // Scenario 5: Account without key - should error

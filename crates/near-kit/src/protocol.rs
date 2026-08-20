@@ -9,8 +9,8 @@ pub use crate::error::{
     ActionViewConversionError, ParseAccountIdError, ParseAmountError, ParseGasError, ParseHashError,
 };
 pub use crate::types::{
-    AccessKey, AccessKeyPermission, AccountIdExt, AccountIdRef, AccountType, Action, ActionError,
-    ActionErrorKind, ActionsValidationError, AddKeyAction, CompilationError, CreateAccountAction,
+    AccessKey, AccessKeyPermission, AccountIdRef, Action, ActionError, ActionErrorKind,
+    ActionsValidationError, AddKeyAction, CompilationError, CreateAccountAction,
     DELEGATE_ACTION_PREFIX, DELEGATE_V2_ACTION_PREFIX, DelegateAction, DelegateActionV2,
     DelegateDecodeError, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     DeployGlobalContractAction, DepositCostFailureReason, DeterministicStateInitAction,
