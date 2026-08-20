@@ -9,12 +9,6 @@ use crate::types::{
     AccountId, ChainId, IntoNearToken, PublicKey, PublishMode, StateInit, TryIntoAccountId,
     TryIntoGlobalContractId,
 };
-// Only used by `Near::sandbox`, which needs a built-in transport (see below).
-#[cfg(any(
-    not(all(target_arch = "wasm32", target_os = "wasi")),
-    all(feature = "wasi-http", target_env = "p2")
-))]
-use crate::types::SecretKey;
 
 use super::query::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ContractCodeQuery,
@@ -40,10 +34,11 @@ use super::transport;
 /// # Example
 ///
 /// ```rust,ignore
-/// use near_sandbox::Sandbox;
+/// use near_kit::Near;
+/// use near_kit_sandbox::SandboxConfig;
 ///
-/// let sandbox = Sandbox::start_sandbox().await?;
-/// let near = Near::sandbox(&sandbox).build();
+/// let sandbox = SandboxConfig::fresh().await?;
+/// let near = Near::sandbox(&sandbox);
 ///
 /// // The root account credentials are automatically configured
 /// near.transfer("alice.sandbox", "10 NEAR").await?;
@@ -52,19 +47,14 @@ pub trait SandboxNetwork {
     /// The RPC URL for the sandbox (e.g., `http://127.0.0.1:3030`).
     fn rpc_url(&self) -> &str;
 
-    /// The root account ID (e.g., `"sandbox"`).
-    fn root_account_id(&self) -> &str;
+    /// The sandbox chain ID.
+    fn chain_id(&self) -> &ChainId;
 
-    /// The root account's secret key.
-    fn root_secret_key(&self) -> &str;
-
-    /// Optional chain ID override.
+    /// Return the root account signer without claiming or rotating a key.
     ///
-    /// If `None`, defaults to `"sandbox"`. Set this to mimic a specific
-    /// network (e.g., `"mainnet"`) for chain-ID-dependent logic.
-    fn chain_id(&self) -> Option<&str> {
-        None
-    }
+    /// Implementations should return a cheap clone of stable signer state. This
+    /// method must not advance key rotation, prompt, or perform network I/O.
+    fn root_signer(&self) -> Arc<dyn Signer>;
 }
 
 /// The main client for interacting with NEAR Protocol.
@@ -263,10 +253,10 @@ impl Near {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use near_sandbox::Sandbox;
-    /// use near_kit::*;
+    /// use near_kit::{Near, NearToken};
+    /// use near_kit_sandbox::SandboxConfig;
     ///
-    /// let sandbox = Sandbox::start_sandbox().await?;
+    /// let sandbox = SandboxConfig::fresh().await?;
     /// let near = Near::sandbox(&sandbox);
     ///
     /// // Root account credentials are auto-configured - ready for transactions!
@@ -280,22 +270,10 @@ impl Near {
         all(feature = "wasi-http", target_env = "p2")
     ))]
     pub fn sandbox(network: &impl SandboxNetwork) -> Near {
-        let secret_key: SecretKey = network
-            .root_secret_key()
-            .parse()
-            .expect("sandbox should provide valid secret key");
-        let account_id: AccountId = network
-            .root_account_id()
-            .parse()
-            .expect("sandbox should provide valid account id");
-
-        let signer = InMemorySigner::from_secret_key(account_id, secret_key)
-            .expect("sandbox should provide valid account id");
-
         Near {
             rpc: Arc::new(RpcClient::new(network.rpc_url())),
-            signer: Some(Arc::new(signer)),
-            chain_id: ChainId::new(network.chain_id().unwrap_or("sandbox")),
+            signer: Some(network.root_signer()),
+            chain_id: network.chain_id().clone(),
             max_nonce_retries: 3,
         }
     }
@@ -1324,16 +1302,6 @@ impl From<NearBuilder> for Near {
     }
 }
 
-/// Default sandbox root account ID.
-#[cfg(any(feature = "sandbox", test))]
-pub const SANDBOX_ROOT_ACCOUNT: &str = "sandbox";
-
-/// Default sandbox root secret key.
-///
-/// Deterministic key generated via `near-sandbox init --test-seed sandbox`.
-#[cfg(any(feature = "sandbox", test))]
-pub const SANDBOX_ROOT_SECRET_KEY: &str = "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJnpBKWieC73hVTpBeA6FZiCc5tfyZL3a3tHeQJegQe4qGSv8FLsYp7TYd1r6";
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1489,8 +1457,8 @@ mod tests {
 
     struct MockSandbox {
         rpc_url: String,
-        root_account: String,
-        root_key: String,
+        chain_id: ChainId,
+        root_signer: Arc<dyn Signer>,
     }
 
     impl SandboxNetwork for MockSandbox {
@@ -1498,12 +1466,12 @@ mod tests {
             &self.rpc_url
         }
 
-        fn root_account_id(&self) -> &str {
-            &self.root_account
+        fn chain_id(&self) -> &ChainId {
+            &self.chain_id
         }
 
-        fn root_secret_key(&self) -> &str {
-            &self.root_key
+        fn root_signer(&self) -> Arc<dyn Signer> {
+            self.root_signer.clone()
         }
     }
 
@@ -1511,23 +1479,19 @@ mod tests {
     fn test_sandbox_network_trait() {
         let mock = MockSandbox {
             rpc_url: "http://127.0.0.1:3030".to_string(),
-            root_account: "sandbox".to_string(),
-            root_key: SANDBOX_ROOT_SECRET_KEY.to_string(),
+            chain_id: ChainId::new("sandbox"),
+            root_signer: Arc::new(
+                InMemorySigner::new(
+                    "sandbox",
+                    "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJnpBKWieC73hVTpBeA6FZiCc5tfyZL3a3tHeQJegQe4qGSv8FLsYp7TYd1r6",
+                )
+                .unwrap(),
+            ),
         };
 
         let near = Near::sandbox(&mock);
         assert_eq!(near.rpc_url(), "http://127.0.0.1:3030");
         assert_eq!(near.account_id().as_str(), "sandbox");
-    }
-
-    // ========================================================================
-    // Constant tests
-    // ========================================================================
-
-    #[test]
-    fn test_sandbox_constants() {
-        assert_eq!(SANDBOX_ROOT_ACCOUNT, "sandbox");
-        assert!(SANDBOX_ROOT_SECRET_KEY.starts_with("ed25519:"));
     }
 
     // ========================================================================

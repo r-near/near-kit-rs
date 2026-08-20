@@ -28,8 +28,8 @@ jobs:
       # The published default is intentionally just `rpc`.
       - run: cargo clippy -p near-kit --all-targets
       - run: cargo clippy --workspace --all-targets --all-features
-      # Covers the tracing-off no-op facade (and sandbox without tracing)
-      - run: cargo clippy -p near-kit --all-targets --no-default-features --features sandbox
+      # Covers the sandbox crate without its optional tracing instrumentation.
+      - run: cargo clippy -p near-kit-sandbox --all-targets --no-default-features --features integration-tests
       # `contracts` is independently opt-in and implies `rpc`.
       - run: cargo check -p near-kit --all-targets --no-default-features --features contracts
       # Covers the offline (no `rpc`) configuration, including tests/examples gating

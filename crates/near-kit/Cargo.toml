@@ -4,7 +4,7 @@ description = "A clean, ergonomic Rust client for NEAR Protocol"
 keywords = ["near", "blockchain", "crypto", "web3"]
 categories = ["api-bindings", "cryptography::cryptocurrencies"]
 readme = "../../README.md"
-version = "0.17.0"
+version = "0.18.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -18,7 +18,7 @@ near-gas.workspace = true
 near-global-contracts.workspace = true
 
 # Async runtime — only pull in `sync` here; `time` is added below for every
-# target except JS-host wasm, and `rt` is added by the `sandbox` feature.
+# target except JS-host wasm.
 tokio = { version = "1", features = ["sync"] }
 
 # HTTP client: target-specific — see the two feature-gated target tables below
@@ -60,9 +60,6 @@ tracing = { workspace = true, optional = true }
 # Proc macros for typed contracts (opt-in via the `contracts` feature)
 near-kit-macros = { workspace = true, optional = true }
 
-# Optional: Sandbox integration (via Docker/testcontainers)
-testcontainers = { workspace = true, optional = true, features = ["watchdog"] }
-libc = { version = "0.2", optional = true }
 serde_with = { version = "3.20", features = ["hex", "base64"] }
 
 # Native targets: tokio timer support for the RPC retry backoff. Wasm targets
@@ -114,7 +111,6 @@ contracts = ["rpc", "dep:near-kit-macros"]
 # which hosts without that interface refuse to instantiate — leave this off
 # and inject a custom transport to run on such hosts.
 wasi-http = ["rpc", "dep:wasi"]
-sandbox = ["rpc", "dep:testcontainers", "dep:libc", "tokio/rt"]
 keyring = ["dep:keyring"]
 file-signer = ["dep:dirs"]
 # Emit `tracing` spans and events for RPC calls, transactions, and token
@@ -127,10 +123,9 @@ tracing = ["dep:tracing"]
 # (which `getrandom` supports natively).
 js = ["getrandom/wasm_js"]
 
-# These two examples drive a live `Near` client end to end. Quickstart also
-# demonstrates the opt-in typed-contract macros. The remaining examples compile
-# without `rpc`: their client usage sits behind `#[cfg(feature = "sandbox")]`
-# with stub fallbacks.
+# These examples drive a live `Near` client end to end. Quickstart also
+# demonstrates the opt-in typed-contract macros. Docker-backed examples live
+# in the `near-kit-sandbox` package.
 [[example]]
 name = "quickstart"
 required-features = ["contracts"]

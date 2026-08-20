@@ -1849,7 +1849,7 @@ dependencies = [
 
 [[package]]
 name = "near-kit"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "base64 0.23.1",
  "bip39",
@@ -1865,7 +1865,6 @@ dependencies = [
  "js-sys",
  "k256",
  "keyring",
- "libc",
  "ml-dsa",
  "near-account-id",
  "near-gas",
@@ -1879,7 +1878,6 @@ dependencies = [
  "serde_with",
  "sha2",
  "sha3 0.12.0",
- "testcontainers",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
@@ -1899,6 +1897,22 @@ dependencies = [
  "serde_json",
  "syn 3.0.3",
  "trybuild",
+]
+
+[[package]]
+name = "near-kit-sandbox"
+version = "0.18.0"
+dependencies = [
+ "futures",
+ "libc",
+ "near-kit",
+ "serde",
+ "serde_json",
+ "testcontainers",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

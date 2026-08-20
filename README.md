@@ -156,7 +156,7 @@ dependencies:
 
 ```toml
 [dependencies]
-near-kit = { version = "0.17", features = ["contracts"] }
+near-kit = { version = "0.18", features = ["contracts"] }
 ```
 
 ```rust
@@ -220,7 +220,6 @@ Available known tokens: `standards::USDC`, `standards::USDT`, `standards::W_NEAR
 | `rpc` | Yes | The `Near` client, queries, transactions, token helpers, and the HTTP transport — reqwest, except on WASI |
 | `contracts` | No | Typed contract interfaces and macros; implies `rpc` |
 | `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2`; implies `rpc`, no-op elsewhere |
-| `sandbox` | No | Local testing with [near-sandbox](https://crates.io/crates/near-sandbox); implies `rpc` |
 | `keyring` | No | System keyring integration for desktop apps |
 | `file-signer` | No | Load signers from `~/.near-credentials` |
 | `tracing` | No | [`tracing`](https://crates.io/crates/tracing) spans and events for RPC calls and transactions |
@@ -228,7 +227,12 @@ Available known tokens: `standards::USDC`, `standards::USDT`, `standards::W_NEAR
 
 ### Tracing
 
-With `tracing` on, RPC calls and transactions run inside spans (`call`, `view_function`, `send_transaction`, ...) and emit events at DEBUG (retries, failed requests, transaction lifecycle) and TRACE (raw request/response payloads); the `sandbox` feature additionally reports container start-up at INFO. near-kit never logs at WARN or ERROR for an error it returns to you — that is the caller's decision — so a WARN-level subscriber stays quiet on expected failures such as probing a contract for a method it doesn't export. The one WARN is reserved for an anomaly that is *not* surfaced as an error: an RPC error variant this version couldn't parse and mapped to `Unknown`.
+With `tracing` on, RPC calls and transactions run inside spans (`call`, `view_function`, `send_transaction`, ...) and emit events at DEBUG (retries, failed requests, transaction lifecycle) and TRACE (raw request/response payloads). near-kit never logs at WARN or ERROR for an error it returns to you — that is the caller's decision — so a WARN-level subscriber stays quiet on expected failures such as probing a contract for a method it doesn't export. The one WARN is reserved for an anomaly that is *not* surfaced as an error: an RPC error variant this version couldn't parse and mapped to `Unknown`.
+
+Docker-backed local testing lives in the companion `near-kit-sandbox` crate. Add
+it as a dev-dependency and call `SandboxConfig::fresh().await?` or
+`SandboxConfig::shared().await?`; each `Sandbox` can create a configured client
+with `sandbox.client()` or `Near::sandbox(&sandbox)`.
 
 ### WASI (`wasm32-wasip2`)
 

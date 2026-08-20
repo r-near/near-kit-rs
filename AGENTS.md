@@ -21,8 +21,8 @@ cargo test test_name -- --exact # Run exact test match
 cargo test -- --nocapture       # Show println! output
 cargo test -p near-kit          # Test main crate only
 
-# Sandbox integration tests (requires near-sandbox)
-cargo test --features sandbox --test sandbox_integration
+# Sandbox integration tests (requires Docker)
+cargo test -p near-kit-sandbox --features integration-tests --test integration
 ```
 
 ## Project Structure
@@ -40,6 +40,7 @@ near-kit-rs/
 │   │   │   ├── tokens/         # FT/NFT helpers (NEP-141, NEP-171)
 │   │   │   └── contract.rs     # Typed contract support
 │   │   └── examples/
+│   ├── near-kit-sandbox/       # Docker-backed sandbox lifecycle and integration tests
 │   └── near-kit-macros/        # Proc macros (#[near_kit::contract])
 └── lefthook.yml                # Git hooks (clippy, fmt)
 ```
@@ -130,8 +131,9 @@ let amount: NearToken = "5 NEAR".parse()?;
 
 ### Feature Flags
 
-- `sandbox`: Local testing with near-sandbox
-- `keyring`: System keyring support (macOS Keychain, etc.)
+- `near-kit/contracts`: Typed contract clients and proc macros
+- `near-kit/keyring`: System keyring support (macOS Keychain, etc.)
+- `near-kit-sandbox/integration-tests`: Docker-backed integration suite
 
 ## Git Hooks (Lefthook)
 

@@ -1,0 +1,480 @@
+//! Integration tests for additional transaction failure scenarios.
+//!
+//! These tests cover edge cases for transaction failures beyond basic error handling.
+//! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use near_kit::*;
+use near_kit::{signer::*, transaction::Final};
+use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
+
+/// Counter for generating unique subaccount names
+static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+/// Generate a unique subaccount ID for test isolation
+fn unique_account() -> AccountId {
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("txfail{}.{}", n, SANDBOX_ROOT_ACCOUNT)
+        .parse()
+        .unwrap()
+}
+
+// =============================================================================
+// Deploy/Contract Errors
+// =============================================================================
+
+#[tokio::test]
+async fn test_deploy_invalid_wasm() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    let key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    // Create account
+    near.transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::from_near(10))
+        .add_full_access_key(key.public_key())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
+
+    // Try to deploy invalid WASM (random bytes)
+    let invalid_wasm = vec![0u8; 100]; // Not valid WASM
+
+    let result = account_near.deploy(invalid_wasm).await;
+
+    // Note: NEAR allows deploying any bytes, but calling methods will fail
+    // The deploy itself may succeed
+    println!("Invalid WASM deploy result: {:?}", result);
+}
+
+#[tokio::test]
+async fn test_deploy_empty_wasm() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    let key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    near.transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::from_near(10))
+        .add_full_access_key(key.public_key())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
+
+    // Try to deploy empty WASM
+    let empty_wasm: Vec<u8> = vec![];
+
+    let result = account_near.deploy(empty_wasm).await;
+
+    // Empty deploys may succeed (effectively removes contract)
+    println!("Empty WASM deploy result: {:?}", result);
+}
+
+// =============================================================================
+// Key Management Errors
+// =============================================================================
+
+#[tokio::test]
+async fn test_add_key_to_nonexistent_account() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    let key = SecretKey::generate_ed25519();
+    let nonexistent: AccountId = "nonexistent-for-add-key.sandbox".parse().unwrap();
+
+    // Try to add a key to a non-existent account — action error returns Ok(outcome)
+    let outcome = near
+        .transaction(&nonexistent)
+        .add_full_access_key(key.public_key())
+        .send()
+        .await
+        .expect("Action errors should return Ok(outcome)");
+
+    assert!(
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
+    );
+    println!("Add key to non-existent: {:?}", outcome.failure_message());
+}
+
+#[tokio::test]
+async fn test_add_duplicate_key() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    let key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    // Create account with key
+    near.transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::from_near(10))
+        .add_full_access_key(key.public_key())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
+
+    // Try to add the same key again — action error returns Ok(outcome)
+    let outcome = account_near
+        .add_full_access_key(key.public_key())
+        .await
+        .expect("Action errors should return Ok(outcome)");
+
+    assert!(
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
+    );
+    println!("Duplicate key error: {:?}", outcome.failure_message());
+}
+
+#[tokio::test]
+async fn test_delete_last_full_access_key() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    let key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    near.transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::from_near(10))
+        .add_full_access_key(key.public_key())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
+
+    // Delete the only key - this should succeed but leave the account inaccessible
+    // Note: NEAR protocol allows this
+    let result = account_near.delete_key(key.public_key()).await;
+
+    // This may succeed - depends on protocol rules about last key
+    println!("Delete last key result: {:?}", result);
+}
+
+// =============================================================================
+// Account Creation Errors
+// =============================================================================
+
+#[tokio::test]
+async fn test_create_subaccount_of_nonexistent_parent() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    // Try to create a subaccount of a non-existent parent
+    // This should fail because only the parent can create subaccounts
+    let sub_id: AccountId = "sub.nonexistent-parent.sandbox".parse().unwrap();
+    let key = SecretKey::generate_ed25519();
+
+    let outcome = near
+        .transaction(&sub_id)
+        .create_account()
+        .transfer(NearToken::from_near(1))
+        .add_full_access_key(key.public_key())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .expect("Action errors should return Ok(outcome)");
+
+    assert!(
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
+    );
+    println!("Non-existent parent error: {:?}", outcome.failure_message());
+}
+
+#[tokio::test]
+async fn test_create_account_without_initial_balance() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    let key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    // Create account without transferring any balance
+    let result = near
+        .transaction(&account_id)
+        .create_account()
+        .add_full_access_key(key.public_key())
+        // No .transfer() call
+        .send()
+        .wait_until::<Final>()
+        .await;
+
+    // Note: Creating an account without balance may succeed
+    // The account will exist but have 0 balance
+    // NEAR protocol allows this
+    println!("Create without balance result: {:?}", result);
+}
+
+#[tokio::test]
+async fn test_create_account_with_insufficient_balance() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    let key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    // Create account with very small balance (not enough for storage)
+    let result = near
+        .transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::from_yoctonear(1)) // Way too small
+        .add_full_access_key(key.public_key())
+        .send()
+        .wait_until::<Final>()
+        .await;
+
+    // This may fail due to insufficient balance for storage
+    println!("Insufficient balance for account creation: {:?}", result);
+}
+
+// =============================================================================
+// Multi-Action Transaction Errors
+// =============================================================================
+
+#[tokio::test]
+async fn test_transaction_with_failing_action_in_middle() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    let key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    near.transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::from_near(10))
+        .add_full_access_key(key.public_key())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
+
+    // Try a multi-action transaction where one action fails
+    // First action: valid key deletion (the one we're signing with)
+    // Second action: delete a non-existent key (should fail)
+    // The whole transaction should fail
+    let fake_key = SecretKey::generate_ed25519();
+
+    let outcome = account_near
+        .transaction(&account_id)
+        .delete_key(fake_key.public_key()) // This key doesn't exist
+        .send()
+        .wait_until::<Final>()
+        .await
+        .expect("Action errors should return Ok(outcome)");
+
+    assert!(
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
+    );
+    println!("Multi-action failure: {:?}", outcome.failure_message());
+}
+
+// =============================================================================
+// Delete Account Errors
+// =============================================================================
+
+#[tokio::test]
+async fn test_delete_nonexistent_account() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    // Try to delete an account that doesn't exist
+    let nonexistent: AccountId = "nonexistent-to-delete.sandbox".parse().unwrap();
+
+    let outcome = near
+        .transaction(&nonexistent)
+        .delete_account(SANDBOX_ROOT_ACCOUNT)
+        .send()
+        .wait_until::<Final>()
+        .await
+        .expect("Action errors should return Ok(outcome)");
+
+    assert!(
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
+    );
+    println!(
+        "Delete non-existent account: {:?}",
+        outcome.failure_message()
+    );
+}
+
+#[tokio::test]
+async fn test_delete_account_to_nonexistent_beneficiary() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    let key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    near.transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::from_near(5))
+        .add_full_access_key(key.public_key())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
+
+    // Try to delete account with non-existent beneficiary
+    let nonexistent_beneficiary: AccountId = "nonexistent-beneficiary.sandbox".parse().unwrap();
+
+    let result = account_near
+        .transaction(&account_id)
+        .delete_account(&nonexistent_beneficiary)
+        .send()
+        .wait_until::<Final>()
+        .await;
+
+    // This should fail because the beneficiary doesn't exist
+    println!("Delete to non-existent beneficiary: {:?}", result);
+}
+
+// =============================================================================
+// Stake Errors
+// =============================================================================
+
+#[tokio::test]
+async fn test_stake_with_insufficient_balance() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    let key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    near.transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::from_near(1)) // Small balance
+        .add_full_access_key(key.public_key())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
+
+    // Try to stake more than available
+    let outcome = account_near
+        .transaction(&account_id)
+        .stake(NearToken::from_near(1000), key.public_key())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .expect("Action errors should return Ok(outcome)");
+
+    assert!(
+        outcome.is_failure(),
+        "Expected failure outcome, got success"
+    );
+    println!(
+        "Insufficient stake balance: {:?}",
+        outcome.failure_message()
+    );
+}
+
+// =============================================================================
+// Transfer Errors
+// =============================================================================
+
+#[tokio::test]
+async fn test_transfer_zero_amount() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    let key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    near.transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::from_near(10))
+        .add_full_access_key(key.public_key())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
+
+    // Transfer zero amount
+    let receiver: AccountId = format!("recv.{}", account_id).parse().unwrap();
+
+    // First create receiver
+    account_near
+        .transaction(&receiver)
+        .create_account()
+        .transfer(NearToken::from_near(1))
+        .add_full_access_key(SecretKey::generate_ed25519().public_key())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    // Transfer zero
+    let result = account_near
+        .transfer(&receiver, NearToken::from_yoctonear(0))
+        .await;
+
+    // Zero transfers may or may not be allowed
+    println!("Zero transfer result: {:?}", result);
+}
+
+#[tokio::test]
+async fn test_transfer_max_amount() {
+    let sandbox = SandboxConfig::shared().await.unwrap();
+    let near = sandbox.client();
+
+    let key = SecretKey::generate_ed25519();
+    let account_id = unique_account();
+
+    near.transaction(&account_id)
+        .create_account()
+        .transfer(NearToken::from_near(10))
+        .add_full_access_key(key.public_key())
+        .send()
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+
+    let account_near = Near::sandbox(sandbox)
+        .with_signer(InMemorySigner::new(&account_id, key.to_string()).unwrap());
+
+    // Transfer max u128 (way more than balance) — rejected at RPC validation
+    // level (CostOverflow is caught before on-chain execution)
+    let result = account_near
+        .transfer(SANDBOX_ROOT_ACCOUNT, NearToken::from_yoctonear(u128::MAX))
+        .await;
+
+    assert!(result.is_err(), "Should fail with max amount");
+    println!("Max transfer error: {:?}", result.unwrap_err());
+}

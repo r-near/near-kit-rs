@@ -1,0 +1,51 @@
+[package]
+name = "near-kit-sandbox"
+description = "Docker-backed local sandbox support for near-kit"
+keywords = ["near", "blockchain", "testing", "sandbox"]
+categories = ["development-tools::testing", "api-bindings"]
+version = "0.18.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+libc = "0.2"
+near-kit = { workspace = true, features = ["rpc"] }
+serde_json.workspace = true
+testcontainers = { workspace = true, features = ["watchdog"] }
+thiserror.workspace = true
+tokio = { version = "1", features = ["sync", "time"] }
+tracing = { workspace = true, optional = true }
+
+[features]
+default = []
+# Compile the Docker-backed integration suite. Kept opt-in so ordinary
+# workspace tests never start a sandbox container.
+integration-tests = ["near-kit/contracts"]
+# Preserve near-kit's tracing spans and the sandbox tracing integration suite.
+tracing = ["dep:tracing", "near-kit/tracing"]
+
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+required-features = ["integration-tests"]
+
+[[example]]
+name = "global_contracts"
+required-features = ["integration-tests"]
+
+[[example]]
+name = "rotating_signer"
+required-features = ["integration-tests"]
+
+[[example]]
+name = "sequential_sends"
+required-features = ["integration-tests"]
+
+[dev-dependencies]
+futures.workspace = true
+serde.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tokio.workspace = true

@@ -354,25 +354,26 @@
 //!
 //! ## Sandbox Testing
 //!
-//! Enable the `sandbox` feature for local testing with [`near-sandbox`](https://crates.io/crates/near-sandbox):
+//! Use the companion `near-kit-sandbox` crate for Docker-backed local testing:
 //!
 //! ```toml
 //! [dev-dependencies]
-//! near-kit = { version = "0.1", features = ["sandbox"] }
-//! near-sandbox = "0.3"
+//! near-kit = "0.18"
+//! near-kit-sandbox = "0.18"
 //! ```
 //!
 //! ```rust,ignore
 //! use near_kit::*;
-//! use near_sandbox::Sandbox;
+//! use near_kit_sandbox::SandboxConfig;
 //!
 //! #[tokio::test]
-//! async fn test_contract() {
-//!     let sandbox = Sandbox::start().await.unwrap();
+//! async fn test_contract() -> Result<(), Box<dyn std::error::Error>> {
+//!     let sandbox = SandboxConfig::fresh().await?;
 //!     let near = Near::sandbox(&sandbox);
 //!
 //!     // Root account is pre-configured with credentials
-//!     near.transfer("alice.sandbox", NearToken::from_near(10)).await.unwrap();
+//!     near.transfer("alice.sandbox", NearToken::from_near(10)).await?;
+//!     Ok(())
 //! }
 //! ```
 //!
@@ -438,9 +439,9 @@
 //! Non-JS `wasm32-unknown-unknown` embedders must register one entropy backend, for
 //! getrandom 0.4 — the only major version reachable on that target, which `rand`,
 //! `k256`, `ed25519-dalek`, and `ml-dsa` all share through `rand_core` 0.10. (A
-//! native `cargo tree` also shows getrandom 0.2/0.3 behind the `rpc` and `sandbox`
-//! features, via `ring`/`rustls` and `testcontainers`; neither builds for
-//! `wasm32-unknown-unknown`, so neither needs a backend here.)
+//! native `cargo tree` also shows getrandom 0.2 behind `rpc`, via
+//! `ring`/`rustls`; that native TLS stack does not build for
+//! `wasm32-unknown-unknown`, so it does not need a backend here.)
 //!
 //! ```toml
 //! [dependencies]
@@ -496,7 +497,6 @@
 //! | `keyring` | No | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
 //! | `file-signer` | No | `signer::FileSigner` for loading keys from `~/.near-credentials` |
 //! | `tracing` | No | [`tracing`](https://docs.rs/tracing) spans and events for RPC calls and transactions (see below) |
-//! | `sandbox` | No | Integration with `near-sandbox` for local testing (implies `rpc`) |
 //! | `js` | No | JS-host entropy backend (`getrandom`'s `wasm_js`) for `wasm32-unknown-unknown` |
 //!
 //! ### Tracing
@@ -504,8 +504,7 @@
 //! With `tracing` on, RPC calls and transactions run inside spans (`call`,
 //! `view_function`, `send_transaction`, ...) and emit events at DEBUG (retries,
 //! failed requests, transaction lifecycle) and TRACE (raw request/response
-//! payloads); the `sandbox` feature additionally reports container start-up at
-//! INFO. near-kit never logs at WARN or ERROR for an error it returns to you —
+//! payloads). near-kit never logs at WARN or ERROR for an error it returns to you —
 //! that is the caller's decision — so a WARN-level subscriber stays quiet on
 //! expected failures such as probing a contract for a method it doesn't export.
 //! The one WARN is reserved for an anomaly that is *not* surfaced as an error:
@@ -550,10 +549,6 @@ pub mod rpc;
 pub mod signer;
 pub mod standards;
 pub mod transaction;
-
-// Sandbox module - only available with "sandbox" feature
-#[cfg(feature = "sandbox")]
-pub mod sandbox;
 
 // The root is intentionally small; advanced APIs live in explicit facades.
 pub use error::Error;

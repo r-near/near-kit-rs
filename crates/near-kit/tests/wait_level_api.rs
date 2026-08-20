@@ -1,29 +1,35 @@
 //! Compile-time examples for the type-only transaction wait-level API.
 #![cfg(feature = "rpc")]
 
-use near_kit::protocol::SignedTransaction;
+use std::sync::Arc;
+
+use near_kit::protocol::{ChainId, SignedTransaction};
 use near_kit::rpc::{
     FinalExecutionOutcome, RpcClient, RpcError, SandboxNetwork, SendTxResponse, TxExecutionStatus,
 };
+use near_kit::signer::{InMemorySigner, Signer};
 use near_kit::transaction::{
     CallBuilder, Executed, ExecutedOptimistic, Final, Included, IncludedFinal, Submitted,
     TransactionBuilder, TransactionSend, WaitLevel,
 };
 use near_kit::*;
 
-struct ExternalSandbox;
+struct ExternalSandbox {
+    chain_id: ChainId,
+    root_signer: Arc<dyn Signer>,
+}
 
 impl SandboxNetwork for ExternalSandbox {
     fn rpc_url(&self) -> &str {
         "http://127.0.0.1:3030"
     }
 
-    fn root_account_id(&self) -> &str {
-        "sandbox"
+    fn chain_id(&self) -> &ChainId {
+        &self.chain_id
     }
 
-    fn root_secret_key(&self) -> &str {
-        "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJnpBKWieC73hVTpBeA6FZiCc5tfyZL3a3tHeQJegQe4qGSv8FLsYp7TYd1r6"
+    fn root_signer(&self) -> Arc<dyn Signer> {
+        self.root_signer.clone()
     }
 }
 
@@ -41,8 +47,18 @@ fn transaction_builders_select_wait_levels_in_type_position() {
 }
 
 #[test]
-fn sandbox_network_is_implementable_without_the_sandbox_feature() {
-    let near = Near::sandbox(&ExternalSandbox);
+fn sandbox_network_is_implementable_without_the_lifecycle_crate() {
+    let sandbox = ExternalSandbox {
+        chain_id: ChainId::new("sandbox"),
+        root_signer: Arc::new(
+            InMemorySigner::new(
+                "sandbox",
+                "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJnpBKWieC73hVTpBeA6FZiCc5tfyZL3a3tHeQJegQe4qGSv8FLsYp7TYd1r6",
+            )
+            .unwrap(),
+        ),
+    };
+    let near = Near::sandbox(&sandbox);
     assert_eq!(near.rpc_url(), "http://127.0.0.1:3030");
 }
 
