@@ -1,0 +1,5 @@
+error: #[call] does not accept options
+ --> tests/compile-fail/standalone_call_option.rs:5:8
+  |
+5 | #[call(payable)]
+  |        ^^^^^^^

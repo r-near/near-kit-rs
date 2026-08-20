@@ -164,6 +164,16 @@ pub enum ActionViewConversionError {
         actual: usize,
     },
 
+    /// A deploy action view contains only the code hash, not the contract code
+    /// required to construct a wire action.
+    #[error(
+        "Cannot convert deploy action view: the node returned only code hash {code_hash}, not the contract code"
+    )]
+    DeployCodeUnavailable {
+        /// Hash of the contract code omitted from the view.
+        code_hash: CryptoHash,
+    },
+
     /// A `Delegate` / `DelegateV2` view contained a nested delegate action,
     /// which the protocol forbids.
     #[error("A delegate action must not contain a nested delegate action")]
@@ -668,11 +678,6 @@ pub enum Error {
         "No signer configured. Use .credentials()/.signer() on NearBuilder, .with_signer() on the client, or .sign_with() on the transaction."
     )]
     NoSigner,
-
-    #[error(
-        "No signer account ID. Call .default_account() on NearBuilder or use a signer with an account ID."
-    )]
-    NoSignerAccount,
 
     #[error("Invalid configuration: {0}")]
     Config(String),
@@ -1393,14 +1398,6 @@ mod tests {
         assert_eq!(
             Error::NoSigner.to_string(),
             "No signer configured. Use .credentials()/.signer() on NearBuilder, .with_signer() on the client, or .sign_with() on the transaction."
-        );
-    }
-
-    #[test]
-    fn test_error_no_signer_account_display() {
-        assert_eq!(
-            Error::NoSignerAccount.to_string(),
-            "No signer account ID. Call .default_account() on NearBuilder or use a signer with an account ID."
         );
     }
 

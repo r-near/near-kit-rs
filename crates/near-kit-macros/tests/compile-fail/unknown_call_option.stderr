@@ -1,8 +1,8 @@
-error: unknown call option 'lazy', expected 'payable'
- --> tests/compile-fail/unknown_call_option.rs:7:12
+error: #[call] does not accept options
+ --> tests/compile-fail/unknown_call_option.rs:8:7
   |
-7 |     #[call(lazy)]
-  |            ^^^^
+8 |     #[call(payable)]
+  |       ^^^^^^^^^^^^^
 
 warning: unused import: `near_kit::*`
  --> tests/compile-fail/unknown_call_option.rs:3:5

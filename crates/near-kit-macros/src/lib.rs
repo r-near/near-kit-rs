@@ -90,39 +90,11 @@ impl Parse for ContractArgs {
     }
 }
 
-/// Arguments to the `#[call]` attribute.
-#[derive(Debug, Default)]
-struct CallArgs {
-    payable: bool,
-}
-
-impl Parse for CallArgs {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        if input.is_empty() {
-            return Ok(Self::default());
-        }
-
-        let ident: Ident = input.parse()?;
-        if ident != "payable" {
-            return Err(syn::Error::new(
-                ident.span(),
-                format!("unknown call option '{}', expected 'payable'", ident),
-            ));
-        }
-
-        Ok(Self { payable: true })
-    }
-}
-
 /// Information about a parsed method.
 #[derive(Debug)]
 struct MethodInfo {
     name: Ident,
     is_view: bool,
-    #[allow(dead_code)] // Reserved for future validation
-    is_call: bool,
-    #[allow(dead_code)] // Reserved for payable method handling
-    is_payable: bool,
     /// Per-method format override (if specified via #[json] or #[borsh])
     format_override: Option<SerializationFormat>,
     arg_name: Option<Ident>,
@@ -159,22 +131,20 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
     };
 
     // Check for #[call] attribute
-    let call_attr = method
+    let mut is_call = false;
+    for attr in method
         .attrs
         .iter()
-        .find(|attr| attr.path().is_ident("call"));
-
-    let (is_call, is_payable) = match call_attr {
-        Some(attr) => {
-            let args: CallArgs = if attr.meta.require_path_only().is_ok() {
-                CallArgs::default()
-            } else {
-                attr.parse_args()?
-            };
-            (true, args.payable)
+        .filter(|attr| attr.path().is_ident("call"))
+    {
+        is_call = true;
+        if attr.meta.require_path_only().is_err() {
+            return Err(syn::Error::new_spanned(
+                &attr.meta,
+                "#[call] does not accept options",
+            ));
         }
-        None => (false, false),
-    };
+    }
 
     // Check for #[json] or #[borsh] format override
     let format_override = if method.attrs.iter().any(|attr| attr.path().is_ident("json")) {
@@ -237,8 +207,6 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
     Ok(MethodInfo {
         name,
         is_view,
-        is_call,
-        is_payable,
         format_override,
         arg_name,
         arg_type,
@@ -556,12 +524,18 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
 /// ```ignore
 /// #[call]
 /// fn increment(&mut self);
-///
-/// #[call(payable)]
-/// fn donate(&mut self);
 /// ```
 #[proc_macro_attribute]
-pub fn call(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn call(attr: TokenStream, item: TokenStream) -> TokenStream {
+    if !attr.is_empty() {
+        return syn::Error::new_spanned(
+            TokenStream2::from(attr),
+            "#[call] does not accept options",
+        )
+        .to_compile_error()
+        .into();
+    }
+
     // This is just a marker attribute - the actual work is done by #[contract]
     item
 }

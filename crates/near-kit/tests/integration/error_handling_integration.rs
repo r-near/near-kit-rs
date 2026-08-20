@@ -564,10 +564,7 @@ async fn test_error_transaction_without_signer() {
         Error::NoSigner => {
             // Expected
         }
-        Error::NoSignerAccount => {
-            // Also acceptable
-        }
-        other => panic!("Expected NoSigner or NoSignerAccount, got: {:?}", other),
+        other => panic!("Expected NoSigner, got: {:?}", other),
     }
 }
 
