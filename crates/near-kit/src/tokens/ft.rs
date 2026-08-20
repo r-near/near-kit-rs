@@ -6,11 +6,9 @@ use crate::trace::{self, Instrument};
 use serde::Serialize;
 use tokio::sync::OnceCell;
 
-use crate::client::{CallBuilder, RpcClient, Signer, TransactionBuilder};
+use crate::client::{CallBuilder, Near, Signer, TransactionBuilder};
 use crate::error::Error;
-use crate::types::{
-    AccountId, BlockReference, Finality, Gas, IntoNearToken, NearToken, TryIntoAccountId,
-};
+use crate::types::{AccountId, Finality, Gas, IntoNearToken, NearToken, TryIntoAccountId};
 
 use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 
@@ -46,30 +44,22 @@ use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Clone)]
 pub struct FungibleToken {
-    rpc: Arc<RpcClient>,
-    signer: Option<Arc<dyn Signer>>,
+    near: Near,
     contract_id: AccountId,
-    metadata: OnceCell<FtMetadata>,
-    storage_bounds: OnceCell<StorageBalanceBounds>,
-    max_nonce_retries: u32,
+    metadata: Arc<OnceCell<FtMetadata>>,
+    storage_bounds: Arc<OnceCell<StorageBalanceBounds>>,
 }
 
 impl FungibleToken {
     /// Create a new FungibleToken client.
-    pub(crate) fn new(
-        rpc: Arc<RpcClient>,
-        signer: Option<Arc<dyn Signer>>,
-        contract_id: AccountId,
-        max_nonce_retries: u32,
-    ) -> Self {
+    pub(crate) fn new(near: Near, contract_id: AccountId) -> Self {
         Self {
-            rpc,
-            signer,
+            near,
             contract_id,
-            metadata: OnceCell::new(),
-            storage_bounds: OnceCell::new(),
-            max_nonce_retries,
+            metadata: Arc::new(OnceCell::new()),
+            storage_bounds: Arc::new(OnceCell::new()),
         }
     }
 
@@ -80,7 +70,7 @@ impl FungibleToken {
 
     /// Create a new client with a different signer, sharing the same RPC connection.
     ///
-    /// Metadata and storage bounds will be re-fetched on first access.
+    /// Cached metadata and storage bounds are shared with the original client.
     ///
     /// # Example
     ///
@@ -97,26 +87,17 @@ impl FungibleToken {
     /// # }
     /// ```
     pub fn with_signer(&self, signer: impl Signer + 'static) -> Self {
-        Self {
-            rpc: self.rpc.clone(),
-            signer: Some(Arc::new(signer)),
-            contract_id: self.contract_id.clone(),
-            metadata: OnceCell::new(),
-            storage_bounds: OnceCell::new(),
-            max_nonce_retries: self.max_nonce_retries,
-        }
+        let mut token = self.clone();
+        token.near = self.near.with_signer(signer);
+        token
     }
 
     /// Create a transaction builder that surfaces argument validation errors
     /// when the builder is consumed.
     fn transaction_with_validation(&self, validation: Result<(), Error>) -> TransactionBuilder {
-        TransactionBuilder::new(
-            self.rpc.clone(),
-            self.signer.clone(),
-            self.contract_id.clone(),
-            self.max_nonce_retries,
-        )
-        .with_validation(validation)
+        self.near
+            .transaction(&self.contract_id)
+            .with_validation(validation)
     }
 
     // =========================================================================
@@ -129,17 +110,10 @@ impl FungibleToken {
     pub async fn metadata(&self) -> Result<&FtMetadata, Error> {
         self.metadata
             .get_or_try_init(|| async {
-                let result = self
-                    .rpc
-                    .view_function(
-                        &self.contract_id,
-                        "ft_metadata",
-                        &[],
-                        BlockReference::Finality(Finality::Optimistic),
-                    )
+                self.near
+                    .view(&self.contract_id, "ft_metadata")
+                    .finality(Finality::Optimistic)
                     .await
-                    .map_err(Error::from)?;
-                result.json().map_err(Error::from)
             })
             .await
     }
@@ -174,21 +148,14 @@ impl FungibleToken {
                 account_id: &'a str,
             }
 
-            let args = serde_json::to_vec(&Args {
-                account_id: account_id.as_str(),
-            })?;
-
-            let result = self
-                .rpc
-                .view_function(
-                    &self.contract_id,
-                    "ft_balance_of",
-                    &args,
-                    BlockReference::Finality(Finality::Optimistic),
-                )
+            let balance_str: String = self
+                .near
+                .view(&self.contract_id, "ft_balance_of")
+                .args(Args {
+                    account_id: account_id.as_str(),
+                })
+                .finality(Finality::Optimistic)
                 .await?;
-
-            let balance_str: String = result.json().map_err(Error::from)?;
             let raw: u128 = balance_str.parse().map_err(|_| {
                 Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
                     "Invalid balance format: {}",
@@ -208,17 +175,11 @@ impl FungibleToken {
     pub async fn total_supply(&self) -> Result<FtAmount, Error> {
         let metadata = self.metadata().await?;
 
-        let result = self
-            .rpc
-            .view_function(
-                &self.contract_id,
-                "ft_total_supply",
-                &[],
-                BlockReference::Finality(Finality::Optimistic),
-            )
+        let supply_str: String = self
+            .near
+            .view(&self.contract_id, "ft_total_supply")
+            .finality(Finality::Optimistic)
             .await?;
-
-        let supply_str: String = result.json().map_err(Error::from)?;
         let raw: u128 = supply_str.parse().map_err(|_| {
             Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
                 "Invalid supply format: {}",
@@ -256,21 +217,13 @@ impl FungibleToken {
             account_id: &'a str,
         }
 
-        let args = serde_json::to_vec(&Args {
-            account_id: account_id.as_str(),
-        })?;
-
-        let result = self
-            .rpc
-            .view_function(
-                &self.contract_id,
-                "storage_balance_of",
-                &args,
-                BlockReference::Finality(Finality::Optimistic),
-            )
-            .await?;
-
-        result.json().map_err(Error::from)
+        self.near
+            .view(&self.contract_id, "storage_balance_of")
+            .args(Args {
+                account_id: account_id.as_str(),
+            })
+            .finality(Finality::Optimistic)
+            .await
     }
 
     /// Get storage balance bounds for this token contract.
@@ -280,17 +233,10 @@ impl FungibleToken {
     pub async fn storage_balance_bounds(&self) -> Result<&StorageBalanceBounds, Error> {
         self.storage_bounds
             .get_or_try_init(|| async {
-                let result = self
-                    .rpc
-                    .view_function(
-                        &self.contract_id,
-                        "storage_balance_bounds",
-                        &[],
-                        BlockReference::Finality(Finality::Optimistic),
-                    )
+                self.near
+                    .view(&self.contract_id, "storage_balance_bounds")
+                    .finality(Finality::Optimistic)
                     .await
-                    .map_err(Error::from)?;
-                result.json::<StorageBalanceBounds>().map_err(Error::from)
             })
             .await
     }
@@ -377,22 +323,7 @@ impl FungibleToken {
         receiver_id: impl TryIntoAccountId,
         amount: impl Into<u128>,
     ) -> CallBuilder {
-        let (receiver_id, validation) = validate_account_id(receiver_id);
-        trace::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer");
-        #[derive(Serialize)]
-        struct TransferArgs {
-            receiver_id: String,
-            amount: String,
-        }
-
-        self.transaction_with_validation(validation)
-            .call("ft_transfer")
-            .args(TransferArgs {
-                receiver_id,
-                amount: amount.into().to_string(),
-            })
-            .deposit(NearToken::from_yoctonear(1))
-            .gas(Gas::from_tgas(30))
+        self.transfer_with_optional_memo(receiver_id, amount.into(), None)
     }
 
     /// Transfer tokens with a memo (ft_transfer).
@@ -404,21 +335,24 @@ impl FungibleToken {
         amount: impl Into<u128>,
         memo: impl Into<String>,
     ) -> CallBuilder {
-        let (receiver_id, validation) = validate_account_id(receiver_id);
+        self.transfer_with_optional_memo(receiver_id, amount.into(), Some(memo.into()))
+    }
 
-        #[derive(Serialize)]
-        struct TransferArgs {
-            receiver_id: String,
-            amount: String,
-            memo: String,
-        }
+    fn transfer_with_optional_memo(
+        &self,
+        receiver_id: impl TryIntoAccountId,
+        amount: u128,
+        memo: Option<String>,
+    ) -> CallBuilder {
+        let (receiver_id, validation) = validate_account_id(receiver_id);
+        trace::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer");
 
         self.transaction_with_validation(validation)
             .call("ft_transfer")
-            .args(TransferArgs {
+            .args(FtTransferArgs {
                 receiver_id,
-                amount: amount.into().to_string(),
-                memo: memo.into(),
+                amount: amount.to_string(),
+                memo,
             })
             .deposit(NearToken::from_yoctonear(1))
             .gas(Gas::from_tgas(30))
@@ -475,24 +409,19 @@ impl FungibleToken {
     }
 }
 
+#[derive(Serialize)]
+struct FtTransferArgs {
+    receiver_id: String,
+    amount: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    memo: Option<String>,
+}
+
 fn validate_account_id(account_id: impl TryIntoAccountId) -> (String, Result<(), Error>) {
     let original = account_id.as_str().to_owned();
     match account_id.try_into_account_id() {
         Ok(account_id) => (account_id.to_string(), Ok(())),
         Err(error) => (original, Err(error.into())),
-    }
-}
-
-impl Clone for FungibleToken {
-    fn clone(&self) -> Self {
-        Self {
-            rpc: self.rpc.clone(),
-            signer: self.signer.clone(),
-            contract_id: self.contract_id.clone(),
-            metadata: OnceCell::new(),
-            storage_bounds: OnceCell::new(),
-            max_nonce_retries: self.max_nonce_retries,
-        }
     }
 }
 
@@ -508,15 +437,72 @@ impl std::fmt::Debug for FungibleToken {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{CryptoHash, StateInit, StateInitExt};
+    use crate::types::{Action, CryptoHash, StateInit, StateInitExt};
 
     fn token_without_signer() -> FungibleToken {
         FungibleToken::new(
-            Arc::new(RpcClient::new("http://127.0.0.1:1")),
-            None,
+            Near::custom("http://127.0.0.1:1", "test").build(),
             "token.near".parse().unwrap(),
-            0,
         )
+    }
+
+    fn call_args(call: CallBuilder) -> serde_json::Value {
+        match call.into_action().unwrap() {
+            Action::FunctionCall(action) => serde_json::from_slice(&action.args).unwrap(),
+            action => panic!("expected function call, got {action:?}"),
+        }
+    }
+
+    #[test]
+    fn clones_share_metadata_and_storage_caches() {
+        let token = token_without_signer();
+        token
+            .metadata
+            .set(FtMetadata {
+                spec: "ft-1.0.0".to_string(),
+                name: "Test Token".to_string(),
+                symbol: "TEST".to_string(),
+                decimals: 6,
+                icon: None,
+                reference: None,
+                reference_hash: None,
+            })
+            .unwrap();
+        token
+            .storage_bounds
+            .set(StorageBalanceBounds {
+                min: NearToken::from_yoctonear(1),
+                max: None,
+            })
+            .unwrap();
+
+        let cloned = token.clone();
+
+        assert!(Arc::ptr_eq(&token.metadata, &cloned.metadata));
+        assert!(Arc::ptr_eq(&token.storage_bounds, &cloned.storage_bounds));
+        assert_eq!(cloned.metadata.get().unwrap().symbol, "TEST");
+        assert_eq!(
+            cloned.storage_bounds.get().unwrap().min,
+            NearToken::from_yoctonear(1)
+        );
+    }
+
+    #[test]
+    fn transfer_helpers_preserve_nep_141_arguments() {
+        let token = token_without_signer();
+
+        assert_eq!(
+            call_args(token.transfer("alice.near", 7_u128)),
+            serde_json::json!({"receiver_id": "alice.near", "amount": "7"})
+        );
+        assert_eq!(
+            call_args(token.transfer_with_memo("alice.near", 7_u128, "memo")),
+            serde_json::json!({
+                "receiver_id": "alice.near",
+                "amount": "7",
+                "memo": "memo"
+            })
+        );
     }
 
     #[tokio::test]
@@ -548,6 +534,7 @@ mod tests {
     async fn receiver_override_does_not_clear_invalid_account_id() {
         let error = token_without_signer()
             .transfer("INVALID", 1_u128)
+            .finish()
             .state_init(
                 StateInit::by_hash(CryptoHash::ZERO, Default::default()),
                 NearToken::ZERO,

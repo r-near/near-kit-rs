@@ -2,13 +2,11 @@
 
 use std::sync::Arc;
 
-use serde::de::DeserializeOwned;
-
 use crate::contract::ContractClient;
 use crate::error::Error;
 use crate::types::{
-    AccountId, ChainId, Gas, IntoNearToken, NearToken, PublicKey, PublishMode, StateInit,
-    TryIntoAccountId, TryIntoGlobalContractId,
+    AccountId, ChainId, IntoNearToken, PublicKey, PublishMode, StateInit, TryIntoAccountId,
+    TryIntoGlobalContractId,
 };
 // Only used by `Near::sandbox`, which needs a built-in transport (see below).
 #[cfg(any(
@@ -848,6 +846,7 @@ impl Near {
     /// near.transaction("contract.testnet")
     ///     .call("method1")
     ///         .args(serde_json::json!({ "value": 1 }))
+    ///     .finish()
     ///     .call("method2")
     ///         .args(serde_json::json!({ "value": 2 }))
     ///     .send()
@@ -976,49 +975,6 @@ impl Near {
     }
 
     // ========================================================================
-    // Convenience methods
-    // ========================================================================
-
-    /// Call a view function with arguments (convenience method).
-    pub async fn view_with_args<T: DeserializeOwned + Send + 'static, A: serde::Serialize>(
-        &self,
-        contract_id: impl TryIntoAccountId,
-        method: &str,
-        args: &A,
-    ) -> Result<T, Error> {
-        let contract_id = contract_id.try_into_account_id()?;
-        ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
-            .args(args)
-            .await
-    }
-
-    /// Call a function with arguments (convenience method).
-    pub async fn call_with_args<A: serde::Serialize>(
-        &self,
-        contract_id: impl TryIntoAccountId,
-        method: &str,
-        args: &A,
-    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        self.call(contract_id, method).args(args).await
-    }
-
-    /// Call a function with full options (convenience method).
-    pub async fn call_with_options<A: serde::Serialize>(
-        &self,
-        contract_id: impl TryIntoAccountId,
-        method: &str,
-        args: &A,
-        gas: Gas,
-        deposit: NearToken,
-    ) -> Result<crate::types::FinalExecutionOutcome, Error> {
-        self.call(contract_id, method)
-            .args(args)
-            .gas(gas)
-            .deposit(deposit)
-            .await
-    }
-
-    // ========================================================================
     // Typed Contract Interfaces
     // ========================================================================
 
@@ -1114,12 +1070,7 @@ impl Near {
         contract: impl crate::tokens::IntoContractId,
     ) -> Result<crate::tokens::FungibleToken, Error> {
         let contract_id = contract.into_contract_id(&self.chain_id)?;
-        Ok(crate::tokens::FungibleToken::new(
-            self.rpc.clone(),
-            self.signer.clone(),
-            contract_id,
-            self.max_nonce_retries,
-        ))
+        Ok(crate::tokens::FungibleToken::new(self.clone(), contract_id))
     }
 
     /// Get a non-fungible token client for a NEP-171 contract.
@@ -1153,10 +1104,8 @@ impl Near {
     ) -> Result<crate::tokens::NonFungibleToken, Error> {
         let contract_id = contract.into_contract_id(&self.chain_id)?;
         Ok(crate::tokens::NonFungibleToken::new(
-            self.rpc.clone(),
-            self.signer.clone(),
+            self.clone(),
             contract_id,
-            self.max_nonce_retries,
         ))
     }
 }
@@ -1185,12 +1134,6 @@ impl std::fmt::Debug for Near {
 ///     .credentials("ed25519:...", "alice.testnet")?
 ///     .build();
 ///
-/// // Client with keystore
-/// let keystore = std::sync::Arc::new(InMemoryKeyStore::new());
-/// // ... add keys to keystore ...
-/// let near = Near::testnet()
-///     .keystore(keystore, "alice.testnet")?
-///     .build();
 /// ```
 pub struct NearBuilder {
     rpc_url: String,
@@ -1378,6 +1321,7 @@ pub const SANDBOX_ROOT_SECRET_KEY: &str = "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJ
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::NearToken;
 
     // ========================================================================
     // Near client tests
