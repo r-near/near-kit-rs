@@ -65,7 +65,7 @@ async fn create_funded_account(
 /// the same block as the distribution; under load the distribution can land
 /// later and the query sees `GlobalContractNotFound`. Bounded so a genuinely
 /// failed publish still fails the test instead of hanging.
-async fn wait_for_global_contract(near: &Near, id: impl IntoGlobalContractId + Clone) {
+async fn wait_for_global_contract(near: &Near, id: impl TryIntoGlobalContractId + Clone) {
     const ATTEMPTS: u32 = 50;
     for _ in 0..ATTEMPTS {
         if near.global_contract(id.clone()).exists().await.unwrap() {

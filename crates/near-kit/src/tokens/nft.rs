@@ -90,14 +90,16 @@ impl NonFungibleToken {
         }
     }
 
-    /// Create a transaction builder for this contract.
-    fn transaction(&self) -> TransactionBuilder {
+    /// Create a transaction builder that surfaces argument validation errors
+    /// when the builder is consumed.
+    fn transaction_with_validation(&self, validation: Result<(), Error>) -> TransactionBuilder {
         TransactionBuilder::new(
             self.rpc.clone(),
             self.signer.clone(),
             self.contract_id.clone(),
             self.max_nonce_retries,
         )
+        .with_validation(validation)
     }
 
     // =========================================================================
@@ -324,9 +326,7 @@ impl NonFungibleToken {
         receiver_id: impl TryIntoAccountId,
         token_id: impl AsRef<str>,
     ) -> CallBuilder {
-        let receiver_id: AccountId = receiver_id
-            .try_into_account_id()
-            .expect("invalid account ID");
+        let (receiver_id, validation) = validate_account_id(receiver_id);
         trace::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), receiver = %receiver_id, "nft_transfer");
         #[derive(Serialize)]
         struct TransferArgs {
@@ -334,10 +334,10 @@ impl NonFungibleToken {
             token_id: String,
         }
 
-        self.transaction()
+        self.transaction_with_validation(validation)
             .call("nft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.to_string(),
+                receiver_id,
                 token_id: token_id.as_ref().to_string(),
             })
             .deposit(NearToken::from_yoctonear(1))
@@ -353,9 +353,7 @@ impl NonFungibleToken {
         token_id: impl AsRef<str>,
         memo: impl Into<String>,
     ) -> CallBuilder {
-        let receiver_id: AccountId = receiver_id
-            .try_into_account_id()
-            .expect("invalid account ID");
+        let (receiver_id, validation) = validate_account_id(receiver_id);
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -363,10 +361,10 @@ impl NonFungibleToken {
             memo: String,
         }
 
-        self.transaction()
+        self.transaction_with_validation(validation)
             .call("nft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.to_string(),
+                receiver_id,
                 token_id: token_id.as_ref().to_string(),
                 memo: memo.into(),
             })
@@ -381,9 +379,7 @@ impl NonFungibleToken {
         token_id: impl AsRef<str>,
         approval_id: u64,
     ) -> CallBuilder {
-        let receiver_id: AccountId = receiver_id
-            .try_into_account_id()
-            .expect("invalid account ID");
+        let (receiver_id, validation) = validate_account_id(receiver_id);
         #[derive(Serialize)]
         struct TransferArgs {
             receiver_id: String,
@@ -391,10 +387,10 @@ impl NonFungibleToken {
             approval_id: u64,
         }
 
-        self.transaction()
+        self.transaction_with_validation(validation)
             .call("nft_transfer")
             .args(TransferArgs {
-                receiver_id: receiver_id.to_string(),
+                receiver_id,
                 token_id: token_id.as_ref().to_string(),
                 approval_id,
             })
@@ -427,9 +423,7 @@ impl NonFungibleToken {
         token_id: impl AsRef<str>,
         msg: impl Into<String>,
     ) -> CallBuilder {
-        let receiver_id: AccountId = receiver_id
-            .try_into_account_id()
-            .expect("invalid account ID");
+        let (receiver_id, validation) = validate_account_id(receiver_id);
         trace::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), receiver = %receiver_id, "nft_transfer_call");
         #[derive(Serialize)]
         struct TransferCallArgs {
@@ -438,15 +432,23 @@ impl NonFungibleToken {
             msg: String,
         }
 
-        self.transaction()
+        self.transaction_with_validation(validation)
             .call("nft_transfer_call")
             .args(TransferCallArgs {
-                receiver_id: receiver_id.to_string(),
+                receiver_id,
                 token_id: token_id.as_ref().to_string(),
                 msg: msg.into(),
             })
             .deposit(NearToken::from_yoctonear(1))
             .gas(Gas::from_tgas(100))
+    }
+}
+
+fn validate_account_id(account_id: impl TryIntoAccountId) -> (String, Result<(), Error>) {
+    let original = account_id.as_str().to_owned();
+    match account_id.try_into_account_id() {
+        Ok(account_id) => (account_id.to_string(), Ok(())),
+        Err(error) => (original, Err(error.into())),
     }
 }
 
@@ -468,5 +470,60 @@ impl std::fmt::Debug for NonFungibleToken {
             .field("contract_id", &self.contract_id)
             .field("metadata_cached", &self.metadata.initialized())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{CryptoHash, StateInit, StateInitExt};
+
+    fn token_without_signer() -> NonFungibleToken {
+        NonFungibleToken::new(
+            Arc::new(RpcClient::new("http://127.0.0.1:1")),
+            None,
+            "nft.near".parse().unwrap(),
+            0,
+        )
+    }
+
+    #[tokio::test]
+    async fn call_methods_defer_invalid_account_ids() {
+        let token = token_without_signer();
+        let calls = [
+            token.transfer("INVALID", "token-1"),
+            token.transfer_with_memo("INVALID", "token-1", "memo"),
+            token.transfer_with_approval("INVALID", "token-1", 1),
+            token.transfer_call("INVALID", "token-1", "message"),
+        ];
+
+        for call in calls {
+            assert!(matches!(call.await, Err(Error::ParseAccountId(_))));
+        }
+    }
+
+    #[tokio::test]
+    async fn valid_call_still_reaches_send_validation() {
+        let error = token_without_signer()
+            .transfer("alice.near", "token-1")
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, Error::NoSigner));
+    }
+
+    #[tokio::test]
+    async fn receiver_override_does_not_clear_invalid_account_id() {
+        let error = token_without_signer()
+            .transfer("INVALID", "token-1")
+            .state_init(
+                StateInit::by_hash(CryptoHash::ZERO, Default::default()),
+                NearToken::ZERO,
+            )
+            .send()
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, Error::ParseAccountId(_)));
     }
 }

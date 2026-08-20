@@ -277,7 +277,7 @@
 //! }
 //!
 //! async fn example(near: &Near) -> Result<(), Error> {
-//!     let counter = near.contract::<Counter>("counter.testnet");
+//!     let counter = near.contract::<Counter>("counter.testnet")?;
 //!
 //!     // Type-safe view call
 //!     let count = counter.get_count().await?;

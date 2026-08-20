@@ -28,6 +28,7 @@
 //! # }
 //! ```
 
+use std::convert::Infallible;
 use std::fmt;
 use std::future::IntoFuture;
 use std::marker::PhantomData;
@@ -38,9 +39,9 @@ use crate::trace::{self, Instrument};
 use crate::error::{Error, RpcError};
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, FinalExecutionOutcome, Finality,
-    Gas, GlobalContractId, IntoGas, IntoGlobalContractId, IntoNearToken, NearToken,
-    NonDelegateAction, PublicKey, PublishMode, SignedDelegateAction, SignedTransaction, StateInit,
-    Transaction, TryIntoAccountId, UseGlobalContractAction, WaitLevel,
+    Gas, IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey, PublishMode,
+    SignedDelegateAction, SignedTransaction, StateInit, Transaction, TryIntoAccountId,
+    TryIntoGlobalContractId, UseGlobalContractAction, WaitLevel,
 };
 
 use super::nonce_manager::NonceManager;
@@ -52,6 +53,12 @@ use super::signer::Signer;
 fn nonce_manager() -> &'static NonceManager {
     static NONCE_MANAGER: OnceLock<NonceManager> = OnceLock::new();
     NONCE_MANAGER.get_or_init(NonceManager::new)
+}
+
+impl From<Infallible> for Error {
+    fn from(value: Infallible) -> Self {
+        match value {}
+    }
 }
 
 /// Produce a comma-separated summary of action types for tracing spans.
@@ -226,8 +233,9 @@ impl DelegateResult {
 pub struct TransactionBuilder {
     rpc: Arc<RpcClient>,
     signer: Option<Arc<dyn Signer>>,
-    receiver_id: AccountId,
+    receiver_id: Result<AccountId, Error>,
     actions: Vec<Action>,
+    construction_error: Option<Error>,
     signer_override: Option<Arc<dyn Signer>>,
     max_nonce_retries: u32,
 }
@@ -245,6 +253,7 @@ impl fmt::Debug for TransactionBuilder {
             )
             .field("receiver_id", &self.receiver_id)
             .field("action_count", &self.actions.len())
+            .field("construction_error", &self.construction_error)
             .field("max_nonce_retries", &self.max_nonce_retries)
             .finish()
     }
@@ -260,11 +269,42 @@ impl TransactionBuilder {
         Self {
             rpc,
             signer,
-            receiver_id,
+            receiver_id: Ok(receiver_id),
             actions: Vec::new(),
+            construction_error: None,
             signer_override: None,
             max_nonce_retries,
         }
+    }
+
+    pub(crate) fn new_fallible(
+        rpc: Arc<RpcClient>,
+        signer: Option<Arc<dyn Signer>>,
+        receiver_id: Result<AccountId, Error>,
+        max_nonce_retries: u32,
+    ) -> Self {
+        Self {
+            rpc,
+            signer,
+            receiver_id,
+            actions: Vec::new(),
+            construction_error: None,
+            signer_override: None,
+            max_nonce_retries,
+        }
+    }
+
+    fn defer_error(&mut self, error: Error) {
+        if self.construction_error.is_none() {
+            self.construction_error = Some(error);
+        }
+    }
+
+    pub(crate) fn with_validation(mut self, validation: Result<(), Error>) -> Self {
+        if let Err(error) = validation {
+            self.defer_error(error);
+        }
+        self
     }
 
     // ========================================================================
@@ -297,14 +337,13 @@ impl TransactionBuilder {
     /// # }
     /// ```
     ///
-    /// # Panics
-    ///
-    /// Panics if the amount string cannot be parsed.
+    /// Parsing failures are retained and returned when the transaction is sent,
+    /// built, signed, or delegated.
     pub fn transfer(mut self, amount: impl IntoNearToken) -> Self {
-        let amount = amount
-            .into_near_token()
-            .expect("invalid transfer amount - use NearToken::from_str() for user input");
-        self.actions.push(Action::transfer(amount));
+        match amount.into_near_token() {
+            Ok(amount) => self.actions.push(Action::transfer(amount)),
+            Err(error) => self.defer_error(error.into()),
+        }
         self
     }
 
@@ -362,15 +401,15 @@ impl TransactionBuilder {
         method_names: Vec<String>,
         allowance: Option<NearToken>,
     ) -> Self {
-        let receiver_id = receiver_id
-            .try_into_account_id()
-            .expect("invalid account ID");
-        self.actions.push(Action::add_function_call_key(
-            public_key,
-            receiver_id,
-            method_names,
-            allowance,
-        ));
+        match receiver_id.try_into_account_id() {
+            Ok(receiver_id) => self.actions.push(Action::add_function_call_key(
+                public_key,
+                receiver_id,
+                method_names,
+                allowance,
+            )),
+            Err(error) => self.defer_error(error.into()),
+        }
         self
     }
 
@@ -382,23 +421,22 @@ impl TransactionBuilder {
 
     /// Delete the account and transfer remaining balance to beneficiary.
     pub fn delete_account(mut self, beneficiary_id: impl TryIntoAccountId) -> Self {
-        let beneficiary_id = beneficiary_id
-            .try_into_account_id()
-            .expect("invalid account ID");
-        self.actions.push(Action::delete_account(beneficiary_id));
+        match beneficiary_id.try_into_account_id() {
+            Ok(beneficiary_id) => self.actions.push(Action::delete_account(beneficiary_id)),
+            Err(error) => self.defer_error(error.into()),
+        }
         self
     }
 
     /// Add a stake action.
     ///
-    /// # Panics
-    ///
-    /// Panics if the amount string cannot be parsed.
+    /// Parsing failures are retained and returned when the transaction is sent,
+    /// built, signed, or delegated.
     pub fn stake(mut self, amount: impl IntoNearToken, public_key: PublicKey) -> Self {
-        let amount = amount
-            .into_near_token()
-            .expect("invalid stake amount - use NearToken::from_str() for user input");
-        self.actions.push(Action::stake(amount, public_key));
+        match amount.into_near_token() {
+            Ok(amount) => self.actions.push(Action::stake(amount, public_key)),
+            Err(error) => self.defer_error(error.into()),
+        }
         self
     }
 
@@ -426,7 +464,7 @@ impl TransactionBuilder {
     /// ```
     pub fn signed_delegate_action(mut self, signed_delegate: SignedDelegateAction) -> Self {
         // Set receiver_id to the sender of the delegate action (the original user)
-        self.receiver_id = signed_delegate.sender_id().clone();
+        self.receiver_id = Ok(signed_delegate.sender_id().clone());
         self.actions.push(Action::delegate(signed_delegate));
         self
     }
@@ -461,6 +499,10 @@ impl TransactionBuilder {
     /// # }
     /// ```
     pub async fn delegate(self, options: DelegateOptions) -> Result<DelegateResult, Error> {
+        let receiver_id = self.receiver_id?;
+        if let Some(error) = self.construction_error {
+            return Err(error);
+        }
         if self.actions.is_empty() {
             return Err(Error::InvalidTransaction(
                 "Delegate action requires at least one action".to_string(),
@@ -523,7 +565,7 @@ impl TransactionBuilder {
         // Create delegate action
         let delegate_action = DelegateAction {
             sender_id,
-            receiver_id: self.receiver_id,
+            receiver_id,
             actions: delegate_actions,
             nonce,
             max_block_height,
@@ -586,7 +628,7 @@ impl TransactionBuilder {
 
     /// Deploy a contract from the global registry.
     ///
-    /// Accepts any [`IntoGlobalContractId`] (such as a [`CryptoHash`] or an account ID
+    /// Accepts any [`TryIntoGlobalContractId`] (such as a [`CryptoHash`] or an account ID
     /// string/[`AccountId`]) to reference a previously published contract.
     ///
     /// # Example
@@ -601,12 +643,16 @@ impl TransactionBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn deploy_from(mut self, contract_ref: impl IntoGlobalContractId) -> Self {
-        let identifier: GlobalContractId = contract_ref.into_identifier();
-        self.actions
-            .push(Action::UseGlobalContract(UseGlobalContractAction {
-                contract_identifier: identifier,
-            }));
+    pub fn deploy_from(mut self, contract_ref: impl TryIntoGlobalContractId) -> Self {
+        match contract_ref.try_into_identifier() {
+            Ok(identifier) => {
+                self.actions
+                    .push(Action::UseGlobalContract(UseGlobalContractAction {
+                        contract_identifier: identifier,
+                    }));
+            }
+            Err(error) => self.defer_error(error.into()),
+        }
         self
     }
 
@@ -629,16 +675,16 @@ impl TransactionBuilder {
     /// # }
     /// ```
     ///
-    /// # Panics
-    ///
-    /// Panics if the deposit amount string cannot be parsed.
+    /// Parsing failures are retained and returned when the transaction is sent,
+    /// built, signed, or delegated.
     pub fn state_init(mut self, state_init: StateInit, deposit: impl IntoNearToken) -> Self {
-        let deposit = deposit
-            .into_near_token()
-            .expect("invalid deposit amount - use NearToken::from_str() for user input");
-
-        self.receiver_id = state_init.derive_account_id();
-        self.actions.push(Action::state_init(state_init, deposit));
+        match deposit.into_near_token() {
+            Ok(deposit) => {
+                self.receiver_id = Ok(state_init.derive_account_id());
+                self.actions.push(Action::state_init(state_init, deposit));
+            }
+            Err(error) => self.defer_error(error.into()),
+        }
         self
     }
 
@@ -669,8 +715,15 @@ impl TransactionBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn add_action(mut self, action: impl Into<Action>) -> Self {
-        self.actions.push(action.into());
+    pub fn add_action<A>(mut self, action: A) -> Self
+    where
+        A: TryInto<Action>,
+        Error: From<A::Error>,
+    {
+        match action.try_into() {
+            Ok(action) => self.actions.push(action),
+            Err(error) => self.defer_error(error.into()),
+        }
         self
     }
 
@@ -738,6 +791,10 @@ impl TransactionBuilder {
     /// # }
     /// ```
     pub async fn build(self) -> Result<Transaction, Error> {
+        let receiver_id = self.receiver_id?;
+        if let Some(error) = self.construction_error {
+            return Err(error);
+        }
         if self.actions.is_empty() {
             return Err(Error::InvalidTransaction(
                 "Transaction must have at least one action".to_string(),
@@ -754,7 +811,7 @@ impl TransactionBuilder {
         let span = trace::info_span!(
             "build_transaction",
             sender = %signer_id,
-            receiver = %self.receiver_id,
+            receiver = %receiver_id,
             action_count = self.actions.len(),
             actions = %actions_summary(&self.actions),
             method = trace::field::Empty,
@@ -793,7 +850,7 @@ impl TransactionBuilder {
                 signer_id,
                 public_key,
                 nonce,
-                self.receiver_id,
+                receiver_id,
                 block_hash,
                 actions,
             );
@@ -842,6 +899,10 @@ impl TransactionBuilder {
         block_hash: CryptoHash,
         nonce: u64,
     ) -> Result<Transaction, Error> {
+        let receiver_id = self.receiver_id?;
+        if let Some(error) = self.construction_error {
+            return Err(error);
+        }
         if self.actions.is_empty() {
             return Err(Error::InvalidTransaction(
                 "Transaction must have at least one action".to_string(),
@@ -854,7 +915,7 @@ impl TransactionBuilder {
             signer_id,
             public_key,
             nonce,
-            self.receiver_id,
+            receiver_id,
             block_hash,
             self.actions,
         ))
@@ -884,6 +945,10 @@ impl TransactionBuilder {
     /// # }
     /// ```
     pub async fn sign(self) -> Result<SignedTransaction, Error> {
+        let receiver_id = self.receiver_id?;
+        if let Some(error) = self.construction_error {
+            return Err(error);
+        }
         if self.actions.is_empty() {
             return Err(Error::InvalidTransaction(
                 "Transaction must have at least one action".to_string(),
@@ -900,7 +965,7 @@ impl TransactionBuilder {
         let span = trace::info_span!(
             "sign_transaction",
             sender = %signer_id,
-            receiver = %self.receiver_id,
+            receiver = %receiver_id,
             action_count = self.actions.len(),
             actions = %actions_summary(&self.actions),
             method = trace::field::Empty,
@@ -943,7 +1008,7 @@ impl TransactionBuilder {
                 signer_id,
                 public_key,
                 nonce,
-                self.receiver_id,
+                receiver_id,
                 block_hash,
                 actions,
             );
@@ -998,6 +1063,10 @@ impl TransactionBuilder {
         block_hash: CryptoHash,
         nonce: u64,
     ) -> Result<SignedTransaction, Error> {
+        let receiver_id = self.receiver_id?;
+        if let Some(error) = self.construction_error {
+            return Err(error);
+        }
         if self.actions.is_empty() {
             return Err(Error::InvalidTransaction(
                 "Transaction must have at least one action".to_string(),
@@ -1020,7 +1089,7 @@ impl TransactionBuilder {
             signer_id,
             public_key,
             nonce,
-            self.receiver_id,
+            receiver_id,
             block_hash,
             self.actions,
         );
@@ -1105,6 +1174,7 @@ pub struct FunctionCall {
     args: Vec<u8>,
     gas: Gas,
     deposit: NearToken,
+    construction_error: Option<Error>,
 }
 
 impl fmt::Debug for FunctionCall {
@@ -1114,6 +1184,7 @@ impl fmt::Debug for FunctionCall {
             .field("args_len", &self.args.len())
             .field("gas", &self.gas)
             .field("deposit", &self.deposit)
+            .field("construction_error", &self.construction_error)
             .finish()
     }
 }
@@ -1126,12 +1197,22 @@ impl FunctionCall {
             args: Vec::new(),
             gas: Gas::from_tgas(30),
             deposit: NearToken::ZERO,
+            construction_error: None,
+        }
+    }
+
+    fn defer_error(&mut self, error: Error) {
+        if self.construction_error.is_none() {
+            self.construction_error = Some(error);
         }
     }
 
     /// Set JSON arguments.
     pub fn args(mut self, args: impl serde::Serialize) -> Self {
-        self.args = serde_json::to_vec(&args).unwrap_or_default();
+        match serde_json::to_vec(&args) {
+            Ok(args) => self.args = args,
+            Err(error) => self.defer_error(error.into()),
+        }
         self
     }
 
@@ -1143,7 +1224,10 @@ impl FunctionCall {
 
     /// Set Borsh-encoded arguments.
     pub fn args_borsh(mut self, args: impl borsh::BorshSerialize) -> Self {
-        self.args = borsh::to_vec(&args).unwrap_or_default();
+        match borsh::to_vec(&args) {
+            Ok(args) => self.args = args,
+            Err(error) => self.defer_error(Error::Borsh(error.to_string())),
+        }
         self
     }
 
@@ -1151,14 +1235,13 @@ impl FunctionCall {
     ///
     /// Defaults to 30 TGas if not set.
     ///
-    /// # Panics
-    ///
-    /// Panics if the gas string cannot be parsed. Use [`Gas`]'s `FromStr` impl
-    /// for fallible parsing of user input.
+    /// Parsing failures are retained and returned when the call is converted,
+    /// sent, built, signed, or delegated.
     pub fn gas(mut self, gas: impl IntoGas) -> Self {
-        self.gas = gas
-            .into_gas()
-            .expect("invalid gas format - use Gas::from_str() for user input");
+        match gas.into_gas() {
+            Ok(gas) => self.gas = gas,
+            Err(error) => self.defer_error(error.into()),
+        }
         self
     }
 
@@ -1166,21 +1249,40 @@ impl FunctionCall {
     ///
     /// Defaults to zero if not set.
     ///
-    /// # Panics
-    ///
-    /// Panics if the amount string cannot be parsed. Use [`NearToken`]'s `FromStr`
-    /// impl for fallible parsing of user input.
+    /// Parsing failures are retained and returned when the call is converted,
+    /// sent, built, signed, or delegated.
     pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
-        self.deposit = amount
-            .into_near_token()
-            .expect("invalid deposit amount - use NearToken::from_str() for user input");
+        match amount.into_near_token() {
+            Ok(deposit) => self.deposit = deposit,
+            Err(error) => self.defer_error(error.into()),
+        }
         self
+    }
+
+    /// Convert this call into a transaction action.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first serialization, gas, or deposit parsing error captured
+    /// while building the call.
+    pub fn into_action(self) -> Result<Action, Error> {
+        self.try_into()
     }
 }
 
-impl From<FunctionCall> for Action {
-    fn from(call: FunctionCall) -> Self {
-        Action::function_call(call.method, call.args, call.gas, call.deposit)
+impl TryFrom<FunctionCall> for Action {
+    type Error = Error;
+
+    fn try_from(call: FunctionCall) -> Result<Self, Self::Error> {
+        if let Some(error) = call.construction_error {
+            return Err(error);
+        }
+        Ok(Action::function_call(
+            call.method,
+            call.args,
+            call.gas,
+            call.deposit,
+        ))
     }
 }
 
@@ -1248,10 +1350,8 @@ impl CallBuilder {
     /// # }
     /// ```
     ///
-    /// # Panics
-    ///
-    /// Panics if the gas string cannot be parsed. Use [`Gas`]'s `FromStr` impl
-    /// for fallible parsing of user input.
+    /// Parsing failures are retained and returned when the transaction is sent,
+    /// built, signed, delegated, or converted into an action.
     pub fn gas(mut self, gas: impl IntoGas) -> Self {
         self.call = self.call.gas(gas);
         self
@@ -1273,10 +1373,8 @@ impl CallBuilder {
     /// # }
     /// ```
     ///
-    /// # Panics
-    ///
-    /// Panics if the amount string cannot be parsed. Use [`NearToken`]'s `FromStr`
-    /// impl for fallible parsing of user input.
+    /// Parsing failures are retained and returned when the transaction is sent,
+    /// built, signed, delegated, or converted into an action.
     pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
         self.call = self.call.deposit(amount);
         self
@@ -1298,7 +1396,7 @@ impl CallBuilder {
     ///     .call("method")
     ///     .args(serde_json::json!({"key": "value"}))
     ///     .gas(Gas::from_tgas(50))
-    ///     .into_action();
+    ///     .into_action()?;
     ///
     /// // Compose into a different transaction
     /// near.transaction("contract.testnet")
@@ -1309,19 +1407,25 @@ impl CallBuilder {
     /// # }
     /// ```
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the underlying transaction builder already has accumulated
-    /// actions, since those would be silently dropped. Use [`finish`](Self::finish)
-    /// instead when chaining multiple actions on the same transaction.
-    pub fn into_action(self) -> Action {
-        assert!(
-            self.builder.actions.is_empty(),
-            "into_action() discards {} previously accumulated action(s) — \
-             use .finish() to keep them in the transaction",
-            self.builder.actions.len(),
-        );
-        self.call.into()
+    /// Returns the first deferred builder/call input error, or
+    /// [`Error::InvalidTransaction`] if the underlying builder already has
+    /// accumulated actions that would otherwise be discarded. Use
+    /// [`finish`](Self::finish) to keep them in the transaction.
+    pub fn into_action(self) -> Result<Action, Error> {
+        let Self { builder, call } = self;
+        builder.receiver_id?;
+        if let Some(error) = builder.construction_error {
+            return Err(error);
+        }
+        if !builder.actions.is_empty() {
+            return Err(Error::InvalidTransaction(format!(
+                "into_action() would discard {} previously accumulated action(s); use .finish() to keep them in the transaction",
+                builder.actions.len(),
+            )));
+        }
+        call.into_action()
     }
 
     /// Finish this call and return to the transaction builder.
@@ -1341,7 +1445,11 @@ impl CallBuilder {
     ///
     /// Finishes this function call, then adds the given action.
     /// See [`TransactionBuilder::add_action`] for details.
-    pub fn add_action(self, action: impl Into<Action>) -> TransactionBuilder {
+    pub fn add_action<A>(self, action: A) -> TransactionBuilder
+    where
+        A: TryInto<Action>,
+        Error: From<A::Error>,
+    {
         self.finish().add_action(action)
     }
 
@@ -1403,7 +1511,7 @@ impl CallBuilder {
     }
 
     /// Deploy a contract from the global registry.
-    pub fn deploy_from(self, contract_ref: impl IntoGlobalContractId) -> TransactionBuilder {
+    pub fn deploy_from(self, contract_ref: impl TryIntoGlobalContractId) -> TransactionBuilder {
         self.finish().deploy_from(contract_ref)
     }
 
@@ -1603,6 +1711,10 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
             let builder = self.builder;
+            let receiver_id = builder.receiver_id?;
+            if let Some(error) = builder.construction_error {
+                return Err(error);
+            }
 
             if builder.actions.is_empty() {
                 return Err(Error::InvalidTransaction(
@@ -1621,7 +1733,7 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
             let span = trace::info_span!(
                 "send_transaction",
                 sender = %signer_id,
-                receiver = %builder.receiver_id,
+                receiver = %receiver_id,
                 action_count = builder.actions.len(),
                 actions = %actions_summary(&builder.actions),
                 method = trace::field::Empty,
@@ -1639,12 +1751,12 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                 let network = builder.rpc.url().to_string();
                 let mut last_error: Option<Error> = None;
                 let mut last_ak_nonce: Option<u64> = None;
+                // Claim one key for the entire logical send. Retries must keep
+                // nonce state and signatures paired with that same access key.
+                let key = signer.key();
+                let public_key = key.public_key().clone();
 
                 for attempt in 0..=max_nonce_retries {
-                    // Get a signing key atomically for this attempt
-                    let key = signer.key();
-                    let public_key = key.public_key().clone();
-
                     // Single view_access_key call provides both nonce and block_hash.
                     // Uses Finality::Final for block hash stability.
                     let access_key = builder
@@ -1673,7 +1785,7 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                         signer_id.clone(),
                         public_key.clone(),
                         nonce,
-                        builder.receiver_id.clone(),
+                        receiver_id.clone(),
                         block_hash,
                         builder.actions.clone(),
                     );
@@ -1716,7 +1828,7 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                             continue;
                         }
                         Err(RpcError::InvalidTx(crate::types::InvalidTxError::Expired))
-                            if attempt + 1 < max_nonce_retries =>
+                            if attempt < max_nonce_retries =>
                         {
                             trace::debug!(
                                 attempt = attempt + 1,
@@ -1762,12 +1874,34 @@ impl IntoFuture for TransactionBuilder {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
+    use std::io::{self, Write};
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
-    use crate::client::{BoxFuture, InMemorySigner, RpcTransport, TransportResponse};
+    use crate::client::{
+        BoxFuture, InMemorySigner, RotatingSigner, RpcTransport, TransportResponse,
+    };
     use crate::types::{SecretKey, Submitted};
+
+    struct FailingJson;
+
+    impl serde::Serialize for FailingJson {
+        fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            Err(serde::ser::Error::custom("deliberate JSON failure"))
+        }
+    }
+
+    struct FailingBorsh;
+
+    impl borsh::BorshSerialize for FailingBorsh {
+        fn serialize<W: Write>(&self, _writer: &mut W) -> io::Result<()> {
+            Err(io::Error::other("deliberate Borsh failure"))
+        }
+    }
 
     /// Create a TransactionBuilder for unit tests (no real network needed).
     fn test_builder() -> TransactionBuilder {
@@ -1825,7 +1959,7 @@ mod tests {
             .gas(Gas::from_tgas(50))
             .deposit(NearToken::from_near(1));
 
-        let action: Action = call.into();
+        let action = call.into_action().unwrap();
         match &action {
             Action::FunctionCall(fc) => {
                 assert_eq!(fc.method_name, "init");
@@ -1843,7 +1977,7 @@ mod tests {
     #[test]
     fn function_call_defaults() {
         let call = FunctionCall::new("method");
-        let action: Action = call.into();
+        let action = call.into_action().unwrap();
         match &action {
             Action::FunctionCall(fc) => {
                 assert_eq!(fc.method_name, "method");
@@ -1853,6 +1987,127 @@ mod tests {
             }
             other => panic!("expected FunctionCall, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn function_call_serialization_errors_are_fallible() {
+        let json_error = FunctionCall::new("method")
+            .args(FailingJson)
+            .into_action()
+            .unwrap_err();
+        assert!(matches!(json_error, Error::Json(_)));
+
+        let borsh_error = FunctionCall::new("method")
+            .args_borsh(FailingBorsh)
+            .into_action()
+            .unwrap_err();
+        assert!(matches!(borsh_error, Error::Borsh(_)));
+    }
+
+    #[test]
+    fn function_call_invalid_gas_and_deposit_are_fallible() {
+        let gas_error = FunctionCall::new("method")
+            .gas("definitely not gas")
+            .into_action()
+            .unwrap_err();
+        assert!(matches!(gas_error, Error::ParseGas(_)));
+
+        let deposit_error = FunctionCall::new("method")
+            .deposit("definitely not NEAR")
+            .into_action()
+            .unwrap_err();
+        assert!(matches!(deposit_error, Error::ParseAmount(_)));
+    }
+
+    #[test]
+    fn function_call_preserves_the_first_construction_error() {
+        let error = FunctionCall::new("method")
+            .args(FailingJson)
+            .gas("definitely not gas")
+            .deposit("definitely not NEAR")
+            .into_action()
+            .unwrap_err();
+
+        assert!(matches!(error, Error::Json(_)));
+    }
+
+    #[tokio::test]
+    async fn call_builder_defers_serialization_error_until_send() {
+        let error = test_builder()
+            .call("method")
+            .args(FailingJson)
+            .send()
+            .await
+            .unwrap_err();
+        assert!(matches!(error, Error::Json(_)));
+    }
+
+    #[tokio::test]
+    async fn transaction_amount_and_call_input_errors_are_deferred() {
+        let transfer_error = test_builder()
+            .transfer("definitely not NEAR")
+            .send()
+            .await
+            .unwrap_err();
+        assert!(matches!(transfer_error, Error::ParseAmount(_)));
+
+        let stake_error = test_builder()
+            .stake(
+                "definitely not NEAR",
+                SecretKey::generate_ed25519().public_key(),
+            )
+            .send()
+            .await
+            .unwrap_err();
+        assert!(matches!(stake_error, Error::ParseAmount(_)));
+
+        let call_error = test_builder()
+            .call("method")
+            .deposit("definitely not NEAR")
+            .gas("definitely not gas")
+            .send()
+            .await
+            .unwrap_err();
+        assert!(matches!(call_error, Error::ParseAmount(_)));
+
+        let state_init = <StateInit as crate::types::StateInitExt>::by_hash(
+            CryptoHash::ZERO,
+            Default::default(),
+        );
+        let state_init_error = test_builder()
+            .state_init(state_init, "definitely not NEAR")
+            .send()
+            .await
+            .unwrap_err();
+        assert!(matches!(state_init_error, Error::ParseAmount(_)));
+    }
+
+    #[tokio::test]
+    async fn transaction_input_errors_reach_sign_and_delegate() {
+        let sign_error = test_builder()
+            .transfer("definitely not NEAR")
+            .sign()
+            .await
+            .unwrap_err();
+        assert!(matches!(sign_error, Error::ParseAmount(_)));
+
+        let delegate_error = test_builder()
+            .transfer("definitely not NEAR")
+            .delegate(Default::default())
+            .await
+            .unwrap_err();
+        assert!(matches!(delegate_error, Error::ParseAmount(_)));
+    }
+
+    #[test]
+    fn composed_function_call_defers_serialization_error_until_build() {
+        let public_key = SecretKey::generate_ed25519().public_key();
+        let error = test_builder()
+            .add_action(FunctionCall::new("method").args_borsh(FailingBorsh))
+            .build_offline("alice.testnet", public_key, CryptoHash::ZERO, 1)
+            .unwrap_err();
+
+        assert!(matches!(error, Error::Borsh(_)));
     }
 
     #[test]
@@ -1890,7 +2145,8 @@ mod tests {
             .args(serde_json::json!({"admin": "alice.testnet"}))
             .gas(Gas::from_tgas(50))
             .deposit(NearToken::from_near(1))
-            .into_action();
+            .into_action()
+            .unwrap();
 
         match &action {
             Action::FunctionCall(fc) => {
@@ -1907,16 +2163,40 @@ mod tests {
         let action1 = test_builder()
             .call("method_a")
             .gas(Gas::from_tgas(50))
-            .into_action();
+            .into_action()
+            .unwrap();
 
         let action2 = test_builder()
             .call("method_b")
             .deposit(NearToken::from_near(1))
-            .into_action();
+            .into_action()
+            .unwrap();
 
         let builder = test_builder().add_action(action1).add_action(action2);
 
         assert_eq!(builder.actions.len(), 2);
+    }
+
+    #[test]
+    fn call_builder_into_action_rejects_accumulated_actions() {
+        let error = test_builder()
+            .transfer(NearToken::from_near(1))
+            .call("method")
+            .into_action()
+            .unwrap_err();
+
+        assert!(matches!(error, Error::InvalidTransaction(_)));
+    }
+
+    #[test]
+    fn call_builder_into_action_preserves_builder_construction_error() {
+        let error = test_builder()
+            .deploy_from("INVALID")
+            .call("method")
+            .into_action()
+            .unwrap_err();
+
+        assert!(matches!(error, Error::ParseAccountId(_)));
     }
 
     // ========================================================================
@@ -2012,14 +2292,32 @@ mod tests {
         .unwrap()
     }
 
+    fn expired_body() -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": {
+                "name": "HANDLER_ERROR",
+                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
+                "code": -32000,
+                "message": "Server error",
+                "data": {
+                    "TxExecutionError": {
+                        "InvalidTxError": "Expired"
+                    }
+                },
+            },
+        }))
+        .unwrap()
+    }
+
     #[tokio::test]
     async fn send_refreshes_nonce_and_resigns_on_invalid_nonce() {
         // First send_tx is rejected with InvalidNonce (the key's real nonce is
         // 20); the second is accepted.
         let transport = NonceRetryTransport::new(vec![invalid_nonce_body(6, 20), accepted_body()]);
-        let signer =
-            InMemorySigner::from_secret_key("alice.testnet", SecretKey::generate_ed25519())
-                .unwrap();
+        let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
+        let signer = RotatingSigner::new("alice.testnet", keys).unwrap();
         // Default RetryConfig on purpose: the raw RPC layer must not add
         // identical resends of the rejected payload before this loop runs.
         let near = crate::Near::custom("http://mock.invalid", "test")
@@ -2040,11 +2338,62 @@ mod tests {
         // error (20) + 1, freshly signed.
         assert_eq!(first.transaction.nonce, 6);
         assert_eq!(second.transaction.nonce, 21);
+        assert_eq!(
+            first.transaction.public_key, second.transaction.public_key,
+            "one logical send must retain its claimed rotating key across retries"
+        );
         assert_ne!(first.signature, second.signature, "retry must be re-signed");
         assert_eq!(
             transport.access_key_queries.load(Ordering::SeqCst),
             2,
             "each attempt re-fetches the access key for a fresh block hash"
         );
+    }
+
+    #[tokio::test]
+    async fn expired_retries_honor_configured_maximum() {
+        let transport =
+            NonceRetryTransport::new(vec![expired_body(), expired_body(), accepted_body()]);
+        let signer =
+            InMemorySigner::from_secret_key("alice.testnet", SecretKey::generate_ed25519())
+                .unwrap();
+        let near = crate::Near::custom("http://expired-retry.invalid", "test")
+            .transport(transport.clone())
+            .signer(signer)
+            .build();
+
+        near.transfer("bob.testnet", NearToken::from_near(1))
+            .max_nonce_retries(2)
+            .wait_until::<Submitted>()
+            .await
+            .expect("two configured retries should allow the third send");
+
+        assert_eq!(transport.sent.lock().unwrap().len(), 3);
+        assert_eq!(transport.access_key_queries.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn expired_with_zero_retries_sends_once() {
+        let transport = NonceRetryTransport::new(vec![expired_body()]);
+        let signer =
+            InMemorySigner::from_secret_key("alice.testnet", SecretKey::generate_ed25519())
+                .unwrap();
+        let near = crate::Near::custom("http://no-expired-retry.invalid", "test")
+            .transport(transport.clone())
+            .signer(signer)
+            .build();
+
+        let error = near
+            .transfer("bob.testnet", NearToken::from_near(1))
+            .max_nonce_retries(0)
+            .wait_until::<Submitted>()
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            Error::InvalidTx(error) if matches!(*error, crate::types::InvalidTxError::Expired)
+        ));
+        assert_eq!(transport.sent.lock().unwrap().len(), 1);
     }
 }

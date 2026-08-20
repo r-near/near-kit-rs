@@ -7,8 +7,8 @@ use serde::de::DeserializeOwned;
 use crate::contract::ContractClient;
 use crate::error::Error;
 use crate::types::{
-    AccountId, ChainId, Gas, IntoGlobalContractId, IntoNearToken, NearToken, PublicKey,
-    PublishMode, StateInit, TryIntoAccountId,
+    AccountId, ChainId, Gas, IntoNearToken, NearToken, PublicKey, PublishMode, StateInit,
+    TryIntoAccountId, TryIntoGlobalContractId,
 };
 // Only used by `Near::sandbox`, which needs a built-in transport (see below).
 #[cfg(any(
@@ -433,9 +433,6 @@ impl Near {
     /// # }
     /// ```
     pub fn balance(&self, account_id: impl TryIntoAccountId) -> BalanceQuery {
-        let account_id = account_id
-            .try_into_account_id()
-            .expect("invalid account ID");
         BalanceQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -453,9 +450,6 @@ impl Near {
     /// # }
     /// ```
     pub fn account(&self, account_id: impl TryIntoAccountId) -> AccountQuery {
-        let account_id = account_id
-            .try_into_account_id()
-            .expect("invalid account ID");
         AccountQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -474,9 +468,6 @@ impl Near {
     /// # }
     /// ```
     pub fn account_exists(&self, account_id: impl TryIntoAccountId) -> AccountExistsQuery {
-        let account_id = account_id
-            .try_into_account_id()
-            .expect("invalid account ID");
         AccountExistsQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -503,9 +494,6 @@ impl Near {
     /// # }
     /// ```
     pub fn view<T>(&self, contract_id: impl TryIntoAccountId, method: &str) -> ViewCall<T> {
-        let contract_id = contract_id
-            .try_into_account_id()
-            .expect("invalid account ID");
         ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
     }
 
@@ -525,9 +513,6 @@ impl Near {
     /// # }
     /// ```
     pub fn access_keys(&self, account_id: impl TryIntoAccountId) -> AccessKeysQuery {
-        let account_id = account_id
-            .try_into_account_id()
-            .expect("invalid account ID");
         AccessKeysQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -553,9 +538,6 @@ impl Near {
     /// # }
     /// ```
     pub fn contract_code(&self, account_id: impl TryIntoAccountId) -> ContractCodeQuery {
-        let account_id = account_id
-            .try_into_account_id()
-            .expect("invalid account ID");
         ContractCodeQuery::new(self.rpc.clone(), account_id)
     }
 
@@ -588,8 +570,8 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn global_contract(&self, id: impl IntoGlobalContractId) -> GlobalContractQuery {
-        GlobalContractQuery::new(self.rpc.clone(), id.into_identifier())
+    pub fn global_contract(&self, id: impl TryIntoGlobalContractId) -> GlobalContractQuery {
+        GlobalContractQuery::new(self.rpc.clone(), id)
     }
 
     // ========================================================================
@@ -780,7 +762,7 @@ impl Near {
     /// # Panics
     ///
     /// Panics if no signer is configured.
-    pub fn deploy_from(&self, contract_ref: impl IntoGlobalContractId) -> TransactionBuilder {
+    pub fn deploy_from(&self, contract_ref: impl TryIntoGlobalContractId) -> TransactionBuilder {
         let account_id = self.account_id().clone();
         self.transaction(account_id).deploy_from(contract_ref)
     }
@@ -874,13 +856,10 @@ impl Near {
     /// # }
     /// ```
     pub fn transaction(&self, receiver_id: impl TryIntoAccountId) -> TransactionBuilder {
-        let receiver_id = receiver_id
-            .try_into_account_id()
-            .expect("invalid account ID");
-        TransactionBuilder::new(
+        TransactionBuilder::new_fallible(
             self.rpc.clone(),
             self.signer.clone(),
-            receiver_id,
+            receiver_id.try_into_account_id().map_err(Error::from),
             self.max_nonce_retries,
         )
     }
@@ -903,22 +882,16 @@ impl Near {
     /// # }
     /// ```
     ///
-    /// # Panics
-    ///
-    /// Panics if the deposit amount string cannot be parsed.
+    /// Deposit parsing failures are retained and returned when the transaction
+    /// is sent, built, signed, or delegated.
     pub fn state_init(
         &self,
         state_init: StateInit,
         deposit: impl IntoNearToken,
     ) -> TransactionBuilder {
-        // Derive once and pass directly to avoid TransactionBuilder::state_init()
-        // re-deriving the same account ID.
-        let deposit = deposit
-            .into_near_token()
-            .expect("invalid deposit amount - use NearToken::from_str() for user input");
         let receiver_id = state_init.derive_account_id();
         self.transaction(receiver_id)
-            .add_action(crate::types::Action::state_init(state_init, deposit))
+            .state_init(state_init, deposit)
     }
 
     /// Send a pre-signed transaction.
@@ -1077,7 +1050,7 @@ impl Near {
     /// }
     ///
     /// async fn example(near: &Near) -> Result<(), near_kit::Error> {
-    ///     let counter = near.contract::<Counter>("counter.testnet");
+    ///     let counter = near.contract::<Counter>("counter.testnet")?;
     ///     
     ///     // View call - type-safe!
     ///     let count = counter.get_count().await?;
@@ -1089,11 +1062,16 @@ impl Near {
     ///     Ok(())
     /// }
     /// ```
-    pub fn contract<T: crate::Contract>(&self, contract_id: impl TryIntoAccountId) -> T::Client {
-        let contract_id = contract_id
-            .try_into_account_id()
-            .expect("invalid account ID");
-        T::Client::new(self.clone(), contract_id)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `contract_id` is not a valid NEAR account ID.
+    pub fn contract<T: crate::Contract>(
+        &self,
+        contract_id: impl TryIntoAccountId,
+    ) -> Result<T::Client, Error> {
+        let contract_id = contract_id.try_into_account_id()?;
+        Ok(T::Client::new(self.clone(), contract_id))
     }
 
     // ========================================================================
@@ -1470,6 +1448,33 @@ mod tests {
         let near = Near::testnet().build();
         let rpc = near.rpc();
         assert!(!rpc.url().is_empty());
+    }
+
+    #[tokio::test]
+    async fn invalid_builder_account_ids_return_errors_instead_of_panicking() {
+        let near = Near::testnet().build();
+
+        let query_error = near.balance("INVALID").await.unwrap_err();
+        assert!(matches!(query_error, Error::ParseAccountId(_)));
+
+        let transaction_error = near
+            .transfer("INVALID", NearToken::from_near(1))
+            .await
+            .unwrap_err();
+        assert!(matches!(transaction_error, Error::ParseAccountId(_)));
+
+        let global_contract_error = near.global_contract("INVALID").await.unwrap_err();
+        assert!(matches!(global_contract_error, Error::ParseAccountId(_)));
+
+        let state_init = <StateInit as crate::types::StateInitExt>::by_hash(
+            crate::types::CryptoHash::ZERO,
+            Default::default(),
+        );
+        let deposit_error = near
+            .state_init(state_init, "definitely not NEAR")
+            .await
+            .unwrap_err();
+        assert!(matches!(deposit_error, Error::ParseAmount(_)));
     }
 
     // ========================================================================

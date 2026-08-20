@@ -38,15 +38,14 @@ pub trait Guestbook {
     fn add_message(&mut self, args: AddMessageArgs);
 }
 
-/// Typed interface for the guestbook contract with payable method.
-/// This demonstrates the #[call(payable)] attribute.
+/// Typed interface for attaching a deposit to a guestbook call.
 #[near_kit::contract]
-pub trait GuestbookPayable {
+pub trait GuestbookWithDeposit {
     /// Get all messages.
     fn get_messages(&self) -> Vec<GuestbookMessage>;
 
-    /// Add a premium message (payable - requires deposit).
-    #[call(payable)]
+    /// Add a message; attaching a deposit makes it premium.
+    #[call]
     fn add_message(&mut self, args: AddMessageArgs);
 }
 
@@ -99,7 +98,7 @@ async fn test_typed_contract_view_methods() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client
-    let guestbook = near.contract::<Guestbook>(&contract_id);
+    let guestbook = near.contract::<Guestbook>(&contract_id).unwrap();
 
     // Test view method - total_messages
     let count = guestbook
@@ -131,7 +130,7 @@ async fn test_typed_contract_call_methods() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client
-    let guestbook = near.contract::<Guestbook>(&contract_id);
+    let guestbook = near.contract::<Guestbook>(&contract_id).unwrap();
 
     // Add a message using typed call method
     guestbook
@@ -174,7 +173,7 @@ async fn test_typed_contract_multiple_messages() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client
-    let guestbook = near.contract::<Guestbook>(&contract_id);
+    let guestbook = near.contract::<Guestbook>(&contract_id).unwrap();
 
     // Add multiple messages
     let test_messages = vec!["First message", "Second message", "Third message"];
@@ -223,7 +222,7 @@ async fn test_typed_contract_with_custom_gas() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client
-    let guestbook = near.contract::<Guestbook>(&contract_id);
+    let guestbook = near.contract::<Guestbook>(&contract_id).unwrap();
 
     // Add message with custom gas
     guestbook
@@ -258,7 +257,7 @@ async fn test_typed_contract_block_reference() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client
-    let guestbook = near.contract::<Guestbook>(&contract_id);
+    let guestbook = near.contract::<Guestbook>(&contract_id).unwrap();
 
     // Add a message
     guestbook
@@ -282,7 +281,7 @@ async fn test_typed_contract_block_reference() {
 }
 
 #[tokio::test]
-async fn test_typed_contract_payable_method() {
+async fn test_typed_contract_call_with_deposit() {
     // Start sandbox
     let sandbox = SandboxConfig::fresh().await;
     let near = Near::sandbox(&sandbox);
@@ -293,8 +292,8 @@ async fn test_typed_contract_payable_method() {
         .await
         .expect("Failed to deploy guestbook");
 
-    // Create typed contract client with payable interface
-    let guestbook = near.contract::<GuestbookPayable>(&contract_id);
+    // Create a typed contract client for a call that accepts an optional deposit.
+    let guestbook = near.contract::<GuestbookWithDeposit>(&contract_id).unwrap();
 
     // Add a message WITHOUT deposit - should be non-premium
     guestbook
@@ -337,7 +336,7 @@ async fn test_typed_contract_payable_method() {
         "Message with deposit should be premium"
     );
 
-    println!("✓ Payable method with #[call(payable)] works correctly");
+    println!("✓ Typed call builder attaches a deposit correctly");
 }
 
 #[tokio::test]
@@ -353,7 +352,7 @@ async fn test_typed_contract_no_args_view() {
         .expect("Failed to deploy guestbook");
 
     // Create typed contract client using the no-args interface
-    let guestbook = near.contract::<GuestbookNoArgs>(&contract_id);
+    let guestbook = near.contract::<GuestbookNoArgs>(&contract_id).unwrap();
 
     // Test view method without arguments - total_messages
     let count = guestbook
@@ -370,7 +369,7 @@ async fn test_typed_contract_no_args_view() {
     assert!(messages.is_empty(), "Initial messages should be empty");
 
     // Now add a message using the main interface
-    let main_guestbook = near.contract::<Guestbook>(&contract_id);
+    let main_guestbook = near.contract::<Guestbook>(&contract_id).unwrap();
     main_guestbook
         .add_message(AddMessageArgs {
             text: "Test message".to_string(),

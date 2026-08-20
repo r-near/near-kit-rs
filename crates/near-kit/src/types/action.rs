@@ -7,6 +7,8 @@ use borsh::de::EnumExt as _;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
+use crate::error::ParseAccountIdError;
+
 use super::{
     AccountId, CryptoHash, Gas, NearToken, PublicKey, Signature, TransactionNonce, TryIntoAccountId,
 };
@@ -36,66 +38,58 @@ pub enum PublishMode {
     Immutable,
 }
 
-/// Trait for types that can identify a global contract.
+/// Fallible conversion into a global contract identifier.
 ///
 /// This allows `deploy_from` to accept either a `CryptoHash` (for immutable
 /// contracts) or an account ID string/`AccountId` (for publisher-updatable contracts),
 /// converting into the canonical [`GlobalContractId`]. An already-constructed
 /// [`GlobalContractId`] is accepted as-is (identity conversion).
-///
-/// # Panics
-///
-/// String-based implementations (`&str`, `String`, `&String`) panic if the string is not a
-/// valid NEAR account ID.
-pub trait IntoGlobalContractId {
-    fn into_identifier(self) -> GlobalContractId;
+pub trait TryIntoGlobalContractId {
+    /// Convert this value into a global contract identifier.
+    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError>;
 }
 
-impl IntoGlobalContractId for GlobalContractId {
-    fn into_identifier(self) -> GlobalContractId {
-        self
+impl TryIntoGlobalContractId for GlobalContractId {
+    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
+        Ok(self)
     }
 }
 
-impl IntoGlobalContractId for CryptoHash {
-    fn into_identifier(self) -> GlobalContractId {
-        GlobalContractId::CodeHash(*self.as_bytes())
+impl TryIntoGlobalContractId for CryptoHash {
+    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
+        Ok(GlobalContractId::CodeHash(*self.as_bytes()))
     }
 }
 
-impl IntoGlobalContractId for AccountId {
-    fn into_identifier(self) -> GlobalContractId {
-        GlobalContractId::AccountId(self)
+impl TryIntoGlobalContractId for AccountId {
+    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
+        Ok(GlobalContractId::AccountId(self))
     }
 }
 
-impl IntoGlobalContractId for &AccountId {
-    fn into_identifier(self) -> GlobalContractId {
-        GlobalContractId::AccountId(self.clone())
+impl TryIntoGlobalContractId for &AccountId {
+    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
+        Ok(GlobalContractId::AccountId(self.clone()))
     }
 }
 
-impl IntoGlobalContractId for &str {
-    fn into_identifier(self) -> GlobalContractId {
-        let account_id: AccountId = self.try_into_account_id().expect("invalid account ID");
-        GlobalContractId::AccountId(account_id)
+impl TryIntoGlobalContractId for &str {
+    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
+        self.try_into_account_id().map(GlobalContractId::AccountId)
     }
 }
 
-impl IntoGlobalContractId for String {
-    fn into_identifier(self) -> GlobalContractId {
-        let account_id: AccountId = self.try_into_account_id().expect("invalid account ID");
-        GlobalContractId::AccountId(account_id)
+impl TryIntoGlobalContractId for String {
+    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
+        self.try_into_account_id().map(GlobalContractId::AccountId)
     }
 }
 
-impl IntoGlobalContractId for &String {
-    fn into_identifier(self) -> GlobalContractId {
-        let account_id: AccountId = self
-            .as_str()
+impl TryIntoGlobalContractId for &String {
+    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
+        self.as_str()
             .try_into_account_id()
-            .expect("invalid account ID");
-        GlobalContractId::AccountId(account_id)
+            .map(GlobalContractId::AccountId)
     }
 }
 
@@ -1482,14 +1476,22 @@ mod tests {
     }
 
     #[test]
-    fn test_global_contract_id_into_identifier_is_identity() {
+    fn test_global_contract_id_try_into_identifier_is_identity() {
         // An already-constructed `GlobalContractId` is accepted by `deploy_from`
         // and passes through unchanged.
         let by_hash = GlobalContractId::CodeHash(*CryptoHash::hash(&[1, 2, 3]).as_bytes());
-        assert_eq!(by_hash.clone().into_identifier(), by_hash);
+        assert_eq!(by_hash.clone().try_into_identifier().unwrap(), by_hash);
 
         let by_account = GlobalContractId::AccountId("publisher.near".parse().unwrap());
-        assert_eq!(by_account.clone().into_identifier(), by_account);
+        assert_eq!(
+            by_account.clone().try_into_identifier().unwrap(),
+            by_account
+        );
+    }
+
+    #[test]
+    fn test_global_contract_id_string_conversion_is_fallible() {
+        assert!("INVALID".try_into_identifier().is_err());
     }
 
     #[test]

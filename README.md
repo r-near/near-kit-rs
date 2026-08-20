@@ -152,7 +152,7 @@ pub trait Counter {
 }
 
 // Now you get autocomplete and type errors at compile time
-let counter = near.contract::<Counter>("counter.testnet");
+let counter = near.contract::<Counter>("counter.testnet")?;
 let count = counter.get_count().await?;
 counter.increment().await?;
 ```

@@ -68,9 +68,9 @@ pub use action::{
     DelegateAction, DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     DeployGlobalContractAction, DeterministicStateInitAction, FunctionCallAction,
     FunctionCallPermission, GasKeyInfo, GlobalContractDeployMode, GlobalContractId,
-    IntoGlobalContractId, MAX_NONCES_FOR_GAS_KEY, NonDelegateAction, PublishMode,
-    SignedDelegateAction, StakeAction, StateInit, StateInitExt, StateInitV1, TransferAction,
-    TransferToGasKeyAction, UseGlobalContractAction, VersionedDelegateActionPayload,
+    MAX_NONCES_FOR_GAS_KEY, NonDelegateAction, PublishMode, SignedDelegateAction, StakeAction,
+    StateInit, StateInitExt, StateInitV1, TransferAction, TransferToGasKeyAction,
+    TryIntoGlobalContractId, UseGlobalContractAction, VersionedDelegateActionPayload,
     VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
 };
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
