@@ -74,8 +74,6 @@ proc-macro2 = "1"
 testcontainers = "0.28"
 
 # Dev dependencies
-tokio-test = "0.4"
-tempfile = "3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Internal crates

@@ -20,7 +20,6 @@ near-global-contracts.workspace = true
 # Async runtime — only pull in `sync` here; `time` is added below for every
 # target except JS-host wasm, and `rt` is added by the `sandbox` feature.
 tokio = { version = "1", features = ["sync"] }
-futures.workspace = true
 
 # HTTP client: target-specific — see the two feature-gated target tables below
 # (reqwest everywhere except WASI, via `rpc`; `wasi:http` bindings on
@@ -141,8 +140,7 @@ name = "meta_transactions"
 required-features = ["rpc"]
 
 [dev-dependencies]
-tokio-test.workspace = true
-tempfile.workspace = true
+futures.workspace = true
 # The tracing integration tests need the real `tracing` crate regardless of
 # how the optional main dependency is configured.
 tracing.workspace = true
