@@ -728,7 +728,7 @@ async fn test_nft_supply_for_owner() {
 // =============================================================================
 
 #[tokio::test]
-async fn test_ft_amount_arithmetic_from_real_balances() {
+async fn test_ft_amount_roundtrip_from_real_balances() {
     let sandbox = SandboxConfig::shared().await;
     let root_near = sandbox.client();
 
@@ -753,17 +753,21 @@ async fn test_ft_amount_arithmetic_from_real_balances() {
     let balance = ft.balance_of(&owner_id).await.unwrap();
     let supply = ft.total_supply().await.unwrap();
 
-    // Should be able to do arithmetic on same-token amounts
-    let sum = balance.checked_add(&supply);
-    assert!(sum.is_some(), "Adding same token should work");
+    assert_eq!(balance.raw(), supply.raw());
+    assert_eq!(balance.decimals(), supply.decimals());
+    assert_eq!(balance.symbol(), supply.symbol());
 
-    let diff = supply.checked_sub(&balance);
-    assert!(diff.is_some(), "Subtracting same token should work");
-    assert!(diff.unwrap().is_zero(), "Supply - balance should be 0");
+    let parsed = FtAmount::parse(
+        &balance.format_amount(),
+        balance.decimals(),
+        balance.symbol(),
+    )
+    .unwrap();
+    assert_eq!(parsed.raw(), balance.raw());
+    assert_eq!(parsed.to_string(), balance.to_string());
 
     println!("Balance: {}", balance);
     println!("Supply: {}", supply);
-    println!("Balance + Supply: {:?}", sum.map(|a| a.to_string()));
 }
 
 // =============================================================================

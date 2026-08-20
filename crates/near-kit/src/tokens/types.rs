@@ -58,27 +58,6 @@ pub struct FtMetadata {
 /// let amount = FtAmount::new(1_000_000_000_000_000_000_000_000, 24, "wNEAR");
 /// assert_eq!(format!("{}", amount), "1 wNEAR");
 /// ```
-///
-/// # Arithmetic
-///
-/// Arithmetic operations are supported but only between amounts of the same
-/// token (same decimals AND symbol). Operations return `Option` to indicate
-/// success or failure.
-///
-/// ```
-/// use near_kit::FtAmount;
-///
-/// let a = FtAmount::new(1_000_000, 6, "USDC");
-/// let b = FtAmount::new(500_000, 6, "USDC");
-///
-/// // Same token - works
-/// let sum = a.checked_add(&b).unwrap();
-/// assert_eq!(sum.raw(), 1_500_000);
-///
-/// // Different token - fails
-/// let c = FtAmount::new(1_000_000, 6, "USDT");
-/// assert!(a.checked_add(&c).is_none());
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FtAmount {
     raw: u128,
@@ -146,75 +125,6 @@ impl FtAmount {
     /// Format as a string without the symbol.
     pub fn format_amount(&self) -> String {
         format_raw_with_decimals(self.raw, self.decimals)
-    }
-
-    /// Checked addition - returns None if tokens don't match or overflow.
-    pub fn checked_add(&self, other: &FtAmount) -> Option<FtAmount> {
-        if self.decimals != other.decimals || self.symbol != other.symbol {
-            return None;
-        }
-        self.raw.checked_add(other.raw).map(|raw| FtAmount {
-            raw,
-            decimals: self.decimals,
-            symbol: self.symbol.clone(),
-        })
-    }
-
-    /// Checked subtraction - returns None if tokens don't match or underflow.
-    pub fn checked_sub(&self, other: &FtAmount) -> Option<FtAmount> {
-        if self.decimals != other.decimals || self.symbol != other.symbol {
-            return None;
-        }
-        self.raw.checked_sub(other.raw).map(|raw| FtAmount {
-            raw,
-            decimals: self.decimals,
-            symbol: self.symbol.clone(),
-        })
-    }
-
-    /// Checked multiplication by a scalar.
-    pub fn checked_mul(&self, multiplier: u128) -> Option<FtAmount> {
-        self.raw.checked_mul(multiplier).map(|raw| FtAmount {
-            raw,
-            decimals: self.decimals,
-            symbol: self.symbol.clone(),
-        })
-    }
-
-    /// Checked division by a scalar.
-    pub fn checked_div(&self, divisor: u128) -> Option<FtAmount> {
-        if divisor == 0 {
-            return None;
-        }
-        Some(FtAmount {
-            raw: self.raw / divisor,
-            decimals: self.decimals,
-            symbol: self.symbol.clone(),
-        })
-    }
-
-    /// Saturating addition - clamps at max on overflow, returns None on token mismatch.
-    pub fn saturating_add(&self, other: &FtAmount) -> Option<FtAmount> {
-        if self.decimals != other.decimals || self.symbol != other.symbol {
-            return None;
-        }
-        Some(FtAmount {
-            raw: self.raw.saturating_add(other.raw),
-            decimals: self.decimals,
-            symbol: self.symbol.clone(),
-        })
-    }
-
-    /// Saturating subtraction - clamps at 0 on underflow, returns None on token mismatch.
-    pub fn saturating_sub(&self, other: &FtAmount) -> Option<FtAmount> {
-        if self.decimals != other.decimals || self.symbol != other.symbol {
-            return None;
-        }
-        Some(FtAmount {
-            raw: self.raw.saturating_sub(other.raw),
-            decimals: self.decimals,
-            symbol: self.symbol.clone(),
-        })
     }
 }
 
@@ -361,21 +271,29 @@ pub struct NftToken {
 
 /// Format a raw amount with the given number of decimals.
 fn format_raw_with_decimals(raw: u128, decimals: u8) -> String {
-    if decimals == 0 {
+    if decimals == 0 || raw == 0 {
         return raw.to_string();
     }
 
-    let divisor = 10u128.pow(decimals as u32);
-    let whole = raw / divisor;
-    let frac = raw % divisor;
+    let raw = raw.to_string();
+    let decimal_index = raw.len().saturating_sub(decimals as usize);
+    let (whole, fractional) = raw.split_at(decimal_index);
+    let fractional = fractional.trim_end_matches('0');
 
-    if frac == 0 {
-        whole.to_string()
+    if fractional.is_empty() {
+        if whole.is_empty() {
+            "0".to_string()
+        } else {
+            whole.to_string()
+        }
+    } else if whole.is_empty() {
+        format!(
+            "0.{}{}",
+            "0".repeat(decimals as usize - raw.len()),
+            fractional
+        )
     } else {
-        // Format with leading zeros, then trim trailing zeros
-        let frac_str = format!("{:0>width$}", frac, width = decimals as usize);
-        let trimmed = frac_str.trim_end_matches('0');
-        format!("{}.{}", whole, trimmed)
+        format!("{}.{}", whole, fractional)
     }
 }
 
@@ -387,6 +305,9 @@ fn parse_decimal_to_raw(s: &str, decimals: u8) -> Result<u128, ParseAmountError>
         return Err(ParseAmountError::InvalidFormat(s.to_string()));
     }
 
+    let scale = 10u128
+        .checked_pow(decimals as u32)
+        .ok_or(ParseAmountError::Overflow)?;
     let parts: Vec<&str> = s.split('.').collect();
 
     match parts.len() {
@@ -395,9 +316,7 @@ fn parse_decimal_to_raw(s: &str, decimals: u8) -> Result<u128, ParseAmountError>
             let whole: u128 = parts[0]
                 .parse()
                 .map_err(|_| ParseAmountError::InvalidNumber(s.to_string()))?;
-            whole
-                .checked_mul(10u128.pow(decimals as u32))
-                .ok_or(ParseAmountError::Overflow)
+            whole.checked_mul(scale).ok_or(ParseAmountError::Overflow)
         }
         2 => {
             // Has decimal point
@@ -421,13 +340,15 @@ fn parse_decimal_to_raw(s: &str, decimals: u8) -> Result<u128, ParseAmountError>
 
             // Pad fractional part with zeros
             let padded = format!("{:0<width$}", frac_str, width = decimals as usize);
-            let frac: u128 = padded
-                .parse()
-                .map_err(|_| ParseAmountError::InvalidNumber(s.to_string()))?;
+            let frac: u128 = if padded.is_empty() {
+                0
+            } else {
+                padded
+                    .parse()
+                    .map_err(|_| ParseAmountError::InvalidNumber(s.to_string()))?
+            };
 
-            let whole_shifted = whole
-                .checked_mul(10u128.pow(decimals as u32))
-                .ok_or(ParseAmountError::Overflow)?;
+            let whole_shifted = whole.checked_mul(scale).ok_or(ParseAmountError::Overflow)?;
 
             whole_shifted
                 .checked_add(frac)
@@ -504,6 +425,13 @@ mod tests {
         assert_eq!(format!("{}", amount), "0.5 USDC");
     }
 
+    #[test]
+    fn test_ft_amount_display_arbitrary_decimals() {
+        let amount = FtAmount::new(1, u8::MAX, "TOKEN");
+        let expected = format!("0.{}1 TOKEN", "0".repeat(u8::MAX as usize - 1));
+        assert_eq!(amount.to_string(), expected);
+    }
+
     // ─── FtAmount Parsing Tests ───
 
     #[test]
@@ -555,87 +483,12 @@ mod tests {
         assert!(FtAmount::parse("", 6, "USDC").is_err());
     }
 
-    // ─── FtAmount Arithmetic Tests ───
-
     #[test]
-    fn test_ft_amount_checked_add_same_token() {
-        let a = FtAmount::new(1_000_000, 6, "USDC");
-        let b = FtAmount::new(500_000, 6, "USDC");
-        let sum = a.checked_add(&b).unwrap();
-        assert_eq!(sum.raw(), 1_500_000);
-        assert_eq!(sum.symbol(), "USDC");
-    }
-
-    #[test]
-    fn test_ft_amount_checked_add_different_symbol() {
-        let a = FtAmount::new(1_000_000, 6, "USDC");
-        let b = FtAmount::new(500_000, 6, "USDT");
-        assert!(a.checked_add(&b).is_none());
-    }
-
-    #[test]
-    fn test_ft_amount_checked_add_different_decimals() {
-        let a = FtAmount::new(1_000_000, 6, "TOKEN");
-        let b = FtAmount::new(500_000, 8, "TOKEN");
-        assert!(a.checked_add(&b).is_none());
-    }
-
-    #[test]
-    fn test_ft_amount_checked_add_overflow() {
-        let a = FtAmount::new(u128::MAX, 6, "USDC");
-        let b = FtAmount::new(1, 6, "USDC");
-        assert!(a.checked_add(&b).is_none());
-    }
-
-    #[test]
-    fn test_ft_amount_checked_sub() {
-        let a = FtAmount::new(1_000_000, 6, "USDC");
-        let b = FtAmount::new(400_000, 6, "USDC");
-        let diff = a.checked_sub(&b).unwrap();
-        assert_eq!(diff.raw(), 600_000);
-    }
-
-    #[test]
-    fn test_ft_amount_checked_sub_underflow() {
-        let a = FtAmount::new(400_000, 6, "USDC");
-        let b = FtAmount::new(1_000_000, 6, "USDC");
-        assert!(a.checked_sub(&b).is_none());
-    }
-
-    #[test]
-    fn test_ft_amount_checked_mul() {
-        let a = FtAmount::new(1_000_000, 6, "USDC");
-        let result = a.checked_mul(3).unwrap();
-        assert_eq!(result.raw(), 3_000_000);
-    }
-
-    #[test]
-    fn test_ft_amount_checked_div() {
-        let a = FtAmount::new(3_000_000, 6, "USDC");
-        let result = a.checked_div(3).unwrap();
-        assert_eq!(result.raw(), 1_000_000);
-    }
-
-    #[test]
-    fn test_ft_amount_checked_div_by_zero() {
-        let a = FtAmount::new(1_000_000, 6, "USDC");
-        assert!(a.checked_div(0).is_none());
-    }
-
-    #[test]
-    fn test_ft_amount_saturating_add() {
-        let a = FtAmount::new(u128::MAX - 1, 6, "USDC");
-        let b = FtAmount::new(10, 6, "USDC");
-        let sum = a.saturating_add(&b).unwrap();
-        assert_eq!(sum.raw(), u128::MAX);
-    }
-
-    #[test]
-    fn test_ft_amount_saturating_sub() {
-        let a = FtAmount::new(100, 6, "USDC");
-        let b = FtAmount::new(200, 6, "USDC");
-        let diff = a.saturating_sub(&b).unwrap();
-        assert_eq!(diff.raw(), 0);
+    fn test_ft_amount_parse_rejects_unsupported_scale() {
+        assert!(matches!(
+            FtAmount::parse("0", 39, "TOKEN"),
+            Err(ParseAmountError::Overflow)
+        ));
     }
 
     // ─── FtAmount Accessors Tests ───

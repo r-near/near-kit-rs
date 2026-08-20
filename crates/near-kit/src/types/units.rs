@@ -7,20 +7,6 @@ pub use near_token::NearToken;
 use crate::error::{ParseAmountError, ParseGasError};
 
 // ============================================================================
-// Constants (used by parsing helpers)
-// ============================================================================
-
-/// One yoctoNEAR (10^-24 NEAR).
-const YOCTO_PER_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
-/// One milliNEAR in yoctoNEAR (10^-3 NEAR = 10^21 yocto).
-const YOCTO_PER_MILLINEAR: u128 = 1_000_000_000_000_000_000_000;
-
-/// Gas per teragas.
-const GAS_PER_TGAS: u64 = 1_000_000_000_000;
-/// Gas per gigagas.
-const GAS_PER_GGAS: u64 = 1_000_000_000;
-
-// ============================================================================
 // IntoNearToken trait
 // ============================================================================
 
@@ -130,53 +116,35 @@ impl IntoGas for &String {
 // String parsing helpers (near-kit specific formats)
 // ============================================================================
 
-/// Parse a decimal NEAR string (e.g., "1.5") into yoctoNEAR.
-fn parse_near_decimal(s: &str) -> Result<NearToken, ParseAmountError> {
-    let s = s.trim();
-
-    if let Some(dot_pos) = s.find('.') {
-        let integer_part = &s[..dot_pos];
-        let decimal_part = &s[dot_pos + 1..];
-
-        let integer: u128 = if integer_part.is_empty() {
-            0
-        } else {
-            integer_part
-                .parse()
-                .map_err(|_| ParseAmountError::InvalidNumber(s.to_string()))?
-        };
-
-        let decimal_str = if decimal_part.len() > 24 {
-            &decimal_part[..24]
-        } else {
-            decimal_part
-        };
-
-        let decimal: u128 = if decimal_str.is_empty() {
-            0
-        } else {
-            decimal_str
-                .parse()
-                .map_err(|_| ParseAmountError::InvalidNumber(s.to_string()))?
-        };
-
-        let decimal_scale = 24 - decimal_str.len();
-        let decimal_yocto = decimal * 10u128.pow(decimal_scale as u32);
-
-        let total = integer
-            .checked_mul(YOCTO_PER_NEAR)
-            .and_then(|v| v.checked_add(decimal_yocto))
-            .ok_or(ParseAmountError::Overflow)?;
-
-        Ok(NearToken::from_yoctonear(total))
+fn parse_upstream_near_token(
+    value: &str,
+    unit: &str,
+    original: &str,
+) -> Result<NearToken, ParseAmountError> {
+    // Upstream requires a whole-number component before the decimal point.
+    let numeric_value = value.trim();
+    let normalized = if numeric_value.starts_with('.') {
+        format!("0{numeric_value} {unit}")
     } else {
-        let near: u128 = s
-            .parse()
-            .map_err(|_| ParseAmountError::InvalidNumber(s.to_string()))?;
-        near.checked_mul(YOCTO_PER_NEAR)
-            .map(NearToken::from_yoctonear)
-            .ok_or(ParseAmountError::Overflow)
-    }
+        format!("{numeric_value} {unit}")
+    };
+
+    normalized.parse().map_err(|error| match error {
+        near_token::NearTokenError::InvalidTokensAmount(
+            near_token::DecimalNumberParsingError::InvalidNumber(value),
+        ) => ParseAmountError::InvalidNumber(value),
+        near_token::NearTokenError::InvalidTokensAmount(
+            near_token::DecimalNumberParsingError::LongWhole(_),
+        ) => ParseAmountError::Overflow,
+        near_token::NearTokenError::InvalidTokensAmount(
+            near_token::DecimalNumberParsingError::LongFractional(_),
+        ) => ParseAmountError::InvalidFormat(format!("Too many decimal places in: {original}")),
+        // The unit is canonical here, so this only happens when malformed
+        // numeric text makes upstream detect the unit boundary too early.
+        near_token::NearTokenError::InvalidTokenUnit(_) => {
+            ParseAmountError::InvalidNumber(numeric_value.to_string())
+        }
+    })
 }
 
 /// Parse a NearToken from a near-kit format string.
@@ -193,7 +161,7 @@ pub fn parse_near_token(s: &str) -> Result<NearToken, ParseAmountError> {
 
     // "X NEAR" or "X near"
     if let Some(value) = s.strip_suffix(" NEAR").or_else(|| s.strip_suffix(" near")) {
-        return parse_near_decimal(value.trim());
+        return parse_upstream_near_token(value, "NEAR", s);
     }
 
     // "X milliNEAR" or "X mNEAR"
@@ -201,14 +169,7 @@ pub fn parse_near_token(s: &str) -> Result<NearToken, ParseAmountError> {
         .strip_suffix(" milliNEAR")
         .or_else(|| s.strip_suffix(" mNEAR"))
     {
-        let v: u128 = value
-            .trim()
-            .parse()
-            .map_err(|_| ParseAmountError::InvalidNumber(s.to_string()))?;
-        return v
-            .checked_mul(YOCTO_PER_MILLINEAR)
-            .map(NearToken::from_yoctonear)
-            .ok_or(ParseAmountError::Overflow);
+        return parse_upstream_near_token(value, "milliNEAR", s);
     }
 
     // "X yocto" or "X yoctoNEAR"
@@ -216,11 +177,7 @@ pub fn parse_near_token(s: &str) -> Result<NearToken, ParseAmountError> {
         .strip_suffix(" yoctoNEAR")
         .or_else(|| s.strip_suffix(" yocto"))
     {
-        let v: u128 = value
-            .trim()
-            .parse()
-            .map_err(|_| ParseAmountError::InvalidNumber(s.to_string()))?;
-        return Ok(NearToken::from_yoctonear(v));
+        return parse_upstream_near_token(value, "yoctoNEAR", s);
     }
 
     // Bare number = error (ambiguous)
@@ -246,14 +203,7 @@ pub fn parse_gas(s: &str) -> Result<Gas, ParseGasError> {
         .or_else(|| s.strip_suffix(" tgas"))
         .or_else(|| s.strip_suffix(" TGas"))
     {
-        let v: u64 = value
-            .trim()
-            .parse()
-            .map_err(|_| ParseGasError::InvalidNumber(s.to_string()))?;
-        return v
-            .checked_mul(GAS_PER_TGAS)
-            .map(Gas::from_gas)
-            .ok_or(ParseGasError::Overflow);
+        return parse_upstream_gas(value, "Tgas", s);
     }
 
     // "X Ggas" or "X ggas" or "X GGas"
@@ -262,14 +212,7 @@ pub fn parse_gas(s: &str) -> Result<Gas, ParseGasError> {
         .or_else(|| s.strip_suffix(" ggas"))
         .or_else(|| s.strip_suffix(" GGas"))
     {
-        let v: u64 = value
-            .trim()
-            .parse()
-            .map_err(|_| ParseGasError::InvalidNumber(s.to_string()))?;
-        return v
-            .checked_mul(GAS_PER_GGAS)
-            .map(Gas::from_gas)
-            .ok_or(ParseGasError::Overflow);
+        return parse_upstream_gas(value, "Ggas", s);
     }
 
     // "X gas"
@@ -284,6 +227,28 @@ pub fn parse_gas(s: &str) -> Result<Gas, ParseGasError> {
     Err(ParseGasError::InvalidFormat(s.to_string()))
 }
 
+fn parse_upstream_gas(value: &str, unit: &str, original: &str) -> Result<Gas, ParseGasError> {
+    let numeric_value = value.trim();
+    format!("{numeric_value} {unit}")
+        .parse()
+        .map_err(|error| match error {
+            near_gas::NearGasError::IncorrectNumber(
+                near_gas::DecimalNumberParsingError::InvalidNumber(value),
+            ) => ParseGasError::InvalidNumber(value),
+            near_gas::NearGasError::IncorrectNumber(
+                near_gas::DecimalNumberParsingError::LongWhole(_),
+            ) => ParseGasError::Overflow,
+            near_gas::NearGasError::IncorrectNumber(
+                near_gas::DecimalNumberParsingError::LongFractional(_),
+            ) => ParseGasError::InvalidFormat(format!("Too many decimal places in: {original}")),
+            // The unit is canonical here, so this only happens when malformed
+            // numeric text makes upstream detect the unit boundary too early.
+            near_gas::NearGasError::IncorrectUnit(_) => {
+                ParseGasError::InvalidNumber(numeric_value.to_string())
+            }
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,19 +259,19 @@ mod tests {
 
     #[test]
     fn test_near_token_parsing() {
+        assert_eq!(parse_near_token("5 NEAR").unwrap(), NearToken::from_near(5));
         assert_eq!(
-            parse_near_token("5 NEAR").unwrap().as_yoctonear(),
-            5 * YOCTO_PER_NEAR
+            parse_near_token("1.5 NEAR").unwrap(),
+            NearToken::from_millinear(1500)
         );
         assert_eq!(
-            parse_near_token("1.5 NEAR").unwrap().as_yoctonear(),
-            YOCTO_PER_NEAR + YOCTO_PER_NEAR / 2
+            parse_near_token("100 milliNEAR").unwrap(),
+            NearToken::from_millinear(100)
         );
         assert_eq!(
-            parse_near_token("100 milliNEAR").unwrap().as_yoctonear(),
-            100 * YOCTO_PER_MILLINEAR
+            parse_near_token("1000 yocto").unwrap(),
+            NearToken::from_yoctonear(1000)
         );
-        assert_eq!(parse_near_token("1000 yocto").unwrap().as_yoctonear(), 1000);
     }
 
     #[test]
@@ -319,82 +284,9 @@ mod tests {
 
     #[test]
     fn test_gas_parsing() {
-        assert_eq!(parse_gas("30 Tgas").unwrap().as_gas(), 30 * GAS_PER_TGAS);
-        assert_eq!(parse_gas("5 Ggas").unwrap().as_gas(), 5 * GAS_PER_GGAS);
-        assert_eq!(parse_gas("1000 gas").unwrap().as_gas(), 1000);
-    }
-
-    // ========================================================================
-    // NearToken constructor tests
-    // ========================================================================
-
-    #[test]
-    fn test_near_token_constructors() {
-        assert_eq!(NearToken::from_near(5).as_yoctonear(), 5 * YOCTO_PER_NEAR);
-        assert_eq!(
-            NearToken::from_millinear(500).as_yoctonear(),
-            500 * YOCTO_PER_MILLINEAR
-        );
-        assert_eq!(NearToken::from_yoctonear(1000).as_yoctonear(), 1000);
-    }
-
-    #[test]
-    fn test_near_token_as_near() {
-        assert_eq!(NearToken::from_near(5).as_near(), 5);
-        assert_eq!(NearToken::from_millinear(500).as_near(), 0); // Truncated
-        assert_eq!(NearToken::from_millinear(1500).as_near(), 1); // Truncated
-    }
-
-    #[test]
-    fn test_near_token_is_zero() {
-        assert!(NearToken::from_yoctonear(0).is_zero());
-        assert!(!NearToken::from_yoctonear(1).is_zero());
-    }
-
-    // ========================================================================
-    // NearToken arithmetic tests
-    // ========================================================================
-
-    #[test]
-    fn test_near_token_checked_add() {
-        let a = NearToken::from_near(5);
-        let b = NearToken::from_near(3);
-        assert_eq!(a.checked_add(b).unwrap().as_near(), 8);
-
-        // Overflow
-        let max = NearToken::from_yoctonear(u128::MAX);
-        assert!(max.checked_add(NearToken::from_yoctonear(1)).is_none());
-    }
-
-    #[test]
-    fn test_near_token_checked_sub() {
-        let a = NearToken::from_near(5);
-        let b = NearToken::from_near(3);
-        assert_eq!(a.checked_sub(b).unwrap().as_near(), 2);
-
-        // Underflow
-        assert!(b.checked_sub(a).is_none());
-    }
-
-    #[test]
-    fn test_near_token_saturating_add() {
-        let a = NearToken::from_near(5);
-        let b = NearToken::from_near(3);
-        assert_eq!(a.saturating_add(b).as_near(), 8);
-
-        // Saturates at max
-        let max = NearToken::from_yoctonear(u128::MAX);
-        assert_eq!(max.saturating_add(NearToken::from_yoctonear(1)), max);
-    }
-
-    #[test]
-    fn test_near_token_saturating_sub() {
-        let a = NearToken::from_near(5);
-        let b = NearToken::from_near(3);
-        assert_eq!(a.saturating_sub(b).as_near(), 2);
-
-        // Saturates at zero
-        assert_eq!(b.saturating_sub(a), NearToken::from_yoctonear(0));
+        assert_eq!(parse_gas("30 Tgas").unwrap(), Gas::from_tgas(30));
+        assert_eq!(parse_gas("5 Ggas").unwrap(), Gas::from_ggas(5));
+        assert_eq!(parse_gas("1000 gas").unwrap(), Gas::from_gas(1000));
     }
 
     // ========================================================================
@@ -409,8 +301,8 @@ mod tests {
     #[test]
     fn test_near_token_parse_mnear() {
         assert_eq!(
-            parse_near_token("100 mNEAR").unwrap().as_yoctonear(),
-            100 * YOCTO_PER_MILLINEAR
+            parse_near_token("100 mNEAR").unwrap(),
+            NearToken::from_millinear(100)
         );
     }
 
@@ -425,13 +317,28 @@ mod tests {
     #[test]
     fn test_near_token_parse_decimal_near() {
         assert_eq!(
-            parse_near_token("0.5 NEAR").unwrap().as_yoctonear(),
-            YOCTO_PER_NEAR / 2
+            parse_near_token("0.5 NEAR").unwrap(),
+            NearToken::from_millinear(500)
         );
         assert_eq!(
-            parse_near_token(".25 NEAR").unwrap().as_yoctonear(),
-            YOCTO_PER_NEAR / 4
+            parse_near_token(".25 NEAR").unwrap(),
+            NearToken::from_millinear(250)
         );
+    }
+
+    #[test]
+    fn test_near_token_precision_boundary() {
+        let minimum = format!("0.{}1 NEAR", "0".repeat(23));
+        assert_eq!(
+            parse_near_token(&minimum).unwrap(),
+            NearToken::from_yoctonear(1)
+        );
+
+        let excessive = format!("1.{}1 NEAR", "0".repeat(24));
+        assert!(matches!(
+            parse_near_token(&excessive),
+            Err(ParseAmountError::InvalidFormat(_))
+        ));
     }
 
     #[test]
@@ -448,117 +355,15 @@ mod tests {
     }
 
     #[test]
-    fn test_near_token_parse_invalid_number() {
+    fn test_near_token_parse_errors() {
         assert!(matches!(
             parse_near_token("abc NEAR"),
             Err(ParseAmountError::InvalidNumber(_))
         ));
-    }
-
-    #[test]
-    fn test_near_token_try_from_str() {
-        let token = "5 NEAR".into_near_token().unwrap();
-        assert_eq!(token.as_near(), 5);
-    }
-
-    // ========================================================================
-    // NearToken serde tests
-    // ========================================================================
-
-    #[test]
-    fn test_near_token_serde_roundtrip() {
-        let amount = NearToken::from_near(5);
-        let json = serde_json::to_string(&amount).unwrap();
-        // Upstream serializes as string (yoctoNEAR)
-        assert_eq!(json, format!("\"{}\"", amount.as_yoctonear()));
-
-        let parsed: NearToken = serde_json::from_str(&json).unwrap();
-        assert_eq!(amount, parsed);
-    }
-
-    #[test]
-    fn test_near_token_borsh_roundtrip() {
-        let amount = NearToken::from_near(10);
-        let bytes = borsh::to_vec(&amount).unwrap();
-        let parsed: NearToken = borsh::from_slice(&bytes).unwrap();
-        assert_eq!(amount, parsed);
-    }
-
-    // ========================================================================
-    // NearToken comparison tests
-    // ========================================================================
-
-    #[test]
-    fn test_near_token_ord() {
-        let small = NearToken::from_near(1);
-        let large = NearToken::from_near(10);
-        assert!(small < large);
-        assert!(large > small);
-        assert!(small <= small);
-        assert!(small >= small);
-    }
-
-    #[test]
-    fn test_near_token_eq() {
-        let a = NearToken::from_near(5);
-        let b = NearToken::from_millinear(5000);
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn test_near_token_hash() {
-        use std::collections::HashSet;
-        let mut set = HashSet::new();
-        set.insert(NearToken::from_near(1));
-        set.insert(NearToken::from_near(2));
-        assert!(set.contains(&NearToken::from_near(1)));
-        assert!(!set.contains(&NearToken::from_near(3)));
-    }
-
-    // ========================================================================
-    // Gas tests
-    // ========================================================================
-
-    #[test]
-    fn test_gas_constructors() {
-        assert_eq!(Gas::from_gas(1000).as_gas(), 1000);
-        assert_eq!(Gas::from_tgas(30).as_gas(), 30 * GAS_PER_TGAS);
-        assert_eq!(Gas::from_ggas(5).as_gas(), 5 * GAS_PER_GGAS);
-    }
-
-    #[test]
-    fn test_gas_as_accessors() {
-        let gas = Gas::from_tgas(30);
-        assert_eq!(gas.as_tgas(), 30);
-        assert_eq!(gas.as_ggas(), 30_000);
-        assert_eq!(gas.as_gas(), 30 * GAS_PER_TGAS);
-    }
-
-    #[test]
-    fn test_gas_is_zero() {
-        assert!(Gas::from_gas(0).is_zero());
-        assert!(!Gas::from_ggas(1).is_zero());
-    }
-
-    #[test]
-    fn test_gas_checked_add() {
-        let a = Gas::from_tgas(10);
-        let b = Gas::from_tgas(20);
-        assert_eq!(a.checked_add(b).unwrap().as_tgas(), 30);
-
-        // Overflow
-        let max = Gas::from_gas(u64::MAX);
-        assert!(max.checked_add(Gas::from_gas(1)).is_none());
-    }
-
-    #[test]
-    fn test_gas_checked_sub() {
-        let a = Gas::from_tgas(30);
-        let b = Gas::from_tgas(10);
-        assert_eq!(a.checked_sub(b).unwrap().as_tgas(), 20);
-
-        // Underflow
-        assert!(b.checked_sub(a).is_none());
+        assert!(matches!(
+            parse_near_token(&format!("{} NEAR", u128::MAX)),
+            Err(ParseAmountError::Overflow)
+        ));
     }
 
     #[test]
@@ -576,6 +381,23 @@ mod tests {
     }
 
     #[test]
+    fn test_gas_parse_decimal() {
+        assert_eq!(parse_gas("0.5 Tgas").unwrap(), Gas::from_ggas(500));
+    }
+
+    #[test]
+    fn test_gas_precision_boundary() {
+        let minimum = format!("0.{}1 Ggas", "0".repeat(8));
+        assert_eq!(parse_gas(&minimum).unwrap(), Gas::from_gas(1));
+
+        let excessive = format!("1.{}1 Ggas", "0".repeat(9));
+        assert!(matches!(
+            parse_gas(&excessive),
+            Err(ParseGasError::InvalidFormat(_))
+        ));
+    }
+
+    #[test]
     fn test_gas_parse_invalid_format() {
         assert!(matches!(
             parse_gas("30 teragas"),
@@ -584,40 +406,15 @@ mod tests {
     }
 
     #[test]
-    fn test_gas_parse_invalid_number() {
+    fn test_gas_parse_errors() {
         assert!(matches!(
             parse_gas("abc Tgas"),
             Err(ParseGasError::InvalidNumber(_))
         ));
-    }
-
-    #[test]
-    fn test_gas_try_from_str() {
-        let gas = "30 Tgas".into_gas().unwrap();
-        assert_eq!(gas.as_tgas(), 30);
-    }
-
-    #[test]
-    fn test_gas_serde_roundtrip() {
-        let gas = Gas::from_tgas(30);
-        let json = serde_json::to_string(&gas).unwrap();
-        let parsed: Gas = serde_json::from_str(&json).unwrap();
-        assert_eq!(gas, parsed);
-    }
-
-    #[test]
-    fn test_gas_borsh_roundtrip() {
-        let gas = Gas::from_tgas(30);
-        let bytes = borsh::to_vec(&gas).unwrap();
-        let parsed: Gas = borsh::from_slice(&bytes).unwrap();
-        assert_eq!(gas, parsed);
-    }
-
-    #[test]
-    fn test_gas_ord() {
-        let small = Gas::from_tgas(10);
-        let large = Gas::from_tgas(100);
-        assert!(small < large);
+        assert!(matches!(
+            parse_gas(&format!("{} Tgas", u64::MAX)),
+            Err(ParseGasError::Overflow)
+        ));
     }
 
     // ========================================================================
@@ -672,35 +469,5 @@ mod tests {
     fn test_into_gas_from_string_ref() {
         let s = String::from("30 Tgas");
         assert_eq!((&s).into_gas().unwrap(), Gas::from_tgas(30));
-    }
-
-    // ========================================================================
-    // Edge case tests
-    // ========================================================================
-
-    #[test]
-    fn test_near_token_default() {
-        let default = NearToken::default();
-        assert_eq!(default, NearToken::from_yoctonear(0));
-    }
-
-    #[test]
-    fn test_gas_default_trait() {
-        let default = Gas::default();
-        assert_eq!(default, Gas::from_gas(0));
-    }
-
-    #[test]
-    fn test_near_token_debug() {
-        let token = NearToken::from_near(5);
-        let debug = format!("{:?}", token);
-        assert!(debug.contains("NearToken"));
-    }
-
-    #[test]
-    fn test_gas_debug() {
-        let gas = Gas::from_tgas(30);
-        let debug = format!("{:?}", gas);
-        assert!(debug.contains("NearGas"));
     }
 }
