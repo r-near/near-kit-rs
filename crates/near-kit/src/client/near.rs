@@ -1027,11 +1027,7 @@ impl Near {
 
     /// Get a fungible token client for a NEP-141 contract.
     ///
-    /// Accepts either a string/`AccountId` for raw addresses, or a [`KnownToken`]
-    /// constant (like [`standards::USDC`]) which auto-resolves based on the network.
-    ///
-    /// [`KnownToken`]: crate::standards::KnownToken
-    /// [`standards::USDC`]: crate::standards::USDC
+    /// Accepts a string, [`AccountId`], or any other [`TryIntoAccountId`] value.
     ///
     /// # Example
     ///
@@ -1040,36 +1036,29 @@ impl Near {
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::mainnet().build();
     ///
-    /// // Use a known token - auto-resolves based on network
-    /// let usdc = near.ft(standards::USDC)?;
-    ///
-    /// // Or use a raw address
-    /// let custom = near.ft("custom-token.near")?;
+    /// let token = near.ft("wrap.near")?;
     ///
     /// // Get metadata
-    /// let meta = usdc.metadata().await?;
+    /// let meta = token.metadata().await?;
     /// println!("{} ({})", meta.name, meta.symbol);
     ///
     /// // Get balance - returns FtAmount for nice formatting
-    /// let balance = usdc.balance_of("alice.near").await?;
-    /// println!("Balance: {}", balance);  // e.g., "1.5 USDC"
+    /// let balance = token.balance_of("alice.near").await?;
+    /// println!("Balance: {}", balance);
     /// # Ok(())
     /// # }
     /// ```
     pub fn ft(
         &self,
-        contract: impl crate::tokens::IntoContractId,
+        contract: impl TryIntoAccountId,
     ) -> Result<crate::tokens::FungibleToken, Error> {
-        let contract_id = contract.into_contract_id(&self.chain_id)?;
+        let contract_id = contract.try_into_account_id()?;
         Ok(crate::tokens::FungibleToken::new(self.clone(), contract_id))
     }
 
     /// Get a non-fungible token client for a NEP-171 contract.
     ///
-    /// Accepts either a string/`AccountId` for raw addresses, or a contract
-    /// identifier that implements [`IntoContractId`].
-    ///
-    /// [`IntoContractId`]: crate::standards::IntoContractId
+    /// Accepts a string, [`AccountId`], or any other [`TryIntoAccountId`] value.
     ///
     /// # Example
     ///
@@ -1091,9 +1080,9 @@ impl Near {
     /// ```
     pub fn nft(
         &self,
-        contract: impl crate::tokens::IntoContractId,
+        contract: impl TryIntoAccountId,
     ) -> Result<crate::tokens::NonFungibleToken, Error> {
-        let contract_id = contract.into_contract_id(&self.chain_id)?;
+        let contract_id = contract.try_into_account_id()?;
         Ok(crate::tokens::NonFungibleToken::new(
             self.clone(),
             contract_id,
@@ -1403,6 +1392,35 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(deposit_error, Error::ParseAmount(_)));
+    }
+
+    #[test]
+    fn token_helpers_accept_strings_and_account_ids_without_network() {
+        let near = Near::custom("http://127.0.0.1:1", "test").build();
+
+        let ft = near.ft("wrap.testnet").unwrap();
+        assert_eq!(ft.contract_id().as_str(), "wrap.testnet");
+
+        let ft = near.ft(String::from("token.testnet")).unwrap();
+        assert_eq!(ft.contract_id().as_str(), "token.testnet");
+
+        let nft_id: AccountId = "nft.testnet".parse().unwrap();
+        let nft = near.nft(nft_id.clone()).unwrap();
+        assert_eq!(nft.contract_id(), &nft_id);
+
+        let nft = near.nft(&nft_id).unwrap();
+        assert_eq!(nft.contract_id(), &nft_id);
+    }
+
+    #[test]
+    fn invalid_token_contract_ids_return_errors_without_network() {
+        let near = Near::custom("http://127.0.0.1:1", "test").build();
+
+        let ft_error = near.ft("INVALID-UPPERCASE.near").err().unwrap();
+        assert!(matches!(ft_error, Error::ParseAccountId(_)));
+
+        let nft_error = near.nft("has spaces.near").err().unwrap();
+        assert!(matches!(nft_error, Error::ParseAccountId(_)));
     }
 
     // ========================================================================

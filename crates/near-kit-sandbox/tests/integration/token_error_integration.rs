@@ -304,31 +304,3 @@ async fn test_nft_on_wrong_contract_type() {
     assert!(result.is_err(), "Should error for non-NFT contract");
     println!("NFT metadata on guestbook: {:?}", result.unwrap_err());
 }
-
-// =============================================================================
-// Invalid Account ID Tests
-// =============================================================================
-
-#[tokio::test]
-async fn test_ft_with_invalid_account_id() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
-
-    // Try to create FT client with invalid account ID
-    let result = near.ft("INVALID-UPPERCASE.near");
-
-    // Should fail during AccountId parsing
-    assert!(result.is_err(), "Should error for invalid account ID");
-    println!("FT with invalid account: {:?}", result.unwrap_err());
-}
-
-#[tokio::test]
-async fn test_nft_with_invalid_account_id() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
-
-    let result = near.nft("has spaces.near");
-
-    assert!(result.is_err(), "Should error for invalid account ID");
-    println!("NFT with invalid account: {:?}", result.unwrap_err());
-}

@@ -224,10 +224,6 @@
 //!
 //! Built-in support for fungible (NEP-141) and non-fungible (NEP-171) tokens.
 //!
-//! For common tokens like USDC, USDT, and wNEAR, use the provided [`standards`] constants
-//! to avoid copy-pasting addresses. They automatically resolve to the correct address
-//! based on the network:
-//!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
@@ -235,13 +231,9 @@
 //! # async fn example() -> Result<(), Error> {
 //! let near = Near::mainnet().build();
 //!
-//! // Known tokens auto-resolve based on network
-//! let usdc = near.ft(standards::USDC)?;
-//! let balance = usdc.balance_of("alice.near").await?;
-//! println!("Balance: {}", balance);  // "1.50 USDC"
-//!
-//! // Or use raw addresses for any token
-//! let custom = near.ft("my-token.near")?;
+//! let token = near.ft("wrap.near")?;
+//! let balance = token.balance_of("alice.near").await?;
+//! println!("Balance: {}", balance);
 //!
 //! // NFTs (NEP-171)
 //! let nft = near.nft("nft.testnet")?;
@@ -249,8 +241,6 @@
 //! # Ok(())
 //! # }
 //! ```
-//!
-//! Available known tokens: [`standards::USDC`], [`standards::USDT`], [`standards::W_NEAR`]
 //!
 //! ## Typed Contract Interfaces
 //!

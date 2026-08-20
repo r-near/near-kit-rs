@@ -731,10 +731,6 @@ pub enum Error {
 
     #[error("Delegate action decode error: {0}")]
     DelegateDecode(#[from] DelegateDecodeError),
-
-    // ─── Tokens ───
-    #[error("Token {token} is not available on chain {chain_id}")]
-    TokenNotAvailable { token: String, chain_id: String },
 }
 
 impl From<RpcError> for Error {

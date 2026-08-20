@@ -32,15 +32,15 @@ use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 ///
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::mainnet().build();
-/// let usdc = near.ft(standards::USDC)?;
+/// let token = near.ft("wrap.near")?;
 ///
 /// // Get metadata
-/// let meta = usdc.metadata().await?;
+/// let meta = token.metadata().await?;
 /// println!("{} has {} decimals", meta.symbol, meta.decimals);
 ///
 /// // Get balance (returns FtAmount for nice formatting)
-/// let balance = usdc.balance_of("alice.near").await?;
-/// println!("Balance: {}", balance);  // "1.5 USDC"
+/// let balance = token.balance_of("alice.near").await?;
+/// println!("Balance: {}", balance);
 /// # Ok(())
 /// # }
 /// ```
@@ -129,11 +129,11 @@ impl FungibleToken {
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::mainnet().build();
-    /// let usdc = near.ft(standards::USDC)?;
+    /// let token = near.ft("wrap.near")?;
     ///
-    /// let balance = usdc.balance_of("alice.near").await?;
-    /// println!("Balance: {}", balance);  // "1.5 USDC"
-    /// println!("Raw: {}", balance.raw()); // 1500000
+    /// let balance = token.balance_of("alice.near").await?;
+    /// println!("Balance: {}", balance);
+    /// println!("Raw: {}", balance.raw());
     /// # Ok(())
     /// # }
     /// ```
@@ -252,14 +252,14 @@ impl FungibleToken {
     /// let near = Near::mainnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let usdc = near.ft(standards::USDC)?;
+    /// let token = near.ft("wrap.near")?;
     ///
     /// // Register bob with auto-detected minimum deposit
-    /// let bounds = usdc.storage_balance_bounds().await?;
-    /// usdc.storage_deposit("bob.near", bounds.min).await?;
+    /// let bounds = token.storage_balance_bounds().await?;
+    /// token.storage_deposit("bob.near", bounds.min).await?;
     ///
     /// // Or with a known amount
-    /// usdc.storage_deposit("bob.near", NearToken::from_millinear(50)).await?;
+    /// token.storage_deposit("bob.near", NearToken::from_millinear(50)).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -308,14 +308,13 @@ impl FungibleToken {
     /// let near = Near::mainnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let usdc = near.ft(standards::USDC)?;
+    /// let token = near.ft("wrap.near")?;
     ///
-    /// // Transfer 1.5 USDC (raw amount for 6 decimals)
-    /// usdc.transfer("bob.near", 1_500_000_u128).await?;
+    /// token.transfer("bob.near", 1_500_000_u128).await?;
     ///
     /// // Or use an FtAmount from a query
-    /// let balance = usdc.balance_of("alice.near").await?;
-    /// usdc.transfer("bob.near", balance).await?;
+    /// let balance = token.balance_of("alice.near").await?;
+    /// token.transfer("bob.near", balance).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -374,10 +373,9 @@ impl FungibleToken {
     /// let near = Near::mainnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let usdc = near.ft(standards::USDC)?;
+    /// let token = near.ft("wrap.near")?;
     ///
-    /// // Deposit USDC into a DeFi contract
-    /// usdc.transfer_call("defi.near", 1_000_000_u128, r#"{"action":"deposit"}"#)
+    /// token.transfer_call("defi.near", 1_000_000_u128, r#"{"action":"deposit"}"#)
     ///     .await?;
     /// # Ok(())
     /// # }
