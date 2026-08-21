@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** reject options such as `#[call(payable)]`; `#[call]` is now only a
+  marker for change methods, and attached deposits remain explicit call-builder
+  configuration.
+- Resolve the downstream `near-kit` crate name during macro expansion, so generated
+  clients work when the dependency is renamed in `Cargo.toml`.
+- Generate contract clients against near-kit's curated `rpc`, `transaction`, and
+  `signer` facades instead of removed root-level re-exports.
+
 ## [0.12.1](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.12.0...near-kit-macros-v0.12.1) - 2026-08-11
 
 ### Other
