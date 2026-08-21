@@ -1,960 +1,121 @@
-//! Integration tests running against near-sandbox.
-//!
-//! These tests use a shared sandbox instance with unique subaccounts per test,
-//! following the pattern from defuse-sandbox.
-//!
-//! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
+//! Docker lifecycle and sandbox-specific RPC integration tests.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use near_kit::NearToken;
+use near_kit::rpc::SendTxResponse;
+use near_kit::transaction::{Final, Included};
+use near_kit_sandbox::SandboxConfig;
 
-use near_kit::*;
-use near_kit::{rpc::*, signer::*, standards::nep413, transaction::*};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
-
-/// Counter for generating unique subaccount names
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-/// Generate a unique subaccount ID for test isolation
-fn unique_account() -> AccountId {
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("test{}.{}", n, SANDBOX_ROOT_ACCOUNT)
-        .parse()
-        .unwrap()
-}
-
-// =============================================================================
-// Tests
-// =============================================================================
+use super::support::{funded_account, guestbook_wasm, shared_client};
 
 #[tokio::test]
-async fn test_sandbox_balance() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+async fn set_balance_preserves_other_account_fields() {
+    let (sandbox, root) = shared_client().await;
+    let (account, account_id, _) =
+        funded_account(&root, sandbox, "patch", NearToken::from_near(50)).await;
 
-    // Create a test account
-    let account_key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
-
-    root_near
-        .transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(1000))
-        .add_full_access_key(account_key.public_key())
+    account
+        .deploy(guestbook_wasm())
         .send()
         .wait_until::<Final>()
         .await
-        .unwrap();
+        .expect("guestbook deployment");
 
-    let balance = root_near.balance(&account_id).await.unwrap();
-    println!("Test account balance: {}", balance);
-
-    // Should have approximately 1000 NEAR (minus account creation costs)
-    assert!(balance.total > NearToken::from_near(999));
-}
-
-#[tokio::test]
-async fn test_sandbox_transfer() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create sender account
-    let sender_key = SecretKey::generate_ed25519();
-    let sender_id = unique_account();
-
-    root_near
-        .transaction(&sender_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(sender_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Create sender's client
-    let sender_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
-
-    // Generate a new keypair for the receiver
-    let receiver_key = SecretKey::generate_ed25519();
-    let receiver_id: AccountId = format!("receiver.{}", sender_id).parse().unwrap();
-
-    // Create the receiver account
-    let outcome = sender_near
-        .transaction(&receiver_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(receiver_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    println!(
-        "Create account outcome: hash={:?}",
-        outcome.transaction_hash()
-    );
-
-    // Check the receiver's balance
-    let balance = root_near.balance(&receiver_id).await.unwrap();
-    println!("Receiver balance: {}", balance);
-
-    // Should have approximately 10 NEAR (minus storage costs)
-    assert!(balance.total > NearToken::from_near(9));
-    assert!(balance.total < NearToken::from_near(11));
-}
-
-#[tokio::test]
-async fn test_sandbox_multiple_transfers() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create sender account
-    let sender_key = SecretKey::generate_ed25519();
-    let sender_id = unique_account();
-
-    root_near
-        .transaction(&sender_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(sender_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let sender_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
-
-    // Generate keypairs for multiple receivers
-    let receiver1_key = SecretKey::generate_ed25519();
-    let receiver1_id: AccountId = format!("receiver1.{}", sender_id).parse().unwrap();
-
-    let receiver2_key = SecretKey::generate_ed25519();
-    let receiver2_id: AccountId = format!("receiver2.{}", sender_id).parse().unwrap();
-
-    // Create first account
-    sender_near
-        .transaction(&receiver1_id)
-        .create_account()
-        .transfer(NearToken::from_near(5))
-        .add_full_access_key(receiver1_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Create second account
-    sender_near
-        .transaction(&receiver2_id)
-        .create_account()
-        .transfer(NearToken::from_near(3))
-        .add_full_access_key(receiver2_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Check balances
-    let balance1 = root_near.balance(&receiver1_id).await.unwrap();
-    let balance2 = root_near.balance(&receiver2_id).await.unwrap();
-
-    println!("Receiver1 balance: {}", balance1);
-    println!("Receiver2 balance: {}", balance2);
-
-    assert!(balance1.total > NearToken::from_near(4));
-    assert!(balance2.total > NearToken::from_near(2));
-}
-
-#[tokio::test]
-async fn test_sandbox_simple_transfer() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create sender account
-    let sender_key = SecretKey::generate_ed25519();
-    let sender_id = unique_account();
-
-    root_near
-        .transaction(&sender_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(sender_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let sender_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
-
-    // Create a receiver account
-    let receiver_key = SecretKey::generate_ed25519();
-    let receiver_id: AccountId = format!("bob.{}", sender_id).parse().unwrap();
-
-    sender_near
-        .transaction(&receiver_id)
-        .create_account()
-        .transfer(NearToken::from_near(5))
-        .add_full_access_key(receiver_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let initial_balance = root_near.balance(&receiver_id).await.unwrap();
-
-    // Now do a simple transfer using the convenience method
-    sender_near
-        .transfer(&receiver_id, NearToken::from_near(2))
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let final_balance = root_near.balance(&receiver_id).await.unwrap();
-
-    println!("Initial: {}, Final: {}", initial_balance, final_balance);
-
-    // Balance should have increased by ~2 NEAR
-    let diff = final_balance.total.as_yoctonear() - initial_balance.total.as_yoctonear();
-    let expected = NearToken::from_near(2).as_yoctonear();
-    assert!(diff == expected, "Expected +2 NEAR, got diff: {}", diff);
-}
-
-#[tokio::test]
-async fn test_sandbox_create_account_outcome() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create sender account
-    let sender_key = SecretKey::generate_ed25519();
-    let sender_id = unique_account();
-
-    root_near
-        .transaction(&sender_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(sender_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let sender_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
-
-    // Create a contract account
-    let contract_key = SecretKey::generate_ed25519();
-    let contract_id: AccountId = format!("contract.{}", sender_id).parse().unwrap();
-
-    // Create account with funding
-    let outcome = sender_near
-        .transaction(&contract_id)
-        .create_account()
-        .transfer(NearToken::from_near(50))
-        .add_full_access_key(contract_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    println!("Transaction hash: {:?}", outcome.transaction_hash());
-    println!("Gas used: {}", outcome.total_gas_used());
-}
-
-#[tokio::test]
-async fn test_sandbox_delete_account() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create parent account
-    let parent_key = SecretKey::generate_ed25519();
-    let parent_id = unique_account();
-
-    root_near
-        .transaction(&parent_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(parent_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let parent_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&parent_id, parent_key.to_string()).unwrap());
-
-    // Create an account to delete
-    let temp_key = SecretKey::generate_ed25519();
-    let temp_id: AccountId = format!("temporary.{}", parent_id).parse().unwrap();
-
-    parent_near
-        .transaction(&temp_id)
-        .create_account()
-        .transfer(NearToken::from_near(5))
-        .add_full_access_key(temp_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Verify it exists
-    assert!(root_near.account_exists(&temp_id).await.unwrap());
-
-    // Create a new client with the temp account's key to delete it
-    let temp_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&temp_id, temp_key.to_string()).unwrap());
-
-    // Delete the account, sending remaining balance to parent account
-    temp_near
-        .transaction(&temp_id)
-        .delete_account(&parent_id)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Verify it no longer exists
-    assert!(!root_near.account_exists(&temp_id).await.unwrap());
-}
-
-#[tokio::test]
-async fn test_sandbox_add_and_delete_key() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create an account
-    let account_key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
-
-    root_near
-        .transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(5))
-        .add_full_access_key(account_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Create a new client for this account
-    let account_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&account_id, account_key.to_string()).unwrap());
-
-    // Add a second key
-    let second_key = SecretKey::generate_ed25519();
-
-    account_near
-        .transaction(&account_id)
-        .add_full_access_key(second_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Check that both keys exist
-    let keys = account_near.access_keys(&account_id).await.unwrap();
-    assert_eq!(keys.keys.len(), 2);
-
-    // Delete the second key
-    account_near
-        .transaction(&account_id)
-        .delete_key(second_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Check that only one key remains
-    let keys = account_near.access_keys(&account_id).await.unwrap();
-    assert_eq!(keys.keys.len(), 1);
-}
-
-#[tokio::test]
-async fn test_sandbox_multiple_actions_in_one_transaction() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create parent account
-    let parent_key = SecretKey::generate_ed25519();
-    let parent_id = unique_account();
-
-    root_near
-        .transaction(&parent_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(parent_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let parent_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&parent_id, parent_key.to_string()).unwrap());
-
-    // Create two accounts in separate transactions
-    let alice_key = SecretKey::generate_ed25519();
-    let alice_id: AccountId = format!("alice.{}", parent_id).parse().unwrap();
-
-    let bob_key = SecretKey::generate_ed25519();
-    let bob_id: AccountId = format!("bob.{}", parent_id).parse().unwrap();
-
-    // Create alice
-    parent_near
-        .transaction(&alice_id)
-        .create_account()
-        .transfer(NearToken::from_near(20))
-        .add_full_access_key(alice_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Create bob
-    parent_near
-        .transaction(&bob_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(bob_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Verify both exist
-    assert!(root_near.account_exists(&alice_id).await.unwrap());
-    assert!(root_near.account_exists(&bob_id).await.unwrap());
-
-    let alice_balance = root_near.balance(&alice_id).await.unwrap();
-    let bob_balance = root_near.balance(&bob_id).await.unwrap();
-
-    println!("Alice: {}, Bob: {}", alice_balance, bob_balance);
-
-    assert!(alice_balance.total > NearToken::from_near(19));
-    assert!(bob_balance.total > NearToken::from_near(9));
-}
-
-// =============================================================================
-// Sandbox State Patching Tests
-// =============================================================================
-
-#[tokio::test]
-async fn test_sandbox_set_balance() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create a test account with a small balance
-    let account_key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
-
-    root_near
-        .transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(account_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let initial_balance = root_near.balance(&account_id).await.unwrap();
-    println!("Initial balance: {}", initial_balance.total);
-    assert!(initial_balance.total < NearToken::from_near(11));
-
-    // Use sandbox state patching to set a much larger balance
-    let target_balance = NearToken::from_near(1_000_000);
-    sandbox
-        .set_balance(&account_id, target_balance)
-        .await
-        .unwrap();
-
-    // Verify the balance was updated
-    let new_balance = root_near.balance(&account_id).await.unwrap();
-    println!("New balance after patching: {}", new_balance.total);
-    assert_eq!(new_balance.total, target_balance);
-}
-
-#[tokio::test]
-async fn test_sandbox_set_balance_preserves_other_fields() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create an account and deploy a contract to it
-    let account_key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
-
-    let wasm_code =
-        std::fs::read("tests/contracts/guestbook.wasm").expect("failed to read test contract");
-
-    root_near
-        .transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(50))
-        .add_full_access_key(account_key.public_key())
-        .deploy(wasm_code)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Get original account state
-    let original = root_near.account(&account_id).await.unwrap();
-    println!("Original code_hash: {}", original.code_hash);
-    println!("Original storage_usage: {}", original.storage_usage);
-
-    // Patch the balance
+    let original = root.account(&account_id).await.expect("original account");
     let target_balance = NearToken::from_near(500_000);
     sandbox
         .set_balance(&account_id, target_balance)
         .await
-        .unwrap();
+        .expect("balance patch");
 
-    // Verify the balance was updated but other fields preserved
-    let updated = root_near.account(&account_id).await.unwrap();
+    let updated = root.account(&account_id).await.expect("patched account");
     assert_eq!(updated.amount, target_balance);
-    assert_eq!(
-        updated.code_hash, original.code_hash,
-        "code_hash should be preserved"
-    );
-    assert_eq!(
-        updated.storage_usage, original.storage_usage,
-        "storage_usage should be preserved"
-    );
+    assert_eq!(updated.code_hash, original.code_hash);
+    assert_eq!(updated.storage_usage, original.storage_usage);
 
-    // Verify the contract still works
-    let account_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&account_id, account_key.to_string()).unwrap());
-
-    let messages: Vec<serde_json::Value> = account_near
+    let messages: Vec<serde_json::Value> = account
         .view(&account_id, "get_messages")
         .args(serde_json::json!({}))
         .await
-        .unwrap();
+        .expect("contract remains callable after patch");
     assert!(messages.is_empty());
 }
 
 #[tokio::test]
-async fn test_sandbox_set_balance_for_staking() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+async fn builder_wait_until_included_returns_send_response() {
+    let (sandbox, root) = shared_client().await;
+    let (sender, sender_id, _) =
+        funded_account(&root, sandbox, "included", NearToken::from_near(20)).await;
+    let (_, receiver_id, _) =
+        funded_account(&root, sandbox, "includedrecv", NearToken::from_near(1)).await;
 
-    // Create a validator account with small initial balance
-    let validator_key = SecretKey::generate_ed25519();
-    let validator_id = unique_account();
-
-    root_near
-        .transaction(&validator_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(validator_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Patch the balance to 2M NEAR (enough to meet sandbox minimum stake of ~800K)
-    let staking_balance = NearToken::from_near(2_000_000);
-    sandbox
-        .set_balance(&validator_id, staking_balance)
-        .await
-        .unwrap();
-
-    // Verify the patched balance
-    let balance = root_near.balance(&validator_id).await.unwrap();
-    assert_eq!(balance.total, staking_balance);
-
-    // Now we can actually stake with enough to meet the minimum
-    let validator_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&validator_id, validator_key.to_string()).unwrap());
-
-    let stake_amount = NearToken::from_near(1_000_000);
-    let outcome = validator_near
-        .transaction(&validator_id)
-        .stake(stake_amount, validator_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    println!("Stake transaction: {:?}", outcome.transaction_hash());
-
-    // Verify locked balance reflects the stake
-    let account = root_near.account(&validator_id).await.unwrap();
-    println!("Locked balance after staking: {}", account.locked);
-    assert!(account.locked >= stake_amount);
-}
-
-#[tokio::test]
-async fn test_sandbox_patch_debug() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create a test account
-    let account_key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
-
-    root_near
-        .transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(account_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Get current state
-    let current = root_near.account(&account_id).await.unwrap();
-    println!("Current account: {:?}", current);
-
-    // Build the records JSON manually
-    let target_balance = NearToken::from_near(1_000_000);
-    let records = serde_json::json!([
-        {
-            "Account": {
-                "account_id": account_id.to_string(),
-                "account": {
-                    "amount": target_balance.as_yoctonear().to_string(),
-                    "locked": current.locked.as_yoctonear().to_string(),
-                    "code_hash": current.code_hash.to_string(),
-                    "storage_usage": current.storage_usage
-                }
-            }
-        }
-    ]);
-    println!(
-        "Sending records: {}",
-        serde_json::to_string_pretty(&records).unwrap()
-    );
-
-    // Call patch directly
-    let result = root_near.rpc().sandbox_patch_state(records.clone()).await;
-    println!("Patch result: {:?}", result);
-
-    // Check balance
-    let new_balance = root_near.balance(&account_id).await.unwrap();
-    println!("New balance: {:?}", new_balance);
-    println!("Expected: {:?}", target_balance);
-}
-
-// =============================================================================
-// sign_message and pre-signed transaction tests
-// =============================================================================
-
-#[tokio::test]
-async fn test_sign_message_nep413() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create an account with a signer
-    let account_key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
-
-    root_near
-        .transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(account_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let account_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&account_id, account_key.to_string()).unwrap());
-
-    // Sign a message using NEP-413
-    let params = nep413::SignMessageParams {
-        message: "Login to MyApp".to_string(),
-        recipient: "myapp.example.com".to_string(),
-        nonce: nep413::generate_nonce(),
-        callback_url: None,
-        state: None,
-    };
-
-    let signed = account_near.sign_message(params.clone()).await.unwrap();
-
-    // Verify the signed message
-    assert_eq!(signed.account_id, account_id);
-    assert_eq!(signed.public_key, account_key.public_key());
-
-    // Verify the signature is valid using the nep413::verify_signature function
-    let is_valid = nep413::verify_signature(&signed, &params, std::time::Duration::MAX);
-    assert!(is_valid, "Signature should be valid");
-
-    println!("Signed message by: {}", signed.account_id);
-    println!("Public key: {}", signed.public_key);
-}
-
-#[tokio::test]
-async fn test_sign_message_without_signer_fails() {
-    let near = Near::testnet().build();
-
-    let params = nep413::SignMessageParams {
-        message: "Login".to_string(),
-        recipient: "example.com".to_string(),
-        nonce: nep413::generate_nonce(),
-        callback_url: None,
-        state: None,
-    };
-
-    let result = near.sign_message(params).await;
-    assert!(result.is_err());
-    match result {
-        Err(Error::NoSigner) => {}
-        _ => panic!("Expected NoSigner error"),
-    }
-}
-
-#[tokio::test]
-async fn test_signed_send_wait_until_final() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create sender account
-    let sender_key = SecretKey::generate_ed25519();
-    let sender_id = unique_account();
-
-    root_near
-        .transaction(&sender_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(sender_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let sender_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
-
-    // Create receiver account
-    let receiver_key = SecretKey::generate_ed25519();
-    let receiver_id: AccountId = format!("recv.{}", sender_id).parse().unwrap();
-
-    sender_near
-        .transaction(&receiver_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(receiver_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Sign a transaction offline
-    let signed = sender_near
-        .transfer(&receiver_id, NearToken::from_near(5))
-        .sign()
-        .await
-        .unwrap();
-
-    println!("Signed transaction hash: {}", signed.get_hash());
-
-    // Select Final in type position; the response type follows the wait level.
-    let outcome: FinalExecutionOutcome = sender_near
-        .send(&signed)
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    println!("Transaction succeeded: {:?}", outcome.transaction_hash());
-
-    // Verify the transfer happened
-    let balance = root_near.balance(&receiver_id).await.unwrap();
-    println!("Receiver balance: {}", balance.total);
-    assert!(balance.total > NearToken::from_near(14));
-}
-
-#[tokio::test]
-async fn test_signed_send_wait_until_included_returns_send_tx_response() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create sender account
-    let sender_key = SecretKey::generate_ed25519();
-    let sender_id = unique_account();
-
-    root_near
-        .transaction(&sender_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(sender_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let sender_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
-
-    // Create receiver account
-    let receiver_key = SecretKey::generate_ed25519();
-    let receiver_id: AccountId = format!("recv-inc.{}", sender_id).parse().unwrap();
-
-    sender_near
-        .transaction(&receiver_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(receiver_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Sign and send with Included — returns SendTxResponse, not FinalExecutionOutcome
-    let signed = sender_near
-        .transfer(&receiver_id, NearToken::from_near(1))
-        .sign()
-        .await
-        .unwrap();
-
-    let response: SendTxResponse = sender_near
-        .send(&signed)
-        .wait_until::<Included>()
-        .await
-        .unwrap();
-
-    // SendTxResponse has transaction_hash and sender_id
-    assert!(!response.transaction_hash.is_zero());
-    assert_eq!(response.sender_id, signed.transaction.signer_id);
-}
-
-#[tokio::test]
-async fn test_wait_until_included_on_builder() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create sender account
-    let sender_key = SecretKey::generate_ed25519();
-    let sender_id = unique_account();
-
-    root_near
-        .transaction(&sender_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(sender_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let sender_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
-
-    // Create receiver account
-    let receiver_key = SecretKey::generate_ed25519();
-    let receiver_id: AccountId = format!("recv-inc2.{}", sender_id).parse().unwrap();
-
-    sender_near
-        .transaction(&receiver_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(receiver_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Use Included directly on the builder — this was the original bug path
-    let response: SendTxResponse = sender_near
+    let response: SendTxResponse = sender
         .transfer(&receiver_id, NearToken::from_near(1))
         .wait_until::<Included>()
         .await
-        .unwrap();
+        .expect("included transfer");
 
     assert!(!response.transaction_hash.is_zero());
-    assert_eq!(response.sender_id.as_str(), sender_id.as_str());
+    assert_eq!(response.sender_id, sender_id);
 }
 
 #[tokio::test]
-async fn test_send_pre_signed_transaction() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+async fn pre_signed_transaction_is_accepted() {
+    let (sandbox, root) = shared_client().await;
+    let (sender, _, _) =
+        funded_account(&root, sandbox, "presigned", NearToken::from_near(20)).await;
+    let (_, receiver_id, _) =
+        funded_account(&root, sandbox, "presignedrecv", NearToken::from_near(1)).await;
+    let before = root.balance(&receiver_id).await.expect("receiver balance");
 
-    // Create sender account
-    let sender_key = SecretKey::generate_ed25519();
-    let sender_id = unique_account();
-
-    root_near
-        .transaction(&sender_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(sender_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let sender_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&sender_id, sender_key.to_string()).unwrap());
-
-    // Create receiver account
-    let receiver_key = SecretKey::generate_ed25519();
-    let receiver_id: AccountId = format!("recv2.{}", sender_id).parse().unwrap();
-
-    sender_near
-        .transaction(&receiver_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(receiver_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Sign a transaction offline
-    let signed = sender_near
+    let signed = sender
         .transfer(&receiver_id, NearToken::from_near(2))
         .sign()
         .await
-        .unwrap();
+        .expect("signed transaction");
+    let outcome = sender.send(&signed).await.expect("pre-signed submission");
 
-    // Use the simple send() method (uses ExecutedOptimistic by default)
-    let outcome = sender_near.send(&signed).await.unwrap();
-
-    println!("Transaction completed: {:?}", outcome.transaction_hash());
+    assert!(outcome.is_success());
+    let after = root.balance(&receiver_id).await.expect("receiver balance");
+    assert_eq!(
+        after.total.as_yoctonear() - before.total.as_yoctonear(),
+        NearToken::from_near(2).as_yoctonear()
+    );
 }
 
 #[tokio::test]
-async fn test_sandbox_custom_chain_id() {
+async fn custom_chain_id_reaches_the_client() {
     let sandbox = SandboxConfig::builder()
         .chain_id("pinet")
         .fresh()
         .await
-        .unwrap();
+        .expect("custom-chain sandbox");
     let near = sandbox.client();
 
     assert_eq!(near.chain_id().as_str(), "pinet");
-
-    let balance = near.balance("sandbox").await.unwrap();
-    assert!(balance.total > NearToken::from_near(1));
+    assert!(near.balance("sandbox").await.expect("root balance").total > NearToken::from_near(1));
 }
 
 #[tokio::test]
-async fn test_sandbox_fast_forward() {
-    let sandbox = SandboxConfig::fresh().await.unwrap();
+async fn fast_forward_advances_block_height() {
+    let sandbox = SandboxConfig::fresh().await.expect("fresh sandbox");
     let near = sandbox.client();
+    let before = near
+        .rpc()
+        .status()
+        .await
+        .expect("status before fast-forward")
+        .sync_info
+        .latest_block_height;
 
-    // Get the current block height
-    let status_before = near.rpc().status().await.unwrap();
-    let height_before = status_before.sync_info.latest_block_height;
-
-    // Fast-forward by 100 blocks
-    sandbox.fast_forward(100).await.unwrap();
-
-    // The sandbox RPC returns before the fast-forward is fully applied,
-    // so wait briefly for it to finish (known nearcore issue).
+    sandbox.fast_forward(100).await.expect("fast-forward");
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-    // Verify the block height advanced
-    let status_after = near.rpc().status().await.unwrap();
-    let height_after = status_after.sync_info.latest_block_height;
-
-    assert!(
-        height_after >= height_before + 100,
-        "Expected block height to advance by at least 100: before={}, after={}",
-        height_before,
-        height_after
-    );
+    let after = near
+        .rpc()
+        .status()
+        .await
+        .expect("status after fast-forward")
+        .sync_info
+        .latest_block_height;
+    assert!(after >= before + 100, "before={before}, after={after}");
 }

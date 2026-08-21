@@ -14,23 +14,10 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use near_kit::*;
 use near_kit::{protocol::*, rpc::*, signer::*, transaction::Final};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 
-/// The 2.13 sandbox image this test is written against.
-const SANDBOX_VERSION: &str = "2.13.0-rc.2";
-
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-fn unique_account(prefix: &str) -> AccountId {
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("{}{}.{}", prefix, n, SANDBOX_ROOT_ACCOUNT)
-        .parse()
-        .unwrap()
-}
+use super::support::{sandbox_2_13, unique_account};
 
 /// Read a gas key's parallel nonces via the stabilized `query` RPC shape.
 async fn view_gas_key_nonces(
@@ -49,11 +36,7 @@ async fn view_gas_key_nonces(
 async fn test_gas_key_signed_transaction() {
     // Pin to a known 2.13 image; fresh + isolated so this WP isn't blocked on the
     // default-version bump.
-    let sandbox = SandboxConfig::builder()
-        .version(SANDBOX_VERSION)
-        .fresh()
-        .await
-        .unwrap();
+    let sandbox = sandbox_2_13().await;
     let root_near = sandbox.client();
 
     // --- 1. Owner account with an ordinary full-access key. -----------------

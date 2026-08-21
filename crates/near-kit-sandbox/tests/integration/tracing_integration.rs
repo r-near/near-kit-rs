@@ -5,24 +5,14 @@
 //! child RPC/nonce spans appear inside the expected parent spans.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use near_kit::*;
 use near_kit::{signer::*, transaction::Final};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 use tracing::span::Id;
 use tracing_subscriber::layer::SubscriberExt;
 
-/// Counter for generating unique subaccount names
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-fn unique_account() -> AccountId {
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("trace{}.{}", n, SANDBOX_ROOT_ACCOUNT)
-        .parse()
-        .unwrap()
-}
+use super::support::{fungible_token_wasm, unique_account};
 
 // =============================================================================
 // Capturing Layer
@@ -180,12 +170,11 @@ async fn test_send_transaction_span_hierarchy() {
     let subscriber = tracing_subscriber::registry().with(layer);
     let _guard = tracing::subscriber::set_default(subscriber);
 
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (_, root_near) = super::support::shared_client().await;
 
     // Create a test account — this exercises send_transaction + RPC spans
     let account_key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
+    let account_id = unique_account("trace");
 
     root_near
         .transaction(&account_id)
@@ -250,11 +239,10 @@ async fn test_sign_transaction_span_hierarchy() {
     let subscriber = tracing_subscriber::registry().with(layer);
     let _guard = tracing::subscriber::set_default(subscriber);
 
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (_, root_near) = super::support::shared_client().await;
 
     let account_key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
+    let account_id = unique_account("trace");
 
     // Use .sign() to exercise sign_transaction span
     let _signed = root_near
@@ -298,22 +286,18 @@ async fn test_function_call_span_fields() {
     let subscriber = tracing_subscriber::registry().with(layer);
     let _guard = tracing::subscriber::set_default(subscriber);
 
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     // Deploy FT contract
     let ft_key = SecretKey::generate_ed25519();
-    let ft_id = unique_account();
+    let ft_id = unique_account("trace");
 
     root_near
         .transaction(&ft_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(ft_key.public_key())
-        .deploy(
-            std::fs::read("tests/contracts/fungible_token.wasm")
-                .expect("fungible_token.wasm not found"),
-        )
+        .deploy(fungible_token_wasm())
         .send()
         .wait_until::<Final>()
         .await
@@ -379,13 +363,12 @@ async fn test_ft_balance_of_span_hierarchy() {
     let subscriber = tracing_subscriber::registry().with(layer);
     let _guard = tracing::subscriber::set_default(subscriber);
 
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     // Deploy an FT contract
     let ft_key = SecretKey::generate_ed25519();
-    let ft_id = unique_account();
-    let owner_id = unique_account();
+    let ft_id = unique_account("trace");
+    let owner_id = unique_account("trace");
     let owner_key = SecretKey::generate_ed25519();
 
     // Create owner account
@@ -400,8 +383,7 @@ async fn test_ft_balance_of_span_hierarchy() {
         .unwrap();
 
     // Deploy FT contract
-    let wasm = std::fs::read("tests/contracts/fungible_token.wasm")
-        .expect("fungible_token.wasm not found");
+    let wasm = fungible_token_wasm();
 
     root_near
         .transaction(&ft_id)

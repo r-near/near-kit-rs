@@ -10,30 +10,14 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use near_kit::*;
 use near_kit::{protocol::*, rpc::*, signer::*, transaction::Final};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 
-const SANDBOX_VERSION: &str = "2.13.0-rc.2";
-
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-fn unique_account(prefix: &str) -> AccountId {
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("{}{}.{}", prefix, n, SANDBOX_ROOT_ACCOUNT)
-        .parse()
-        .unwrap()
-}
+use super::support::{sandbox_2_13, unique_account};
 
 #[tokio::test]
 async fn test_delegate_v2_relay() {
-    let sandbox = SandboxConfig::builder()
-        .version(SANDBOX_VERSION)
-        .fresh()
-        .await
-        .unwrap();
+    let sandbox = sandbox_2_13().await;
     let root_near = sandbox.client();
 
     // --- Accounts: sender (signs the meta-tx), relayer (pays gas), recipient.

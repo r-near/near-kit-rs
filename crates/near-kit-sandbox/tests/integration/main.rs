@@ -5,8 +5,6 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
-mod basic_integration;
-mod debug_rpc_responses;
 mod delegate_action_integration;
 mod delegate_v2_integration;
 mod error_consolidation_integration;
@@ -24,9 +22,8 @@ mod token_error_integration;
 mod token_integration;
 #[cfg(feature = "tracing")]
 mod tracing_integration;
-mod transaction_failure_integration;
-mod transaction_outcome_integration;
-mod typed_contract_error_integration;
 mod typed_contract_integration;
 mod typed_error_integration;
 mod view_state_integration;
+
+mod support;

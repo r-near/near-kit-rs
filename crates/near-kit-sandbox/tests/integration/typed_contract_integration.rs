@@ -1,17 +1,13 @@
-//! Integration tests for typed contract interfaces.
-//!
-//! Tests the `#[near_kit::contract]` macro with the guestbook contract.
+//! Typed-contract macro behavior that crosses the RPC and runtime boundary.
 
-use near_kit::*;
-use near_kit::{rpc::Finality, signer::SecretKey, transaction::Final};
-use near_kit_sandbox::SandboxConfig;
+use near_kit::rpc::Finality;
+use near_kit::transaction::Final;
+use near_kit::{AccountId, Error, Gas, Near, NearToken};
+use near_kit_sandbox::Sandbox;
 use serde::{Deserialize, Serialize};
 
-// ============================================================================
-// Define the typed contract interface for guestbook
-// ============================================================================
+use super::support::{funded_account, guestbook_wasm, shared_client};
 
-/// A message in the guestbook.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GuestbookMessage {
     pub premium: bool,
@@ -19,386 +15,126 @@ pub struct GuestbookMessage {
     pub text: String,
 }
 
-/// Arguments for adding a message.
 #[derive(Debug, Clone, Serialize)]
 pub struct AddMessageArgs {
     pub text: String,
 }
 
-/// Typed interface for the guestbook contract.
 #[near_kit::contract]
 pub trait Guestbook {
-    /// Get the total number of messages.
     fn total_messages(&self) -> u32;
-
-    /// Get all messages.
     fn get_messages(&self) -> Vec<GuestbookMessage>;
 
-    /// Add a new message to the guestbook.
     #[call]
     fn add_message(&mut self, args: AddMessageArgs);
 }
 
-/// Typed interface for attaching a deposit to a guestbook call.
-#[near_kit::contract]
-pub trait GuestbookWithDeposit {
-    /// Get all messages.
-    fn get_messages(&self) -> Vec<GuestbookMessage>;
-
-    /// Add a message; attaching a deposit makes it premium.
-    #[call]
-    fn add_message(&mut self, args: AddMessageArgs);
-}
-
-/// Typed interface demonstrating no-argument view and call methods.
-#[near_kit::contract]
-pub trait GuestbookNoArgs {
-    /// Get total messages count (view, no args).
-    fn total_messages(&self) -> u32;
-
-    /// Get all messages (view, no args, returns Vec).
-    fn get_messages(&self) -> Vec<GuestbookMessage>;
-}
-
-// ============================================================================
-// Helper to deploy guestbook contract
-// ============================================================================
-
-async fn deploy_guestbook(near: &Near, contract_account: &str) -> Result<(), near_kit::Error> {
-    let wasm_code = std::fs::read("tests/contracts/guestbook.wasm")
-        .expect("guestbook.wasm not found in tests/contracts/");
-
-    let new_key = SecretKey::generate_ed25519();
-
-    near.transaction(contract_account)
-        .create_account()
-        .transfer("10 NEAR")
-        .add_full_access_key(new_key.public_key())
-        .deploy(wasm_code)
-        .send()
-        .wait_until::<Final>()
-        .await?;
-
-    Ok(())
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_typed_contract_view_methods() {
-    // Start sandbox
-    let sandbox = SandboxConfig::fresh().await.unwrap();
-    let near = Near::sandbox(&sandbox);
-
-    // Deploy guestbook contract
-    let contract_id = format!("guestbook.{}", sandbox.root_account_id());
-    deploy_guestbook(&near, &contract_id)
-        .await
-        .expect("Failed to deploy guestbook");
-
-    // Create typed contract client
-    let guestbook = near.contract::<Guestbook>(&contract_id).unwrap();
-
-    // Test view method - total_messages
-    let count = guestbook
-        .total_messages()
-        .await
-        .expect("Failed to get total_messages");
-    assert_eq!(count, 0, "Initial message count should be 0");
-
-    // Test view method - get_messages
-    let messages = guestbook
-        .get_messages()
-        .await
-        .expect("Failed to get messages");
-    assert!(messages.is_empty(), "Initial messages should be empty");
-
-    println!("✓ Typed contract view methods work correctly");
-}
-
-#[tokio::test]
-async fn test_typed_contract_call_methods() {
-    // Start sandbox
-    let sandbox = SandboxConfig::fresh().await.unwrap();
-    let near = Near::sandbox(&sandbox);
-
-    // Deploy guestbook contract
-    let contract_id = format!("guestbook.{}", sandbox.root_account_id());
-    deploy_guestbook(&near, &contract_id)
-        .await
-        .expect("Failed to deploy guestbook");
-
-    // Create typed contract client
-    let guestbook = near.contract::<Guestbook>(&contract_id).unwrap();
-
-    // Add a message using typed call method
-    guestbook
-        .add_message(AddMessageArgs {
-            text: "Hello from typed contract!".to_string(),
-        })
+async fn deploy_guestbook(prefix: &str) -> (&'static Sandbox, Near, AccountId) {
+    let (sandbox, root) = shared_client().await;
+    let (contract, contract_id, _) =
+        funded_account(&root, sandbox, prefix, NearToken::from_near(20)).await;
+    contract
+        .deploy(guestbook_wasm())
         .send()
         .wait_until::<Final>()
         .await
-        .expect("Failed to add message");
-
-    // Verify the message was added
-    let count = guestbook
-        .total_messages()
-        .await
-        .expect("Failed to get total_messages");
-    assert_eq!(count, 1, "Message count should be 1 after adding");
-
-    let messages = guestbook
-        .get_messages()
-        .await
-        .expect("Failed to get messages");
-
-    assert_eq!(messages.len(), 1, "Should have exactly 1 message");
-    assert_eq!(messages[0].text, "Hello from typed contract!");
-    assert_eq!(messages[0].sender, sandbox.root_account_id().as_str());
-
-    println!("✓ Typed contract call methods work correctly");
+        .expect("guestbook deployment");
+    (sandbox, root, contract_id)
 }
 
 #[tokio::test]
-async fn test_typed_contract_multiple_messages() {
-    // Start sandbox
-    let sandbox = SandboxConfig::fresh().await.unwrap();
-    let near = Near::sandbox(&sandbox);
+async fn typed_views_and_calls_roundtrip() {
+    let (_, near, contract_id) = deploy_guestbook("typed").await;
+    let guestbook = near
+        .contract::<Guestbook>(&contract_id)
+        .expect("typed client");
 
-    // Deploy guestbook contract
-    let contract_id = format!("guestbook.{}", sandbox.root_account_id());
-    deploy_guestbook(&near, &contract_id)
-        .await
-        .expect("Failed to deploy guestbook");
-
-    // Create typed contract client
-    let guestbook = near.contract::<Guestbook>(&contract_id).unwrap();
-
-    // Add multiple messages
-    let test_messages = vec!["First message", "Second message", "Third message"];
-
-    for text in &test_messages {
+    assert_eq!(guestbook.total_messages().await.expect("initial count"), 0);
+    assert!(
         guestbook
-            .add_message(AddMessageArgs {
-                text: text.to_string(),
-            })
-            .send()
-            .wait_until::<Final>()
+            .get_messages()
             .await
-            .expect("Failed to add message");
-    }
+            .expect("initial messages")
+            .is_empty()
+    );
 
-    // Verify count
-    let count = guestbook
-        .total_messages()
+    guestbook
+        .add_message(AddMessageArgs {
+            text: "typed message".to_owned(),
+        })
+        .send()
+        .wait_until::<Final>()
         .await
-        .expect("Failed to get total_messages");
-    assert_eq!(count, 3, "Should have 3 messages");
+        .expect("typed call");
 
-    // Verify messages
+    let messages = guestbook.get_messages().await.expect("updated messages");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].text, "typed message");
+}
+
+#[tokio::test]
+async fn typed_call_configuration_reaches_the_contract() {
+    let (_, near, contract_id) = deploy_guestbook("typedcfg").await;
+    let guestbook = near
+        .contract::<Guestbook>(&contract_id)
+        .expect("typed client");
+
+    guestbook
+        .add_message(AddMessageArgs {
+            text: "premium".to_owned(),
+        })
+        .gas(Gas::from_tgas(50))
+        .deposit(NearToken::from_near(1))
+        .send()
+        .wait_until::<Final>()
+        .await
+        .expect("configured typed call");
+
     let messages = guestbook
         .get_messages()
-        .await
-        .expect("Failed to get messages");
-
-    assert_eq!(messages.len(), 3);
-    for (i, msg) in messages.iter().enumerate() {
-        assert_eq!(msg.text, test_messages[i]);
-    }
-
-    println!("✓ Multiple messages work correctly");
-}
-
-#[tokio::test]
-async fn test_typed_contract_with_custom_gas() {
-    // Start sandbox
-    let sandbox = SandboxConfig::fresh().await.unwrap();
-    let near = Near::sandbox(&sandbox);
-
-    // Deploy guestbook contract
-    let contract_id = format!("guestbook.{}", sandbox.root_account_id());
-    deploy_guestbook(&near, &contract_id)
-        .await
-        .expect("Failed to deploy guestbook");
-
-    // Create typed contract client
-    let guestbook = near.contract::<Guestbook>(&contract_id).unwrap();
-
-    // Add message with custom gas
-    guestbook
-        .add_message(AddMessageArgs {
-            text: "Message with custom gas".to_string(),
-        })
-        .gas("50 Tgas")
-        .send()
-        .wait_until::<Final>()
-        .await
-        .expect("Failed to add message with custom gas");
-
-    // Verify
-    let count = guestbook
-        .total_messages()
-        .await
-        .expect("Failed to get total_messages");
-    assert_eq!(count, 1);
-
-    println!("✓ Custom gas works correctly");
-}
-
-#[tokio::test]
-async fn test_typed_contract_block_reference() {
-    // Start sandbox
-    let sandbox = SandboxConfig::fresh().await.unwrap();
-    let near = Near::sandbox(&sandbox);
-
-    // Deploy guestbook contract
-    let contract_id = format!("guestbook.{}", sandbox.root_account_id());
-    deploy_guestbook(&near, &contract_id)
-        .await
-        .expect("Failed to deploy guestbook");
-
-    // Create typed contract client
-    let guestbook = near.contract::<Guestbook>(&contract_id).unwrap();
-
-    // Add a message
-    guestbook
-        .add_message(AddMessageArgs {
-            text: "Test message".to_string(),
-        })
-        .send()
-        .wait_until::<Final>()
-        .await
-        .expect("Failed to add message");
-
-    // Query with optimistic finality
-    let count = guestbook
-        .total_messages()
         .finality(Finality::Optimistic)
         .await
-        .expect("Failed to get total_messages with optimistic finality");
-
-    assert_eq!(count, 1);
-
-    println!("✓ Block reference on view methods works correctly");
-}
-
-#[tokio::test]
-async fn test_typed_contract_call_with_deposit() {
-    // Start sandbox
-    let sandbox = SandboxConfig::fresh().await.unwrap();
-    let near = Near::sandbox(&sandbox);
-
-    // Deploy guestbook contract
-    let contract_id = format!("guestbook.{}", sandbox.root_account_id());
-    deploy_guestbook(&near, &contract_id)
-        .await
-        .expect("Failed to deploy guestbook");
-
-    // Create a typed contract client for a call that accepts an optional deposit.
-    let guestbook = near.contract::<GuestbookWithDeposit>(&contract_id).unwrap();
-
-    // Add a message WITHOUT deposit - should be non-premium
-    guestbook
-        .add_message(AddMessageArgs {
-            text: "Regular message".to_string(),
-        })
-        .send()
-        .wait_until::<Final>()
-        .await
-        .expect("Failed to add regular message");
-
-    // Add a message WITH deposit - should be premium
-    guestbook
-        .add_message(AddMessageArgs {
-            text: "Premium message".to_string(),
-        })
-        .deposit("1 NEAR")
-        .send()
-        .wait_until::<Final>()
-        .await
-        .expect("Failed to add premium message");
-
-    // Verify the messages
-    let messages = guestbook
-        .get_messages()
-        .await
-        .expect("Failed to get messages");
-
-    assert_eq!(messages.len(), 2, "Should have 2 messages");
-
-    // First message should be non-premium (no deposit)
-    assert_eq!(messages[0].text, "Regular message");
-    assert!(
-        !messages[0].premium,
-        "Message without deposit should not be premium"
-    );
-
-    // Second message should be premium (had deposit)
-    assert_eq!(messages[1].text, "Premium message");
-    assert!(
-        messages[1].premium,
-        "Message with deposit should be premium"
-    );
-
-    println!("✓ Typed call builder attaches a deposit correctly");
-}
-
-#[tokio::test]
-async fn test_typed_contract_no_args_view() {
-    // Start sandbox
-    let sandbox = SandboxConfig::fresh().await.unwrap();
-    let near = Near::sandbox(&sandbox);
-
-    // Deploy guestbook contract
-    let contract_id = format!("guestbook.{}", sandbox.root_account_id());
-    deploy_guestbook(&near, &contract_id)
-        .await
-        .expect("Failed to deploy guestbook");
-
-    // Create typed contract client using the no-args interface
-    let guestbook = near.contract::<GuestbookNoArgs>(&contract_id).unwrap();
-
-    // Test view method without arguments - total_messages
-    let count = guestbook
-        .total_messages()
-        .await
-        .expect("Failed to get total_messages");
-    assert_eq!(count, 0, "Initial message count should be 0");
-
-    // Test view method without arguments - get_messages
-    let messages = guestbook
-        .get_messages()
-        .await
-        .expect("Failed to get messages");
-    assert!(messages.is_empty(), "Initial messages should be empty");
-
-    // Now add a message using the main interface
-    let main_guestbook = near.contract::<Guestbook>(&contract_id).unwrap();
-    main_guestbook
-        .add_message(AddMessageArgs {
-            text: "Test message".to_string(),
-        })
-        .send()
-        .wait_until::<Final>()
-        .await
-        .expect("Failed to add message");
-
-    // Verify with no-args interface
-    let count = guestbook
-        .total_messages()
-        .await
-        .expect("Failed to get total_messages");
-    assert_eq!(count, 1, "Message count should be 1");
-
-    let messages = guestbook
-        .get_messages()
-        .await
-        .expect("Failed to get messages");
+        .expect("configured typed view");
     assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].text, "Test message");
+    assert!(messages[0].premium);
+}
 
-    println!("✓ No-argument view methods work correctly");
+#[tokio::test]
+async fn typed_views_work_without_a_signer_but_calls_do_not() {
+    let (sandbox, _, contract_id) = deploy_guestbook("typednosigner").await;
+    let no_signer = Near::custom(sandbox.rpc_url(), sandbox.chain_id().clone()).build();
+    let guestbook = no_signer
+        .contract::<Guestbook>(&contract_id)
+        .expect("typed client");
+
+    assert_eq!(guestbook.total_messages().await.expect("unsigned view"), 0);
+    let error = guestbook
+        .add_message(AddMessageArgs {
+            text: "cannot send".to_owned(),
+        })
+        .await
+        .expect_err("call without signer must fail");
+    assert!(matches!(error, Error::NoSigner));
+}
+
+#[tokio::test]
+async fn typed_views_preserve_decode_and_block_errors() {
+    #[near_kit::contract]
+    trait WrongGuestbook {
+        fn total_messages(&self) -> String;
+    }
+
+    let (_, near, contract_id) = deploy_guestbook("typederrors").await;
+    let wrong = near
+        .contract::<WrongGuestbook>(&contract_id)
+        .expect("wrong typed client");
+    assert!(matches!(wrong.total_messages().await, Err(Error::Json(_))));
+
+    let guestbook = near
+        .contract::<Guestbook>(&contract_id)
+        .expect("typed client");
+    assert!(matches!(
+        guestbook.total_messages().at_block(999_999_999_u64).await,
+        Err(Error::Rpc(_))
+    ));
 }

@@ -1,25 +1,15 @@
 //! Integration tests for the stabilized 2.13 RPC method wrappers:
 //! `block_effects`, `genesis_config`, and `maintenance_windows`.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use near_kit::*;
 use near_kit::{rpc::*, signer::SecretKey, transaction::Final};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
+use near_kit_sandbox::SANDBOX_ROOT_ACCOUNT;
 
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-fn unique_account() -> AccountId {
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("blockfx{n}.{SANDBOX_ROOT_ACCOUNT}")
-        .parse()
-        .unwrap()
-}
+use super::support::unique_account;
 
 #[tokio::test]
 async fn test_genesis_config_returns_chain_config() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     let config = near.rpc().genesis_config().await.expect("genesis_config");
     // The genesis document always carries a chain id and a protocol version.
@@ -38,15 +28,14 @@ async fn test_genesis_config_returns_chain_config() {
 
 #[tokio::test]
 async fn test_block_effects_returns_changes_for_block() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     // Produce a block we know contains state changes: create an account. Then
     // query that exact block's effects by hash (a fixed block, not the moving
     // `final` reference) and assert the kind-changes parse — this exercises the
     // non-empty path that an idle `final` block would not.
     let key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
+    let account_id = unique_account("blockfx");
     let outcome = near
         .transaction(&account_id)
         .create_account()
@@ -83,8 +72,7 @@ async fn test_block_effects_returns_changes_for_block() {
 
 #[tokio::test]
 async fn test_maintenance_windows_for_account() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     let account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
     // The root account is the sandbox's sole validator, so this must not error.

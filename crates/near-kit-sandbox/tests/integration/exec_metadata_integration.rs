@@ -8,31 +8,20 @@
 //! This test confirms a real 2.13 outcome round-trips through the typed
 //! `.send().wait_until::<Final>()` path and exposes the V4 `contracts` field.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use near_kit::*;
 use near_kit::{signer::SecretKey, transaction::Final};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-fn unique_account() -> AccountId {
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("execmeta{}.{}", n, SANDBOX_ROOT_ACCOUNT)
-        .parse()
-        .unwrap()
-}
+use super::support::unique_account;
 
 #[tokio::test]
 async fn test_v4_execution_metadata_parses_through_send() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     // A create_account + transfer produces receipt outcomes on a 2.13 node.
     // If V4 metadata didn't parse, `.send()` would fail to deserialize the
     // outcome entirely (the bug this guards against).
     let key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
+    let account_id = unique_account("execmeta");
     let outcome = near
         .transaction(&account_id)
         .create_account()

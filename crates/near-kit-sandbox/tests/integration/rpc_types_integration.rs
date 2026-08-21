@@ -5,22 +5,11 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use near_kit::*;
 use near_kit::{rpc::*, signer::SecretKey, transaction::*};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
+use near_kit_sandbox::SANDBOX_ROOT_ACCOUNT;
 
-/// Counter for generating unique subaccount names
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-/// Generate a unique subaccount ID for test isolation
-fn unique_account() -> AccountId {
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("rpc{}.{}", n, SANDBOX_ROOT_ACCOUNT)
-        .parse()
-        .unwrap()
-}
+use super::support::unique_account;
 
 // ============================================================================
 // Block and Header Types Tests
@@ -28,8 +17,7 @@ fn unique_account() -> AccountId {
 
 #[tokio::test]
 async fn test_block_view_full_fields() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     // Get a block and verify fields are present and deserialize correctly
     let block = near.rpc().block(BlockReference::final_()).await.unwrap();
@@ -86,8 +74,7 @@ async fn test_block_view_full_fields() {
 
 #[tokio::test]
 async fn test_chunk_header_view_full_fields() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     let block = near.rpc().block(BlockReference::final_()).await.unwrap();
 
@@ -117,8 +104,7 @@ async fn test_chunk_header_view_full_fields() {
 
 #[tokio::test]
 async fn test_status_response_full_fields() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     let status = near.rpc().status().await.unwrap();
 
@@ -180,8 +166,7 @@ async fn test_status_response_full_fields() {
 
 #[tokio::test]
 async fn test_account_view_full_fields() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
     let account = near.account(&account_id).await.unwrap();
@@ -205,8 +190,7 @@ async fn test_account_view_full_fields() {
 
 #[tokio::test]
 async fn test_access_key_list_view() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
     let keys = near.access_keys(&account_id).await.unwrap();
@@ -250,14 +234,13 @@ async fn test_access_key_list_view() {
 
 #[tokio::test]
 async fn test_final_execution_outcome_full_fields() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
 
     // Create and execute a transaction
     let receiver_key = SecretKey::generate_ed25519();
-    let receiver_id = unique_account();
+    let receiver_id = unique_account("rpc");
 
     let outcome = near
         .transaction(&receiver_id)
@@ -324,12 +307,11 @@ async fn test_final_execution_outcome_full_fields() {
 
 #[tokio::test]
 async fn test_execution_metadata_and_gas_profile() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     // Execute a transaction
     let receiver_key = SecretKey::generate_ed25519();
-    let receiver_id = unique_account();
+    let receiver_id = unique_account("rpc");
 
     let outcome = near
         .transaction(&receiver_id)
@@ -370,14 +352,13 @@ async fn test_execution_metadata_and_gas_profile() {
 
 #[tokio::test]
 async fn test_tx_status_with_receipts() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
 
     // Execute a transaction first
     let receiver_key = SecretKey::generate_ed25519();
-    let receiver_id = unique_account();
+    let receiver_id = unique_account("rpc");
 
     let outcome = near
         .transaction(&receiver_id)
@@ -444,14 +425,13 @@ async fn test_tx_status_with_receipts() {
 /// The transaction is settled first so the outcome is deterministically present.
 #[tokio::test]
 async fn test_tx_status_early_wait_level_surfaces_receipts() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
 
     // Execute a transaction and let it settle.
     let receiver_key = SecretKey::generate_ed25519();
-    let receiver_id = unique_account();
+    let receiver_id = unique_account("rpc");
 
     let outcome = near
         .transaction(&receiver_id)
@@ -514,8 +494,7 @@ async fn test_tx_status_early_wait_level_surfaces_receipts() {
 
 #[tokio::test]
 async fn test_gas_price() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     let gas_price = near.rpc().gas_price(None).await.unwrap();
 
@@ -537,12 +516,11 @@ async fn test_gas_price() {
 
 #[tokio::test]
 async fn test_action_view_variants() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     // Test CreateAccount + Transfer + AddKey
     let account1_key = SecretKey::generate_ed25519();
-    let account1_id = unique_account();
+    let account1_id = unique_account("rpc");
 
     let outcome = near
         .transaction(&account1_id)
@@ -592,8 +570,7 @@ async fn test_action_view_variants() {
 
 #[tokio::test]
 async fn test_account_not_found_error() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     let non_existent: AccountId = "non-existent-account.testnet".parse().unwrap();
     let result = near.balance(&non_existent).await;
@@ -612,8 +589,7 @@ async fn test_account_not_found_error() {
 
 #[tokio::test]
 async fn test_view_function_result() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_, near) = super::support::shared_client().await;
 
     // Note: Sandbox doesn't have deployed contracts by default,
     // so we'll test that the ViewFunctionResult structure is correct

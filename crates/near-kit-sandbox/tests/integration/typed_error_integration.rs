@@ -6,18 +6,11 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use near_kit::*;
-use near_kit::{protocol::*, rpc::*, signer::*, transaction::Final};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
+use near_kit::{protocol::*, rpc::*, signer::*};
+use near_kit_sandbox::SandboxConfig;
 
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-fn unique_account() -> AccountId {
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("typerr{n}.{SANDBOX_ROOT_ACCOUNT}").parse().unwrap()
-}
+use super::support::{funded_account as setup_funded_account, guestbook_wasm};
 
 /// Create a funded account, returning a Near client, the account ID, and the secret key.
 async fn funded_account(
@@ -25,22 +18,7 @@ async fn funded_account(
     balance: NearToken,
 ) -> (Near, AccountId, SecretKey) {
     let near = sandbox.client();
-    let key = SecretKey::generate_ed25519();
-    let id = unique_account();
-
-    near.transaction(&id)
-        .create_account()
-        .transfer(balance)
-        .add_full_access_key(key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let client =
-        Near::sandbox(sandbox).with_signer(InMemorySigner::new(&id, key.to_string()).unwrap());
-
-    (client, id, key)
+    setup_funded_account(&near, sandbox, "typerr", balance).await
 }
 
 /// Build, sign, and send a transaction via `rpc().send_tx()` so we get the
@@ -206,7 +184,7 @@ async fn test_call_nonexistent_method_deserializes_as_typed_error() {
     let (near, id, key) = funded_account(sandbox, NearToken::from_near(50)).await;
 
     // Deploy a contract first
-    let wasm = std::fs::read("tests/contracts/guestbook.wasm").unwrap();
+    let wasm = guestbook_wasm();
     near.deploy(wasm).await.unwrap();
 
     // Call a method that doesn't exist

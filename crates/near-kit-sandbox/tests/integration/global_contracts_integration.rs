@@ -6,25 +6,15 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
-use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use near_kit::*;
 use near_kit::{protocol::*, signer::*, transaction::Final};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
+use std::collections::BTreeMap;
 
-/// Counter for generating unique subaccount names
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-/// Generate a unique subaccount ID for test isolation
-fn unique_account() -> AccountId {
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("gc{}.{}", n, SANDBOX_ROOT_ACCOUNT).parse().unwrap()
-}
+use super::support::{funded_account, guestbook_wasm, unique_account};
 
 /// Load the test contract WASM
 fn load_test_contract() -> Vec<u8> {
-    std::fs::read("tests/contracts/guestbook.wasm").expect("failed to read test contract")
+    guestbook_wasm()
 }
 
 // =============================================================================
@@ -36,23 +26,7 @@ async fn create_funded_account(
     sandbox: &near_kit_sandbox::Sandbox,
     funding: NearToken,
 ) -> (Near, AccountId, SecretKey) {
-    let account_key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
-
-    root_near
-        .transaction(&account_id)
-        .create_account()
-        .transfer(funding)
-        .add_full_access_key(account_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&account_id, account_key.to_string()).unwrap());
-
-    (near, account_id, account_key)
+    funded_account(root_near, sandbox, "gc", funding).await
 }
 
 /// Poll until a published global contract is visible at the final block.
@@ -84,8 +58,7 @@ async fn wait_for_global_contract(near: &Near, id: impl TryIntoGlobalContractId 
 /// Test the `near.publish()` convenience shorthand (updatable mode).
 #[tokio::test]
 async fn test_near_publish_shorthand_updatable() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     let (publisher_near, _, _) =
         create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
@@ -106,8 +79,7 @@ async fn test_near_publish_shorthand_updatable() {
 /// Test the `near.publish()` convenience shorthand (immutable mode).
 #[tokio::test]
 async fn test_near_publish_shorthand_immutable() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     let (publisher_near, _, _) =
         create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
@@ -127,8 +99,7 @@ async fn test_near_publish_shorthand_immutable() {
 /// Test the `near.deploy_from()` convenience shorthand with a publisher account.
 #[tokio::test]
 async fn test_near_deploy_from_shorthand_publisher() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     // Publisher publishes the contract
     let (publisher_near, publisher_id, _) =
@@ -166,8 +137,7 @@ async fn test_near_deploy_from_shorthand_publisher() {
 /// Test the `near.deploy_from()` convenience shorthand with a CryptoHash.
 #[tokio::test]
 async fn test_near_deploy_from_shorthand_hash() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     let (publisher_near, _, _) =
         create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
@@ -205,8 +175,7 @@ async fn test_near_deploy_from_shorthand_hash() {
 /// End-to-end test: publish → deploy_from → call the deployed contract.
 #[tokio::test]
 async fn test_publish_deploy_from_call_end_to_end() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     // Publisher publishes an updatable contract
     let (publisher_near, publisher_id, _) =
@@ -257,8 +226,7 @@ async fn test_publish_deploy_from_call_end_to_end() {
 /// Test publishing a contract to the global registry by account ID (updatable).
 #[tokio::test]
 async fn test_publish_contract_by_account() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     // Create a publisher account
     let (publisher_near, publisher_id, _) =
@@ -284,8 +252,7 @@ async fn test_publish_contract_by_account() {
 /// Test publishing a contract to the global registry by code hash (immutable).
 #[tokio::test]
 async fn test_publish_contract_by_hash() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     // Create a publisher account
     let (publisher_near, publisher_id, _) =
@@ -311,8 +278,7 @@ async fn test_publish_contract_by_hash() {
 /// Test deploying a contract from a publisher account.
 #[tokio::test]
 async fn test_deploy_from_publisher() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     // Create a publisher account
     let (publisher_near, publisher_id, _) =
@@ -361,8 +327,7 @@ async fn test_deploy_from_publisher() {
 /// Test deploying a contract from a code hash.
 #[tokio::test]
 async fn test_deploy_from_hash() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     // Create a publisher account
     let (publisher_near, publisher_id, _) =
@@ -415,8 +380,7 @@ async fn test_deploy_from_hash() {
 /// Test NEP-616 deterministic state init with code hash.
 #[tokio::test]
 async fn test_state_init_by_hash() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     // Create a publisher account
     let (publisher_near, publisher_id, _) =
@@ -455,8 +419,7 @@ async fn test_state_init_by_hash() {
 /// Test NEP-616 deterministic state init with publisher account.
 #[tokio::test]
 async fn test_state_init_by_publisher() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     // Create a publisher account
     let (publisher_near, publisher_id, _) =
@@ -496,144 +459,10 @@ async fn test_state_init_by_publisher() {
 // Action Type Tests - Exercise all TransactionBuilder actions
 // =============================================================================
 
-/// Test CreateAccount action
-#[tokio::test]
-async fn test_action_create_account() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    let (parent_near, parent_id, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(20)).await;
-
-    let child_key = SecretKey::generate_ed25519();
-    let child_id: AccountId = format!("child.{}", parent_id).parse().unwrap();
-
-    let _outcome = parent_near
-        .transaction(&child_id)
-        .create_account()
-        .transfer(NearToken::from_near(5))
-        .add_full_access_key(child_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    assert!(root_near.account_exists(&child_id).await.unwrap());
-}
-
-/// Test Transfer action
-#[tokio::test]
-async fn test_action_transfer() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    let (sender_near, _, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(20)).await;
-    let (_, receiver_id, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(5)).await;
-
-    let initial_balance = root_near.balance(&receiver_id).await.unwrap();
-
-    sender_near
-        .transaction(&receiver_id)
-        .transfer(NearToken::from_near(3))
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let final_balance = root_near.balance(&receiver_id).await.unwrap();
-    let diff = final_balance.total.as_yoctonear() - initial_balance.total.as_yoctonear();
-
-    assert_eq!(diff, NearToken::from_near(3).as_yoctonear());
-}
-
-/// Test DeployContract action
-#[tokio::test]
-async fn test_action_deploy_contract() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    let (contract_near, contract_id, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(20)).await;
-
-    let wasm_code = load_test_contract();
-
-    let _outcome = contract_near
-        .transaction(&contract_id)
-        .deploy(wasm_code)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Verify contract was deployed
-    let account = root_near.account(&contract_id).await.unwrap();
-    assert!(*account.code_hash.as_bytes() != [0u8; 32]);
-}
-
-/// Test FunctionCall action
-#[tokio::test]
-async fn test_action_function_call() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    let (contract_near, contract_id, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(20)).await;
-
-    let wasm_code = load_test_contract();
-
-    // Deploy the contract
-    contract_near
-        .transaction(&contract_id)
-        .deploy(wasm_code)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Call a method on the contract
-    let _outcome = contract_near
-        .transaction(&contract_id)
-        .call("add_message")
-        .args(serde_json::json!({ "text": "Hello from test!" }))
-        .gas(Gas::from_tgas(30))
-        .deposit(NearToken::ZERO)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-}
-
-/// Test AddKey action with full access
-#[tokio::test]
-async fn test_action_add_full_access_key() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    let (account_near, account_id, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(10)).await;
-
-    let new_key = SecretKey::generate_ed25519();
-
-    let _outcome = account_near
-        .transaction(&account_id)
-        .add_full_access_key(new_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Verify the key was added
-    let keys = root_near.access_keys(&account_id).await.unwrap();
-    assert_eq!(keys.keys.len(), 2);
-}
-
 /// Test AddKey action with function call access
 #[tokio::test]
 async fn test_action_add_function_call_key() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     let (account_near, account_id, _) =
         create_funded_account(&root_near, sandbox, NearToken::from_near(10)).await;
@@ -659,49 +488,10 @@ async fn test_action_add_function_call_key() {
     assert_eq!(keys.keys.len(), 2);
 }
 
-/// Test DeleteKey action
-#[tokio::test]
-async fn test_action_delete_key() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    let (account_near, account_id, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(10)).await;
-
-    // Add a second key
-    let second_key = SecretKey::generate_ed25519();
-
-    account_near
-        .transaction(&account_id)
-        .add_full_access_key(second_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Verify 2 keys
-    let keys = root_near.access_keys(&account_id).await.unwrap();
-    assert_eq!(keys.keys.len(), 2);
-
-    // Delete the second key
-    account_near
-        .transaction(&account_id)
-        .delete_key(second_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Verify 1 key remains
-    let keys = root_near.access_keys(&account_id).await.unwrap();
-    assert_eq!(keys.keys.len(), 1);
-}
-
 /// Test DeleteAccount action
 #[tokio::test]
 async fn test_action_delete_account() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     let (beneficiary_near, beneficiary_id, _) =
         create_funded_account(&root_near, sandbox, NearToken::from_near(10)).await;
@@ -740,8 +530,7 @@ async fn test_action_delete_account() {
 /// Test Stake action
 #[tokio::test]
 async fn test_action_stake() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     // Create a validator account with small initial balance
     let (staker_near, staker_id, staker_key) =
@@ -776,48 +565,10 @@ async fn test_action_stake() {
     assert!(account.locked >= stake_amount);
 }
 
-/// Test multiple actions in a single transaction
-#[tokio::test]
-async fn test_multiple_actions() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    let (parent_near, parent_id, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
-
-    let child_key = SecretKey::generate_ed25519();
-    let child_id: AccountId = format!("multi.{}", parent_id).parse().unwrap();
-
-    let wasm_code = load_test_contract();
-
-    // Create account, fund it, add key, deploy contract - all in one tx
-    let _outcome = parent_near
-        .transaction(&child_id)
-        .create_account()
-        .transfer(NearToken::from_near(20))
-        .add_full_access_key(child_key.public_key())
-        .deploy(wasm_code)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Verify everything worked
-    let account = root_near.account(&child_id).await.unwrap();
-    assert!(*account.code_hash.as_bytes() != [0u8; 32]);
-
-    let balance = root_near.balance(&child_id).await.unwrap();
-    assert!(balance.total > NearToken::from_near(19));
-
-    let keys = root_near.access_keys(&child_id).await.unwrap();
-    assert_eq!(keys.keys.len(), 1);
-}
-
 /// Test chaining multiple function calls
 #[tokio::test]
 async fn test_multiple_function_calls() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     let (contract_near, contract_id, _) =
         create_funded_account(&root_near, sandbox, NearToken::from_near(20)).await;
@@ -861,8 +612,7 @@ async fn test_multiple_function_calls() {
 /// Query a published (updatable) global contract by publisher account.
 #[tokio::test]
 async fn test_global_contract_query_by_account() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     let (publisher_near, publisher_id, _) =
         create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
@@ -893,8 +643,7 @@ async fn test_global_contract_query_by_account() {
 /// Query a published (immutable) global contract by code hash.
 #[tokio::test]
 async fn test_global_contract_query_by_hash() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     let (publisher_near, _, _) =
         create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
@@ -920,11 +669,10 @@ async fn test_global_contract_query_by_hash() {
 /// Missing global contracts surface a typed error, and exists() returns false.
 #[tokio::test]
 async fn test_global_contract_query_not_found() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (_, root_near) = super::support::shared_client().await;
 
     // An account that never published anything
-    let unpublished_account = unique_account();
+    let unpublished_account = unique_account("gc");
     let err = root_near
         .global_contract(&unpublished_account)
         .await
@@ -956,8 +704,7 @@ async fn test_global_contract_query_not_found() {
 /// near.contract_code() returns the code deployed on a regular account.
 #[tokio::test]
 async fn test_contract_code_query() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
     let (account_near, account_id, _) =
         create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;

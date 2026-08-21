@@ -7,26 +7,13 @@
 //! whole state in one page. We therefore run against the `pre-release` tag,
 //! which includes pagination. Drop the override once a 2.13 RC ships with it.
 
+use super::support::{guestbook_wasm, sandbox_pre_release};
 use near_kit::*;
 use near_kit::{rpc::BlockReference, signer::SecretKey, transaction::Final};
-use near_kit_sandbox::{Sandbox, SandboxConfig};
-
-/// Sandbox image tag that supports `view_state` pagination.
-const VIEW_STATE_SANDBOX_VERSION: &str = "pre-release";
-
-/// A fresh sandbox running a node that supports `view_state` pagination.
-async fn paginating_sandbox() -> Sandbox {
-    SandboxConfig::builder()
-        .version(VIEW_STATE_SANDBOX_VERSION)
-        .fresh()
-        .await
-        .unwrap()
-}
 
 /// Deploy the guestbook contract to the given (freshly created) account.
 async fn deploy_guestbook(near: &Near, contract_account: &str) {
-    let wasm_code = std::fs::read("tests/contracts/guestbook.wasm")
-        .expect("guestbook.wasm not found in tests/contracts/");
+    let wasm_code = guestbook_wasm();
     let new_key = SecretKey::generate_ed25519();
     near.transaction(contract_account)
         .create_account()
@@ -41,8 +28,8 @@ async fn deploy_guestbook(near: &Near, contract_account: &str) {
 
 #[tokio::test]
 async fn test_view_state_pagination_reads_all_entries() {
-    let sandbox = paginating_sandbox().await;
-    let near = Near::sandbox(&sandbox);
+    let sandbox = sandbox_pre_release().await;
+    let near = Near::sandbox(sandbox);
 
     let contract_id = format!("vstate.{}", sandbox.root_account_id());
     deploy_guestbook(&near, &contract_id).await;

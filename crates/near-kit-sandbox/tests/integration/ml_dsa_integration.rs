@@ -22,35 +22,13 @@
 //! TODO: re-pin to a stable `2.13.x` image once one ships with ML-DSA, and drop
 //! the skip logic.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use near_kit::*;
 use near_kit::{signer::*, transaction::Final};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, Sandbox, SandboxConfig};
 
-/// Sandbox image tag that includes the ML-DSA-65 implementation at protocol v85.
-const ML_DSA_SANDBOX_VERSION: &str = "pre-release";
+use super::support::{sandbox_pre_release, unique_account};
 
 /// Protocol version that ships ML-DSA-65 (NEAR 2.13 / v85).
 const ML_DSA_PROTOCOL_VERSION: u32 = 85;
-
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-fn unique_account() -> AccountId {
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("mldsa{}.{}", n, SANDBOX_ROOT_ACCOUNT)
-        .parse()
-        .unwrap()
-}
-
-/// A fresh sandbox running an ML-DSA-capable node.
-async fn ml_dsa_sandbox() -> Sandbox {
-    SandboxConfig::builder()
-        .version(ML_DSA_SANDBOX_VERSION)
-        .fresh()
-        .await
-        .unwrap()
-}
 
 /// Heuristic: does this RPC error look like the node not understanding ML-DSA
 /// (key type 2), as opposed to a real failure we should surface? rc.2-style
@@ -69,7 +47,7 @@ fn looks_like_ml_dsa_unsupported(err: &near_kit::Error) -> bool {
 /// module docs for why the image is `pre-release` and why skipping is correct.
 #[tokio::test]
 async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
-    let sandbox = ml_dsa_sandbox().await;
+    let sandbox = sandbox_pre_release().await;
     let near = sandbox.client();
 
     // Skip if the node isn't on the exact protocol version that ships ML-DSA.
@@ -90,7 +68,7 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
     assert_eq!(public_key.key_type(), KeyType::MlDsa65);
     assert!(public_key.to_string().starts_with("ml-dsa-65:"));
 
-    let account_id = unique_account();
+    let account_id = unique_account("mldsa");
 
     // Create the account with the ML-DSA-65 key as its only full-access key.
     // This exercises AddKey with a 1952-byte [2][..] borsh pubkey. If the node
@@ -133,7 +111,7 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
 
     // Now sign a transfer FROM this account using the ML-DSA-65 secret key.
     // Acceptance proves the node verified an ML-DSA-65 signature.
-    let recipient = unique_account();
+    let recipient = unique_account("mldsa");
     let recipient_key = SecretKey::generate_ed25519();
     near.transaction(&recipient)
         .create_account()
@@ -144,7 +122,7 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
         .await
         .unwrap();
 
-    let signed = Near::sandbox(&sandbox)
+    let signed = Near::sandbox(sandbox)
         .with_signer(InMemorySigner::new(&account_id, ml_dsa_key.to_string()).unwrap());
 
     let before = near.balance(&recipient).await.unwrap().total;
