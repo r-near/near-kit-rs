@@ -3,21 +3,21 @@
 //! These tests verify that FT and NFT helpers handle errors correctly.
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use near_kit::*;
 use near_kit::{rpc::RpcError, signer::SecretKey, transaction::Final};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 
-/// Counter for generating unique subaccount names
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
+use super::support::{guestbook_wasm, shared_client, unique_account};
 
-/// Generate a unique subaccount ID for test isolation
-fn unique_account() -> AccountId {
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("tokerr{}.{}", n, SANDBOX_ROOT_ACCOUNT)
-        .parse()
-        .unwrap()
+fn assert_contract_not_deployed(error: Error, expected_account: &AccountId) {
+    match error {
+        Error::Rpc(error) => match error.as_ref() {
+            RpcError::ContractNotDeployed { account_id, .. } => {
+                assert_eq!(account_id, expected_account);
+            }
+            other => panic!("expected ContractNotDeployed, got {other:?}"),
+        },
+        other => panic!("expected RPC contract error, got {other:?}"),
+    }
 }
 
 // =============================================================================
@@ -25,13 +25,12 @@ fn unique_account() -> AccountId {
 // =============================================================================
 
 #[tokio::test]
-async fn test_ft_metadata_on_non_contract_account() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+async fn test_ft_queries_on_non_contract_account() {
+    let (_sandbox, near) = shared_client().await;
 
     // Create an account without any contract deployed
     let key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
+    let account_id = unique_account("tokerr");
 
     near.transaction(&account_id)
         .create_account()
@@ -44,106 +43,29 @@ async fn test_ft_metadata_on_non_contract_account() {
 
     // Try to get FT metadata from non-contract account
     let ft = near.ft(&account_id).unwrap();
-    let result = ft.metadata().await;
+    let metadata_error = ft.metadata().await.unwrap_err();
+    assert_contract_not_deployed(metadata_error, &account_id);
 
-    assert!(result.is_err(), "Should error for account without contract");
-    let err = result.unwrap_err();
-
-    // Should be ContractNotDeployed or similar error
-    println!("FT metadata on non-contract: {:?}", err);
-    match err {
-        Error::Rpc(ref e) if matches!(e.as_ref(), RpcError::ContractNotDeployed { .. }) => {
-            // Expected
-        }
-        Error::Rpc(_) => {
-            // Accept other RPC errors that indicate no contract
-        }
-        _ => panic!("Expected Rpc error, got: {:?}", err),
-    }
+    let balance_error = ft.balance_of("alice.near").await.unwrap_err();
+    assert_contract_not_deployed(balance_error, &account_id);
 }
 
 #[tokio::test]
 async fn test_ft_metadata_on_nonexistent_account() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+    let (_sandbox, near) = shared_client().await;
 
     // Try to get FT metadata from non-existent account
     let ft = near.ft("nonexistent-ft-contract.sandbox").unwrap();
-    let result = ft.metadata().await;
-
-    assert!(result.is_err(), "Should error for non-existent account");
-    println!("FT metadata on non-existent: {:?}", result.unwrap_err());
-}
-
-#[tokio::test]
-async fn test_ft_balance_of_on_non_contract() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
-
-    // Create an account without any contract
-    let key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
-
-    near.transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Try to get balance from non-contract account
-    let ft = near.ft(&account_id).unwrap();
-    let result = ft.balance_of("alice.near").await;
-
-    assert!(
-        result.is_err(),
-        "Should error for account without FT contract"
-    );
-    println!("FT balance_of on non-contract: {:?}", result.unwrap_err());
-}
-
-#[tokio::test]
-async fn test_ft_transfer_without_signer() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
-
-    // Deploy a real FT contract
-    let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
-
-    near.transaction(&owner_id)
-        .create_account()
-        .transfer(NearToken::from_near(50))
-        .add_full_access_key(owner_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Create a client WITHOUT a signer
-    let no_signer_near = Near::custom(sandbox.rpc_url(), "sandbox").build();
-
-    // Try to transfer without a signer configured
-    let ft = no_signer_near.ft(&owner_id).unwrap();
-    let result = ft.transfer("bob.near", 100_u128).await;
-
-    assert!(result.is_err(), "Should error when no signer configured");
-    let err = result.unwrap_err();
-    println!("FT transfer without signer: {:?}", err);
-
-    match err {
-        Error::NoSigner => {
-            // Expected
-        }
-        _ => panic!("Expected NoSigner, got: {:?}", err),
-    }
+    let error = ft.metadata().await.unwrap_err();
+    assert!(matches!(
+        error,
+        Error::Rpc(ref error) if matches!(error.as_ref(), RpcError::AccountNotFound { .. })
+    ));
 }
 
 #[tokio::test]
 async fn test_ft_storage_deposit_without_signer() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
+    let (sandbox, _near) = shared_client().await;
 
     // Create a client WITHOUT a signer
     let no_signer_near = Near::custom(sandbox.rpc_url(), "sandbox").build();
@@ -163,21 +85,18 @@ async fn test_ft_storage_deposit_without_signer() {
 }
 
 #[tokio::test]
-async fn test_ft_on_wrong_contract_type() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+async fn test_token_metadata_on_wrong_contract_type() {
+    let (_sandbox, near) = shared_client().await;
 
     // Deploy the guestbook contract (not an FT)
     let key = SecretKey::generate_ed25519();
-    let contract_id = unique_account();
-
-    let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
+    let contract_id = unique_account("tokerr");
 
     near.transaction(&contract_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(key.public_key())
-        .deploy(wasm)
+        .deploy(guestbook_wasm())
         .send()
         .wait_until::<Final>()
         .await
@@ -189,8 +108,6 @@ async fn test_ft_on_wrong_contract_type() {
 
     assert!(result.is_err(), "Should error for non-FT contract");
     let err = result.unwrap_err();
-    println!("FT metadata on guestbook: {:?}", err);
-
     match err {
         Error::Rpc(e) => match e.as_ref() {
             RpcError::MethodNotFound {
@@ -205,6 +122,23 @@ async fn test_ft_on_wrong_contract_type() {
         },
         other => panic!("Expected RPC error, got: {other:?}"),
     }
+
+    let nft = near.nft(&contract_id).unwrap();
+    let err = nft.metadata().await.unwrap_err();
+    match err {
+        Error::Rpc(error) => match error.as_ref() {
+            RpcError::MethodNotFound {
+                contract_id: actual_contract_id,
+                method_name,
+                ..
+            } => {
+                assert_eq!(actual_contract_id, &contract_id);
+                assert_eq!(method_name, "nft_metadata");
+            }
+            other => panic!("Expected MethodNotFound, got: {other:?}"),
+        },
+        other => panic!("Expected RPC error, got: {other:?}"),
+    }
 }
 
 // =============================================================================
@@ -212,13 +146,12 @@ async fn test_ft_on_wrong_contract_type() {
 // =============================================================================
 
 #[tokio::test]
-async fn test_nft_metadata_on_non_contract() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
+async fn test_nft_queries_on_non_contract() {
+    let (_sandbox, near) = shared_client().await;
 
     // Create an account without any contract
     let key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
+    let account_id = unique_account("tokerr");
 
     near.transaction(&account_id)
         .create_account()
@@ -230,77 +163,9 @@ async fn test_nft_metadata_on_non_contract() {
         .unwrap();
 
     let nft = near.nft(&account_id).unwrap();
-    let result = nft.metadata().await;
+    let metadata_error = nft.metadata().await.unwrap_err();
+    assert_contract_not_deployed(metadata_error, &account_id);
 
-    assert!(result.is_err(), "Should error for account without contract");
-    println!("NFT metadata on non-contract: {:?}", result.unwrap_err());
-}
-
-#[tokio::test]
-async fn test_nft_token_on_non_contract() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
-
-    let key = SecretKey::generate_ed25519();
-    let account_id = unique_account();
-
-    near.transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    let nft = near.nft(&account_id).unwrap();
-    let result = nft.token("any-token").await;
-
-    assert!(result.is_err(), "Should error for account without contract");
-    println!("NFT token on non-contract: {:?}", result.unwrap_err());
-}
-
-#[tokio::test]
-async fn test_nft_transfer_without_signer() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-
-    let no_signer_near = Near::custom(sandbox.rpc_url(), "sandbox").build();
-
-    let nft = no_signer_near.nft("any-nft.sandbox").unwrap();
-    let result = nft.transfer("bob.near", "token-1").await;
-
-    assert!(result.is_err(), "Should error when no signer configured");
-    match result.unwrap_err() {
-        Error::NoSigner => { /* Expected */ }
-        e => panic!("Expected NoSigner, got: {:?}", e),
-    }
-}
-
-#[tokio::test]
-async fn test_nft_on_wrong_contract_type() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let near = sandbox.client();
-
-    // Deploy guestbook (not an NFT)
-    let key = SecretKey::generate_ed25519();
-    let contract_id = unique_account();
-
-    let wasm = std::fs::read("tests/contracts/guestbook.wasm").expect("guestbook.wasm not found");
-
-    near.transaction(&contract_id)
-        .create_account()
-        .transfer(NearToken::from_near(50))
-        .add_full_access_key(key.public_key())
-        .deploy(wasm)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Try to use NFT methods on non-NFT contract (no init needed)
-    let nft = near.nft(&contract_id).unwrap();
-    let result = nft.metadata().await;
-
-    assert!(result.is_err(), "Should error for non-NFT contract");
-    println!("NFT metadata on guestbook: {:?}", result.unwrap_err());
+    let token_error = nft.token("any-token").await.unwrap_err();
+    assert_contract_not_deployed(token_error, &account_id);
 }

@@ -2,22 +2,10 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use near_kit::*;
 use near_kit::{signer::*, standards::FtAmount, transaction::Final};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, SandboxConfig};
 
-/// Counter for generating unique subaccount names
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-/// Generate a unique subaccount ID for test isolation
-fn unique_account() -> AccountId {
-    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("token{}.{}", n, SANDBOX_ROOT_ACCOUNT)
-        .parse()
-        .unwrap()
-}
+use super::support::{fungible_token_wasm, nft_wasm, shared_client, unique_account};
 
 // =============================================================================
 // Fungible Token Tests
@@ -29,17 +17,14 @@ async fn deploy_ft_contract(
     owner_id: &AccountId,
 ) -> Result<(AccountId, SecretKey), Error> {
     let ft_key = SecretKey::generate_ed25519();
-    let ft_id = unique_account();
-
-    let wasm = std::fs::read("tests/contracts/fungible_token.wasm")
-        .expect("fungible_token.wasm not found");
+    let ft_id = unique_account("token");
 
     // Create FT contract account with wasm deployed
     near.transaction(&ft_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(ft_key.public_key())
-        .deploy(wasm)
+        .deploy(fungible_token_wasm())
         .send()
         .wait_until::<Final>()
         .await?;
@@ -67,13 +52,12 @@ async fn deploy_ft_contract(
 }
 
 #[tokio::test]
-async fn test_ft_metadata() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+async fn test_ft_metadata_and_cache() {
+    let (_sandbox, root_near) = shared_client().await;
 
     // Create owner account
     let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
+    let owner_id = unique_account("token");
 
     root_near
         .transaction(&owner_id)
@@ -97,17 +81,26 @@ async fn test_ft_metadata() {
     assert_eq!(metadata.decimals, 18);
     assert_eq!(metadata.spec, "ft-1.0.0");
 
-    println!("FT Metadata: {} ({})", metadata.name, metadata.symbol);
+    let cached = ft.metadata().await.unwrap();
+    assert!(
+        std::ptr::eq(metadata, cached),
+        "second metadata call should return the cached reference"
+    );
+
+    // Queries that need metadata should reuse the same cached value.
+    let first_balance = ft.balance_of(&owner_id).await.unwrap();
+    let second_balance = ft.balance_of(&owner_id).await.unwrap();
+    assert_eq!(first_balance.symbol(), second_balance.symbol());
+    assert_eq!(first_balance.decimals(), second_balance.decimals());
 }
 
 #[tokio::test]
-async fn test_ft_balance_of() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+async fn test_ft_balance_supply_and_amount_roundtrip() {
+    let (_sandbox, root_near) = shared_client().await;
 
     // Create owner account (will receive initial supply)
     let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
+    let owner_id = unique_account("token");
 
     root_near
         .transaction(&owner_id)
@@ -126,9 +119,6 @@ async fn test_ft_balance_of() {
     let ft = root_near.ft(&ft_id).unwrap();
     let balance = ft.balance_of(&owner_id).await.unwrap();
 
-    println!("Owner balance: {}", balance);
-    println!("Raw: {}", balance.raw());
-
     // Owner should have initial supply
     assert_eq!(
         balance.raw(),
@@ -140,46 +130,29 @@ async fn test_ft_balance_of() {
 
     // Check display formatting
     assert_eq!(format!("{}", balance), "1000000 TEST");
-}
-
-#[tokio::test]
-async fn test_ft_total_supply() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create owner account
-    let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
-
-    root_near
-        .transaction(&owner_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(owner_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Deploy FT contract
-    let (ft_id, _ft_key) = deploy_ft_contract(&root_near, &owner_id).await.unwrap();
-
-    // Test total supply
-    let ft = root_near.ft(&ft_id).unwrap();
     let supply = ft.total_supply().await.unwrap();
-
-    println!("Total supply: {}", supply);
     assert_eq!(supply.raw(), 1_000_000_000_000_000_000_000_000_u128);
+    assert_eq!(balance.raw(), supply.raw());
+    assert_eq!(balance.decimals(), supply.decimals());
+    assert_eq!(balance.symbol(), supply.symbol());
+
+    let parsed = FtAmount::parse(
+        &balance.format_amount(),
+        balance.decimals(),
+        balance.symbol(),
+    )
+    .unwrap();
+    assert_eq!(parsed.raw(), balance.raw());
+    assert_eq!(parsed.to_string(), balance.to_string());
 }
 
 #[tokio::test]
 async fn test_ft_transfer() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = shared_client().await;
 
     // Create owner account (sender)
     let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
+    let owner_id = unique_account("token");
 
     root_near
         .transaction(&owner_id)
@@ -214,6 +187,8 @@ async fn test_ft_transfer() {
     // Get FT client with signer
     let ft = owner_near.ft(&ft_id).unwrap();
 
+    assert!(!ft.is_registered(&receiver_id).await.unwrap());
+
     // First, register receiver for storage
     let bounds = ft.storage_balance_bounds().await.unwrap();
     ft.storage_deposit(&receiver_id, bounds.min)
@@ -224,14 +199,11 @@ async fn test_ft_transfer() {
 
     // Check receiver is registered
     assert!(ft.is_registered(&receiver_id).await.unwrap());
+    assert!(ft.storage_balance_of(&receiver_id).await.unwrap().is_some());
 
     // Get initial balances
     let owner_balance_before = ft.balance_of(&owner_id).await.unwrap();
     let receiver_balance_before = ft.balance_of(&receiver_id).await.unwrap();
-
-    println!("Before transfer:");
-    println!("  Owner: {}", owner_balance_before);
-    println!("  Receiver: {}", receiver_balance_before);
 
     // Transfer tokens
     let transfer_amount = 100_000_000_000_000_000_000_u128; // 100 tokens (18 decimals)
@@ -246,10 +218,6 @@ async fn test_ft_transfer() {
     let owner_balance_after = ft.balance_of(&owner_id).await.unwrap();
     let receiver_balance_after = ft.balance_of(&receiver_id).await.unwrap();
 
-    println!("After transfer:");
-    println!("  Owner: {}", owner_balance_after);
-    println!("  Receiver: {}", receiver_balance_after);
-
     // Verify balances changed correctly
     assert_eq!(
         owner_balance_after.raw(),
@@ -259,68 +227,6 @@ async fn test_ft_transfer() {
         receiver_balance_after.raw(),
         receiver_balance_before.raw() + transfer_amount
     );
-}
-
-#[tokio::test]
-async fn test_ft_storage_deposit() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create owner account
-    let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
-
-    root_near
-        .transaction(&owner_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(owner_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Create owner's near client for signing
-    let owner_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&owner_id, owner_key.to_string()).unwrap());
-
-    // Create account to register - must be created by owner
-    let user_key = SecretKey::generate_ed25519();
-    let user_id: AccountId = format!("user.{}", owner_id).parse().unwrap();
-
-    owner_near
-        .transaction(&user_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(user_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Deploy FT contract
-    let (ft_id, _ft_key) = deploy_ft_contract(&root_near, &owner_id).await.unwrap();
-
-    let ft = owner_near.ft(&ft_id).unwrap();
-
-    // User should not be registered initially
-    assert!(!ft.is_registered(&user_id).await.unwrap());
-
-    // Register user
-    let bounds = ft.storage_balance_bounds().await.unwrap();
-    ft.storage_deposit(&user_id, bounds.min)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // User should now be registered
-    assert!(ft.is_registered(&user_id).await.unwrap());
-
-    // Check storage balance
-    let storage = ft.storage_balance_of(&user_id).await.unwrap();
-    assert!(storage.is_some());
-    println!("User storage: {:?}", storage);
 }
 
 // =============================================================================
@@ -333,16 +239,14 @@ async fn deploy_nft_contract(
     owner_id: &AccountId,
 ) -> Result<(AccountId, SecretKey), Error> {
     let nft_key = SecretKey::generate_ed25519();
-    let nft_id = unique_account();
-
-    let wasm = std::fs::read("tests/contracts/nft.wasm").expect("nft.wasm not found");
+    let nft_id = unique_account("token");
 
     // Create NFT contract account with wasm deployed
     near.transaction(&nft_id)
         .create_account()
         .transfer(NearToken::from_near(50))
         .add_full_access_key(nft_key.public_key())
-        .deploy(wasm)
+        .deploy(nft_wasm())
         .send()
         .wait_until::<Final>()
         .await?;
@@ -396,12 +300,11 @@ async fn mint_nft(
 
 #[tokio::test]
 async fn test_nft_metadata() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (_sandbox, root_near) = shared_client().await;
 
     // Create owner account
     let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
+    let owner_id = unique_account("token");
 
     root_near
         .transaction(&owner_id)
@@ -429,12 +332,11 @@ async fn test_nft_metadata() {
 
 #[tokio::test]
 async fn test_nft_token_query() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (_sandbox, root_near) = shared_client().await;
 
     // Create owner account
     let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
+    let owner_id = unique_account("token");
 
     root_near
         .transaction(&owner_id)
@@ -476,12 +378,11 @@ async fn test_nft_token_query() {
 
 #[tokio::test]
 async fn test_nft_tokens_for_owner() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (_sandbox, root_near) = shared_client().await;
 
     // Create owner account
     let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
+    let owner_id = unique_account("token");
 
     root_near
         .transaction(&owner_id)
@@ -536,12 +437,11 @@ async fn test_nft_tokens_for_owner() {
 
 #[tokio::test]
 async fn test_nft_transfer() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = shared_client().await;
 
     // Create owner account
     let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
+    let owner_id = unique_account("token");
 
     root_near
         .transaction(&owner_id)
@@ -602,12 +502,11 @@ async fn test_nft_transfer() {
 
 #[tokio::test]
 async fn test_nft_total_supply() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (_sandbox, root_near) = shared_client().await;
 
     // Create owner account
     let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
+    let owner_id = unique_account("token");
 
     root_near
         .transaction(&owner_id)
@@ -650,12 +549,11 @@ async fn test_nft_total_supply() {
 
 #[tokio::test]
 async fn test_nft_supply_for_owner() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
+    let (sandbox, root_near) = shared_client().await;
 
     // Create first owner account
     let owner1_key = SecretKey::generate_ed25519();
-    let owner1_id = unique_account();
+    let owner1_id = unique_account("token");
 
     root_near
         .transaction(&owner1_id)
@@ -726,100 +624,4 @@ async fn test_nft_supply_for_owner() {
         "Owner1 has {} tokens, Owner2 has {} tokens",
         owner1_supply, owner2_supply
     );
-}
-
-// =============================================================================
-// FtAmount Integration Tests
-// =============================================================================
-
-#[tokio::test]
-async fn test_ft_amount_roundtrip_from_real_balances() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create owner account
-    let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
-
-    root_near
-        .transaction(&owner_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(owner_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Deploy FT contract
-    let (ft_id, _ft_key) = deploy_ft_contract(&root_near, &owner_id).await.unwrap();
-
-    let ft = root_near.ft(&ft_id).unwrap();
-    let balance = ft.balance_of(&owner_id).await.unwrap();
-    let supply = ft.total_supply().await.unwrap();
-
-    assert_eq!(balance.raw(), supply.raw());
-    assert_eq!(balance.decimals(), supply.decimals());
-    assert_eq!(balance.symbol(), supply.symbol());
-
-    let parsed = FtAmount::parse(
-        &balance.format_amount(),
-        balance.decimals(),
-        balance.symbol(),
-    )
-    .unwrap();
-    assert_eq!(parsed.raw(), balance.raw());
-    assert_eq!(parsed.to_string(), balance.to_string());
-
-    println!("Balance: {}", balance);
-    println!("Supply: {}", supply);
-}
-
-// =============================================================================
-// Metadata Caching Tests
-// =============================================================================
-
-#[tokio::test]
-async fn test_ft_metadata_caching() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
-    let root_near = sandbox.client();
-
-    // Create owner account
-    let owner_key = SecretKey::generate_ed25519();
-    let owner_id = unique_account();
-
-    root_near
-        .transaction(&owner_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(owner_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Deploy FT contract
-    let (ft_id, _ft_key) = deploy_ft_contract(&root_near, &owner_id).await.unwrap();
-
-    let ft = root_near.ft(&ft_id).unwrap();
-
-    // First call fetches metadata
-    let meta1 = ft.metadata().await.unwrap();
-    println!("First fetch: {}", meta1.name);
-
-    // Second call should use cache (same pointer)
-    let meta2 = ft.metadata().await.unwrap();
-    assert!(
-        std::ptr::eq(meta1, meta2),
-        "Second call should return cached reference"
-    );
-
-    // Multiple balance_of calls should also use cached metadata
-    let b1 = ft.balance_of(&owner_id).await.unwrap();
-    let b2 = ft.balance_of(&owner_id).await.unwrap();
-
-    assert_eq!(b1.symbol(), b2.symbol());
-    assert_eq!(b1.decimals(), b2.decimals());
-
-    println!("Caching works correctly");
 }

@@ -84,7 +84,10 @@ pub(crate) fn guestbook_wasm() -> Vec<u8> {
     include_bytes!("../contracts/guestbook.wasm").to_vec()
 }
 
-#[cfg(feature = "tracing")]
 pub(crate) fn fungible_token_wasm() -> Vec<u8> {
     include_bytes!("../contracts/fungible_token.wasm").to_vec()
+}
+
+pub(crate) fn nft_wasm() -> Vec<u8> {
+    include_bytes!("../contracts/nft.wasm").to_vec()
 }
