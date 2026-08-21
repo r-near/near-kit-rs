@@ -120,3 +120,23 @@ before continuing.
 - Sandbox lifecycle and mutable token catalogs are not core-client obligations.
 - Supported targets and MSRV pass the full matrix.
 - The branch contains a migration guide and a coherent, reviewable commit series.
+
+## Completion snapshot
+
+The cleanup program ships as the 0.18 line: `near-kit-macros` 0.13.0,
+`near-kit` 0.18.0, and the new `near-kit-sandbox` 0.18.0 companion crate.
+
+- Main-crate production Rust fell from 20,744 to 19,115 physical lines
+  (-7.9%); total test Rust fell from 21,331 to 16,943 (-20.6%).
+- Sandbox integration coverage fell from 9,562 lines / 199 tests to 4,573
+  lines / 85 behavior-focused tests, with Docker lifecycle owned by the
+  companion crate.
+- near-kit's normal dependency graph fell from 246 to 219 packages with
+  defaults and from 351 to 236 with all features; the default feature set is
+  now exactly `rpc`.
+- The final native workspace, strict Clippy/rustdoc, Rust 1.88, browser Wasm,
+  WASI, macro trybuild, and sandbox compile-only matrices passed without
+  starting Docker.
+- Publish in dependency order: `near-kit-macros` first, then `near-kit`, then
+  `near-kit-sandbox`, rerunning package verification after each release reaches
+  the registry index.

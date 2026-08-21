@@ -8,7 +8,6 @@ members = [
 
 # Shared workspace metadata
 [workspace.package]
-version = "0.12.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/r-near/near-kit-rs"
