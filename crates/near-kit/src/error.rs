@@ -96,7 +96,7 @@ pub enum ParseGasError {
 /// Error parsing a public or secret key.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ParseKeyError {
-    #[error("Invalid key format: expected 'ed25519:...' or 'secp256k1:...'")]
+    #[error("Invalid key format: expected 'ed25519:...', 'secp256k1:...', or 'ml-dsa-65:...'")]
     InvalidFormat,
 
     #[error("Unknown key type: '{0}'")]
@@ -192,6 +192,9 @@ pub enum SignerError {
 
     #[error("Key derivation failed: {0}")]
     KeyDerivationFailed(String),
+
+    #[error("Implicit accounts require an Ed25519 secret key")]
+    ImplicitAccountRequiresEd25519,
 }
 
 /// Error during keystore operations.
@@ -827,7 +830,7 @@ mod tests {
     fn test_parse_key_error_display() {
         assert_eq!(
             ParseKeyError::InvalidFormat.to_string(),
-            "Invalid key format: expected 'ed25519:...' or 'secp256k1:...'"
+            "Invalid key format: expected 'ed25519:...', 'secp256k1:...', or 'ml-dsa-65:...'"
         );
         assert_eq!(
             ParseKeyError::UnknownKeyType("rsa".to_string()).to_string(),
@@ -884,6 +887,10 @@ mod tests {
         assert_eq!(
             SignerError::KeyDerivationFailed("path error".to_string()).to_string(),
             "Key derivation failed: path error"
+        );
+        assert_eq!(
+            SignerError::ImplicitAccountRequiresEd25519.to_string(),
+            "Implicit accounts require an Ed25519 secret key"
         );
     }
 

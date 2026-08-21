@@ -400,16 +400,17 @@ impl InMemorySigner {
     /// ```
     pub fn generate_implicit() -> Self {
         let secret_key = SecretKey::generate_ed25519();
-        Self::implicit(secret_key)
+        Self::implicit(secret_key).expect("generated Ed25519 key supports implicit accounts")
     }
 
     /// Create a signer from an existing secret key, deriving an implicit account ID.
     ///
     /// The account ID is the hex-encoded Ed25519 public key bytes (64 characters).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the secret key is not Ed25519.
+    /// Returns [`SignerError::ImplicitAccountRequiresEd25519`] if the secret
+    /// key is not Ed25519.
     ///
     /// # Example
     ///
@@ -417,22 +418,23 @@ impl InMemorySigner {
     /// use near_kit::signer::{InMemorySigner, SecretKey, Signer};
     ///
     /// let secret_key = SecretKey::generate_ed25519();
-    /// let signer = InMemorySigner::implicit(secret_key);
+    /// let signer = InMemorySigner::implicit(secret_key)?;
     /// assert_eq!(signer.account_id().as_str().len(), 64);
+    /// # Ok::<(), near_kit::signer::SignerError>(())
     /// ```
-    pub fn implicit(secret_key: SecretKey) -> Self {
+    pub fn implicit(secret_key: SecretKey) -> Result<Self, SignerError> {
         let public_key = secret_key.public_key();
         let pk_bytes = public_key
             .as_ed25519_bytes()
-            .expect("implicit accounts require an Ed25519 key");
+            .ok_or(SignerError::ImplicitAccountRequiresEd25519)?;
         let account_id: AccountId = hex::encode(pk_bytes)
             .parse()
             .expect("hex-encoded Ed25519 public key is a valid account ID");
-        Self {
+        Ok(Self {
             account_id,
             secret_key,
             public_key,
-        }
+        })
     }
 
     /// Create a signer from a BIP-39 seed phrase.
@@ -1185,12 +1187,25 @@ mod tests {
     fn test_implicit() {
         let secret_key = SecretKey::generate_ed25519();
         let expected_pk = secret_key.public_key();
-        let signer = InMemorySigner::implicit(secret_key);
+        let signer = InMemorySigner::implicit(secret_key).unwrap();
 
         // Account ID matches hex-encoded public key
         let pk_bytes = expected_pk.as_ed25519_bytes().unwrap();
         assert_eq!(signer.account_id().as_str(), hex::encode(pk_bytes));
         assert_eq!(signer.public_key(), &expected_pk);
+    }
+
+    #[test]
+    fn test_implicit_rejects_non_ed25519_keys() {
+        for secret_key in [
+            SecretKey::generate_secp256k1(),
+            SecretKey::generate_ml_dsa65(),
+        ] {
+            assert!(matches!(
+                InMemorySigner::implicit(secret_key),
+                Err(SignerError::ImplicitAccountRequiresEd25519)
+            ));
+        }
     }
 
     #[test]

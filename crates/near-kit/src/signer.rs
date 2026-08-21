@@ -10,8 +10,8 @@ pub use crate::types::{
 };
 pub use crate::types::{
     KeyType, ML_DSA_65_HASH_LENGTH, ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SECRET_KEY_LENGTH,
-    ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH, MlDsa65SecretKey, PublicKey,
-    PublicKeyHandle, SecretKey, Signature,
+    ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH, PublicKey, PublicKeyHandle, SecretKey,
+    Signature,
 };
 
 #[cfg(feature = "file-signer")]
