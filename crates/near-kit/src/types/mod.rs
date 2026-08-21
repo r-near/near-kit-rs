@@ -51,6 +51,7 @@ mod block_reference;
 mod csprng;
 mod error;
 mod hash;
+#[cfg(feature = "mnemonic")]
 mod hd;
 mod key;
 pub mod nep413;
@@ -81,11 +82,14 @@ pub use error::{
     UnknownError, WasmTrap,
 };
 pub use hash::CryptoHash;
+#[cfg(feature = "mnemonic")]
 pub use key::{
-    DEFAULT_HD_PATH, DEFAULT_ML_DSA_65_WORD_COUNT, DEFAULT_WORD_COUNT, KeyPair, KeyType,
-    ML_DSA_65_HASH_LENGTH, ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SECRET_KEY_LENGTH,
+    DEFAULT_HD_PATH, DEFAULT_ML_DSA_65_WORD_COUNT, DEFAULT_WORD_COUNT, generate_seed_phrase,
+};
+pub use key::{
+    KeyType, ML_DSA_65_HASH_LENGTH, ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SECRET_KEY_LENGTH,
     ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH, MlDsa65SecretKey, PublicKey,
-    PublicKeyHandle, SecretKey, Signature, generate_seed_phrase,
+    PublicKeyHandle, SecretKey, Signature,
 };
 pub use network::ChainId;
 pub use rpc::{

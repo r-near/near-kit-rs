@@ -376,9 +376,9 @@
 //! (the `tracing` crate itself is wasm-compatible). Add `rpc` to keep the [`Near`]
 //! client, which speaks HTTP through the browser's `fetch` on this target.
 //!
-//! `near-kit` relies on `getrandom` (via `rand`, `ed25519-dalek`, `k256`, and `ml-dsa`)
-//! for key generation and nonce randomness. On `wasm32-unknown-unknown`, `getrandom`
-//! requires the embedder to pick an entropy backend. If your wasm target runs in a
+//! `near-kit` relies directly on `getrandom` for key generation and nonce randomness.
+//! On `wasm32-unknown-unknown`, `getrandom` requires the embedder to pick an entropy
+//! backend. If your wasm target runs in a
 //! browser (or another JS host like Node or Deno), enable the `js` feature to use the
 //! host's `crypto.getRandomValues`:
 //!
@@ -488,6 +488,7 @@
 //! | `keyring` | No | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
 //! | `file-signer` | No | `signer::FileSigner` for loading keys from `~/.near-credentials` |
 //! | `tracing` | No | [`tracing`](https://docs.rs/tracing) spans and events for RPC calls and transactions (see below) |
+//! | `mnemonic` | No | BIP-39 seed phrases and SLIP-10 hierarchical key derivation |
 //! | `js` | No | JS-host entropy backend (`getrandom`'s `wasm_js`) for `wasm32-unknown-unknown` |
 //!
 //! ### Tracing

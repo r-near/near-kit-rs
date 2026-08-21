@@ -8,7 +8,7 @@
 //!   NEAR_ACCOUNT_ID=your-account.testnet
 //!   NEAR_PRIVATE_KEY=ed25519:...
 
-use near_kit::signer::{InMemorySigner, KeyPair};
+use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::*;
 
 // ============================================================================
@@ -82,18 +82,19 @@ async fn transfer_example(near: &Near) -> Result<(), Error> {
 async fn transaction_example(near: &Near, new_account: &str) -> Result<(), Error> {
     println!("\n=== Transaction Builder Example ===\n");
 
-    // Generate a new keypair for the sub-account
-    let keypair = KeyPair::random();
+    // Generate a new key for the sub-account
+    let secret_key = SecretKey::generate_ed25519();
+    let public_key = secret_key.public_key();
 
     println!("Creating sub-account: {new_account}");
-    println!("With public key: {}", keypair.public_key);
+    println!("With public key: {public_key}");
 
     // Create account, fund it, and add a key - all in one atomic transaction
     let outcome = near
         .transaction(new_account)
         .create_account()
         .transfer(NearToken::from_near(1))
-        .add_full_access_key(keypair.public_key)
+        .add_full_access_key(public_key)
         .send()
         .await?;
 

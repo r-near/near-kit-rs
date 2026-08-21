@@ -44,11 +44,11 @@ base64 = "0.23"
 ed25519-dalek = { version = "3", features = ["rand_core"] }
 sha2 = "0.11"
 sha3 = "0.12"
-ml-dsa = "0.1"
-rand = "0.10"
+ml-dsa = { version = "0.1", default-features = false, features = ["alloc"] }
+getrandom = { version = "0.4", features = ["sys_rng"] }
 bip39 = "2"
 hmac = "0.13"
-k256 = { version = "0.14", features = ["ecdsa"] }
+k256 = { version = "0.14", default-features = false, features = ["ecdsa"] }
 
 # Encoding
 bs58 = "0.5"

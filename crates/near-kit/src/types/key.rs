@@ -3,6 +3,7 @@
 use std::fmt::{self, Debug, Display};
 use std::str::FromStr;
 
+#[cfg(feature = "mnemonic")]
 use bip39::Mnemonic;
 use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
@@ -17,8 +18,11 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 use sha2::Digest;
 
 use super::csprng::{fill_random, os_csprng};
+#[cfg(feature = "mnemonic")]
 use super::hd::{derive_ed25519_slip10, derive_ml_dsa65_slip10, parse_hd_path};
-use crate::error::{ParseKeyError, SignerError};
+use crate::error::ParseKeyError;
+#[cfg(feature = "mnemonic")]
+use crate::error::SignerError;
 
 /// ML-DSA-65 public key length in bytes (FIPS 204).
 pub const ML_DSA_65_PUBLIC_KEY_LENGTH: usize = 1952;
@@ -599,9 +603,11 @@ impl Debug for PublicKeyHandle {
 
 /// Default BIP-32 HD derivation path for NEAR keys.
 /// NEAR uses coin type 397 per SLIP-44.
+#[cfg(feature = "mnemonic")]
 pub const DEFAULT_HD_PATH: &str = "m/44'/397'/0'";
 
 /// Default number of words in generated seed phrases.
+#[cfg(feature = "mnemonic")]
 pub const DEFAULT_WORD_COUNT: usize = 12;
 
 /// Default number of words in seed phrases generated for ML-DSA-65 keys.
@@ -613,10 +619,12 @@ pub const DEFAULT_WORD_COUNT: usize = 12;
 ///
 /// Recovery is unaffected — [`SecretKey::ml_dsa65_from_seed_phrase`] and
 /// friends still accept any valid 12–24-word BIP-39 phrase.
+#[cfg(feature = "mnemonic")]
 pub const DEFAULT_ML_DSA_65_WORD_COUNT: usize = 24;
 
 /// Minimum number of words NEP-649 allows in a newly generated ML-DSA-65 seed
 /// phrase.
+#[cfg(feature = "mnemonic")]
 const MIN_ML_DSA_65_WORD_COUNT: usize = 18;
 
 /// Storage for an ML-DSA-65 secret key.
@@ -936,6 +944,7 @@ impl SecretKey {
     /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     /// let secret_key = SecretKey::from_seed_phrase(phrase).unwrap();
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn from_seed_phrase(phrase: impl AsRef<str>) -> Result<Self, SignerError> {
         Self::from_seed_phrase_with_path(phrase, DEFAULT_HD_PATH)
     }
@@ -958,6 +967,7 @@ impl SecretKey {
     /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     /// let secret_key = SecretKey::from_seed_phrase_with_path(phrase, "m/44'/397'/1'").unwrap();
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn from_seed_phrase_with_path(
         phrase: impl AsRef<str>,
         hd_path: impl AsRef<str>,
@@ -988,6 +998,7 @@ impl SecretKey {
     ///     Some("my-passphrase")
     /// ).unwrap();
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn from_seed_phrase_with_path_and_passphrase(
         phrase: impl AsRef<str>,
         hd_path: impl AsRef<str>,
@@ -1029,6 +1040,7 @@ impl SecretKey {
     /// let secret_key = SecretKey::ml_dsa65_from_seed_phrase(phrase).unwrap();
     /// assert!(secret_key.to_string().starts_with("ml-dsa-65:"));
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn ml_dsa65_from_seed_phrase(phrase: impl AsRef<str>) -> Result<Self, SignerError> {
         Self::ml_dsa65_from_seed_phrase_with_path(phrase, DEFAULT_HD_PATH)
     }
@@ -1053,6 +1065,7 @@ impl SecretKey {
     /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     /// let secret_key = SecretKey::ml_dsa65_from_seed_phrase_with_path(phrase, "m/44'/397'/1'").unwrap();
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn ml_dsa65_from_seed_phrase_with_path(
         phrase: impl AsRef<str>,
         hd_path: impl AsRef<str>,
@@ -1088,6 +1101,7 @@ impl SecretKey {
     /// )
     /// .unwrap();
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn ml_dsa65_from_seed_phrase_with_path_and_passphrase(
         phrase: impl AsRef<str>,
         hd_path: impl AsRef<str>,
@@ -1120,6 +1134,7 @@ impl SecretKey {
     /// let (phrase, secret_key) = SecretKey::generate_with_seed_phrase().unwrap();
     /// println!("Backup your seed phrase: {}", phrase);
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn generate_with_seed_phrase() -> Result<(String, Self), SignerError> {
         Self::generate_with_seed_phrase_custom(DEFAULT_WORD_COUNT, DEFAULT_HD_PATH, None)
     }
@@ -1138,6 +1153,7 @@ impl SecretKey {
     /// let (phrase, secret_key) = SecretKey::generate_with_seed_phrase_words(24).unwrap();
     /// assert_eq!(phrase.split_whitespace().count(), 24);
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn generate_with_seed_phrase_words(
         word_count: usize,
     ) -> Result<(String, Self), SignerError> {
@@ -1151,6 +1167,7 @@ impl SecretKey {
     /// * `word_count` - Number of words (12, 15, 18, 21, or 24)
     /// * `hd_path` - BIP-32 derivation path
     /// * `passphrase` - Optional passphrase for additional entropy
+    #[cfg(feature = "mnemonic")]
     pub fn generate_with_seed_phrase_custom(
         word_count: usize,
         hd_path: impl AsRef<str>,
@@ -1186,6 +1203,7 @@ impl SecretKey {
     /// assert!(secret_key.to_string().starts_with("ml-dsa-65:"));
     /// println!("Backup your seed phrase: {}", phrase);
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn ml_dsa65_generate_with_seed_phrase() -> Result<(String, Self), SignerError> {
         Self::ml_dsa65_generate_with_seed_phrase_custom(
             DEFAULT_ML_DSA_65_WORD_COUNT,
@@ -1211,6 +1229,7 @@ impl SecretKey {
     /// assert_eq!(phrase.split_whitespace().count(), 18);
     /// assert!(SecretKey::ml_dsa65_generate_with_seed_phrase_words(12).is_err());
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn ml_dsa65_generate_with_seed_phrase_words(
         word_count: usize,
     ) -> Result<(String, Self), SignerError> {
@@ -1230,6 +1249,7 @@ impl SecretKey {
     /// Returns [`SignerError::KeyDerivationFailed`] if `word_count` is below
     /// the 18-word NEP-649 floor for newly generated ML-DSA-65 phrases, or is
     /// not one of the valid BIP-39 word counts.
+    #[cfg(feature = "mnemonic")]
     pub fn ml_dsa65_generate_with_seed_phrase_custom(
         word_count: usize,
         hd_path: impl AsRef<str>,
@@ -1581,6 +1601,7 @@ impl BorshDeserialize for Signature {
 /// is trimmed, lowercased, and whitespace-collapsed before parsing, then run
 /// through BIP-39's PBKDF2 seed derivation. The two key branches differ only
 /// downstream, in the SLIP-10 master salt.
+#[cfg(feature = "mnemonic")]
 fn mnemonic_to_seed(
     phrase: impl AsRef<str>,
     passphrase: Option<&str>,
@@ -1614,6 +1635,7 @@ fn mnemonic_to_seed(
 /// let phrase = generate_seed_phrase(12).unwrap();
 /// assert_eq!(phrase.split_whitespace().count(), 12);
 /// ```
+#[cfg(feature = "mnemonic")]
 pub fn generate_seed_phrase(word_count: usize) -> Result<String, SignerError> {
     // Word count to entropy bytes: 12->16, 15->20, 18->24, 21->28, 24->32
     let entropy_bytes = match word_count {
@@ -1638,218 +1660,6 @@ pub fn generate_seed_phrase(word_count: usize) -> Result<String, SignerError> {
     })?;
 
     Ok(mnemonic.to_string())
-}
-
-// ============================================================================
-// KeyPair
-// ============================================================================
-
-/// A cryptographic key pair (secret key + public key).
-///
-/// This is a convenience type that bundles a [`SecretKey`] with its derived
-/// [`PublicKey`] for situations where you need both (e.g., creating accounts,
-/// adding access keys).
-///
-/// # Example
-///
-/// ```rust
-/// use near_kit::signer::KeyPair;
-///
-/// // Generate a random Ed25519 key pair
-/// let keypair = KeyPair::random();
-/// println!("Public key: {}", keypair.public_key);
-/// println!("Secret key: {}", keypair.secret_key);
-///
-/// // Use with account creation
-/// // near.transaction("new.alice.testnet")
-/// //     .create_account()
-/// //     .add_full_access_key(keypair.public_key)
-/// //     .send()
-/// //     .await?;
-/// ```
-#[derive(Clone)]
-pub struct KeyPair {
-    /// The secret (private) key.
-    pub secret_key: SecretKey,
-    /// The public key derived from the secret key.
-    pub public_key: PublicKey,
-}
-
-impl KeyPair {
-    /// Generate a random Ed25519 key pair.
-    ///
-    /// This is the most common key type for NEAR.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit::signer::KeyPair;
-    ///
-    /// let keypair = KeyPair::random();
-    /// ```
-    pub fn random() -> Self {
-        Self::random_ed25519()
-    }
-
-    /// Generate a random Ed25519 key pair.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit::signer::KeyPair;
-    ///
-    /// let keypair = KeyPair::random_ed25519();
-    /// assert!(keypair.public_key.to_string().starts_with("ed25519:"));
-    /// ```
-    pub fn random_ed25519() -> Self {
-        let secret_key = SecretKey::generate_ed25519();
-        let public_key = secret_key.public_key();
-        Self {
-            secret_key,
-            public_key,
-        }
-    }
-
-    /// Generate a random Secp256k1 key pair.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit::signer::KeyPair;
-    ///
-    /// let keypair = KeyPair::random_secp256k1();
-    /// assert!(keypair.public_key.to_string().starts_with("secp256k1:"));
-    /// ```
-    pub fn random_secp256k1() -> Self {
-        let secret_key = SecretKey::generate_secp256k1();
-        let public_key = secret_key.public_key();
-        Self {
-            secret_key,
-            public_key,
-        }
-    }
-
-    /// Generate a random ML-DSA-65 post-quantum key pair (FIPS 204).
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit::signer::KeyPair;
-    ///
-    /// let keypair = KeyPair::random_ml_dsa65();
-    /// assert!(keypair.public_key.to_string().starts_with("ml-dsa-65:"));
-    /// ```
-    pub fn random_ml_dsa65() -> Self {
-        let secret_key = SecretKey::generate_ml_dsa65();
-        let public_key = secret_key.public_key();
-        Self {
-            secret_key,
-            public_key,
-        }
-    }
-
-    /// Create a key pair from an existing secret key.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit::signer::{KeyPair, SecretKey};
-    ///
-    /// let secret_key: SecretKey = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr".parse().unwrap();
-    /// let keypair = KeyPair::from_secret_key(secret_key);
-    /// ```
-    pub fn from_secret_key(secret_key: SecretKey) -> Self {
-        let public_key = secret_key.public_key();
-        Self {
-            secret_key,
-            public_key,
-        }
-    }
-
-    /// Create a key pair from a seed phrase using the default NEAR HD path.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit::signer::KeyPair;
-    ///
-    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-    /// let keypair = KeyPair::from_seed_phrase(phrase).unwrap();
-    /// ```
-    pub fn from_seed_phrase(phrase: impl AsRef<str>) -> Result<Self, SignerError> {
-        let secret_key = SecretKey::from_seed_phrase(phrase)?;
-        Ok(Self::from_secret_key(secret_key))
-    }
-
-    /// Create an ML-DSA-65 key pair from a seed phrase using the default NEAR
-    /// HD path.
-    ///
-    /// Derives the post-quantum key via satoshilabs/slips#1968 / NEP-649
-    /// (<https://github.com/near/NEPs/pull/649>); see
-    /// [`SecretKey::ml_dsa65_from_seed_phrase`] for details (including why it is
-    /// unrelated to the Ed25519 key from the same phrase).
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit::signer::KeyPair;
-    ///
-    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-    /// let keypair = KeyPair::ml_dsa65_from_seed_phrase(phrase).unwrap();
-    /// assert!(keypair.public_key.to_string().starts_with("ml-dsa-65:"));
-    /// ```
-    pub fn ml_dsa65_from_seed_phrase(phrase: impl AsRef<str>) -> Result<Self, SignerError> {
-        let secret_key = SecretKey::ml_dsa65_from_seed_phrase(phrase)?;
-        Ok(Self::from_secret_key(secret_key))
-    }
-
-    /// Generate a new random key pair with a seed phrase for backup.
-    ///
-    /// Returns the seed phrase (for backup) and the key pair.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit::signer::KeyPair;
-    ///
-    /// let (phrase, keypair) = KeyPair::random_with_seed_phrase().unwrap();
-    /// println!("Backup your seed phrase: {}", phrase);
-    /// println!("Public key: {}", keypair.public_key);
-    /// ```
-    pub fn random_with_seed_phrase() -> Result<(String, Self), SignerError> {
-        let (phrase, secret_key) = SecretKey::generate_with_seed_phrase()?;
-        Ok((phrase, Self::from_secret_key(secret_key)))
-    }
-
-    /// Generate a new random ML-DSA-65 key pair with a seed phrase for backup.
-    ///
-    /// Returns the seed phrase (for backup) and the key pair. The phrase is 24
-    /// words: NEP-649 (<https://github.com/near/NEPs/pull/649>) requires at
-    /// least 18 for a newly generated ML-DSA-65 mnemonic. See
-    /// [`SecretKey::ml_dsa65_generate_with_seed_phrase`].
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit::signer::KeyPair;
-    ///
-    /// let (phrase, keypair) = KeyPair::random_ml_dsa65_with_seed_phrase().unwrap();
-    /// assert_eq!(phrase.split_whitespace().count(), 24);
-    /// assert!(keypair.public_key.to_string().starts_with("ml-dsa-65:"));
-    /// ```
-    pub fn random_ml_dsa65_with_seed_phrase() -> Result<(String, Self), SignerError> {
-        let (phrase, secret_key) = SecretKey::ml_dsa65_generate_with_seed_phrase()?;
-        Ok((phrase, Self::from_secret_key(secret_key)))
-    }
-}
-
-impl std::fmt::Debug for KeyPair {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("KeyPair")
-            .field("public_key", &self.public_key)
-            .field("secret_key", &"***")
-            .finish()
-    }
 }
 
 #[cfg(test)]
@@ -1912,18 +1722,21 @@ mod tests {
     // Seed Phrase Tests
     // ========================================================================
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_generate_seed_phrase_12_words() {
         let phrase = generate_seed_phrase(12).unwrap();
         assert_eq!(phrase.split_whitespace().count(), 12);
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_generate_seed_phrase_24_words() {
         let phrase = generate_seed_phrase(24).unwrap();
         assert_eq!(phrase.split_whitespace().count(), 24);
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_generate_seed_phrase_invalid_word_count() {
         let result = generate_seed_phrase(13);
@@ -1931,8 +1744,10 @@ mod tests {
     }
 
     // Valid BIP-39 test vector (from official test vectors)
+    #[cfg(feature = "mnemonic")]
     const TEST_PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_from_seed_phrase_known_vector() {
         // Test vector: known seed phrase should produce consistent key
@@ -1943,6 +1758,7 @@ mod tests {
         assert_eq!(secret_key.public_key(), secret_key2.public_key());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_from_seed_phrase_whitespace_normalization() {
         let phrase1 = TEST_PHRASE;
@@ -1957,12 +1773,14 @@ mod tests {
         assert_eq!(key1.public_key(), key3.public_key());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_from_seed_phrase_invalid() {
         let result = SecretKey::from_seed_phrase("invalid words that are not a mnemonic");
         assert!(result.is_err());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_from_seed_phrase_different_paths() {
         let key1 = SecretKey::from_seed_phrase_with_path(TEST_PHRASE, "m/44'/397'/0'").unwrap();
@@ -1972,6 +1790,7 @@ mod tests {
         assert_ne!(key1.public_key(), key2.public_key());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_from_seed_phrase_with_passphrase() {
         let key_no_pass = SecretKey::from_seed_phrase_with_path_and_passphrase(
@@ -1992,6 +1811,7 @@ mod tests {
         assert_ne!(key_no_pass.public_key(), key_with_pass.public_key());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_generate_with_seed_phrase() {
         let (phrase, secret_key) = SecretKey::generate_with_seed_phrase().unwrap();
@@ -2004,6 +1824,7 @@ mod tests {
         assert_eq!(secret_key.public_key(), derived.public_key());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_generate_with_seed_phrase_24_words() {
         let (phrase, secret_key) = SecretKey::generate_with_seed_phrase_words(24).unwrap();
@@ -2014,6 +1835,7 @@ mod tests {
         assert_eq!(secret_key.public_key(), derived.public_key());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_seed_phrase_key_can_sign() {
         let secret_key = SecretKey::from_seed_phrase(TEST_PHRASE).unwrap();
@@ -2193,16 +2015,16 @@ mod tests {
     }
 
     #[test]
-    fn test_secp256k1_keypair_random() {
-        let keypair = KeyPair::random_secp256k1();
-        assert_eq!(keypair.public_key.key_type(), KeyType::Secp256k1);
-        assert_eq!(keypair.secret_key.key_type(), KeyType::Secp256k1);
-        assert!(keypair.public_key.to_string().starts_with("secp256k1:"));
+    fn test_secp256k1_secret_key_random() {
+        let secret_key = SecretKey::generate_secp256k1();
+        let public_key = secret_key.public_key();
+        assert_eq!(public_key.key_type(), KeyType::Secp256k1);
+        assert_eq!(secret_key.key_type(), KeyType::Secp256k1);
+        assert!(public_key.to_string().starts_with("secp256k1:"));
 
-        // Sign/verify through keypair
-        let message = b"keypair test";
-        let signature = keypair.secret_key.sign(message);
-        assert!(signature.verify(message, &keypair.public_key));
+        let message = b"secret key test";
+        let signature = secret_key.sign(message);
+        assert!(signature.verify(message, &public_key));
     }
 
     #[test]
@@ -2712,15 +2534,16 @@ mod tests {
     }
 
     #[test]
-    fn test_ml_dsa65_keypair_random() {
-        let keypair = KeyPair::random_ml_dsa65();
-        assert_eq!(keypair.public_key.key_type(), KeyType::MlDsa65);
-        assert_eq!(keypair.secret_key.key_type(), KeyType::MlDsa65);
-        assert!(keypair.public_key.to_string().starts_with("ml-dsa-65:"));
+    fn test_ml_dsa65_secret_key_random() {
+        let secret_key = SecretKey::generate_ml_dsa65();
+        let public_key = secret_key.public_key();
+        assert_eq!(public_key.key_type(), KeyType::MlDsa65);
+        assert_eq!(secret_key.key_type(), KeyType::MlDsa65);
+        assert!(public_key.to_string().starts_with("ml-dsa-65:"));
 
-        let message = b"keypair";
-        let signature = keypair.secret_key.sign(message);
-        assert!(signature.verify(message, &keypair.public_key));
+        let message = b"secret key";
+        let signature = secret_key.sign(message);
+        assert!(signature.verify(message, &public_key));
     }
 
     #[test]
@@ -2749,6 +2572,7 @@ mod tests {
     // ML-DSA-65 Seed Phrase Tests
     // ========================================================================
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_from_seed_phrase_cross_sdk_vector() {
         // Cross-SDK regression: the ML-DSA-65 key derived from this phrase at
@@ -2764,6 +2588,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_from_seed_phrase_deterministic() {
         let key1 = SecretKey::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
@@ -2772,6 +2597,7 @@ mod tests {
         assert_eq!(key1.public_key(), key2.public_key());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_from_seed_phrase_different_paths() {
         let key1 =
@@ -2781,6 +2607,7 @@ mod tests {
         assert_ne!(key1.public_key(), key2.public_key());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_from_seed_phrase_with_passphrase() {
         let no_pass = SecretKey::ml_dsa65_from_seed_phrase_with_path_and_passphrase(
@@ -2798,6 +2625,7 @@ mod tests {
         assert_ne!(no_pass.public_key(), with_pass.public_key());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_seed_phrase_differs_from_ed25519() {
         // The ML-DSA-65 and Ed25519 branches share the SLIP-10 machinery but
@@ -2810,12 +2638,14 @@ mod tests {
         assert_ne!(ml.as_bytes(), ed.as_bytes());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_from_seed_phrase_invalid() {
         let result = SecretKey::ml_dsa65_from_seed_phrase("invalid words that are not a mnemonic");
         assert!(result.is_err());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_seed_phrase_key_can_sign() {
         let secret = SecretKey::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
@@ -2824,6 +2654,7 @@ mod tests {
         assert!(secret.sign(message).verify(message, &public));
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_generate_with_seed_phrase_defaults_to_24_words() {
         let (phrase, secret) = SecretKey::ml_dsa65_generate_with_seed_phrase().unwrap();
@@ -2837,6 +2668,7 @@ mod tests {
         assert_eq!(secret.key_type(), KeyType::MlDsa65);
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_generate_with_seed_phrase_roundtrips() {
         let (phrase, secret) = SecretKey::ml_dsa65_generate_with_seed_phrase().unwrap();
@@ -2846,6 +2678,7 @@ mod tests {
         assert_eq!(secret.public_key(), derived.public_key());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_generate_with_seed_phrase_rejects_short_word_counts() {
         // NEP-649: a newly generated ML-DSA-65 mnemonic needs at least 18 words.
@@ -2858,6 +2691,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_generate_with_seed_phrase_accepts_18_21_24() {
         for word_count in [18, 21, 24] {
@@ -2868,6 +2702,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_generate_with_seed_phrase_custom() {
         let (phrase, secret) =
@@ -2884,6 +2719,7 @@ mod tests {
         assert_eq!(secret.public_key(), derived.public_key());
     }
 
+    #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ed25519_generate_with_seed_phrase_still_12_words() {
         // The NEP-649 floor applies only to the ML-DSA-65 path.
@@ -2891,25 +2727,5 @@ mod tests {
         assert_eq!(DEFAULT_WORD_COUNT, 12);
         assert_eq!(phrase.split_whitespace().count(), DEFAULT_WORD_COUNT);
         assert_eq!(secret.key_type(), KeyType::Ed25519);
-    }
-
-    #[test]
-    fn test_ml_dsa65_keypair_random_with_seed_phrase() {
-        let (phrase, keypair) = KeyPair::random_ml_dsa65_with_seed_phrase().unwrap();
-        assert_eq!(phrase.split_whitespace().count(), 24);
-        assert_eq!(keypair.public_key.key_type(), KeyType::MlDsa65);
-        assert_eq!(keypair.public_key, keypair.secret_key.public_key());
-    }
-
-    #[test]
-    fn test_ml_dsa65_keypair_from_seed_phrase() {
-        let keypair = KeyPair::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
-        assert_eq!(keypair.public_key.key_type(), KeyType::MlDsa65);
-        assert_eq!(
-            keypair.secret_key.to_string(),
-            "ml-dsa-65:7t9yn5gKtyA9EwqwGCHe6WeDdDhDQkRDVhASM7ZvRoum"
-        );
-        // The bundled public key matches re-deriving it from the secret.
-        assert_eq!(keypair.public_key, keypair.secret_key.public_key());
     }
 }

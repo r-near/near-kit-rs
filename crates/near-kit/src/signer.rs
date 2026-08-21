@@ -4,11 +4,14 @@ pub use crate::client::{
     EnvSigner, InMemorySigner, RotatingSigner, Signer, SigningBackend, SigningKey,
 };
 pub use crate::error::{KeyStoreError, ParseKeyError, SignerError};
+#[cfg(feature = "mnemonic")]
 pub use crate::types::{
-    DEFAULT_HD_PATH, DEFAULT_ML_DSA_65_WORD_COUNT, DEFAULT_WORD_COUNT, KeyPair, KeyType,
-    ML_DSA_65_HASH_LENGTH, ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SECRET_KEY_LENGTH,
+    DEFAULT_HD_PATH, DEFAULT_ML_DSA_65_WORD_COUNT, DEFAULT_WORD_COUNT, generate_seed_phrase,
+};
+pub use crate::types::{
+    KeyType, ML_DSA_65_HASH_LENGTH, ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SECRET_KEY_LENGTH,
     ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH, MlDsa65SecretKey, PublicKey,
-    PublicKeyHandle, SecretKey, Signature, generate_seed_phrase,
+    PublicKeyHandle, SecretKey, Signature,
 };
 
 #[cfg(feature = "file-signer")]

@@ -213,6 +213,7 @@ if let Some(token) = nft.token("token-123").await? {
 | `keyring` | No | System keyring integration for desktop apps |
 | `file-signer` | No | Load signers from `~/.near-credentials` |
 | `tracing` | No | [`tracing`](https://crates.io/crates/tracing) spans and events for RPC calls and transactions |
+| `mnemonic` | No | BIP-39 seed phrases and SLIP-10 hierarchical key derivation |
 | `js` | No | JS-host entropy backend for `wasm32-unknown-unknown` |
 
 ### Tracing

@@ -454,6 +454,7 @@ impl InMemorySigner {
     ///     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
     /// ).unwrap();
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn from_seed_phrase(
         account_id: impl TryIntoAccountId,
         phrase: impl AsRef<str>,
@@ -481,6 +482,7 @@ impl InMemorySigner {
     ///     "m/44'/397'/1'"
     /// ).unwrap();
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn from_seed_phrase_with_path(
         account_id: impl TryIntoAccountId,
         phrase: impl AsRef<str>,

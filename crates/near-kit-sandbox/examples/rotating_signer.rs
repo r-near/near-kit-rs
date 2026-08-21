@@ -10,7 +10,7 @@
 use near_kit::*;
 
 use near_kit::rpc::FinalExecutionOutcome;
-use near_kit::signer::{InMemorySigner, KeyPair, RotatingSigner, SecretKey};
+use near_kit::signer::{InMemorySigner, RotatingSigner, SecretKey};
 use near_kit_sandbox::{Sandbox, SandboxConfig};
 
 async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,9 +23,11 @@ async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
         .expect("sandbox client has a root signer")
         .to_string();
 
-    // Generate 5 keypairs dynamically
+    // Generate 5 keys dynamically
     let num_keys = 5;
-    let keypairs: Vec<KeyPair> = (0..num_keys).map(|_| KeyPair::random()).collect();
+    let secret_keys: Vec<SecretKey> = (0..num_keys)
+        .map(|_| SecretKey::generate_ed25519())
+        .collect();
 
     // Create a bot account with the first key
     let bot_account = format!("bot-{}.{}", std::process::id(), root_account);
@@ -35,29 +37,28 @@ async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
         .transaction(&bot_account)
         .create_account()
         .transfer(NearToken::from_near(50))
-        .add_full_access_key(keypairs[0].public_key.clone())
+        .add_full_access_key(secret_keys[0].public_key())
         .send()
         .await?;
 
     // Add remaining keys using a loop
     let bot_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
         bot_account.as_str(),
-        keypairs[0].secret_key.clone(),
+        secret_keys[0].clone(),
     )?);
 
     println!("Adding {} more access keys...", num_keys - 1);
 
-    // Dynamic key addition - fold over keypairs to build transaction
-    keypairs[1..]
+    // Dynamic key addition - fold over keys to build transaction
+    secret_keys[1..]
         .iter()
-        .fold(bot_near.transaction(&bot_account), |tx, kp| {
-            tx.add_full_access_key(kp.public_key.clone())
+        .fold(bot_near.transaction(&bot_account), |tx, key| {
+            tx.add_full_access_key(key.public_key())
         })
         .send()
         .await?;
 
     // Create RotatingSigner with all keys
-    let secret_keys: Vec<SecretKey> = keypairs.into_iter().map(|kp| kp.secret_key).collect();
     let rotating_signer = RotatingSigner::new(&bot_account, secret_keys)?;
 
     let near = Near::sandbox(&sandbox).with_signer(rotating_signer);

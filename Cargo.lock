@@ -522,7 +522,6 @@ checksum = "1a52aa3fcda4e6302a9f48734f234d35d4721b96f8fe07d073f07ce9df4f0271"
 dependencies = [
  "cpubits",
  "ctutils",
- "getrandom 0.4.3",
  "hybrid-array",
  "num-traits",
  "rand_core 0.10.1",
@@ -546,7 +545,6 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77727bb15fa921304124b128af125e7e3b968275d1b108b379190264f4423710"
 dependencies = [
- "getrandom 0.4.3",
  "hybrid-array",
  "rand_core 0.10.1",
 ]
@@ -793,7 +791,6 @@ dependencies = [
  "elliptic-curve",
  "rfc6979",
  "signature",
- "spki",
  "zeroize",
 ]
 
@@ -840,7 +837,6 @@ dependencies = [
  "ff",
  "group",
  "hybrid-array",
- "pkcs8",
  "rand_core 0.10.1",
  "sec1",
  "subtle",
@@ -1650,7 +1646,6 @@ dependencies = [
  "elliptic-curve",
  "primeorder",
  "sha2",
- "signature",
  "wnaf",
 ]
 
@@ -1782,7 +1777,6 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "add6b9d92e496f16f4526d68ff29da1483aba4b119baeab8bed3b9e3544a6f3d"
 dependencies = [
- "const-oid",
  "crypto-common 0.2.1",
  "ctutils",
  "hybrid-array",
@@ -1871,7 +1865,6 @@ dependencies = [
  "near-global-contracts",
  "near-kit-macros",
  "near-token",
- "rand 0.10.1",
  "reqwest",
  "serde",
  "serde_json",
@@ -2242,9 +2235,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c9f42978c78a00e3d68f69fc03e57a234debae69da4020a4fb588fcdcd07b06"
 dependencies = [
  "elliptic-curve",
- "once_cell",
  "primefield",
- "serdect",
  "wnaf",
 ]
 
@@ -2884,16 +2875,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "serdect"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66cf8fedced2fcf12406bcb34223dffb92eaf34908ede12fed414c82b7f00b3e"
-dependencies = [
- "base16ct",
- "serde",
 ]
 
 [[package]]

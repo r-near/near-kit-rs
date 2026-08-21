@@ -34,6 +34,8 @@ jobs:
       - run: cargo check -p near-kit --all-targets --no-default-features --features contracts
       # Covers the offline (no `rpc`) configuration, including tests/examples gating
       - run: cargo check -p near-kit --all-targets --no-default-features
+      # Mnemonic derivation is independently opt-in and works without networking.
+      - run: cargo check -p near-kit --all-targets --no-default-features --features mnemonic
 
   test:
     name: Test
@@ -63,6 +65,8 @@ jobs:
       # examples that need the RPC layer are cfg_attr'd to `ignore` without it
       - name: Run offline doctests
         run: cargo test -p near-kit --no-default-features --doc
+      - name: Run offline mnemonic tests
+        run: cargo test -p near-kit --no-default-features --features mnemonic --lib
       - name: Run contract macro compile tests
         run: cargo test -p near-kit-macros --test trybuild
       - uses: codecov/codecov-action@v7
@@ -100,8 +104,12 @@ jobs:
       - run: cargo check --target wasm32-unknown-unknown -p near-kit --no-default-features --features js,rpc
       # Browser: typed-contract macro expansion on top of the RPC client
       - run: cargo check --target wasm32-unknown-unknown -p near-kit --no-default-features --features js,contracts
+      # Browser: offline mnemonic generation and derivation with JS entropy
+      - run: cargo check --target wasm32-unknown-unknown -p near-kit --no-default-features --features js,mnemonic
       # WASI: the offline core (types, signing, tx building) without a transport
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features
+      # WASI: opt-in mnemonic generation and derivation with native WASI entropy
+      - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features mnemonic
       # WASI with the RPC layer but no built-in transport (hosts without
       # wasi:http; the caller injects one via NearBuilder::transport)
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features rpc

@@ -13,7 +13,7 @@
 
 use near_kit::*;
 
-use near_kit::signer::{InMemorySigner, KeyPair, RotatingSigner, SecretKey};
+use near_kit::signer::{InMemorySigner, RotatingSigner, SecretKey};
 use near_kit::transaction::Included;
 use near_kit_sandbox::{Sandbox, SandboxConfig};
 
@@ -27,9 +27,11 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
         .expect("sandbox client has a root signer")
         .to_string();
 
-    // Generate 3 keypairs for the bot account
+    // Generate 3 keys for the bot account
     let num_keys = 3;
-    let keypairs: Vec<KeyPair> = (0..num_keys).map(|_| KeyPair::random()).collect();
+    let secret_keys: Vec<SecretKey> = (0..num_keys)
+        .map(|_| SecretKey::generate_ed25519())
+        .collect();
 
     // Create a bot account with the first key
     let bot_account = format!("bot-{}.{}", std::process::id(), root_account);
@@ -39,20 +41,20 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
         .transaction(&bot_account)
         .create_account()
         .transfer(NearToken::from_near(50))
-        .add_full_access_key(keypairs[0].public_key.clone())
+        .add_full_access_key(secret_keys[0].public_key())
         .send()
         .await?;
 
     // Add remaining keys
     let bot_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
         bot_account.as_str(),
-        keypairs[0].secret_key.clone(),
+        secret_keys[0].clone(),
     )?);
 
-    keypairs[1..]
+    secret_keys[1..]
         .iter()
-        .fold(bot_near.transaction(&bot_account), |tx, kp| {
-            tx.add_full_access_key(kp.public_key.clone())
+        .fold(bot_near.transaction(&bot_account), |tx, key| {
+            tx.add_full_access_key(key.public_key())
         })
         .send()
         .await?;
@@ -67,7 +69,6 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Split RotatingSigner into per-key signers
-    let secret_keys: Vec<SecretKey> = keypairs.into_iter().map(|kp| kp.secret_key).collect();
     let rotating = RotatingSigner::new(&bot_account, secret_keys)?;
 
     println!(

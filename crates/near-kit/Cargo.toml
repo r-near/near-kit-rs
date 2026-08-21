@@ -36,9 +36,9 @@ ed25519-dalek.workspace = true
 sha2.workspace = true
 sha3.workspace = true
 ml-dsa.workspace = true
-rand.workspace = true
-bip39.workspace = true
-hmac.workspace = true
+getrandom.workspace = true
+bip39 = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
 k256.workspace = true
 
 # Encoding
@@ -84,14 +84,12 @@ wasi = { version = "0.14", optional = true }
 
 # JS-host wasm only (`wasm32-unknown-unknown`, i.e. browsers/Node/Deno — NOT
 # WASI): JS-backed timer and time APIs. `getrandom` is the entropy backend for
-# the whole crypto dependency graph (`rand`/`k256`/`ed25519-dalek`/`ml-dsa` all
-# reach it through `rand_core` 0.10); its `wasm_js` feature is opt-in via the
+# key generation and NEP-413 nonces; its `wasm_js` feature is opt-in via the
 # crate's `js` feature (see below) so non-JS wasm embedders can choose their own
 # backend instead.
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 gloo-timers = { version = "0.4", features = ["futures"] }
 js-sys = "0.3"
-getrandom = { version = "0.4", default-features = false }
 
 [features]
 default = ["rpc"]
@@ -116,11 +114,11 @@ file-signer = ["dep:dirs"]
 # Emit `tracing` spans and events for RPC calls, transactions, and token
 # operations. Disable (via `default-features = false`) to drop the dependency.
 tracing = ["dep:tracing"]
+# BIP-39 seed phrases and SLIP-10 hierarchical key derivation.
+mnemonic = ["dep:bip39", "dep:hmac"]
 # JS-host entropy backend for `wasm32-unknown-unknown`. Enables `getrandom`'s
-# `wasm_js` feature, which every crypto dependency reaches through `rand_core`
-# 0.10 (`rand`, `k256`, `ed25519-dalek`, `ml-dsa`). Leave this off on non-JS
-# wasm embedders (register your own `getrandom` backend) and on WASI targets
-# (which `getrandom` supports natively).
+# `wasm_js` feature. Leave this off on non-JS wasm embedders (register your own
+# `getrandom` backend) and on WASI targets (which `getrandom` supports natively).
 js = ["getrandom/wasm_js"]
 
 # These examples drive a live `Near` client end to end. Quickstart also

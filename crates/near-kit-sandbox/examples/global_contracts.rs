@@ -12,7 +12,7 @@
 use near_kit::*;
 
 use near_kit::protocol::PublishMode;
-use near_kit::signer::{InMemorySigner, KeyPair};
+use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::transaction::Final;
 
 use near_kit_sandbox::{Sandbox, SandboxConfig};
@@ -28,20 +28,20 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         .to_string();
 
     // --- Create a publisher account ---
-    let publisher_key = KeyPair::random();
+    let publisher_key = SecretKey::generate_ed25519();
     let publisher_account = format!("publisher.{root_account}");
 
     root_near
         .transaction(&publisher_account)
         .create_account()
         .transfer(NearToken::from_near(50))
-        .add_full_access_key(publisher_key.public_key.clone())
+        .add_full_access_key(publisher_key.public_key())
         .send()
         .await?;
 
     let publisher_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
         publisher_account.as_str(),
-        publisher_key.secret_key,
+        publisher_key,
     )?);
 
     println!("Created publisher: {publisher_account}");
@@ -62,20 +62,20 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("Published guestbook contract (updatable)\n");
 
     // --- Create a user account and deploy from the publisher ---
-    let user_key = KeyPair::random();
+    let user_key = SecretKey::generate_ed25519();
     let user_account = format!("app.{root_account}");
 
     root_near
         .transaction(&user_account)
         .create_account()
         .transfer(NearToken::from_near(10))
-        .add_full_access_key(user_key.public_key.clone())
+        .add_full_access_key(user_key.public_key())
         .send()
         .await?;
 
     let user_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
         user_account.as_str(),
-        user_key.secret_key,
+        user_key,
     )?);
 
     // Deploy from the publisher's global contract
@@ -122,20 +122,20 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("Published same contract (immutable)\n");
 
     // Deploy to a second account using the hash
-    let user2_key = KeyPair::random();
+    let user2_key = SecretKey::generate_ed25519();
     let user2_account = format!("app2.{root_account}");
 
     root_near
         .transaction(&user2_account)
         .create_account()
         .transfer(NearToken::from_near(10))
-        .add_full_access_key(user2_key.public_key.clone())
+        .add_full_access_key(user2_key.public_key())
         .send()
         .await?;
 
     let user2_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
         user2_account.as_str(),
-        user2_key.secret_key,
+        user2_key,
     )?);
 
     // Deploy from hash (type dispatches on CryptoHash)
