@@ -27,7 +27,9 @@ explicitly when needed. BIP-39 generation and derivation APIs now require
 The `contract`, `call`, `json`, and `borsh` attributes, `Contract`,
 `ContractClient`, and `Near::contract` require `contracts`, not just `rpc`.
 `#[call(payable)]` was a no-op and is now rejected; use `#[call]` and attach a
-deposit on the generated call builder.
+deposit on the generated call builder. The `#[json]` and `#[borsh]` method
+markers likewise accept no options, may appear only once, and cannot be combined
+on the same method.
 
 ## Imports and namespaces
 
@@ -61,9 +63,12 @@ classification methods provided directly by `near-account-id` when needed.
 
 Invalid account IDs, amounts, gas values, global-contract IDs, and serialized
 arguments are retained as builder validation errors instead of panicking.
-Builders preserve the first error and return it from their terminal operation
-(`await`, `send`, `build`, `sign`, `delegate`, or `into_action`). That first
-input error remains sticky; construct a new call if an argument setter fails.
+Transaction and function-call builders preserve the first error and return it
+from their terminal operation (`await`, `send`, `build`, `sign`, `delegate`, or
+`into_action`); construct a new call if one of those argument setters fails.
+View-call argument setters remain last-one-wins, so a later successful `args`,
+`args_raw`, or `args_borsh` replaces an earlier view-argument serialization
+error.
 
 `CallBuilder` now focuses on one function call. Use one of two explicit exits:
 

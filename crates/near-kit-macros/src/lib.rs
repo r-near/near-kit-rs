@@ -158,18 +158,42 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         }
     }
 
-    // Check for #[json] or #[borsh] format override
-    let format_override = if method.attrs.iter().any(|attr| attr.path().is_ident("json")) {
-        Some(SerializationFormat::Json)
-    } else if method
+    // Check for a #[json] or #[borsh] format override.
+    let mut format_override = None;
+    for attr in method
         .attrs
         .iter()
-        .any(|attr| attr.path().is_ident("borsh"))
+        .filter(|attr| attr.path().is_ident("json") || attr.path().is_ident("borsh"))
     {
-        Some(SerializationFormat::Borsh)
-    } else {
-        None
-    };
+        let (format, name) = if attr.path().is_ident("json") {
+            (SerializationFormat::Json, "json")
+        } else {
+            (SerializationFormat::Borsh, "borsh")
+        };
+
+        if attr.meta.require_path_only().is_err() {
+            return Err(syn::Error::new_spanned(
+                &attr.meta,
+                format!("#[{name}] does not accept options"),
+            ));
+        }
+
+        match format_override {
+            Some(previous) if previous == format => {
+                return Err(syn::Error::new_spanned(
+                    &attr.meta,
+                    format!("#[{name}] may only be specified once"),
+                ));
+            }
+            Some(_) => {
+                return Err(syn::Error::new_spanned(
+                    &attr.meta,
+                    "#[json] and #[borsh] cannot be used together",
+                ));
+            }
+            None => format_override = Some(format),
+        }
+    }
 
     // Validate: view methods should not have #[call]
     if is_view && is_call {
@@ -570,7 +594,16 @@ pub fn call(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn json(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn json(attr: TokenStream, item: TokenStream) -> TokenStream {
+    if !attr.is_empty() {
+        return syn::Error::new_spanned(
+            TokenStream2::from(attr),
+            "#[json] does not accept options",
+        )
+        .to_compile_error()
+        .into();
+    }
+
     // This is just a marker attribute - the actual work is done by #[contract]
     item
 }
@@ -593,7 +626,16 @@ pub fn json(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn borsh(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn borsh(attr: TokenStream, item: TokenStream) -> TokenStream {
+    if !attr.is_empty() {
+        return syn::Error::new_spanned(
+            TokenStream2::from(attr),
+            "#[borsh] does not accept options",
+        )
+        .to_compile_error()
+        .into();
+    }
+
     // This is just a marker attribute - the actual work is done by #[contract]
     item
 }

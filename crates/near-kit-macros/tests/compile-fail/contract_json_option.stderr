@@ -1,0 +1,5 @@
+error: #[json] does not accept options
+ --> tests/compile-fail/contract_json_option.rs:8:7
+  |
+8 |     #[json(pretty)]
+  |       ^^^^^^^^^^^^

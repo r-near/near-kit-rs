@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** reject options such as `#[call(payable)]`; `#[call]` is now only a
   marker for change methods, and attached deposits remain explicit call-builder
   configuration.
+- **Breaking:** require `#[json]` and `#[borsh]` to be option-free, unique, and
+  mutually exclusive on each contract method.
 - Resolve the downstream `near-kit` crate name during macro expansion, so generated
   clients work when the dependency is renamed in `Cargo.toml`.
 - Generate contract clients against near-kit's curated `rpc`, `transaction`, and

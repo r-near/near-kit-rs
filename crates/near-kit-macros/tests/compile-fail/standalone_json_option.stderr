@@ -1,0 +1,5 @@
+error: #[json] does not accept options
+ --> tests/compile-fail/standalone_json_option.rs:5:8
+  |
+5 | #[json(pretty)]
+  |        ^^^^^^
