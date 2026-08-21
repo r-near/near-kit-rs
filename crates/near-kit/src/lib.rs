@@ -66,7 +66,7 @@
 //!
 //! ## Design Principles
 //!
-//! 1. **Single entry point** — Everything flows through the [`Near`] client
+//! 1. **Single entry point** — Everything flows through the `Near` client
 //! 2. **Configure once** — Network and signer are set at client creation
 //! 3. **Type-safe but ergonomic** — Accept both typed values and string parsing
 //! 4. **Explicit units** — No ambiguous amounts; must specify `NEAR`, `yocto`, `Tgas`, etc.
@@ -76,11 +76,11 @@
 //!
 //! | Type | Description |
 //! |------|-------------|
-//! | [`Near`] | Main client — the single entry point for all operations |
+//! | `Near` | Main client — the single entry point for all operations |
 //! | [`AccountId`] | Validated NEAR account identifier |
 //! | [`NearToken`] | Token amount with yoctoNEAR precision |
 //! | [`Gas`] | Gas units for transactions |
-//! | [`signer::PublicKey`] / [`signer::SecretKey`] | Ed25519 cryptographic keys |
+//! | [`signer::PublicKey`] / [`signer::SecretKey`] | Supported cryptographic keys |
 //! | [`CryptoHash`] | 32-byte SHA-256 hash (blocks, transactions) |
 //!
 //! ## Working with Amounts
@@ -316,7 +316,7 @@
 //!
 //! ### Multiple Accounts
 //!
-//! For production apps that manage multiple accounts, use [`Near::with_signer`] to
+//! For production apps that manage multiple accounts, use `Near::with_signer` to
 //! derive clients that share the same RPC connection but sign as different accounts:
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
@@ -337,10 +337,10 @@
 //! # }
 //! ```
 //!
-//! Use [`with_signer`](Near::with_signer) for multi-account management and
+//! Use `Near::with_signer` for multi-account management and
 //! [`signer::RotatingSigner`] for high-throughput single-account usage (multiple keys to
 //! avoid nonce collisions). For one-off overrides on a single transaction, use
-//! [`.sign_with()`](transaction::TransactionBuilder::sign_with) on the transaction builder.
+//! `.sign_with()` on the transaction builder.
 //!
 //! ## Sandbox Testing
 //!
@@ -373,7 +373,7 @@
 //! `default-features = false`. The `keyring` and `file-signer` features use OS APIs
 //! unavailable in the browser and should stay off; use [`signer::InMemorySigner`] or
 //! [`signer::EnvSigner`] instead. Add the opt-in `tracing` feature if you want spans
-//! (the `tracing` crate itself is wasm-compatible). Add `rpc` to keep the [`Near`]
+//! (the `tracing` crate itself is wasm-compatible). Add `rpc` to keep the `Near`
 //! client, which speaks HTTP through the browser's `fetch` on this target.
 //!
 //! `near-kit` relies directly on `getrandom` for key generation and nonce randomness.
@@ -384,7 +384,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.14", default-features = false, features = ["js", "rpc"] }
+//! near-kit = { version = "0.18", default-features = false, features = ["js", "rpc"] }
 //! ```
 //!
 //! If you're running `wasm32-unknown-unknown` outside a JS host, leave `js` off and
@@ -403,7 +403,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.14", default-features = false, features = ["wasi-http"] }
+//! near-kit = { version = "0.18", default-features = false, features = ["wasi-http"] }
 //! ```
 //!
 //! The host must provide the `wasi:http` interface — `wasmtime run -S http`, or
@@ -417,7 +417,7 @@
 //!   point the client at the final RPC URL.
 //!
 //! On WASI hosts *without* `wasi:http`, enable only `rpc` and plug in whatever
-//! the platform does provide via [`NearBuilder::transport`]. The `wasi-http`
+//! the platform does provide via `NearBuilder::transport`. The `wasi-http`
 //! feature must stay off there: merely compiling the built-in transport makes
 //! the component import `wasi:http`, which such hosts refuse to instantiate.
 //! With `rpc` alone those imports never appear. A client can still be built,
@@ -436,7 +436,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.14", default-features = false }
+//! near-kit = { version = "0.18", default-features = false }
 //! ```
 //!
 //! Build with `RUSTFLAGS='--cfg getrandom_backend="custom"'` and export an `extern
@@ -460,7 +460,7 @@
 //!
 //! ## Offline / no-network usage
 //!
-//! The entire RPC layer — [`Near`], the query/transaction builders, token helpers,
+//! The entire RPC layer — `Near`, the query/transaction builders, token helpers,
 //! and the HTTP client underneath — is gated behind the default-on `rpc` feature.
 //! Typed-contract interfaces and macros additionally require `contracts`. With
 //! `default-features = false` you keep the offline core:
@@ -468,23 +468,23 @@
 //! [`signer::EnvSigner`], ...), transaction construction and signing via
 //! [`protocol::Transaction`] (`new` → `sign` → `to_bytes`), and NEP-413
 //! [`standards::nep413::verify_signature`].
-//! The fluent [`transaction::TransactionBuilder`] is part of the RPC layer — it is created
-//! from a [`Near`] client — so it requires `rpc`.
+//! The fluent `transaction::TransactionBuilder` is part of the RPC layer — it is created
+//! from a `Near` client — so it requires `rpc`.
 //! This is what you want on targets with no network stack at all — sign
 //! transactions and messages locally, send them elsewhere:
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.14", default-features = false }
+//! near-kit = { version = "0.18", default-features = false }
 //! ```
 //!
 //! ## Feature Flags
 //!
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
-//! | `rpc` | Yes | The RPC layer: [`Near`], queries, transactions, tokens, and the HTTP transport (reqwest, except on WASI). Disable for offline signing/verification |
+//! | `rpc` | Yes | The RPC layer: `Near`, queries, transactions, tokens, and the HTTP transport (reqwest, except on WASI). Disable for offline signing/verification |
 //! | `contracts` | No | Typed contract interfaces and the `#[near_kit::contract]` macro (implies `rpc`) |
-//! | `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2` (implies `rpc`; no-op elsewhere). On WASI hosts without `wasi:http`, inject a transport via [`NearBuilder::transport`] |
+//! | `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2` (implies `rpc`; no-op on non-WASI targets; unsupported on earlier WASI targets). On WASI Preview 2 hosts without `wasi:http`, inject a transport via `NearBuilder::transport` |
 //! | `keyring` | No | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
 //! | `file-signer` | No | `signer::FileSigner` for loading keys from `~/.near-credentials` |
 //! | `tracing` | No | [`tracing`](https://docs.rs/tracing) spans and events for RPC calls and transactions (see below) |

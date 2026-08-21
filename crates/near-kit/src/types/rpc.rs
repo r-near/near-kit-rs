@@ -768,17 +768,17 @@ pub enum FinalExecutionStatus {
 /// [`Included`](crate::transaction::Included), [`IncludedFinal`](crate::transaction::IncludedFinal)),
 /// the transaction hasn't finished executing, so this type carries the
 /// information needed to poll for the final result later via
-/// [`Near::tx_status`](crate::Near::tx_status).
+/// `Near::tx_status`.
 ///
 /// # The `outcome` field
 ///
 /// Whether a (partial) execution outcome is available depends on which RPC
 /// produced the response, not on the wait level alone:
 ///
-/// - Via [`Near::send`](crate::Near::send) / `.send()` (the `send_tx` RPC): the
+/// - Via `Near::send` / `.send()` (the `send_tx` RPC): the
 ///   node returns no execution outcome at these early levels, so `outcome` is
 ///   [`None`].
-/// - Via [`Near::tx_status`](crate::Near::tx_status) (the `EXPERIMENTAL_tx_status`
+/// - Via `Near::tx_status` (the `EXPERIMENTAL_tx_status`
 ///   RPC): the node returns the execution outcome as soon as it has one — its
 ///   `receipts_outcome` (per-receipt status) and `receipts` (so a receiver_id
 ///   can be mapped to a UI stage) — even at `Submitted`/`Included`. `outcome` is
@@ -826,7 +826,7 @@ pub struct SendTxResponse {
     /// May be partial (while the transaction is still executing) or complete
     /// (when polling a tx that has already finished). Populated (with
     /// `receipts_outcome`/`receipts`) when this response comes from
-    /// [`Near::tx_status`](crate::Near::tx_status) and the node already has
+    /// `Near::tx_status` and the node already has
     /// outcome data; [`None`] for the `send_tx` path at these early wait levels.
     /// See the [type-level docs](SendTxResponse) for details.
     pub outcome: Option<FinalExecutionOutcome>,

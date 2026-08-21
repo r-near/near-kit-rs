@@ -1,6 +1,6 @@
 //! Low-level RPC access, transports, query builders, and response types.
 //!
-//! [`RpcClient`] includes the generic [`RpcClient::call`] escape hatch in
+//! `RpcClient` includes the generic `RpcClient::call` escape hatch in
 //! addition to typed NEAR RPC methods.
 
 pub use crate::error::RpcError;

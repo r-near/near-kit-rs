@@ -45,7 +45,7 @@
 //! millisecond timestamp in the first 8 bytes so that verification can enforce a maximum
 //! signature age. This timestamp embedding is a near-kit convention, not part of the spec.
 //!
-//! By default, [`verify_signature()`] and [`verify()`] assume this convention
+//! By default, [`verify_signature()`] and `verify()` assume this convention
 //! ([`NonceValidation::Timestamp`]). If you are verifying messages from an app that uses its
 //! own nonce scheme (e.g. random bytes, or a custom structured nonce), pass
 //! [`NonceValidation::None`] to skip the timestamp interpretation — you are then responsible
@@ -339,7 +339,7 @@ fn now_millis() -> u64 {
 /// This layout is a near-kit convention, not part of NEP-413 — the spec treats the nonce
 /// as an arbitrary, opaque 32-byte value. Nonces produced by this function work with the
 /// default [`NonceValidation::Timestamp`] expiration checking in [`verify_signature()`]
-/// and [`verify()`].
+/// and `verify()`.
 ///
 /// # Example
 ///
@@ -430,7 +430,7 @@ pub fn serialize_message(params: &SignMessageParams) -> CryptoHash {
 /// `nonce_validation` accepts a [`NonceValidation`] or a plain [`Duration`] max age
 /// (with `Duration::MAX` disabling expiration checking).
 ///
-/// Use [`verify()`] for full verification including RPC checks.
+/// Use `verify()` for full verification including RPC checks.
 ///
 /// # Custom nonce schemes
 ///

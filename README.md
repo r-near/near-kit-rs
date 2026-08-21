@@ -10,7 +10,7 @@
 [![codecov](https://codecov.io/gh/r-near/near-kit-rs/graph/badge.svg)](https://codecov.io/gh/r-near/near-kit-rs)
 [![MSRV](https://img.shields.io/badge/MSRV-1.88-blue.svg)](https://github.com/r-near/near-kit-rs)
 
-[API Docs](https://docs.rs/near-kit) · [Examples](crates/near-kit/examples/) · [Changelog](CHANGELOG.md)
+[API Docs](https://docs.rs/near-kit) · [Examples](crates/near-kit/examples/) · [Migration guide](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md) · [Changelog](https://github.com/r-near/near-kit-rs/blob/main/crates/near-kit/CHANGELOG.md)
 
 </div>
 
@@ -209,7 +209,7 @@ if let Some(token) = nft.token("token-123").await? {
 |---------|---------|-------------|
 | `rpc` | Yes | The `Near` client, queries, transactions, token helpers, and the HTTP transport — reqwest, except on WASI |
 | `contracts` | No | Typed contract interfaces and macros; implies `rpc` |
-| `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2`; implies `rpc`, no-op elsewhere |
+| `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2`; implies `rpc`, is a no-op on non-WASI targets, and is unsupported on earlier WASI targets |
 | `keyring` | No | System keyring integration for desktop apps |
 | `file-signer` | No | Load signers from `~/.near-credentials` |
 | `tracing` | No | [`tracing`](https://crates.io/crates/tracing) spans and events for RPC calls and transactions |
@@ -223,7 +223,9 @@ With `tracing` on, RPC calls and transactions run inside spans (`call`, `view_fu
 Docker-backed local testing lives in the companion `near-kit-sandbox` crate. Add
 it as a dev-dependency and call `SandboxConfig::fresh().await?` or
 `SandboxConfig::shared().await?`; each `Sandbox` can create a configured client
-with `sandbox.client()` or `Near::sandbox(&sandbox)`.
+with `sandbox.client()` or `Near::sandbox(&sandbox)`. See the
+[`near-kit-sandbox` guide](crates/near-kit-sandbox/README.md) for setup and
+lifecycle details.
 
 ### WASI (`wasm32-wasip2`)
 
@@ -231,12 +233,18 @@ near-kit runs inside WASI Preview 2 components with full RPC support — the `wa
 
 ```toml
 [dependencies]
-near-kit = { version = "0.14", default-features = false, features = ["wasi-http"] }
+near-kit = { version = "0.18", default-features = false, features = ["wasi-http"] }
 ```
 
 The host must provide the `wasi:http` interface (e.g. `wasmtime run -S http`, or any runtime targeting the `wasi:http/proxy` world). The transport is blocking — one request in flight at a time, the natural shape for a single-threaded component — and does not follow HTTP redirects, so point it at the final RPC URL.
 
-On WASI hosts without `wasi:http`, enable only `rpc` and plug your platform's transport in via `NearBuilder::transport` — `wasi-http` must stay off there, because merely compiling the built-in transport makes the component import `wasi:http`, which such hosts refuse to instantiate. Or go fully offline (below).
+On WASI hosts without `wasi:http`, enable only `rpc` and plug your platform's
+transport in via `NearBuilder::transport` — `wasi-http` must stay off there,
+because merely compiling the built-in transport makes the component import
+`wasi:http`, which such hosts refuse to instantiate. `NearBuilder::build()`
+still succeeds if no custom transport is installed; the first RPC operation
+returns a non-retryable `RpcError::Network` (wrapped in `Error::Rpc` by the
+high-level client) instead of panicking. Or go fully offline (below).
 
 ### Offline / no-network usage
 
