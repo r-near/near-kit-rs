@@ -1,0 +1,5 @@
+error: #[borsh] does not accept options
+ --> tests/compile-fail/standalone_borsh_option.rs:5:9
+  |
+5 | #[borsh(compact)]
+  |         ^^^^^^^

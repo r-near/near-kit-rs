@@ -9,16 +9,15 @@ use serde_with::{base64::Base64, serde_as};
 
 use super::action::{
     AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction, DelegateAction,
-    DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
-    DeployGlobalContractAction, DeterministicStateInitAction, FunctionCallAction,
-    FunctionCallPermission, GasKeyInfo, GlobalContractDeployMode, GlobalContractId,
-    NonDelegateAction, SignedDelegateAction, StakeAction, StateInit, StateInitV1, TransferAction,
+    DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeterministicStateInitAction,
+    FunctionCallAction, FunctionCallPermission, GasKeyInfo, GlobalContractId, NonDelegateAction,
+    SignedDelegateAction, StakeAction, StateInit, StateInitV1, TransferAction,
     TransferToGasKeyAction, UseGlobalContractAction, VersionedDelegateActionPayload,
     VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
 };
 use super::block_reference::TxExecutionStatus;
 use super::error::{ActionError, TxExecutionError};
-use super::transaction::TransactionNonce;
+use super::transaction::{NonceMode, TransactionNonce};
 use super::{AccountId, CryptoHash, Gas, NearToken, Nonce, PublicKey, PublicKeyHandle, Signature};
 use crate::error::ActionViewConversionError;
 
@@ -765,21 +764,21 @@ pub enum FinalExecutionStatus {
 
 /// Response returned for non-executed wait levels.
 ///
-/// When you use a non-executed wait level ([`Submitted`](crate::types::Submitted),
-/// [`Included`](crate::types::Included), [`IncludedFinal`](crate::types::IncludedFinal)),
+/// When you use a non-executed wait level ([`Submitted`](crate::transaction::Submitted),
+/// [`Included`](crate::transaction::Included), [`IncludedFinal`](crate::transaction::IncludedFinal)),
 /// the transaction hasn't finished executing, so this type carries the
 /// information needed to poll for the final result later via
-/// [`Near::tx_status`](crate::Near::tx_status).
+/// `Near::tx_status`.
 ///
 /// # The `outcome` field
 ///
 /// Whether a (partial) execution outcome is available depends on which RPC
 /// produced the response, not on the wait level alone:
 ///
-/// - Via [`Near::send`](crate::Near::send) / `.send()` (the `send_tx` RPC): the
+/// - Via `Near::send` / `.send()` (the `send_tx` RPC): the
 ///   node returns no execution outcome at these early levels, so `outcome` is
 ///   [`None`].
-/// - Via [`Near::tx_status`](crate::Near::tx_status) (the `EXPERIMENTAL_tx_status`
+/// - Via `Near::tx_status` (the `EXPERIMENTAL_tx_status`
 ///   RPC): the node returns the execution outcome as soon as it has one — its
 ///   `receipts_outcome` (per-receipt status) and `receipts` (so a receiver_id
 ///   can be mapped to a UI stage) — even at `Submitted`/`Included`. `outcome` is
@@ -796,6 +795,7 @@ pub enum FinalExecutionStatus {
 #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 /// # use near_kit::*;
+/// # use near_kit::transaction::Included;
 /// # async fn example(near: &Near) -> Result<(), Error> {
 /// let response = near.transfer("bob.testnet", NearToken::from_near(1))
 ///     .wait_until::<Included>()
@@ -826,7 +826,7 @@ pub struct SendTxResponse {
     /// May be partial (while the transaction is still executing) or complete
     /// (when polling a tx that has already finished). Populated (with
     /// `receipts_outcome`/`receipts`) when this response comes from
-    /// [`Near::tx_status`](crate::Near::tx_status) and the node already has
+    /// `Near::tx_status` and the node already has
     /// outcome data; [`None`] for the `send_tx` path at these early wait levels.
     /// See the [type-level docs](SendTxResponse) for details.
     pub outcome: Option<FinalExecutionOutcome>,
@@ -845,7 +845,7 @@ pub struct ReceiptToTxResponse {
 ///
 /// Used internally to deserialize responses from `send_tx` and
 /// `EXPERIMENTAL_tx_status` before converting to user-facing types
-/// via [`WaitLevel::convert`](crate::types::WaitLevel::convert).
+/// via [`WaitLevel::convert`](crate::transaction::WaitLevel::convert).
 #[doc(hidden)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct RawTransactionResponse {
@@ -978,7 +978,7 @@ impl FinalExecutionOutcome {
 /// The `Failure` variant contains an [`ActionError`] rather than
 /// [`TxExecutionError`] because receipt execution outcomes can only fail with
 /// action errors. Transaction-validation errors (`InvalidTxError`) are caught
-/// earlier in the send path and surfaced as [`crate::error::Error::InvalidTx`].
+/// earlier in the send path and surfaced as [`crate::Error::InvalidTx`].
 ///
 /// The NEAR RPC serialises the failure as `{"Failure": {"ActionError": {…}}}`.
 /// A custom [`Deserialize`] impl unwraps the outer `TxExecutionError` envelope.
@@ -1016,16 +1016,6 @@ impl<'de> serde::Deserialize<'de> for ExecutionStatus {
             Raw::SuccessReceiptId(h) => Ok(Self::SuccessReceiptId(h)),
         }
     }
-}
-
-/// Controls how the transaction nonce is validated against the access key nonce.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum NonceMode {
-    /// Any nonce strictly greater than the current access key nonce (default behavior).
-    Monotonic,
-    /// Nonce must be exactly `ak_nonce + 1` (sequential ordering).
-    Strict,
 }
 
 /// Transaction view in outcome.
@@ -1202,8 +1192,9 @@ pub enum VersionedDelegateActionPayloadView {
 ///
 /// This is the node's JSON rendering of an [`Action`], as found in
 /// `tx_status` responses ([`TransactionView::actions`]) and in action receipts.
-/// It can be turned back into an [`Action`] with
-/// [`TryFrom<ActionView>`](Action#impl-TryFrom<ActionView>-for-Action).
+/// Non-deploy variants can be turned back into an [`Action`] with
+/// [`TryFrom<ActionView>`](Action#impl-TryFrom<ActionView>-for-Action). Deploy
+/// variants are rejected because the view omits the contract code.
 ///
 /// # Deploy views carry the code *hash*, not the WASM
 ///
@@ -1214,8 +1205,9 @@ pub enum VersionedDelegateActionPayloadView {
 /// base64 of its 32-byte SHA-256 code hash before serving the view (nearcore
 /// `views.rs`: `hash(&action.code).as_ref().to_vec()`). Use
 /// [`deploy_code_hash`](Self::deploy_code_hash) to read it as a
-/// [`CryptoHash`]; do not treat the decoded bytes as WASM, and do not hash
-/// them again.
+/// [`CryptoHash`]. Converting the view into an [`Action`] returns
+/// [`ActionViewConversionError::DeployCodeUnavailable`]; do not treat the
+/// decoded bytes as WASM, and do not hash them again.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum ActionView {
@@ -1397,7 +1389,8 @@ impl ActionView {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::{ActionView, CryptoHash};
+    /// use near_kit::CryptoHash;
+    /// use near_kit::rpc::ActionView;
     ///
     /// // `code` is base64(sha256(wasm)); here the WASM is the empty byte string.
     /// let view: ActionView = serde_json::from_value(serde_json::json!({
@@ -1483,20 +1476,15 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 /// Convert a node-reported action view back into a wire [`Action`], e.g. to
 /// re-sign or replay a transaction fetched with `tx_status`.
 ///
-/// Mirrors nearcore's `TryFrom<ActionView> for Action`, including its one big
-/// caveat:
-///
 /// # Deploy actions come back with the code *hash* in `code`
 ///
 /// `DeployContract`, `DeployGlobalContract` and `DeployGlobalContractByAccountId`
 /// views carry the base64 of the 32-byte SHA-256 code hash, **not** the WASM
-/// (see [`ActionView`]). The resulting
-/// [`DeployContractAction::code`] / [`DeployGlobalContractAction::code`] therefore
-/// holds those 32 hash bytes — exactly as nearcore's own conversion does. Such an
-/// action is not deployable as-is; fetch the real code (e.g. `view_code` on an
-/// archival node) and verify it against [`ActionView::deploy_code_hash`]. A
-/// `code` that does not decode to exactly 32 bytes is rejected with
-/// [`ActionViewConversionError::InvalidCodeHash`].
+/// (see [`ActionView`]). Converting any of these views therefore returns
+/// [`ActionViewConversionError::DeployCodeUnavailable`] instead of manufacturing
+/// a deploy action whose `code` is actually the hash. Use
+/// [`ActionView::deploy_code_hash`] to inspect the hash, then fetch the real code
+/// (for example with `view_code` on an archival node) and verify it separately.
 ///
 /// # Other errors
 ///
@@ -1511,7 +1499,9 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 /// [`Action`]s (one action shown, deserialized from the JSON the node returns):
 ///
 /// ```rust
-/// use near_kit::{Action, ActionView, Gas, NearToken};
+/// use near_kit::{Gas, NearToken};
+/// use near_kit::protocol::Action;
+/// use near_kit::rpc::ActionView;
 ///
 /// let view: ActionView = serde_json::from_value(serde_json::json!({
 ///     "FunctionCall": {
@@ -1552,11 +1542,13 @@ impl TryFrom<ActionView> for Action {
     fn try_from(view: ActionView) -> Result<Self, Self::Error> {
         Ok(match view {
             ActionView::CreateAccount => Self::CreateAccount(CreateAccountAction),
-            // NOTE: `code` is the base64 of the code *hash*, not the WASM. The
-            // resulting action holds the 32 hash bytes, as in nearcore.
-            ActionView::DeployContract { code } => Self::DeployContract(DeployContractAction {
-                code: decode_code_hash(&code)?.to_vec(),
-            }),
+            ActionView::DeployContract { code }
+            | ActionView::DeployGlobalContract { code }
+            | ActionView::DeployGlobalContractByAccountId { code } => {
+                return Err(ActionViewConversionError::DeployCodeUnavailable {
+                    code_hash: decode_code_hash(&code)?,
+                });
+            }
             ActionView::FunctionCall {
                 method_name,
                 args,
@@ -1597,19 +1589,6 @@ impl TryFrom<ActionView> for Action {
                 delegate_action: delegate_action.try_into()?,
                 signature,
             })),
-            // NOTE: as for DeployContract, `code` is the code hash, not the WASM.
-            ActionView::DeployGlobalContract { code } => {
-                Self::DeployGlobalContract(DeployGlobalContractAction {
-                    code: decode_code_hash(&code)?.to_vec(),
-                    deploy_mode: GlobalContractDeployMode::CodeHash,
-                })
-            }
-            ActionView::DeployGlobalContractByAccountId { code } => {
-                Self::DeployGlobalContract(DeployGlobalContractAction {
-                    code: decode_code_hash(&code)?.to_vec(),
-                    deploy_mode: GlobalContractDeployMode::AccountId,
-                })
-            }
             ActionView::UseGlobalContract { code_hash } => {
                 Self::UseGlobalContract(UseGlobalContractAction {
                     contract_identifier: GlobalContractId::CodeHash(*code_hash.as_bytes()),
@@ -2009,7 +1988,8 @@ pub struct NodeVersion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::KeyType;
+    use crate::protocol::{AccessKeyPermission, MAX_NONCES_FOR_GAS_KEY};
+    use crate::signer::KeyType;
 
     #[test]
     fn test_access_key_list_parses_ml_dsa65_hash_handle() {
@@ -2405,10 +2385,10 @@ mod tests {
 
     #[test]
     fn test_max_nonces_for_gas_key() {
-        assert_eq!(crate::MAX_NONCES_FOR_GAS_KEY, 1024);
+        assert_eq!(MAX_NONCES_FOR_GAS_KEY, 1024);
         assert_eq!(
-            crate::AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY,
-            crate::MAX_NONCES_FOR_GAS_KEY
+            AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY,
+            MAX_NONCES_FOR_GAS_KEY
         );
     }
 
@@ -3108,12 +3088,6 @@ mod tests {
     }
 
     #[test]
-    fn test_nonce_mode_monotonic() {
-        let mode: NonceMode = serde_json::from_value(serde_json::json!("monotonic")).unwrap();
-        assert_eq!(mode, NonceMode::Monotonic);
-    }
-
-    #[test]
     fn test_receipt_to_tx_response() {
         let json = serde_json::json!({
             "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
@@ -3328,42 +3302,26 @@ mod action_view_conversion_tests {
     }
 
     #[test]
-    fn deploy_contract_view_yields_code_hash_bytes_not_wasm() {
-        // The node serves base64(sha256(wasm)) in `code`, so the converted
-        // action holds the 32 hash bytes (as nearcore's own TryFrom does).
-        let wasm = b"\0asm\x01\0\0\0 not really a contract";
-        let hash = CryptoHash::hash(wasm);
-        let json = serde_json::json!({ "DeployContract": { "code": STANDARD.encode(hash) } });
-        let view: ActionView = serde_json::from_value(json).unwrap();
-        assert_eq!(view.deploy_code_hash().unwrap().unwrap(), hash);
-        match Action::try_from(view).unwrap() {
-            Action::DeployContract(DeployContractAction { code }) => {
-                assert_eq!(code, hash.to_vec());
-                assert_ne!(code, wasm.to_vec());
-            }
-            other => panic!("expected DeployContract, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn deploy_global_contract_views_carry_mode_and_hash() {
-        let hash = CryptoHash::hash(b"global");
-        for (tag, mode) in [
-            ("DeployGlobalContract", GlobalContractDeployMode::CodeHash),
-            (
-                "DeployGlobalContractByAccountId",
-                GlobalContractDeployMode::AccountId,
-            ),
+    fn deploy_views_expose_hash_but_cannot_convert_to_actions() {
+        let hash = CryptoHash::hash(b"contract code");
+        for tag in [
+            "DeployContract",
+            "DeployGlobalContract",
+            "DeployGlobalContractByAccountId",
         ] {
             let json = serde_json::json!({ tag: { "code": STANDARD.encode(hash) } });
             let view: ActionView = serde_json::from_value(json).unwrap();
             assert_eq!(view.deploy_code_hash().unwrap().unwrap(), hash);
+            let error = Action::try_from(view).unwrap_err();
             assert_eq!(
-                Action::try_from(view).unwrap(),
-                Action::DeployGlobalContract(DeployGlobalContractAction {
-                    code: hash.to_vec(),
-                    deploy_mode: mode,
-                })
+                error,
+                ActionViewConversionError::DeployCodeUnavailable { code_hash: hash }
+            );
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "Cannot convert deploy action view: the node returned only code hash {hash}, not the contract code"
+                )
             );
         }
         // Non-deploy views have no code hash.

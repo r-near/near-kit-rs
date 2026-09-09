@@ -4,7 +4,7 @@ description = "A clean, ergonomic Rust client for NEAR Protocol"
 keywords = ["near", "blockchain", "crypto", "web3"]
 categories = ["api-bindings", "cryptography::cryptocurrencies"]
 readme = "../../README.md"
-version = "0.17.0"
+version = "0.18.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -18,9 +18,8 @@ near-gas.workspace = true
 near-global-contracts.workspace = true
 
 # Async runtime — only pull in `sync` here; `time` is added below for every
-# target except JS-host wasm, and `rt` is added by the `sandbox` feature.
+# target except JS-host wasm.
 tokio = { version = "1", features = ["sync"] }
-futures.workspace = true
 
 # HTTP client: target-specific — see the two feature-gated target tables below
 # (reqwest everywhere except WASI, via `rpc`; `wasi:http` bindings on
@@ -37,9 +36,9 @@ ed25519-dalek.workspace = true
 sha2.workspace = true
 sha3.workspace = true
 ml-dsa.workspace = true
-rand.workspace = true
-bip39.workspace = true
-hmac.workspace = true
+getrandom.workspace = true
+bip39 = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
 k256.workspace = true
 
 # Encoding
@@ -58,12 +57,9 @@ thiserror.workspace = true
 # Logging (optional; gated by `tracing` — see src/trace.rs for the no-op fallback)
 tracing = { workspace = true, optional = true }
 
-# Proc macros for typed contracts
-near-kit-macros.workspace = true
+# Proc macros for typed contracts (opt-in via the `contracts` feature)
+near-kit-macros = { workspace = true, optional = true }
 
-# Optional: Sandbox integration (via Docker/testcontainers)
-testcontainers = { workspace = true, optional = true, features = ["watchdog"] }
-libc = { version = "0.2", optional = true }
 serde_with = { version = "3.20", features = ["hex", "base64"] }
 
 # Native targets: tokio timer support for the RPC retry backoff. Wasm targets
@@ -88,17 +84,15 @@ wasi = { version = "0.14", optional = true }
 
 # JS-host wasm only (`wasm32-unknown-unknown`, i.e. browsers/Node/Deno — NOT
 # WASI): JS-backed timer and time APIs. `getrandom` is the entropy backend for
-# the whole crypto dependency graph (`rand`/`k256`/`ed25519-dalek`/`ml-dsa` all
-# reach it through `rand_core` 0.10); its `wasm_js` feature is opt-in via the
+# key generation and NEP-413 nonces; its `wasm_js` feature is opt-in via the
 # crate's `js` feature (see below) so non-JS wasm embedders can choose their own
 # backend instead.
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 gloo-timers = { version = "0.4", features = ["futures"] }
 js-sys = "0.3"
-getrandom = { version = "0.4", default-features = false }
 
 [features]
-default = ["rpc", "wasi-http", "keyring", "file-signer", "tracing"]
+default = ["rpc"]
 # The JSON-RPC layer: the `Near` client, query/transaction builders, contract
 # and token helpers, and the HTTP transport underneath them. Pulls in reqwest
 # everywhere except WASI (`dep:` on a target-inactive optional dependency is a
@@ -107,42 +101,39 @@ default = ["rpc", "wasi-http", "keyring", "file-signer", "tracing"]
 # `default-features = false`) for offline use — types, signing, and transaction
 # building without a network stack.
 rpc = ["dep:reqwest"]
+# Typed contract interfaces and the `#[near_kit::contract]` proc macro.
+contracts = ["rpc", "dep:near-kit-macros"]
 # The built-in `wasi:http` transport for `wasm32-wasip2` (implies `rpc`; a
 # no-op on every other target). Kept separate from `rpc` because merely
 # compiling the built-in transport makes the component import `wasi:http`,
 # which hosts without that interface refuse to instantiate — leave this off
 # and inject a custom transport to run on such hosts.
 wasi-http = ["rpc", "dep:wasi"]
-sandbox = ["rpc", "dep:testcontainers", "dep:libc", "tokio/rt"]
 keyring = ["dep:keyring"]
 file-signer = ["dep:dirs"]
 # Emit `tracing` spans and events for RPC calls, transactions, and token
 # operations. Disable (via `default-features = false`) to drop the dependency.
 tracing = ["dep:tracing"]
+# BIP-39 seed phrases and SLIP-10 hierarchical key derivation.
+mnemonic = ["dep:bip39", "dep:hmac"]
 # JS-host entropy backend for `wasm32-unknown-unknown`. Enables `getrandom`'s
-# `wasm_js` feature, which every crypto dependency reaches through `rand_core`
-# 0.10 (`rand`, `k256`, `ed25519-dalek`, `ml-dsa`). Leave this off on non-JS
-# wasm embedders (register your own `getrandom` backend) and on WASI targets
-# (which `getrandom` supports natively).
+# `wasm_js` feature. Leave this off on non-JS wasm embedders (register your own
+# `getrandom` backend) and on WASI targets (which `getrandom` supports natively).
 js = ["getrandom/wasm_js"]
-# Enables `interactive-clap` derives on re-exported `NearToken` and `Gas` types.
-# Useful for CLI tools using `interactive-clap` for argument parsing.
-interactive-clap = ["near-token/interactive-clap", "near-gas/interactive-clap"]
 
-# These two examples drive a live `Near` client end to end, so they only build
-# with the RPC layer. The remaining examples compile without `rpc`: their
-# client usage sits behind `#[cfg(feature = "sandbox")]` with stub fallbacks.
+# These examples drive a live `Near` client end to end. Quickstart also
+# demonstrates the opt-in typed-contract macros. Docker-backed examples live
+# in the `near-kit-sandbox` package.
 [[example]]
 name = "quickstart"
-required-features = ["rpc"]
+required-features = ["contracts"]
 
 [[example]]
 name = "meta_transactions"
 required-features = ["rpc"]
 
 [dev-dependencies]
-tokio-test.workspace = true
-tempfile.workspace = true
+futures.workspace = true
 # The tracing integration tests need the real `tracing` crate regardless of
 # how the optional main dependency is configured.
 tracing.workspace = true

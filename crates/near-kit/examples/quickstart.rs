@@ -8,6 +8,7 @@
 //!   NEAR_ACCOUNT_ID=your-account.testnet
 //!   NEAR_PRIVATE_KEY=ed25519:...
 
+use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::*;
 
 // ============================================================================
@@ -81,18 +82,19 @@ async fn transfer_example(near: &Near) -> Result<(), Error> {
 async fn transaction_example(near: &Near, new_account: &str) -> Result<(), Error> {
     println!("\n=== Transaction Builder Example ===\n");
 
-    // Generate a new keypair for the sub-account
-    let keypair = KeyPair::random();
+    // Generate a new key for the sub-account
+    let secret_key = SecretKey::generate_ed25519();
+    let public_key = secret_key.public_key();
 
     println!("Creating sub-account: {new_account}");
-    println!("With public key: {}", keypair.public_key);
+    println!("With public key: {public_key}");
 
     // Create account, fund it, and add a key - all in one atomic transaction
     let outcome = near
         .transaction(new_account)
         .create_account()
         .transfer(NearToken::from_near(1))
-        .add_full_access_key(keypair.public_key)
+        .add_full_access_key(public_key)
         .send()
         .await?;
 
@@ -135,7 +137,7 @@ pub struct Message {
 async fn typed_contract_example(near: &Near) -> Result<(), Error> {
     println!("\n=== Typed Contract Example ===\n");
 
-    let guestbook = near.contract::<Guestbook>("guestbook.near-examples.testnet");
+    let guestbook = near.contract::<Guestbook>("guestbook.near-examples.testnet")?;
 
     // View call with full type safety
     let total = guestbook.total_messages().await?;
@@ -174,15 +176,21 @@ async fn multi_account_example(near: &Near) -> Result<(), Error> {
 
     // Derive a second signing context from the same connection.
     // In a real app, this would be a different account's key.
-    let account_id = near.account_id();
+    let account_id = near.account_id().expect("credentials configured above");
     let second = near.with_signer(InMemorySigner::new(
         account_id,
         std::env::var("NEAR_PRIVATE_KEY").unwrap(),
     )?);
 
     // Both clients share the same RPC connection (no extra overhead)
-    println!("Original signer: {}", near.account_id());
-    println!("Derived signer: {}", second.account_id());
+    println!(
+        "Original signer: {}",
+        near.account_id().expect("credentials configured above")
+    );
+    println!(
+        "Derived signer: {}",
+        second.account_id().expect("signer configured above")
+    );
     println!("Same RPC endpoint: {}", near.rpc_url() == second.rpc_url());
 
     Ok(())

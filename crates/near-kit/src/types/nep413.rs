@@ -7,7 +7,9 @@
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::{Near, InMemorySigner, nep413};
+//! use near_kit::Near;
+//! use near_kit::signer::InMemorySigner;
+//! use near_kit::standards::nep413;
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let signer = InMemorySigner::new(
@@ -43,7 +45,7 @@
 //! millisecond timestamp in the first 8 bytes so that verification can enforce a maximum
 //! signature age. This timestamp embedding is a near-kit convention, not part of the spec.
 //!
-//! By default, [`verify_signature()`] and [`verify()`] assume this convention
+//! By default, [`verify_signature()`] and `verify()` assume this convention
 //! ([`NonceValidation::Timestamp`]). If you are verifying messages from an app that uses its
 //! own nonce scheme (e.g. random bytes, or a custom structured nonce), pass
 //! [`NonceValidation::None`] to skip the timestamp interpretation — you are then responsible
@@ -112,7 +114,7 @@ pub struct SignMessageParams {
 /// # Example
 ///
 /// ```rust,no_run
-/// use near_kit::nep413::{AuthPayload, verify_signature, DEFAULT_MAX_AGE};
+/// use near_kit::standards::nep413::{AuthPayload, verify_signature, DEFAULT_MAX_AGE};
 ///
 /// // Parse JSON from HTTP request body (in a real app, from req.body)
 /// fn handle_login(body: &str) -> bool {
@@ -165,7 +167,8 @@ impl AuthPayload {
     ///
     #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
     #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-    /// use near_kit::{Near, nep413};
+    /// use near_kit::Near;
+    /// use near_kit::standards::nep413;
     ///
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet()
@@ -336,12 +339,12 @@ fn now_millis() -> u64 {
 /// This layout is a near-kit convention, not part of NEP-413 — the spec treats the nonce
 /// as an arbitrary, opaque 32-byte value. Nonces produced by this function work with the
 /// default [`NonceValidation::Timestamp`] expiration checking in [`verify_signature()`]
-/// and [`verify()`].
+/// and `verify()`.
 ///
 /// # Example
 ///
 /// ```rust
-/// use near_kit::nep413;
+/// use near_kit::standards::nep413;
 ///
 /// let nonce = nep413::generate_nonce();
 /// assert_eq!(nonce.len(), 32);
@@ -379,7 +382,7 @@ pub fn extract_timestamp_from_nonce(nonce: &[u8; 32]) -> u64 {
 /// # Example
 ///
 /// ```rust
-/// use near_kit::nep413::{self, SignMessageParams};
+/// use near_kit::standards::nep413::{self, SignMessageParams};
 ///
 /// let params = SignMessageParams {
 ///     message: "Hello".to_string(),
@@ -427,7 +430,7 @@ pub fn serialize_message(params: &SignMessageParams) -> CryptoHash {
 /// `nonce_validation` accepts a [`NonceValidation`] or a plain [`Duration`] max age
 /// (with `Duration::MAX` disabling expiration checking).
 ///
-/// Use [`verify()`] for full verification including RPC checks.
+/// Use `verify()` for full verification including RPC checks.
 ///
 /// # Custom nonce schemes
 ///
@@ -436,7 +439,7 @@ pub fn serialize_message(params: &SignMessageParams) -> CryptoHash {
 /// [`NonceValidation::None`] and handle replay protection yourself:
 ///
 /// ```rust,no_run
-/// use near_kit::nep413::{verify_signature, NonceValidation};
+/// use near_kit::standards::nep413::{verify_signature, NonceValidation};
 ///
 /// # let (signed, params) = todo!();
 /// // The app embeds its own structure in the nonce — don't interpret it as a timestamp.
@@ -488,7 +491,8 @@ pub fn verify_signature(
 /// # Example
 ///
 /// ```rust,no_run
-/// use near_kit::{Near, nep413};
+/// use near_kit::Near;
+/// use near_kit::standards::nep413;
 ///
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet().build();
@@ -505,8 +509,8 @@ pub fn verify_signature(
 /// handle replay protection yourself:
 ///
 /// ```rust,no_run
-/// use near_kit::{Near, nep413};
-/// use near_kit::nep413::{NonceValidation, VerifyOptions};
+/// use near_kit::Near;
+/// use near_kit::standards::nep413::{self, NonceValidation, VerifyOptions};
 ///
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet().build();

@@ -12,12 +12,12 @@ Essential operations: balance, view, call, transfer, multi-action transactions, 
 
 ```bash
 # View operations (no credentials needed)
-cargo run --example quickstart
+cargo run --example quickstart --features contracts
 
 # All operations (requires testnet credentials)
 NEAR_ACCOUNT_ID=your-account.testnet \
 NEAR_PRIVATE_KEY=ed25519:... \
-cargo run --example quickstart
+cargo run --example quickstart --features contracts
 ```
 
 ### [`meta_transactions.rs`](./meta_transactions.rs)
@@ -32,30 +32,30 @@ RELAYER_PRIVATE_KEY=ed25519:... \
 cargo run --example meta_transactions
 ```
 
-### [`rotating_signer.rs`](./rotating_signer.rs)
+### [`rotating_signer.rs`](../../near-kit-sandbox/examples/rotating_signer.rs)
 
 High-throughput concurrent transactions using multiple access keys to avoid nonce collisions.
 
-Requires the `sandbox` feature (starts a local NEAR node):
+Lives in the `near-kit-sandbox` package and starts a local NEAR node through Docker:
 
 ```bash
-cargo run --example rotating_signer --features sandbox
+cargo run -p near-kit-sandbox --example rotating_signer --features integration-tests
 ```
 
-### [`sequential_sends.rs`](./sequential_sends.rs)
+### [`sequential_sends.rs`](../../near-kit-sandbox/examples/sequential_sends.rs)
 
 Per-key sequential transaction execution using `into_per_key_signers()`, preventing nonce ordering issues.
 
 ```bash
-cargo run --example sequential_sends --features sandbox
+cargo run -p near-kit-sandbox --example sequential_sends --features integration-tests
 ```
 
-### [`global_contracts.rs`](./global_contracts.rs)
+### [`global_contracts.rs`](../../near-kit-sandbox/examples/global_contracts.rs)
 
 Publish contracts to the global registry and deploy them to other accounts using `deploy_from`. Demonstrates both `PublishMode::Updatable` (by publisher) and `PublishMode::Immutable` (by hash).
 
 ```bash
-cargo run --example global_contracts --features sandbox
+cargo run -p near-kit-sandbox --example global_contracts --features integration-tests
 ```
 
 ## Getting Testnet Credentials

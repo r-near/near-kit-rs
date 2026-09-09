@@ -1,0 +1,140 @@
+//! Sequential Per-Key Transaction Sends
+//!
+//! Demonstrates how to build a per-key sequential send pattern using
+//! `RotatingSigner::into_per_key_signers()`. This ensures transactions
+//! from the same access key are sent one at a time, waiting for block
+//! inclusion before sending the next — preventing the send-ordering
+//! race condition where a higher nonce arrives at a validator before
+//! a lower one.
+//!
+//! Run: cargo run -p near-kit-sandbox --example sequential_sends --features integration-tests
+//!
+//! This example starts a local NEAR node through Docker.
+
+use near_kit::*;
+
+use near_kit::signer::{InMemorySigner, RotatingSigner, SecretKey};
+use near_kit::transaction::Included;
+use near_kit_sandbox::{Sandbox, SandboxConfig};
+
+async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Starting local sandbox...\n");
+    let sandbox: Sandbox = SandboxConfig::fresh().await?;
+
+    let root_near = sandbox.client();
+    let root_account = root_near
+        .account_id()
+        .expect("sandbox client has a root signer")
+        .to_string();
+
+    // Generate 3 keys for the bot account
+    let num_keys = 3;
+    let secret_keys: Vec<SecretKey> = (0..num_keys)
+        .map(|_| SecretKey::generate_ed25519())
+        .collect();
+
+    // Create a bot account with the first key
+    let bot_account = format!("bot-{}.{}", std::process::id(), root_account);
+    println!("Creating bot account: {bot_account}");
+
+    root_near
+        .transaction(&bot_account)
+        .create_account()
+        .transfer(NearToken::from_near(50))
+        .add_full_access_key(secret_keys[0].public_key())
+        .send()
+        .await?;
+
+    // Add remaining keys
+    let bot_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
+        bot_account.as_str(),
+        secret_keys[0].clone(),
+    )?);
+
+    secret_keys[1..]
+        .iter()
+        .fold(bot_near.transaction(&bot_account), |tx, key| {
+            tx.add_full_access_key(key.public_key())
+        })
+        .send()
+        .await?;
+
+    // Create recipient
+    let recipient = format!("recipient.{root_account}");
+    root_near
+        .transaction(&recipient)
+        .create_account()
+        .transfer(NearToken::from_millinear(100))
+        .send()
+        .await?;
+
+    // Split RotatingSigner into per-key signers
+    let rotating = RotatingSigner::new(&bot_account, secret_keys)?;
+
+    println!(
+        "Splitting {} keys into per-key signers...",
+        rotating.key_count()
+    );
+    let per_key_signers = rotating.into_per_key_signers();
+
+    // Each key gets its own sequential queue via tokio::spawn.
+    // Within each queue, transactions wait for block inclusion before
+    // sending the next one — preventing nonce ordering issues.
+    let txs_per_key = 5;
+    println!("Sending {txs_per_key} sequential txs per key ({num_keys} keys in parallel)...\n");
+
+    let start = std::time::Instant::now();
+
+    let handles: Vec<_> = per_key_signers
+        .into_iter()
+        .enumerate()
+        .map(|(key_idx, signer)| {
+            let near = bot_near.with_signer(signer);
+            let recipient = recipient.clone();
+            tokio::spawn(async move {
+                for tx_idx in 0..txs_per_key {
+                    near.transfer(&recipient, NearToken::from_millinear(1))
+                        .send()
+                        .wait_until::<Included>()
+                        .await
+                        .unwrap();
+                    println!("  key[{key_idx}] tx {tx_idx} included");
+                }
+            })
+        })
+        .collect();
+
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    let duration = start.elapsed();
+    let total = num_keys * txs_per_key;
+
+    println!("\n=== Results ===");
+    println!("Total txs:  {total}");
+    println!("Duration:   {:.2?}", duration);
+    println!(
+        "Throughput: {:.1} tx/s",
+        total as f64 / duration.as_secs_f64()
+    );
+
+    // Verify balance
+    let balance = bot_near.balance(&recipient).await?;
+    println!("\nRecipient balance: {}", balance.available);
+
+    println!("\nDone.");
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Sequential Per-Key Sends Example\n");
+    println!(
+        "Demonstrates per-key sequential transaction execution using into_per_key_signers().\n"
+    );
+
+    sequential_example().await?;
+
+    Ok(())
+}

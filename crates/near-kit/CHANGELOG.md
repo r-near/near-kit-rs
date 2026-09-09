@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** curate the public API into `rpc`, `transaction`, `signer`,
+  `protocol`, and `standards` namespaces; remove redundant builder shortcuts.
+- **Breaking:** default to `rpc` only; make contract macros and mnemonic support
+  opt-in, and move Docker support to `near-kit-sandbox`.
+- **Breaking:** make keys opaque, accept only seeds for ML-DSA secret-key import,
+  and remove token catalogs and metadata-only amount arithmetic.
+- See the [0.18 migration guide](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md)
+  for import, feature, builder, and signer changes.
+
+### Fixed
+
+- Return caller-input and serialization errors instead of panicking or silently
+  substituting values in builders; reject excess precision and overflow.
+- Keep one claimed signer key across retries and bound expired-transaction retries.
+- Reject conversion of hash-only RPC deploy views into executable deploy actions.
+
 ## [0.17.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.16.0...near-kit-v0.17.0) - 2026-08-19
 
 ### Added

@@ -6,7 +6,7 @@
 //! APIs). WASI targets (`wasm32-wasip1`/`p2`) keep the regular bounds.
 //!
 //! The items here are `pub` (not `pub(crate)`) because they appear in the
-//! public [`RpcTransport`](crate::client::RpcTransport) interface — `BoxFuture`
+//! public [`RpcTransport`](crate::rpc::RpcTransport) interface — `BoxFuture`
 //! is re-exported from there; `MaybeSend`/`MaybeSync` stay unnameable outside
 //! the crate (their blanket impls apply to every eligible type, so implementors
 //! never spell them out).

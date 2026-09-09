@@ -96,7 +96,8 @@ impl Transaction {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::*;
+    /// # use near_kit::protocol::Transaction;
+    /// # use near_kit::signer::Signature;
     /// # fn example(tx: Transaction, sig_bytes: [u8; 64]) {
     /// let hash = tx.get_hash();
     /// // sign hash externally...
@@ -145,7 +146,7 @@ impl SignedTransaction {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use near_kit::SignedTransaction;
+    /// use near_kit::protocol::SignedTransaction;
     /// let bytes: Vec<u8> = /* received from offline signer */;
     /// let signed_tx = SignedTransaction::from_bytes(&bytes)?;
     /// ```
@@ -165,7 +166,7 @@ impl SignedTransaction {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::SignedTransaction;
+    /// # use near_kit::protocol::SignedTransaction;
     /// let base64_str = "AgAAAGFsaWNlLnRlc3RuZXQ...";
     /// let signed_tx = SignedTransaction::from_base64(base64_str)?;
     /// # Ok::<(), near_kit::Error>(())
@@ -243,12 +244,22 @@ impl TransactionNonce {
 
 /// Controls how the transaction nonce is validated against the access key nonce.
 ///
-/// Mirrors nearcore's borsh `NonceMode`. Borsh discriminants are significant and
-/// must match nearcore: `Monotonic = 0` (the default), `Strict = 1`. This is the
-/// binary/borsh counterpart of the RPC-view [`crate::types::NonceMode`] (which is
-/// a JSON-only type); it is re-exported from the crate root as
-/// [`TransactionNonceMode`](crate::TransactionNonceMode) to avoid a name clash.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+/// This is the canonical wire type for both signed transaction Borsh and RPC
+/// JSON. Borsh discriminants must match nearcore: `Monotonic = 0` (the default),
+/// `Strict = 1`; JSON uses `"monotonic"` and `"strict"`.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
+#[serde(rename_all = "lowercase")]
 pub enum NonceMode {
     /// Any nonce strictly greater than the current access key nonce (default).
     /// (discriminant = 0)
@@ -775,6 +786,23 @@ mod tests {
         assert_eq!(borsh::to_vec(&NonceMode::Monotonic).unwrap(), vec![0]);
         assert_eq!(borsh::to_vec(&NonceMode::Strict).unwrap(), vec![1]);
         assert_eq!(NonceMode::default(), NonceMode::Monotonic);
+
+        assert_eq!(
+            serde_json::to_string(&NonceMode::Monotonic).unwrap(),
+            r#""monotonic""#
+        );
+        assert_eq!(
+            serde_json::to_string(&NonceMode::Strict).unwrap(),
+            r#""strict""#
+        );
+        assert_eq!(
+            serde_json::from_str::<NonceMode>(r#""monotonic""#).unwrap(),
+            NonceMode::Monotonic
+        );
+        assert_eq!(
+            serde_json::from_str::<NonceMode>(r#""strict""#).unwrap(),
+            NonceMode::Strict
+        );
     }
 
     /// `into_gas_key_v1` moves the V0 nonce into a `GasKeyNonce` with the index.

@@ -7,16 +7,16 @@
 //! - **Every target except WASI** (native + `wasm32-unknown-unknown`):
 //!   [`ReqwestTransport`]. reqwest's fetch backend covers browsers/JS hosts;
 //!   its native stack covers everything else.
-//! - **`wasm32-wasip2`** with the default-on `wasi-http` feature:
+//! - **`wasm32-wasip2`** with the opt-in `wasi-http` feature:
 //!   `WasiHttpTransport` (only nameable there), which speaks
 //!   `wasi:http/outgoing-handler` through the `wasi` crate's raw bindings.
 //!   reqwest has no WASI support (its native stack drags in an `aws-lc-sys` C
 //!   cross-compile and hyper's tokio `net`, neither of which builds for wasm),
 //!   so a wasip2 component needs a `wasi:http`-native client instead.
-//! - **WASI without `wasi-http`**: no built-in transport. The feature split
-//!   matters because compiling the built-in transport at all makes the
-//!   component import `wasi:http`, which hosts lacking that interface refuse
-//!   to instantiate — with only `rpc` enabled, those imports never appear.
+//! - **WASI without `wasi-http`**: an erroring fallback makes client
+//!   construction infallible while keeping `wasi:http` imports out of the
+//!   component. Inject a different transport to make RPC calls operational (or
+//!   build near-kit without `rpc`).
 //!
 //! Custom implementations plug in via
 //! [`NearBuilder::transport`](super::NearBuilder::transport) (or
@@ -124,26 +124,91 @@ impl<T: RpcTransport + ?Sized> RpcTransport for Arc<T> {
     }
 }
 
+#[cfg(any(
+    test,
+    all(
+        target_arch = "wasm32",
+        target_os = "wasi",
+        not(all(feature = "wasi-http", target_env = "p2"))
+    )
+))]
+#[derive(Clone, Debug, Default)]
+struct MissingWasiHttpTransport;
+
+#[cfg(any(
+    test,
+    all(
+        target_arch = "wasm32",
+        target_os = "wasi",
+        not(all(feature = "wasi-http", target_env = "p2"))
+    )
+))]
+impl RpcTransport for MissingWasiHttpTransport {
+    fn post_json(
+        &self,
+        _url: &str,
+        _body: Vec<u8>,
+    ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+        Box::pin(async {
+            Err(RpcError::network(
+                "no HTTP transport is available on WASI without the `wasi-http` feature; \
+                 supply one with `NearBuilder::transport`",
+                None,
+                false,
+            ))
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_wasi_http_transport_returns_typed_non_retryable_error() {
+        let error = futures::executor::block_on(
+            MissingWasiHttpTransport.post_json("https://rpc.testnet.near.org", Vec::new()),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            RpcError::Network {
+                status_code: None,
+                retryable: false,
+                ..
+            }
+        ));
+    }
+}
+
 /// The transport used when the caller doesn't supply one.
 ///
-/// Only compiled when a built-in transport exists for the configuration:
-/// reqwest everywhere except WASI, the `wasi:http` transport on wasm32-wasip2
-/// with the `wasi-http` feature. A WASI build without `wasi-http` has no
-/// default — the caller injects one (`NearBuilder::transport`), and because
-/// this function doesn't exist there, nothing can drag `wasi:http` imports
-/// into such a component.
-#[cfg(any(
-    not(all(target_arch = "wasm32", target_os = "wasi")),
-    all(feature = "wasi-http", target_env = "p2")
-))]
+/// This is reqwest everywhere except WASI, and the `wasi:http` transport on
+/// wasm32-wasip2 with the `wasi-http` feature. WASI without `wasi-http` gets a
+/// non-retryable error transport, so client construction remains infallible
+/// without importing `wasi:http`; callers inject a transport to perform RPC.
 pub(crate) fn default_transport() -> Arc<dyn RpcTransport> {
     #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
     {
         Arc::new(ReqwestTransport::new())
     }
-    #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+    #[cfg(all(
+        feature = "wasi-http",
+        target_arch = "wasm32",
+        target_os = "wasi",
+        target_env = "p2"
+    ))]
     {
         Arc::new(WasiHttpTransport::new())
+    }
+    #[cfg(all(
+        target_arch = "wasm32",
+        target_os = "wasi",
+        not(all(feature = "wasi-http", target_env = "p2"))
+    ))]
+    {
+        Arc::new(MissingWasiHttpTransport)
     }
 }
 
@@ -213,7 +278,7 @@ impl RpcTransport for ReqwestTransport {
 // WASI (wasm32-wasip2, `wasi-http` feature): wasi:http/outgoing-handler
 // ============================================================================
 
-/// The default [`RpcTransport`] on `wasm32-wasip2` (behind the default-on
+/// The built-in [`RpcTransport`] on `wasm32-wasip2` (behind the opt-in
 /// `wasi-http` feature), backed by `wasi:http/outgoing-handler`.
 ///
 /// The host must provide the `wasi:http` interface — e.g. `wasmtime run -S

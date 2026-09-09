@@ -51,6 +51,7 @@ mod block_reference;
 mod csprng;
 mod error;
 mod hash;
+#[cfg(feature = "mnemonic")]
 mod hd;
 mod key;
 pub mod nep413;
@@ -61,17 +62,17 @@ mod transaction;
 mod units;
 mod wait_level;
 
-pub use account::{AccountId, AccountIdExt, AccountIdRef, AccountType, TryIntoAccountId};
+pub use account::{AccountId, AccountIdRef, TryIntoAccountId};
 pub use action::{
     AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction,
     DELEGATE_ACTION_PREFIX, DELEGATE_V2_ACTION_PREFIX, DecodeError as DelegateDecodeError,
     DelegateAction, DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     DeployGlobalContractAction, DeterministicStateInitAction, FunctionCallAction,
-    FunctionCallPermission, GasKeyInfo, GlobalContractDeployMode, GlobalContractId,
-    IntoGlobalContractId, MAX_NONCES_FOR_GAS_KEY, NonDelegateAction, PublishMode,
-    SignedDelegateAction, StakeAction, StateInit, StateInitExt, StateInitV1, TransferAction,
-    TransferToGasKeyAction, UseGlobalContractAction, VersionedDelegateActionPayload,
-    VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
+    FunctionCallPermission, GasKeyInfo, GlobalContractId, MAX_NONCES_FOR_GAS_KEY,
+    NonDelegateAction, PublishMode, SignedDelegateAction, StakeAction, StateInit, StateInitExt,
+    StateInitV1, TransferAction, TransferToGasKeyAction, TryIntoGlobalContractId,
+    UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
+    WithdrawFromGasKeyAction,
 };
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{
@@ -81,11 +82,14 @@ pub use error::{
     UnknownError, WasmTrap,
 };
 pub use hash::CryptoHash;
+#[cfg(feature = "mnemonic")]
 pub use key::{
-    DEFAULT_HD_PATH, DEFAULT_ML_DSA_65_WORD_COUNT, DEFAULT_WORD_COUNT, KeyPair, KeyType,
-    ML_DSA_65_HASH_LENGTH, ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SECRET_KEY_LENGTH,
-    ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH, MlDsa65SecretKey, PublicKey,
-    PublicKeyHandle, SecretKey, Signature, generate_seed_phrase,
+    DEFAULT_HD_PATH, DEFAULT_ML_DSA_65_WORD_COUNT, DEFAULT_WORD_COUNT, generate_seed_phrase,
+};
+pub use key::{
+    KeyType, ML_DSA_65_HASH_LENGTH, ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SECRET_KEY_LENGTH,
+    ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH, PublicKey, PublicKeyHandle, SecretKey,
+    Signature,
 };
 pub use network::ChainId;
 pub use rpc::{
@@ -97,11 +101,11 @@ pub use rpc::{
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
     FinalExecutionStatus, GasKeyNoncesView, GasPrice, GasProfileEntry,
     GlobalContractIdentifierView, MaintenanceWindow, MerkleDirection, MerklePathItem, NodeVersion,
-    NonceMode, RawTransactionResponse, Receipt, ReceiptContent, ReceiptToTxResponse,
-    STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator, StateChangeKindView, StateItem,
-    StatusResponse, SyncInfo, TransactionNonceView, TransactionView, TrieSplit, ValidatorInfo,
-    ValidatorStakeView, ValidatorStakeViewV1, VersionedDelegateActionPayloadView,
-    ViewFunctionResult, ViewStateAllResult, ViewStateResult,
+    RawTransactionResponse, Receipt, ReceiptContent, ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE,
+    SendTxResponse, SlashedValidator, StateChangeKindView, StateItem, StatusResponse, SyncInfo,
+    TransactionNonceView, TransactionView, TrieSplit, ValidatorInfo, ValidatorStakeView,
+    ValidatorStakeViewV1, VersionedDelegateActionPayloadView, ViewFunctionResult,
+    ViewStateAllResult, ViewStateResult,
 };
 pub use rpc_extra::{
     BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,
@@ -109,8 +113,8 @@ pub use rpc_extra::{
     StateChangeValueView, StateChangeWithCauseView, ValidatorKickoutReason, ValidatorKickoutView,
 };
 pub use transaction::{
-    Nonce, NonceIndex, NonceMode as TransactionNonceMode, SignedTransaction, SignedTransactionV1,
-    Transaction, TransactionNonce, TransactionV1, VersionedTransaction,
+    Nonce, NonceIndex, NonceMode, SignedTransaction, SignedTransactionV1, Transaction,
+    TransactionNonce, TransactionV1, VersionedTransaction,
 };
 pub use units::{Gas, IntoGas, IntoNearToken, NearToken};
 pub use wait_level::{

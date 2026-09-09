@@ -3,11 +3,13 @@
 //! A `Signer` knows which account it signs for and provides keys for signing.
 //! The `key()` method returns a `SigningKey` that bundles together the public key
 //! and signing capability, ensuring atomic key claiming for rotating signers.
+//! Custom hardware-wallet, HSM, and KMS integrations can implement
+//! [`SigningBackend`] and wrap it with [`SigningKey::from_backend`].
 //!
 //! # Implementations
 //!
 //! - [`InMemorySigner`] - Single key stored in memory
-//! - [`FileSigner`] - Key loaded from ~/.near-credentials
+//! - `FileSigner` - Key loaded from ~/.near-credentials (requires `file-signer`)
 //! - [`EnvSigner`] - Key loaded from environment variables
 //! - [`RotatingSigner`] - Multiple keys with round-robin rotation
 //!
@@ -15,7 +17,8 @@
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::{Near, InMemorySigner};
+//! use near_kit::Near;
+//! use near_kit::signer::InMemorySigner;
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let signer = InMemorySigner::new(
@@ -32,6 +35,7 @@
 //! # }
 //! ```
 
+use std::future::Future;
 #[cfg(feature = "file-signer")]
 use std::path::Path;
 use std::sync::Arc;
@@ -53,8 +57,9 @@ use crate::types::{AccountId, PublicKey, SecretKey, Signature, TryIntoAccountId}
 ///
 /// # Example Implementation
 ///
-/// ```rust,ignore
-/// use near_kit::{Signer, SigningKey, AccountId, SecretKey};
+/// ```rust
+/// use near_kit::AccountId;
+/// use near_kit::signer::{PublicKey, SecretKey, Signer, SigningKey};
 ///
 /// struct MyCustomSigner {
 ///     account_id: AccountId,
@@ -68,6 +73,10 @@ use crate::types::{AccountId, PublicKey, SecretKey, Signature, TryIntoAccountId}
 ///
 ///     fn key(&self) -> SigningKey {
 ///         SigningKey::new(self.secret_key.clone())
+///     }
+///
+///     fn public_key(&self) -> PublicKey {
+///         self.secret_key.public_key()
 ///     }
 /// }
 /// ```
@@ -84,15 +93,11 @@ pub trait Signer: Send + Sync {
     /// For rotating signers, this atomically claims the next key in rotation.
     fn key(&self) -> SigningKey;
 
-    /// Get the signer's public key without side effects.
+    /// Get the public key that the next call to [`key()`](Self::key) would claim.
     ///
-    /// The default implementation calls `key().public_key().clone()`,
-    /// which is correct for single-key signers. Implementors where `key()`
-    /// has side effects (e.g. advancing a rotation counter) **must** override
-    /// this method to avoid unintended state changes.
-    fn public_key(&self) -> PublicKey {
-        self.key().public_key().clone()
-    }
+    /// This method must be side-effect-free: it must not claim a key, advance
+    /// rotation, prompt the user, or perform network I/O.
+    fn public_key(&self) -> PublicKey;
 }
 
 /// Implement `Signer` for `Arc<T>` where `T: Signer`.
@@ -127,7 +132,7 @@ impl<T: Signer + ?Sized> Signer for Arc<T> {
 /// # Example
 ///
 /// ```rust
-/// use near_kit::{InMemorySigner, Signer};
+/// use near_kit::signer::{InMemorySigner, Signer};
 ///
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let signer = InMemorySigner::new("alice.testnet", "ed25519:...")?;
@@ -139,20 +144,56 @@ impl<T: Signer + ?Sized> Signer for Arc<T> {
 /// # Ok(())
 /// # }
 /// ```
+#[derive(Clone)]
 pub struct SigningKey {
     /// The public key.
     public_key: PublicKey,
     /// The signing backend.
-    backend: Arc<dyn SigningBackend>,
+    backend: Arc<dyn ErasedSigningBackend>,
 }
 
 impl SigningKey {
     /// Create a new signing key from a secret key.
     pub fn new(secret_key: SecretKey) -> Self {
         let public_key = secret_key.public_key();
+        Self::from_backend(public_key, SecretKeyBackend { secret_key })
+    }
+
+    /// Create a signing key backed by a custom asynchronous signer.
+    ///
+    /// `public_key` is the key claimed by this handle. `backend` must produce
+    /// signatures for that same key. This supports external signers such as
+    /// hardware wallets, HSMs, and cloud KMS services without exposing a
+    /// private key to near-kit.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::signer::{SecretKey, SignerError, Signature, SigningBackend, SigningKey};
+    ///
+    /// struct CustomBackend(SecretKey);
+    ///
+    /// impl SigningBackend for CustomBackend {
+    ///     async fn sign(
+    ///         &self,
+    ///         message: &[u8],
+    ///     ) -> Result<Signature, SignerError> {
+    ///         Ok(self.0.sign(message))
+    ///     }
+    /// }
+    ///
+    /// let secret_key = SecretKey::generate_ed25519();
+    /// let public_key = secret_key.public_key();
+    /// let key = SigningKey::from_backend(public_key.clone(), CustomBackend(secret_key));
+    /// assert_eq!(key.public_key(), &public_key);
+    /// ```
+    pub fn from_backend<B>(public_key: PublicKey, backend: B) -> Self
+    where
+        B: SigningBackend + 'static,
+    {
         Self {
             public_key,
-            backend: Arc::new(SecretKeyBackend { secret_key }),
+            backend: Arc::new(BackendAdapter(backend)),
         }
     }
 
@@ -175,7 +216,8 @@ impl SigningKey {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use near_kit::{InMemorySigner, Signer, nep413};
+    /// use near_kit::signer::{InMemorySigner, Signer};
+    /// use near_kit::standards::nep413;
     ///
     /// let signer = InMemorySigner::new("alice.testnet", "ed25519:...")?;
     /// let key = signer.key();
@@ -207,15 +249,6 @@ impl SigningKey {
     }
 }
 
-impl Clone for SigningKey {
-    fn clone(&self) -> Self {
-        Self {
-            public_key: self.public_key.clone(),
-            backend: self.backend.clone(),
-        }
-    }
-}
-
 impl std::fmt::Debug for SigningKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SigningKey")
@@ -225,18 +258,50 @@ impl std::fmt::Debug for SigningKey {
 }
 
 // ============================================================================
-// SigningBackend (internal)
+// SigningBackend
 // ============================================================================
 
-/// Internal trait for signing backends.
+/// Asynchronous backend for a [`SigningKey`].
 ///
-/// This allows different implementations (in-memory, hardware wallet, KMS)
-/// to provide signing capability.
-trait SigningBackend: crate::platform::MaybeSend + crate::platform::MaybeSync {
-    fn sign(
-        &self,
-        message: &[u8],
-    ) -> crate::platform::BoxFuture<'_, Result<Signature, SignerError>>;
+/// Implement this trait to integrate a hardware wallet, HSM, cloud KMS, or
+/// another service that signs asynchronously. Pass the implementation and its
+/// corresponding public key to [`SigningKey::from_backend`].
+pub trait SigningBackend: crate::platform::MaybeSend + crate::platform::MaybeSync {
+    /// Sign `message` with the private key corresponding to the public key
+    /// supplied to [`SigningKey::from_backend`].
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    fn sign<'a>(
+        &'a self,
+        message: &'a [u8],
+    ) -> impl Future<Output = Result<Signature, SignerError>> + Send + 'a;
+
+    /// Sign `message` with the private key corresponding to the public key
+    /// supplied to [`SigningKey::from_backend`].
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    fn sign<'a>(
+        &'a self,
+        message: &'a [u8],
+    ) -> impl Future<Output = Result<Signature, SignerError>> + 'a;
+}
+
+/// Object-safe adapter kept private so public backends can use `async fn`
+/// without exposing a boxed-future type in the API.
+trait ErasedSigningBackend: crate::platform::MaybeSend + crate::platform::MaybeSync {
+    fn sign<'a>(
+        &'a self,
+        message: &'a [u8],
+    ) -> crate::platform::BoxFuture<'a, Result<Signature, SignerError>>;
+}
+
+struct BackendAdapter<B>(B);
+
+impl<B: SigningBackend> ErasedSigningBackend for BackendAdapter<B> {
+    fn sign<'a>(
+        &'a self,
+        message: &'a [u8],
+    ) -> crate::platform::BoxFuture<'a, Result<Signature, SignerError>> {
+        Box::pin(self.0.sign(message))
+    }
 }
 
 /// In-memory signing backend using a secret key.
@@ -245,12 +310,9 @@ struct SecretKeyBackend {
 }
 
 impl SigningBackend for SecretKeyBackend {
-    fn sign(
-        &self,
-        message: &[u8],
-    ) -> crate::platform::BoxFuture<'_, Result<Signature, SignerError>> {
+    async fn sign(&self, message: &[u8]) -> Result<Signature, SignerError> {
         let sig = self.secret_key.sign(message);
-        Box::pin(async move { Ok(sig) })
+        Ok(sig)
     }
 }
 
@@ -266,7 +328,7 @@ impl SigningBackend for SecretKeyBackend {
 /// # Example
 ///
 /// ```rust
-/// use near_kit::InMemorySigner;
+/// use near_kit::signer::InMemorySigner;
 ///
 /// let signer = InMemorySigner::new(
 ///     "alice.testnet",
@@ -331,46 +393,48 @@ impl InMemorySigner {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::{InMemorySigner, Signer};
+    /// use near_kit::signer::{InMemorySigner, Signer};
     ///
     /// let signer = InMemorySigner::generate_implicit();
     /// assert_eq!(signer.account_id().as_str().len(), 64);
     /// ```
     pub fn generate_implicit() -> Self {
         let secret_key = SecretKey::generate_ed25519();
-        Self::implicit(secret_key)
+        Self::implicit(secret_key).expect("generated Ed25519 key supports implicit accounts")
     }
 
     /// Create a signer from an existing secret key, deriving an implicit account ID.
     ///
     /// The account ID is the hex-encoded Ed25519 public key bytes (64 characters).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the secret key is not Ed25519.
+    /// Returns [`SignerError::ImplicitAccountRequiresEd25519`] if the secret
+    /// key is not Ed25519.
     ///
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::{InMemorySigner, SecretKey, Signer};
+    /// use near_kit::signer::{InMemorySigner, SecretKey, Signer};
     ///
     /// let secret_key = SecretKey::generate_ed25519();
-    /// let signer = InMemorySigner::implicit(secret_key);
+    /// let signer = InMemorySigner::implicit(secret_key)?;
     /// assert_eq!(signer.account_id().as_str().len(), 64);
+    /// # Ok::<(), near_kit::signer::SignerError>(())
     /// ```
-    pub fn implicit(secret_key: SecretKey) -> Self {
+    pub fn implicit(secret_key: SecretKey) -> Result<Self, SignerError> {
         let public_key = secret_key.public_key();
         let pk_bytes = public_key
             .as_ed25519_bytes()
-            .expect("implicit accounts require an Ed25519 key");
+            .ok_or(SignerError::ImplicitAccountRequiresEd25519)?;
         let account_id: AccountId = hex::encode(pk_bytes)
             .parse()
             .expect("hex-encoded Ed25519 public key is a valid account ID");
-        Self {
+        Ok(Self {
             account_id,
             secret_key,
             public_key,
-        }
+        })
     }
 
     /// Create a signer from a BIP-39 seed phrase.
@@ -385,13 +449,14 @@ impl InMemorySigner {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::InMemorySigner;
+    /// use near_kit::signer::InMemorySigner;
     ///
     /// let signer = InMemorySigner::from_seed_phrase(
     ///     "alice.testnet",
     ///     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
     /// ).unwrap();
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn from_seed_phrase(
         account_id: impl TryIntoAccountId,
         phrase: impl AsRef<str>,
@@ -411,7 +476,7 @@ impl InMemorySigner {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::InMemorySigner;
+    /// use near_kit::signer::InMemorySigner;
     ///
     /// let signer = InMemorySigner::from_seed_phrase_with_path(
     ///     "alice.testnet",
@@ -419,6 +484,7 @@ impl InMemorySigner {
     ///     "m/44'/397'/1'"
     /// ).unwrap();
     /// ```
+    #[cfg(feature = "mnemonic")]
     pub fn from_seed_phrase_with_path(
         account_id: impl TryIntoAccountId,
         phrase: impl AsRef<str>,
@@ -451,6 +517,10 @@ impl Signer for InMemorySigner {
     fn key(&self) -> SigningKey {
         SigningKey::new(self.secret_key.clone())
     }
+
+    fn public_key(&self) -> PublicKey {
+        self.public_key.clone()
+    }
 }
 
 // ============================================================================
@@ -461,13 +531,13 @@ impl Signer for InMemorySigner {
 ///
 /// Compatible with credentials created by near-cli and near-cli-rs.
 ///
-/// Requires the `file-signer` feature (enabled by default; not usable on
-/// `wasm32-unknown-unknown`, which has no filesystem).
+/// Requires the opt-in `file-signer` feature and is not usable on
+/// `wasm32-unknown-unknown`, which has no filesystem.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// use near_kit::FileSigner;
+/// use near_kit::signer::FileSigner;
 ///
 /// // Load from ~/.near-credentials/testnet/alice.testnet.json
 /// let signer = FileSigner::new("testnet", "alice.testnet").unwrap();
@@ -579,6 +649,10 @@ impl Signer for FileSigner {
     fn key(&self) -> SigningKey {
         self.inner.key()
     }
+
+    fn public_key(&self) -> PublicKey {
+        Signer::public_key(&self.inner)
+    }
 }
 
 // ============================================================================
@@ -594,7 +668,7 @@ impl Signer for FileSigner {
 /// # Example
 ///
 /// ```rust,no_run
-/// use near_kit::EnvSigner;
+/// use near_kit::signer::EnvSigner;
 ///
 /// // With NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY set:
 /// let signer = EnvSigner::new().unwrap();
@@ -663,6 +737,10 @@ impl Signer for EnvSigner {
     fn key(&self) -> SigningKey {
         self.inner.key()
     }
+
+    fn public_key(&self) -> PublicKey {
+        Signer::public_key(&self.inner)
+    }
 }
 
 // ============================================================================
@@ -685,9 +763,9 @@ impl Signer for EnvSigner {
 /// Keys can be loaded from any storage backend (file, keyring, env) via
 /// [`from_signers()`](Self::from_signers):
 ///
-#[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-/// # use near_kit::*;
+#[cfg_attr(feature = "file-signer", doc = "```rust,no_run")]
+#[cfg_attr(not(feature = "file-signer"), doc = "```rust,ignore")]
+/// # use near_kit::signer::{FileSigner, RotatingSigner};
 /// let rotating = RotatingSigner::from_signers(vec![
 ///     FileSigner::from_file("keys/bot-key-0.json", "bot.testnet")?.into_inner(),
 ///     FileSigner::from_file("keys/bot-key-1.json", "bot.testnet")?.into_inner(),
@@ -704,7 +782,7 @@ impl Signer for EnvSigner {
 /// # Example
 ///
 /// ```rust
-/// use near_kit::{RotatingSigner, SecretKey, Signer};
+/// use near_kit::signer::{RotatingSigner, SecretKey, Signer};
 ///
 /// let keys = vec![
 ///     SecretKey::generate_ed25519(),
@@ -766,9 +844,9 @@ impl RotatingSigner {
     ///
     /// # Example
     ///
-    #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-    #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-    /// use near_kit::{RotatingSigner, FileSigner};
+    #[cfg_attr(feature = "file-signer", doc = "```rust,no_run")]
+    #[cfg_attr(not(feature = "file-signer"), doc = "```rust,ignore")]
+    /// use near_kit::signer::{FileSigner, RotatingSigner};
     ///
     /// // Load keys from separate credential files for the same account
     /// let signers = vec![
@@ -850,7 +928,7 @@ impl RotatingSigner {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::{RotatingSigner, SecretKey};
+    /// use near_kit::signer::{RotatingSigner, SecretKey};
     ///
     /// let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
     /// let rotating = RotatingSigner::new("bot.testnet", keys).unwrap();
@@ -1109,12 +1187,25 @@ mod tests {
     fn test_implicit() {
         let secret_key = SecretKey::generate_ed25519();
         let expected_pk = secret_key.public_key();
-        let signer = InMemorySigner::implicit(secret_key);
+        let signer = InMemorySigner::implicit(secret_key).unwrap();
 
         // Account ID matches hex-encoded public key
         let pk_bytes = expected_pk.as_ed25519_bytes().unwrap();
         assert_eq!(signer.account_id().as_str(), hex::encode(pk_bytes));
         assert_eq!(signer.public_key(), &expected_pk);
+    }
+
+    #[test]
+    fn test_implicit_rejects_non_ed25519_keys() {
+        for secret_key in [
+            SecretKey::generate_secp256k1(),
+            SecretKey::generate_ml_dsa65(),
+        ] {
+            assert!(matches!(
+                InMemorySigner::implicit(secret_key),
+                Err(SignerError::ImplicitAccountRequiresEd25519)
+            ));
+        }
     }
 
     #[test]

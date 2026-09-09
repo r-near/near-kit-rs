@@ -15,7 +15,7 @@
 //! | Signer | Use Case |
 //! |--------|----------|
 //! | [`InMemorySigner`] | Simple scripts with a private key in memory |
-//! | [`FileSigner`] | Load from `~/.near-credentials` (near-cli compatible) |
+//! | `FileSigner` | Load from `~/.near-credentials` (requires `file-signer`) |
 //! | [`EnvSigner`] | CI/CD via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` env vars |
 //! | [`RotatingSigner`] | High-throughput with multiple keys (avoids nonce collisions) |
 //!
@@ -41,7 +41,7 @@
 // Everything that talks to the network lives behind the `rpc` feature; the
 // signers stay available in offline builds (they only do local cryptography).
 #[cfg(feature = "rpc")]
-mod near;
+pub(crate) mod near;
 #[cfg(feature = "rpc")]
 mod nonce_manager;
 #[cfg(feature = "rpc")]
@@ -58,7 +58,7 @@ mod transport;
 mod keyring_signer;
 
 #[cfg(feature = "rpc")]
-pub use near::{Near, NearBuilder, SANDBOX_ROOT_ACCOUNT, SANDBOX_ROOT_SECRET_KEY, SandboxNetwork};
+pub use near::{Near, NearBuilder, SandboxNetwork};
 #[cfg(feature = "rpc")]
 pub use query::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ContractCodeQuery,
@@ -68,7 +68,7 @@ pub use query::{
 pub use rpc::{RetryConfig, RpcClient};
 #[cfg(feature = "file-signer")]
 pub use signer::FileSigner;
-pub use signer::{EnvSigner, InMemorySigner, RotatingSigner, Signer, SigningKey};
+pub use signer::{EnvSigner, InMemorySigner, RotatingSigner, Signer, SigningBackend, SigningKey};
 #[cfg(feature = "rpc")]
 pub use transaction::{
     CallBuilder, DelegateOptions, DelegateResult, FunctionCall, SignedTransactionSend,
@@ -76,10 +76,10 @@ pub use transaction::{
 };
 #[cfg(feature = "rpc")]
 pub use transport::{BoxFuture, RpcTransport, TransportResponse};
-// Only the built-in transport matching the build configuration exists:
-// reqwest everywhere except WASI, the wasi:http transport on wasm32-wasip2
-// with the `wasi-http` feature — and neither on WASI without it (inject a
-// custom transport via `NearBuilder::transport` there).
+// Only the operational built-in transport matching the build configuration is
+// public: reqwest everywhere except WASI, and the wasi:http transport on
+// wasm32-wasip2 with `wasi-http`. WASI without it uses a private erroring
+// fallback until the caller injects a custom transport.
 #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
 pub use transport::ReqwestTransport;
 #[cfg(all(

@@ -3,7 +3,7 @@ name = "near-kit-macros"
 description = "Proc macros for near-kit typed contract interfaces"
 keywords = ["near", "blockchain", "macro", "proc-macro"]
 categories = ["development-tools::procedural-macro-helpers"]
-version = "0.12.1"
+version = "0.13.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -16,9 +16,10 @@ proc-macro = true
 syn.workspace = true
 quote.workspace = true
 proc-macro2.workspace = true
+proc-macro-crate = "3"
 
 [dev-dependencies]
 trybuild = "1.0"
-near-kit = { path = "../near-kit" }
+near-kit = { path = "../near-kit", features = ["contracts"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

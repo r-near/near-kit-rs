@@ -5,8 +5,7 @@
 
 use std::{collections::HashMap, sync::Mutex};
 
-use crate::PublicKey;
-use crate::types::AccountId;
+use crate::types::{AccountId, PublicKey};
 
 type Network = String;
 

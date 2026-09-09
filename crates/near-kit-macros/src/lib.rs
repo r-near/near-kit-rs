@@ -45,6 +45,7 @@
 //! ```
 
 use proc_macro::TokenStream;
+use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
@@ -60,6 +61,17 @@ enum SerializationFormat {
     #[default]
     Json,
     Borsh,
+}
+
+fn near_kit_path() -> TokenStream2 {
+    match crate_name("near-kit") {
+        Ok(FoundCrate::Itself) => quote!(crate),
+        Ok(FoundCrate::Name(name)) => {
+            let ident = format_ident!("{name}");
+            quote!(::#ident)
+        }
+        Err(_) => quote!(::near_kit),
+    }
 }
 
 /// Arguments to the `#[contract]` attribute.
@@ -90,39 +102,11 @@ impl Parse for ContractArgs {
     }
 }
 
-/// Arguments to the `#[call]` attribute.
-#[derive(Debug, Default)]
-struct CallArgs {
-    payable: bool,
-}
-
-impl Parse for CallArgs {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        if input.is_empty() {
-            return Ok(Self::default());
-        }
-
-        let ident: Ident = input.parse()?;
-        if ident != "payable" {
-            return Err(syn::Error::new(
-                ident.span(),
-                format!("unknown call option '{}', expected 'payable'", ident),
-            ));
-        }
-
-        Ok(Self { payable: true })
-    }
-}
-
 /// Information about a parsed method.
 #[derive(Debug)]
 struct MethodInfo {
     name: Ident,
     is_view: bool,
-    #[allow(dead_code)] // Reserved for future validation
-    is_call: bool,
-    #[allow(dead_code)] // Reserved for payable method handling
-    is_payable: bool,
     /// Per-method format override (if specified via #[json] or #[borsh])
     format_override: Option<SerializationFormat>,
     arg_name: Option<Ident>,
@@ -159,35 +143,57 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
     };
 
     // Check for #[call] attribute
-    let call_attr = method
+    let mut is_call = false;
+    for attr in method
         .attrs
         .iter()
-        .find(|attr| attr.path().is_ident("call"));
-
-    let (is_call, is_payable) = match call_attr {
-        Some(attr) => {
-            let args: CallArgs = if attr.meta.require_path_only().is_ok() {
-                CallArgs::default()
-            } else {
-                attr.parse_args()?
-            };
-            (true, args.payable)
-        }
-        None => (false, false),
-    };
-
-    // Check for #[json] or #[borsh] format override
-    let format_override = if method.attrs.iter().any(|attr| attr.path().is_ident("json")) {
-        Some(SerializationFormat::Json)
-    } else if method
-        .attrs
-        .iter()
-        .any(|attr| attr.path().is_ident("borsh"))
+        .filter(|attr| attr.path().is_ident("call"))
     {
-        Some(SerializationFormat::Borsh)
-    } else {
-        None
-    };
+        is_call = true;
+        if attr.meta.require_path_only().is_err() {
+            return Err(syn::Error::new_spanned(
+                &attr.meta,
+                "#[call] does not accept options",
+            ));
+        }
+    }
+
+    // Check for a #[json] or #[borsh] format override.
+    let mut format_override = None;
+    for attr in method
+        .attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("json") || attr.path().is_ident("borsh"))
+    {
+        let (format, name) = if attr.path().is_ident("json") {
+            (SerializationFormat::Json, "json")
+        } else {
+            (SerializationFormat::Borsh, "borsh")
+        };
+
+        if attr.meta.require_path_only().is_err() {
+            return Err(syn::Error::new_spanned(
+                &attr.meta,
+                format!("#[{name}] does not accept options"),
+            ));
+        }
+
+        match format_override {
+            Some(previous) if previous == format => {
+                return Err(syn::Error::new_spanned(
+                    &attr.meta,
+                    format!("#[{name}] may only be specified once"),
+                ));
+            }
+            Some(_) => {
+                return Err(syn::Error::new_spanned(
+                    &attr.meta,
+                    "#[json] and #[borsh] cannot be used together",
+                ));
+            }
+            None => format_override = Some(format),
+        }
+    }
 
     // Validate: view methods should not have #[call]
     if is_view && is_call {
@@ -237,8 +243,6 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
     Ok(MethodInfo {
         name,
         is_view,
-        is_call,
-        is_payable,
         format_override,
         arg_name,
         arg_type,
@@ -248,6 +252,7 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
 
 /// Generate client method for a view function.
 fn generate_view_method(method: &MethodInfo, contract_format: SerializationFormat) -> TokenStream2 {
+    let near_kit = near_kit_path();
     let method_name = &method.name;
     let method_name_str = method_name.to_string();
 
@@ -268,8 +273,8 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
 
     // Return type differs based on format
     let view_return_type = match format {
-        SerializationFormat::Json => quote! { near_kit::ViewCall<#return_type> },
-        SerializationFormat::Borsh => quote! { near_kit::ViewCallBorsh<#return_type> },
+        SerializationFormat::Json => quote! { #near_kit::rpc::ViewCall<#return_type> },
+        SerializationFormat::Borsh => quote! { #near_kit::rpc::ViewCallBorsh<#return_type> },
     };
 
     if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
@@ -311,6 +316,7 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
 
 /// Generate client method for a call function.
 fn generate_call_method(method: &MethodInfo, contract_format: SerializationFormat) -> TokenStream2 {
+    let near_kit = near_kit_path();
     let method_name = &method.name;
     let method_name_str = method_name.to_string();
 
@@ -325,7 +331,7 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
         };
 
         quote! {
-            pub fn #method_name(&self, #arg_name: #arg_type) -> near_kit::CallBuilder {
+            pub fn #method_name(&self, #arg_name: #arg_type) -> #near_kit::transaction::CallBuilder {
                 self.near.call(&self.contract_id, #method_name_str)
                     #args_method
             }
@@ -335,7 +341,7 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
         match format {
             SerializationFormat::Json => {
                 quote! {
-                    pub fn #method_name(&self) -> near_kit::CallBuilder {
+                    pub fn #method_name(&self) -> #near_kit::transaction::CallBuilder {
                         self.near.call(&self.contract_id, #method_name_str)
                             .args_raw(b"{}".to_vec())
                     }
@@ -343,7 +349,7 @@ fn generate_call_method(method: &MethodInfo, contract_format: SerializationForma
             }
             SerializationFormat::Borsh => {
                 quote! {
-                    pub fn #method_name(&self) -> near_kit::CallBuilder {
+                    pub fn #method_name(&self) -> #near_kit::transaction::CallBuilder {
                         self.near.call(&self.contract_id, #method_name_str)
                     }
                 }
@@ -360,6 +366,7 @@ fn generate_function_call_method(
     method: &MethodInfo,
     contract_format: SerializationFormat,
 ) -> TokenStream2 {
+    let near_kit = near_kit_path();
     let method_name = &method.name;
     let method_name_str = method_name.to_string();
 
@@ -372,8 +379,8 @@ fn generate_function_call_method(
         };
 
         quote! {
-            pub fn #method_name(#arg_name: #arg_type) -> near_kit::FunctionCall {
-                near_kit::FunctionCall::new(#method_name_str)
+            pub fn #method_name(#arg_name: #arg_type) -> #near_kit::transaction::FunctionCall {
+                #near_kit::transaction::FunctionCall::new(#method_name_str)
                     #args_method
             }
         }
@@ -382,16 +389,16 @@ fn generate_function_call_method(
             SerializationFormat::Json => {
                 // Use args_raw to avoid depending on serde_json in expanded code
                 quote! {
-                    pub fn #method_name() -> near_kit::FunctionCall {
-                        near_kit::FunctionCall::new(#method_name_str)
+                    pub fn #method_name() -> #near_kit::transaction::FunctionCall {
+                        #near_kit::transaction::FunctionCall::new(#method_name_str)
                             .args_raw(b"{}".to_vec())
                     }
                 }
             }
             SerializationFormat::Borsh => {
                 quote! {
-                    pub fn #method_name() -> near_kit::FunctionCall {
-                        near_kit::FunctionCall::new(#method_name_str)
+                    pub fn #method_name() -> #near_kit::transaction::FunctionCall {
+                        #near_kit::transaction::FunctionCall::new(#method_name_str)
                     }
                 }
             }
@@ -412,6 +419,7 @@ pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStream2> {
+    let near_kit = near_kit_path();
     let trait_name = &input.ident;
     let client_name = format_ident!("{}Client", trait_name);
     let vis = &input.vis;
@@ -505,23 +513,23 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         // Generated client struct for the simple (non-composed) case.
         #[derive(Debug, Clone)]
         #vis struct #client_name {
-            near: near_kit::Near,
-            contract_id: near_kit::AccountId,
+            near: #near_kit::Near,
+            contract_id: #near_kit::AccountId,
         }
 
         impl #client_name {
             /// Create a new contract client.
-            pub fn new(near: near_kit::Near, contract_id: near_kit::AccountId) -> Self {
+            pub fn new(near: #near_kit::Near, contract_id: #near_kit::AccountId) -> Self {
                 Self { near, contract_id }
             }
 
             /// Get the contract account ID.
-            pub fn contract_id(&self) -> &near_kit::AccountId {
+            pub fn contract_id(&self) -> &#near_kit::AccountId {
                 &self.contract_id
             }
 
             /// Return a new client that uses the given signer for transactions.
-            pub fn with_signer(&self, signer: impl near_kit::Signer + 'static) -> Self {
+            pub fn with_signer(&self, signer: impl #near_kit::signer::Signer + 'static) -> Self {
                 Self {
                     near: self.near.with_signer(signer),
                     contract_id: self.contract_id.clone(),
@@ -532,14 +540,14 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         }
 
         // Implement ContractClient trait for construction via near.contract::<T>()
-        impl near_kit::contract::ContractClient for #client_name {
-            fn new(near: near_kit::Near, contract_id: near_kit::AccountId) -> Self {
+        impl #near_kit::ContractClient for #client_name {
+            fn new(near: #near_kit::Near, contract_id: #near_kit::AccountId) -> Self {
                 Self::new(near, contract_id)
             }
         }
 
         // Implement Contract marker trait
-        impl near_kit::Contract for #trait_name {
+        impl #near_kit::Contract for #trait_name {
             type Client = #client_name;
         }
     };
@@ -556,12 +564,18 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
 /// ```ignore
 /// #[call]
 /// fn increment(&mut self);
-///
-/// #[call(payable)]
-/// fn donate(&mut self);
 /// ```
 #[proc_macro_attribute]
-pub fn call(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn call(attr: TokenStream, item: TokenStream) -> TokenStream {
+    if !attr.is_empty() {
+        return syn::Error::new_spanned(
+            TokenStream2::from(attr),
+            "#[call] does not accept options",
+        )
+        .to_compile_error()
+        .into();
+    }
+
     // This is just a marker attribute - the actual work is done by #[contract]
     item
 }
@@ -580,7 +594,16 @@ pub fn call(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn json(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn json(attr: TokenStream, item: TokenStream) -> TokenStream {
+    if !attr.is_empty() {
+        return syn::Error::new_spanned(
+            TokenStream2::from(attr),
+            "#[json] does not accept options",
+        )
+        .to_compile_error()
+        .into();
+    }
+
     // This is just a marker attribute - the actual work is done by #[contract]
     item
 }
@@ -603,7 +626,16 @@ pub fn json(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn borsh(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn borsh(attr: TokenStream, item: TokenStream) -> TokenStream {
+    if !attr.is_empty() {
+        return syn::Error::new_spanned(
+            TokenStream2::from(attr),
+            "#[borsh] does not accept options",
+        )
+        .to_compile_error()
+        .into();
+    }
+
     // This is just a marker attribute - the actual work is done by #[contract]
     item
 }

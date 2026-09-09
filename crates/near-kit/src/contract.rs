@@ -19,7 +19,7 @@
 //! With typed contracts, the compiler catches errors:
 //!
 //! ```ignore
-//! let counter = near.contract::<Counter>("counter.near");
+//! let counter = near.contract::<Counter>("counter.near")?;
 //! let count = counter.get_count().await?;  // Compile-time checked!
 //! ```
 //!
@@ -44,8 +44,8 @@
 //!     #[call]
 //!     fn add(&mut self, args: AddArgs);
 //!
-//!     // Payable method (can receive NEAR deposit)
-//!     #[call(payable)]
+//!     // Change method whose call builder can attach a NEAR deposit
+//!     #[call]
 //!     fn donate(&mut self);
 //! }
 //!
@@ -59,7 +59,7 @@
 //!
 //! ```ignore
 //! async fn example(near: &Near) -> Result<(), Error> {
-//!     let counter = near.contract::<Counter>("counter.testnet");
+//!     let counter = near.contract::<Counter>("counter.testnet")?;
 //!
 //!     // View calls
 //!     let count = counter.get_count().await?;
@@ -68,7 +68,7 @@
 //!     counter.increment().await?;
 //!     counter.add(AddArgs { value: 5 }).await?;
 //!
-//!     // Payable calls with deposit
+//!     // Attach a deposit to a change call
 //!     counter.donate().deposit(NearToken::from_near(1)).await?;
 //!
 //!     // Override gas

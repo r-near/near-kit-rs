@@ -66,7 +66,7 @@
 //!
 //! ## Design Principles
 //!
-//! 1. **Single entry point** — Everything flows through the [`Near`] client
+//! 1. **Single entry point** — Everything flows through the `Near` client
 //! 2. **Configure once** — Network and signer are set at client creation
 //! 3. **Type-safe but ergonomic** — Accept both typed values and string parsing
 //! 4. **Explicit units** — No ambiguous amounts; must specify `NEAR`, `yocto`, `Tgas`, etc.
@@ -76,11 +76,11 @@
 //!
 //! | Type | Description |
 //! |------|-------------|
-//! | [`Near`] | Main client — the single entry point for all operations |
+//! | `Near` | Main client — the single entry point for all operations |
 //! | [`AccountId`] | Validated NEAR account identifier |
 //! | [`NearToken`] | Token amount with yoctoNEAR precision |
 //! | [`Gas`] | Gas units for transactions |
-//! | [`PublicKey`] / [`SecretKey`] | Ed25519 cryptographic keys |
+//! | [`signer::PublicKey`] / [`signer::SecretKey`] | Supported cryptographic keys |
 //! | [`CryptoHash`] | 32-byte SHA-256 hash (blocks, transactions) |
 //!
 //! ## Working with Amounts
@@ -139,6 +139,7 @@
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
+//! use near_kit::rpc::Finality;
 //!
 //! # async fn example() -> Result<(), Error> {
 //! let near = Near::testnet().build();
@@ -174,6 +175,7 @@
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
+//! use near_kit::transaction::Final;
 //!
 //! # async fn example(near: &Near) -> Result<(), Error> {
 //! // Function call with arguments, gas, and deposit
@@ -198,6 +200,7 @@
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
+//! use near_kit::signer::PublicKey;
 //!
 //! # async fn example(near: &Near) -> Result<(), Box<dyn std::error::Error>> {
 //! // Create a sub-account with funding and deploy a contract
@@ -221,10 +224,6 @@
 //!
 //! Built-in support for fungible (NEP-141) and non-fungible (NEP-171) tokens.
 //!
-//! For common tokens like USDC, USDT, and wNEAR, use the provided [`tokens`] constants
-//! to avoid copy-pasting addresses. They automatically resolve to the correct address
-//! based on the network:
-//!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
@@ -232,13 +231,9 @@
 //! # async fn example() -> Result<(), Error> {
 //! let near = Near::mainnet().build();
 //!
-//! // Known tokens auto-resolve based on network
-//! let usdc = near.ft(tokens::USDC)?;
-//! let balance = usdc.balance_of("alice.near").await?;
-//! println!("Balance: {}", balance);  // "1.50 USDC"
-//!
-//! // Or use raw addresses for any token
-//! let custom = near.ft("my-token.near")?;
+//! let token = near.ft("wrap.near")?;
+//! let balance = token.balance_of("alice.near").await?;
+//! println!("Balance: {}", balance);
 //!
 //! // NFTs (NEP-171)
 //! let nft = near.nft("nft.testnet")?;
@@ -247,11 +242,10 @@
 //! # }
 //! ```
 //!
-//! Available known tokens: [`tokens::USDC`], [`tokens::USDT`], [`tokens::W_NEAR`]
-//!
 //! ## Typed Contract Interfaces
 //!
-//! Use the `#[near_kit::contract]` macro for compile-time type safety:
+//! Enable the opt-in `contracts` feature and use the `#[near_kit::contract]`
+//! macro for compile-time type safety:
 //!
 //! ```rust,ignore
 //! use near_kit::*;
@@ -277,7 +271,7 @@
 //! }
 //!
 //! async fn example(near: &Near) -> Result<(), Error> {
-//!     let counter = near.contract::<Counter>("counter.testnet");
+//!     let counter = near.contract::<Counter>("counter.testnet")?;
 //!
 //!     // Type-safe view call
 //!     let count = counter.get_count().await?;
@@ -296,25 +290,22 @@
 //!
 //! | Signer | Use Case |
 //! |--------|----------|
-//! | [`InMemorySigner`] | Simple scripts with a private key |
-//! | [`FileSigner`] | Load from `~/.near-credentials` (near-cli compatible) |
-//! | [`EnvSigner`] | CI/CD environments via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` |
-//! | [`RotatingSigner`] | High-throughput with multiple keys (avoids nonce collisions) |
-//! | [`KeyringSigner`] | System keyring (macOS Keychain, etc.) — requires `keyring` feature |
+//! | [`signer::InMemorySigner`] | Simple scripts with a private key |
+//! | `signer::FileSigner` | Load from `~/.near-credentials` (near-cli compatible; requires `file-signer`) |
+//! | [`signer::EnvSigner`] | CI/CD environments via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` |
+//! | [`signer::RotatingSigner`] | High-throughput with multiple keys (avoids nonce collisions) |
+//! | `signer::KeyringSigner` | System keyring (macOS Keychain, etc.) — requires `keyring` feature |
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
+//! use near_kit::signer::EnvSigner;
 //!
 //! # fn example() -> Result<(), Error> {
 //! // Using credentials directly
 //! let near = Near::testnet()
 //!     .credentials("ed25519:...", "alice.testnet")?
 //!     .build();
-//!
-//! // Using a custom signer
-//! let signer = FileSigner::new("testnet", "alice.testnet")?;
-//! let near = Near::testnet().signer(signer).build();
 //!
 //! // Environment variables (CI/CD)
 //! let signer = EnvSigner::new()?;
@@ -325,12 +316,13 @@
 //!
 //! ### Multiple Accounts
 //!
-//! For production apps that manage multiple accounts, use [`Near::with_signer`] to
+//! For production apps that manage multiple accounts, use `Near::with_signer` to
 //! derive clients that share the same RPC connection but sign as different accounts:
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
+//! use near_kit::signer::InMemorySigner;
 //!
 //! # fn example() -> Result<(), Error> {
 //! let near = Near::testnet().build();
@@ -345,54 +337,54 @@
 //! # }
 //! ```
 //!
-//! Use [`with_signer`](Near::with_signer) for multi-account management and
-//! [`RotatingSigner`] for high-throughput single-account usage (multiple keys to
+//! Use `Near::with_signer` for multi-account management and
+//! [`signer::RotatingSigner`] for high-throughput single-account usage (multiple keys to
 //! avoid nonce collisions). For one-off overrides on a single transaction, use
-//! [`.sign_with()`](TransactionBuilder::sign_with) on the transaction builder.
+//! `.sign_with()` on the transaction builder.
 //!
 //! ## Sandbox Testing
 //!
-//! Enable the `sandbox` feature for local testing with [`near-sandbox`](https://crates.io/crates/near-sandbox):
+//! Use the companion `near-kit-sandbox` crate for Docker-backed local testing:
 //!
 //! ```toml
 //! [dev-dependencies]
-//! near-kit = { version = "0.1", features = ["sandbox"] }
-//! near-sandbox = "0.3"
+//! near-kit = "0.18"
+//! near-kit-sandbox = "0.18"
 //! ```
 //!
 //! ```rust,ignore
 //! use near_kit::*;
-//! use near_sandbox::Sandbox;
+//! use near_kit_sandbox::SandboxConfig;
 //!
 //! #[tokio::test]
-//! async fn test_contract() {
-//!     let sandbox = Sandbox::start().await.unwrap();
+//! async fn test_contract() -> Result<(), Box<dyn std::error::Error>> {
+//!     let sandbox = SandboxConfig::fresh().await?;
 //!     let near = Near::sandbox(&sandbox);
 //!
 //!     // Root account is pre-configured with credentials
-//!     near.transfer("alice.sandbox", NearToken::from_near(10)).await.unwrap();
+//!     near.transfer("alice.sandbox", NearToken::from_near(10)).await?;
+//!     Ok(())
 //! }
 //! ```
 //!
 //! ## WebAssembly support
 //!
 //! `near-kit` compiles for `wasm32-unknown-unknown` (Dioxus, Leptos, Yew, etc.) with
-//! `default-features = false`. This disables `keyring` and `file-signer` (both use OS
-//! APIs unavailable in the browser); use [`InMemorySigner`] or [`EnvSigner`] instead.
-//! It also disables `tracing`; add `features = ["tracing"]` back if you want spans
-//! (the `tracing` crate itself is wasm-compatible). And it disables `rpc` — add it
-//! back to keep the [`Near`] client, which speaks HTTP through the browser's `fetch`
-//! on this target.
+//! `default-features = false`. The `keyring` and `file-signer` features use OS APIs
+//! unavailable in the browser and should stay off; use [`signer::InMemorySigner`] or
+//! [`signer::EnvSigner`] instead. Add the opt-in `tracing` feature if you want spans
+//! (the `tracing` crate itself is wasm-compatible). Add `rpc` to keep the `Near`
+//! client, which speaks HTTP through the browser's `fetch` on this target.
 //!
-//! `near-kit` relies on `getrandom` (via `rand`, `ed25519-dalek`, `k256`, and `ml-dsa`)
-//! for key generation and nonce randomness. On `wasm32-unknown-unknown`, `getrandom`
-//! requires the embedder to pick an entropy backend. If your wasm target runs in a
+//! `near-kit` relies directly on `getrandom` for key generation and nonce randomness.
+//! On `wasm32-unknown-unknown`, `getrandom` requires the embedder to pick an entropy
+//! backend. If your wasm target runs in a
 //! browser (or another JS host like Node or Deno), enable the `js` feature to use the
 //! host's `crypto.getRandomValues`:
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.14", default-features = false, features = ["js", "rpc"] }
+//! near-kit = { version = "0.18", default-features = false, features = ["js", "rpc"] }
 //! ```
 //!
 //! If you're running `wasm32-unknown-unknown` outside a JS host, leave `js` off and
@@ -405,13 +397,13 @@
 //! ### WASI (`wasm32-wasip2`)
 //!
 //! near-kit also runs inside WASI Preview 2 components, with full RPC support:
-//! the `wasi-http` feature (on by default; implies `rpc`) provides a built-in
+//! the opt-in `wasi-http` feature (which implies `rpc`) provides a built-in
 //! `WasiHttpTransport` speaking `wasi:http/outgoing-handler` in place of
 //! reqwest, which doesn't build for WASI.
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.14", default-features = false, features = ["wasi-http"] }
+//! near-kit = { version = "0.18", default-features = false, features = ["wasi-http"] }
 //! ```
 //!
 //! The host must provide the `wasi:http` interface — `wasmtime run -S http`, or
@@ -425,25 +417,26 @@
 //!   point the client at the final RPC URL.
 //!
 //! On WASI hosts *without* `wasi:http`, enable only `rpc` and plug in whatever
-//! the platform does provide via [`NearBuilder::transport`]. The `wasi-http`
+//! the platform does provide via `NearBuilder::transport`. The `wasi-http`
 //! feature must stay off there: merely compiling the built-in transport makes
 //! the component import `wasi:http`, which such hosts refuse to instantiate.
-//! With `rpc` alone those imports never appear — but there is then no built-in
-//! transport, so [`NearBuilder::build`] panics unless one was injected. (Or
-//! stay fully offline by dropping `rpc` too — see below.)
+//! With `rpc` alone those imports never appear. A client can still be built,
+//! but its RPC calls return a non-retryable [`rpc::RpcError::Network`] until a
+//! transport is injected. (Or stay fully offline by dropping `rpc` too — see
+//! below.)
 //!
 //! ### Custom entropy backends
 //!
 //! Non-JS `wasm32-unknown-unknown` embedders must register one entropy backend, for
 //! getrandom 0.4 — the only major version reachable on that target, which `rand`,
 //! `k256`, `ed25519-dalek`, and `ml-dsa` all share through `rand_core` 0.10. (A
-//! native `cargo tree` also shows getrandom 0.2/0.3 behind the `rpc` and `sandbox`
-//! features, via `ring`/`rustls` and `testcontainers`; neither builds for
-//! `wasm32-unknown-unknown`, so neither needs a backend here.)
+//! native `cargo tree` also shows getrandom 0.2 behind `rpc`, via
+//! `ring`/`rustls`; that native TLS stack does not build for
+//! `wasm32-unknown-unknown`, so it does not need a backend here.)
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.14", default-features = false }
+//! near-kit = { version = "0.18", default-features = false }
 //! ```
 //!
 //! Build with `RUSTFLAGS='--cfg getrandom_backend="custom"'` and export an `extern
@@ -467,32 +460,35 @@
 //!
 //! ## Offline / no-network usage
 //!
-//! The entire RPC layer — [`Near`], the query/transaction builders, contract and
-//! token helpers, and the HTTP client underneath — is gated behind the default-on
-//! `rpc` feature. With `default-features = false` you keep the offline core:
-//! all the types, the signers ([`InMemorySigner`], [`EnvSigner`], ...),
-//! transaction construction and signing via [`Transaction`](types::Transaction)
-//! (`new` → `sign` → `to_bytes`), and NEP-413 [`nep413::verify_signature`].
-//! The fluent [`TransactionBuilder`] is part of the RPC layer — it is created
-//! from a [`Near`] client — so it requires `rpc`.
+//! The entire RPC layer — `Near`, the query/transaction builders, token helpers,
+//! and the HTTP client underneath — is gated behind the default-on `rpc` feature.
+//! Typed-contract interfaces and macros additionally require `contracts`. With
+//! `default-features = false` you keep the offline core:
+//! all the types, the signers ([`signer::InMemorySigner`],
+//! [`signer::EnvSigner`], ...), transaction construction and signing via
+//! [`protocol::Transaction`] (`new` → `sign` → `to_bytes`), and NEP-413
+//! [`standards::nep413::verify_signature`].
+//! The fluent `transaction::TransactionBuilder` is part of the RPC layer — it is created
+//! from a `Near` client — so it requires `rpc`.
 //! This is what you want on targets with no network stack at all — sign
 //! transactions and messages locally, send them elsewhere:
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.14", default-features = false }
+//! near-kit = { version = "0.18", default-features = false }
 //! ```
 //!
 //! ## Feature Flags
 //!
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
-//! | `rpc` | Yes | The RPC layer: [`Near`], queries, transactions, tokens, and the HTTP transport (reqwest, except on WASI). Disable for offline signing/verification |
-//! | `wasi-http` | Yes | Built-in `wasi:http` transport for `wasm32-wasip2` (implies `rpc`; no-op elsewhere). Disable on WASI hosts without `wasi:http` and inject a transport via [`NearBuilder::transport`] |
-//! | `keyring` | Yes | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
-//! | `file-signer` | Yes | [`FileSigner`] for loading keys from `~/.near-credentials` |
-//! | `tracing` | Yes | [`tracing`](https://docs.rs/tracing) spans and events for RPC calls and transactions (see below) |
-//! | `sandbox` | No | Integration with `near-sandbox` for local testing (implies `rpc`) |
+//! | `rpc` | Yes | The RPC layer: `Near`, queries, transactions, tokens, and the HTTP transport (reqwest, except on WASI). Disable for offline signing/verification |
+//! | `contracts` | No | Typed contract interfaces and the `#[near_kit::contract]` macro (implies `rpc`) |
+//! | `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2` (implies `rpc`; no-op on non-WASI targets; unsupported on earlier WASI targets). On WASI Preview 2 hosts without `wasi:http`, inject a transport via `NearBuilder::transport` |
+//! | `keyring` | No | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
+//! | `file-signer` | No | `signer::FileSigner` for loading keys from `~/.near-credentials` |
+//! | `tracing` | No | [`tracing`](https://docs.rs/tracing) spans and events for RPC calls and transactions (see below) |
+//! | `mnemonic` | No | BIP-39 seed phrases and SLIP-10 hierarchical key derivation |
 //! | `js` | No | JS-host entropy backend (`getrandom`'s `wasm_js`) for `wasm32-unknown-unknown` |
 //!
 //! ### Tracing
@@ -500,8 +496,7 @@
 //! With `tracing` on, RPC calls and transactions run inside spans (`call`,
 //! `view_function`, `send_transaction`, ...) and emit events at DEBUG (retries,
 //! failed requests, transaction lifecycle) and TRACE (raw request/response
-//! payloads); the `sandbox` feature additionally reports container start-up at
-//! INFO. near-kit never logs at WARN or ERROR for an error it returns to you —
+//! payloads). near-kit never logs at WARN or ERROR for an error it returns to you —
 //! that is the caller's decision — so a WARN-level subscriber stays quiet on
 //! expected failures such as probing a contract for a method it doesn't export.
 //! The one WARN is reserved for an anomaly that is *not* surfaced as an error:
@@ -530,71 +525,34 @@
 //! # }
 //! ```
 
-pub mod client;
-#[cfg(feature = "rpc")]
-pub mod contract;
-pub mod error;
+mod client;
+#[cfg(feature = "contracts")]
+#[path = "contract.rs"]
+mod contract_support;
+mod error;
 mod platform;
 #[cfg(feature = "rpc")]
-pub mod tokens;
+mod tokens;
 mod trace;
-pub mod types;
+mod types;
 
-// Sandbox module - only available with "sandbox" feature
-#[cfg(feature = "sandbox")]
-pub mod sandbox;
+pub mod protocol;
+pub mod rpc;
+pub mod signer;
+pub mod standards;
+pub mod transaction;
 
-// Re-export commonly used types at crate root
-pub use error::{Error, RpcError};
-pub use types::nep413;
-pub use types::*;
+// The root is intentionally small; advanced APIs live in explicit facades.
+pub use error::Error;
+pub use types::{AccountId, CryptoHash, Gas, NearToken};
 
 // Re-export contract types
+#[cfg(feature = "contracts")]
+pub use contract_support::{Contract, ContractClient};
+
 #[cfg(feature = "rpc")]
-pub use contract::{Contract, ContractClient};
+pub use client::{Near, NearBuilder};
 
-// Re-export client types
-#[cfg(feature = "rpc")]
-pub use client::{
-    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, BoxFuture, CallBuilder,
-    ContractCodeQuery, DelegateOptions, DelegateResult, FunctionCall, GlobalContractQuery, Near,
-    NearBuilder, RetryConfig, RpcClient, RpcTransport, SandboxNetwork, SignedTransactionSend,
-    TransactionBuilder, TransactionSend, TransactionStatusQuery, TransportResponse, ViewCall,
-    ViewCallBorsh,
-};
-// Only the built-in transport matching the build configuration exists (see
-// client/mod.rs); WASI without `wasi-http` has none.
-#[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
-pub use client::ReqwestTransport;
-#[cfg(all(
-    feature = "wasi-http",
-    target_arch = "wasm32",
-    target_os = "wasi",
-    target_env = "p2"
-))]
-pub use client::WasiHttpTransport;
-// The signers do local cryptography only — they stay available offline.
-pub use client::{EnvSigner, InMemorySigner, RotatingSigner, Signer, SigningKey};
-
-#[cfg(feature = "file-signer")]
-pub use client::FileSigner;
-
-#[cfg(feature = "keyring")]
-pub use client::KeyringSigner;
-
-// Re-export token types
-#[cfg(feature = "rpc")]
-pub use tokens::{
-    FtAmount, FtMetadata, FungibleToken, IntoContractId, KnownToken, NftContractMetadata, NftToken,
-    NftTokenMetadata, NonFungibleToken, StorageBalance, StorageBalanceBounds, USDC, USDT, W_NEAR,
-};
-
-// Re-export proc macros. `#[contract]` expands to code that uses `Near`,
-// `ContractClient`, and the query/call builders, so it needs `rpc`; the other
-// three are inert markers (`call`) or serialization-format overrides
-// (`borsh`/`json`) whose expansions reference nothing network-bound.
-pub use near_kit_macros::borsh;
-pub use near_kit_macros::call;
-#[cfg(feature = "rpc")]
-pub use near_kit_macros::contract;
-pub use near_kit_macros::json;
+// Re-export the typed-contract macro and its marker/format attributes together.
+#[cfg(feature = "contracts")]
+pub use near_kit_macros::{borsh, call, contract, json};

@@ -10,7 +10,7 @@
 [![codecov](https://codecov.io/gh/r-near/near-kit-rs/graph/badge.svg)](https://codecov.io/gh/r-near/near-kit-rs)
 [![MSRV](https://img.shields.io/badge/MSRV-1.88-blue.svg)](https://github.com/r-near/near-kit-rs)
 
-[API Docs](https://docs.rs/near-kit) · [Examples](crates/near-kit/examples/) · [Changelog](CHANGELOG.md)
+[API Docs](https://docs.rs/near-kit) · [Examples](crates/near-kit/examples/) · [Migration guide](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md) · [Changelog](https://github.com/r-near/near-kit-rs/blob/main/crates/near-kit/CHANGELOG.md)
 
 </div>
 
@@ -25,7 +25,8 @@ It's a ground-up implementation focused on developer experience:
 - **One entry point.** Everything flows through the `Near` client — no hunting for the right module.
 - **Configure once.** Set your network and credentials at startup, then just write your logic.
 - **Explicit units.** No more wondering if that's yoctoNEAR or NEAR. Write `NearToken::from_near(5)` or `"5 NEAR"`.
-- **Batteries included.** Built-in support for FT/NFT standards, typed contracts, multiple signers, and automatic retries.
+- **Batteries included.** Built-in FT/NFT helpers, multiple signer options,
+  automatic retries, and opt-in typed-contract interfaces.
 
 ## Quick Start
 
@@ -77,11 +78,17 @@ For CI/CD, configure via environment variables:
 let near = Near::from_env()?;
 ```
 
+Advanced APIs are grouped by purpose: `near_kit::rpc`, `near_kit::transaction`,
+`near_kit::signer`, `near_kit::protocol`, and `near_kit::standards`. The crate
+root keeps the main client, errors, account IDs, hashes, and gas/token units.
+
 ## Multiple Accounts
 
 Transport and signing are separate concerns. Set up the connection once, then derive clients for different accounts with `with_signer`. They share the same RPC connection, so there's no overhead:
 
 ```rust
+use near_kit::signer::InMemorySigner;
+
 let near = Near::testnet().build(); // read-only, shared connection
 
 let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
@@ -122,6 +129,8 @@ near.transaction("sub.alice.testnet")
 For more dynamic use cases, you can conditionally add actions or work with pre-built actions directly:
 
 ```rust
+use near_kit::transaction::FunctionCall;
+
 let mut tx = near.transaction("contract.testnet");
 
 if needs_funding {
@@ -142,6 +151,14 @@ tx.add_action(FunctionCall::new("notify").args(serde_json::json!({ "msg": "hello
 
 Tired of stringly-typed method names and `serde_json::json!` everywhere? Define a trait for your contract and get compile-time checking:
 
+Typed interfaces are opt-in so the default RPC client does not pull in proc-macro
+dependencies:
+
+```toml
+[dependencies]
+near-kit = { version = "0.18", features = ["contracts"] }
+```
+
 ```rust
 #[near_kit::contract]
 pub trait Counter {
@@ -152,7 +169,7 @@ pub trait Counter {
 }
 
 // Now you get autocomplete and type errors at compile time
-let counter = near.contract::<Counter>("counter.testnet");
+let counter = near.contract::<Counter>("counter.testnet")?;
 let count = counter.get_count().await?;
 counter.increment().await?;
 ```
@@ -163,27 +180,21 @@ Different situations call for different key management. near-kit supports severa
 
 | Signer | When to use it |
 |--------|----------------|
-| `InMemorySigner` | Scripts and bots with a hardcoded or loaded key |
-| `FileSigner` | Local development — reads from `~/.near-credentials` |
-| `EnvSigner` | CI/CD pipelines via `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` |
-| `RotatingSigner` | High-throughput apps that need multiple keys to avoid nonce conflicts. Use `into_per_key_signers()` to split into per-key signers for sequential send queues |
-| `KeyringSigner` | Desktop apps using the system keychain (requires `keyring` feature) |
+| `signer::InMemorySigner` | Scripts and bots with a hardcoded or loaded key |
+| `signer::FileSigner` | Local development — reads from `~/.near-credentials` (requires `file-signer`) |
+| `signer::EnvSigner` | CI/CD pipelines via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` |
+| `signer::RotatingSigner` | High-throughput apps that need multiple keys to avoid nonce conflicts. Use `into_per_key_signers()` to split into per-key signers for sequential send queues |
+| `signer::KeyringSigner` | Desktop apps using the system keychain (requires `keyring` feature) |
 
 ## Token Standards
 
 Working with fungible or non-fungible tokens? near-kit includes helpers for NEP-141 and NEP-171.
 
-For common tokens like USDC, USDT, and wNEAR, use the provided constants to avoid copy-pasting addresses. They automatically resolve to the correct address based on the network:
-
 ```rust
-// Known tokens auto-resolve based on network
 let near = Near::mainnet().build();
-let usdc = near.ft(tokens::USDC)?;
-let balance = usdc.balance_of("alice.near").await?;
-println!("Balance: {}", balance);  // "1.50 USDC"
-
-// Or use raw addresses for any token
-let custom = near.ft("my-custom-token.near")?;
+let token = near.ft("wrap.near")?;
+let balance = token.balance_of("alice.near").await?;
+println!("Balance: {}", balance);
 
 // Non-fungible tokens
 let nft = near.nft("nft.near")?;
@@ -192,22 +203,29 @@ if let Some(token) = nft.token("token-123").await? {
 }
 ```
 
-Available known tokens: `tokens::USDC`, `tokens::USDT`, `tokens::W_NEAR`
-
 ## Feature Flags
 
-| Feature | Description |
-|---------|-------------|
-| `rpc` | The RPC layer: the `Near` client, queries, transactions, token helpers, and the HTTP transport — reqwest, except on WASI (on by default) |
-| `wasi-http` | Built-in `wasi:http` transport for `wasm32-wasip2`; implies `rpc`, no-op elsewhere (on by default) |
-| `sandbox` | Local testing with [near-sandbox](https://crates.io/crates/near-sandbox) |
-| `keyring` | System keyring integration for desktop apps |
-| `tracing` | [`tracing`](https://crates.io/crates/tracing) spans and events for RPC calls and transactions (on by default; drop it with `default-features = false`) |
-| `interactive-clap` | Enables `interactive-clap` derives on re-exported `NearToken` and `Gas` for CLI tools |
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `rpc` | Yes | The `Near` client, queries, transactions, token helpers, and the HTTP transport — reqwest, except on WASI |
+| `contracts` | No | Typed contract interfaces and macros; implies `rpc` |
+| `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2`; implies `rpc`, is a no-op on non-WASI targets, and is unsupported on earlier WASI targets |
+| `keyring` | No | System keyring integration for desktop apps |
+| `file-signer` | No | Load signers from `~/.near-credentials` |
+| `tracing` | No | [`tracing`](https://crates.io/crates/tracing) spans and events for RPC calls and transactions |
+| `mnemonic` | No | BIP-39 seed phrases and SLIP-10 hierarchical key derivation |
+| `js` | No | JS-host entropy backend for `wasm32-unknown-unknown` |
 
 ### Tracing
 
-With `tracing` on, RPC calls and transactions run inside spans (`call`, `view_function`, `send_transaction`, ...) and emit events at DEBUG (retries, failed requests, transaction lifecycle) and TRACE (raw request/response payloads); the `sandbox` feature additionally reports container start-up at INFO. near-kit never logs at WARN or ERROR for an error it returns to you — that is the caller's decision — so a WARN-level subscriber stays quiet on expected failures such as probing a contract for a method it doesn't export. The one WARN is reserved for an anomaly that is *not* surfaced as an error: an RPC error variant this version couldn't parse and mapped to `Unknown`.
+With `tracing` on, RPC calls and transactions run inside spans (`call`, `view_function`, `send_transaction`, ...) and emit events at DEBUG (retries, failed requests, transaction lifecycle) and TRACE (raw request/response payloads). near-kit never logs at WARN or ERROR for an error it returns to you — that is the caller's decision — so a WARN-level subscriber stays quiet on expected failures such as probing a contract for a method it doesn't export. The one WARN is reserved for an anomaly that is *not* surfaced as an error: an RPC error variant this version couldn't parse and mapped to `Unknown`.
+
+Docker-backed local testing lives in the companion `near-kit-sandbox` crate. Add
+it as a dev-dependency and call `SandboxConfig::fresh().await?` or
+`SandboxConfig::shared().await?`; each `Sandbox` can create a configured client
+with `sandbox.client()` or `Near::sandbox(&sandbox)`. See the
+[`near-kit-sandbox` guide](https://github.com/r-near/near-kit-rs/blob/main/crates/near-kit-sandbox/README.md) for setup and
+lifecycle details.
 
 ### WASI (`wasm32-wasip2`)
 
@@ -215,20 +233,26 @@ near-kit runs inside WASI Preview 2 components with full RPC support — the `wa
 
 ```toml
 [dependencies]
-near-kit = { version = "0.14", default-features = false, features = ["wasi-http"] }
+near-kit = { version = "0.18", default-features = false, features = ["wasi-http"] }
 ```
 
 The host must provide the `wasi:http` interface (e.g. `wasmtime run -S http`, or any runtime targeting the `wasi:http/proxy` world). The transport is blocking — one request in flight at a time, the natural shape for a single-threaded component — and does not follow HTTP redirects, so point it at the final RPC URL.
 
-On WASI hosts without `wasi:http`, enable only `rpc` and plug your platform's transport in via `NearBuilder::transport` — `wasi-http` must stay off there, because merely compiling the built-in transport makes the component import `wasi:http`, which such hosts refuse to instantiate. Or go fully offline (below).
+On WASI hosts without `wasi:http`, enable only `rpc` and plug your platform's
+transport in via `NearBuilder::transport` — `wasi-http` must stay off there,
+because merely compiling the built-in transport makes the component import
+`wasi:http`, which such hosts refuse to instantiate. `NearBuilder::build()`
+still succeeds if no custom transport is installed; the first RPC operation
+returns a non-retryable `RpcError::Network` (wrapped in `Error::Rpc` by the
+high-level client) instead of panicking. Or go fully offline (below).
 
 ### Offline / no-network usage
 
-With `default-features = false` the RPC layer drops out and near-kit becomes a pure offline toolkit: all the types, the signers, transaction construction and signing via `Transaction` (`new` → `sign` → `to_bytes`), and NEP-413 `verify_signature`. This is what you want on targets without any network stack: sign transactions and messages locally and hand them off for submission elsewhere. Note the fluent `TransactionBuilder` belongs to the RPC layer (it is created from a `Near` client), so it requires the `rpc` feature.
+With `default-features = false` the RPC layer drops out and near-kit becomes a pure offline toolkit: protocol types under `near_kit::protocol`, signers under `near_kit::signer`, transaction construction and signing via `protocol::Transaction` (`new` → `sign` → `to_bytes`), and NEP-413 verification under `near_kit::standards::nep413`. This is what you want on targets without any network stack: sign transactions and messages locally and hand them off for submission elsewhere. Note the fluent `transaction::TransactionBuilder` belongs to the RPC layer (it is created from a `Near` client), so it requires the `rpc` feature.
 
 ### A note on `near-token` / `near-gas`
 
-near-kit depends on and re-exports [`near-token`](https://crates.io/crates/near-token) and [`near-gas`](https://crates.io/crates/near-gas) — so `near_kit::NearToken` and `near_kit::Gas` *are* those crates' types. If you need a feature that near-kit doesn't expose directly (anything beyond `interactive-clap`), add `near-token` or `near-gas` as a direct dependency alongside near-kit with the feature you need.
+near-kit depends on and re-exports [`near-token`](https://crates.io/crates/near-token) and [`near-gas`](https://crates.io/crates/near-gas) — so `near_kit::NearToken` and `near_kit::Gas` *are* those crates' types. If you need an optional feature from either upstream crate, add `near-token` or `near-gas` as a direct dependency alongside near-kit with that feature enabled.
 
 Use a version range compatible with near-kit's (check `cargo tree` if you're unsure). When only one version is resolved, Cargo unifies features across the graph and the re-exported types remain the same type — no conversions required. If you pin an incompatible semver range, Cargo will select two versions and the types will not be interchangeable.
 

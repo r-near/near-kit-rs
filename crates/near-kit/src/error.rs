@@ -6,7 +6,7 @@
 //!
 //! - [`Error`](enum@Error) — Main error type, returned by most operations
 //!   - [`RpcError`] — RPC/network errors (connectivity, account not found, etc.)
-//!   - [`InvalidTxError`][crate::types::InvalidTxError] — Transaction was rejected
+//!   - [`InvalidTxError`][crate::protocol::InvalidTxError] — Transaction was rejected
 //!     before execution (bad nonce, insufficient balance, expired, etc.)
 //!
 //! Action errors (contract panics, missing keys, etc.) are **not** `Err` — the
@@ -45,7 +45,7 @@
 //! ## Checking Retryable Errors
 //!
 //! ```rust,no_run
-//! use near_kit::RpcError;
+//! use near_kit::rpc::RpcError;
 //!
 //! fn should_retry(err: &RpcError) -> bool {
 //!     err.is_retryable()
@@ -96,7 +96,7 @@ pub enum ParseGasError {
 /// Error parsing a public or secret key.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ParseKeyError {
-    #[error("Invalid key format: expected 'ed25519:...' or 'secp256k1:...'")]
+    #[error("Invalid key format: expected 'ed25519:...', 'secp256k1:...', or 'ml-dsa-65:...'")]
     InvalidFormat,
 
     #[error("Unknown key type: '{0}'")]
@@ -116,7 +116,8 @@ pub enum ParseKeyError {
 
     /// The string is an `ml-dsa-65-hash:` handle — the on-chain identifier
     /// (SHA3-256 digest) of an ML-DSA-65 access key that view RPCs return —
-    /// not a public key. Parse it as a [`PublicKeyHandle`](crate::PublicKeyHandle)
+    /// not a public key. Parse it as a
+    /// [`PublicKeyHandle`](crate::signer::PublicKeyHandle)
     /// instead; to sign or build a transaction, supply the full `ml-dsa-65:` key.
     #[error(
         "'ml-dsa-65-hash:' is the on-chain handle (hash) of an ML-DSA-65 key, not a public key; \
@@ -164,6 +165,16 @@ pub enum ActionViewConversionError {
         actual: usize,
     },
 
+    /// A deploy action view contains only the code hash, not the contract code
+    /// required to construct a wire action.
+    #[error(
+        "Cannot convert deploy action view: the node returned only code hash {code_hash}, not the contract code"
+    )]
+    DeployCodeUnavailable {
+        /// Hash of the contract code omitted from the view.
+        code_hash: CryptoHash,
+    },
+
     /// A `Delegate` / `DelegateV2` view contained a nested delegate action,
     /// which the protocol forbids.
     #[error("A delegate action must not contain a nested delegate action")]
@@ -181,6 +192,9 @@ pub enum SignerError {
 
     #[error("Key derivation failed: {0}")]
     KeyDerivationFailed(String),
+
+    #[error("Implicit accounts require an Ed25519 secret key")]
+    ImplicitAccountRequiresEd25519,
 }
 
 /// Error during keystore operations.
@@ -358,7 +372,7 @@ pub enum RpcError {
     /// A view method explicitly panicked during contract execution.
     ///
     /// Transaction function-call panics are reported in the transaction
-    /// outcome instead; see [`crate::types::FunctionCallError`].
+    /// outcome instead; see [`crate::protocol::FunctionCallError`].
     #[error("contract panic: {message}")]
     ContractPanic {
         message: String,
@@ -396,7 +410,7 @@ pub enum RpcError {
     InvalidTx(crate::types::InvalidTxError),
 
     /// Fallback when the RPC returns `INVALID_TRANSACTION` but the structured
-    /// error could not be deserialized into [`InvalidTxError`][crate::types::InvalidTxError].
+    /// error could not be deserialized into [`InvalidTxError`][crate::protocol::InvalidTxError].
     #[error("Invalid transaction: {message}")]
     InvalidTransaction {
         message: String,
@@ -459,7 +473,7 @@ impl RpcError {
     /// in the transaction layer (`Near::send*`), where retrying can actually
     /// change the outcome, so it is `false` here.
     ///
-    /// [`InvalidTxError::is_retryable`]: crate::types::InvalidTxError::is_retryable
+    /// [`InvalidTxError::is_retryable`]: crate::protocol::InvalidTxError::is_retryable
     pub fn is_retryable(&self) -> bool {
         match self {
             #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
@@ -669,11 +683,6 @@ pub enum Error {
     )]
     NoSigner,
 
-    #[error(
-        "No signer account ID. Call .default_account() on NearBuilder or use a signer with an account ID."
-    )]
-    NoSignerAccount,
-
     #[error("Invalid configuration: {0}")]
     Config(String),
 
@@ -725,10 +734,6 @@ pub enum Error {
 
     #[error("Delegate action decode error: {0}")]
     DelegateDecode(#[from] DelegateDecodeError),
-
-    // ─── Tokens ───
-    #[error("Token {token} is not available on chain {chain_id}")]
-    TokenNotAvailable { token: String, chain_id: String },
 }
 
 impl From<RpcError> for Error {
@@ -825,7 +830,7 @@ mod tests {
     fn test_parse_key_error_display() {
         assert_eq!(
             ParseKeyError::InvalidFormat.to_string(),
-            "Invalid key format: expected 'ed25519:...' or 'secp256k1:...'"
+            "Invalid key format: expected 'ed25519:...', 'secp256k1:...', or 'ml-dsa-65:...'"
         );
         assert_eq!(
             ParseKeyError::UnknownKeyType("rsa".to_string()).to_string(),
@@ -882,6 +887,10 @@ mod tests {
         assert_eq!(
             SignerError::KeyDerivationFailed("path error".to_string()).to_string(),
             "Key derivation failed: path error"
+        );
+        assert_eq!(
+            SignerError::ImplicitAccountRequiresEd25519.to_string(),
+            "Implicit accounts require an Ed25519 secret key"
         );
     }
 
@@ -1393,14 +1402,6 @@ mod tests {
         assert_eq!(
             Error::NoSigner.to_string(),
             "No signer configured. Use .credentials()/.signer() on NearBuilder, .with_signer() on the client, or .sign_with() on the transaction."
-        );
-    }
-
-    #[test]
-    fn test_error_no_signer_account_display() {
-        assert_eq!(
-            Error::NoSignerAccount.to_string(),
-            "No signer account ID. Call .default_account() on NearBuilder or use a signer with an account ID."
         );
     }
 

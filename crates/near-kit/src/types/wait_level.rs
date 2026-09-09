@@ -7,6 +7,7 @@
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! # use near_kit::*;
+//! # use near_kit::transaction::{Final, Included};
 //! # async fn example(near: &Near) -> Result<(), Error> {
 //! // Default — returns FinalExecutionOutcome
 //! near.transfer("bob.testnet", NearToken::from_near(1)).await?;
@@ -87,7 +88,7 @@ fn send_tx_response(response: RawTransactionResponse, sender_id: &AccountId) -> 
 /// Don't wait, return immediately after the RPC accepts the transaction.
 ///
 /// Returns [`SendTxResponse`]. Its `outcome` is populated when polled via
-/// [`Near::tx_status`](crate::Near::tx_status) and the node already has receipt
+/// `Near::tx_status` and the node already has receipt
 /// data; it is [`None`] on the `send_tx` path.
 ///
 /// Named `Submitted` instead of `None` to avoid shadowing `Option::None`.
@@ -110,7 +111,7 @@ impl WaitLevel for Submitted {
 /// Wait for the transaction to be included in a block.
 ///
 /// Returns [`SendTxResponse`]. Its `outcome` is populated when polled via
-/// [`Near::tx_status`](crate::Near::tx_status) and the node already has receipt
+/// `Near::tx_status` and the node already has receipt
 /// data; it is [`None`] on the `send_tx` path.
 #[derive(Clone, Copy, Debug)]
 pub struct Included;
@@ -131,7 +132,7 @@ impl WaitLevel for Included {
 /// Wait for the transaction's block to reach finality.
 ///
 /// Returns [`SendTxResponse`]. Its `outcome` is populated when polled via
-/// [`Near::tx_status`](crate::Near::tx_status) and the node already has receipt
+/// `Near::tx_status` and the node already has receipt
 /// data; it is [`None`] on the `send_tx` path.
 #[derive(Clone, Copy, Debug)]
 pub struct IncludedFinal;
