@@ -20,6 +20,13 @@ near-kit-sandbox = "0.18"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
+When Docker uses a non-default socket (for example Rancher Desktop), set
+`DOCKER_HOST` to the active context's endpoint before running tests:
+
+```sh
+export DOCKER_HOST="$(docker context inspect --format '{{.Endpoints.docker.Host}}')"
+```
+
 ```rust
 use near_kit::{NearToken, signer::SecretKey};
 use near_kit_sandbox::SandboxConfig;
@@ -54,7 +61,7 @@ For custom configuration:
 
 ```rust
 let sandbox = SandboxConfig::builder()
-    .version("2.13.0-rc.2")
+    .version("2.13.4")
     .root_account("local")
     .chain_id("localnet")
     .fresh()

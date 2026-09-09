@@ -224,7 +224,7 @@ Docker-backed local testing lives in the companion `near-kit-sandbox` crate. Add
 it as a dev-dependency and call `SandboxConfig::fresh().await?` or
 `SandboxConfig::shared().await?`; each `Sandbox` can create a configured client
 with `sandbox.client()` or `Near::sandbox(&sandbox)`. See the
-[`near-kit-sandbox` guide](crates/near-kit-sandbox/README.md) for setup and
+[`near-kit-sandbox` guide](https://github.com/r-near/near-kit-rs/blob/main/crates/near-kit-sandbox/README.md) for setup and
 lifecycle details.
 
 ### WASI (`wasm32-wasip2`)

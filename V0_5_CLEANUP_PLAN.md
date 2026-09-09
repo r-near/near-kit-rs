@@ -140,3 +140,20 @@ The cleanup program ships as the 0.18 line: `near-kit-macros` 0.13.0,
 - Publish in dependency order: `near-kit-macros` first, then `near-kit`, then
   `near-kit-sandbox`, rerunning package verification after each release reaches
   the registry index.
+
+## Review refresh — 2026-09-09
+
+- Upstream remains at 0.17.0; the registry still has macros 0.12.1 and core
+  0.17.0, so the planned release versions remain available.
+- Independent read-only API/correctness and documentation/package reviews found
+  no functional blockers. Added the core changelog and fixed the packaged README
+  link to the sandbox guide.
+- Docker execution exposed a finality race in the pre-signed transfer test;
+  wait for `Final` before querying the final balance. Ordinary and protocol
+  fixtures now pin stable sandbox 2.13.4 instead of release-candidate/moving tags.
+- Refreshed native tests, strict Clippy/rustdoc, Rust 1.88, browser/WASI checks,
+  macro compile tests, and default/offline doctests. Docker execution is now
+  part of the review verification, not only a compile check.
+- The macros package verifies locally. Core packaging awaits published macros
+  0.13.0, and sandbox packaging awaits published core 0.18.0; rerun each package
+  verification in dependency order during separately authorized release work.
