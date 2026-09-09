@@ -1747,11 +1747,14 @@ pub struct GasProfileEntry {
     pub gas_used: Gas,
 }
 
-/// View function result from call_function RPC.
+/// A view function result and metadata from the same successful RPC response.
+///
+/// The default payload is raw bytes. Typed views using `with_metadata().await`
+/// return this same structure with a decoded payload.
 #[derive(Debug, Clone, Deserialize)]
-pub struct ViewFunctionResult {
-    /// Result bytes (often JSON).
-    pub result: Vec<u8>,
+pub struct ViewFunctionResult<T = Vec<u8>> {
+    /// Raw return bytes or the decoded contract return value.
+    pub result: T,
     /// Logs emitted during view call.
     pub logs: Vec<String>,
     /// Block height of the query.

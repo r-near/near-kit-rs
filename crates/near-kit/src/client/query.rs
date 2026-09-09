@@ -416,13 +416,13 @@ impl ViewCallRequest {
 }
 
 trait ViewResponseDecoder<T> {
-    fn decode(response: ViewFunctionResult) -> Result<T, Error>;
+    fn decode(response: &ViewFunctionResult) -> Result<T, Error>;
 }
 
 struct JsonResponse;
 
 impl<T: DeserializeOwned> ViewResponseDecoder<T> for JsonResponse {
-    fn decode(response: ViewFunctionResult) -> Result<T, Error> {
+    fn decode(response: &ViewFunctionResult) -> Result<T, Error> {
         Ok(response.json()?)
     }
 }
@@ -430,21 +430,24 @@ impl<T: DeserializeOwned> ViewResponseDecoder<T> for JsonResponse {
 struct BorshResponse;
 
 impl<T: borsh::BorshDeserialize> ViewResponseDecoder<T> for BorshResponse {
-    fn decode(response: ViewFunctionResult) -> Result<T, Error> {
+    fn decode(response: &ViewFunctionResult) -> Result<T, Error> {
         response
             .borsh()
             .map_err(|error| Error::Borsh(error.to_string()))
     }
 }
 
-fn view_call_future<T, D>(
-    request: ViewCallRequest,
-) -> crate::platform::BoxFuture<'static, Result<T, Error>>
+async fn execute_view<T, D>(request: ViewCallRequest) -> Result<ViewFunctionResult<T>, Error>
 where
-    T: Send + 'static,
     D: ViewResponseDecoder<T>,
 {
-    Box::pin(async move { D::decode(request.execute().await?) })
+    let response = request.execute().await?;
+    Ok(ViewFunctionResult {
+        result: D::decode(&response)?,
+        logs: response.logs,
+        block_height: response.block_height,
+        block_hash: response.block_hash,
+    })
 }
 
 /// Query builder for calling view functions on contracts.
@@ -569,12 +572,37 @@ impl<T> ViewCall<T> {
     }
 }
 
+impl<T: DeserializeOwned + Send + 'static> ViewCall<T> {
+    /// Execute the view and retain its block height, block hash, and logs.
+    ///
+    /// Configure arguments and block selection before calling this method.
+    /// Ordinary `.await` returns only the decoded value. RPC and decoding
+    /// errors are returned unchanged; metadata is available on success.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::Near;
+    /// # async fn example() -> Result<(), near_kit::Error> {
+    /// let near = Near::testnet().build();
+    /// let result = near.view::<u64>("counter.testnet", "get_count")
+    ///     .with_metadata()
+    ///     .await?;
+    /// println!("{} at block {} ({})", result.result, result.block_height, result.block_hash);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn with_metadata(self) -> Result<ViewFunctionResult<T>, Error> {
+        execute_view::<T, JsonResponse>(self.request).await
+    }
+}
+
 impl<T: DeserializeOwned + Send + 'static> IntoFuture for ViewCall<T> {
     type Output = Result<T, Error>;
     type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
-        view_call_future::<T, JsonResponse>(self.request)
+        Box::pin(async move { Ok(self.with_metadata().await?.result) })
     }
 }
 
@@ -621,12 +649,23 @@ pub struct ViewCallBorsh<T> {
     _phantom: PhantomData<T>,
 }
 
+impl<T: borsh::BorshDeserialize + Send + 'static> ViewCallBorsh<T> {
+    /// Execute the Borsh view and retain its block height, block hash, and logs.
+    ///
+    /// Set arguments and block selection before `.borsh().with_metadata()`.
+    /// RPC and decoding errors are returned unchanged; metadata is available
+    /// on success. See [`ViewCall::with_metadata`] for a JSON example.
+    pub async fn with_metadata(self) -> Result<ViewFunctionResult<T>, Error> {
+        execute_view::<T, BorshResponse>(self.request).await
+    }
+}
+
 impl<T: borsh::BorshDeserialize + Send + 'static> IntoFuture for ViewCallBorsh<T> {
     type Output = Result<T, Error>;
     type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
-        view_call_future::<T, BorshResponse>(self.request)
+        Box::pin(async move { Ok(self.with_metadata().await?.result) })
     }
 }
 
