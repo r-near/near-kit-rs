@@ -569,7 +569,9 @@ impl TransactionBuilder {
     /// ```
     pub fn signed_delegate_action(mut self, signed_delegate: SignedDelegateAction) -> Self {
         // Set receiver_id to the sender of the delegate action (the original user)
-        self.receiver_id = Ok(signed_delegate.sender_id().clone());
+        self.receiver_id = self
+            .receiver_id
+            .map(|_| signed_delegate.sender_id().clone());
         self.actions.push(Action::delegate(signed_delegate));
         self
     }
@@ -775,7 +777,7 @@ impl TransactionBuilder {
     pub fn state_init(mut self, state_init: StateInit, deposit: impl IntoNearToken) -> Self {
         match deposit.into_near_token() {
             Ok(deposit) => {
-                self.receiver_id = Ok(state_init.derive_account_id());
+                self.receiver_id = self.receiver_id.map(|_| state_init.derive_account_id());
                 self.actions.push(Action::state_init(state_init, deposit));
             }
             Err(error) => self.defer_error(error.into()),
@@ -1702,6 +1704,66 @@ mod tests {
         let rpc = Arc::new(RpcClient::new("https://rpc.testnet.near.org"));
         let receiver: AccountId = "contract.testnet".parse().unwrap();
         TransactionBuilder::new_fallible(rpc, None, Ok(receiver), 0)
+    }
+
+    #[tokio::test]
+    async fn receiver_overrides_preserve_invalid_receiver_errors() {
+        let near = crate::Near::testnet().build();
+        let key = SecretKey::generate_ed25519();
+        let delegate = crate::types::DelegateAction {
+            sender_id: "sender.testnet".parse().unwrap(),
+            receiver_id: "receiver.testnet".parse().unwrap(),
+            actions: vec![
+                NonDelegateAction::from_action(Action::transfer(NearToken::ZERO)).unwrap(),
+            ],
+            nonce: 1,
+            max_block_height: 100,
+            public_key: key.public_key(),
+        };
+        let signature = key.sign(delegate.get_hash().as_bytes());
+        let signed_delegate = delegate.sign(signature);
+        let state_init = <StateInit as crate::types::StateInitExt>::by_hash(
+            CryptoHash::ZERO,
+            Default::default(),
+        );
+
+        for terminal in 0..4 {
+            for builder in [
+                near.transaction("INVALID")
+                    .state_init(state_init.clone(), NearToken::ZERO),
+                near.transaction("INVALID")
+                    .signed_delegate_action(signed_delegate.clone()),
+            ] {
+                let error = match terminal {
+                    0 => builder.send().await.unwrap_err(),
+                    1 => builder.sign().await.unwrap_err(),
+                    2 => builder.delegate(Default::default()).await.unwrap_err(),
+                    _ => builder
+                        .build_offline("signer.testnet", key.public_key(), CryptoHash::ZERO, 1)
+                        .unwrap_err(),
+                };
+                assert!(matches!(error, Error::ParseAccountId(_)), "{error:?}");
+            }
+        }
+
+        // Successful receiver overrides still target the derived account or sender.
+        for (builder, expected) in [
+            (
+                near.transaction("valid.testnet")
+                    .state_init(state_init.clone(), NearToken::ZERO),
+                state_init.derive_account_id(),
+            ),
+            (
+                near.transaction("valid.testnet")
+                    .signed_delegate_action(signed_delegate.clone()),
+                signed_delegate.sender_id().clone(),
+            ),
+        ] {
+            let transaction = builder
+                .build_offline("signer.testnet", key.public_key(), CryptoHash::ZERO, 1)
+                .unwrap();
+            assert_eq!(transaction.receiver_id, expected);
+        }
     }
 
     #[test]
