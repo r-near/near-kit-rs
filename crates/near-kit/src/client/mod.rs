@@ -36,7 +36,7 @@
 //!
 //! - [`TransactionBuilder`] — Multi-action transaction builder
 //! - [`CallBuilder`] — Function call builder (part of transactions)
-//! - [`FunctionCall`] — Standalone function call for composable transactions
+//! - [`FunctionCall`](crate::transaction::FunctionCall) — Standalone function call for composable transactions
 
 // Everything that talks to the network lives behind the `rpc` feature; the
 // signers stay available in offline builds (they only do local cryptography).
@@ -71,8 +71,8 @@ pub use signer::FileSigner;
 pub use signer::{EnvSigner, InMemorySigner, RotatingSigner, Signer, SigningBackend, SigningKey};
 #[cfg(feature = "rpc")]
 pub use transaction::{
-    CallBuilder, DelegateOptions, DelegateResult, FunctionCall, SignedTransactionSend,
-    TransactionBuilder, TransactionSend,
+    CallBuilder, DelegateOptions, DelegateResult, SignedTransactionSend, TransactionBuilder,
+    TransactionSend,
 };
 #[cfg(feature = "rpc")]
 pub use transport::{BoxFuture, RpcTransport, TransportResponse};
