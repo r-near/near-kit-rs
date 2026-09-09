@@ -104,7 +104,7 @@ pub use rpc::{
     RawTransactionResponse, Receipt, ReceiptContent, ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE,
     SendTxResponse, SlashedValidator, StateChangeKindView, StateItem, StatusResponse, SyncInfo,
     TransactionNonceView, TransactionView, TrieSplit, ValidatorInfo, ValidatorStakeView,
-    ValidatorStakeViewV1, VersionedDelegateActionPayloadView, ViewFunctionResult,
+    ValidatorStakeViewV1, VersionedDelegateActionPayloadView, ViewFunctionResult, ViewResult,
     ViewStateAllResult, ViewStateResult,
 };
 pub use rpc_extra::{

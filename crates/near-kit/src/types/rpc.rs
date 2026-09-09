@@ -1747,6 +1747,21 @@ pub struct GasProfileEntry {
     pub gas_used: Gas,
 }
 
+/// A decoded view value and metadata from the same successful RPC response.
+///
+/// Returned by a typed view call's `with_metadata().await` operation.
+#[derive(Debug, Clone)]
+pub struct ViewResult<T> {
+    /// Decoded contract return value.
+    pub value: T,
+    /// Logs emitted during the view call.
+    pub logs: Vec<String>,
+    /// Block height at which the view was evaluated.
+    pub block_height: u64,
+    /// Block hash at which the view was evaluated.
+    pub block_hash: CryptoHash,
+}
+
 /// View function result from call_function RPC.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ViewFunctionResult {
