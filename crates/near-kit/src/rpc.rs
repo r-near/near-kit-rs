@@ -3,6 +3,9 @@
 //! `RpcClient` includes the generic `RpcClient::call` escape hatch in
 //! addition to typed NEAR RPC methods.
 
+mod view_function;
+pub use view_function::ViewFunction;
+
 pub use crate::error::RpcError;
 pub use crate::types::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,

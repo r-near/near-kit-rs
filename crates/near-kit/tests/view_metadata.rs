@@ -176,3 +176,29 @@ async fn generated_contract_views_expose_metadata_without_macro_changes() {
     assert_eq!(result.result, 123);
     assert_metadata(&result);
 }
+
+#[cfg(feature = "contracts")]
+#[tokio::test]
+async fn portable_generated_view_executes_one_rpc_at_selected_block() {
+    #[near_kit::contract]
+    trait Counter {
+        fn get_count(&self) -> u64;
+    }
+    let (near, requests) = client(b"123".to_vec());
+    let view = Counter::get_count().unwrap();
+    let result = view
+        .fetch(
+            &near,
+            "counter.testnet",
+            near_kit::rpc::BlockReference::Height(42),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.result, 123);
+    assert_metadata(&result);
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["params"]["method_name"], "get_count");
+    assert_eq!(requests[0]["params"]["args_base64"], "e30=");
+    assert_eq!(requests[0]["params"]["block_id"], 42);
+}

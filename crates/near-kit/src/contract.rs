@@ -97,6 +97,34 @@
 //!     .send().await?;
 //! ```
 //!
+//! # Portable Typed Views
+//!
+//! Static view constructors encode arguments without choosing a client or account.
+//! They return `Result<ViewFunction<T>, Error>` because argument encoding can fail.
+//!
+//! ```rust,no_run
+//! # pub use near_kit::*;
+//! use near_kit::{Near, rpc::BlockReference};
+//!
+//! #[near_kit::contract]
+//! trait Counter {
+//!     fn get_count(&self) -> u64;
+//! }
+//!
+//! # async fn example() -> Result<(), near_kit::Error> {
+//! let view = Counter::get_count()?;
+//! let near = Near::testnet().build();
+//! let result = view.fetch(&near, "counter.testnet", BlockReference::final_()).await?;
+//! println!("{} at block {}", result.result, result.block_height);
+//! # Ok(())
+//! # }
+//! # fn main() {}
+//! ```
+//!
+//! Other backends can use `method_name()` and `args_bytes()`, then pass their raw
+//! response to `decode()` to retain block metadata. The view description works
+//! without `rpc`; the contract macro itself still requires `contracts` and `rpc`.
+//!
 //! # Serialization Formats
 //!
 //! By default, arguments are serialized as JSON and view responses are
