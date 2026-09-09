@@ -6,7 +6,7 @@
 //! 2. A relayer wraps it in `Action::DelegateV2` and submits it, paying gas.
 //! 3. Assert the transfer landed on-chain.
 //!
-//! Pins the sandbox to `2.13.0-rc.2` (protocol v85 enables `DelegateV2`).
+//! Pins the sandbox to stable `2.13.4` (protocol v85 enables `DelegateV2`).
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 

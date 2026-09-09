@@ -72,7 +72,12 @@ async fn pre_signed_transaction_is_accepted() {
         .sign()
         .await
         .expect("signed transaction");
-    let outcome = sender.send(&signed).await.expect("pre-signed submission");
+    // Balance queries use final state, so wait for the transfer to become final.
+    let outcome = sender
+        .send(&signed)
+        .wait_until::<Final>()
+        .await
+        .expect("pre-signed submission");
 
     assert!(outcome.is_success());
     let after = root.balance(&receiver_id).await.expect("receiver balance");

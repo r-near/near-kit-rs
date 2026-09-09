@@ -6,61 +6,31 @@
 //!
 //! # Sandbox image
 //!
-//! WHY this pins `pre-release` instead of the crate default (`2.13.0-rc.2`):
-//! rc.2 reports protocol v85 but was cut *before* the ML-DSA
-//! (`PostQuantumSignatures`) implementation merged, so it rejects key type 2 at
-//! borsh decode ("unknown key type '2'"). `pre-release` is the only published
-//! 2.13-line image (also protocol v85) that actually contains the ML-DSA
-//! implementation. `master` (protocol 86) is the documented fallback if
-//! `pre-release` ever stops carrying v85.
-//!
-//! Because `pre-release` is a moving tag, this test is written to **skip**
-//! (not fail) when it lands on an ML-DSA-incompatible node — either the protocol
-//! drifts off v85, or the node rejects an ML-DSA AddKey. That keeps CI green
-//! when the upstream image moves rather than producing a spurious red.
-//!
-//! TODO: re-pin to a stable `2.13.x` image once one ships with ML-DSA, and drop
-//! the skip logic.
+//! Pins the sandbox to stable `2.13.4`. Protocol or ML-DSA incompatibility
+//! fails the test rather than silently skipping its assertions.
 
 use near_kit::*;
 use near_kit::{signer::*, transaction::Final};
 
-use super::support::{sandbox_pre_release, unique_account};
+use super::support::{sandbox_2_13, unique_account};
 
 /// Protocol version that ships ML-DSA-65 (NEAR 2.13 / v85).
 const ML_DSA_PROTOCOL_VERSION: u32 = 85;
 
-/// Heuristic: does this RPC error look like the node not understanding ML-DSA
-/// (key type 2), as opposed to a real failure we should surface? rc.2-style
-/// nodes return a borsh "unknown key type '2'" parse error.
-fn looks_like_ml_dsa_unsupported(err: &near_kit::Error) -> bool {
-    let msg = err.to_string().to_lowercase();
-    (msg.contains("parse") || msg.contains("deserial") || msg.contains("borsh"))
-        && (msg.contains("key type") || msg.contains("'2'") || msg.contains("unknown"))
-}
-
 /// Add an ML-DSA-65 full-access key on account creation, then sign a transfer
 /// with that key. If the node accepts the transfer, our ML-DSA-65 public key,
 /// signature, and borsh wire format are all correct against protocol v85.
-///
-/// Skips (does not fail) if the pinned image is ML-DSA-incompatible — see the
-/// module docs for why the image is `pre-release` and why skipping is correct.
 #[tokio::test]
 async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
-    let sandbox = sandbox_pre_release().await;
+    let sandbox = sandbox_2_13().await;
     let near = sandbox.client();
 
-    // Skip if the node isn't on the exact protocol version that ships ML-DSA.
-    // (When `pre-release` eventually advances past v85, skip rather than fail.)
     let status = near.rpc().status().await.expect("node status");
-    if status.protocol_version != ML_DSA_PROTOCOL_VERSION {
-        eprintln!(
-            "SKIP test_ml_dsa65_signed_transfer_accepted_on_chain: node protocol \
-             {} != {} (ML-DSA image drifted); see module docs",
-            status.protocol_version, ML_DSA_PROTOCOL_VERSION
-        );
-        return;
-    }
+    assert!(
+        status.protocol_version >= ML_DSA_PROTOCOL_VERSION,
+        "stable sandbox must support ML-DSA protocol v{ML_DSA_PROTOCOL_VERSION}, got v{}",
+        status.protocol_version
+    );
 
     // Deterministic ML-DSA-65 key from a fixed 32-byte seed.
     let ml_dsa_key = SecretKey::ml_dsa65_from_seed([42u8; 32]);
@@ -71,26 +41,15 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
     let account_id = unique_account("mldsa");
 
     // Create the account with the ML-DSA-65 key as its only full-access key.
-    // This exercises AddKey with a 1952-byte [2][..] borsh pubkey. If the node
-    // rejects key type 2 (incompatible image), skip rather than fail.
-    let create = near
-        .transaction(&account_id)
+    // This exercises AddKey with a 1952-byte [2][..] borsh pubkey.
+    near.transaction(&account_id)
         .create_account()
         .transfer(NearToken::from_near(20))
         .add_full_access_key(public_key.clone())
         .send()
         .wait_until::<Final>()
-        .await;
-    if let Err(e) = &create
-        && looks_like_ml_dsa_unsupported(e)
-    {
-        eprintln!(
-            "SKIP test_ml_dsa65_signed_transfer_accepted_on_chain: node \
-             rejected ML-DSA AddKey ({e}); image lacks ML-DSA — see module docs"
-        );
-        return;
-    }
-    create.expect("create_account with ML-DSA-65 key must be accepted");
+        .await
+        .expect("create_account with ML-DSA-65 key must be accepted");
 
     // The view RPC returns the key as an `ml-dsa-65-hash:` handle.
     let keys = near.access_keys(&account_id).await.unwrap();

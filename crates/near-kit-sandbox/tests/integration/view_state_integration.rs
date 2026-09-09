@@ -2,12 +2,10 @@
 //!
 //! # Sandbox image
 //!
-//! `view_state` pagination (`after_key_base64` / `limit` / `last_key`) is newer
-//! than the default `2.13.0-rc.2` image, which ignores `limit` and returns the
-//! whole state in one page. We therefore run against the `pre-release` tag,
-//! which includes pagination. Drop the override once a 2.13 RC ships with it.
+//! Pins the sandbox to stable `2.13.4` and verifies `view_state` pagination
+//! (`after_key_base64` / `limit` / `last_key`).
 
-use super::support::{guestbook_wasm, sandbox_pre_release};
+use super::support::{guestbook_wasm, sandbox_2_13};
 use near_kit::*;
 use near_kit::{rpc::BlockReference, signer::SecretKey, transaction::Final};
 
@@ -28,7 +26,7 @@ async fn deploy_guestbook(near: &Near, contract_account: &str) {
 
 #[tokio::test]
 async fn test_view_state_pagination_reads_all_entries() {
-    let sandbox = sandbox_pre_release().await;
+    let sandbox = sandbox_2_13().await;
     let near = Near::sandbox(sandbox);
 
     let contract_id = format!("vstate.{}", sandbox.root_account_id());

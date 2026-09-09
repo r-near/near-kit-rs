@@ -160,10 +160,8 @@ impl From<RpcError> for SandboxError {
 // ============================================================================
 
 const DEFAULT_IMAGE: &str = "nearprotocol/sandbox";
-// Pinned to a known-good `nearprotocol/sandbox` release-candidate image for
-// protocol 2.13 (v85) so integration tests run against a 2.13 node.
-// TODO: re-pin to a stable `2.13.x` image once one is published.
-const DEFAULT_VERSION: &str = "2.13.0-rc.2";
+// Pin ordinary integration tests to a stable 2.13 release.
+const DEFAULT_VERSION: &str = "2.13.4";
 
 /// The RPC port exposed by the NEAR sandbox container.
 const RPC_PORT: ContainerPort = ContainerPort::Tcp(3030);

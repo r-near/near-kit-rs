@@ -8,7 +8,6 @@ use tokio::sync::OnceCell;
 
 static ACCOUNT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static SANDBOX_2_13: OnceCell<Sandbox> = OnceCell::const_new();
-static SANDBOX_PRE_RELEASE: OnceCell<Sandbox> = OnceCell::const_new();
 
 pub(crate) fn unique_account(prefix: &str) -> AccountId {
     let n = ACCOUNT_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -26,26 +25,9 @@ pub(crate) async fn shared_client() -> (&'static Sandbox, Near) {
 
 pub(crate) async fn sandbox_2_13() -> &'static Sandbox {
     SANDBOX_2_13
-        .get_or_try_init(|| async {
-            SandboxConfig::builder()
-                .version("2.13.0-rc.2")
-                .fresh()
-                .await
-        })
+        .get_or_try_init(|| async { SandboxConfig::builder().version("2.13.4").fresh().await })
         .await
         .expect("2.13 sandbox must start")
-}
-
-pub(crate) async fn sandbox_pre_release() -> &'static Sandbox {
-    SANDBOX_PRE_RELEASE
-        .get_or_try_init(|| async {
-            SandboxConfig::builder()
-                .version("pre-release")
-                .fresh()
-                .await
-        })
-        .await
-        .expect("pre-release sandbox must start")
 }
 
 pub(crate) fn client_for(

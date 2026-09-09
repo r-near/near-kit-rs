@@ -9,8 +9,7 @@
 //!    sign it with the gas key, and submit it with `send_tx`.
 //! 5. Assert the transfer landed and the gas key's nonce advanced.
 //!
-//! Pins the sandbox to `2.13.0-rc.2` so it does not depend on the default-version
-//! bump landing first. Runs against a fresh, isolated sandbox.
+//! Pins the sandbox to stable `2.13.4`, shared with the other protocol tests.
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
@@ -34,8 +33,6 @@ async fn view_gas_key_nonces(
 
 #[tokio::test]
 async fn test_gas_key_signed_transaction() {
-    // Pin to a known 2.13 image; fresh + isolated so this WP isn't blocked on the
-    // default-version bump.
     let sandbox = sandbox_2_13().await;
     let root_near = sandbox.client();
 
