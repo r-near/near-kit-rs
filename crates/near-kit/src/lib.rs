@@ -466,7 +466,8 @@
 //! `default-features = false` you keep the offline core:
 //! all the types, the signers ([`signer::InMemorySigner`],
 //! [`signer::EnvSigner`], ...), transaction construction and signing via
-//! [`protocol::Transaction`] (`new` → `sign` → `to_bytes`), and NEP-413
+//! [`protocol::Transaction`] (`new` → `sign` → `to_bytes`), standalone call construction
+//! via [`transaction::FunctionCall`], and NEP-413
 //! [`standards::nep413::verify_signature`].
 //! The fluent `transaction::TransactionBuilder` is part of the RPC layer — it is created
 //! from a `Near` client — so it requires `rpc`.
