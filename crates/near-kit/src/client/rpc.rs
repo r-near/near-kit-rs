@@ -417,6 +417,10 @@ pub struct RpcClient {
     request_id: AtomicU64,
 }
 
+// Keep the public, structured RPC errors directly matchable. Their account/key
+// and block context can exceed Clippy's size threshold; boxing these return
+// values would change the low-level API for a cold error path.
+#[allow(clippy::result_large_err)]
 impl RpcClient {
     /// Page size [`RpcClient::view_state_all`] uses when asked for `0`.
     ///

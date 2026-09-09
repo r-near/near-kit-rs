@@ -90,6 +90,7 @@ async fn status_query_reports_invalid_sender_when_awaited() {
 // verify the response type selected by each default and generic wait level.
 
 #[allow(dead_code)]
+#[allow(clippy::result_large_err)] // Compile-check the public, unboxed RPC result.
 async fn generic_rpc_call_remains_public(client: &RpcClient) -> Result<(), RpcError> {
     let _: serde_json::Value = client.call("status", serde_json::json!({})).await?;
     Ok(())
