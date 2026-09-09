@@ -20,8 +20,7 @@ pub use crate::types::{
     StateChangeValueView, StateChangeWithCauseView, StateItem, StatusResponse, SyncCheckpoint,
     SyncInfo, TransactionNonceView, TransactionView, TrieSplit, TxExecutionStatus, ValidatorInfo,
     ValidatorKickoutReason, ValidatorKickoutView, ValidatorStakeView, ValidatorStakeViewV1,
-    VersionedDelegateActionPayloadView, ViewFunctionResult, ViewResult, ViewStateAllResult,
-    ViewStateResult,
+    VersionedDelegateActionPayloadView, ViewFunctionResult, ViewStateAllResult, ViewStateResult,
 };
 
 #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]

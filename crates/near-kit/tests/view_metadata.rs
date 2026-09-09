@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use near_kit::rpc::{BoxFuture, RpcError, RpcTransport, TransportResponse, ViewResult};
+use near_kit::rpc::{BoxFuture, RpcError, RpcTransport, TransportResponse, ViewFunctionResult};
 use near_kit::{CryptoHash, Error, Near};
 use serde_json::{Value, json};
 
@@ -50,7 +50,7 @@ fn client(bytes: Vec<u8>) -> (Near, Requests) {
     (near, requests)
 }
 
-fn assert_metadata<T>(result: &ViewResult<T>) {
+fn assert_metadata<T>(result: &ViewFunctionResult<T>) {
     assert_eq!(result.block_height, 42);
     assert_eq!(result.block_hash, CryptoHash::from_bytes([7; 32]));
     assert_eq!(result.logs, ["view evaluated"]);
@@ -66,7 +66,7 @@ async fn json_value_and_metadata_come_from_one_selected_block_query() {
         .with_metadata()
         .await
         .unwrap();
-    assert_eq!(result.value, 123);
+    assert_eq!(result.result, 123);
     assert_metadata(&result);
     {
         let requests = requests.lock().unwrap();
@@ -81,7 +81,7 @@ async fn json_value_and_metadata_come_from_one_selected_block_query() {
         );
     }
     let plain: u64 = near.view("counter.testnet", "get_count").await.unwrap();
-    assert_eq!(plain, result.value);
+    assert_eq!(plain, result.result);
 }
 
 #[tokio::test]
@@ -94,7 +94,7 @@ async fn borsh_value_preserves_metadata_and_plain_await() {
         .with_metadata()
         .await
         .unwrap();
-    assert_eq!(result.value, 123);
+    assert_eq!(result.result, 123);
     assert_metadata(&result);
     assert_eq!(requests.lock().unwrap().len(), 1);
     assert_eq!(requests.lock().unwrap()[0]["params"]["block_id"], 42);
@@ -103,24 +103,24 @@ async fn borsh_value_preserves_metadata_and_plain_await() {
         .borsh()
         .await
         .unwrap();
-    assert_eq!(plain, result.value);
+    assert_eq!(plain, result.result);
 }
 
 #[tokio::test]
 async fn empty_json_response_still_decodes_as_null() {
     let (near, _) = client(Vec::new());
-    let unit: ViewResult<()> = near
+    let unit: ViewFunctionResult<()> = near
         .view("counter.testnet", "empty")
         .with_metadata()
         .await
         .unwrap();
     assert_metadata(&unit);
-    let optional: ViewResult<Option<u64>> = near
+    let optional: ViewFunctionResult<Option<u64>> = near
         .view("counter.testnet", "empty")
         .with_metadata()
         .await
         .unwrap();
-    assert_eq!(optional.value, None);
+    assert_eq!(optional.result, None);
 }
 
 #[tokio::test]
@@ -173,6 +173,6 @@ async fn generated_contract_views_expose_metadata_without_macro_changes() {
     let (near, _) = client(b"123".to_vec());
     let counter = near.contract::<Counter>("counter.testnet").unwrap();
     let result = counter.get_count().with_metadata().await.unwrap();
-    assert_eq!(result.value, 123);
+    assert_eq!(result.result, 123);
     assert_metadata(&result);
 }

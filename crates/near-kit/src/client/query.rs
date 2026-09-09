@@ -13,7 +13,7 @@ use crate::error::Error;
 use crate::types::{
     AccessKeyListView, AccountBalance, AccountId, AccountView, BlockReference, ContractCodeView,
     CryptoHash, Finality, GlobalContractId, PublicKeyHandle, Submitted, TryIntoAccountId,
-    TryIntoGlobalContractId, ViewFunctionResult, ViewResult, WaitLevel,
+    TryIntoGlobalContractId, ViewFunctionResult, WaitLevel,
 };
 
 use super::rpc::RpcClient;
@@ -437,13 +437,13 @@ impl<T: borsh::BorshDeserialize> ViewResponseDecoder<T> for BorshResponse {
     }
 }
 
-async fn execute_view<T, D>(request: ViewCallRequest) -> Result<ViewResult<T>, Error>
+async fn execute_view<T, D>(request: ViewCallRequest) -> Result<ViewFunctionResult<T>, Error>
 where
     D: ViewResponseDecoder<T>,
 {
     let response = request.execute().await?;
-    Ok(ViewResult {
-        value: D::decode(&response)?,
+    Ok(ViewFunctionResult {
+        result: D::decode(&response)?,
         logs: response.logs,
         block_height: response.block_height,
         block_hash: response.block_hash,
@@ -588,11 +588,11 @@ impl<T: DeserializeOwned + Send + 'static> ViewCall<T> {
     /// let result = near.view::<u64>("counter.testnet", "get_count")
     ///     .with_metadata()
     ///     .await?;
-    /// println!("{} at block {} ({})", result.value, result.block_height, result.block_hash);
+    /// println!("{} at block {} ({})", result.result, result.block_height, result.block_hash);
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn with_metadata(self) -> Result<ViewResult<T>, Error> {
+    pub async fn with_metadata(self) -> Result<ViewFunctionResult<T>, Error> {
         execute_view::<T, JsonResponse>(self.request).await
     }
 }
@@ -602,7 +602,7 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for ViewCall<T> {
     type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move { Ok(self.with_metadata().await?.value) })
+        Box::pin(async move { Ok(self.with_metadata().await?.result) })
     }
 }
 
@@ -655,7 +655,7 @@ impl<T: borsh::BorshDeserialize + Send + 'static> ViewCallBorsh<T> {
     /// Set arguments and block selection before `.borsh().with_metadata()`.
     /// RPC and decoding errors are returned unchanged; metadata is available
     /// on success. See [`ViewCall::with_metadata`] for a JSON example.
-    pub async fn with_metadata(self) -> Result<ViewResult<T>, Error> {
+    pub async fn with_metadata(self) -> Result<ViewFunctionResult<T>, Error> {
         execute_view::<T, BorshResponse>(self.request).await
     }
 }
@@ -665,7 +665,7 @@ impl<T: borsh::BorshDeserialize + Send + 'static> IntoFuture for ViewCallBorsh<T
     type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move { Ok(self.with_metadata().await?.value) })
+        Box::pin(async move { Ok(self.with_metadata().await?.result) })
     }
 }
 
