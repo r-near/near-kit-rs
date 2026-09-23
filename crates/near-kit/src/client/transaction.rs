@@ -965,6 +965,37 @@ impl TransactionBuilder {
         Ok(prepared.into_transaction(signer_id, public_key, nonce, block_hash))
     }
 
+    /// Take the validated receiver and actions without building a transaction.
+    ///
+    /// Use this to hand a builder's actions to something other than a signed
+    /// transaction, such as a contract-side promise or a proposal payload. No
+    /// signer, nonce, or network access is involved.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// let (receiver_id, actions) = near.transaction("contract.testnet")
+    ///     .call("method")
+    ///         .args(serde_json::json!({"key": "value"}))
+    ///         .deposit(NearToken::from_yoctonear(1))
+    ///     .finish()
+    ///     .transfer(NearToken::from_near(1))
+    ///     .into_parts()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns the receiver or first deferred builder error, or
+    /// [`Error::InvalidTransaction`] if no actions were added.
+    pub fn into_parts(self) -> Result<(AccountId, Vec<Action>), Error> {
+        let prepared = self.prepare("Transaction must have at least one action")?;
+        Ok((prepared.receiver_id, prepared.actions))
+    }
+
     /// Sign the transaction without sending it.
     ///
     /// Returns a `SignedTransaction` that can be inspected or sent later.
@@ -1800,6 +1831,52 @@ mod tests {
             .into_action()
             .unwrap_err();
 
+        assert!(matches!(error, Error::ParseAccountId(_)));
+    }
+
+    #[test]
+    fn into_parts_returns_receiver_and_actions() {
+        let (receiver_id, actions) = test_builder()
+            .call("method")
+            .deposit(NearToken::from_yoctonear(1))
+            .finish()
+            .transfer(NearToken::from_near(1))
+            .into_parts()
+            .unwrap();
+
+        assert_eq!(receiver_id.as_str(), "contract.testnet");
+        assert_eq!(actions.len(), 2);
+        assert!(matches!(&actions[0], Action::FunctionCall(fc) if fc.method_name == "method"));
+        assert!(matches!(&actions[1], Action::Transfer(_)));
+    }
+
+    #[test]
+    fn into_parts_rejects_empty_builder() {
+        let error = test_builder().into_parts().unwrap_err();
+
+        assert!(matches!(error, Error::InvalidTransaction(_)));
+    }
+
+    #[test]
+    fn into_parts_preserves_deferred_errors() {
+        let error = test_builder()
+            .call("method")
+            .args(FailingJson)
+            .finish()
+            .into_parts()
+            .unwrap_err();
+        assert!(matches!(error, Error::Json(_)));
+
+        let rpc = Arc::new(RpcClient::new("https://rpc.testnet.near.org"));
+        let error = TransactionBuilder::new_fallible(
+            rpc,
+            None,
+            "INVALID".parse::<AccountId>().map_err(Error::from),
+            0,
+        )
+        .transfer(NearToken::from_near(1))
+        .into_parts()
+        .unwrap_err();
         assert!(matches!(error, Error::ParseAccountId(_)));
     }
 
