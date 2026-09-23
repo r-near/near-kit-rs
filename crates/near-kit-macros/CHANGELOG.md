@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.12.1...near-kit-macros-v0.13.0) - 2026-09-09
+
 ### Changed
 
 - **Breaking:** reject options such as `#[call(payable)]`; `#[call]` is now only a
