@@ -1,7 +1,7 @@
 use std::fmt;
 
 use crate::error::Error;
-use crate::types::{Action, Gas, IntoGas, IntoNearToken, NearToken};
+use crate::types::{Action, FunctionCallAction, Gas, IntoGas, IntoNearToken, NearToken};
 
 /// A standalone function call configuration, decoupled from any transaction.
 ///
@@ -128,19 +128,27 @@ impl FunctionCall {
     }
 }
 
-impl TryFrom<FunctionCall> for Action {
+impl TryFrom<FunctionCall> for FunctionCallAction {
     type Error = Error;
 
     fn try_from(call: FunctionCall) -> Result<Self, Self::Error> {
         if let Some(error) = call.construction_error {
             return Err(error);
         }
-        Ok(Action::function_call(
-            call.method,
-            call.args,
-            call.gas,
-            call.deposit,
-        ))
+        Ok(FunctionCallAction {
+            method_name: call.method,
+            args: call.args,
+            gas: call.gas,
+            deposit: call.deposit,
+        })
+    }
+}
+
+impl TryFrom<FunctionCall> for Action {
+    type Error = Error;
+
+    fn try_from(call: FunctionCall) -> Result<Self, Self::Error> {
+        FunctionCallAction::try_from(call).map(Action::FunctionCall)
     }
 }
 
@@ -235,6 +243,23 @@ mod tests {
             .into_action()
             .unwrap_err();
         assert!(matches!(deposit_error, Error::ParseAmount(_)));
+    }
+
+    #[test]
+    fn function_call_try_into_function_call_action() {
+        let action = FunctionCallAction::try_from(
+            FunctionCall::new("init")
+                .gas(Gas::from_tgas(50))
+                .deposit(NearToken::from_yoctonear(1)),
+        )
+        .unwrap();
+        assert_eq!(action.method_name, "init");
+        assert_eq!(action.gas, Gas::from_tgas(50));
+        assert_eq!(action.deposit, NearToken::from_yoctonear(1));
+
+        let error =
+            FunctionCallAction::try_from(FunctionCall::new("init").gas("nope")).unwrap_err();
+        assert!(matches!(error, Error::ParseGas(_)));
     }
 
     #[test]
