@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.18.0...near-kit-v0.18.1) - 2026-09-23
+
+### Added
+
+- expose a transaction builder's receiver and actions via into_parts ([#320](https://github.com/r-near/near-kit-rs/pull/320))
+- make FunctionCall available without RPC ([#316](https://github.com/r-near/near-kit-rs/pull/316))
+- preserve metadata on typed view results ([#315](https://github.com/r-near/near-kit-rs/pull/315))
+
+### Other
+
+- record 0.18.0 release notes under their released versions ([#319](https://github.com/r-near/near-kit-rs/pull/319))
+
 ## [0.18.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.17.0...near-kit-v0.18.0) - 2026-09-09
 
 ### Changed
