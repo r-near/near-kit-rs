@@ -1239,6 +1239,38 @@ impl CallBuilder {
     /// accumulated actions that would otherwise be discarded. Use
     /// [`finish`](Self::finish) to keep them in the transaction.
     pub fn into_action(self) -> Result<Action, Error> {
+        self.into_call()?.into_action()
+    }
+
+    /// Convert this call into a standalone [`FunctionCall`], discarding the
+    /// underlying transaction builder and its receiver.
+    ///
+    /// Unlike [`into_action`](Self::into_action), the call's own argument,
+    /// gas, and deposit errors stay deferred inside the returned
+    /// [`FunctionCall`] and surface when it is converted into an action.
+    /// Read the receiver from wherever the call was created, e.g. a typed
+    /// client's `contract_id()`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// let call = near.call("contract.testnet", "method")
+    ///     .args(serde_json::json!({"key": "value"}))
+    ///     .gas(Gas::from_tgas(50))
+    ///     .into_call()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns the receiver or other deferred builder error, or
+    /// [`Error::InvalidTransaction`] if the underlying builder already has
+    /// accumulated actions that would otherwise be discarded. Use
+    /// [`finish`](Self::finish) to keep them in the transaction.
+    pub fn into_call(self) -> Result<FunctionCall, Error> {
         let Self { builder, call } = self;
         builder.receiver_id?;
         if let Some(error) = builder.construction_error {
@@ -1246,11 +1278,11 @@ impl CallBuilder {
         }
         if !builder.actions.is_empty() {
             return Err(Error::InvalidTransaction(format!(
-                "into_action() would discard {} previously accumulated action(s); use .finish() to keep them in the transaction",
+                "converting this call would discard {} previously accumulated action(s); use .finish() to keep them in the transaction",
                 builder.actions.len(),
             )));
         }
-        call.into_action()
+        Ok(call)
     }
 
     /// Finish this call and return to the transaction builder.
@@ -1878,6 +1910,54 @@ mod tests {
         .into_parts()
         .unwrap_err();
         assert!(matches!(error, Error::ParseAccountId(_)));
+    }
+
+    #[test]
+    fn call_builder_into_call_keeps_call_configuration() {
+        let call = test_builder()
+            .call("setup")
+            .args(serde_json::json!({"admin": "alice.testnet"}))
+            .gas(Gas::from_tgas(50))
+            .deposit(NearToken::from_near(1))
+            .into_call()
+            .unwrap();
+
+        match call.into_action().unwrap() {
+            Action::FunctionCall(fc) => {
+                assert_eq!(fc.method_name, "setup");
+                assert_eq!(fc.gas, Gas::from_tgas(50));
+                assert_eq!(fc.deposit, NearToken::from_near(1));
+            }
+            other => panic!("expected FunctionCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn call_builder_into_call_defers_call_errors() {
+        let call = test_builder()
+            .call("method")
+            .gas("definitely not gas")
+            .into_call()
+            .unwrap();
+
+        assert!(matches!(call.into_action(), Err(Error::ParseGas(_))));
+    }
+
+    #[test]
+    fn call_builder_into_call_rejects_builder_errors() {
+        let accumulated = test_builder()
+            .transfer(NearToken::from_near(1))
+            .call("method")
+            .into_call()
+            .unwrap_err();
+        assert!(matches!(accumulated, Error::InvalidTransaction(_)));
+
+        let construction = test_builder()
+            .deploy_from("INVALID")
+            .call("method")
+            .into_call()
+            .unwrap_err();
+        assert!(matches!(construction, Error::ParseAccountId(_)));
     }
 
     // ========================================================================
