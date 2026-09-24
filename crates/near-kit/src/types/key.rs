@@ -15,7 +15,6 @@ use k256::elliptic_curve::sec1::{FromSec1Point, ToSec1Point};
 use ml_dsa::signature::Verifier as _;
 use ml_dsa::{B32, EncodedSignature, EncodedVerifyingKey, MlDsa65};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
-use sha2::Digest;
 
 use super::csprng::{fill_random, os_csprng};
 #[cfg(feature = "mnemonic")]
@@ -713,6 +712,22 @@ impl SecretKey {
     }
 
     /// Sign a message.
+    ///
+    /// The bytes are passed to the underlying scheme exactly as nearcore does
+    /// in `near_crypto::SecretKey::sign`:
+    ///
+    /// - Ed25519 and ML-DSA-65 sign `message` as-is (any length).
+    /// - Secp256k1 treats `message` as an already-computed 32-byte digest and
+    ///   signs it directly, without hashing it again. Every NEAR signing
+    ///   payload (transaction hash, NEP-366/461 delegate-action hash, NEP-413
+    ///   message hash) is a 32-byte SHA-256 digest, so this is what nearcore
+    ///   verifies against.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the key is Secp256k1 and `message` is not exactly 32 bytes,
+    /// mirroring nearcore. To sign arbitrary bytes with a Secp256k1 key, hash
+    /// them first (e.g. with SHA-256) and sign the digest.
     pub fn sign(&self, message: &[u8]) -> Signature {
         match &self.0 {
             SecretKeyRepr::Ed25519(bytes) => {
@@ -724,9 +739,13 @@ impl SecretKey {
                 let signing_key = k256::ecdsa::SigningKey::from_bytes(bytes.into())
                     .expect("invalid secp256k1 key");
 
-                // NEAR protocol: hash message with SHA-256 before signing
-                let hash = sha2::Sha256::digest(message);
-                let (signature, recovery_id) = signing_key.sign_prehash_recoverable(&hash);
+                // NEAR protocol: `message` is the 32-byte digest itself
+                // (nearcore: `secp256k1::Message::from_slice(data)`), so it is
+                // signed directly with no further hashing.
+                let digest: &[u8; 32] = message
+                    .try_into()
+                    .expect("secp256k1 signing expects a 32-byte digest");
+                let (signature, recovery_id) = signing_key.sign_prehash_recoverable(digest);
 
                 // NEAR format: [r (32) | s (32) | v (1)]
                 let mut sig_bytes = [0u8; 65];
@@ -1236,6 +1255,11 @@ impl Signature {
     }
 
     /// Verify this signature against a message and public key.
+    ///
+    /// Mirrors nearcore's `near_crypto::Signature::verify`: Secp256k1
+    /// signatures are checked against `message` as a 32-byte digest (no extra
+    /// hashing), and any `message` that is not exactly 32 bytes, as well as
+    /// any high-S signature, is rejected.
     pub fn verify(&self, message: &[u8], public_key: &PublicKey) -> bool {
         match self {
             Self::Ed25519(sig_bytes) => {
@@ -1271,10 +1295,14 @@ impl Signature {
                     return false;
                 };
 
-                // NEAR protocol: verify against SHA-256 hash of the message
-                let hash = sha2::Sha256::digest(message);
+                // NEAR protocol: `message` is the 32-byte digest itself; nearcore
+                // returns false for anything else. k256 rejects high-S
+                // signatures here, as libsecp256k1 does in nearcore.
+                let Ok(digest) = <&[u8; 32]>::try_from(message) else {
+                    return false;
+                };
                 use k256::ecdsa::signature::hazmat::PrehashVerifier;
-                verifying_key.verify_prehash(&hash, &signature).is_ok()
+                verifying_key.verify_prehash(digest, &signature).is_ok()
             }
             Self::MlDsa65(sig_bytes) => {
                 let Some(pk_bytes) = public_key.as_ml_dsa65_bytes() else {
@@ -1813,7 +1841,9 @@ mod tests {
     fn test_secp256k1_generate_and_sign_verify() {
         let secret = SecretKey::generate_secp256k1();
         let public = secret.public_key();
-        let message = b"hello world";
+        // secp256k1 signs a 32-byte digest (e.g. a transaction hash) directly.
+        let message = crate::types::CryptoHash::hash(b"hello world");
+        let message = message.as_bytes();
 
         assert_eq!(secret.key_type(), KeyType::Secp256k1);
         assert_eq!(public.key_type(), KeyType::Secp256k1);
@@ -1823,7 +1853,7 @@ mod tests {
         assert_eq!(signature.as_bytes().len(), 65);
 
         assert!(signature.verify(message, &public));
-        assert!(!signature.verify(b"wrong message", &public));
+        assert!(!signature.verify(&[0u8; 32], &public));
     }
 
     #[test]
@@ -1877,7 +1907,7 @@ mod tests {
         assert_eq!(secret_key.key_type(), KeyType::Secp256k1);
         assert!(public_key.to_string().starts_with("secp256k1:"));
 
-        let message = b"secret key test";
+        let message = &[5u8; 32];
         let signature = secret_key.sign(message);
         assert!(signature.verify(message, &public_key));
     }
@@ -1888,7 +1918,7 @@ mod tests {
         let ed_secret = SecretKey::generate_ed25519();
         let secp_secret = SecretKey::generate_secp256k1();
 
-        let message = b"cross type test";
+        let message = &[6u8; 32];
         let ed_sig = ed_secret.sign(message);
         let secp_sig = secp_secret.sign(message);
 
@@ -1920,8 +1950,9 @@ mod tests {
     fn test_secp256k1_invalid_recovery_id_rejected() {
         let secret = SecretKey::generate_secp256k1();
         let public = secret.public_key();
-        let message = b"test message";
+        let message = &[8u8; 32];
         let signature = secret.sign(message);
+        assert!(signature.verify(message, &public));
 
         // Create a tampered signature with invalid recovery id
         if let Signature::Secp256k1(mut sig_bytes) = signature.clone() {
@@ -2052,7 +2083,8 @@ mod tests {
                 public_key
             );
 
-            let signature = secret_key.sign(b"wire-compatibility");
+            let digest = crate::types::CryptoHash::hash(b"wire-compatibility");
+            let signature = secret_key.sign(digest.as_bytes());
             assert_eq!(
                 serde_json::to_value(&signature).unwrap(),
                 serde_json::Value::String(signature.to_string())
