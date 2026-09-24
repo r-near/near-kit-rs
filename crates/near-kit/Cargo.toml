@@ -143,3 +143,9 @@ tracing-subscriber.workspace = true
 # (unified with the minimal `sync`/`time` features from the dependency above).
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+# Native targets only: libsecp256k1 at the version nearcore's `near-crypto`
+# uses, to check secp256k1 signatures exactly as the node does
+# (tests/secp256k1_nearcore_compat.rs).
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+secp256k1 = { version = "0.27", default-features = false, features = ["std", "recovery"] }

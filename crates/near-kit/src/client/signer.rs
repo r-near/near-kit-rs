@@ -43,7 +43,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::error::SignerError;
 use crate::types::nep413::{self, SignMessageParams, SignedMessage};
-use crate::types::{AccountId, PublicKey, SecretKey, Signature, TryIntoAccountId};
+use crate::types::{AccountId, KeyType, PublicKey, SecretKey, Signature, TryIntoAccountId};
 
 // ============================================================================
 // Signer Trait
@@ -204,6 +204,12 @@ impl SigningKey {
 
     /// Sign a message.
     ///
+    /// The bytes are signed as nearcore expects: Ed25519 and ML-DSA-65 sign
+    /// them as-is, while Secp256k1 treats them as a 32-byte digest and signs
+    /// it without hashing again (see [`SecretKey::sign`]). An in-memory
+    /// Secp256k1 key returns [`SignerError::SigningFailed`] for any other
+    /// length.
+    ///
     /// For in-memory keys, this returns immediately.
     /// For hardware wallets or KMS, this may involve user confirmation or
     /// network requests.
@@ -311,8 +317,15 @@ struct SecretKeyBackend {
 
 impl SigningBackend for SecretKeyBackend {
     async fn sign(&self, message: &[u8]) -> Result<Signature, SignerError> {
-        let sig = self.secret_key.sign(message);
-        Ok(sig)
+        // `SecretKey::sign` panics on this (as nearcore does); surface it as an
+        // error instead since the caller already expects a `Result`.
+        if self.secret_key.key_type() == KeyType::Secp256k1 && message.len() != 32 {
+            return Err(SignerError::SigningFailed(format!(
+                "secp256k1 signing expects a 32-byte digest, got {} bytes",
+                message.len()
+            )));
+        }
+        Ok(self.secret_key.sign(message))
     }
 }
 

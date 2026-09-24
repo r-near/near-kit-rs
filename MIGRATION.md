@@ -191,6 +191,24 @@ remain compatible.
 `SignerError::ImplicitAccountRequiresEd25519`. `generate_implicit()` remains
 infallible and generates Ed25519.
 
+### secp256k1 signing (0.18.3)
+
+Up to 0.18.2, `SecretKey::sign` and `Signature::verify` ran SHA-256 over their
+input for secp256k1 keys. Callers already pass a 32-byte digest (transaction,
+delegate-action, or NEP-413 hash), so the result was a signature over
+`sha256(digest)` that nearcore rejects. From 0.18.3 the 32-byte digest is
+signed and verified directly, as nearcore does:
+
+- Transactions, delegate actions and NEP-413 messages need no changes; they
+  now verify on-chain.
+- Signing anything other than 32 bytes with a secp256k1 key panics in
+  `SecretKey::sign` and returns `SignerError::SigningFailed` from
+  `SigningKey::sign`. Hash arbitrary payloads yourself (e.g. SHA-256) and sign
+  the digest.
+- `Signature::verify` returns `false` for non-32-byte secp256k1 input.
+  Secp256k1 signatures produced by 0.18.2 or earlier do not verify against the
+  original digest (they never verified on-chain either); re-sign them.
+
 ## RPC action conversion and errors
 
 RPC deploy action views contain only a code hash, not WASM bytes. Converting
