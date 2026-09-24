@@ -65,6 +65,8 @@ jobs:
       # examples that need the RPC layer are cfg_attr'd to `ignore` without it
       - name: Run offline doctests
         run: cargo test -p near-kit --no-default-features --doc
+      - name: Run portable view tests without RPC
+        run: cargo test -p near-kit --no-default-features --test portable_views
       - name: Run offline mnemonic tests
         run: cargo test -p near-kit --no-default-features --features mnemonic --lib
       - name: Run contract macro compile tests

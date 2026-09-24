@@ -406,6 +406,47 @@ fn generate_function_call_method(
     }
 }
 
+/// Generate a portable typed view constructor on the contract marker.
+fn generate_view_function_method(
+    method: &MethodInfo,
+    contract_format: SerializationFormat,
+) -> TokenStream2 {
+    let near_kit = near_kit_path();
+    let name = &method.name;
+    let name_str = name.to_string();
+    let output = method
+        .return_type
+        .as_ref()
+        .map(|t| quote! { #t })
+        .unwrap_or_else(|| quote! { () });
+    let format = method.format_override.unwrap_or(contract_format);
+    let constructor = match format {
+        SerializationFormat::Json => quote! { json },
+        SerializationFormat::Borsh => quote! { borsh },
+    };
+    let (params, build) = if let (Some(arg), Some(ty)) = (&method.arg_name, &method.arg_type) {
+        let encoder = match format {
+            SerializationFormat::Json => quote! { args },
+            SerializationFormat::Borsh => quote! { args_borsh },
+        };
+        (
+            quote! { #arg: #ty },
+            quote! { #near_kit::rpc::ViewFunction::#constructor(#name_str).#encoder(#arg) },
+        )
+    } else {
+        (
+            quote! {},
+            quote! { ::core::result::Result::Ok(#near_kit::rpc::ViewFunction::#constructor(#name_str)) },
+        )
+    };
+    quote! {
+        /// Construct a portable typed view without selecting a client or account.
+        pub fn #name(#params) -> ::core::result::Result<#near_kit::rpc::ViewFunction<#output>, #near_kit::Error> {
+            #build
+        }
+    }
+}
+
 /// The main contract macro implementation.
 #[proc_macro_attribute]
 pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -490,11 +531,16 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         })
         .collect();
 
-    // Generate FunctionCall constructors for call methods only
-    let function_call_methods: Vec<TokenStream2> = methods
+    // Generate portable constructors for view and change methods
+    let static_methods: Vec<TokenStream2> = methods
         .iter()
-        .filter(|m| !m.is_view)
-        .map(|m| generate_function_call_method(m, args.format))
+        .map(|m| {
+            if m.is_view {
+                generate_view_function_method(m, args.format)
+            } else {
+                generate_function_call_method(m, args.format)
+            }
+        })
         .collect();
 
     // Propagate trait-level attributes (doc comments, #[cfg], etc.) to the struct
@@ -507,7 +553,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         #vis struct #trait_name;
 
         impl #trait_name {
-            #(#function_call_methods)*
+            #(#static_methods)*
         }
 
         // Generated client struct for the simple (non-composed) case.
