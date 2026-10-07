@@ -93,19 +93,24 @@ impl TryFrom<u8> for KeyType {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
-enum PublicKeyRepr {
-    Ed25519([u8; 32]),
-    Secp256k1([u8; 64]),
-    MlDsa65(Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>),
-}
-
 /// A NEAR public key.
 ///
-/// Stored privately as fixed-size arrays matching nearcore's representation:
+/// Stored as fixed-size arrays matching nearcore's representation:
 /// - Ed25519: 32-byte compressed point
 /// - Secp256k1: 64-byte uncompressed point (x, y coordinates, no `0x04` prefix)
 /// - ML-DSA-65: 1952-byte FIPS-204 public key (boxed to keep the enum small)
+///
+/// Match on the variants to get at the raw bytes:
+///
+/// ```rust
+/// use near_kit::signer::{PublicKey, SecretKey};
+///
+/// let public_key = SecretKey::generate_ed25519().public_key();
+/// match public_key {
+///     PublicKey::Ed25519(bytes) => assert_eq!(bytes.len(), 32),
+///     PublicKey::Secp256k1(_) | PublicKey::MlDsa65(_) => unreachable!(),
+/// }
+/// ```
 ///
 /// # ML-DSA-65 handles
 ///
@@ -116,15 +121,21 @@ enum PublicKeyRepr {
 /// 1952-byte key is *not* recoverable from that digest, so that form is **not**
 /// a `PublicKey`: it is modelled by [`PublicKeyHandle`] (as in nearcore), and
 /// parsing it as a `PublicKey` fails with [`ParseKeyError::MlDsa65HashHandle`].
-/// Every `PublicKey` is therefore a real, borsh-serializable key that can sign
-/// (given its secret key) and verify. Use [`PublicKey::to_ml_dsa65_hash`] to
-/// compute the handle the chain stores for a full ML-DSA-65 key.
-///
-/// The representation is private so Ed25519 and Secp256k1 keys must pass
-/// curve-point validation before they can be used for verification or put on
-/// the wire. ML-DSA-65 public keys are structurally valid at their fixed length.
+/// Use [`PublicKey::to_ml_dsa65_hash`] to compute the handle the chain stores
+/// for a full ML-DSA-65 key.
 #[derive(Clone, PartialEq, Eq, Hash, SerializeDisplay, DeserializeFromStr)]
-pub struct PublicKey(PublicKeyRepr);
+pub enum PublicKey {
+    /// Ed25519 public key (32 bytes).
+    Ed25519([u8; 32]),
+    /// Secp256k1 public key (64 bytes, uncompressed without prefix).
+    ///
+    /// This matches nearcore's representation: raw x,y coordinates
+    /// without the `0x04` uncompressed point prefix.
+    Secp256k1([u8; 64]),
+    /// ML-DSA-65 public key (1952 bytes, FIPS 204). Boxed to keep the enum
+    /// from bloating every `PublicKey` to ~2 KiB.
+    MlDsa65(Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>),
+}
 
 impl PublicKey {
     /// Create an Ed25519 public key from raw 32 bytes.
@@ -135,7 +146,7 @@ impl PublicKey {
     /// represent a valid compressed Ed25519 point.
     pub fn ed25519_from_bytes(bytes: [u8; 32]) -> Result<Self, ParseKeyError> {
         VerifyingKey::from_bytes(&bytes).map_err(|_| ParseKeyError::InvalidCurvePoint)?;
-        Ok(Self(PublicKeyRepr::Ed25519(bytes)))
+        Ok(Self::Ed25519(bytes))
     }
 
     /// Create a Secp256k1 public key from raw 64-byte uncompressed coordinates.
@@ -161,36 +172,36 @@ impl PublicKey {
             return Err(ParseKeyError::InvalidCurvePoint);
         }
 
-        Ok(Self(PublicKeyRepr::Secp256k1(bytes)))
+        Ok(Self::Secp256k1(bytes))
     }
 
     /// Create an ML-DSA-65 public key from raw 1952 bytes.
     pub fn ml_dsa65_from_bytes(bytes: Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>) -> Self {
-        Self(PublicKeyRepr::MlDsa65(bytes))
+        Self::MlDsa65(bytes)
     }
 
     /// Get the key type.
     pub fn key_type(&self) -> KeyType {
-        match &self.0 {
-            PublicKeyRepr::Ed25519(_) => KeyType::Ed25519,
-            PublicKeyRepr::Secp256k1(_) => KeyType::Secp256k1,
-            PublicKeyRepr::MlDsa65(_) => KeyType::MlDsa65,
+        match self {
+            Self::Ed25519(_) => KeyType::Ed25519,
+            Self::Secp256k1(_) => KeyType::Secp256k1,
+            Self::MlDsa65(_) => KeyType::MlDsa65,
         }
     }
 
     /// Get the raw key bytes as a slice.
     pub fn as_bytes(&self) -> &[u8] {
-        match &self.0 {
-            PublicKeyRepr::Ed25519(bytes) => bytes.as_slice(),
-            PublicKeyRepr::Secp256k1(bytes) => bytes.as_slice(),
-            PublicKeyRepr::MlDsa65(bytes) => bytes.as_slice(),
+        match self {
+            Self::Ed25519(bytes) => bytes.as_slice(),
+            Self::Secp256k1(bytes) => bytes.as_slice(),
+            Self::MlDsa65(bytes) => bytes.as_slice(),
         }
     }
 
     /// Get the key data as a fixed-size array for Ed25519 keys.
     pub fn as_ed25519_bytes(&self) -> Option<&[u8; 32]> {
-        match &self.0 {
-            PublicKeyRepr::Ed25519(bytes) => Some(bytes),
+        match self {
+            Self::Ed25519(bytes) => Some(bytes),
             _ => None,
         }
     }
@@ -198,16 +209,16 @@ impl PublicKey {
     /// Get the key data as a fixed-size array for Secp256k1 keys
     /// (64-byte uncompressed, no prefix).
     pub fn as_secp256k1_bytes(&self) -> Option<&[u8; 64]> {
-        match &self.0 {
-            PublicKeyRepr::Secp256k1(bytes) => Some(bytes),
+        match self {
+            Self::Secp256k1(bytes) => Some(bytes),
             _ => None,
         }
     }
 
     /// Get the 1952-byte ML-DSA-65 public key, if this is an ML-DSA-65 key.
     pub fn as_ml_dsa65_bytes(&self) -> Option<&[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]> {
-        match &self.0 {
-            PublicKeyRepr::MlDsa65(bytes) => Some(bytes),
+        match self {
+            Self::MlDsa65(bytes) => Some(bytes),
             _ => None,
         }
     }
@@ -218,8 +229,8 @@ impl PublicKey {
     /// ed25519/secp256k1 keys (those are stored, and listed, in full — see
     /// [`PublicKeyHandle::from`]).
     pub fn to_ml_dsa65_hash(&self) -> Option<PublicKeyHandle> {
-        match &self.0 {
-            PublicKeyRepr::MlDsa65(bytes) => {
+        match self {
+            Self::MlDsa65(bytes) => {
                 use sha3::{Digest as _, Sha3_256};
                 let mut hasher = Sha3_256::new();
                 hasher.update(ML_DSA_65_PUBKEY_HASH_DOMAIN);
@@ -322,8 +333,8 @@ impl Debug for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // ML-DSA-65 keys are ~2 KiB; printing the full base58 in `{:?}` would
         // bloat logs and allocate heavily. Show a truncated form instead.
-        match &self.0 {
-            PublicKeyRepr::MlDsa65(_) => write!(f, "PublicKey(ml-dsa-65:<1952 bytes>)"),
+        match self {
+            Self::MlDsa65(_) => write!(f, "PublicKey(ml-dsa-65:<1952 bytes>)"),
             _ => write!(f, "PublicKey({})", self),
         }
     }
@@ -686,7 +697,7 @@ impl SecretKey {
             SecretKeyRepr::Ed25519(bytes) => {
                 let signing_key = SigningKey::from_bytes(bytes);
                 let verifying_key = signing_key.verifying_key();
-                PublicKey(PublicKeyRepr::Ed25519(verifying_key.to_bytes()))
+                PublicKey::Ed25519(verifying_key.to_bytes())
             }
             SecretKeyRepr::Secp256k1(bytes) => {
                 let secret_key =
@@ -699,14 +710,14 @@ impl SecretKey {
                 // Store without the 0x04 prefix (64 bytes)
                 let mut result = [0u8; 64];
                 result.copy_from_slice(&uncompressed_bytes[1..]);
-                PublicKey(PublicKeyRepr::Secp256k1(result))
+                PublicKey::Secp256k1(result)
             }
             SecretKeyRepr::MlDsa65(sk) => {
                 let signing_key = Self::ml_dsa65_signing_key(sk);
                 let encoded: EncodedVerifyingKey<MlDsa65> = signing_key.verifying_key().encode();
                 let mut bytes = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
                 bytes.copy_from_slice(encoded.as_slice());
-                PublicKey(PublicKeyRepr::MlDsa65(bytes))
+                PublicKey::MlDsa65(bytes)
             }
         }
     }
