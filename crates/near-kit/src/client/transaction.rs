@@ -826,6 +826,36 @@ impl TransactionBuilder {
         self
     }
 
+    /// Add several actions in order.
+    ///
+    /// Equivalent to calling [`add_action`](Self::add_action) for each item,
+    /// so it accepts the same inputs: [`Action`]s, typed
+    /// [`FunctionCall`](crate::transaction::FunctionCall)s, or your own action
+    /// type with a conversion into [`Action`]. A failed conversion is kept and
+    /// returned when the transaction is sent, like any other builder error.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # use near_kit::protocol::Action;
+    /// # async fn example(near: Near, actions: Vec<Action>) -> Result<(), near_kit::Error> {
+    /// near.transaction("contract.testnet")
+    ///     .add_actions(actions)
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn add_actions<I>(self, actions: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: TryInto<Action>,
+        Error: From<<I::Item as TryInto<Action>>::Error>,
+    {
+        actions.into_iter().fold(self, Self::add_action)
+    }
+
     // ========================================================================
     // Configuration methods
     // ========================================================================
@@ -1880,6 +1910,35 @@ mod tests {
         assert_eq!(actions.len(), 2);
         assert!(matches!(&actions[0], Action::FunctionCall(fc) if fc.method_name == "method"));
         assert!(matches!(&actions[1], Action::Transfer(_)));
+    }
+
+    #[test]
+    fn add_actions_appends_in_order() {
+        let calls = [
+            crate::transaction::FunctionCall::new("first"),
+            crate::transaction::FunctionCall::new("second"),
+        ];
+        let (_, actions) = test_builder()
+            .transfer(NearToken::from_near(1))
+            .add_actions(calls)
+            .add_actions(Vec::<Action>::new())
+            .into_parts()
+            .unwrap();
+
+        assert_eq!(actions.len(), 3);
+        assert!(matches!(&actions[0], Action::Transfer(_)));
+        assert!(matches!(&actions[1], Action::FunctionCall(fc) if fc.method_name == "first"));
+        assert!(matches!(&actions[2], Action::FunctionCall(fc) if fc.method_name == "second"));
+    }
+
+    #[test]
+    fn add_actions_defers_conversion_errors() {
+        let calls = [
+            crate::transaction::FunctionCall::new("ok"),
+            crate::transaction::FunctionCall::new("bad").args(FailingJson),
+        ];
+        let error = test_builder().add_actions(calls).into_parts().unwrap_err();
+        assert!(matches!(error, Error::Json(_)));
     }
 
     #[test]
