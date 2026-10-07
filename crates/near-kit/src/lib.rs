@@ -231,12 +231,12 @@
 //! # async fn example() -> Result<(), Error> {
 //! let near = Near::mainnet().build();
 //!
-//! let token = near.ft("wrap.near")?;
+//! let token = near.ft("wrap.near".parse::<AccountId>()?);
 //! let balance = token.balance_of("alice.near").await?;
 //! println!("Balance: {}", balance);
 //!
 //! // NFTs (NEP-171)
-//! let nft = near.nft("nft.testnet")?;
+//! let nft = near.nft("nft.testnet".parse::<AccountId>()?);
 //! let tokens = nft.tokens_for_owner("alice.testnet", None, Some(10)).await?;
 //! # Ok(())
 //! # }
@@ -271,7 +271,7 @@
 //! }
 //!
 //! async fn example(near: &Near) -> Result<(), Error> {
-//!     let counter = near.contract::<Counter>("counter.testnet")?;
+//!     let counter = near.contract::<Counter>("counter.testnet".parse::<AccountId>()?);
 //!
 //!     // Type-safe view call
 //!     let count = counter.get_count().await?;
@@ -462,7 +462,10 @@
 //!
 //! The entire RPC layer — `Near`, the query/transaction builders, token helpers,
 //! and the HTTP client underneath — is gated behind the default-on `rpc` feature.
-//! Typed-contract interfaces and macros additionally require `contracts`. With
+//! Typed-contract interfaces and macros additionally require `contracts`; with
+//! `contracts` but not `rpc`, `#[near_kit::contract]` still generates the
+//! offline `FunctionCall` constructors (e.g. `Counter::increment()`), just not
+//! the `Near`-backed client. With
 //! `default-features = false` you keep the offline core:
 //! all the types, the signers ([`signer::InMemorySigner`],
 //! [`signer::EnvSigner`], ...), transaction construction and signing via
@@ -484,7 +487,7 @@
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
 //! | `rpc` | Yes | The RPC layer: `Near`, queries, transactions, tokens, and the HTTP transport (reqwest, except on WASI). Disable for offline signing/verification |
-//! | `contracts` | No | Typed contract interfaces and the `#[near_kit::contract]` macro (implies `rpc`) |
+//! | `contracts` | No | Typed contract interfaces and the `#[near_kit::contract]` macro. Works without `rpc` (offline `FunctionCall` constructors only); the `Near`-backed client also needs `rpc` |
 //! | `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2` (implies `rpc`; no-op on non-WASI targets; unsupported on earlier WASI targets). On WASI Preview 2 hosts without `wasi:http`, inject a transport via `NearBuilder::transport` |
 //! | `keyring` | No | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
 //! | `file-signer` | No | `signer::FileSigner` for loading keys from `~/.near-credentials` |
@@ -526,8 +529,13 @@
 //! # }
 //! ```
 
-mod client;
+// Lets `#[near_kit::contract]` expansions name `::near_kit` even inside this
+// crate.
 #[cfg(feature = "contracts")]
+extern crate self as near_kit;
+
+mod client;
+#[cfg(all(feature = "contracts", feature = "rpc"))]
 #[path = "contract.rs"]
 mod contract_support;
 mod error;
@@ -547,8 +555,9 @@ pub mod transaction;
 pub use error::Error;
 pub use types::{AccountId, CryptoHash, Gas, NearToken};
 
-// Re-export contract types
-#[cfg(feature = "contracts")]
+// Re-export contract types. The traits tie a contract to its `Near`-backed
+// client, so they need the RPC layer; the macro itself does not.
+#[cfg(all(feature = "contracts", feature = "rpc"))]
 pub use contract_support::{Contract, ContractClient};
 
 #[cfg(feature = "rpc")]
@@ -557,3 +566,28 @@ pub use client::{Near, NearBuilder};
 // Re-export the typed-contract macro and its marker/format attributes together.
 #[cfg(feature = "contracts")]
 pub use near_kit_macros::{borsh, call, contract, json};
+
+/// Support code for the `#[near_kit::contract]` expansion. Not public API.
+#[doc(hidden)]
+#[cfg(feature = "contracts")]
+pub mod __private {
+    // A `cfg` in proc-macro output is evaluated against the *calling* crate's
+    // features, not near-kit's. So the macro wraps its `Near`-backed client
+    // code in `rpc_only!`, and near-kit decides here, with its own features,
+    // whether that code is kept.
+    pub use crate::__near_kit_rpc_only as rpc_only;
+}
+
+#[doc(hidden)]
+#[cfg(all(feature = "contracts", feature = "rpc"))]
+#[macro_export]
+macro_rules! __near_kit_rpc_only {
+    ($($tokens:tt)*) => { $($tokens)* };
+}
+
+#[doc(hidden)]
+#[cfg(all(feature = "contracts", not(feature = "rpc")))]
+#[macro_export]
+macro_rules! __near_kit_rpc_only {
+    ($($tokens:tt)*) => {};
+}

@@ -7,7 +7,7 @@
 //! ```rust,no_run
 //! # use near_kit::*;
 //! # fn example(near: &Near) -> Result<(), near_kit::Error> {
-//! let token = near.ft("wrap.near")?;
+//! let token = near.ft("wrap.near".parse::<AccountId>()?);
 //! # Ok(())
 //! # }
 //! ```
@@ -20,7 +20,7 @@
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let near = Near::mainnet().build();
 //!
-//! let token = near.ft("wrap.near")?;
+//! let token = near.ft("wrap.near".parse::<AccountId>()?);
 //!
 //! // Query metadata (cached after first call)
 //! let metadata = token.metadata().await?;
@@ -34,7 +34,7 @@
 //! let near = Near::mainnet()
 //!     .credentials("ed25519:...", "alice.near")?
 //!     .build();
-//! let token = near.ft("wrap.near")?;
+//! let token = near.ft("wrap.near".parse::<AccountId>()?);
 //!
 //! token.transfer("bob.near", 1_500_000_u128).await?;
 //!
@@ -53,7 +53,7 @@
 //! let near = Near::testnet().build();
 //!
 //! // Get an NFT client
-//! let nft = near.nft("nft-contract.near")?;
+//! let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
 //!
 //! // Query a specific token
 //! if let Some(token) = nft.token("token-123").await? {
@@ -70,7 +70,7 @@
 //! let near = Near::testnet()
 //!     .credentials("ed25519:...", "alice.near")?
 //!     .build();
-//! let nft = near.nft("nft-contract.near")?;
+//! let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
 //!
 //! nft.transfer("bob.near", "token-123").await?;
 //!

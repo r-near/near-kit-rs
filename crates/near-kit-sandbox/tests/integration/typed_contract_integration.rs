@@ -45,9 +45,7 @@ async fn deploy_guestbook(prefix: &str) -> (&'static Sandbox, Near, AccountId) {
 #[tokio::test]
 async fn typed_views_and_calls_roundtrip() {
     let (_, near, contract_id) = deploy_guestbook("typed").await;
-    let guestbook = near
-        .contract::<Guestbook>(&contract_id)
-        .expect("typed client");
+    let guestbook = near.contract::<Guestbook>(&contract_id);
 
     assert_eq!(guestbook.total_messages().await.expect("initial count"), 0);
     assert!(
@@ -75,9 +73,7 @@ async fn typed_views_and_calls_roundtrip() {
 #[tokio::test]
 async fn typed_call_configuration_reaches_the_contract() {
     let (_, near, contract_id) = deploy_guestbook("typedcfg").await;
-    let guestbook = near
-        .contract::<Guestbook>(&contract_id)
-        .expect("typed client");
+    let guestbook = near.contract::<Guestbook>(&contract_id);
 
     guestbook
         .add_message(AddMessageArgs {
@@ -103,9 +99,7 @@ async fn typed_call_configuration_reaches_the_contract() {
 async fn typed_views_work_without_a_signer_but_calls_do_not() {
     let (sandbox, _, contract_id) = deploy_guestbook("typednosigner").await;
     let no_signer = Near::custom(sandbox.rpc_url(), sandbox.chain_id().clone()).build();
-    let guestbook = no_signer
-        .contract::<Guestbook>(&contract_id)
-        .expect("typed client");
+    let guestbook = no_signer.contract::<Guestbook>(&contract_id);
 
     assert_eq!(guestbook.total_messages().await.expect("unsigned view"), 0);
     let error = guestbook
@@ -125,14 +119,10 @@ async fn typed_views_preserve_decode_and_block_errors() {
     }
 
     let (_, near, contract_id) = deploy_guestbook("typederrors").await;
-    let wrong = near
-        .contract::<WrongGuestbook>(&contract_id)
-        .expect("wrong typed client");
+    let wrong = near.contract::<WrongGuestbook>(&contract_id);
     assert!(matches!(wrong.total_messages().await, Err(Error::Json(_))));
 
-    let guestbook = near
-        .contract::<Guestbook>(&contract_id)
-        .expect("typed client");
+    let guestbook = near.contract::<Guestbook>(&contract_id);
     assert!(matches!(
         guestbook.total_messages().at_block(999_999_999_u64).await,
         Err(Error::Rpc(_))

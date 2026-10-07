@@ -169,7 +169,7 @@ pub trait Counter {
 }
 
 // Now you get autocomplete and type errors at compile time
-let counter = near.contract::<Counter>("counter.testnet")?;
+let counter = near.contract::<Counter>("counter.testnet".parse::<AccountId>()?);
 let count = counter.get_count().await?;
 counter.increment().await?;
 ```
@@ -192,12 +192,12 @@ Working with fungible or non-fungible tokens? near-kit includes helpers for NEP-
 
 ```rust
 let near = Near::mainnet().build();
-let token = near.ft("wrap.near")?;
+let token = near.ft("wrap.near".parse::<AccountId>()?);
 let balance = token.balance_of("alice.near").await?;
 println!("Balance: {}", balance);
 
 // Non-fungible tokens
-let nft = near.nft("nft.near")?;
+let nft = near.nft("nft.near".parse::<AccountId>()?);
 if let Some(token) = nft.token("token-123").await? {
     println!("Owner: {}", token.owner_id);
 }
@@ -208,7 +208,7 @@ if let Some(token) = nft.token("token-123").await? {
 | Feature | Default | Description |
 |---------|---------|-------------|
 | `rpc` | Yes | The `Near` client, queries, transactions, token helpers, and the HTTP transport — reqwest, except on WASI |
-| `contracts` | No | Typed contract interfaces and macros; implies `rpc` |
+| `contracts` | No | Typed contract interfaces and macros. Without `rpc`, only the offline `FunctionCall` constructors are generated |
 | `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2`; implies `rpc`, is a no-op on non-WASI targets, and is unsupported on earlier WASI targets |
 | `keyring` | No | System keyring integration for desktop apps |
 | `file-signer` | No | Load signers from `~/.near-credentials` |
