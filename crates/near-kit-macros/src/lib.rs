@@ -512,10 +512,13 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
 
     // Every argument and return type the trait mentions. Without near-kit's
     // `rpc` feature the client methods are dropped, so view-only types would
-    // otherwise leave the caller's imports for them unused.
-    let mentioned_types: Vec<&Type> = methods
+    // otherwise leave the caller's imports for them unused. Argument types are
+    // mentioned in argument position, where `impl Trait` is allowed.
+    let mentioned_arg_types: Vec<&Type> =
+        methods.iter().filter_map(|m| m.arg_type.as_ref()).collect();
+    let mentioned_return_types: Vec<&Type> = methods
         .iter()
-        .flat_map(|m| m.arg_type.iter().chain(m.return_type.iter()))
+        .filter_map(|m| m.return_type.as_ref())
         .collect();
 
     // Propagate trait-level attributes (doc comments, #[cfg], etc.) to the struct
@@ -537,8 +540,8 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
 
         const _: () = {
             #[allow(dead_code)]
-            fn __near_kit_mention_types() {
-                #(let _: ::core::marker::PhantomData<#mentioned_types> = ::core::marker::PhantomData;)*
+            fn __near_kit_mention_types(#(_: #mentioned_arg_types),*) {
+                #(let _: ::core::marker::PhantomData<#mentioned_return_types> = ::core::marker::PhantomData;)*
             }
         };
 

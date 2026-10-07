@@ -28,6 +28,11 @@ pub trait Counter {
     #[call]
     #[borsh]
     fn upload(&mut self, args: UploadArgs);
+
+    fn lookup(&self, args: impl serde::Serialize) -> Option<u64>;
+
+    #[call]
+    fn register(&mut self, args: impl serde::Serialize);
 }
 
 #[near_kit::contract(borsh)]
@@ -58,6 +63,9 @@ fn main() {
         .try_into()
         .unwrap();
     assert_eq!(action.args, [2, 0, 0, 0, 1, 2]);
+
+    let action: FunctionCallAction = Counter::register(AddArgs { value: 7 }).try_into().unwrap();
+    assert_eq!(action.args, br#"{"value":7}"#);
 
     let action: FunctionCallAction = Store::set_status(AddArgs { value: 1 }).try_into().unwrap();
     assert_eq!(action.args, br#"{"value":1}"#);
