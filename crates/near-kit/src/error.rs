@@ -473,6 +473,11 @@ impl RpcError {
     /// in the transaction layer (`Near::send*`), where retrying can actually
     /// change the outcome, so it is `false` here.
     ///
+    /// A connection the server reset, aborted, or closed mid-exchange counts
+    /// as transient; overloaded nodes commonly shed load this way. The node
+    /// may already have handled such a request, so `RpcClient::call` never
+    /// retries `sandbox_fast_forward`, the one method that is not idempotent.
+    ///
     /// [`InvalidTxError::is_retryable`]: crate::protocol::InvalidTxError::is_retryable
     pub fn is_retryable(&self) -> bool {
         match self {
@@ -485,7 +490,7 @@ impl RpcError {
                 e.is_timeout() || {
                     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
                     {
-                        e.is_connect()
+                        e.is_connect() || is_connection_dropped(e)
                     }
                     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
                     {
@@ -561,6 +566,48 @@ impl RpcError {
 
         None
     }
+}
+
+/// Whether a reqwest error was caused by the peer dropping an established
+/// connection: a reset, an abort, a broken pipe, or the connection closing
+/// before the response was complete.
+///
+/// reqwest does not classify these (`is_connect()` only covers failures to
+/// establish a connection), so walk the source chain to the underlying
+/// [`std::io::Error`] or hyper error. hyper reports a pooled keep-alive
+/// connection that the server closed mid-request as an "incomplete message"
+/// with no I/O error underneath; nodes under parallel load do this routinely.
+#[cfg(all(
+    feature = "rpc",
+    not(all(target_arch = "wasm32", target_os = "wasi")),
+    not(all(target_arch = "wasm32", target_os = "unknown"))
+))]
+fn is_connection_dropped(error: &reqwest::Error) -> bool {
+    use std::io::ErrorKind;
+
+    let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(err) = source {
+        if let Some(io) = err.downcast_ref::<std::io::Error>()
+            && matches!(
+                io.kind(),
+                ErrorKind::ConnectionReset
+                    | ErrorKind::ConnectionAborted
+                    | ErrorKind::BrokenPipe
+                    | ErrorKind::UnexpectedEof
+            )
+        {
+            return true;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if err
+            .downcast_ref::<hyper::Error>()
+            .is_some_and(hyper::Error::is_incomplete_message)
+        {
+            return true;
+        }
+        source = err.source();
+    }
+    false
 }
 
 // ============================================================================
