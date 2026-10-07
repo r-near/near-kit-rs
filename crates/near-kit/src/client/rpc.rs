@@ -501,7 +501,8 @@ impl RpcClient {
     /// to the client's [`RetryConfig`]. An `InvalidNonce` rejection is
     /// terminal here: the node has rejected this exact signed payload, so it
     /// is returned after a single attempt without retrying (the transaction
-    /// layer re-signs with a fresh nonce instead).
+    /// layer re-signs with a fresh nonce instead). `sandbox_fast_forward` is
+    /// never retried, since it is not idempotent.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %sanitize_url(&self.url))))]
     pub async fn call<P: Serialize, R: DeserializeOwned>(
         &self,
@@ -522,7 +523,11 @@ impl RpcClient {
 
             match self.try_call::<R>(&request).await {
                 Ok(result) => return Ok(result),
-                Err(e) if e.is_retryable() && attempt < total_attempts - 1 => {
+                Err(e)
+                    if is_idempotent(method)
+                        && e.is_retryable()
+                        && attempt < total_attempts - 1 =>
+                {
                     let delay = std::cmp::min(
                         self.retry_config.initial_delay_ms * 2u64.pow(attempt),
                         self.retry_config.max_delay_ms,
@@ -1569,6 +1574,8 @@ impl RpcClient {
     /// **Note:** This can take a while for large deltas — the sandbox node
     /// internally produces all intermediate blocks. The RPC call will block
     /// until fast-forwarding completes (up to 1 hour server-side timeout).
+    /// It is sent once, without retries: a retry after a lost response could
+    /// advance the chain twice.
     ///
     /// # Example
     ///
@@ -1660,6 +1667,17 @@ fn sanitize_url(url: &str) -> &str {
     // Strip query and fragment
     let end = url.find('?').or_else(|| url.find('#')).unwrap_or(url.len());
     &url[..end]
+}
+
+/// Whether `method` is safe to send again when the node may already have
+/// handled the first attempt (a dropped connection, a timeout, a 5xx).
+///
+/// Queries are read-only, `send_tx` re-submits the same signed transaction
+/// (the node recognizes its hash and returns its status), and
+/// `sandbox_patch_state` writes absolute values. `sandbox_fast_forward`
+/// advances by a relative `delta_height`, so a retry could advance twice.
+fn is_idempotent(method: &str) -> bool {
+    method != "sandbox_fast_forward"
 }
 
 /// Check if an HTTP status code is retryable.
@@ -2212,6 +2230,163 @@ mod tests {
 
         let request = request_rx.recv().unwrap().to_ascii_lowercase();
         assert!(request.contains(&format!("x-api-key: {secret}")));
+        server.join().unwrap();
+    }
+
+    /// What [`scripted_server`] does with each successive connection.
+    enum Conn {
+        /// Read one byte, then drop the socket with the rest of the request
+        /// unread, so the kernel sends a TCP RST ("connection reset").
+        Reset,
+        /// Read the whole request, then close without answering (hyper's
+        /// "connection closed before message completed").
+        Close,
+        /// Read the whole request and answer `{"ok": true}`.
+        Respond,
+    }
+
+    /// Serve one connection per `script` entry, in order, then stop
+    /// listening. Returns the server's URL.
+    fn scripted_server(script: Vec<Conn>) -> (String, std::thread::JoinHandle<()>) {
+        /// Read the request head, then its `Content-Length` body, so closing
+        /// the socket afterwards sends a FIN rather than a reset.
+        fn read_request(stream: &mut std::net::TcpStream) {
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 1024];
+            let head_len = loop {
+                if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break end + 4;
+                }
+                let read = stream.read(&mut buffer).unwrap();
+                assert!(read > 0, "connection closed mid-request");
+                request.extend_from_slice(&buffer[..read]);
+            };
+            let head = String::from_utf8_lossy(&request[..head_len]).to_ascii_lowercase();
+            let content_length: usize = head
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .expect("request has a Content-Length")
+                .trim()
+                .parse()
+                .unwrap();
+            let mut rest = vec![0u8; content_length - (request.len() - head_len)];
+            stream.read_exact(&mut rest).unwrap();
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for conn in script {
+                let (mut stream, _) = listener.accept().unwrap();
+                match conn {
+                    Conn::Reset => {
+                        stream.read_exact(&mut [0u8; 1]).unwrap();
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    Conn::Close => {
+                        read_request(&mut stream);
+                        stream.shutdown(std::net::Shutdown::Both).unwrap();
+                    }
+                    Conn::Respond => {
+                        read_request(&mut stream);
+                        let body = r#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#;
+                        write!(
+                            stream,
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body,
+                        )
+                        .unwrap();
+                    }
+                }
+            }
+        });
+        (url, server)
+    }
+
+    /// Whether `error` is hyper's "connection closed before message completed".
+    fn is_incomplete_message(error: &RpcError) -> bool {
+        let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
+        while let Some(err) = source {
+            if err
+                .downcast_ref::<hyper::Error>()
+                .is_some_and(hyper::Error::is_incomplete_message)
+            {
+                return true;
+            }
+            source = err.source();
+        }
+        false
+    }
+
+    /// A node that resets the connection under load: the error is retryable,
+    /// and a retrying client gets through.
+    #[tokio::test]
+    async fn test_connection_reset_is_retried() {
+        let (url, server) = scripted_server(vec![Conn::Reset, Conn::Reset, Conn::Respond]);
+
+        let error = RpcClient::with_retry_config(&url, RetryConfig::none())
+            .call::<_, serde_json::Value>("status", ())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, RpcError::Http(_)), "{error:?}");
+        assert!(error.is_retryable(), "{error:?}");
+
+        let response: serde_json::Value = RpcClient::with_retry_config(&url, fast_retries(1))
+            .call("status", ())
+            .await
+            .unwrap();
+        assert_eq!(response, serde_json::json!({ "ok": true }));
+        server.join().unwrap();
+    }
+
+    /// A node that reads the request and closes the connection without
+    /// answering (a keep-alive race): the error is retryable, and a retrying
+    /// client gets through.
+    #[tokio::test]
+    async fn test_connection_closed_before_response_is_retried() {
+        let (url, server) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
+
+        let error = RpcClient::with_retry_config(&url, RetryConfig::none())
+            .call::<_, serde_json::Value>("status", ())
+            .await
+            .unwrap_err();
+        assert!(is_incomplete_message(&error), "{error:?}");
+        assert!(error.is_retryable(), "{error:?}");
+
+        let response: serde_json::Value = RpcClient::with_retry_config(&url, fast_retries(1))
+            .call("status", ())
+            .await
+            .unwrap();
+        assert_eq!(response, serde_json::json!({ "ok": true }));
+        server.join().unwrap();
+    }
+
+    /// The node may have handled a request whose connection dropped, so only
+    /// idempotent methods are re-sent: `sandbox_fast_forward` (relative, would
+    /// advance twice) fails after one attempt, while a query is retried.
+    #[tokio::test]
+    async fn test_dropped_connection_is_not_retried_for_sandbox_fast_forward() {
+        // If fast_forward were retried, it would consume all three
+        // connections and succeed.
+        let (url, server) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
+        let client = RpcClient::with_retry_config(&url, fast_retries(2));
+
+        let error = client.sandbox_fast_forward(1).await.unwrap_err();
+        assert!(is_incomplete_message(&error), "{error:?}");
+
+        let response: serde_json::Value = client
+            .call(
+                "query",
+                serde_json::json!({
+                    "request_type": "view_account",
+                    "finality": "final",
+                    "account_id": "alice.near",
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response, serde_json::json!({ "ok": true }));
         server.join().unwrap();
     }
 

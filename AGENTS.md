@@ -177,6 +177,10 @@ generated WASI 0.2 bindings) on `wasm32-wasip2` for the `wasi:http` transport.
 These play the role reqwest/tokio play natively; hand-rolling them would mean
 maintaining generated FFI by hand.
 
+Also allowed: `hyper`, only as reqwest's underlying HTTP crate (no features),
+to classify transport errors such as an incomplete message. It is gated with
+the native transport.
+
 **Not allowed**: near-primitives, near-crypto, near-jsonrpc-client (we hand-roll
 the NEAR types/borsh ourselves; this rule forbids the NEAR-specific crates, not
 crypto primitives).

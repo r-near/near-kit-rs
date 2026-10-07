@@ -68,6 +68,10 @@ serde_with = { version = "3.20", features = ["hex", "base64"] }
 # `std::thread::sleep` on single-threaded WASI guests (see client/rpc.rs).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", features = ["sync", "time"], optional = true }
+# reqwest's own HTTP crate (already in the native graph), named only to
+# recognize `hyper::Error::is_incomplete_message()`: a pooled connection the
+# server closed mid-request. No features, no extra crates.
+hyper = { version = "1", default-features = false, optional = true }
 
 # HTTP transport, part 1 — every target except WASI (native + JS-host wasm,
 # which uses reqwest's fetch backend). Optional; pulled in by the `rpc` feature.
@@ -101,7 +105,7 @@ default = ["rpc"]
 # `rpc` alone means bring-your-own via `NearBuilder::transport`. Disable (via
 # `default-features = false`) for offline use — types, signing, and transaction
 # building without a network stack.
-rpc = ["dep:reqwest", "dep:tokio"]
+rpc = ["dep:reqwest", "dep:tokio", "dep:hyper"]
 # Typed contract interfaces and the `#[near_kit::contract]` proc macro. Works
 # offline: the macro always generates the `FunctionCall` constructors; the
 # `Near`-backed `<Name>Client`, `Contract`/`ContractClient`, and `Near::contract`
