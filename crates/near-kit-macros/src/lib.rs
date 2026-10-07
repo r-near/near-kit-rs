@@ -538,9 +538,18 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
             #(#function_call_methods)*
         }
 
+        // One helper per argument type: a single helper taking every argument
+        // would trip `clippy::too_many_arguments` in the caller's crate for
+        // traits with more than seven argument-taking methods.
+        #(
+            const _: () = {
+                #[allow(dead_code, clippy::needless_pass_by_value)]
+                fn __near_kit_mention_arg_type(_: #mentioned_arg_types) {}
+            };
+        )*
         const _: () = {
             #[allow(dead_code)]
-            fn __near_kit_mention_types(#(_: #mentioned_arg_types),*) {
+            fn __near_kit_mention_return_types() {
                 #(let _: ::core::marker::PhantomData<#mentioned_return_types> = ::core::marker::PhantomData;)*
             }
         };
