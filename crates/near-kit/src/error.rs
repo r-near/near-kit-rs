@@ -798,6 +798,64 @@ impl Error {
     pub fn is_invalid_tx(&self) -> bool {
         matches!(self, Error::InvalidTx(_))
     }
+
+    /// The underlying [`RpcError`], if this is an [`Error::Rpc`].
+    ///
+    /// High-level calls (`Near::view`, typed `#[near_kit::contract]` views,
+    /// queries) return [`Error`], which boxes the RPC error. Use this to
+    /// inspect it without matching through the box.
+    ///
+    /// Structured transaction validation errors are promoted to
+    /// [`Error::InvalidTx`] and are not returned here.
+    ///
+    /// # Example
+    ///
+    #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+    #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
+    /// # use near_kit::Near;
+    /// # async fn example(near: &Near) -> Result<(), near_kit::Error> {
+    /// match near.view::<u64>("counter.testnet", "get_count").await {
+    ///     Ok(count) => println!("{count}"),
+    ///     Err(e) if e.as_rpc().is_some_and(|e| e.is_contract_not_deployed()) => {
+    ///         println!("no contract");
+    ///     }
+    ///     Err(e) => return Err(e),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn as_rpc(&self) -> Option<&RpcError> {
+        match self {
+            Error::Rpc(error) => Some(error),
+            _ => None,
+        }
+    }
+
+    /// Unwrap the underlying [`RpcError`] by value, or give the error back.
+    ///
+    /// Use this to match RPC variants and move their fields out:
+    ///
+    #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+    #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
+    /// # use near_kit::{Error, Near};
+    /// # use near_kit::rpc::RpcError;
+    /// # async fn example(near: &Near) -> Result<(), Error> {
+    /// let result = near.view::<String>("resolver.testnet", "resolve").await;
+    /// match result.map_err(Error::into_rpc) {
+    ///     Ok(value) => println!("{value}"),
+    ///     Err(Ok(RpcError::ContractPanic { message, .. })) => println!("panicked: {message}"),
+    ///     Err(Ok(other)) => return Err(other.into()),
+    ///     Err(Err(other)) => return Err(other),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn into_rpc(self) -> Result<RpcError, Self> {
+        match self {
+            Error::Rpc(error) => Ok(*error),
+            other => Err(other),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1525,5 +1583,29 @@ mod tests {
         let signer_err = SignerError::InvalidSeedPhrase;
         let err: Error = signer_err.into();
         assert!(matches!(err, Error::Signing(_)));
+    }
+
+    #[test]
+    fn test_error_rpc_accessors() {
+        let err: Error = RpcError::ContractPanic {
+            message: "boom".to_string(),
+            block_height: Some(7),
+            block_hash: None,
+        }
+        .into();
+        assert!(err.as_rpc().is_some_and(RpcError::is_contract_panic));
+        assert_eq!(err.as_rpc().and_then(RpcError::block_height), Some(7));
+        match err.into_rpc() {
+            Ok(RpcError::ContractPanic { message, .. }) => assert_eq!(message, "boom"),
+            other => panic!("unexpected: {other:?}"),
+        }
+
+        let err = Error::NoSigner;
+        assert!(err.as_rpc().is_none());
+        assert!(matches!(err.into_rpc(), Err(Error::NoSigner)));
+
+        // Structured tx validation errors are promoted out of `Error::Rpc`.
+        let err: Error = RpcError::InvalidTx(InvalidTxError::Expired).into();
+        assert!(err.as_rpc().is_none());
     }
 }
