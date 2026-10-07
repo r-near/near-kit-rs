@@ -59,6 +59,17 @@ macro_rules! impl_block_query_options {
                     self.state.block_ref = BlockReference::Finality(finality);
                     self
                 }
+
+                /// Query at any [`BlockReference`]: a finality, height, hash,
+                /// or sync checkpoint.
+                ///
+                /// Use this to pin several queries to one block a caller already
+                /// holds as a `BlockReference`. Accepts anything that converts
+                /// into one ([`Finality`], a height, or a [`CryptoHash`]).
+                pub fn block_reference(mut self, block: impl Into<BlockReference>) -> Self {
+                    self.state.block_ref = block.into();
+                    self
+                }
             }
         )+
     };
@@ -539,6 +550,37 @@ impl<T> ViewCall<T> {
         self
     }
 
+    /// Query at any [`BlockReference`]: a finality, height, hash, or sync
+    /// checkpoint.
+    ///
+    /// Use this to pin a view (including one returned by a
+    /// `#[near_kit::contract]` binding) to a block the caller already holds as
+    /// a `BlockReference`. Accepts anything that converts into one
+    /// ([`Finality`], a height, or a [`CryptoHash`]).
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::Near;
+    /// # use near_kit::rpc::BlockReference;
+    /// # async fn example(near: &Near) -> Result<(), near_kit::Error> {
+    /// let block = near.rpc().block(BlockReference::final_()).await?;
+    /// let pinned = BlockReference::at_hash(block.header.hash);
+    ///
+    /// let count = near
+    ///     .view::<u64>("counter.testnet", "get_count")
+    ///     .block_reference(pinned)
+    ///     .with_metadata()
+    ///     .await?;
+    /// assert_eq!(count.block_hash, block.header.hash);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn block_reference(mut self, block: impl Into<BlockReference>) -> Self {
+        self.request.block_ref = block.into();
+        self
+    }
+
     /// Switch to Borsh deserialization for the response.
     ///
     /// By default, `ViewCall` deserializes responses as JSON. Call this method
@@ -647,6 +689,17 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for ViewCall<T> {
 pub struct ViewCallBorsh<T> {
     request: ViewCallRequest,
     _phantom: PhantomData<T>,
+}
+
+impl<T> ViewCallBorsh<T> {
+    /// Query at any [`BlockReference`]. See [`ViewCall::block_reference`].
+    ///
+    /// `#[near_kit::contract(borsh)]` view bindings return a `ViewCallBorsh`
+    /// directly, so this is where their block is selected.
+    pub fn block_reference(mut self, block: impl Into<BlockReference>) -> Self {
+        self.request.block_ref = block.into();
+        self
+    }
 }
 
 impl<T: borsh::BorshDeserialize + Send + 'static> ViewCallBorsh<T> {
