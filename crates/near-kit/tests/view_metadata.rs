@@ -162,6 +162,91 @@ async fn invalid_arguments_fail_before_sending_a_request() {
     assert!(requests.lock().unwrap().is_empty());
 }
 
+#[tokio::test]
+async fn views_accept_a_block_reference() {
+    use near_kit::rpc::{BlockReference, Finality};
+
+    let (near, requests) = client(borsh::to_vec(&123_u64).unwrap());
+    let hash = CryptoHash::from_bytes([7; 32]);
+    let pinned = BlockReference::at_hash(hash);
+
+    let at_hash: u64 = near
+        .view::<u64>("counter.testnet", "get_count")
+        .block_reference(pinned)
+        .borsh()
+        .await
+        .unwrap();
+    let at_genesis: u64 = near
+        .view::<u64>("counter.testnet", "get_count")
+        .borsh()
+        .block_reference(BlockReference::genesis())
+        .await
+        .unwrap();
+    let _: u64 = near
+        .view::<u64>("counter.testnet", "get_count")
+        .borsh()
+        .block_reference(42_u64)
+        .await
+        .unwrap();
+    let _: u64 = near
+        .view::<u64>("counter.testnet", "get_count")
+        .borsh()
+        .block_reference(Finality::Optimistic)
+        .await
+        .unwrap();
+    assert_eq!((at_hash, at_genesis), (123, 123));
+
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests[0]["params"]["block_id"], hash.to_string());
+    assert_eq!(requests[1]["params"]["sync_checkpoint"], "genesis");
+    assert_eq!(requests[2]["params"]["block_id"], 42);
+    assert_eq!(requests[3]["params"]["finality"], "optimistic");
+}
+
+#[tokio::test]
+async fn account_queries_accept_a_block_reference() {
+    use near_kit::rpc::BlockReference;
+
+    let (near, requests) = client(Vec::new());
+    let hash = CryptoHash::from_bytes([9; 32]);
+    // The canned response is a view-function result, so decoding fails; only
+    // the request shape matters here.
+    let _ = near
+        .account("alice.testnet")
+        .block_reference(BlockReference::at_hash(hash))
+        .await;
+    let _ = near.balance("alice.testnet").block_reference(7_u64).await;
+
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests[0]["params"]["block_id"], hash.to_string());
+    assert_eq!(requests[1]["params"]["block_id"], 7);
+}
+
+#[cfg(feature = "contracts")]
+#[tokio::test]
+async fn generated_borsh_views_can_be_pinned_to_a_block() {
+    #[near_kit::contract(borsh)]
+    trait BorshCounter {
+        fn get_count(&self) -> u64;
+    }
+
+    let (near, requests) = client(borsh::to_vec(&5_u64).unwrap());
+    let counter =
+        near.contract::<BorshCounter>("counter.testnet".parse::<near_kit::AccountId>().unwrap());
+    let hash = CryptoHash::from_bytes([7; 32]);
+    let result = counter
+        .get_count()
+        .block_reference(hash)
+        .with_metadata()
+        .await
+        .unwrap();
+    assert_eq!(result.result, 5);
+    assert_eq!(
+        requests.lock().unwrap()[0]["params"]["block_id"],
+        hash.to_string()
+    );
+}
+
 #[cfg(feature = "contracts")]
 #[tokio::test]
 async fn generated_contract_views_expose_metadata_without_macro_changes() {
