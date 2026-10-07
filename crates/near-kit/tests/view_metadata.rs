@@ -222,6 +222,40 @@ async fn account_queries_accept_a_block_reference() {
     assert_eq!(requests[1]["params"]["block_id"], 7);
 }
 
+#[tokio::test]
+async fn near_from_rpc_reuses_the_rpc_client_transport() {
+    use near_kit::rpc::{RetryConfig, RpcClient};
+
+    let requests = Requests::default();
+    let response = serde_json::to_vec(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "result": b"9".to_vec(),
+            "logs": [],
+            "block_height": 42,
+            "block_hash": CryptoHash::from_bytes([7; 32]),
+        }
+    }))
+    .unwrap();
+    let rpc = RpcClient::with_transport_and_retry_config(
+        "https://rpc.invalid",
+        Arc::new(ResponseTransport {
+            response,
+            requests: requests.clone(),
+        }),
+        RetryConfig::none(),
+    );
+    let near = Near::from_rpc(rpc, "custom");
+    assert_eq!(near.chain_id().as_str(), "custom");
+    assert_eq!(near.rpc_url(), "https://rpc.invalid");
+    assert!(near.try_account_id().is_none());
+
+    let value: u64 = near.view("counter.testnet", "get").await.unwrap();
+    assert_eq!(value, 9);
+    assert_eq!(requests.lock().unwrap().len(), 1);
+}
+
 #[cfg(feature = "contracts")]
 #[tokio::test]
 async fn generated_borsh_views_can_be_pinned_to_a_block() {

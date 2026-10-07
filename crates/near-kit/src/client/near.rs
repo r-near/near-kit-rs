@@ -50,6 +50,9 @@ pub trait SandboxNetwork {
     fn root_signer(&self) -> Arc<dyn Signer>;
 }
 
+/// Nonce retries a new client allows unless configured otherwise.
+const DEFAULT_MAX_NONCE_RETRIES: u32 = 3;
+
 /// The main client for interacting with NEAR Protocol.
 ///
 /// The `Near` client is the single entry point for all NEAR operations.
@@ -267,7 +270,35 @@ impl Near {
             rpc: Arc::new(RpcClient::new(network.rpc_url())),
             signer: Some(network.root_signer()),
             chain_id: network.chain_id().clone(),
-            max_nonce_retries: 3,
+            max_nonce_retries: DEFAULT_MAX_NONCE_RETRIES,
+        }
+    }
+
+    /// Wrap an existing [`RpcClient`] in a `Near` client without a signer.
+    ///
+    /// The client keeps the RPC client's URL, transport and retry
+    /// configuration. Use this when a component is handed an `RpcClient` but
+    /// wants the high-level API on top of it, such as typed
+    /// `#[near_kit::contract]` views. Add a signer with
+    /// [`with_signer`](Self::with_signer).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::Near;
+    /// use near_kit::rpc::RpcClient;
+    ///
+    /// let rpc = RpcClient::new("https://rpc.testnet.near.org");
+    /// let near = Near::from_rpc(rpc, "testnet");
+    /// assert_eq!(near.chain_id().as_str(), "testnet");
+    /// assert!(near.try_account_id().is_none());
+    /// ```
+    pub fn from_rpc(rpc: RpcClient, chain_id: impl Into<ChainId>) -> Near {
+        Near {
+            rpc: Arc::new(rpc),
+            signer: None,
+            chain_id: chain_id.into(),
+            max_nonce_retries: DEFAULT_MAX_NONCE_RETRIES,
         }
     }
 
@@ -1131,7 +1162,7 @@ impl NearBuilder {
             signer: None,
             retry_config: RetryConfig::default(),
             chain_id,
-            max_nonce_retries: 3,
+            max_nonce_retries: DEFAULT_MAX_NONCE_RETRIES,
         }
     }
 
