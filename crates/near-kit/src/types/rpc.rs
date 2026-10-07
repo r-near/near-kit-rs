@@ -916,6 +916,26 @@ impl FinalExecutionOutcome {
         &self.transaction_outcome.id
     }
 
+    /// Every log line the transaction emitted: the transaction outcome's
+    /// logs, then each receipt outcome's logs in the order the RPC lists them.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use near_kit::rpc::FinalExecutionOutcome;
+    /// fn events(outcome: &FinalExecutionOutcome) -> Vec<&str> {
+    ///     outcome
+    ///         .logs()
+    ///         .filter_map(|log| log.strip_prefix("EVENT_JSON:"))
+    ///         .collect()
+    /// }
+    /// ```
+    pub fn logs(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(&self.transaction_outcome)
+            .chain(&self.receipts_outcome)
+            .flat_map(|outcome| outcome.outcome.logs.iter().map(String::as_str))
+    }
+
     /// Get total gas used across all receipts.
     pub fn total_gas_used(&self) -> Gas {
         let tx_gas = self.transaction_outcome.outcome.gas_burnt.as_gas();
@@ -2664,6 +2684,45 @@ mod tests {
     // ========================================================================
     // FinalExecutionOutcome helper tests
     // ========================================================================
+
+    #[test]
+    fn test_final_execution_outcome_logs_in_order() {
+        let outcome = |id: &str, logs: &[&str]| {
+            serde_json::json!({
+                "id": id,
+                "outcome": {
+                    "executor_id": "alice.near",
+                    "gas_burnt": 1,
+                    "tokens_burnt": "0",
+                    "logs": logs,
+                    "receipt_ids": [],
+                    "status": {"SuccessValue": ""}
+                },
+                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
+                "proof": []
+            })
+        };
+        let json = serde_json::json!({
+            "status": {"SuccessValue": ""},
+            "transaction": {
+                "signer_id": "alice.near",
+                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "nonce": 1,
+                "receiver_id": "bob.near",
+                "actions": [],
+                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
+                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+            },
+            "transaction_outcome": outcome("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U", &["tx"]),
+            "receipts_outcome": [
+                outcome("3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK", &["a", "b"]),
+                outcome("A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo", &[]),
+                outcome("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U", &["c"]),
+            ]
+        });
+        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+        assert_eq!(outcome.logs().collect::<Vec<_>>(), ["tx", "a", "b", "c"]);
+    }
 
     #[test]
     fn test_send_tx_response_with_outcome() {
