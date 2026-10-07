@@ -208,7 +208,7 @@ if let Some(token) = nft.token("token-123").await? {
 | Feature | Default | Description |
 |---------|---------|-------------|
 | `rpc` | Yes | The `Near` client, queries, transactions, token helpers, and the HTTP transport — reqwest, except on WASI |
-| `contracts` | No | Typed contract interfaces and macros; implies `rpc` |
+| `contracts` | No | Typed contract interfaces and macros. Without `rpc`, only the offline `FunctionCall` constructors are generated |
 | `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2`; implies `rpc`, is a no-op on non-WASI targets, and is unsupported on earlier WASI targets |
 | `keyring` | No | System keyring integration for desktop apps |
 | `file-signer` | No | Load signers from `~/.near-credentials` |

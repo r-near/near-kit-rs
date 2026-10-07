@@ -1011,6 +1011,8 @@ impl Near {
     /// strings first (`"counter.near".parse::<AccountId>()?`), or use
     /// [`AccountIdRef::new_or_panic`](crate::protocol::AccountIdRef::new_or_panic)
     /// in a `const` for a compile-time-checked literal.
+    ///
+    /// Requires both the `contracts` and `rpc` features.
     #[cfg(feature = "contracts")]
     pub fn contract<T: crate::Contract>(&self, contract_id: impl Into<AccountId>) -> T::Client {
         T::Client::new(self.clone(), contract_id.into())

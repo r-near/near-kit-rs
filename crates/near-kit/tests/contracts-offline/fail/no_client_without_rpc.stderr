@@ -1,0 +1,5 @@
+error[E0425]: cannot find type `CounterClient` in this scope
+  --> tests/contracts-offline/fail/no_client_without_rpc.rs:14:19
+   |
+14 |     let _: Option<CounterClient> = None;
+   |                   ^^^^^^^^^^^^^ not found in this scope

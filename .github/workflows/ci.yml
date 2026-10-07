@@ -30,8 +30,10 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features
       # Covers the sandbox crate without its optional tracing instrumentation.
       - run: cargo clippy -p near-kit-sandbox --all-targets --no-default-features --features integration-tests
-      # `contracts` is independently opt-in and implies `rpc`.
+      # `contracts` is independently opt-in and works offline (no `rpc`):
+      # the macro then generates only the `FunctionCall` constructors.
       - run: cargo check -p near-kit --all-targets --no-default-features --features contracts
+      - run: cargo check -p near-kit --all-targets --no-default-features --features rpc,contracts
       # Covers the offline (no `rpc`) configuration, including tests/examples gating
       - run: cargo check -p near-kit --all-targets --no-default-features
       # Mnemonic derivation is independently opt-in and works without networking.
@@ -69,6 +71,8 @@ jobs:
         run: cargo test -p near-kit --no-default-features --features mnemonic --lib
       - name: Run contract macro compile tests
         run: cargo test -p near-kit-macros --test trybuild
+      - name: Run offline (no rpc) contract macro compile tests
+        run: cargo test -p near-kit --no-default-features --features contracts --test contracts_offline
       - uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -103,7 +107,7 @@ jobs:
       # Browser: the full client over reqwest's JS `fetch` backend
       - run: cargo check --target wasm32-unknown-unknown -p near-kit --no-default-features --features js,rpc
       # Browser: typed-contract macro expansion on top of the RPC client
-      - run: cargo check --target wasm32-unknown-unknown -p near-kit --no-default-features --features js,contracts
+      - run: cargo check --target wasm32-unknown-unknown -p near-kit --no-default-features --features js,rpc,contracts
       # Browser: offline mnemonic generation and derivation with JS entropy
       - run: cargo check --target wasm32-unknown-unknown -p near-kit --no-default-features --features js,mnemonic
       # WASI: the offline core (types, signing, tx building) without a transport
@@ -113,7 +117,9 @@ jobs:
       # WASI with the RPC layer but no built-in transport (hosts without
       # wasi:http; the caller injects one via NearBuilder::transport)
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features rpc
-      # WASI with typed-contract support and an injected transport
+      # WASI: offline typed-contract bindings (FunctionCall constructors, no RPC)
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features contracts
+      # WASI with typed-contract support and an injected transport
+      - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features rpc,contracts
       # WASI with the built-in wasi:http transport
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features wasi-http

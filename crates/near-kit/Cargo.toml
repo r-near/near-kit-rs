@@ -18,8 +18,9 @@ near-gas.workspace = true
 near-global-contracts.workspace = true
 
 # Async runtime — only pull in `sync` here; `time` is added below for every
-# target except JS-host wasm.
-tokio = { version = "1", features = ["sync"] }
+# target except JS-host wasm. Used only by the RPC layer, so optional and
+# pulled in by `rpc`.
+tokio = { version = "1", features = ["sync"], optional = true }
 
 # HTTP client: target-specific — see the two feature-gated target tables below
 # (reqwest everywhere except WASI, via `rpc`; `wasi:http` bindings on
@@ -66,7 +67,7 @@ serde_with = { version = "3.20", features = ["hex", "base64"] }
 # sleep differently — the JS host's timers on `wasm32-unknown-unknown` (below),
 # `std::thread::sleep` on single-threaded WASI guests (see client/rpc.rs).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tokio = { version = "1", features = ["sync", "time"] }
+tokio = { version = "1", features = ["sync", "time"], optional = true }
 
 # HTTP transport, part 1 — every target except WASI (native + JS-host wasm,
 # which uses reqwest's fetch backend). Optional; pulled in by the `rpc` feature.
@@ -100,9 +101,12 @@ default = ["rpc"]
 # `rpc` alone means bring-your-own via `NearBuilder::transport`. Disable (via
 # `default-features = false`) for offline use — types, signing, and transaction
 # building without a network stack.
-rpc = ["dep:reqwest"]
-# Typed contract interfaces and the `#[near_kit::contract]` proc macro.
-contracts = ["rpc", "dep:near-kit-macros"]
+rpc = ["dep:reqwest", "dep:tokio"]
+# Typed contract interfaces and the `#[near_kit::contract]` proc macro. Works
+# offline: the macro always generates the `FunctionCall` constructors; the
+# `Near`-backed `<Name>Client`, `Contract`/`ContractClient`, and `Near::contract`
+# additionally need `rpc`.
+contracts = ["dep:near-kit-macros"]
 # The built-in `wasi:http` transport for `wasm32-wasip2` (implies `rpc`; a
 # no-op on every other target). Kept separate from `rpc` because merely
 # compiling the built-in transport makes the component import `wasi:http`,
@@ -126,7 +130,7 @@ js = ["getrandom/wasm_js"]
 # in the `near-kit-sandbox` package.
 [[example]]
 name = "quickstart"
-required-features = ["contracts"]
+required-features = ["rpc", "contracts"]
 
 [[example]]
 name = "meta_transactions"
@@ -149,3 +153,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 # (tests/secp256k1_nearcore_compat.rs).
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 secp256k1 = { version = "0.27", default-features = false, features = ["std", "recovery"] }
+# Compile tests for `#[near_kit::contract]` without `rpc`
+# (tests/contracts_offline.rs). serde and borsh are listed so the generated
+# test crates can derive the argument types.
+trybuild = "1.0"
+serde.workspace = true
+borsh.workspace = true
