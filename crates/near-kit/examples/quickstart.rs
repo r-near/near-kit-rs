@@ -176,21 +176,15 @@ async fn multi_account_example(near: &Near) -> Result<(), Error> {
 
     // Derive a second signing context from the same connection.
     // In a real app, this would be a different account's key.
-    let account_id = near.account_id().expect("credentials configured above");
+    let account_id = near.account_id();
     let second = near.with_signer(InMemorySigner::new(
         account_id,
         std::env::var("NEAR_PRIVATE_KEY").unwrap(),
     )?);
 
     // Both clients share the same RPC connection (no extra overhead)
-    println!(
-        "Original signer: {}",
-        near.account_id().expect("credentials configured above")
-    );
-    println!(
-        "Derived signer: {}",
-        second.account_id().expect("signer configured above")
-    );
+    println!("Original signer: {}", near.account_id());
+    println!("Derived signer: {}", second.account_id());
     println!("Same RPC endpoint: {}", near.rpc_url() == second.rpc_url());
 
     Ok(())
