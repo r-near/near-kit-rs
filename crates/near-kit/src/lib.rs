@@ -231,12 +231,12 @@
 //! # async fn example() -> Result<(), Error> {
 //! let near = Near::mainnet().build();
 //!
-//! let token = near.ft("wrap.near")?;
+//! let token = near.ft("wrap.near".parse::<AccountId>()?);
 //! let balance = token.balance_of("alice.near").await?;
 //! println!("Balance: {}", balance);
 //!
 //! // NFTs (NEP-171)
-//! let nft = near.nft("nft.testnet")?;
+//! let nft = near.nft("nft.testnet".parse::<AccountId>()?);
 //! let tokens = nft.tokens_for_owner("alice.testnet", None, Some(10)).await?;
 //! # Ok(())
 //! # }
@@ -271,7 +271,7 @@
 //! }
 //!
 //! async fn example(near: &Near) -> Result<(), Error> {
-//!     let counter = near.contract::<Counter>("counter.testnet")?;
+//!     let counter = near.contract::<Counter>("counter.testnet".parse::<AccountId>()?);
 //!
 //!     // Type-safe view call
 //!     let count = counter.get_count().await?;

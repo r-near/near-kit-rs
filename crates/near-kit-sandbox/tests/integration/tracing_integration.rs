@@ -419,7 +419,7 @@ async fn test_ft_balance_of_span_hierarchy() {
     // Clear spans from setup, we only care about balance_of
     captured.spans.lock().unwrap().clear();
 
-    let ft = ft_near.ft(&ft_id).unwrap();
+    let ft = ft_near.ft(&ft_id);
     let _balance = ft.balance_of(&owner_id).await.unwrap();
 
     // Verify ft_balance_of span was created

@@ -31,7 +31,7 @@ use super::types::{NftContractMetadata, NftToken};
 ///
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::testnet().build();
-/// let nft = near.nft("nft-contract.near")?;
+/// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
 ///
 /// // Get contract metadata
 /// let meta = nft.metadata().await.map_err(Error::from)?;
@@ -114,7 +114,7 @@ impl NonFungibleToken {
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
-    /// let nft = near.nft("nft-contract.near")?;
+    /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
     ///
     /// if let Some(token) = nft.token("token-123").await? {
     ///     println!("Token {} owned by {}", token.token_id, token.owner_id);
@@ -155,7 +155,7 @@ impl NonFungibleToken {
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
-    /// let nft = near.nft("nft-contract.near")?;
+    /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
     ///
     /// // Get first 10 tokens
     /// let tokens = nft.tokens_for_owner("alice.near", None, Some(10)).await?;
@@ -261,7 +261,7 @@ impl NonFungibleToken {
     /// let near = Near::testnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let nft = near.nft("nft-contract.near")?;
+    /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
     ///
     /// nft.transfer("bob.near", "token-123").await?;
     /// # Ok(())
@@ -344,7 +344,7 @@ impl NonFungibleToken {
     /// let near = Near::testnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let nft = near.nft("nft-contract.near")?;
+    /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
     ///
     /// nft.transfer_call("marketplace.near", "token-123", r#"{"action":"list","price":"10"}"#)
     ///     .await?;

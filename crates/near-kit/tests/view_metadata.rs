@@ -171,7 +171,8 @@ async fn generated_contract_views_expose_metadata_without_macro_changes() {
     }
 
     let (near, _) = client(b"123".to_vec());
-    let counter = near.contract::<Counter>("counter.testnet").unwrap();
+    let counter =
+        near.contract::<Counter>("counter.testnet".parse::<near_kit::AccountId>().unwrap());
     let result = counter.get_count().with_metadata().await.unwrap();
     assert_eq!(result.result, 123);
     assert_metadata(&result);
