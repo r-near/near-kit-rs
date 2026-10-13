@@ -7,10 +7,12 @@
 //! account exists.
 //!
 //! The id commits to the *exact* bytes, which is why the wire form is the raw
-//! [`RawStateInit`] and the typed value is only a view of it. nearcore accepts
-//! only the canonical encoding (sorted maps and sets without duplicates, one
-//! struct per version): [`UniversalStateInit::from_raw`] rejects anything else,
-//! so each logical value has exactly one id.
+//! [`RawStateInit`] and the typed value is only a view of it. From protocol 88
+//! nearcore accepts only the canonical encoding (sorted maps and sets without
+//! duplicates, one struct per version); protocol 87 accepts any well-formed
+//! borsh. [`UniversalStateInit::from_raw`] enforces the strict rule, so each
+//! logical value built here has exactly one id, while
+//! [`UniversalStateInit::from_raw_lenient`] decodes what the chain may hold.
 //!
 //! # Example
 //!
