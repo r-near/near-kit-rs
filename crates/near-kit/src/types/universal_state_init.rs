@@ -86,11 +86,14 @@ impl RawStateInit {
         encode_universal_account_id(&hash)
     }
 
-    /// Decode into the typed form, accepting only the canonical encoding.
+    /// Decode into the typed form, accepting any well-formed encoding.
     ///
-    /// Same as [`UniversalStateInit::from_raw`].
+    /// Same as [`UniversalStateInit::from_raw_lenient`]: these bytes may come
+    /// from an action the chain already executed, and before protocol 88
+    /// nearcore accepted non-canonical encodings. Use
+    /// [`UniversalStateInit::from_raw`] to check the bytes are canonical.
     pub fn decode(&self) -> Result<UniversalStateInit, UniversalStateInitError> {
-        UniversalStateInit::from_raw(self)
+        UniversalStateInit::from_raw_lenient(self)
     }
 }
 
@@ -238,7 +241,8 @@ impl UniversalStateInit {
     /// Decode `raw`, accepting only the canonical encoding.
     ///
     /// This is what nearcore accepts from the `CanonicalUniversalStateInit`
-    /// protocol feature on. Fails with
+    /// protocol feature (protocol 88) on, so use it to validate bytes before
+    /// sending them. Fails with
     /// [`Malformed`](UniversalStateInitError::Malformed) for bytes that do not
     /// decode (including trailing bytes), and with
     /// [`NonCanonical`](UniversalStateInitError::NonCanonical) for any
@@ -255,9 +259,10 @@ impl UniversalStateInit {
     /// Decode `raw`, accepting any well-formed borsh encoding.
     ///
     /// A non-canonical encoding of a value decodes, but hashes to a different
-    /// id than the value's canonical one and is rejected by the chain. Use
-    /// this only to inspect payloads, e.g. ones created before the
-    /// `CanonicalUniversalStateInit` protocol feature.
+    /// id than the value's canonical one. Protocol 87 accepted such encodings
+    /// and protocol 88 (`CanonicalUniversalStateInit`) rejects them, so this
+    /// is the right way to read bytes the chain has already accepted, and
+    /// [`from_raw`](Self::from_raw) the right way to validate new ones.
     pub fn from_raw_lenient(raw: &RawStateInit) -> Result<Self, UniversalStateInitError> {
         borsh::from_slice(&raw.0).map_err(|_| UniversalStateInitError::Malformed)
     }
@@ -633,6 +638,23 @@ mod tests {
             );
             let lenient = UniversalStateInit::from_raw_lenient(&raw).unwrap();
             assert_ne!(lenient.to_raw(), raw);
+        }
+    }
+
+    #[test]
+    fn read_side_decoding_accepts_non_canonical() {
+        // Protocol 87 executed non-canonical state inits, so decoding bytes
+        // taken from an action or view must not reject them.
+        for raw in non_canonical_encodings() {
+            let lenient = UniversalStateInit::from_raw_lenient(&raw).unwrap();
+            assert_eq!(raw.decode().unwrap(), lenient, "{raw:?}");
+            let action = crate::types::UniversalStateInitAction {
+                state_init: raw.as_bytes().to_vec(),
+                deposit: crate::types::NearToken::from_yoctonear(0),
+            };
+            assert_eq!(action.decode_state_init().unwrap(), lenient);
+            // The id is still the one the chain derives: over the raw bytes.
+            assert_eq!(action.derive_account_id(), raw.derive_account_id());
         }
     }
 

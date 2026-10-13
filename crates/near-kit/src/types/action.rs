@@ -458,10 +458,14 @@ impl UniversalStateInitAction {
         RawStateInit::from(self.state_init.as_slice()).derive_account_id()
     }
 
-    /// Decode the carried bytes into the typed form, accepting only the
-    /// canonical encoding (see [`UniversalStateInit::from_raw`]).
+    /// Decode the carried bytes into the typed form, accepting any
+    /// well-formed encoding (see [`UniversalStateInit::from_raw_lenient`]).
+    ///
+    /// Protocol 87 executed non-canonical state inits, so an action read back
+    /// from the chain may carry one. Use [`UniversalStateInit::from_raw`] to
+    /// check that the bytes are canonical, which protocol 88 requires.
     pub fn decode_state_init(&self) -> Result<UniversalStateInit, UniversalStateInitError> {
-        UniversalStateInit::from_raw(&RawStateInit::from(self.state_init.as_slice()))
+        UniversalStateInit::from_raw_lenient(&RawStateInit::from(self.state_init.as_slice()))
     }
 }
 
@@ -1242,8 +1246,11 @@ mod tests {
             action.derive_account_id(),
             RawStateInit(unsorted).derive_account_id()
         );
+        // Reading it back is lenient (protocol 87 executed such bytes); the
+        // strict check is explicit.
+        assert!(action.decode_state_init().is_ok());
         assert_eq!(
-            action.decode_state_init(),
+            UniversalStateInit::from_raw(&RawStateInit(action.state_init.clone())),
             Err(UniversalStateInitError::NonCanonical)
         );
     }
