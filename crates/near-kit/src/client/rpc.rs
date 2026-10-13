@@ -1760,13 +1760,11 @@ fn parse_timeout_cause(info: &serde_json::Value) -> Option<TimeoutCause> {
 /// needs it to poll `tx_status` instead of signing a new transaction.
 fn with_timeout_tx_hash(err: RpcError, tx_hash: CryptoHash) -> RpcError {
     match err {
-        RpcError::RequestTimeout {
+        // The hash of the transaction we sent is authoritative; ignore any
+        // hash a proxy may have put in the payload.
+        RpcError::RequestTimeout { message, cause, .. } => RpcError::RequestTimeout {
             message,
-            transaction_hash,
-            cause,
-        } => RpcError::RequestTimeout {
-            message,
-            transaction_hash: transaction_hash.or(Some(tx_hash)),
+            transaction_hash: Some(tx_hash),
             cause,
         },
         other => other,
