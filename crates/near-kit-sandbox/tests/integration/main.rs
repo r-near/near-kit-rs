@@ -25,6 +25,7 @@ mod token_integration;
 mod tracing_integration;
 mod typed_contract_integration;
 mod typed_error_integration;
+mod universal_account_integration;
 mod view_state_integration;
 
 mod support;
