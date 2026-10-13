@@ -543,12 +543,8 @@ impl PublicKeyHandle {
             Self::MlDsa65Hash(_) => key.to_ml_dsa65_hash().as_ref() == Some(self),
         }
     }
-}
 
-impl PublicKeyHandle {
-    /// Sort key: the borsh tag the chain gives this form, then its bytes. Each
-    /// tag has a fixed length, so this orders exactly like nearcore's derived
-    /// `Ord` on `PublicKeyHandle` (whose ML-DSA-65 hash tag is `3`).
+    /// (borsh tag, bytes); matches nearcore's derived `Ord`.
     fn sort_key(&self) -> (u8, &[u8]) {
         match self {
             Self::Full(pk) => (pk.key_type() as u8, pk.as_bytes()),
