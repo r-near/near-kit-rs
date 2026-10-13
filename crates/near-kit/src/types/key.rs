@@ -460,8 +460,13 @@ const ML_DSA_65_HASH_PREFIX: &str = "ml-dsa-65-hash";
 /// - `From<PublicKey>` wraps a full key as [`PublicKeyHandle::Full`] without
 ///   hashing.
 ///
-/// Parses from and prints as either form; there is deliberately no borsh impl
-/// (a handle never goes on the wire).
+/// Parses from and prints as either form. There is no borsh impl: a handle
+/// is never part of a transaction, and the one wire format that carries
+/// handles ([`UniversalStateInit`](crate::protocol::UniversalStateInit)'s
+/// access keys) encodes them itself.
+///
+/// Ordering follows nearcore's: by key type (ed25519, secp256k1, a full
+/// ML-DSA-65 key, an ML-DSA-65 hash), then by bytes.
 ///
 /// # Example
 ///
@@ -537,6 +542,30 @@ impl PublicKeyHandle {
             Self::Full(pk) => pk == key,
             Self::MlDsa65Hash(_) => key.to_ml_dsa65_hash().as_ref() == Some(self),
         }
+    }
+}
+
+impl PublicKeyHandle {
+    /// Sort key: the borsh tag the chain gives this form, then its bytes. Each
+    /// tag has a fixed length, so this orders exactly like nearcore's derived
+    /// `Ord` on `PublicKeyHandle` (whose ML-DSA-65 hash tag is `3`).
+    fn sort_key(&self) -> (u8, &[u8]) {
+        match self {
+            Self::Full(pk) => (pk.key_type() as u8, pk.as_bytes()),
+            Self::MlDsa65Hash(bytes) => (3, bytes.as_slice()),
+        }
+    }
+}
+
+impl Ord for PublicKeyHandle {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.sort_key().cmp(&other.sort_key())
+    }
+}
+
+impl PartialOrd for PublicKeyHandle {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
