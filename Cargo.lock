@@ -1843,7 +1843,7 @@ dependencies = [
 
 [[package]]
 name = "near-kit"
-version = "0.18.3"
+version = "0.19.0"
 dependencies = [
  "base64 0.23.1",
  "bip39",
@@ -1883,7 +1883,7 @@ dependencies = [
 
 [[package]]
 name = "near-kit-macros"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "near-kit",
  "proc-macro-crate",
@@ -1897,7 +1897,7 @@ dependencies = [
 
 [[package]]
 name = "near-kit-sandbox"
-version = "0.18.3"
+version = "0.19.0"
 dependencies = [
  "futures",
  "libc",
