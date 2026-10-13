@@ -222,7 +222,8 @@ impl AccessKey {
 /// 0 = CreateAccount, 1 = DeployContract, 2 = FunctionCall, 3 = Transfer,
 /// 4 = Stake, 5 = AddKey, 6 = DeleteKey, 7 = DeleteAccount, 8 = Delegate,
 /// 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit,
-/// 12 = TransferToGasKey, 13 = WithdrawFromGasKey, 14 = DelegateV2
+/// 12 = TransferToGasKey, 13 = WithdrawFromGasKey, 14 = DelegateV2,
+/// 15 = UniversalStateInit
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub enum Action {
     /// Create a new account. (discriminant = 0)
@@ -255,6 +256,9 @@ pub enum Action {
     WithdrawFromGasKey(WithdrawFromGasKeyAction),
     /// Gas-key-capable delegate action (meta-transactions, NEP-611). (discriminant = 14)
     DelegateV2(Box<VersionedSignedDelegateAction>),
+    /// Create a `0u` universal account from its state init (nearcore 2.14).
+    /// (discriminant = 15)
+    UniversalStateInit(UniversalStateInitAction),
 }
 
 impl Action {
@@ -430,6 +434,20 @@ pub struct WithdrawFromGasKeyAction {
     pub public_key: PublicKey,
     /// Amount of NEAR to withdraw.
     pub amount: NearToken,
+}
+
+/// Create a `0u` universal account from its state init (nearcore 2.14).
+///
+/// `state_init` is the borsh encoding of a `UniversalStateInit`, carried
+/// verbatim: the receiver's `0u` account id commits to exactly these bytes,
+/// so they must not be re-encoded. near-kit does not decode them or derive
+/// the account id.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct UniversalStateInitAction {
+    /// Borsh-encoded `UniversalStateInit` bytes.
+    pub state_init: Vec<u8>,
+    /// Amount to attach for the new account's storage staking.
+    pub deposit: NearToken,
 }
 
 /// Delegate action for meta-transactions.
@@ -1126,6 +1144,21 @@ mod tests {
             bytes[0], 13,
             "WithdrawFromGasKey should have discriminant 13"
         );
+    }
+
+    #[test]
+    fn test_universal_state_init_wire_format() {
+        let action = Action::UniversalStateInit(UniversalStateInitAction {
+            state_init: vec![0xaa, 0xbb, 0xcc],
+            deposit: NearToken::from_yoctonear(7),
+        });
+        let bytes = borsh::to_vec(&action).unwrap();
+        // discriminant 15, then state_init as a u32-length-prefixed byte
+        // vector (nearcore's `RawStateInit`), then the u128 deposit.
+        let mut expected = vec![15, 3, 0, 0, 0, 0xaa, 0xbb, 0xcc];
+        expected.extend_from_slice(&7u128.to_le_bytes());
+        assert_eq!(bytes, expected);
+        assert_eq!(borsh::from_slice::<Action>(&bytes).unwrap(), action);
     }
 
     #[test]
