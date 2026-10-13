@@ -1083,6 +1083,11 @@ pub enum ActionsValidationError {
         limit: u64,
         number_of_deploy_actions: u64,
     },
+    /// A transfer to a universal (`0u`) account while transfers to them are
+    /// banned (protocol 87 until universal accounts are enabled).
+    TransferToUniversalAccountNotAllowed {
+        account_id: AccountId,
+    },
     /// Error variant that this version of near-kit does not recognize, or
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
@@ -1193,6 +1198,11 @@ impl std::fmt::Display for ActionsValidationError {
             } => write!(
                 f,
                 "number of deploy actions ({number_of_deploy_actions}) exceeded the limit ({limit})"
+            ),
+            Self::TransferToUniversalAccountNotAllowed { account_id } => write!(
+                f,
+                "transfers to the universal account {account_id} are not allowed yet \
+                 (they are rejected until universal accounts are enabled)"
             ),
             Self::Unknown(value) => write!(f, "unknown actions validation error: {value}"),
         }
@@ -1431,6 +1441,77 @@ mod tests {
                 assert_eq!(*limit, 4);
             }
             other => panic!("Expected TotalNumberOfDeployActionsExceeded, got {other:?}"),
+        }
+    }
+
+    const UNIVERSAL_ACCOUNT_ID: &str = "0u000g40r40m30e209185gr38e1w8124gk2gahc5rr34d1p70x3rfg";
+
+    fn assert_transfer_to_universal_account_not_allowed(err: &ActionsValidationError) {
+        match err {
+            ActionsValidationError::TransferToUniversalAccountNotAllowed { account_id } => {
+                assert_eq!(account_id.as_str(), UNIVERSAL_ACCOUNT_ID);
+            }
+            other => panic!("Expected TransferToUniversalAccountNotAllowed, got {other:?}"),
+        }
+        assert!(err.to_string().contains(UNIVERSAL_ACCOUNT_ID), "{err}");
+    }
+
+    #[test]
+    fn test_actions_validation_transfer_to_universal_account_not_allowed() {
+        let json = serde_json::json!({
+            "TransferToUniversalAccountNotAllowed": { "account_id": UNIVERSAL_ACCOUNT_ID }
+        });
+        let err: ActionsValidationError = serde_json::from_value(json).unwrap();
+        assert_transfer_to_universal_account_not_allowed(&err);
+    }
+
+    #[test]
+    fn test_invalid_tx_transfer_to_universal_account_not_allowed() {
+        // A transaction transferring to a `0u` account is rejected at submission.
+        let json = serde_json::json!({
+            "InvalidTxError": {
+                "ActionsValidation": {
+                    "TransferToUniversalAccountNotAllowed": { "account_id": UNIVERSAL_ACCOUNT_ID }
+                }
+            }
+        });
+        let err: TxExecutionError = serde_json::from_value(json).unwrap();
+        match &err {
+            TxExecutionError::InvalidTxError(InvalidTxError::ActionsValidation(e)) => {
+                assert_transfer_to_universal_account_not_allowed(e);
+            }
+            other => panic!("Expected InvalidTxError::ActionsValidation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_new_receipt_transfer_to_universal_account_not_allowed() {
+        // A contract-issued transfer to a `0u` account fails the action that
+        // created the receipt.
+        let json = serde_json::json!({
+            "ActionError": {
+                "index": 0,
+                "kind": {
+                    "NewReceiptValidationError": {
+                        "ActionsValidation": {
+                            "TransferToUniversalAccountNotAllowed": {
+                                "account_id": UNIVERSAL_ACCOUNT_ID
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        let err: TxExecutionError = serde_json::from_value(json).unwrap();
+        match &err {
+            TxExecutionError::ActionError(ActionError {
+                kind:
+                    ActionErrorKind::NewReceiptValidationError(
+                        ReceiptValidationError::ActionsValidation(e),
+                    ),
+                ..
+            }) => assert_transfer_to_universal_account_not_allowed(e),
+            other => panic!("Expected NewReceiptValidationError, got {other:?}"),
         }
     }
 
