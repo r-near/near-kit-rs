@@ -302,10 +302,6 @@ pub struct StateProofView {
 }
 
 /// Which piece of a shard's state a light client state proof targets.
-///
-/// An account running a global contract has no local code, so
-/// [`LocalContractCode`](Self::LocalContractCode) proves an absent value for
-/// it.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "target_type", rename_all = "snake_case")]
@@ -316,6 +312,8 @@ pub enum StateProofTarget {
         account_id: AccountId,
     },
     /// The account's locally deployed contract code.
+    ///
+    /// Absent for accounts using a global contract.
     LocalContractCode {
         /// Account whose code to prove.
         account_id: AccountId,

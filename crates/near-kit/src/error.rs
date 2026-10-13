@@ -491,12 +491,15 @@ pub enum RpcError {
     },
 
     // ─── Light Client Proofs ───
-    /// The chunk has no SPICE certification (`CHUNK_NOT_CERTIFIED`), from the
-    /// nearcore 2.14 light client proof methods.
+    /// The chunk has no SPICE certification (`CHUNK_NOT_CERTIFIED`).
     ///
     /// Either the chunk is not certified yet or the network does not run
     /// SPICE, in which case no chunk ever is.
-    #[error("chunk {} of block {} is not certified", chunk_id.shard_id, chunk_id.block_hash)]
+    #[error(
+        "chunk {} of block {} is not certified",
+        chunk_id.shard_id,
+        chunk_id.block_hash
+    )]
     ChunkNotCertified { chunk_id: SpiceChunkId },
 
     /// The light client head is not above the block that certified the chunk
@@ -526,7 +529,11 @@ pub enum RpcError {
     },
 
     /// The node no longer has the state for the chunk (`STATE_NOT_AVAILABLE`).
-    #[error("state for chunk {} of block {} is not available on this node", chunk_id.shard_id, chunk_id.block_hash)]
+    #[error(
+        "state for chunk {} of block {} is not available on this node",
+        chunk_id.shard_id,
+        chunk_id.block_hash
+    )]
     StateNotAvailable { chunk_id: SpiceChunkId },
 
     /// The node does not know the transaction or receipt

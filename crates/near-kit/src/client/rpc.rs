@@ -966,12 +966,8 @@ impl RpcClient {
                     }
                 }
                 "TARGET_SHARD_MISMATCH" => {
-                    let account_id = info
-                        .and_then(|i| i.get("account_id"))
-                        .and_then(|a| a.as_str())
-                        .and_then(|a| a.parse().ok());
                     if let (Some(account_id), Some(account_shard_id), Some(requested_shard_id)) = (
-                        account_id,
+                        info_parse(info, "account_id"),
                         info_u64(info, "account_shard_id"),
                         info_u64(info, "requested_shard_id"),
                     ) {
@@ -983,12 +979,12 @@ impl RpcClient {
                     }
                 }
                 "UNKNOWN_TRANSACTION_OR_RECEIPT" => {
-                    if let Some(id) = info_hash(info, "transaction_or_receipt_id") {
+                    if let Some(id) = info_parse(info, "transaction_or_receipt_id") {
                         return RpcError::UnknownTransactionOrReceipt(id);
                     }
                 }
                 "NOT_CONFIRMED" => {
-                    if let Some(id) = info_hash(info, "transaction_or_receipt_id") {
+                    if let Some(id) = info_parse(info, "transaction_or_receipt_id") {
                         return RpcError::TransactionOrReceiptNotConfirmed(id);
                     }
                 }
@@ -1565,11 +1561,7 @@ impl RpcClient {
     /// When the transaction has been executed, the outcome's `receipts` field
     /// will be populated (unlike `send_tx` which leaves it empty).
     ///
-    /// nearcore 2.14 stabilizes this method as `tx_status` and keeps
-    /// `EXPERIMENTAL_tx_status` as a deprecated alias served by the same
-    /// handler. nearcore 2.13 only knows the `EXPERIMENTAL_` name, so this
-    /// keeps calling it until 2.14 is the oldest version on the networks and
-    /// major providers.
+    /// 2.14 stabilizes this as `tx_status`; stays on the alias until 2.14 is the floor.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%tx_hash, sender = %sender_id, ?wait_until)))]
     pub async fn tx_status(
         &self,
@@ -1583,7 +1575,7 @@ impl RpcClient {
             "wait_until": wait_until.as_str(),
         });
         let mut response: RawTransactionResponse = self
-            .call(TX_STATUS_METHOD, params)
+            .call("EXPERIMENTAL_tx_status", params)
             .await
             .map_err(|e| with_timeout_tx_hash(e, *tx_hash))?;
         response.transaction_hash = response
@@ -1627,11 +1619,12 @@ impl RpcClient {
         chunk_id: &SpiceChunkId,
         light_client_head: &CryptoHash,
     ) -> Result<ChunkExecutionProofResponse, RpcError> {
-        self.call(
-            "EXPERIMENTAL_light_client_chunk_execution_proof",
-            chunk_execution_proof_params(chunk_id, light_client_head),
-        )
-        .await
+        let params = serde_json::json!({
+            "chunk_id": chunk_id,
+            "light_client_head": light_client_head,
+        });
+        self.call("EXPERIMENTAL_light_client_chunk_execution_proof", params)
+            .await
     }
 
     /// Prove a transaction or receipt execution outcome, together with the
@@ -1648,11 +1641,11 @@ impl RpcClient {
         id: &TransactionOrReceiptId,
         light_client_head: &CryptoHash,
     ) -> Result<ExecutionOutcomeProofResponse, RpcError> {
-        self.call(
-            "EXPERIMENTAL_light_client_execution_outcome_proof",
-            execution_outcome_proof_params(id, light_client_head),
-        )
-        .await
+        // nearcore flattens the id next to `light_client_head`.
+        let mut params = serde_json::to_value(id).expect("an id serializes to a JSON object");
+        params["light_client_head"] = serde_json::json!(light_client_head);
+        self.call("EXPERIMENTAL_light_client_execution_outcome_proof", params)
+            .await
     }
 
     /// Read a value from a shard's state after a chunk, with the trie nodes
@@ -1670,11 +1663,13 @@ impl RpcClient {
         target: &StateProofTarget,
         light_client_head: &CryptoHash,
     ) -> Result<StateProofResponse, RpcError> {
-        self.call(
-            "EXPERIMENTAL_light_client_state_proof",
-            state_proof_params(chunk_id, target, light_client_head),
-        )
-        .await
+        let params = serde_json::json!({
+            "chunk_id": chunk_id,
+            "target": target,
+            "light_client_head": light_client_head,
+        });
+        self.call("EXPERIMENTAL_light_client_state_proof", params)
+            .await
     }
 
     /// Merge block reference parameters into a JSON object.
@@ -1844,77 +1839,11 @@ fn info_u64(info: Option<&serde_json::Value>, field: &str) -> Option<u64> {
         .and_then(serde_json::Value::as_u64)
 }
 
-/// A base58 hash field of an error payload.
-fn info_hash(info: Option<&serde_json::Value>, field: &str) -> Option<CryptoHash> {
+/// A string field of an error payload, parsed with `FromStr`.
+fn info_parse<T: std::str::FromStr>(info: Option<&serde_json::Value>, field: &str) -> Option<T> {
     info.and_then(|i| i.get(field))
-        .and_then(|h| h.as_str())
-        .and_then(|h| h.parse().ok())
-}
-
-/// The JSON-RPC method [`RpcClient::tx_status`] calls.
-///
-/// nearcore 2.14 stabilizes `tx_status` and keeps `EXPERIMENTAL_tx_status` as
-/// a deprecated alias; both names reach the same handler with receipts
-/// included. nearcore 2.13 has no `tx_status`, and 2.14 is not yet on mainnet,
-/// so the alias is the one name every supported node accepts. A
-/// `tx_status`-then-fallback scheme would cost a second round trip on every
-/// status poll against 2.13 nodes and relies on gateways passing nearcore's
-/// `METHOD_NOT_FOUND` (-32601) through unchanged, which method-allowlisting
-/// gateways do not. Switch to `tx_status` once 2.14 is the floor.
-const TX_STATUS_METHOD: &str = "EXPERIMENTAL_tx_status";
-
-/// Params for `EXPERIMENTAL_light_client_chunk_execution_proof`.
-fn chunk_execution_proof_params(
-    chunk_id: &SpiceChunkId,
-    light_client_head: &CryptoHash,
-) -> serde_json::Value {
-    serde_json::json!({
-        "chunk_id": chunk_id,
-        "light_client_head": light_client_head,
-    })
-}
-
-/// Params for `EXPERIMENTAL_light_client_execution_outcome_proof`.
-///
-/// nearcore flattens the `TransactionOrReceiptId` into the request, so
-/// `type` and the id fields sit next to `light_client_head`.
-fn execution_outcome_proof_params(
-    id: &TransactionOrReceiptId,
-    light_client_head: &CryptoHash,
-) -> serde_json::Value {
-    match id {
-        TransactionOrReceiptId::Transaction {
-            transaction_hash,
-            sender_id,
-        } => serde_json::json!({
-            "type": "transaction",
-            "transaction_hash": transaction_hash,
-            "sender_id": sender_id,
-            "light_client_head": light_client_head,
-        }),
-        TransactionOrReceiptId::Receipt {
-            receipt_id,
-            receiver_id,
-        } => serde_json::json!({
-            "type": "receipt",
-            "receipt_id": receipt_id,
-            "receiver_id": receiver_id,
-            "light_client_head": light_client_head,
-        }),
-    }
-}
-
-/// Params for `EXPERIMENTAL_light_client_state_proof`.
-fn state_proof_params(
-    chunk_id: &SpiceChunkId,
-    target: &StateProofTarget,
-    light_client_head: &CryptoHash,
-) -> serde_json::Value {
-    serde_json::json!({
-        "chunk_id": chunk_id,
-        "target": target,
-        "light_client_head": light_client_head,
-    })
+        .and_then(|v| v.as_str())
+        .and_then(|v| v.parse().ok())
 }
 
 /// Check if an HTTP status code is retryable.
@@ -3697,8 +3626,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_tx_status_uses_experimental_alias_for_2_13_nodes() {
-        // nearcore 2.13 has no `tx_status`; 2.14 serves the alias from the
-        // same handler. Pin the alias until 2.14 is the floor.
         let transport = RecordingTransport::new([serde_json::json!({
             "final_execution_status": "NONE",
         })]);
@@ -3820,16 +3747,11 @@ mod tests {
                 "status": { "SuccessReceiptId": LC_ROOT }
             }
         });
-        let transport = RecordingTransport::new([
-            serde_json::json!({
-                "chunk_execution_proof": chunk_execution_proof_fixture(),
-                "outcome_proof": outcome_proof.clone(),
-            }),
-            serde_json::json!({
-                "chunk_execution_proof": chunk_execution_proof_fixture(),
-                "outcome_proof": outcome_proof,
-            }),
-        ]);
+        let resp = serde_json::json!({
+            "chunk_execution_proof": chunk_execution_proof_fixture(),
+            "outcome_proof": outcome_proof,
+        });
+        let transport = RecordingTransport::new([resp.clone(), resp]);
         let client = transport.client();
 
         let tx = TransactionOrReceiptId::Transaction {
@@ -4006,120 +3928,62 @@ mod tests {
     #[tokio::test]
     async fn test_light_client_proof_errors_are_typed_and_not_retried() {
         let chunk_id = serde_json::json!({ "block_hash": LC_BLOCK, "shard_id": 3 });
-
-        // The steady-state answer on a network without SPICE.
-        let (err, calls) = light_client_error(
-            "CHUNK_NOT_CERTIFIED",
-            serde_json::json!({ "chunk_id": chunk_id }),
-        )
-        .await;
-        assert!(
-            matches!(err, RpcError::ChunkNotCertified { chunk_id } if chunk_id == lc_chunk_id()),
-            "{err:?}"
-        );
-        assert_eq!(
-            calls, 1,
-            "CHUNK_NOT_CERTIFIED must not burn the retry budget"
-        );
-
-        let (err, calls) = light_client_error(
-            "STATE_NOT_AVAILABLE",
-            serde_json::json!({ "chunk_id": chunk_id }),
-        )
-        .await;
-        assert!(matches!(err, RpcError::StateNotAvailable { .. }), "{err:?}");
-        assert_eq!(calls, 1);
-
-        let (err, calls) = light_client_error(
-            "LIGHT_CLIENT_HEAD_TOO_OLD",
-            serde_json::json!({
-                "chunk_id": chunk_id,
-                "certifying_block_height": 105,
-                "head_height": 100,
-            }),
-        )
-        .await;
-        assert!(
-            matches!(
-                err,
-                RpcError::LightClientHeadTooOld {
-                    certifying_block_height: 105,
-                    head_height: 100,
-                    ..
-                }
+        for (cause, info, expected) in [
+            (
+                "CHUNK_NOT_CERTIFIED",
+                serde_json::json!({ "chunk_id": chunk_id }),
+                format!("chunk 3 of block {LC_BLOCK} is not certified"),
             ),
-            "{err:?}"
-        );
-        assert_eq!(calls, 1);
-
-        let (err, calls) =
-            light_client_error("SHARD_NOT_TRACKED", serde_json::json!({ "shard_id": 3 })).await;
-        assert!(
-            matches!(err, RpcError::ShardNotTracked { shard_id: 3 }),
-            "{err:?}"
-        );
-        assert_eq!(calls, 1);
-
-        let (err, calls) = light_client_error(
-            "TARGET_SHARD_MISMATCH",
-            serde_json::json!({
-                "account_id": "alice.near",
-                "account_shard_id": 1,
-                "requested_shard_id": 3,
-            }),
-        )
-        .await;
-        assert!(
-            matches!(
-                &err,
-                RpcError::TargetShardMismatch {
-                    account_id,
-                    account_shard_id: 1,
-                    requested_shard_id: 3,
-                } if account_id == "alice.near"
+            (
+                "STATE_NOT_AVAILABLE",
+                serde_json::json!({ "chunk_id": chunk_id }),
+                format!("state for chunk 3 of block {LC_BLOCK} is not available on this node"),
             ),
-            "{err:?}"
-        );
-        assert_eq!(calls, 1);
-
-        let (err, calls) = light_client_error(
-            "UNKNOWN_TRANSACTION_OR_RECEIPT",
-            serde_json::json!({ "transaction_or_receipt_id": LC_HEAD }),
-        )
-        .await;
-        assert!(
-            matches!(err, RpcError::UnknownTransactionOrReceipt(id) if id == lc_head()),
-            "{err:?}"
-        );
-        assert_eq!(calls, 1);
-
-        let (err, calls) = light_client_error(
-            "NOT_CONFIRMED",
-            serde_json::json!({ "transaction_or_receipt_id": LC_HEAD }),
-        )
-        .await;
-        assert!(
-            matches!(err, RpcError::TransactionOrReceiptNotConfirmed(id) if id == lc_head()),
-            "{err:?}"
-        );
-        assert_eq!(calls, 1);
-
-        let (err, calls) = light_client_error(
-            "INCONSISTENT_STATE",
-            serde_json::json!({ "number_or_shards": 4, "execution_outcome_shard_id": 7 }),
-        )
-        .await;
-        assert!(
-            matches!(
-                err,
-                RpcError::InconsistentState {
-                    number_of_shards: 4,
-                    execution_outcome_shard_id: 7,
-                }
+            (
+                "LIGHT_CLIENT_HEAD_TOO_OLD",
+                serde_json::json!({
+                    "chunk_id": chunk_id,
+                    "certifying_block_height": 105,
+                    "head_height": 100,
+                }),
+                "light client head at height 100 must be above the certifying block at height 105"
+                    .to_string(),
             ),
-            "{err:?}"
-        );
-        assert_eq!(calls, 1);
+            (
+                "SHARD_NOT_TRACKED",
+                serde_json::json!({ "shard_id": 3 }),
+                "node does not track shard 3".to_string(),
+            ),
+            (
+                "TARGET_SHARD_MISMATCH",
+                serde_json::json!({
+                    "account_id": "alice.near",
+                    "account_shard_id": 1,
+                    "requested_shard_id": 3,
+                }),
+                "account alice.near is in shard 1, not the requested shard 3".to_string(),
+            ),
+            (
+                "UNKNOWN_TRANSACTION_OR_RECEIPT",
+                serde_json::json!({ "transaction_or_receipt_id": LC_HEAD }),
+                format!("transaction or receipt {LC_HEAD} does not exist"),
+            ),
+            (
+                "NOT_CONFIRMED",
+                serde_json::json!({ "transaction_or_receipt_id": LC_HEAD }),
+                format!("transaction or receipt {LC_HEAD} has not been confirmed"),
+            ),
+            (
+                // `number_or_shards` is nearcore's spelling on the wire.
+                "INCONSISTENT_STATE",
+                serde_json::json!({ "number_or_shards": 4, "execution_outcome_shard_id": 7 }),
+                "inconsistent state: 4 shards but the execution outcome is in shard 7".to_string(),
+            ),
+        ] {
+            let (err, calls) = light_client_error(cause, info).await;
+            assert_eq!(err.to_string(), expected, "{cause}");
+            assert_eq!(calls, 1, "{cause} must not be retried");
+        }
     }
 
     #[test]
