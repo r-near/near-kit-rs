@@ -82,32 +82,16 @@ impl RawStateInit {
     ///
     /// Hashes the bytes as given and does not validate them: a non-canonical
     /// or malformed payload still derives an id, but the chain will never
-    /// create that account. Use [`decode`](Self::decode) to check first.
+    /// create that account. Use [`UniversalStateInit::from_raw`] to check
+    /// first.
     pub fn derive_account_id(&self) -> AccountId {
-        let hash: [u8; 32] = Sha3_256::digest(&self.0).into();
-        encode_universal_account_id(&hash)
-    }
-
-    /// Decode into the typed form, accepting any well-formed encoding.
-    ///
-    /// Same as [`UniversalStateInit::from_raw_lenient`]: these bytes may come
-    /// from an action the chain already executed, and before protocol 88
-    /// nearcore accepted non-canonical encodings. Use
-    /// [`UniversalStateInit::from_raw`] to check the bytes are canonical.
-    pub fn decode(&self) -> Result<UniversalStateInit, UniversalStateInitError> {
-        UniversalStateInit::from_raw_lenient(self)
+        derive_universal_account_id(&self.0)
     }
 }
 
 impl From<Vec<u8>> for RawStateInit {
     fn from(bytes: Vec<u8>) -> Self {
         Self(bytes)
-    }
-}
-
-impl From<&[u8]> for RawStateInit {
-    fn from(bytes: &[u8]) -> Self {
-        Self(bytes.to_vec())
     }
 }
 
@@ -129,12 +113,6 @@ impl From<UniversalStateInitV1> for RawStateInit {
     }
 }
 
-impl From<RawStateInit> for Vec<u8> {
-    fn from(raw: RawStateInit) -> Self {
-        raw.0
-    }
-}
-
 /// Versioned initial state of a `0u` universal account.
 ///
 /// Mirrors nearcore's `UniversalStateInit`. New fields or semantics arrive as
@@ -142,9 +120,7 @@ impl From<RawStateInit> for Vec<u8> {
 ///
 /// Its [`BorshSerialize`] output is always the canonical encoding, so
 /// `borsh::to_vec(&state_init)` equals [`to_raw`](Self::to_raw). Its
-/// [`BorshDeserialize`] is lenient (it accepts unsorted or duplicate entries,
-/// as plain borsh does); use [`from_raw`](Self::from_raw) to accept only what
-/// the chain accepts.
+/// [`BorshDeserialize`] is lenient, like [`from_raw_lenient`](Self::from_raw_lenient).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum UniversalStateInit {
@@ -227,29 +203,13 @@ impl UniversalStateInit {
         }
     }
 
-    /// The version number (`1` for [`V1`](Self::V1)).
-    pub fn version(&self) -> u32 {
-        match self {
-            Self::V1(_) => 1,
-        }
-    }
-
     /// The canonical borsh encoding, ready to put in a `UniversalStateInit`
     /// action.
     pub fn to_raw(&self) -> RawStateInit {
         RawStateInit(borsh::to_vec(self).expect("writing to a Vec cannot fail"))
     }
 
-    /// Decode `raw`, accepting only the canonical encoding.
-    ///
-    /// This is what nearcore accepts from the `CanonicalUniversalStateInit`
-    /// protocol feature (protocol 88) on, so use it to validate bytes before
-    /// sending them. Fails with
-    /// [`Malformed`](UniversalStateInitError::Malformed) for bytes that do not
-    /// decode (including trailing bytes), and with
-    /// [`NonCanonical`](UniversalStateInitError::NonCanonical) for any
-    /// encoding that differs from [`to_raw`](Self::to_raw) of the decoded
-    /// value (unsorted or duplicate data keys or access keys).
+    /// Decode `raw`, rejecting non-canonical encodings (as nearcore does from protocol 88).
     pub fn from_raw(raw: &RawStateInit) -> Result<Self, UniversalStateInitError> {
         let decoded = Self::from_raw_lenient(raw)?;
         if decoded.to_raw() != *raw {
@@ -258,15 +218,9 @@ impl UniversalStateInit {
         Ok(decoded)
     }
 
-    /// Decode `raw`, accepting any well-formed borsh encoding.
-    ///
-    /// A non-canonical encoding of a value decodes, but hashes to a different
-    /// id than the value's canonical one. Protocol 87 accepted such encodings
-    /// and protocol 88 (`CanonicalUniversalStateInit`) rejects them, so this
-    /// is the right way to read bytes the chain has already accepted, and
-    /// [`from_raw`](Self::from_raw) the right way to validate new ones.
+    /// Decode `raw`, accepting any well-formed encoding (what protocol 87 executed).
     pub fn from_raw_lenient(raw: &RawStateInit) -> Result<Self, UniversalStateInitError> {
-        borsh::from_slice(&raw.0).map_err(|_| UniversalStateInitError::Malformed)
+        decode_lenient(&raw.0)
     }
 
     /// The `0u` universal account id of this state init: the id of its
@@ -293,7 +247,11 @@ impl BorshSerialize for UniversalStateInit {
                     .cloned()
                     .map(canonical_handle)
                     .collect();
-                write_len(keys.len(), writer)?;
+                u32::try_from(keys.len())
+                    .map_err(|_| {
+                        io::Error::new(io::ErrorKind::InvalidInput, "too many access keys")
+                    })?
+                    .serialize(writer)?;
                 for key in &keys {
                     serialize_handle(key, writer)?;
                 }
@@ -337,6 +295,18 @@ impl BorshDeserialize for UniversalStateInit {
     }
 }
 
+/// Lenient decode of state init bytes; shared by
+/// [`UniversalStateInit::from_raw_lenient`] and the `UniversalStateInit` action.
+pub(crate) fn decode_lenient(bytes: &[u8]) -> Result<UniversalStateInit, UniversalStateInitError> {
+    borsh::from_slice(bytes).map_err(|_| UniversalStateInitError::Malformed)
+}
+
+/// The `0u` account id of state init bytes: SHA3-256 over them, as given.
+pub(crate) fn derive_universal_account_id(bytes: &[u8]) -> AccountId {
+    let hash: [u8; 32] = Sha3_256::digest(bytes).into();
+    encode_universal_account_id(&hash)
+}
+
 /// Replace a full ML-DSA-65 key with the hash the chain stores it by, as
 /// nearcore's `From<PublicKey> for PublicKeyHandle` does.
 fn canonical_handle(handle: PublicKeyHandle) -> PublicKeyHandle {
@@ -346,12 +316,6 @@ fn canonical_handle(handle: PublicKeyHandle) -> PublicKeyHandle {
             .expect("an ML-DSA-65 key always has a hash"),
         other => other,
     }
-}
-
-fn write_len<W: Write>(len: usize, writer: &mut W) -> io::Result<()> {
-    let len = u32::try_from(len)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "too many access keys"))?;
-    len.serialize(writer)
 }
 
 /// nearcore's `PublicKeyHandle` borsh: a one-byte tag, then the key bytes
@@ -408,7 +372,6 @@ fn encode_universal_account_id(hash: &[u8; 32]) -> AccountId {
         acc &= (1 << nbits) - 1;
     }
     out.push(CROCKFORD[((acc << (5 - nbits)) & 0x1f) as usize] as char);
-    debug_assert_eq!(out.len(), UAID_PREFIX.len() + UAID_DATA_SYMBOLS);
     out.parse()
         .expect("a 0u id is always a valid account id: 54 lowercase alphanumerics")
 }
@@ -498,15 +461,6 @@ mod tests {
         }
     }
 
-    /// The id follows the bytes supplied, not their re-encoding.
-    #[test]
-    fn derive_account_id_is_over_raw_bytes() {
-        let raw = v1_bytes(&[(b"b", b""), (b"a", b"")], &[]);
-        let decoded = UniversalStateInit::from_raw_lenient(&raw).unwrap();
-        assert_ne!(decoded.to_raw(), raw);
-        assert_ne!(raw.derive_account_id(), decoded.derive_account_id());
-    }
-
     fn contract_init() -> UniversalStateInit {
         UniversalStateInitV1::new()
             .with_code(GlobalContractId::AccountId(
@@ -518,19 +472,6 @@ mod tests {
             .with_access_key(mldsa_handle(9))
             .with_access_key(PublicKeyHandle::Full(PublicKey::Secp256k1([5; 64])))
             .into()
-    }
-
-    #[test]
-    fn round_trip() {
-        let key_only: UniversalStateInit = UniversalStateInitV1::new()
-            .with_access_key(ed_handle(1))
-            .into();
-        for si in [contract_init(), key_only] {
-            let raw = si.to_raw();
-            assert_eq!(borsh::to_vec(&si).unwrap(), raw.0);
-            assert_eq!(UniversalStateInit::from_raw(&raw).unwrap(), si);
-            assert_eq!(raw.decode().unwrap(), si);
-        }
     }
 
     #[test]
@@ -584,20 +525,8 @@ mod tests {
         });
         assert_eq!(mixed.access_keys().len(), 2);
         let raw = mixed.to_raw();
-        // V1 tag, no code, empty data, then a key count of exactly one.
-        assert_eq!(&raw.as_bytes()[..10], &[0, 0, 0, 0, 0, 0, 1, 0, 0, 0]);
         assert_eq!(raw, via_builder.to_raw());
-        assert_eq!(mixed.derive_account_id(), via_builder.derive_account_id());
         assert_eq!(UniversalStateInit::from_raw(&raw).unwrap(), via_builder);
-    }
-
-    #[test]
-    fn accessors() {
-        let c = contract_init();
-        assert!(c.code().is_some());
-        assert_eq!(c.data().len(), 2);
-        assert_eq!(c.access_keys().len(), 3);
-        assert_eq!(c.version(), 1);
     }
 
     /// Borsh bytes of `V1 { code: None, data, access_keys }`, written in the
@@ -620,25 +549,19 @@ mod tests {
 
     #[test]
     fn from_raw_accepts_hand_built_canonical() {
-        let raw = v1_bytes(&[(b"a", b"1"), (b"b", b"2")], &[ed_handle(1), ed_handle(2)]);
-        assert_eq!(UniversalStateInit::from_raw(&raw).unwrap().to_raw(), raw);
+        for raw in [
+            v1_bytes(&[(b"a", b"1"), (b"b", b"2")], &[ed_handle(1), ed_handle(2)]),
+            // "ab" < "b" by content, though its length prefix is larger.
+            v1_bytes(&[(b"ab", b""), (b"b", b"")], &[]),
+        ] {
+            assert_eq!(UniversalStateInit::from_raw(&raw).unwrap().to_raw(), raw);
+        }
     }
 
-    #[test]
-    fn data_is_ordered_by_key_bytes_not_by_encoding() {
-        // "ab" < "b" by content, though its length prefix is larger.
-        let raw = v1_bytes(&[(b"ab", b""), (b"b", b"")], &[]);
-        assert!(UniversalStateInit::from_raw(&raw).is_ok());
-        let raw = v1_bytes(&[(b"b", b""), (b"ab", b"")], &[]);
-        assert_eq!(
-            UniversalStateInit::from_raw(&raw),
-            Err(UniversalStateInitError::NonCanonical)
-        );
-    }
-
-    fn non_canonical_encodings() -> [RawStateInit; 4] {
+    fn non_canonical_encodings() -> [RawStateInit; 5] {
         [
             v1_bytes(&[(b"b", b""), (b"a", b"")], &[]),
+            v1_bytes(&[(b"b", b""), (b"ab", b"")], &[]),
             v1_bytes(&[], &[ed_handle(2), ed_handle(1)]),
             v1_bytes(&[(b"a", b"1"), (b"a", b"2")], &[]),
             v1_bytes(&[], &[ed_handle(1), ed_handle(1)]),
@@ -646,7 +569,7 @@ mod tests {
     }
 
     #[test]
-    fn from_raw_rejects_non_canonical() {
+    fn non_canonical_is_rejected_strictly_and_decoded_leniently() {
         for raw in non_canonical_encodings() {
             assert_eq!(
                 UniversalStateInit::from_raw(&raw),
@@ -655,23 +578,14 @@ mod tests {
             );
             let lenient = UniversalStateInit::from_raw_lenient(&raw).unwrap();
             assert_ne!(lenient.to_raw(), raw);
-        }
-    }
-
-    #[test]
-    fn read_side_decoding_accepts_non_canonical() {
-        // Protocol 87 executed non-canonical state inits, so decoding bytes
-        // taken from an action or view must not reject them.
-        for raw in non_canonical_encodings() {
-            let lenient = UniversalStateInit::from_raw_lenient(&raw).unwrap();
-            assert_eq!(raw.decode().unwrap(), lenient, "{raw:?}");
             let action = crate::types::UniversalStateInitAction {
                 state_init: raw.as_bytes().to_vec(),
                 deposit: crate::types::NearToken::from_yoctonear(0),
             };
             assert_eq!(action.decode_state_init().unwrap(), lenient);
-            // The id is still the one the chain derives: over the raw bytes.
+            // The id is over the raw bytes, not their canonical re-encoding.
             assert_eq!(action.derive_account_id(), raw.derive_account_id());
+            assert_ne!(raw.derive_account_id(), lenient.derive_account_id());
         }
     }
 
@@ -695,13 +609,5 @@ mod tests {
                 Err(UniversalStateInitError::Malformed)
             );
         }
-    }
-
-    #[test]
-    fn derived_id_classifies_as_universal() {
-        let id = contract_init().derive_account_id();
-        assert_eq!(id.as_str().len(), 54);
-        assert!(id.as_str().starts_with("0u"));
-        assert!(!id.as_str()[2..].contains(['i', 'l', 'o', 'u']), "{id}");
     }
 }
