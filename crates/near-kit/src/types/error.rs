@@ -377,10 +377,9 @@ impl std::fmt::Display for ActionErrorKind {
             Self::MalformedUniversalStateInit => {
                 write!(f, "universal state init payload is not a valid state init")
             }
-            Self::AccountNotInitialized { account_id } => write!(
-                f,
-                "account {account_id} is not initialized yet (its universal state init hasn't been applied)"
-            ),
+            Self::AccountNotInitialized { account_id } => {
+                write!(f, "account {account_id} has no state init applied yet")
+            }
             Self::Unknown(value) => write!(f, "unknown action error: {value}"),
         }
     }
@@ -1177,9 +1176,7 @@ pub enum ActionsValidationError {
     /// The bytes of a `UniversalStateInit` action don't decode into a state
     /// init, or aren't its canonical encoding.
     MalformedUniversalStateInit,
-    /// The transaction uses a feature removed at or before the current
-    /// protocol version (e.g. `DelegateV2` from 2.14). The counterpart of
-    /// `UnsupportedProtocolFeature`.
+    /// The transaction uses a protocol feature that has been removed.
     RemovedProtocolFeature {
         protocol_feature: String,
         version: u32,
@@ -1199,8 +1196,7 @@ pub enum ActionsValidationError {
         limit: u64,
         number_of_entries: u64,
     },
-    /// A transfer to a universal (`0u`) account while transfers to them are
-    /// banned (protocol 87 until universal accounts are enabled).
+    /// Transfers to universal (`0u`) accounts aren't allowed yet.
     TransferToUniversalAccountNotAllowed {
         account_id: AccountId,
     },
@@ -1364,8 +1360,7 @@ impl std::fmt::Display for ActionsValidationError {
             ),
             Self::TransferToUniversalAccountNotAllowed { account_id } => write!(
                 f,
-                "transfers to the universal account {account_id} are not allowed yet \
-                 (they are rejected until universal accounts are enabled)"
+                "transfers to universal account {account_id} are not allowed yet"
             ),
             Self::Unknown(value) => write!(f, "unknown actions validation error: {value}"),
         }
@@ -1561,6 +1556,7 @@ mod tests {
             ("\"TooManyParamsPerFunction\"", "parameters"),
             ("\"TooManyParamsPerContract\"", "parameters"),
             ("\"OperandStackTooLarge\"", "operand stack"),
+            ("\"TooManyGlobals\"", "globals"),
         ] {
             let err: PrepareError = serde_json::from_str(json).unwrap();
             assert!(
@@ -1606,6 +1602,8 @@ mod tests {
             other => panic!("Expected TotalNumberOfDeployActionsExceeded, got {other:?}"),
         }
     }
+
+    const UNIVERSAL_ACCOUNT_ID: &str = "0u000g40r40m30e209185gr38e1w8124gk2gahc5rr34d1p70x3rfg";
 
     #[test]
     fn test_actions_validation_2_14_variants() {
@@ -1667,6 +1665,12 @@ mod tests {
                 }),
                 "300 storage entries",
             ),
+            (
+                serde_json::json!({
+                    "TransferToUniversalAccountNotAllowed": { "account_id": UNIVERSAL_ACCOUNT_ID }
+                }),
+                UNIVERSAL_ACCOUNT_ID,
+            ),
         ] {
             let err: ActionsValidationError = serde_json::from_value(json.clone()).unwrap();
             assert!(
@@ -1704,7 +1708,7 @@ mod tests {
                 serde_json::json!({
                     "AccountNotInitialized": { "account_id": UNIVERSAL_ACCOUNT_ID }
                 }),
-                "not initialized",
+                "no state init applied",
             ),
         ] {
             let err: ActionErrorKind = serde_json::from_value(json.clone()).unwrap();
@@ -1732,13 +1736,6 @@ mod tests {
     }
 
     #[test]
-    fn test_prepare_error_too_many_globals() {
-        let err: PrepareError = serde_json::from_str("\"TooManyGlobals\"").unwrap();
-        assert!(matches!(err, PrepareError::TooManyGlobals));
-        assert!(err.to_string().contains("globals"));
-    }
-
-    #[test]
     fn test_host_error_ml_dsa_verify_invalid_input() {
         let json = serde_json::json!({
             "MlDsaVerifyInvalidInput": { "msg": "signature must be 3309 bytes" }
@@ -1753,27 +1750,6 @@ mod tests {
         assert!(err.to_string().contains("ML-DSA"));
     }
 
-    const UNIVERSAL_ACCOUNT_ID: &str = "0u000g40r40m30e209185gr38e1w8124gk2gahc5rr34d1p70x3rfg";
-
-    fn assert_transfer_to_universal_account_not_allowed(err: &ActionsValidationError) {
-        match err {
-            ActionsValidationError::TransferToUniversalAccountNotAllowed { account_id } => {
-                assert_eq!(account_id.as_str(), UNIVERSAL_ACCOUNT_ID);
-            }
-            other => panic!("Expected TransferToUniversalAccountNotAllowed, got {other:?}"),
-        }
-        assert!(err.to_string().contains(UNIVERSAL_ACCOUNT_ID), "{err}");
-    }
-
-    #[test]
-    fn test_actions_validation_transfer_to_universal_account_not_allowed() {
-        let json = serde_json::json!({
-            "TransferToUniversalAccountNotAllowed": { "account_id": UNIVERSAL_ACCOUNT_ID }
-        });
-        let err: ActionsValidationError = serde_json::from_value(json).unwrap();
-        assert_transfer_to_universal_account_not_allowed(&err);
-    }
-
     #[test]
     fn test_invalid_tx_transfer_to_universal_account_not_allowed() {
         // A transaction transferring to a `0u` account is rejected at submission.
@@ -1786,41 +1762,10 @@ mod tests {
         });
         let err: TxExecutionError = serde_json::from_value(json).unwrap();
         match &err {
-            TxExecutionError::InvalidTxError(InvalidTxError::ActionsValidation(e)) => {
-                assert_transfer_to_universal_account_not_allowed(e);
-            }
+            TxExecutionError::InvalidTxError(InvalidTxError::ActionsValidation(
+                ActionsValidationError::TransferToUniversalAccountNotAllowed { account_id },
+            )) => assert_eq!(account_id.as_str(), UNIVERSAL_ACCOUNT_ID),
             other => panic!("Expected InvalidTxError::ActionsValidation, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_new_receipt_transfer_to_universal_account_not_allowed() {
-        // A contract-issued transfer to a `0u` account fails the action that
-        // created the receipt.
-        let json = serde_json::json!({
-            "ActionError": {
-                "index": 0,
-                "kind": {
-                    "NewReceiptValidationError": {
-                        "ActionsValidation": {
-                            "TransferToUniversalAccountNotAllowed": {
-                                "account_id": UNIVERSAL_ACCOUNT_ID
-                            }
-                        }
-                    }
-                }
-            }
-        });
-        let err: TxExecutionError = serde_json::from_value(json).unwrap();
-        match &err {
-            TxExecutionError::ActionError(ActionError {
-                kind:
-                    ActionErrorKind::NewReceiptValidationError(
-                        ReceiptValidationError::ActionsValidation(e),
-                    ),
-                ..
-            }) => assert_transfer_to_universal_account_not_allowed(e),
-            other => panic!("Expected NewReceiptValidationError, got {other:?}"),
         }
     }
 
