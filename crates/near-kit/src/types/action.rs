@@ -811,9 +811,9 @@ impl Action {
 
     /// Create a `0u` universal account from its state init (nearcore 2.14).
     ///
-    /// Accepts a typed [`UniversalStateInit`] / [`UniversalStateInitV1`]
-    /// (encoded canonically), or a [`RawStateInit`] / `Vec<u8>` carried
-    /// verbatim. The transaction's receiver must be the derived account id;
+    /// Accepts a typed [`UniversalStateInit`] /
+    /// [`UniversalStateInitV1`](super::UniversalStateInitV1) (encoded
+    /// canonically), or a [`RawStateInit`] / `Vec<u8>` carried verbatim. The transaction's receiver must be the derived account id;
     /// see [`UniversalStateInitAction::derive_account_id`].
     ///
     /// # Example
