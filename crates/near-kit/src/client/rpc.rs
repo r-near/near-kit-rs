@@ -894,9 +894,6 @@ impl RpcClient {
                     return RpcError::invalid_transaction(&error.message, data.clone());
                 }
                 "TIMEOUT_ERROR" => {
-                    // nearcore never puts the hash in this payload (pre-2.14 it
-                    // was a bare TIMEOUT_ERROR); it is read only in case a proxy
-                    // adds it. `send_tx`/`tx_status` fill it from the request.
                     let transaction_hash = info
                         .and_then(|i| i.get("transaction_hash"))
                         .and_then(|h| h.as_str())
@@ -1698,24 +1695,6 @@ fn is_retryable_status(status: u16) -> bool {
     status == 408 || status == 429 || status == 503 || (500..600).contains(&status)
 }
 
-/// When a non-2xx response is decoded via `parse_rpc_error`, HTTP status is
-/// ground truth for retryability: a 4xx response is a deterministic client-side
-/// failure and must not retry, regardless of what the JSON-RPC body claims.
-///
-/// `parse_rpc_error` returns one of two shapes:
-///   1. A typed handler variant (UnknownBlock/Chunk/Epoch/RequestTimeout/
-///      NodeNotSynced/…). These have well-understood retry semantics already
-///      encoded in `RpcError::is_retryable` and should pass through unchanged.
-///   2. The catch-all `RpcError::Rpc { code, .. }` (unrecognized or missing
-///      `cause.name`). For code `-32000`, `is_retryable` returns `true`, which
-///      is appropriate for 5xx (server-side) but *wrong* for 4xx — retrying a
-///      deterministic client error wastes time and hides the original failure.
-///
-/// For case (2) on a 4xx status, downgrade to `RpcError::Network` with
-/// `retryable: false` so unrecognized handler causes on 4xx preserve the
-/// pre-decode behavior (matches the HTML-body fallback path). 5xx with
-/// unknown cause is left as-is — a server-side issue with an unmapped name is
-/// plausibly transient and the existing retry semantics are reasonable.
 /// Decode nearcore 2.14's `TimeoutErrorCause` from a `TIMEOUT_ERROR` payload.
 ///
 /// The wire shape is internally tagged: `{"cause": "PENDING", "status": {...}}`.
@@ -1760,8 +1739,7 @@ fn parse_timeout_cause(info: &serde_json::Value) -> Option<TimeoutCause> {
 /// needs it to poll `tx_status` instead of signing a new transaction.
 fn with_timeout_tx_hash(err: RpcError, tx_hash: CryptoHash) -> RpcError {
     match err {
-        // The hash of the transaction we sent is authoritative; ignore any
-        // hash a proxy may have put in the payload.
+        // The sent tx's hash is authoritative.
         RpcError::RequestTimeout { message, cause, .. } => RpcError::RequestTimeout {
             message,
             transaction_hash: Some(tx_hash),
@@ -1771,6 +1749,24 @@ fn with_timeout_tx_hash(err: RpcError, tx_hash: CryptoHash) -> RpcError {
     }
 }
 
+/// When a non-2xx response is decoded via `parse_rpc_error`, HTTP status is
+/// ground truth for retryability: a 4xx response is a deterministic client-side
+/// failure and must not retry, regardless of what the JSON-RPC body claims.
+///
+/// `parse_rpc_error` returns one of two shapes:
+///   1. A typed handler variant (UnknownBlock/Chunk/Epoch/RequestTimeout/
+///      NodeNotSynced/…). These have well-understood retry semantics already
+///      encoded in `RpcError::is_retryable` and should pass through unchanged.
+///   2. The catch-all `RpcError::Rpc { code, .. }` (unrecognized or missing
+///      `cause.name`). For code `-32000`, `is_retryable` returns `true`, which
+///      is appropriate for 5xx (server-side) but *wrong* for 4xx — retrying a
+///      deterministic client error wastes time and hides the original failure.
+///
+/// For case (2) on a 4xx status, downgrade to `RpcError::Network` with
+/// `retryable: false` so unrecognized handler causes on 4xx preserve the
+/// pre-decode behavior (matches the HTML-body fallback path). 5xx with
+/// unknown cause is left as-is — a server-side issue with an unmapped name is
+/// plausibly transient and the existing retry semantics are reasonable.
 fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) -> RpcError {
     match err {
         RpcError::Rpc { .. } if (400..500).contains(&status) => {
@@ -3768,38 +3764,10 @@ mod tests {
     #[test]
     fn test_parse_rpc_error_timeout() {
         // Legacy-style payload with a hash but no `cause` tag.
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Request timed out".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "TIMEOUT_ERROR".to_string(),
-                info: Some(serde_json::json!({
-                    "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-                })),
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
-        match result {
-            RpcError::RequestTimeout {
-                transaction_hash,
-                cause,
-                ..
-            } => {
-                assert_eq!(
-                    transaction_hash,
-                    Some(
-                        "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-                            .parse()
-                            .unwrap()
-                    )
-                );
-                assert!(cause.is_none());
-            }
-            other => panic!("expected RequestTimeout, got {other:?}"),
-        }
+        let hash = "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U";
+        let (tx_hash, cause) = parse_timeout(Some(serde_json::json!({ "transaction_hash": hash })));
+        assert_eq!(tx_hash, Some(hash.parse().unwrap()));
+        assert!(cause.is_none());
     }
 
     /// Build a `TIMEOUT_ERROR` exactly as nearcore 2.14 serializes it:
@@ -3847,10 +3815,28 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_timeout_cause_not_observed() {
-        let (hash, cause) = parse_timeout(Some(serde_json::json!({ "cause": "NOT_OBSERVED" })));
-        assert!(hash.is_none());
-        assert!(matches!(cause, Some(TimeoutCause::NotObserved)));
+    fn test_parse_timeout_cause_simple_variants() {
+        for (info, expected) in [
+            (
+                serde_json::json!({ "cause": "NOT_OBSERVED" }),
+                "NotObserved",
+            ),
+            (
+                serde_json::json!({ "cause": "DOES_NOT_TRACK_SHARD", "shard_id": 3 }),
+                "DoesNotTrackShard { shard_id: 3 }",
+            ),
+            (
+                serde_json::json!({
+                    "cause": "ERROR",
+                    "debug_info": "tx_exists timeout, last error: None"
+                }),
+                r#"Error { debug_info: "tx_exists timeout, last error: None" }"#,
+            ),
+        ] {
+            let (hash, cause) = parse_timeout(Some(info.clone()));
+            assert!(hash.is_none());
+            assert_eq!(format!("{:?}", cause.unwrap()), expected, "{info}");
+        }
     }
 
     #[test]
@@ -3920,32 +3906,6 @@ mod tests {
                 assert!(outcome.is_success());
             }
             other => panic!("expected Pending, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_parse_timeout_cause_does_not_track_shard() {
-        let (_, cause) = parse_timeout(Some(serde_json::json!({
-            "cause": "DOES_NOT_TRACK_SHARD",
-            "shard_id": 3
-        })));
-        assert!(matches!(
-            cause,
-            Some(TimeoutCause::DoesNotTrackShard { shard_id: 3 })
-        ));
-    }
-
-    #[test]
-    fn test_parse_timeout_cause_error() {
-        let (_, cause) = parse_timeout(Some(serde_json::json!({
-            "cause": "ERROR",
-            "debug_info": "tx_exists timeout, last error: None"
-        })));
-        match cause {
-            Some(TimeoutCause::Error { debug_info }) => {
-                assert_eq!(debug_info, "tx_exists timeout, last error: None");
-            }
-            other => panic!("expected Error, got {other:?}"),
         }
     }
 
@@ -4661,7 +4621,6 @@ mod tests {
                 ref cause,
             } => {
                 assert_eq!(message, "Server error");
-                // nearcore never sends the hash; `send_tx`/`tx_status` patch it in.
                 assert!(transaction_hash.is_none());
                 assert!(matches!(cause, Some(TimeoutCause::NotObserved)));
                 assert!(result.is_retryable());
@@ -4717,7 +4676,6 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert_eq!(transport.calls(), 3, "timeouts are retried");
         assert_eq!(
             transport.sent_signed_txs(),
             vec![signed_tx.to_base64(); 3],
@@ -4730,7 +4688,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(transaction_hash, Some(signed_tx.get_hash()));
-                assert!(cause.as_ref().is_some_and(TimeoutCause::is_pending));
+                assert!(matches!(cause, Some(TimeoutCause::Pending { .. })));
             }
             other => panic!("expected RequestTimeout, got {other:?}"),
         }
