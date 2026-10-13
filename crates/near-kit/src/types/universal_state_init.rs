@@ -564,7 +564,7 @@ mod tests {
         // Inserted as a full key through the public field, it still encodes
         // as the hash, and decodes back as one.
         let via_field = UniversalStateInit::V1(UniversalStateInitV1 {
-            access_keys: BTreeSet::from([PublicKeyHandle::Full(pk)]),
+            access_keys: BTreeSet::from([PublicKeyHandle::Full(pk.clone())]),
             ..Default::default()
         });
         assert_eq!(via_field.to_raw(), via_builder.to_raw());
@@ -572,6 +572,21 @@ mod tests {
             UniversalStateInit::from_raw(&via_field.to_raw()).unwrap(),
             via_builder
         );
+
+        // The full key and its hash are distinct set entries but the same
+        // handle on chain: encoding must normalize, then deduplicate, or the
+        // bytes would carry a duplicate key that the chain rejects.
+        let mixed = UniversalStateInit::V1(UniversalStateInitV1 {
+            access_keys: BTreeSet::from([PublicKeyHandle::Full(pk), hash]),
+            ..Default::default()
+        });
+        assert_eq!(mixed.access_keys().len(), 2);
+        let raw = mixed.to_raw();
+        // V1 tag, no code, empty data, then a key count of exactly one.
+        assert_eq!(&raw.as_bytes()[..10], &[0, 0, 0, 0, 0, 0, 1, 0, 0, 0]);
+        assert_eq!(raw, via_builder.to_raw());
+        assert_eq!(mixed.derive_account_id(), via_builder.derive_account_id());
+        assert_eq!(UniversalStateInit::from_raw(&raw).unwrap(), via_builder);
     }
 
     #[test]
