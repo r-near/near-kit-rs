@@ -1808,12 +1808,13 @@ mod tests {
         }
     }
 
-    /// Transport that returns the same response every time and counts how
-    /// many requests it received, so tests can assert on retry attempts.
+    /// Transport that returns the same response every time and records each
+    /// request body, so tests can assert on retry attempts and what they sent.
     struct CountingTransport {
         status: u16,
         body: Vec<u8>,
         calls: AtomicUsize,
+        requests: std::sync::Mutex<Vec<Vec<u8>>>,
     }
 
     impl CountingTransport {
@@ -1822,11 +1823,28 @@ mod tests {
                 status,
                 body: body.into(),
                 calls: AtomicUsize::new(0),
+                requests: std::sync::Mutex::new(Vec::new()),
             })
         }
 
         fn calls(&self) -> usize {
             self.calls.load(Ordering::SeqCst)
+        }
+
+        /// `params.signed_tx_base64` of each request, in order.
+        fn sent_signed_txs(&self) -> Vec<String> {
+            self.requests
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|body| {
+                    let req: serde_json::Value = serde_json::from_slice(body).unwrap();
+                    req["params"]["signed_tx_base64"]
+                        .as_str()
+                        .expect("request has params.signed_tx_base64")
+                        .to_string()
+                })
+                .collect()
         }
     }
 
@@ -1834,9 +1852,10 @@ mod tests {
         fn post_json(
             &self,
             _url: &str,
-            _body: Vec<u8>,
+            body: Vec<u8>,
         ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            self.requests.lock().unwrap().push(body);
             let status = self.status;
             let body = self.body.clone();
             Box::pin(async move { Ok(TransportResponse { status, body }) })
@@ -4698,7 +4717,12 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert_eq!(transport.calls(), 3, "timeouts retry with the same bytes");
+        assert_eq!(transport.calls(), 3, "timeouts are retried");
+        assert_eq!(
+            transport.sent_signed_txs(),
+            vec![signed_tx.to_base64(); 3],
+            "every retry must re-send the original signed bytes"
+        );
         match err {
             RpcError::RequestTimeout {
                 transaction_hash,
