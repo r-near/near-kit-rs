@@ -55,8 +55,8 @@
 use thiserror::Error;
 
 use crate::types::{
-    AccountId, CryptoHash, DelegateDecodeError, GlobalContractIdentifierView, InvalidTxError,
-    PublicKey,
+    AccountId, CryptoHash, DelegateDecodeError, FinalExecutionOutcome,
+    GlobalContractIdentifierView, InvalidTxError, PublicKey, TxExecutionStatus,
 };
 
 /// Error parsing an account ID.
@@ -431,10 +431,29 @@ pub enum RpcError {
     #[error("Parse error: {0}")]
     ParseError(String),
 
-    #[error("Request timeout: {message}")]
+    /// The node timed out waiting for a transaction to reach the requested
+    /// wait level (`TIMEOUT_ERROR` from `send_tx` / `tx_status`).
+    ///
+    /// This does **not** mean the transaction failed: it may still land.
+    /// Inspect [`cause`](TimeoutCause) to see how far it got, and use
+    /// `transaction_hash` to poll `tx_status` instead of signing a new
+    /// transaction.
+    #[error("Request timeout: {message}{}", .cause.as_ref().map(|c| format!(" ({c})")).unwrap_or_default())]
     RequestTimeout {
+        /// The JSON-RPC error message.
         message: String,
-        transaction_hash: Option<String>,
+        /// Hash of the transaction the request was waiting on.
+        ///
+        /// nearcore does not put the hash in the error payload; near-kit fills
+        /// it in from the request for `RpcClient::send_tx` and
+        /// `RpcClient::tx_status`. `None` for errors from other call paths
+        /// (e.g. a raw `RpcClient::call`).
+        transaction_hash: Option<CryptoHash>,
+        /// Why the node timed out, as reported by nearcore 2.14+.
+        ///
+        /// `None` when the node predates 2.14 (which sent a bare
+        /// `TIMEOUT_ERROR`) or omitted the cause.
+        cause: Option<TimeoutCause>,
     },
 
     // ─── Access Key Listing ───
@@ -454,6 +473,93 @@ pub enum RpcError {
         block_height: Option<u64>,
         block_hash: Option<CryptoHash>,
     },
+}
+
+/// Why a node returned `TIMEOUT_ERROR` for a transaction (nearcore 2.14+).
+///
+/// Carried by [`RpcError::RequestTimeout`]. Mirrors nearcore's
+/// `TimeoutErrorCause`, which arrives on the wire as
+/// `error.cause.info = {"cause": "<TAG>", ...}`.
+///
+/// # Example
+///
+/// ```rust
+/// use near_kit::rpc::{RpcError, TimeoutCause};
+///
+/// fn describe(err: &RpcError) -> &'static str {
+///     match err {
+///         RpcError::RequestTimeout { cause: Some(TimeoutCause::Pending { .. }), .. } => {
+///             "accepted, still waiting for finality: poll tx_status by hash"
+///         }
+///         RpcError::RequestTimeout { cause: Some(TimeoutCause::NotObserved), .. } => {
+///             "not on chain yet: re-sending the same signed transaction is safe"
+///         }
+///         RpcError::RequestTimeout { .. } => "timed out",
+///         _ => "other error",
+///     }
+/// }
+/// ```
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum TimeoutCause {
+    /// The node never observed the transaction on chain.
+    NotObserved,
+    /// The transaction was observed (it is on chain) but had not reached the
+    /// requested wait level before the timeout.
+    ///
+    /// Carries the last-known status, so callers can keep polling
+    /// `tx_status` by hash for a higher wait level. Do not re-sign: the
+    /// transaction has already been accepted.
+    Pending {
+        /// The wait level the transaction had reached.
+        final_execution_status: TxExecutionStatus,
+        /// The execution outcome known so far, if the node had one.
+        outcome: Option<Box<FinalExecutionOutcome>>,
+    },
+    /// The node does not track the transaction's shard and got no answer
+    /// from a node that does before the timeout.
+    DoesNotTrackShard {
+        /// The shard the transaction belongs to.
+        shard_id: u64,
+    },
+    /// The node could not produce a usable status before the timeout (for
+    /// example a repeated internal error).
+    Error {
+        /// Free-form diagnostic text from the node.
+        debug_info: String,
+    },
+    /// A cause near-kit does not recognise, or one whose payload failed to
+    /// decode. Holds the raw `error.cause.info` JSON.
+    Unknown(serde_json::Value),
+}
+
+impl TimeoutCause {
+    /// Returns `true` if the node had already observed the transaction on
+    /// chain ([`TimeoutCause::Pending`]).
+    pub fn is_pending(&self) -> bool {
+        matches!(self, TimeoutCause::Pending { .. })
+    }
+}
+
+impl std::fmt::Display for TimeoutCause {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TimeoutCause::NotObserved => write!(f, "transaction not observed"),
+            TimeoutCause::Pending {
+                final_execution_status,
+                ..
+            } => write!(
+                f,
+                "transaction pending, reached {}",
+                final_execution_status.as_str()
+            ),
+            TimeoutCause::DoesNotTrackShard { shard_id } => {
+                write!(f, "node does not track shard {shard_id}")
+            }
+            TimeoutCause::Error { debug_info } => write!(f, "{debug_info}"),
+            TimeoutCause::Unknown(raw) => write!(f, "unknown cause: {raw}"),
+        }
+    }
 }
 
 impl RpcError {
@@ -1124,6 +1230,20 @@ mod tests {
             RpcError::RequestTimeout {
                 message: "timeout".to_string(),
                 transaction_hash: None,
+                cause: None,
+            }
+            .is_retryable()
+        );
+        // Every timeout cause keeps the same retry classification: re-sending
+        // the same signed bytes is idempotent on nearcore.
+        assert!(
+            RpcError::RequestTimeout {
+                message: "timeout".to_string(),
+                transaction_hash: None,
+                cause: Some(TimeoutCause::Pending {
+                    final_execution_status: crate::types::TxExecutionStatus::Included,
+                    outcome: None,
+                }),
             }
             .is_retryable()
         );
@@ -1493,9 +1613,33 @@ mod tests {
     fn test_rpc_error_request_timeout_display() {
         let err = RpcError::RequestTimeout {
             message: "request timed out".to_string(),
-            transaction_hash: Some("abc123".to_string()),
+            transaction_hash: Some(CryptoHash::ZERO),
+            cause: None,
         };
         assert_eq!(err.to_string(), "Request timeout: request timed out");
+
+        let err = RpcError::RequestTimeout {
+            message: "Server error".to_string(),
+            transaction_hash: None,
+            cause: Some(TimeoutCause::Pending {
+                final_execution_status: crate::types::TxExecutionStatus::Included,
+                outcome: None,
+            }),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Request timeout: Server error (transaction pending, reached INCLUDED)"
+        );
+
+        let err = RpcError::RequestTimeout {
+            message: "Server error".to_string(),
+            transaction_hash: None,
+            cause: Some(TimeoutCause::DoesNotTrackShard { shard_id: 3 }),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Request timeout: Server error (node does not track shard 3)"
+        );
     }
 
     // ========================================================================

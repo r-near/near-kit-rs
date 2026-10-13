@@ -16,7 +16,7 @@ use super::transport::RpcTransport;
     all(feature = "wasi-http", target_env = "p2")
 ))]
 use super::transport;
-use crate::error::RpcError;
+use crate::error::{RpcError, TimeoutCause};
 use crate::trace;
 use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
@@ -894,13 +894,17 @@ impl RpcClient {
                     return RpcError::invalid_transaction(&error.message, data.clone());
                 }
                 "TIMEOUT_ERROR" => {
-                    let tx_hash = info
+                    // nearcore never puts the hash in this payload (pre-2.14 it
+                    // was a bare TIMEOUT_ERROR); it is read only in case a proxy
+                    // adds it. `send_tx`/`tx_status` fill it from the request.
+                    let transaction_hash = info
                         .and_then(|i| i.get("transaction_hash"))
                         .and_then(|h| h.as_str())
-                        .map(String::from);
+                        .and_then(|h| h.parse().ok());
                     return RpcError::RequestTimeout {
                         message: error.message.clone(),
-                        transaction_hash: tx_hash,
+                        transaction_hash,
+                        cause: info.and_then(parse_timeout_cause),
                     };
                 }
                 "PARSE_ERROR" => {
@@ -1479,7 +1483,10 @@ impl RpcClient {
             "signed_tx_base64": signed_tx.to_base64(),
             "wait_until": wait_until.as_str(),
         });
-        let mut response: RawTransactionResponse = self.call("send_tx", params).await?;
+        let mut response: RawTransactionResponse = self
+            .call("send_tx", params)
+            .await
+            .map_err(|e| with_timeout_tx_hash(e, tx_hash))?;
         response.transaction_hash = tx_hash;
         Ok(response)
     }
@@ -1501,8 +1508,10 @@ impl RpcClient {
             "sender_account_id": sender_id.to_string(),
             "wait_until": wait_until.as_str(),
         });
-        let mut response: RawTransactionResponse =
-            self.call("EXPERIMENTAL_tx_status", params).await?;
+        let mut response: RawTransactionResponse = self
+            .call("EXPERIMENTAL_tx_status", params)
+            .await
+            .map_err(|e| with_timeout_tx_hash(e, *tx_hash))?;
         response.transaction_hash = response
             .outcome
             .as_ref()
@@ -1707,6 +1716,63 @@ fn is_retryable_status(status: u16) -> bool {
 /// pre-decode behavior (matches the HTML-body fallback path). 5xx with
 /// unknown cause is left as-is — a server-side issue with an unmapped name is
 /// plausibly transient and the existing retry semantics are reasonable.
+/// Decode nearcore 2.14's `TimeoutErrorCause` from a `TIMEOUT_ERROR` payload.
+///
+/// The wire shape is internally tagged: `{"cause": "PENDING", "status": {...}}`.
+/// Returns `None` when there is no `cause` tag (pre-2.14 nodes). A tag
+/// near-kit does not know, or a payload that fails to decode, becomes
+/// [`TimeoutCause::Unknown`] holding the raw JSON so nothing is lost.
+fn parse_timeout_cause(info: &serde_json::Value) -> Option<TimeoutCause> {
+    let tag = info.get("cause")?.as_str();
+    let unknown = || TimeoutCause::Unknown(info.clone());
+    let cause = match tag {
+        Some("NOT_OBSERVED") => TimeoutCause::NotObserved,
+        // `status` is nearcore's `RpcTransactionResponse`: the same shape
+        // `send_tx` / `tx_status` return on success, so decode it the same way.
+        Some("PENDING") => info
+            .get("status")
+            .and_then(|status| RawTransactionResponse::deserialize(status).ok())
+            .map(|status| TimeoutCause::Pending {
+                final_execution_status: status.final_execution_status,
+                outcome: status.outcome.map(Box::new),
+            })
+            .unwrap_or_else(unknown),
+        Some("DOES_NOT_TRACK_SHARD") => info
+            .get("shard_id")
+            .and_then(|s| s.as_u64())
+            .map(|shard_id| TimeoutCause::DoesNotTrackShard { shard_id })
+            .unwrap_or_else(unknown),
+        Some("ERROR") => info
+            .get("debug_info")
+            .and_then(|d| d.as_str())
+            .map(|debug_info| TimeoutCause::Error {
+                debug_info: debug_info.to_string(),
+            })
+            .unwrap_or_else(unknown),
+        _ => unknown(),
+    };
+    Some(cause)
+}
+
+/// Fill in the caller-known transaction hash on a timeout.
+///
+/// nearcore's `TIMEOUT_ERROR` payload never carries the hash, but the caller
+/// needs it to poll `tx_status` instead of signing a new transaction.
+fn with_timeout_tx_hash(err: RpcError, tx_hash: CryptoHash) -> RpcError {
+    match err {
+        RpcError::RequestTimeout {
+            message,
+            transaction_hash,
+            cause,
+        } => RpcError::RequestTimeout {
+            message,
+            transaction_hash: transaction_hash.or(Some(tx_hash)),
+            cause,
+        },
+        other => other,
+    }
+}
+
 fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) -> RpcError {
     match err {
         RpcError::Rpc { .. } if (400..500).contains(&status) => {
@@ -3684,6 +3750,7 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_timeout() {
+        // Legacy-style payload with a hash but no `cause` tag.
         let client = RpcClient::new("https://example.com");
         let error = JsonRpcError {
             code: -32000,
@@ -3692,13 +3759,196 @@ mod tests {
             cause: Some(ErrorCause {
                 name: "TIMEOUT_ERROR".to_string(),
                 info: Some(serde_json::json!({
-                    "transaction_hash": "tx123"
+                    "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
                 })),
             }),
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::RequestTimeout { .. }));
+        match result {
+            RpcError::RequestTimeout {
+                transaction_hash,
+                cause,
+                ..
+            } => {
+                assert_eq!(
+                    transaction_hash,
+                    Some(
+                        "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+                            .parse()
+                            .unwrap()
+                    )
+                );
+                assert!(cause.is_none());
+            }
+            other => panic!("expected RequestTimeout, got {other:?}"),
+        }
+    }
+
+    /// Build a `TIMEOUT_ERROR` exactly as nearcore 2.14 serializes it:
+    /// `message: "Server error"`, `data: "Timeout"`, cause under `info`.
+    fn timeout_error(info: Option<serde_json::Value>) -> JsonRpcError {
+        JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: Some(serde_json::json!("Timeout")),
+            cause: Some(ErrorCause {
+                name: "TIMEOUT_ERROR".to_string(),
+                info,
+            }),
+            name: Some("HANDLER_ERROR".to_string()),
+        }
+    }
+
+    fn parse_timeout(
+        info: Option<serde_json::Value>,
+    ) -> (Option<CryptoHash>, Option<TimeoutCause>) {
+        let client = RpcClient::new("https://example.com");
+        match client.parse_rpc_error(&timeout_error(info)) {
+            RpcError::RequestTimeout {
+                transaction_hash,
+                cause,
+                ..
+            } => (transaction_hash, cause),
+            other => panic!("expected RequestTimeout, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_timeout_legacy_bare() {
+        // Pre-2.14 nodes: unit `TimeoutError`, so no `info` at all.
+        assert!(matches!(parse_timeout(None), (None, None)));
+        // Null / empty info are treated the same way.
+        assert!(matches!(
+            parse_timeout(Some(serde_json::Value::Null)),
+            (None, None)
+        ));
+        assert!(matches!(
+            parse_timeout(Some(serde_json::json!({}))),
+            (None, None)
+        ));
+    }
+
+    #[test]
+    fn test_parse_timeout_cause_not_observed() {
+        let (hash, cause) = parse_timeout(Some(serde_json::json!({ "cause": "NOT_OBSERVED" })));
+        assert!(hash.is_none());
+        assert!(matches!(cause, Some(TimeoutCause::NotObserved)));
+    }
+
+    #[test]
+    fn test_parse_timeout_cause_pending_without_outcome() {
+        // nearcore's own fixture: observed, only INCLUDED, no outcome yet.
+        let (_, cause) = parse_timeout(Some(serde_json::json!({
+            "cause": "PENDING",
+            "status": { "final_execution_status": "INCLUDED" }
+        })));
+        match cause {
+            Some(TimeoutCause::Pending {
+                final_execution_status,
+                outcome,
+            }) => {
+                assert_eq!(final_execution_status, TxExecutionStatus::Included);
+                assert!(outcome.is_none());
+            }
+            other => panic!("expected Pending, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_timeout_cause_pending_with_outcome() {
+        // `status` is the flattened `RpcTransactionResponse`, same shape as a
+        // successful `send_tx` result.
+        let (_, cause) = parse_timeout(Some(serde_json::json!({
+            "cause": "PENDING",
+            "status": {
+                "final_execution_status": "EXECUTED_OPTIMISTIC",
+                "status": { "SuccessValue": "" },
+                "transaction": {
+                    "signer_id": "alice.near",
+                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                    "nonce": 1,
+                    "receiver_id": "bob.near",
+                    "actions": [],
+                    "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
+                    "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+                },
+                "transaction_outcome": {
+                    "id": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+                    "outcome": {
+                        "executor_id": "alice.near",
+                        "gas_burnt": 223182562500u64,
+                        "logs": [],
+                        "metadata": { "gas_profile": null, "version": 3 },
+                        "receipt_ids": [],
+                        "status": { "SuccessValue": "" },
+                        "tokens_burnt": "0"
+                    },
+                    "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
+                    "proof": []
+                },
+                "receipts_outcome": []
+            }
+        })));
+        match cause {
+            Some(TimeoutCause::Pending {
+                final_execution_status,
+                outcome,
+            }) => {
+                assert_eq!(
+                    final_execution_status,
+                    TxExecutionStatus::ExecutedOptimistic
+                );
+                let outcome = outcome.expect("outcome decoded");
+                assert!(outcome.is_success());
+            }
+            other => panic!("expected Pending, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_timeout_cause_does_not_track_shard() {
+        let (_, cause) = parse_timeout(Some(serde_json::json!({
+            "cause": "DOES_NOT_TRACK_SHARD",
+            "shard_id": 3
+        })));
+        assert!(matches!(
+            cause,
+            Some(TimeoutCause::DoesNotTrackShard { shard_id: 3 })
+        ));
+    }
+
+    #[test]
+    fn test_parse_timeout_cause_error() {
+        let (_, cause) = parse_timeout(Some(serde_json::json!({
+            "cause": "ERROR",
+            "debug_info": "tx_exists timeout, last error: None"
+        })));
+        match cause {
+            Some(TimeoutCause::Error { debug_info }) => {
+                assert_eq!(debug_info, "tx_exists timeout, last error: None");
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_timeout_cause_unknown_preserves_raw() {
+        // A tag from a future nearcore.
+        let raw = serde_json::json!({ "cause": "SOMETHING_NEW", "detail": 1 });
+        let (_, cause) = parse_timeout(Some(raw.clone()));
+        match cause {
+            Some(TimeoutCause::Unknown(value)) => assert_eq!(value, raw),
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+
+        // A known tag whose payload doesn't decode also keeps the raw JSON.
+        let raw = serde_json::json!({ "cause": "PENDING", "status": { "bogus": true } });
+        let (_, cause) = parse_timeout(Some(raw.clone()));
+        match cause {
+            Some(TimeoutCause::Unknown(value)) => assert_eq!(value, raw),
+            other => panic!("expected Unknown, got {other:?}"),
+        }
     }
 
     #[test]
@@ -4367,18 +4617,18 @@ mod tests {
 
     #[test]
     fn test_non_2xx_body_decodes_timeout() {
-        // Real-shape body nearcore returns with HTTP 408 for TIMEOUT_ERROR.
+        // Real-shape body nearcore 2.14 returns with HTTP 408 for TIMEOUT_ERROR
+        // (`RpcError::new_handler_error`: data is the error's Display, "Timeout").
         let body = r#"{
             "jsonrpc": "2.0",
             "id": 1,
             "error": {
                 "code": -32000,
-                "message": "Timeout",
+                "message": "Server error",
+                "data": "Timeout",
                 "cause": {
                     "name": "TIMEOUT_ERROR",
-                    "info": {
-                        "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-                    }
+                    "info": { "cause": "NOT_OBSERVED" }
                 },
                 "name": "HANDLER_ERROR"
             }
@@ -4389,14 +4639,78 @@ mod tests {
         let result = client.parse_rpc_error(&error);
         match result {
             RpcError::RequestTimeout {
-                transaction_hash, ..
+                ref message,
+                transaction_hash,
+                ref cause,
             } => {
-                assert_eq!(
-                    transaction_hash.as_deref(),
-                    Some("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U")
-                );
+                assert_eq!(message, "Server error");
+                // nearcore never sends the hash; `send_tx`/`tx_status` patch it in.
+                assert!(transaction_hash.is_none());
+                assert!(matches!(cause, Some(TimeoutCause::NotObserved)));
+                assert!(result.is_retryable());
             }
             _ => panic!("expected RequestTimeout, got {:?}", result),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_send_tx_timeout_pending_retries_same_bytes_and_reports_hash() {
+        // A PENDING timeout means the tx is already accepted. `call` keeps
+        // re-sending the *same* signed bytes (nearcore treats a resubmission
+        // of a known tx as "keep waiting"), never re-signs, and the final
+        // error carries the caller-known hash so the caller can poll by hash.
+        let body = serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": {
+                "name": "HANDLER_ERROR",
+                "cause": {
+                    "name": "TIMEOUT_ERROR",
+                    "info": {
+                        "cause": "PENDING",
+                        "status": { "final_execution_status": "INCLUDED" }
+                    }
+                },
+                "code": -32000,
+                "message": "Server error",
+                "data": "Timeout",
+            },
+        }))
+        .unwrap();
+        let transport = CountingTransport::new(408, body);
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(2),
+        );
+
+        let secret = crate::types::SecretKey::generate_ed25519();
+        let signed_tx = crate::types::Transaction::new(
+            "alice.testnet".parse().unwrap(),
+            secret.public_key(),
+            1,
+            "bob.testnet".parse().unwrap(),
+            CryptoHash::ZERO,
+            vec![],
+        )
+        .sign(&secret);
+
+        let err = client
+            .send_tx(&signed_tx, TxExecutionStatus::Final)
+            .await
+            .unwrap_err();
+
+        assert_eq!(transport.calls(), 3, "timeouts retry with the same bytes");
+        match err {
+            RpcError::RequestTimeout {
+                transaction_hash,
+                cause,
+                ..
+            } => {
+                assert_eq!(transaction_hash, Some(signed_tx.get_hash()));
+                assert!(cause.as_ref().is_some_and(TimeoutCause::is_pending));
+            }
+            other => panic!("expected RequestTimeout, got {other:?}"),
         }
     }
 
