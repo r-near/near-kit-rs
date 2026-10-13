@@ -256,8 +256,7 @@ pub enum Action {
     WithdrawFromGasKey(WithdrawFromGasKeyAction),
     /// Gas-key-capable delegate action (meta-transactions, NEP-611). (discriminant = 14)
     DelegateV2(Box<VersionedSignedDelegateAction>),
-    /// Create a `0u` universal account from its state init (nearcore 2.14).
-    /// (discriminant = 15)
+    /// Create a `0u` universal account from its state init. (discriminant = 15)
     UniversalStateInit(UniversalStateInitAction),
 }
 
@@ -436,12 +435,11 @@ pub struct WithdrawFromGasKeyAction {
     pub amount: NearToken,
 }
 
-/// Create a `0u` universal account from its state init (nearcore 2.14).
+/// Create a `0u` universal account from its state init.
 ///
 /// `state_init` is the borsh encoding of a `UniversalStateInit`, carried
 /// verbatim: the receiver's `0u` account id commits to exactly these bytes,
-/// so they must not be re-encoded. near-kit does not decode them or derive
-/// the account id.
+/// so they must not be re-encoded.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct UniversalStateInitAction {
     /// Borsh-encoded `UniversalStateInit` bytes.

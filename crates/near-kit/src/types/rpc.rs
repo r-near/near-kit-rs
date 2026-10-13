@@ -1357,7 +1357,7 @@ pub enum ActionView {
         public_key: PublicKey,
         amount: NearToken,
     },
-    /// Create a `0u` universal account from its state init (nearcore 2.14).
+    /// Create a `0u` universal account from its state init.
     UniversalStateInit {
         /// Base64 of the borsh-encoded `UniversalStateInit` bytes.
         state_init: String,
@@ -1562,8 +1562,7 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 ///
 /// # Other errors
 ///
-/// * Invalid base64 in `args`, `code`, state-init `data`, or a universal
-///   `state_init` →
+/// * Invalid base64 in `args`, `code`, `data`, or `state_init` →
 ///   [`ActionViewConversionError::InvalidBase64`].
 /// * A delegate action nested inside a `Delegate` / `DelegateV2` view →
 ///   [`ActionViewConversionError::NestedDelegate`].
@@ -2523,36 +2522,6 @@ mod tests {
     }
 
     #[test]
-    fn test_universal_state_init_action_view_converts_to_action() {
-        let json = serde_json::json!({
-            "UniversalStateInit": {
-                "state_init": "AAAA",
-                "deposit": "1000000000000000000000000"
-            }
-        });
-        let view: ActionView = serde_json::from_value(json).unwrap();
-        assert_eq!(
-            Action::try_from(view).unwrap(),
-            Action::UniversalStateInit(UniversalStateInitAction {
-                state_init: vec![0, 0, 0],
-                deposit: NearToken::from_near(1),
-            })
-        );
-    }
-
-    #[test]
-    fn test_universal_state_init_action_view_rejects_invalid_base64() {
-        let view: ActionView = serde_json::from_value(serde_json::json!({
-            "UniversalStateInit": { "state_init": "not base64!", "deposit": "0" }
-        }))
-        .unwrap();
-        assert!(matches!(
-            Action::try_from(view),
-            Err(ActionViewConversionError::InvalidBase64 { .. })
-        ));
-    }
-
-    #[test]
     fn test_delegate_action_view_deserialization() {
         let json = serde_json::json!({
             "Delegate": {
@@ -3336,6 +3305,33 @@ mod action_view_conversion_tests {
         assert!(matches!(
             convert(json),
             Err(ActionViewConversionError::InvalidBase64 { field: "args", .. })
+        ));
+    }
+
+    #[test]
+    fn universal_state_init_decodes_base64() {
+        let json = serde_json::json!({
+            "UniversalStateInit": {
+                "state_init": "AAAA",
+                "deposit": "1000000000000000000000000"
+            }
+        });
+        assert_eq!(
+            convert(json).unwrap(),
+            Action::UniversalStateInit(UniversalStateInitAction {
+                state_init: vec![0, 0, 0],
+                deposit: NearToken::from_near(1),
+            })
+        );
+        let json = serde_json::json!({
+            "UniversalStateInit": { "state_init": "not base64!", "deposit": "0" }
+        });
+        assert!(matches!(
+            convert(json),
+            Err(ActionViewConversionError::InvalidBase64 {
+                field: "state_init",
+                ..
+            })
         ));
     }
 
