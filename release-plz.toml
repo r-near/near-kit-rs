@@ -13,3 +13,15 @@ pr_labels = ["release"]
 
 # Run cargo-semver-checks to detect breaking changes
 semver_check = true
+
+# near-kit-sandbox exposes near-kit types (e.g. `Near`), so a near-kit release
+# that bumps its version must bump the sandbox to match. Otherwise a sandbox
+# patch release could depend on a newer near-kit than callers pin, and they'd
+# compile two incompatible near-kit versions.
+[[package]]
+name = "near-kit"
+version_group = "near-kit"
+
+[[package]]
+name = "near-kit-sandbox"
+version_group = "near-kit"
