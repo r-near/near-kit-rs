@@ -58,16 +58,11 @@ pub struct AccountView {
     /// Global contract account ID (if using a global contract by account).
     #[serde(default)]
     pub global_contract_account_id: Option<AccountId>,
-    /// Whether the account's state has been installed. Only a `0u` universal
-    /// account can be uninitialized (nearcore 2.14); the node omits the field
-    /// for initialized accounts.
+    /// Whether the account's state is installed (see [`AccountState`]).
     #[serde(default)]
     pub state: AccountState,
-    /// The current nonce of an uninitialized universal account. Present only
-    /// while the account is uninitialized: it has no access key to read a
-    /// nonce from, and a self-signed state init is the one transaction it can
-    /// send. Like an access key nonce, this is the last used value: the state
-    /// init transaction must carry exactly `bootstrap_nonce + 1`.
+    /// Last used nonce of an uninitialized universal account (`None` once
+    /// initialized). The state init transaction must use `bootstrap_nonce + 1`.
     #[serde(default)]
     pub bootstrap_nonce: Option<u64>,
     /// Block height of the query.
@@ -76,16 +71,13 @@ pub struct AccountView {
     pub block_hash: CryptoHash,
 }
 
-/// Whether an account's state has been installed (nearcore 2.14).
-///
-/// Only `0u` universal accounts can be [`Uninitialized`](Self::Uninitialized):
-/// they exist once a transfer funds the id, but have no access keys, code, or
-/// data until their `UniversalStateInit` is applied.
+/// Whether an account's state is installed (nearcore 2.14). Only `0u`
+/// universal accounts can be [`Uninitialized`](Self::Uninitialized): funded,
+/// but with no keys, code, or data until `UniversalStateInit` is applied.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AccountState {
-    /// The account's state is installed. Every non-universal account is
-    /// initialized.
+    /// The account's state is installed.
     #[default]
     Initialized,
     /// A universal account whose state init hasn't been applied yet.
@@ -2270,8 +2262,7 @@ mod tests {
 
     #[test]
     fn test_account_view_initialized_omits_state() {
-        // Pre-2.14 nodes, and 2.14 nodes for initialized accounts, omit both
-        // `state` and `bootstrap_nonce`.
+        // Pre-2.14 nodes and initialized accounts omit both fields.
         let view: AccountView = serde_json::from_value(serde_json::json!({
             "amount": "1000000000000000000000000",
             "locked": "0",
