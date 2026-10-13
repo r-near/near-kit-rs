@@ -41,7 +41,7 @@ use crate::error::{Error, RpcError};
 use crate::transaction::FunctionCall;
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, FinalExecutionOutcome, Finality,
-    IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey, PublishMode,
+    IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey, PublishMode, RawStateInit,
     SignedDelegateAction, SignedTransaction, StateInit, Transaction, TryIntoAccountId,
     TryIntoGlobalContractId, UseGlobalContractAction, WaitLevel,
 };
@@ -781,6 +781,51 @@ impl TransactionBuilder {
             Ok(deposit) => {
                 self.receiver_id = self.receiver_id.map(|_| state_init.derive_account_id());
                 self.actions.push(Action::state_init(state_init, deposit));
+            }
+            Err(error) => self.defer_error(error.into()),
+        }
+        self
+    }
+
+    /// Create a `0u` universal account from its state init (nearcore 2.14).
+    ///
+    /// Accepts a typed [`UniversalStateInit`](crate::protocol::UniversalStateInit)
+    /// / [`UniversalStateInitV1`](crate::protocol::UniversalStateInitV1)
+    /// (encoded canonically), or raw bytes carried verbatim. The receiver_id is
+    /// set to the derived universal account id: `"0u"` + Crockford base32 of
+    /// SHA3-256 over the state init bytes.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # use near_kit::protocol::UniversalStateInitV1;
+    /// # use near_kit::signer::PublicKey;
+    /// # async fn example(near: Near, key: PublicKey) -> Result<(), near_kit::Error> {
+    /// let outcome = near.transaction("alice.testnet")
+    ///     .universal_state_init(
+    ///         UniversalStateInitV1::new().with_access_key(key),
+    ///         NearToken::from_millinear(10),
+    ///     )
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Parsing failures are retained and returned when the transaction is sent,
+    /// built, signed, or delegated.
+    pub fn universal_state_init(
+        mut self,
+        state_init: impl Into<RawStateInit>,
+        deposit: impl IntoNearToken,
+    ) -> Self {
+        match deposit.into_near_token() {
+            Ok(deposit) => {
+                let state_init = state_init.into();
+                self.receiver_id = self.receiver_id.map(|_| state_init.derive_account_id());
+                self.actions
+                    .push(Action::universal_state_init(state_init, deposit));
             }
             Err(error) => self.defer_error(error.into()),
         }
@@ -1648,11 +1693,15 @@ mod tests {
             CryptoHash::ZERO,
             Default::default(),
         );
+        let universal = crate::protocol::UniversalStateInitV1::new()
+            .with_access_key(crate::types::PublicKeyHandle::MlDsa65Hash([0x11; 32]));
 
         for terminal in 0..4 {
             for builder in [
                 near.transaction("INVALID")
                     .state_init(state_init.clone(), NearToken::ZERO),
+                near.transaction("INVALID")
+                    .universal_state_init(universal.clone(), NearToken::ZERO),
                 near.transaction("INVALID")
                     .signed_delegate_action(signed_delegate.clone()),
             ] {
@@ -1674,6 +1723,14 @@ mod tests {
                 near.transaction("valid.testnet")
                     .state_init(state_init.clone(), NearToken::ZERO),
                 state_init.derive_account_id(),
+            ),
+            (
+                near.transaction("valid.testnet")
+                    .universal_state_init(universal.clone(), NearToken::ZERO),
+                // nearcore 2.14-release `test_derive_universal_account_id` key-only vector.
+                "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g"
+                    .parse()
+                    .unwrap(),
             ),
             (
                 near.transaction("valid.testnet")
