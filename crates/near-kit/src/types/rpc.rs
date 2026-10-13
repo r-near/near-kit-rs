@@ -537,6 +537,12 @@ pub struct BlockHeaderView {
     /// Block body hash (optional, added in later protocol versions).
     #[serde(default)]
     pub block_body_hash: Option<CryptoHash>,
+    /// Merkle root over the block's certified chunk execution results.
+    ///
+    /// Added in nearcore 2.14; `None` for pre-SPICE headers and for nodes that
+    /// do not report it.
+    #[serde(default)]
+    pub chunk_execution_root: Option<CryptoHash>,
     /// Block approvals (nullable signatures).
     #[serde(default)]
     pub approvals: Vec<Option<Signature>>,

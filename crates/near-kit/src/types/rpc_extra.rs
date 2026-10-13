@@ -2,9 +2,10 @@
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_with::{base64::Base64, serde_as};
 
-use super::rpc::{AccessKeyDetails, ValidatorStakeView};
+use super::rpc::{AccessKeyDetails, ExecutionOutcomeWithId, MerklePathItem, ValidatorStakeView};
 use super::{AccountId, CryptoHash, NearToken, PublicKey, PublicKeyHandle, Signature};
 
 // ============================================================================
@@ -212,6 +213,177 @@ pub struct BlockHeaderInnerLiteView {
     pub next_bp_hash: CryptoHash,
     /// Block merkle root.
     pub block_merkle_root: CryptoHash,
+    /// Merkle root over the block's certified chunk execution results
+    /// ([`ChunkExecutionRoots`] leaves sorted by chunk id).
+    ///
+    /// Added in nearcore 2.14; `None` for pre-SPICE headers and for nodes that
+    /// do not report it.
+    #[serde(default)]
+    pub chunk_execution_root: Option<CryptoHash>,
+}
+
+// ============================================================================
+// SPICE light client proofs (nearcore 2.14, EXPERIMENTAL_)
+// ============================================================================
+
+/// Identifies a chunk under SPICE (separated execution): the block it belongs
+/// to and its shard.
+///
+/// Under SPICE a missing chunk is equivalent to an empty one, so a block hash
+/// and shard id always identify a chunk uniquely.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SpiceChunkId {
+    /// Hash of the block containing the chunk.
+    pub block_hash: CryptoHash,
+    /// Shard the chunk belongs to.
+    pub shard_id: u64,
+}
+
+/// A chunk's certified execution roots, as committed by a SPICE certifying
+/// block.
+///
+/// This is one leaf of the merkle tree whose root is the certifying block's
+/// [`BlockHeaderInnerLiteView::chunk_execution_root`]. Versioned on the wire
+/// (`{"V1": {...}}`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub enum ChunkExecutionRoots {
+    /// Version 1.
+    V1(ChunkExecutionRootsV1),
+}
+
+/// Version 1 of [`ChunkExecutionRoots`].
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ChunkExecutionRootsV1 {
+    /// The chunk these roots belong to.
+    pub chunk_id: SpiceChunkId,
+    /// State root after applying the chunk.
+    pub state_root: CryptoHash,
+    /// Merkle root of the chunk's execution outcomes.
+    pub outcome_root: CryptoHash,
+    /// Merkle root of the receipts the chunk sent out.
+    pub outgoing_receipts_root: CryptoHash,
+}
+
+/// Proof that a chunk's certified execution roots are committed by a SPICE
+/// block a light client can trust through its `light_client_head`.
+///
+/// `roots_proof` recomputes the certifying block's `chunk_execution_root` from
+/// `roots`; `certifying_block_proof` places the certifying block in the head's
+/// block merkle tree.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChunkExecutionProofView {
+    /// The proven leaf: the chunk's certified execution roots.
+    pub roots: ChunkExecutionRoots,
+    /// Merkle path from `roots` to the certifying block's
+    /// `chunk_execution_root`.
+    pub roots_proof: Vec<MerklePathItem>,
+    /// Lite header of the block that certified the chunk.
+    pub certifying_block_header_lite: LightClientBlockLiteView,
+    /// Merkle path from the certifying block to the light client head's
+    /// `block_merkle_root`.
+    pub certifying_block_proof: Vec<MerklePathItem>,
+}
+
+/// A value read from a shard's state, with the trie nodes that prove it
+/// against the chunk's `state_root`.
+///
+/// An absent value (`None`) is proved the same way. Both the value and the
+/// nodes are raw bytes; they are base64-encoded on the wire.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct StateProofView {
+    /// The value stored under the target's trie key, if any.
+    #[serde_as(as = "Option<Base64>")]
+    #[serde(default)]
+    pub value: Option<Vec<u8>>,
+    /// Trie nodes recorded while reading the value.
+    #[serde_as(as = "Vec<Base64>")]
+    pub nodes: Vec<Vec<u8>>,
+}
+
+/// Which piece of a shard's state a light client state proof targets.
+///
+/// An account running a global contract has no local code, so
+/// [`LocalContractCode`](Self::LocalContractCode) proves an absent value for
+/// it.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "target_type", rename_all = "snake_case")]
+pub enum StateProofTarget {
+    /// The account record.
+    Account {
+        /// Account to prove.
+        account_id: AccountId,
+    },
+    /// The account's locally deployed contract code.
+    LocalContractCode {
+        /// Account whose code to prove.
+        account_id: AccountId,
+    },
+    /// One contract storage entry.
+    ContractData {
+        /// Contract account.
+        account_id: AccountId,
+        /// Raw storage key (base64-encoded on the wire).
+        #[serde_as(as = "Base64")]
+        key: Vec<u8>,
+    },
+    /// One access key.
+    AccessKey {
+        /// Account owning the key.
+        account_id: AccountId,
+        /// The access key's public key.
+        public_key: PublicKey,
+    },
+}
+
+/// A transaction (by hash and signer) or a receipt (by id and receiver).
+///
+/// Used to request an execution outcome proof. The account lets a node that
+/// does not track every shard route the request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TransactionOrReceiptId {
+    /// A transaction.
+    Transaction {
+        /// Transaction hash.
+        transaction_hash: CryptoHash,
+        /// Account that signed the transaction.
+        sender_id: AccountId,
+    },
+    /// A receipt.
+    Receipt {
+        /// Receipt id.
+        receipt_id: CryptoHash,
+        /// Account the receipt was sent to.
+        receiver_id: AccountId,
+    },
+}
+
+/// Response of `EXPERIMENTAL_light_client_chunk_execution_proof`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChunkExecutionProofResponse {
+    /// Proof that the chunk's execution roots are committed by the chain.
+    pub chunk_execution_proof: ChunkExecutionProofView,
+}
+
+/// Response of `EXPERIMENTAL_light_client_execution_outcome_proof`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExecutionOutcomeProofResponse {
+    /// Proof for the chunk that executed the outcome.
+    pub chunk_execution_proof: ChunkExecutionProofView,
+    /// The outcome, with its merkle path to the chunk's `outcome_root`.
+    pub outcome_proof: ExecutionOutcomeWithId,
+}
+
+/// Response of `EXPERIMENTAL_light_client_state_proof`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StateProofResponse {
+    /// Proof for the chunk whose `state_root` the state proof is checked
+    /// against.
+    pub chunk_execution_proof: ChunkExecutionProofView,
+    /// The value and its trie proof.
+    pub state_proof: StateProofView,
 }
 
 // ============================================================================

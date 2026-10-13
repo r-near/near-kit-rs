@@ -109,9 +109,12 @@ pub use rpc::{
     ViewStateAllResult, ViewStateResult,
 };
 pub use rpc_extra::{
-    BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,
-    LightClientBlockLiteView, LightClientBlockView, NextEpochValidatorInfo, StateChangeCauseView,
-    StateChangeValueView, StateChangeWithCauseView, ValidatorKickoutReason, ValidatorKickoutView,
+    BlockHeaderInnerLiteView, ChunkExecutionProofResponse, ChunkExecutionProofView,
+    ChunkExecutionRoots, ChunkExecutionRootsV1, CurrentEpochValidatorInfo, EpochValidatorInfo,
+    ExecutionOutcomeProofResponse, LightClientBlockLiteView, LightClientBlockView,
+    NextEpochValidatorInfo, SpiceChunkId, StateChangeCauseView, StateChangeValueView,
+    StateChangeWithCauseView, StateProofResponse, StateProofTarget, StateProofView,
+    TransactionOrReceiptId, ValidatorKickoutReason, ValidatorKickoutView,
 };
 pub use transaction::{
     Nonce, NonceIndex, NonceMode, SignedTransaction, SignedTransactionV1, Transaction,

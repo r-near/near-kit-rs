@@ -21,11 +21,12 @@ use crate::trace;
 use crate::types::rpc::RawTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockEffects, BlockReference,
-    BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
-    FunctionCallError, GasKeyNoncesView, GasPrice, GlobalContractId, GlobalContractIdentifierView,
-    HostError, MaintenanceWindow, MethodResolveError, PublicKey, PublicKeyHandle,
-    ReceiptToTxResponse, SignedTransaction, StatusResponse, TxExecutionStatus, ViewFunctionResult,
-    ViewStateAllResult, ViewStateResult,
+    BlockView, ChunkExecutionProofResponse, CompilationError, ContractCodeView, CryptoHash,
+    EpochValidatorInfo, ExecutionOutcomeProofResponse, FunctionCallError, GasKeyNoncesView,
+    GasPrice, GlobalContractId, GlobalContractIdentifierView, HostError, MaintenanceWindow,
+    MethodResolveError, PublicKey, PublicKeyHandle, ReceiptToTxResponse, SignedTransaction,
+    SpiceChunkId, StateProofResponse, StateProofTarget, StatusResponse, TransactionOrReceiptId,
+    TxExecutionStatus, ViewFunctionResult, ViewStateAllResult, ViewStateResult,
 };
 
 /// Platform-appropriate async sleep, used for retry backoff.
@@ -933,6 +934,76 @@ impl RpcClient {
                         };
                     }
                 }
+                // nearcore 2.14 light client proof errors
+                // (`RpcLightClientProofError`). Each needs its identifying
+                // fields; without them fall through to the generic error.
+                "CHUNK_NOT_CERTIFIED" => {
+                    if let Some(chunk_id) = info_chunk_id(info) {
+                        return RpcError::ChunkNotCertified { chunk_id };
+                    }
+                }
+                "STATE_NOT_AVAILABLE" => {
+                    if let Some(chunk_id) = info_chunk_id(info) {
+                        return RpcError::StateNotAvailable { chunk_id };
+                    }
+                }
+                "LIGHT_CLIENT_HEAD_TOO_OLD" => {
+                    if let (Some(chunk_id), Some(certifying_block_height), Some(head_height)) = (
+                        info_chunk_id(info),
+                        info_u64(info, "certifying_block_height"),
+                        info_u64(info, "head_height"),
+                    ) {
+                        return RpcError::LightClientHeadTooOld {
+                            chunk_id,
+                            certifying_block_height,
+                            head_height,
+                        };
+                    }
+                }
+                "SHARD_NOT_TRACKED" => {
+                    if let Some(shard_id) = info_u64(info, "shard_id") {
+                        return RpcError::ShardNotTracked { shard_id };
+                    }
+                }
+                "TARGET_SHARD_MISMATCH" => {
+                    let account_id = info
+                        .and_then(|i| i.get("account_id"))
+                        .and_then(|a| a.as_str())
+                        .and_then(|a| a.parse().ok());
+                    if let (Some(account_id), Some(account_shard_id), Some(requested_shard_id)) = (
+                        account_id,
+                        info_u64(info, "account_shard_id"),
+                        info_u64(info, "requested_shard_id"),
+                    ) {
+                        return RpcError::TargetShardMismatch {
+                            account_id,
+                            account_shard_id,
+                            requested_shard_id,
+                        };
+                    }
+                }
+                "UNKNOWN_TRANSACTION_OR_RECEIPT" => {
+                    if let Some(id) = info_hash(info, "transaction_or_receipt_id") {
+                        return RpcError::UnknownTransactionOrReceipt(id);
+                    }
+                }
+                "NOT_CONFIRMED" => {
+                    if let Some(id) = info_hash(info, "transaction_or_receipt_id") {
+                        return RpcError::TransactionOrReceiptNotConfirmed(id);
+                    }
+                }
+                "INCONSISTENT_STATE" => {
+                    // `number_or_shards` is nearcore's spelling on the wire.
+                    if let (Some(number_of_shards), Some(execution_outcome_shard_id)) = (
+                        info_u64(info, "number_or_shards"),
+                        info_u64(info, "execution_outcome_shard_id"),
+                    ) {
+                        return RpcError::InconsistentState {
+                            number_of_shards,
+                            execution_outcome_shard_id,
+                        };
+                    }
+                }
                 _ => {}
             }
         }
@@ -1493,6 +1564,12 @@ impl RpcClient {
     /// Uses `EXPERIMENTAL_tx_status` which returns complete receipt information.
     /// When the transaction has been executed, the outcome's `receipts` field
     /// will be populated (unlike `send_tx` which leaves it empty).
+    ///
+    /// nearcore 2.14 stabilizes this method as `tx_status` and keeps
+    /// `EXPERIMENTAL_tx_status` as a deprecated alias served by the same
+    /// handler. nearcore 2.13 only knows the `EXPERIMENTAL_` name, so this
+    /// keeps calling it until 2.14 is the oldest version on the networks and
+    /// major providers.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%tx_hash, sender = %sender_id, ?wait_until)))]
     pub async fn tx_status(
         &self,
@@ -1506,7 +1583,7 @@ impl RpcClient {
             "wait_until": wait_until.as_str(),
         });
         let mut response: RawTransactionResponse = self
-            .call("EXPERIMENTAL_tx_status", params)
+            .call(TX_STATUS_METHOD, params)
             .await
             .map_err(|e| with_timeout_tx_hash(e, *tx_hash))?;
         response.transaction_hash = response
@@ -1529,6 +1606,75 @@ impl RpcClient {
     ) -> Result<ReceiptToTxResponse, RpcError> {
         let params = serde_json::json!({ "receipt_id": receipt_id.to_string() });
         self.call("EXPERIMENTAL_receipt_to_tx", params).await
+    }
+
+    // ========================================================================
+    // SPICE light client proofs (nearcore 2.14)
+    // ========================================================================
+
+    /// Prove that a chunk's certified execution roots are committed by the
+    /// chain, verifiable against a trusted light client head.
+    ///
+    /// Uses `EXPERIMENTAL_light_client_chunk_execution_proof` (nearcore 2.14,
+    /// not stabilized). The proof only exists for chunks certified under SPICE
+    /// (separated execution); a node running without SPICE answers
+    /// [`RpcError::ChunkNotCertified`]. `light_client_head` must be a final
+    /// block above the certifying block, or the node answers
+    /// [`RpcError::LightClientHeadTooOld`].
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(chunk_block = %chunk_id.block_hash, shard_id = chunk_id.shard_id, %light_client_head)))]
+    pub async fn light_client_chunk_execution_proof(
+        &self,
+        chunk_id: &SpiceChunkId,
+        light_client_head: &CryptoHash,
+    ) -> Result<ChunkExecutionProofResponse, RpcError> {
+        self.call(
+            "EXPERIMENTAL_light_client_chunk_execution_proof",
+            chunk_execution_proof_params(chunk_id, light_client_head),
+        )
+        .await
+    }
+
+    /// Prove a transaction or receipt execution outcome, together with the
+    /// chunk execution proof for the chunk that produced it.
+    ///
+    /// Uses `EXPERIMENTAL_light_client_execution_outcome_proof` (nearcore
+    /// 2.14, not stabilized). Like
+    /// [`light_client_chunk_execution_proof`](Self::light_client_chunk_execution_proof),
+    /// it only succeeds for outcomes executed under SPICE. An unknown id is
+    /// [`RpcError::UnknownTransactionOrReceipt`].
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(?id, %light_client_head)))]
+    pub async fn light_client_execution_outcome_proof(
+        &self,
+        id: &TransactionOrReceiptId,
+        light_client_head: &CryptoHash,
+    ) -> Result<ExecutionOutcomeProofResponse, RpcError> {
+        self.call(
+            "EXPERIMENTAL_light_client_execution_outcome_proof",
+            execution_outcome_proof_params(id, light_client_head),
+        )
+        .await
+    }
+
+    /// Read a value from a shard's state after a chunk, with the trie nodes
+    /// that prove it against the chunk's certified `state_root`.
+    ///
+    /// Uses `EXPERIMENTAL_light_client_state_proof` (nearcore 2.14, not
+    /// stabilized), which only succeeds for chunks certified under SPICE.
+    /// `chunk_id.shard_id` must be the shard holding `target`'s account
+    /// ([`RpcError::TargetShardMismatch`] otherwise), and the node must track
+    /// that shard ([`RpcError::ShardNotTracked`]).
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(chunk_block = %chunk_id.block_hash, shard_id = chunk_id.shard_id, %light_client_head)))]
+    pub async fn light_client_state_proof(
+        &self,
+        chunk_id: &SpiceChunkId,
+        target: &StateProofTarget,
+        light_client_head: &CryptoHash,
+    ) -> Result<StateProofResponse, RpcError> {
+        self.call(
+            "EXPERIMENTAL_light_client_state_proof",
+            state_proof_params(chunk_id, target, light_client_head),
+        )
+        .await
     }
 
     /// Merge block reference parameters into a JSON object.
@@ -1684,6 +1830,91 @@ fn sanitize_url(url: &str) -> &str {
 /// advances by a relative `delta_height`, so a retry could advance twice.
 fn is_idempotent(method: &str) -> bool {
     method != "sandbox_fast_forward"
+}
+
+/// The `chunk_id` of a light client proof error payload.
+fn info_chunk_id(info: Option<&serde_json::Value>) -> Option<SpiceChunkId> {
+    info.and_then(|i| i.get("chunk_id"))
+        .and_then(|c| serde_json::from_value(c.clone()).ok())
+}
+
+/// A `u64` field of an error payload.
+fn info_u64(info: Option<&serde_json::Value>, field: &str) -> Option<u64> {
+    info.and_then(|i| i.get(field))
+        .and_then(serde_json::Value::as_u64)
+}
+
+/// A base58 hash field of an error payload.
+fn info_hash(info: Option<&serde_json::Value>, field: &str) -> Option<CryptoHash> {
+    info.and_then(|i| i.get(field))
+        .and_then(|h| h.as_str())
+        .and_then(|h| h.parse().ok())
+}
+
+/// The JSON-RPC method [`RpcClient::tx_status`] calls.
+///
+/// nearcore 2.14 stabilizes `tx_status` and keeps `EXPERIMENTAL_tx_status` as
+/// a deprecated alias; both names reach the same handler with receipts
+/// included. nearcore 2.13 has no `tx_status`, and 2.14 is not yet on mainnet,
+/// so the alias is the one name every supported node accepts. A
+/// `tx_status`-then-fallback scheme would cost a second round trip on every
+/// status poll against 2.13 nodes and relies on gateways passing nearcore's
+/// `METHOD_NOT_FOUND` (-32601) through unchanged, which method-allowlisting
+/// gateways do not. Switch to `tx_status` once 2.14 is the floor.
+const TX_STATUS_METHOD: &str = "EXPERIMENTAL_tx_status";
+
+/// Params for `EXPERIMENTAL_light_client_chunk_execution_proof`.
+fn chunk_execution_proof_params(
+    chunk_id: &SpiceChunkId,
+    light_client_head: &CryptoHash,
+) -> serde_json::Value {
+    serde_json::json!({
+        "chunk_id": chunk_id,
+        "light_client_head": light_client_head,
+    })
+}
+
+/// Params for `EXPERIMENTAL_light_client_execution_outcome_proof`.
+///
+/// nearcore flattens the `TransactionOrReceiptId` into the request, so
+/// `type` and the id fields sit next to `light_client_head`.
+fn execution_outcome_proof_params(
+    id: &TransactionOrReceiptId,
+    light_client_head: &CryptoHash,
+) -> serde_json::Value {
+    match id {
+        TransactionOrReceiptId::Transaction {
+            transaction_hash,
+            sender_id,
+        } => serde_json::json!({
+            "type": "transaction",
+            "transaction_hash": transaction_hash,
+            "sender_id": sender_id,
+            "light_client_head": light_client_head,
+        }),
+        TransactionOrReceiptId::Receipt {
+            receipt_id,
+            receiver_id,
+        } => serde_json::json!({
+            "type": "receipt",
+            "receipt_id": receipt_id,
+            "receiver_id": receiver_id,
+            "light_client_head": light_client_head,
+        }),
+    }
+}
+
+/// Params for `EXPERIMENTAL_light_client_state_proof`.
+fn state_proof_params(
+    chunk_id: &SpiceChunkId,
+    target: &StateProofTarget,
+    light_client_head: &CryptoHash,
+) -> serde_json::Value {
+    serde_json::json!({
+        "chunk_id": chunk_id,
+        "target": target,
+        "light_client_head": light_client_head,
+    })
 }
 
 /// Check if an HTTP status code is retryable.
@@ -2474,9 +2705,10 @@ mod tests {
     // ========================================================================
 
     /// Transport that replays queued JSON-RPC results in order and records the
-    /// `params` of every request it was sent.
+    /// `method` and `params` of every request it was sent.
     struct RecordingTransport {
         responses: Mutex<VecDeque<Vec<u8>>>,
+        methods: Mutex<Vec<String>>,
         params: Mutex<Vec<serde_json::Value>>,
     }
 
@@ -2495,6 +2727,7 @@ mod tests {
                 .collect();
             Arc::new(Self {
                 responses: Mutex::new(responses),
+                methods: Mutex::new(Vec::new()),
                 params: Mutex::new(Vec::new()),
             })
         }
@@ -2513,6 +2746,10 @@ mod tests {
         fn params(&self) -> Vec<serde_json::Value> {
             self.params.lock().unwrap().clone()
         }
+
+        fn methods(&self) -> Vec<String> {
+            self.methods.lock().unwrap().clone()
+        }
     }
 
     impl RpcTransport for RecordingTransport {
@@ -2522,6 +2759,10 @@ mod tests {
             body: Vec<u8>,
         ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
             let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            self.methods
+                .lock()
+                .unwrap()
+                .push(request["method"].as_str().unwrap_or_default().to_string());
             self.params.lock().unwrap().push(request["params"].clone());
             let body = self
                 .responses
@@ -3448,6 +3689,456 @@ mod tests {
             "expected UnknownReceipt, got {:?}",
             result
         );
+    }
+
+    // ========================================================================
+    // tx_status method name
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_tx_status_uses_experimental_alias_for_2_13_nodes() {
+        // nearcore 2.13 has no `tx_status`; 2.14 serves the alias from the
+        // same handler. Pin the alias until 2.14 is the floor.
+        let transport = RecordingTransport::new([serde_json::json!({
+            "final_execution_status": "NONE",
+        })]);
+        let hash: CryptoHash = "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+            .parse()
+            .unwrap();
+        let sender: AccountId = "alice.near".parse().unwrap();
+        let _ = transport
+            .client()
+            .tx_status(&hash, &sender, TxExecutionStatus::None)
+            .await;
+        assert_eq!(transport.methods(), ["EXPERIMENTAL_tx_status"]);
+    }
+
+    // ========================================================================
+    // SPICE light client proofs (nearcore 2.14)
+    //
+    // Fixtures follow the 2.14-release openapi schemas
+    // (`RpcLightClient*ProofResponse`, `RpcLightClientProofError`).
+    // ========================================================================
+
+    const LC_BLOCK: &str = "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U";
+    const LC_HEAD: &str = "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK";
+    const LC_ROOT: &str = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj";
+
+    fn lc_chunk_id() -> SpiceChunkId {
+        SpiceChunkId {
+            block_hash: LC_BLOCK.parse().unwrap(),
+            shard_id: 3,
+        }
+    }
+
+    fn lc_head() -> CryptoHash {
+        LC_HEAD.parse().unwrap()
+    }
+
+    fn chunk_execution_proof_fixture() -> serde_json::Value {
+        serde_json::json!({
+            "roots": {
+                "V1": {
+                    "chunk_id": { "block_hash": LC_BLOCK, "shard_id": 3 },
+                    "state_root": LC_ROOT,
+                    "outcome_root": LC_ROOT,
+                    "outgoing_receipts_root": "11111111111111111111111111111111"
+                }
+            },
+            "roots_proof": [{ "hash": LC_ROOT, "direction": "Left" }],
+            "certifying_block_header_lite": {
+                "prev_block_hash": LC_BLOCK,
+                "inner_rest_hash": LC_ROOT,
+                "inner_lite": {
+                    "height": 105,
+                    "epoch_id": "11111111111111111111111111111111",
+                    "next_epoch_id": LC_ROOT,
+                    "prev_state_root": LC_ROOT,
+                    "outcome_root": LC_ROOT,
+                    "timestamp": 1_700_000_000_000_000_000u64,
+                    "timestamp_nanosec": "1700000000000000000",
+                    "next_bp_hash": LC_ROOT,
+                    "block_merkle_root": LC_ROOT,
+                    "chunk_execution_root": LC_HEAD
+                }
+            },
+            "certifying_block_proof": [
+                { "hash": LC_ROOT, "direction": "Right" },
+                { "hash": LC_BLOCK, "direction": "Left" }
+            ]
+        })
+    }
+
+    fn assert_chunk_execution_proof(proof: &crate::types::ChunkExecutionProofView) {
+        let crate::types::ChunkExecutionRoots::V1(roots) = &proof.roots;
+        assert_eq!(roots.chunk_id, lc_chunk_id());
+        assert_eq!(roots.state_root, LC_ROOT.parse::<CryptoHash>().unwrap());
+        assert_eq!(roots.outgoing_receipts_root, CryptoHash::ZERO);
+        assert_eq!(proof.roots_proof.len(), 1);
+        assert_eq!(proof.certifying_block_proof.len(), 2);
+        let inner = &proof.certifying_block_header_lite.inner_lite;
+        assert_eq!(inner.height, 105);
+        assert_eq!(inner.chunk_execution_root, Some(lc_head()));
+    }
+
+    #[tokio::test]
+    async fn test_light_client_chunk_execution_proof_request_and_response() {
+        let transport = RecordingTransport::new([serde_json::json!({
+            "chunk_execution_proof": chunk_execution_proof_fixture(),
+        })]);
+        let response = transport
+            .client()
+            .light_client_chunk_execution_proof(&lc_chunk_id(), &lc_head())
+            .await
+            .unwrap();
+        assert_chunk_execution_proof(&response.chunk_execution_proof);
+        assert_eq!(
+            transport.methods(),
+            ["EXPERIMENTAL_light_client_chunk_execution_proof"]
+        );
+        assert_eq!(
+            transport.params(),
+            [serde_json::json!({
+                "chunk_id": { "block_hash": LC_BLOCK, "shard_id": 3 },
+                "light_client_head": LC_HEAD,
+            })]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_light_client_execution_outcome_proof_request_and_response() {
+        let outcome_proof = serde_json::json!({
+            "proof": [{ "hash": LC_ROOT, "direction": "Right" }],
+            "block_hash": LC_BLOCK,
+            "id": LC_HEAD,
+            "outcome": {
+                "logs": [],
+                "receipt_ids": [LC_ROOT],
+                "gas_burnt": 2_428_000_000_000u64,
+                "tokens_burnt": "242800000000000000000",
+                "executor_id": "alice.near",
+                "status": { "SuccessReceiptId": LC_ROOT }
+            }
+        });
+        let transport = RecordingTransport::new([
+            serde_json::json!({
+                "chunk_execution_proof": chunk_execution_proof_fixture(),
+                "outcome_proof": outcome_proof.clone(),
+            }),
+            serde_json::json!({
+                "chunk_execution_proof": chunk_execution_proof_fixture(),
+                "outcome_proof": outcome_proof,
+            }),
+        ]);
+        let client = transport.client();
+
+        let tx = TransactionOrReceiptId::Transaction {
+            transaction_hash: LC_HEAD.parse().unwrap(),
+            sender_id: "alice.near".parse().unwrap(),
+        };
+        let response = client
+            .light_client_execution_outcome_proof(&tx, &lc_head())
+            .await
+            .unwrap();
+        assert_chunk_execution_proof(&response.chunk_execution_proof);
+        assert_eq!(response.outcome_proof.id, lc_head());
+        assert_eq!(response.outcome_proof.outcome.executor_id, "alice.near");
+        assert_eq!(response.outcome_proof.proof.len(), 1);
+
+        let receipt = TransactionOrReceiptId::Receipt {
+            receipt_id: LC_ROOT.parse().unwrap(),
+            receiver_id: "bob.near".parse().unwrap(),
+        };
+        client
+            .light_client_execution_outcome_proof(&receipt, &lc_head())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            transport.methods(),
+            ["EXPERIMENTAL_light_client_execution_outcome_proof"; 2]
+        );
+        // The id is flattened next to `light_client_head`, not nested.
+        assert_eq!(
+            transport.params(),
+            [
+                serde_json::json!({
+                    "type": "transaction",
+                    "transaction_hash": LC_HEAD,
+                    "sender_id": "alice.near",
+                    "light_client_head": LC_HEAD,
+                }),
+                serde_json::json!({
+                    "type": "receipt",
+                    "receipt_id": LC_ROOT,
+                    "receiver_id": "bob.near",
+                    "light_client_head": LC_HEAD,
+                }),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_light_client_state_proof_request_and_response() {
+        let transport = RecordingTransport::new([
+            serde_json::json!({
+                "chunk_execution_proof": chunk_execution_proof_fixture(),
+                "state_proof": {
+                    "value": STANDARD.encode(b"value"),
+                    "nodes": [STANDARD.encode(b"node-a"), STANDARD.encode(b"node-b")]
+                }
+            }),
+            // An absent value is proved the same way and comes back as null.
+            serde_json::json!({
+                "chunk_execution_proof": chunk_execution_proof_fixture(),
+                "state_proof": { "value": null, "nodes": [STANDARD.encode(b"node-a")] }
+            }),
+        ]);
+        let client = transport.client();
+
+        let target = StateProofTarget::ContractData {
+            account_id: "contract.near".parse().unwrap(),
+            key: b"STATE".to_vec(),
+        };
+        let present = client
+            .light_client_state_proof(&lc_chunk_id(), &target, &lc_head())
+            .await
+            .unwrap();
+        assert_chunk_execution_proof(&present.chunk_execution_proof);
+        assert_eq!(present.state_proof.value.as_deref(), Some(&b"value"[..]));
+        assert_eq!(
+            present.state_proof.nodes,
+            [b"node-a".to_vec(), b"node-b".to_vec()]
+        );
+
+        let key_target = StateProofTarget::AccessKey {
+            account_id: "alice.near".parse().unwrap(),
+            public_key: "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                .parse()
+                .unwrap(),
+        };
+        let absent = client
+            .light_client_state_proof(&lc_chunk_id(), &key_target, &lc_head())
+            .await
+            .unwrap();
+        assert_eq!(absent.state_proof.value, None);
+        assert_eq!(absent.state_proof.nodes.len(), 1);
+
+        assert_eq!(
+            transport.methods(),
+            ["EXPERIMENTAL_light_client_state_proof"; 2]
+        );
+        assert_eq!(
+            transport.params(),
+            [
+                serde_json::json!({
+                    "chunk_id": { "block_hash": LC_BLOCK, "shard_id": 3 },
+                    "target": {
+                        "target_type": "contract_data",
+                        "account_id": "contract.near",
+                        "key": STANDARD.encode(b"STATE"),
+                    },
+                    "light_client_head": LC_HEAD,
+                }),
+                serde_json::json!({
+                    "chunk_id": { "block_hash": LC_BLOCK, "shard_id": 3 },
+                    "target": {
+                        "target_type": "access_key",
+                        "account_id": "alice.near",
+                        "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                    },
+                    "light_client_head": LC_HEAD,
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_state_proof_target_account_variants_serialize() {
+        let account = StateProofTarget::Account {
+            account_id: "alice.near".parse().unwrap(),
+        };
+        let code = StateProofTarget::LocalContractCode {
+            account_id: "alice.near".parse().unwrap(),
+        };
+        assert_eq!(
+            serde_json::to_value(&account).unwrap(),
+            serde_json::json!({ "target_type": "account", "account_id": "alice.near" })
+        );
+        assert_eq!(
+            serde_json::to_value(&code).unwrap(),
+            serde_json::json!({ "target_type": "local_contract_code", "account_id": "alice.near" })
+        );
+    }
+
+    /// A light client proof handler error, in nearcore's envelope.
+    fn light_client_error_body(cause: &str, info: serde_json::Value) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": {
+                "name": "HANDLER_ERROR",
+                "cause": { "name": cause, "info": info },
+                "code": -32000,
+                "message": "Server error",
+                "data": "error text",
+            },
+        }))
+        .unwrap()
+    }
+
+    /// Run a chunk execution proof request against a node answering `cause`,
+    /// with retries enabled, and return the error and the attempt count.
+    async fn light_client_error(cause: &str, info: serde_json::Value) -> (RpcError, usize) {
+        let transport = CountingTransport::new(200, light_client_error_body(cause, info));
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(3),
+        );
+        let err = client
+            .light_client_chunk_execution_proof(&lc_chunk_id(), &lc_head())
+            .await
+            .unwrap_err();
+        (err, transport.calls())
+    }
+
+    #[tokio::test]
+    async fn test_light_client_proof_errors_are_typed_and_not_retried() {
+        let chunk_id = serde_json::json!({ "block_hash": LC_BLOCK, "shard_id": 3 });
+
+        // The steady-state answer on a network without SPICE.
+        let (err, calls) = light_client_error(
+            "CHUNK_NOT_CERTIFIED",
+            serde_json::json!({ "chunk_id": chunk_id }),
+        )
+        .await;
+        assert!(
+            matches!(err, RpcError::ChunkNotCertified { chunk_id } if chunk_id == lc_chunk_id()),
+            "{err:?}"
+        );
+        assert_eq!(
+            calls, 1,
+            "CHUNK_NOT_CERTIFIED must not burn the retry budget"
+        );
+
+        let (err, calls) = light_client_error(
+            "STATE_NOT_AVAILABLE",
+            serde_json::json!({ "chunk_id": chunk_id }),
+        )
+        .await;
+        assert!(matches!(err, RpcError::StateNotAvailable { .. }), "{err:?}");
+        assert_eq!(calls, 1);
+
+        let (err, calls) = light_client_error(
+            "LIGHT_CLIENT_HEAD_TOO_OLD",
+            serde_json::json!({
+                "chunk_id": chunk_id,
+                "certifying_block_height": 105,
+                "head_height": 100,
+            }),
+        )
+        .await;
+        assert!(
+            matches!(
+                err,
+                RpcError::LightClientHeadTooOld {
+                    certifying_block_height: 105,
+                    head_height: 100,
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+        assert_eq!(calls, 1);
+
+        let (err, calls) =
+            light_client_error("SHARD_NOT_TRACKED", serde_json::json!({ "shard_id": 3 })).await;
+        assert!(
+            matches!(err, RpcError::ShardNotTracked { shard_id: 3 }),
+            "{err:?}"
+        );
+        assert_eq!(calls, 1);
+
+        let (err, calls) = light_client_error(
+            "TARGET_SHARD_MISMATCH",
+            serde_json::json!({
+                "account_id": "alice.near",
+                "account_shard_id": 1,
+                "requested_shard_id": 3,
+            }),
+        )
+        .await;
+        assert!(
+            matches!(
+                &err,
+                RpcError::TargetShardMismatch {
+                    account_id,
+                    account_shard_id: 1,
+                    requested_shard_id: 3,
+                } if account_id == "alice.near"
+            ),
+            "{err:?}"
+        );
+        assert_eq!(calls, 1);
+
+        let (err, calls) = light_client_error(
+            "UNKNOWN_TRANSACTION_OR_RECEIPT",
+            serde_json::json!({ "transaction_or_receipt_id": LC_HEAD }),
+        )
+        .await;
+        assert!(
+            matches!(err, RpcError::UnknownTransactionOrReceipt(id) if id == lc_head()),
+            "{err:?}"
+        );
+        assert_eq!(calls, 1);
+
+        let (err, calls) = light_client_error(
+            "NOT_CONFIRMED",
+            serde_json::json!({ "transaction_or_receipt_id": LC_HEAD }),
+        )
+        .await;
+        assert!(
+            matches!(err, RpcError::TransactionOrReceiptNotConfirmed(id) if id == lc_head()),
+            "{err:?}"
+        );
+        assert_eq!(calls, 1);
+
+        let (err, calls) = light_client_error(
+            "INCONSISTENT_STATE",
+            serde_json::json!({ "number_or_shards": 4, "execution_outcome_shard_id": 7 }),
+        )
+        .await;
+        assert!(
+            matches!(
+                err,
+                RpcError::InconsistentState {
+                    number_of_shards: 4,
+                    execution_outcome_shard_id: 7,
+                }
+            ),
+            "{err:?}"
+        );
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn test_light_client_proof_error_without_fields_falls_back_to_generic() {
+        let client = RpcClient::new("https://example.com");
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: None,
+            cause: Some(ErrorCause {
+                name: "CHUNK_NOT_CERTIFIED".to_string(),
+                info: Some(serde_json::json!({})),
+            }),
+            name: None,
+        };
+        assert!(matches!(
+            client.parse_rpc_error(&error),
+            RpcError::Rpc { code: -32000, .. }
+        ));
     }
 
     #[test]

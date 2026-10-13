@@ -56,7 +56,7 @@ use thiserror::Error;
 
 use crate::types::{
     AccountId, CryptoHash, DelegateDecodeError, FinalExecutionOutcome,
-    GlobalContractIdentifierView, InvalidTxError, PublicKey, TxExecutionStatus,
+    GlobalContractIdentifierView, InvalidTxError, PublicKey, SpiceChunkId, TxExecutionStatus,
 };
 
 /// Error parsing an account ID.
@@ -489,6 +489,65 @@ pub enum RpcError {
         block_height: Option<u64>,
         block_hash: Option<CryptoHash>,
     },
+
+    // ─── Light Client Proofs ───
+    /// The chunk has no SPICE certification (`CHUNK_NOT_CERTIFIED`), from the
+    /// nearcore 2.14 light client proof methods.
+    ///
+    /// Either the chunk is not certified yet or the network does not run
+    /// SPICE, in which case no chunk ever is.
+    #[error("chunk {} of block {} is not certified", chunk_id.shard_id, chunk_id.block_hash)]
+    ChunkNotCertified { chunk_id: SpiceChunkId },
+
+    /// The light client head is not above the block that certified the chunk
+    /// (`LIGHT_CLIENT_HEAD_TOO_OLD`). Retry with a newer final head.
+    #[error(
+        "light client head at height {head_height} must be above the certifying block at height {certifying_block_height}"
+    )]
+    LightClientHeadTooOld {
+        chunk_id: SpiceChunkId,
+        certifying_block_height: u64,
+        head_height: u64,
+    },
+
+    /// The node does not track the requested shard (`SHARD_NOT_TRACKED`).
+    #[error("node does not track shard {shard_id}")]
+    ShardNotTracked { shard_id: u64 },
+
+    /// A state proof target lives in a different shard than the requested
+    /// chunk (`TARGET_SHARD_MISMATCH`).
+    #[error(
+        "account {account_id} is in shard {account_shard_id}, not the requested shard {requested_shard_id}"
+    )]
+    TargetShardMismatch {
+        account_id: AccountId,
+        account_shard_id: u64,
+        requested_shard_id: u64,
+    },
+
+    /// The node no longer has the state for the chunk (`STATE_NOT_AVAILABLE`).
+    #[error("state for chunk {} of block {} is not available on this node", chunk_id.shard_id, chunk_id.block_hash)]
+    StateNotAvailable { chunk_id: SpiceChunkId },
+
+    /// The node does not know the transaction or receipt
+    /// (`UNKNOWN_TRANSACTION_OR_RECEIPT`).
+    #[error("transaction or receipt {0} does not exist")]
+    UnknownTransactionOrReceipt(CryptoHash),
+
+    /// The transaction or receipt has not been confirmed yet
+    /// (`NOT_CONFIRMED`).
+    #[error("transaction or receipt {0} has not been confirmed")]
+    TransactionOrReceiptNotConfirmed(CryptoHash),
+
+    /// The node reported an outcome in a shard that does not exist
+    /// (`INCONSISTENT_STATE`).
+    #[error(
+        "inconsistent state: {number_of_shards} shards but the execution outcome is in shard {execution_outcome_shard_id}"
+    )]
+    InconsistentState {
+        number_of_shards: u64,
+        execution_outcome_shard_id: u64,
+    },
 }
 
 /// Why a node returned `TIMEOUT_ERROR` for a transaction (nearcore 2.14+).
@@ -794,6 +853,14 @@ impl RpcError {
             RpcError::ParseError(_) => "ParseError",
             RpcError::RequestTimeout { .. } => "RequestTimeout",
             RpcError::TooManyAccessKeys { .. } => "TooManyAccessKeys",
+            RpcError::ChunkNotCertified { .. } => "ChunkNotCertified",
+            RpcError::LightClientHeadTooOld { .. } => "LightClientHeadTooOld",
+            RpcError::ShardNotTracked { .. } => "ShardNotTracked",
+            RpcError::TargetShardMismatch { .. } => "TargetShardMismatch",
+            RpcError::StateNotAvailable { .. } => "StateNotAvailable",
+            RpcError::UnknownTransactionOrReceipt(_) => "UnknownTransactionOrReceipt",
+            RpcError::TransactionOrReceiptNotConfirmed(_) => "TransactionOrReceiptNotConfirmed",
+            RpcError::InconsistentState { .. } => "InconsistentState",
         }
     }
 
