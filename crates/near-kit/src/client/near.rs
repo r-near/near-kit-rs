@@ -50,6 +50,9 @@ pub trait SandboxNetwork {
     fn root_signer(&self) -> Arc<dyn Signer>;
 }
 
+/// Nonce retries a new client allows unless configured otherwise.
+const DEFAULT_MAX_NONCE_RETRIES: u32 = 3;
+
 /// The main client for interacting with NEAR Protocol.
 ///
 /// The `Near` client is the single entry point for all NEAR operations.
@@ -267,7 +270,35 @@ impl Near {
             rpc: Arc::new(RpcClient::new(network.rpc_url())),
             signer: Some(network.root_signer()),
             chain_id: network.chain_id().clone(),
-            max_nonce_retries: 3,
+            max_nonce_retries: DEFAULT_MAX_NONCE_RETRIES,
+        }
+    }
+
+    /// Wrap an existing [`RpcClient`] in a `Near` client without a signer.
+    ///
+    /// The client keeps the RPC client's URL, transport and retry
+    /// configuration. Use this when a component is handed an `RpcClient` but
+    /// wants the high-level API on top of it, such as typed
+    /// `#[near_kit::contract]` views. Add a signer with
+    /// [`with_signer`](Self::with_signer).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::Near;
+    /// use near_kit::rpc::RpcClient;
+    ///
+    /// let rpc = RpcClient::new("https://rpc.testnet.near.org");
+    /// let near = Near::from_rpc(rpc, "testnet");
+    /// assert_eq!(near.chain_id().as_str(), "testnet");
+    /// assert!(near.try_account_id().is_none());
+    /// ```
+    pub fn from_rpc(rpc: RpcClient, chain_id: impl Into<ChainId>) -> Near {
+        Near {
+            rpc: Arc::new(rpc),
+            signer: None,
+            chain_id: chain_id.into(),
+            max_nonce_retries: DEFAULT_MAX_NONCE_RETRIES,
         }
     }
 
@@ -281,8 +312,21 @@ impl Near {
         self.rpc.url()
     }
 
+    /// Get the signer's account ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no signer is configured. Use [`try_account_id`](Self::try_account_id)
+    /// if you need to handle the no-signer case.
+    pub fn account_id(&self) -> &AccountId {
+        self.signer
+            .as_ref()
+            .expect("account_id() called on a Near client without a signer configured — use try_account_id() or configure a signer")
+            .account_id()
+    }
+
     /// Get the signer's account ID, if a signer is configured.
-    pub fn account_id(&self) -> Option<&AccountId> {
+    pub fn try_account_id(&self) -> Option<&AccountId> {
         self.signer.as_ref().map(|s| s.account_id())
     }
 
@@ -822,7 +866,7 @@ impl Near {
     }
 
     fn signer_account_transaction(&self) -> TransactionBuilder {
-        match self.account_id() {
+        match self.try_account_id() {
             Some(account_id) => self.transaction(account_id),
             // The receiver is never observed because the retained validation
             // error wins at every terminal operation. Keeping NoSigner in the
@@ -980,7 +1024,7 @@ impl Near {
     /// }
     ///
     /// async fn example(near: &Near) -> Result<(), near_kit::Error> {
-    ///     let counter = near.contract::<Counter>("counter.testnet")?;
+    ///     let counter = near.contract::<Counter>("counter.testnet".parse::<AccountId>()?);
     ///     
     ///     // View call - type-safe!
     ///     let count = counter.get_count().await?;
@@ -993,16 +1037,16 @@ impl Near {
     /// }
     /// ```
     ///
-    /// # Errors
+    /// Takes an already-validated account ID — an [`AccountId`], `&AccountId`,
+    /// or `&AccountIdRef` — so creating the client cannot fail. Parse runtime
+    /// strings first (`"counter.near".parse::<AccountId>()?`), or use
+    /// [`AccountIdRef::new_or_panic`](crate::protocol::AccountIdRef::new_or_panic)
+    /// in a `const` for a compile-time-checked literal.
     ///
-    /// Returns an error if `contract_id` is not a valid NEAR account ID.
+    /// Requires both the `contracts` and `rpc` features.
     #[cfg(feature = "contracts")]
-    pub fn contract<T: crate::Contract>(
-        &self,
-        contract_id: impl TryIntoAccountId,
-    ) -> Result<T::Client, Error> {
-        let contract_id = contract_id.try_into_account_id()?;
-        Ok(T::Client::new(self.clone(), contract_id))
+    pub fn contract<T: crate::Contract>(&self, contract_id: impl Into<AccountId>) -> T::Client {
+        T::Client::new(self.clone(), contract_id.into())
     }
 
     // ========================================================================
@@ -1011,16 +1055,24 @@ impl Near {
 
     /// Get a fungible token client for a NEP-141 contract.
     ///
-    /// Accepts a string, [`AccountId`], or any other [`TryIntoAccountId`] value.
+    /// Takes an already-validated account ID — an [`AccountId`], `&AccountId`,
+    /// or `&AccountIdRef` — so creating the client cannot fail. Parse runtime
+    /// strings first, or use
+    /// [`AccountIdRef::new_or_panic`](crate::protocol::AccountIdRef::new_or_panic)
+    /// in a `const` for a compile-time-checked literal.
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// use near_kit::protocol::AccountIdRef;
+    ///
+    /// const WRAP_NEAR: &AccountIdRef = AccountIdRef::new_or_panic("wrap.near");
+    ///
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::mainnet().build();
     ///
-    /// let token = near.ft("wrap.near")?;
+    /// let token = near.ft(WRAP_NEAR);
     ///
     /// // Get metadata
     /// let meta = token.metadata().await?;
@@ -1032,17 +1084,14 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn ft(
-        &self,
-        contract: impl TryIntoAccountId,
-    ) -> Result<crate::tokens::FungibleToken, Error> {
-        let contract_id = contract.try_into_account_id()?;
-        Ok(crate::tokens::FungibleToken::new(self.clone(), contract_id))
+    pub fn ft(&self, contract: impl Into<AccountId>) -> crate::tokens::FungibleToken {
+        crate::tokens::FungibleToken::new(self.clone(), contract.into())
     }
 
     /// Get a non-fungible token client for a NEP-171 contract.
     ///
-    /// Accepts a string, [`AccountId`], or any other [`TryIntoAccountId`] value.
+    /// Like [`ft`](Self::ft), this takes an already-validated account ID and
+    /// cannot fail.
     ///
     /// # Example
     ///
@@ -1050,7 +1099,7 @@ impl Near {
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
-    /// let nft = near.nft("nft-contract.near")?;
+    /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
     ///
     /// // Get a specific token
     /// if let Some(token) = nft.token("token-123").await? {
@@ -1062,15 +1111,8 @@ impl Near {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn nft(
-        &self,
-        contract: impl TryIntoAccountId,
-    ) -> Result<crate::tokens::NonFungibleToken, Error> {
-        let contract_id = contract.try_into_account_id()?;
-        Ok(crate::tokens::NonFungibleToken::new(
-            self.clone(),
-            contract_id,
-        ))
+    pub fn nft(&self, contract: impl Into<AccountId>) -> crate::tokens::NonFungibleToken {
+        crate::tokens::NonFungibleToken::new(self.clone(), contract.into())
     }
 }
 
@@ -1078,7 +1120,7 @@ impl std::fmt::Debug for Near {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Near")
             .field("rpc", &self.rpc)
-            .field("account_id", &self.account_id())
+            .field("account_id", &self.try_account_id())
             .finish()
     }
 }
@@ -1120,7 +1162,7 @@ impl NearBuilder {
             signer: None,
             retry_config: RetryConfig::default(),
             chain_id,
-            max_nonce_retries: 3,
+            max_nonce_retries: DEFAULT_MAX_NONCE_RETRIES,
         }
     }
 
@@ -1271,14 +1313,14 @@ mod tests {
     fn test_near_mainnet_builder() {
         let near = Near::mainnet().build();
         assert!(near.rpc_url().contains("fastnear") || near.rpc_url().contains("near"));
-        assert!(near.account_id().is_none()); // No signer configured
+        assert!(near.try_account_id().is_none()); // No signer configured
     }
 
     #[test]
     fn test_near_testnet_builder() {
         let near = Near::testnet().build();
         assert!(near.rpc_url().contains("fastnear") || near.rpc_url().contains("test"));
-        assert!(near.account_id().is_none());
+        assert!(near.try_account_id().is_none());
     }
 
     #[test]
@@ -1304,7 +1346,7 @@ mod tests {
             .unwrap()
             .build();
 
-        assert_eq!(near.account_id().unwrap().as_str(), "alice.testnet");
+        assert_eq!(near.account_id().as_str(), "alice.testnet");
     }
 
     #[test]
@@ -1316,7 +1358,7 @@ mod tests {
 
         let near = Near::testnet().signer(signer).build();
 
-        assert_eq!(near.account_id().unwrap().as_str(), "bob.testnet");
+        assert_eq!(near.account_id().as_str(), "bob.testnet");
     }
 
     #[test]
@@ -1398,7 +1440,7 @@ mod tests {
             )
             .unwrap()
             .build();
-        let account_id = near.account_id().unwrap().clone();
+        let account_id = near.account_id().clone();
 
         let transaction = near
             .deploy(Vec::new())
@@ -1410,32 +1452,22 @@ mod tests {
     }
 
     #[test]
-    fn token_helpers_accept_strings_and_account_ids_without_network() {
+    fn token_helpers_accept_account_ids_without_network() {
+        use crate::types::AccountIdRef;
+
+        const WRAP: &AccountIdRef = AccountIdRef::new_or_panic("wrap.testnet");
+
         let near = Near::custom("http://127.0.0.1:1", "test").build();
 
-        let ft = near.ft("wrap.testnet").unwrap();
+        let ft = near.ft(WRAP);
         assert_eq!(ft.contract_id().as_str(), "wrap.testnet");
 
-        let ft = near.ft(String::from("token.testnet")).unwrap();
-        assert_eq!(ft.contract_id().as_str(), "token.testnet");
-
         let nft_id: AccountId = "nft.testnet".parse().unwrap();
-        let nft = near.nft(nft_id.clone()).unwrap();
+        let nft = near.nft(nft_id.clone());
         assert_eq!(nft.contract_id(), &nft_id);
 
-        let nft = near.nft(&nft_id).unwrap();
+        let nft = near.nft(&nft_id);
         assert_eq!(nft.contract_id(), &nft_id);
-    }
-
-    #[test]
-    fn invalid_token_contract_ids_return_errors_without_network() {
-        let near = Near::custom("http://127.0.0.1:1", "test").build();
-
-        let ft_error = near.ft("INVALID-UPPERCASE.near").err().unwrap();
-        assert!(matches!(ft_error, Error::ParseAccountId(_)));
-
-        let nft_error = near.nft("has spaces.near").err().unwrap();
-        assert!(matches!(nft_error, Error::ParseAccountId(_)));
     }
 
     // ========================================================================
@@ -1524,7 +1556,7 @@ mod tests {
 
         let near = Near::sandbox(&mock);
         assert_eq!(near.rpc_url(), "http://127.0.0.1:3030");
-        assert_eq!(near.account_id().unwrap().as_str(), "sandbox");
+        assert_eq!(near.account_id().as_str(), "sandbox");
     }
 
     // ========================================================================
@@ -1541,7 +1573,7 @@ mod tests {
     #[test]
     fn test_near_with_signer_derived() {
         let near = Near::testnet().build();
-        assert!(near.account_id().is_none());
+        assert!(near.try_account_id().is_none());
 
         let signer = InMemorySigner::new(
             "alice.testnet",
@@ -1549,9 +1581,9 @@ mod tests {
         ).unwrap();
 
         let alice = near.with_signer(signer);
-        assert_eq!(alice.account_id().unwrap().as_str(), "alice.testnet");
+        assert_eq!(alice.account_id().as_str(), "alice.testnet");
         assert_eq!(alice.rpc_url(), near.rpc_url()); // Same transport
-        assert!(near.account_id().is_none()); // Original unchanged
+        assert!(near.try_account_id().is_none()); // Original unchanged
     }
 
     #[test]
@@ -1568,8 +1600,8 @@ mod tests {
             "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
         ).unwrap());
 
-        assert_eq!(alice.account_id().unwrap().as_str(), "alice.testnet");
-        assert_eq!(bob.account_id().unwrap().as_str(), "bob.testnet");
+        assert_eq!(alice.account_id().as_str(), "alice.testnet");
+        assert_eq!(bob.account_id().as_str(), "bob.testnet");
         assert_eq!(alice.rpc_url(), bob.rpc_url()); // Shared transport
     }
 
@@ -1616,7 +1648,7 @@ mod tests {
                 "Expected testnet URL, got: {}",
                 near.rpc_url()
             );
-            assert!(near.account_id().is_none());
+            assert!(near.try_account_id().is_none());
         }
 
         // Scenario 2: Mainnet network
@@ -1631,7 +1663,7 @@ mod tests {
                 "Expected mainnet URL, got: {}",
                 near.rpc_url()
             );
-            assert!(near.account_id().is_none());
+            assert!(near.try_account_id().is_none());
         }
 
         // Scenario 3: Custom URL
@@ -1656,7 +1688,7 @@ mod tests {
         }
         {
             let near = Near::from_env().unwrap();
-            assert_eq!(near.account_id().unwrap().as_str(), "alice.testnet");
+            assert_eq!(near.account_id().as_str(), "alice.testnet");
         }
 
         // Scenario 5: Account without key - should error

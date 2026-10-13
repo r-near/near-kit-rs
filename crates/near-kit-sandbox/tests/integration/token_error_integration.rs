@@ -42,7 +42,7 @@ async fn test_ft_queries_on_non_contract_account() {
         .unwrap();
 
     // Try to get FT metadata from non-contract account
-    let ft = near.ft(&account_id).unwrap();
+    let ft = near.ft(&account_id);
     let metadata_error = ft.metadata().await.unwrap_err();
     assert_contract_not_deployed(metadata_error, &account_id);
 
@@ -55,7 +55,9 @@ async fn test_ft_metadata_on_nonexistent_account() {
     let (_sandbox, near) = shared_client().await;
 
     // Try to get FT metadata from non-existent account
-    let ft = near.ft("nonexistent-ft-contract.sandbox").unwrap();
+    let ft = near.ft("nonexistent-ft-contract.sandbox"
+        .parse::<AccountId>()
+        .unwrap());
     let error = ft.metadata().await.unwrap_err();
     assert!(matches!(
         error,
@@ -70,7 +72,7 @@ async fn test_ft_storage_deposit_without_signer() {
     // Create a client WITHOUT a signer
     let no_signer_near = Near::custom(sandbox.rpc_url(), "sandbox").build();
 
-    let ft = no_signer_near.ft("any-token.sandbox").unwrap();
+    let ft = no_signer_near.ft("any-token.sandbox".parse::<AccountId>().unwrap());
 
     // storage_deposit builds a CallBuilder synchronously, NoSigner surfaces at send time
     let result = ft
@@ -103,7 +105,7 @@ async fn test_token_metadata_on_wrong_contract_type() {
         .unwrap();
 
     // Try to use FT methods on non-FT contract (no init needed)
-    let ft = near.ft(&contract_id).unwrap();
+    let ft = near.ft(&contract_id);
     let result = ft.metadata().await;
 
     assert!(result.is_err(), "Should error for non-FT contract");
@@ -123,7 +125,7 @@ async fn test_token_metadata_on_wrong_contract_type() {
         other => panic!("Expected RPC error, got: {other:?}"),
     }
 
-    let nft = near.nft(&contract_id).unwrap();
+    let nft = near.nft(&contract_id);
     let err = nft.metadata().await.unwrap_err();
     match err {
         Error::Rpc(error) => match error.as_ref() {
@@ -162,7 +164,7 @@ async fn test_nft_queries_on_non_contract() {
         .await
         .unwrap();
 
-    let nft = near.nft(&account_id).unwrap();
+    let nft = near.nft(&account_id);
     let metadata_error = nft.metadata().await.unwrap_err();
     assert_contract_not_deployed(metadata_error, &account_id);
 

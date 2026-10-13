@@ -916,6 +916,26 @@ impl FinalExecutionOutcome {
         &self.transaction_outcome.id
     }
 
+    /// Every log line the transaction emitted: the transaction outcome's
+    /// logs, then each receipt outcome's logs in the order the RPC lists them.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use near_kit::rpc::FinalExecutionOutcome;
+    /// fn events(outcome: &FinalExecutionOutcome) -> Vec<&str> {
+    ///     outcome
+    ///         .logs()
+    ///         .filter_map(|log| log.strip_prefix("EVENT_JSON:"))
+    ///         .collect()
+    /// }
+    /// ```
+    pub fn logs(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(&self.transaction_outcome)
+            .chain(&self.receipts_outcome)
+            .flat_map(|outcome| outcome.outcome.logs.iter().map(String::as_str))
+    }
+
     /// Get total gas used across all receipts.
     pub fn total_gas_used(&self) -> Gas {
         let tx_gas = self.transaction_outcome.outcome.gas_burnt.as_gas();
@@ -992,6 +1012,54 @@ pub enum ExecutionStatus {
     SuccessValue(Vec<u8>),
     /// Execution succeeded, producing a receipt.
     SuccessReceiptId(CryptoHash),
+}
+
+impl ExecutionStatus {
+    /// Whether the receipt succeeded, with a return value or a new receipt.
+    pub fn is_success(&self) -> bool {
+        matches!(self, Self::SuccessValue(_) | Self::SuccessReceiptId(_))
+    }
+
+    /// Whether the receipt failed.
+    pub fn is_failure(&self) -> bool {
+        matches!(self, Self::Failure(_))
+    }
+
+    /// The receipt's return value, if it returned one.
+    ///
+    /// A receipt that hands its result to another receipt
+    /// ([`SuccessReceiptId`](Self::SuccessReceiptId)) has no value of its own.
+    ///
+    /// # Example
+    ///
+    /// Find the value a specific contract returned anywhere in a transaction:
+    ///
+    /// ```rust
+    /// # use near_kit::AccountId;
+    /// # use near_kit::rpc::FinalExecutionOutcome;
+    /// fn returned_by(outcome: &FinalExecutionOutcome, contract: &AccountId) -> Option<Vec<u8>> {
+    ///     outcome
+    ///         .receipts_outcome
+    ///         .iter()
+    ///         .filter(|o| &o.outcome.executor_id == contract)
+    ///         .find_map(|o| o.outcome.status.success_value())
+    ///         .map(<[u8]>::to_vec)
+    /// }
+    /// ```
+    pub fn success_value(&self) -> Option<&[u8]> {
+        match self {
+            Self::SuccessValue(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// The action error, if the receipt failed.
+    pub fn failure(&self) -> Option<&ActionError> {
+        match self {
+            Self::Failure(error) => Some(error),
+            _ => None,
+        }
+    }
 }
 
 impl<'de> serde::Deserialize<'de> for ExecutionStatus {
@@ -2618,6 +2686,45 @@ mod tests {
     // ========================================================================
 
     #[test]
+    fn test_final_execution_outcome_logs_in_order() {
+        let outcome = |id: &str, logs: &[&str]| {
+            serde_json::json!({
+                "id": id,
+                "outcome": {
+                    "executor_id": "alice.near",
+                    "gas_burnt": 1,
+                    "tokens_burnt": "0",
+                    "logs": logs,
+                    "receipt_ids": [],
+                    "status": {"SuccessValue": ""}
+                },
+                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
+                "proof": []
+            })
+        };
+        let json = serde_json::json!({
+            "status": {"SuccessValue": ""},
+            "transaction": {
+                "signer_id": "alice.near",
+                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "nonce": 1,
+                "receiver_id": "bob.near",
+                "actions": [],
+                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
+                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+            },
+            "transaction_outcome": outcome("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U", &["tx"]),
+            "receipts_outcome": [
+                outcome("3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK", &["a", "b"]),
+                outcome("A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo", &[]),
+                outcome("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U", &["c"]),
+            ]
+        });
+        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+        assert_eq!(outcome.logs().collect::<Vec<_>>(), ["tx", "a", "b", "c"]);
+    }
+
+    #[test]
     fn test_send_tx_response_with_outcome() {
         let json = serde_json::json!({
             "final_execution_status": "FINAL",
@@ -2893,6 +3000,35 @@ mod tests {
             }
             other => panic!("expected Failure, got: {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_execution_status_accessors() {
+        let value: ExecutionStatus =
+            serde_json::from_value(serde_json::json!({"SuccessValue": "aGVsbG8="})).unwrap();
+        assert!(value.is_success() && !value.is_failure());
+        assert_eq!(value.success_value(), Some(&b"hello"[..]));
+        assert!(value.failure().is_none());
+
+        let receipt: ExecutionStatus = serde_json::from_value(
+            serde_json::json!({"SuccessReceiptId": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"}),
+        )
+        .unwrap();
+        assert!(receipt.is_success());
+        assert_eq!(receipt.success_value(), None);
+
+        let failure: ExecutionStatus = serde_json::from_value(serde_json::json!({
+            "Failure": {"ActionError": {"index": 0, "kind": {
+                "FunctionCallError": {"ExecutionError": "Smart contract panicked"}
+            }}}
+        }))
+        .unwrap();
+        assert!(failure.is_failure() && !failure.is_success());
+        assert_eq!(failure.failure().and_then(|e| e.index), Some(0));
+        assert_eq!(failure.success_value(), None);
+
+        assert!(!ExecutionStatus::Unknown.is_success());
+        assert!(!ExecutionStatus::Unknown.is_failure());
     }
 
     #[test]

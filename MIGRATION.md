@@ -1,3 +1,50 @@
+# Migrating to near-kit 0.19
+
+0.19 walks back a few 0.18 changes that made downstream code noisier. Most of
+the migration is deleting `.unwrap()` and `?` that 0.18 required.
+
+- **`PublicKey` is a public enum again**: `Ed25519([u8; 32])`,
+  `Secp256k1([u8; 64])`, `MlDsa65(Box<[u8; 1952]>)`. Match on it directly
+  instead of `key_type()` plus `as_*_bytes().unwrap()`. The 0.18 constructors
+  and accessors still exist.
+- **Public keys decode like nearcore.** `FromStr`, Borsh and serde check only
+  the type tag and length, so off-curve ed25519/secp256k1 keys now decode
+  (including in `PublicKeyHandle` and access-key list views). To reject them,
+  call `PublicKey::validate()` or use the checked
+  `ed25519_from_bytes`/`secp256k1_from_bytes` constructors.
+- **`Near::account_id()` returns `&AccountId`** and panics if no signer is
+  configured. Use `try_account_id()` for `Option<&AccountId>`:
+
+  ```rust
+  let me = near.account_id();                 // was near.account_id().unwrap()
+  let maybe_me = near.try_account_id();       // was near.account_id()
+  ```
+
+- **`Near::contract`, `Near::ft` and `Near::nft` are infallible** and take
+  `impl Into<AccountId>` (`AccountId`, `&AccountId`, `&AccountIdRef`). Drop the
+  `?`; parse strings first or use a `const` literal:
+
+  ```rust
+  use near_kit::protocol::AccountIdRef;
+  const WRAP: &AccountIdRef = AccountIdRef::new_or_panic("wrap.near");
+
+  let counter = near.contract::<Counter>(near.account_id());
+  let token = near.ft(WRAP);
+  let nft = near.nft("nft.near".parse::<AccountId>()?);
+  ```
+
+- **`contracts` no longer implies `rpc`.** With
+  `default-features = false, features = ["contracts"]`, `#[near_kit::contract]`
+  generates the offline `FunctionCall` constructors (e.g. `Counter::add(..)`)
+  for composing transactions anywhere, including `wasm32` without a network
+  stack. The `<Name>Client`, `Contract`, `ContractClient` and `Near::contract`
+  need `rpc` too, so a crate that uses them with `default-features = false`
+  must enable both: `features = ["rpc", "contracts"]`. The default feature set
+  already includes `rpc`.
+- `near-kit-macros` must match near-kit: its expansion relies on a support
+  shim that only near-kit 0.19+ provides. Depend on `near-kit` with the
+  `contracts` feature rather than on `near-kit-macros` directly.
+
 # Migrating to near-kit 0.18
 
 Version 0.18 deliberately narrows near-kit's default and public surface. Most

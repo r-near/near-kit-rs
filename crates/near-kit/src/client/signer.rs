@@ -399,6 +399,32 @@ impl InMemorySigner {
         })
     }
 
+    /// Create a signer from an already-typed account ID and secret key.
+    ///
+    /// Unlike [`from_secret_key`](Self::from_secret_key), this cannot fail:
+    /// the account ID is already validated, so there is no `Result` to
+    /// unwrap.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::AccountId;
+    /// use near_kit::signer::{InMemorySigner, SecretKey, Signer};
+    ///
+    /// let account_id: AccountId = "alice.testnet".parse()?;
+    /// let signer = InMemorySigner::from_parts(&account_id, SecretKey::generate_ed25519());
+    /// assert_eq!(signer.account_id(), &account_id);
+    /// # Ok::<(), near_kit::Error>(())
+    /// ```
+    pub fn from_parts(account_id: impl Into<AccountId>, secret_key: SecretKey) -> Self {
+        let public_key = secret_key.public_key();
+        Self {
+            account_id: account_id.into(),
+            secret_key,
+            public_key,
+        }
+    }
+
     /// Generate a random Ed25519 key and derive an implicit account ID.
     ///
     /// The account ID is the hex-encoded Ed25519 public key bytes (64 characters).

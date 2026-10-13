@@ -73,7 +73,7 @@ async fn test_ft_metadata_and_cache() {
     let (ft_id, _ft_key) = deploy_ft_contract(&root_near, &owner_id).await.unwrap();
 
     // Test FT metadata
-    let ft = root_near.ft(&ft_id).unwrap();
+    let ft = root_near.ft(&ft_id);
     let metadata = ft.metadata().await.unwrap();
 
     assert_eq!(metadata.name, "Test Token");
@@ -116,7 +116,7 @@ async fn test_ft_balance_supply_and_amount_roundtrip() {
     let (ft_id, _ft_key) = deploy_ft_contract(&root_near, &owner_id).await.unwrap();
 
     // Test balance query
-    let ft = root_near.ft(&ft_id).unwrap();
+    let ft = root_near.ft(&ft_id);
     let balance = ft.balance_of(&owner_id).await.unwrap();
 
     // Owner should have initial supply
@@ -185,7 +185,7 @@ async fn test_ft_transfer() {
     let (ft_id, _ft_key) = deploy_ft_contract(&root_near, &owner_id).await.unwrap();
 
     // Get FT client with signer
-    let ft = owner_near.ft(&ft_id).unwrap();
+    let ft = owner_near.ft(&ft_id);
 
     assert!(!ft.is_registered(&receiver_id).await.unwrap());
 
@@ -320,7 +320,7 @@ async fn test_nft_metadata() {
     let (nft_id, _nft_key) = deploy_nft_contract(&root_near, &owner_id).await.unwrap();
 
     // Test NFT metadata
-    let nft = root_near.nft(&nft_id).unwrap();
+    let nft = root_near.nft(&nft_id);
     let metadata = nft.metadata().await.unwrap();
 
     assert_eq!(metadata.name, "Test NFT Collection");
@@ -357,7 +357,7 @@ async fn test_nft_token_query() {
         .unwrap();
 
     // Query the token
-    let nft = root_near.nft(&nft_id).unwrap();
+    let nft = root_near.nft(&nft_id);
     let token = nft.token("token-1").await.unwrap();
 
     assert!(token.is_some(), "Token should exist");
@@ -411,7 +411,7 @@ async fn test_nft_tokens_for_owner() {
     }
 
     // Query tokens for owner
-    let nft = root_near.nft(&nft_id).unwrap();
+    let nft = root_near.nft(&nft_id);
     let tokens = nft.tokens_for_owner(&owner_id, None, None).await.unwrap();
 
     assert_eq!(tokens.len(), 5, "Owner should have 5 tokens");
@@ -480,12 +480,12 @@ async fn test_nft_transfer() {
         .unwrap();
 
     // Verify owner owns the token
-    let nft = root_near.nft(&nft_id).unwrap();
+    let nft = root_near.nft(&nft_id);
     let token = nft.token("transfer-test").await.unwrap().unwrap();
     assert_eq!(token.owner_id, owner_id.to_string());
 
     // Transfer the token
-    let nft_with_signer = owner_near.nft(&nft_id).unwrap();
+    let nft_with_signer = owner_near.nft(&nft_id);
     nft_with_signer
         .transfer_with_memo(&receiver_id, "transfer-test", "Gift for you!")
         .send()
@@ -521,7 +521,7 @@ async fn test_nft_total_supply() {
     // Deploy NFT contract
     let (nft_id, nft_key) = deploy_nft_contract(&root_near, &owner_id).await.unwrap();
 
-    let nft = root_near.nft(&nft_id).unwrap();
+    let nft = root_near.nft(&nft_id);
 
     // Initial supply should be 0
     let supply = nft.total_supply().await.unwrap();
@@ -611,7 +611,7 @@ async fn test_nft_supply_for_owner() {
         .unwrap();
     }
 
-    let nft = root_near.nft(&nft_id).unwrap();
+    let nft = root_near.nft(&nft_id);
 
     // Check supply per owner
     let owner1_supply = nft.supply_for_owner(&owner1_id).await.unwrap();

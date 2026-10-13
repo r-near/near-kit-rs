@@ -32,7 +32,7 @@ use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 ///
 /// # async fn example() -> Result<(), near_kit::Error> {
 /// let near = Near::mainnet().build();
-/// let token = near.ft("wrap.near")?;
+/// let token = near.ft("wrap.near".parse::<AccountId>()?);
 ///
 /// // Get metadata
 /// let meta = token.metadata().await?;
@@ -79,7 +79,7 @@ impl FungibleToken {
     /// # use near_kit::signer::InMemorySigner;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().credentials("ed25519:...", "alice.testnet")?.build();
-    /// let ft = near.ft("wrap.testnet")?;
+    /// let ft = near.ft("wrap.testnet".parse::<AccountId>()?);
     ///
     /// // Reuse the same client with a different signer
     /// let bob_signer = InMemorySigner::new("bob.testnet", "ed25519:...")?;
@@ -129,7 +129,7 @@ impl FungibleToken {
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::mainnet().build();
-    /// let token = near.ft("wrap.near")?;
+    /// let token = near.ft("wrap.near".parse::<AccountId>()?);
     ///
     /// let balance = token.balance_of("alice.near").await?;
     /// println!("Balance: {}", balance);
@@ -252,7 +252,7 @@ impl FungibleToken {
     /// let near = Near::mainnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let token = near.ft("wrap.near")?;
+    /// let token = near.ft("wrap.near".parse::<AccountId>()?);
     ///
     /// // Register bob with auto-detected minimum deposit
     /// let bounds = token.storage_balance_bounds().await?;
@@ -308,7 +308,7 @@ impl FungibleToken {
     /// let near = Near::mainnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let token = near.ft("wrap.near")?;
+    /// let token = near.ft("wrap.near".parse::<AccountId>()?);
     ///
     /// token.transfer("bob.near", 1_500_000_u128).await?;
     ///
@@ -373,7 +373,7 @@ impl FungibleToken {
     /// let near = Near::mainnet()
     ///     .credentials("ed25519:...", "alice.near")?
     ///     .build();
-    /// let token = near.ft("wrap.near")?;
+    /// let token = near.ft("wrap.near".parse::<AccountId>()?);
     ///
     /// token.transfer_call("defi.near", 1_000_000_u128, r#"{"action":"deposit"}"#)
     ///     .await?;

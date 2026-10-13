@@ -19,7 +19,7 @@
 //! With typed contracts, the compiler catches errors:
 //!
 //! ```ignore
-//! let counter = near.contract::<Counter>("counter.near")?;
+//! let counter = near.contract::<Counter>("counter.near".parse::<AccountId>()?);
 //! let count = counter.get_count().await?;  // Compile-time checked!
 //! ```
 //!
@@ -59,7 +59,7 @@
 //!
 //! ```ignore
 //! async fn example(near: &Near) -> Result<(), Error> {
-//!     let counter = near.contract::<Counter>("counter.testnet")?;
+//!     let counter = near.contract::<Counter>("counter.testnet".parse::<AccountId>()?);
 //!
 //!     // View calls
 //!     let count = counter.get_count().await?;

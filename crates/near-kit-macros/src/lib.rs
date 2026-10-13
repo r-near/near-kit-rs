@@ -65,7 +65,10 @@ enum SerializationFormat {
 
 fn near_kit_path() -> TokenStream2 {
     match crate_name("near-kit") {
-        Ok(FoundCrate::Itself) => quote!(crate),
+        // near-kit declares `extern crate self as near_kit`, so this path also
+        // resolves inside near-kit and in its own examples, tests and doctests
+        // (which are separate crates).
+        Ok(FoundCrate::Itself) => quote!(::near_kit),
         Ok(FoundCrate::Name(name)) => {
             let ident = format_ident!("{name}");
             quote!(::#ident)
@@ -406,7 +409,17 @@ fn generate_function_call_method(
     }
 }
 
-/// The main contract macro implementation.
+/// Define a typed contract interface from a trait.
+///
+/// For `trait Counter`, this generates:
+///
+/// - a unit struct `Counter` with a static `FunctionCall` constructor for each
+///   `#[call]` method (e.g. `Counter::increment()`), for composing typed calls
+///   into transactions. Needs only near-kit's `contracts` feature, so it works
+///   offline (`default-features = false, features = ["contracts"]`);
+/// - a `CounterClient` backed by `near_kit::Near`, plus the `Contract` and
+///   `ContractClient` impls behind `Near::contract::<Counter>(..)`. These are
+///   generated only when near-kit's `rpc` feature is also enabled.
 #[proc_macro_attribute]
 pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as ContractArgs);
@@ -497,10 +510,25 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         .map(|m| generate_function_call_method(m, args.format))
         .collect();
 
+    // Every argument and return type the trait mentions. Without near-kit's
+    // `rpc` feature the client methods are dropped, so view-only types would
+    // otherwise leave the caller's imports for them unused. Argument types are
+    // mentioned in argument position, where `impl Trait` is allowed.
+    let mentioned_arg_types: Vec<&Type> =
+        methods.iter().filter_map(|m| m.arg_type.as_ref()).collect();
+    let mentioned_return_types: Vec<&Type> = methods
+        .iter()
+        .filter_map(|m| m.return_type.as_ref())
+        .collect();
+
     // Propagate trait-level attributes (doc comments, #[cfg], etc.) to the struct
     let trait_attrs = &input.attrs;
 
-    // Build the output
+    // Build the output. The marker struct and its offline `FunctionCall`
+    // constructors are always generated. The `Near`-backed client needs
+    // near-kit's `rpc` feature, which a `cfg` here cannot see (it would be
+    // evaluated against the calling crate's features), so it is wrapped in a
+    // near-kit shim that keeps or drops it based on near-kit's own features.
     let expanded = quote! {
         #(#trait_attrs)*
         #[derive(Debug, Clone)]
@@ -510,6 +538,23 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
             #(#function_call_methods)*
         }
 
+        // One helper per argument type: a single helper taking every argument
+        // would trip `clippy::too_many_arguments` in the caller's crate for
+        // traits with more than seven argument-taking methods.
+        #(
+            const _: () = {
+                #[allow(dead_code, clippy::needless_pass_by_value)]
+                fn __near_kit_mention_arg_type(_: #mentioned_arg_types) {}
+            };
+        )*
+        const _: () = {
+            #[allow(dead_code)]
+            fn __near_kit_mention_return_types() {
+                #(let _: ::core::marker::PhantomData<#mentioned_return_types> = ::core::marker::PhantomData;)*
+            }
+        };
+
+        #near_kit::__private::rpc_only! {
         // Generated client struct for the simple (non-composed) case.
         #[derive(Debug, Clone)]
         #vis struct #client_name {
@@ -549,6 +594,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         // Implement Contract marker trait
         impl #near_kit::Contract for #trait_name {
             type Client = #client_name;
+        }
         }
     };
 

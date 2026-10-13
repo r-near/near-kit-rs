@@ -93,19 +93,24 @@ impl TryFrom<u8> for KeyType {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
-enum PublicKeyRepr {
-    Ed25519([u8; 32]),
-    Secp256k1([u8; 64]),
-    MlDsa65(Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>),
-}
-
 /// A NEAR public key.
 ///
-/// Stored privately as fixed-size arrays matching nearcore's representation:
+/// Stored as fixed-size arrays matching nearcore's representation:
 /// - Ed25519: 32-byte compressed point
 /// - Secp256k1: 64-byte uncompressed point (x, y coordinates, no `0x04` prefix)
 /// - ML-DSA-65: 1952-byte FIPS-204 public key (boxed to keep the enum small)
+///
+/// Match on the variants to get at the raw bytes:
+///
+/// ```rust
+/// use near_kit::signer::{PublicKey, SecretKey};
+///
+/// let public_key = SecretKey::generate_ed25519().public_key();
+/// match public_key {
+///     PublicKey::Ed25519(bytes) => assert_eq!(bytes.len(), 32),
+///     PublicKey::Secp256k1(_) | PublicKey::MlDsa65(_) => unreachable!(),
+/// }
+/// ```
 ///
 /// # ML-DSA-65 handles
 ///
@@ -116,15 +121,34 @@ enum PublicKeyRepr {
 /// 1952-byte key is *not* recoverable from that digest, so that form is **not**
 /// a `PublicKey`: it is modelled by [`PublicKeyHandle`] (as in nearcore), and
 /// parsing it as a `PublicKey` fails with [`ParseKeyError::MlDsa65HashHandle`].
-/// Every `PublicKey` is therefore a real, borsh-serializable key that can sign
-/// (given its secret key) and verify. Use [`PublicKey::to_ml_dsa65_hash`] to
-/// compute the handle the chain stores for a full ML-DSA-65 key.
+/// Use [`PublicKey::to_ml_dsa65_hash`] to compute the handle the chain stores
+/// for a full ML-DSA-65 key.
 ///
-/// The representation is private so Ed25519 and Secp256k1 keys must pass
-/// curve-point validation before they can be used for verification or put on
-/// the wire. ML-DSA-65 public keys are structurally valid at their fixed length.
+/// # Decoding and validation
+///
+/// Like nearcore, decoding a `PublicKey` — from a string ([`FromStr`]), Borsh,
+/// or serde — checks only the key-type tag and the payload length. It does
+/// **not** check that ed25519/secp256k1 bytes are a valid curve point, so any
+/// key the chain or an RPC node hands back can be decoded and re-encoded
+/// byte-for-byte. Constructing a variant directly is likewise unchecked.
+///
+/// An invalid point can never verify a signature ([`Signature::verify`]
+/// returns `false`). If you need to reject such keys up front, use
+/// [`PublicKey::validate`], or the checked constructors
+/// [`PublicKey::ed25519_from_bytes`] and [`PublicKey::secp256k1_from_bytes`].
 #[derive(Clone, PartialEq, Eq, Hash, SerializeDisplay, DeserializeFromStr)]
-pub struct PublicKey(PublicKeyRepr);
+pub enum PublicKey {
+    /// Ed25519 public key (32 bytes).
+    Ed25519([u8; 32]),
+    /// Secp256k1 public key (64 bytes, uncompressed without prefix).
+    ///
+    /// This matches nearcore's representation: raw x,y coordinates
+    /// without the `0x04` uncompressed point prefix.
+    Secp256k1([u8; 64]),
+    /// ML-DSA-65 public key (1952 bytes, FIPS 204). Boxed to keep the enum
+    /// from bloating every `PublicKey` to ~2 KiB.
+    MlDsa65(Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>),
+}
 
 impl PublicKey {
     /// Create an Ed25519 public key from raw 32 bytes.
@@ -133,9 +157,11 @@ impl PublicKey {
     ///
     /// Returns [`ParseKeyError::InvalidCurvePoint`] if the bytes do not
     /// represent a valid compressed Ed25519 point.
+    ///
+    /// Use [`PublicKey::Ed25519`] directly to skip the check, as decoding does.
     pub fn ed25519_from_bytes(bytes: [u8; 32]) -> Result<Self, ParseKeyError> {
-        VerifyingKey::from_bytes(&bytes).map_err(|_| ParseKeyError::InvalidCurvePoint)?;
-        Ok(Self(PublicKeyRepr::Ed25519(bytes)))
+        validate_ed25519_point(&bytes)?;
+        Ok(Self::Ed25519(bytes))
     }
 
     /// Create a Secp256k1 public key from raw 64-byte uncompressed coordinates.
@@ -149,48 +175,73 @@ impl PublicKey {
     ///
     /// Returns [`ParseKeyError::InvalidCurvePoint`] if the bytes do not
     /// represent a valid point on the secp256k1 curve.
+    ///
+    /// Use [`PublicKey::Secp256k1`] directly to skip the check, as decoding
+    /// does.
     pub fn secp256k1_from_bytes(bytes: [u8; 64]) -> Result<Self, ParseKeyError> {
-        // Validate the point is on the curve by constructing full uncompressed encoding
-        let mut uncompressed = [0u8; 65];
-        uncompressed[0] = 0x04;
-        uncompressed[1..].copy_from_slice(&bytes);
-        let encoded = k256::Sec1Point::from_bytes(uncompressed.as_ref())
-            .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
-        let point = k256::AffinePoint::from_sec1_point(&encoded);
-        if point.is_none().into() {
-            return Err(ParseKeyError::InvalidCurvePoint);
-        }
-
-        Ok(Self(PublicKeyRepr::Secp256k1(bytes)))
+        validate_secp256k1_point(&bytes)?;
+        Ok(Self::Secp256k1(bytes))
     }
 
     /// Create an ML-DSA-65 public key from raw 1952 bytes.
     pub fn ml_dsa65_from_bytes(bytes: Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>) -> Self {
-        Self(PublicKeyRepr::MlDsa65(bytes))
+        Self::MlDsa65(bytes)
+    }
+
+    /// Check that the key bytes are a valid point on the key's curve.
+    ///
+    /// Decoding (string, Borsh, serde) deliberately does not run this check,
+    /// matching nearcore; call it when you need to reject malformed keys
+    /// explicitly. ML-DSA-65 keys are structurally valid at their fixed length
+    /// and always pass.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseKeyError::InvalidCurvePoint`] if an ed25519 or
+    /// secp256k1 key is not a valid curve point.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::signer::PublicKey;
+    ///
+    /// // Correct length, but not a valid ed25519 point: decoding still succeeds.
+    /// let mut bytes = [0u8; 32];
+    /// bytes[0] = 2;
+    /// let key: PublicKey = PublicKey::Ed25519(bytes).to_string().parse()?;
+    /// assert!(key.validate().is_err());
+    /// # Ok::<(), near_kit::signer::ParseKeyError>(())
+    /// ```
+    pub fn validate(&self) -> Result<(), ParseKeyError> {
+        match self {
+            Self::Ed25519(bytes) => validate_ed25519_point(bytes),
+            Self::Secp256k1(bytes) => validate_secp256k1_point(bytes),
+            Self::MlDsa65(_) => Ok(()),
+        }
     }
 
     /// Get the key type.
     pub fn key_type(&self) -> KeyType {
-        match &self.0 {
-            PublicKeyRepr::Ed25519(_) => KeyType::Ed25519,
-            PublicKeyRepr::Secp256k1(_) => KeyType::Secp256k1,
-            PublicKeyRepr::MlDsa65(_) => KeyType::MlDsa65,
+        match self {
+            Self::Ed25519(_) => KeyType::Ed25519,
+            Self::Secp256k1(_) => KeyType::Secp256k1,
+            Self::MlDsa65(_) => KeyType::MlDsa65,
         }
     }
 
     /// Get the raw key bytes as a slice.
     pub fn as_bytes(&self) -> &[u8] {
-        match &self.0 {
-            PublicKeyRepr::Ed25519(bytes) => bytes.as_slice(),
-            PublicKeyRepr::Secp256k1(bytes) => bytes.as_slice(),
-            PublicKeyRepr::MlDsa65(bytes) => bytes.as_slice(),
+        match self {
+            Self::Ed25519(bytes) => bytes.as_slice(),
+            Self::Secp256k1(bytes) => bytes.as_slice(),
+            Self::MlDsa65(bytes) => bytes.as_slice(),
         }
     }
 
     /// Get the key data as a fixed-size array for Ed25519 keys.
     pub fn as_ed25519_bytes(&self) -> Option<&[u8; 32]> {
-        match &self.0 {
-            PublicKeyRepr::Ed25519(bytes) => Some(bytes),
+        match self {
+            Self::Ed25519(bytes) => Some(bytes),
             _ => None,
         }
     }
@@ -198,16 +249,16 @@ impl PublicKey {
     /// Get the key data as a fixed-size array for Secp256k1 keys
     /// (64-byte uncompressed, no prefix).
     pub fn as_secp256k1_bytes(&self) -> Option<&[u8; 64]> {
-        match &self.0 {
-            PublicKeyRepr::Secp256k1(bytes) => Some(bytes),
+        match self {
+            Self::Secp256k1(bytes) => Some(bytes),
             _ => None,
         }
     }
 
     /// Get the 1952-byte ML-DSA-65 public key, if this is an ML-DSA-65 key.
     pub fn as_ml_dsa65_bytes(&self) -> Option<&[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]> {
-        match &self.0 {
-            PublicKeyRepr::MlDsa65(bytes) => Some(bytes),
+        match self {
+            Self::MlDsa65(bytes) => Some(bytes),
             _ => None,
         }
     }
@@ -218,8 +269,8 @@ impl PublicKey {
     /// ed25519/secp256k1 keys (those are stored, and listed, in full — see
     /// [`PublicKeyHandle::from`]).
     pub fn to_ml_dsa65_hash(&self) -> Option<PublicKeyHandle> {
-        match &self.0 {
-            PublicKeyRepr::MlDsa65(bytes) => {
+        match self {
+            Self::MlDsa65(bytes) => {
                 use sha3::{Digest as _, Sha3_256};
                 let mut hasher = Sha3_256::new();
                 hasher.update(ML_DSA_65_PUBKEY_HASH_DOMAIN);
@@ -237,6 +288,9 @@ impl FromStr for PublicKey {
     type Err = ParseKeyError;
 
     /// Parse a full public key: `ed25519:`, `secp256k1:` or `ml-dsa-65:`.
+    ///
+    /// Only the prefix and payload length are checked, as in nearcore; see
+    /// [`PublicKey::validate`] for curve-point validation.
     ///
     /// The `ml-dsa-65-hash:` view handle is **not** a public key and is
     /// rejected with [`ParseKeyError::MlDsa65HashHandle`]; parse it as a
@@ -267,18 +321,12 @@ impl FromStr for PublicKey {
 
         match key_type {
             KeyType::Ed25519 => {
-                let bytes: [u8; 32] = data
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
-                Self::ed25519_from_bytes(bytes)
+                let bytes: [u8; 32] = data.as_slice().try_into().expect("length checked above");
+                Ok(Self::Ed25519(bytes))
             }
             KeyType::Secp256k1 => {
-                let bytes: [u8; 64] = data
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
-                Self::secp256k1_from_bytes(bytes)
+                let bytes: [u8; 64] = data.as_slice().try_into().expect("length checked above");
+                Ok(Self::Secp256k1(bytes))
             }
             KeyType::MlDsa65 => {
                 // Unlike ed25519/secp256k1, ML-DSA-65 has no public-key validity
@@ -322,8 +370,8 @@ impl Debug for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // ML-DSA-65 keys are ~2 KiB; printing the full base58 in `{:?}` would
         // bloat logs and allocate heavily. Show a truncated form instead.
-        match &self.0 {
-            PublicKeyRepr::MlDsa65(_) => write!(f, "PublicKey(ml-dsa-65:<1952 bytes>)"),
+        match self {
+            Self::MlDsa65(_) => write!(f, "PublicKey(ml-dsa-65:<1952 bytes>)"),
             _ => write!(f, "PublicKey({})", self),
         }
     }
@@ -344,25 +392,17 @@ impl BorshDeserialize for PublicKey {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
         match key_type {
+            // As in nearcore, only the tag and length are checked; see
+            // `PublicKey::validate` for curve-point validation.
             KeyType::Ed25519 => {
                 let mut bytes = [0u8; 32];
                 reader.read_exact(&mut bytes)?;
-                Self::ed25519_from_bytes(bytes).map_err(|_| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "invalid ed25519 curve point",
-                    )
-                })
+                Ok(Self::Ed25519(bytes))
             }
             KeyType::Secp256k1 => {
                 let mut bytes = [0u8; 64];
                 reader.read_exact(&mut bytes)?;
-                Self::secp256k1_from_bytes(bytes).map_err(|_| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "invalid secp256k1 curve point",
-                    )
-                })
+                Ok(Self::Secp256k1(bytes))
             }
             KeyType::MlDsa65 => {
                 // The wire form of an ML-DSA-65 `PublicKey` is always the full
@@ -374,6 +414,28 @@ impl BorshDeserialize for PublicKey {
             }
         }
     }
+}
+
+/// Check that 32 bytes are a valid compressed ed25519 point.
+fn validate_ed25519_point(bytes: &[u8; 32]) -> Result<(), ParseKeyError> {
+    VerifyingKey::from_bytes(bytes)
+        .map(|_| ())
+        .map_err(|_| ParseKeyError::InvalidCurvePoint)
+}
+
+/// Check that 64 bytes (x, y without the `0x04` prefix) are a point on the
+/// secp256k1 curve.
+fn validate_secp256k1_point(bytes: &[u8; 64]) -> Result<(), ParseKeyError> {
+    let mut uncompressed = [0u8; 65];
+    uncompressed[0] = 0x04;
+    uncompressed[1..].copy_from_slice(bytes);
+    let encoded = k256::Sec1Point::from_bytes(uncompressed.as_ref())
+        .map_err(|_| ParseKeyError::InvalidCurvePoint)?;
+    let point = k256::AffinePoint::from_sec1_point(&encoded);
+    if point.is_none().into() {
+        return Err(ParseKeyError::InvalidCurvePoint);
+    }
+    Ok(())
 }
 
 /// String prefix of an ML-DSA-65 access-key handle (`ml-dsa-65-hash:<base58>`).
@@ -686,7 +748,7 @@ impl SecretKey {
             SecretKeyRepr::Ed25519(bytes) => {
                 let signing_key = SigningKey::from_bytes(bytes);
                 let verifying_key = signing_key.verifying_key();
-                PublicKey(PublicKeyRepr::Ed25519(verifying_key.to_bytes()))
+                PublicKey::Ed25519(verifying_key.to_bytes())
             }
             SecretKeyRepr::Secp256k1(bytes) => {
                 let secret_key =
@@ -699,14 +761,14 @@ impl SecretKey {
                 // Store without the 0x04 prefix (64 bytes)
                 let mut result = [0u8; 64];
                 result.copy_from_slice(&uncompressed_bytes[1..]);
-                PublicKey(PublicKeyRepr::Secp256k1(result))
+                PublicKey::Secp256k1(result)
             }
             SecretKeyRepr::MlDsa65(sk) => {
                 let signing_key = Self::ml_dsa65_signing_key(sk);
                 let encoded: EncodedVerifyingKey<MlDsa65> = signing_key.verifying_key().encode();
                 let mut bytes = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
                 bytes.copy_from_slice(encoded.as_slice());
-                PublicKey(PublicKeyRepr::MlDsa65(bytes))
+                PublicKey::MlDsa65(bytes)
             }
         }
     }
@@ -1734,16 +1796,18 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_secp256k1_invalid_curve_point_rejected() {
+    fn test_secp256k1_invalid_curve_point_parses_but_fails_validation() {
         // This is the invalid key from the NEAR SDK docs that was identified as not being
         // on the secp256k1 curve. See: https://github.com/near/near-sdk-rs/pull/1469
+        // Like nearcore, parsing checks only the length; `validate` checks the point.
         let invalid_key = "secp256k1:qMoRgcoXai4mBPsdbHi1wfyxF9TdbPCF4qSDQTRP3TfescSRoUdSx6nmeQoN3aiwGzwMyGXAb1gUjBTv5AY8DXj";
-        let result: Result<PublicKey, _> = invalid_key.parse();
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            ParseKeyError::InvalidCurvePoint | ParseKeyError::InvalidLength { .. }
-        ));
+        let key: PublicKey = invalid_key.parse().unwrap();
+        assert_eq!(key.to_string(), invalid_key);
+        assert_eq!(key.validate(), Err(ParseKeyError::InvalidCurvePoint));
+        assert_eq!(
+            PublicKey::secp256k1_from_bytes(*key.as_secp256k1_bytes().unwrap()),
+            Err(ParseKeyError::InvalidCurvePoint)
+        );
     }
 
     #[test]
@@ -1753,7 +1817,7 @@ mod tests {
         let valid_key = "secp256k1:5r22SrjrDvgY3wdQsnjgxkeAbU1VcM71FYvALEQWihjM3Xk4Be1CpETTqFccChQr4iJwDroSDVmgaWZv2AcXvYeL";
         let result: Result<PublicKey, _> = valid_key.parse();
         // This key is now parseable because we expect 64-byte uncompressed format
-        assert!(result.is_ok());
+        assert!(result.unwrap().validate().is_ok());
     }
 
     #[test]
@@ -1765,45 +1829,39 @@ mod tests {
     }
 
     #[test]
-    fn test_ed25519_invalid_curve_point_rejected() {
-        // The high bit of the last byte being set with an invalid x-coordinate recovery
-        // should produce an invalid point. Specifically, a y-coordinate that when
-        // the x is computed results in a non-square (no valid x exists).
-        // This specific byte sequence has been verified to fail ed25519 decompression.
-        //
-        // Note: ed25519_dalek may accept many byte patterns as valid curve points.
-        // Ed25519 point decompression is very permissive - most 32-byte sequences
-        // decode to valid points.
-        let invalid_bytes = [
-            0xEC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-            0xFF, 0xFF, 0xFF, 0x7F,
-        ];
-        let encoded = bs58::encode(&invalid_bytes).into_string();
-        let invalid_key = format!("ed25519:{}", encoded);
-        let result: Result<PublicKey, _> = invalid_key.parse();
-        if let Err(err) = result {
-            assert!(matches!(err, ParseKeyError::InvalidCurvePoint));
-        } else {
-            // If ed25519_dalek accepts this, we should skip this test case
-            eprintln!(
-                "Note: ed25519 point decompression accepted test bytes - validation may be too lenient"
-            );
-        }
+    fn test_ed25519_invalid_curve_point_parses_but_fails_validation() {
+        // This compressed y-coordinate has no corresponding Ed25519 point.
+        let mut invalid_bytes = [0u8; 32];
+        invalid_bytes[0] = 2;
+        let invalid_key = format!("ed25519:{}", bs58::encode(&invalid_bytes).into_string());
+        let key: PublicKey = invalid_key.parse().unwrap();
+        assert_eq!(key, PublicKey::Ed25519(invalid_bytes));
+        assert_eq!(key.validate(), Err(ParseKeyError::InvalidCurvePoint));
     }
 
     #[test]
-    fn test_borsh_deserialize_validates_curve_point() {
+    fn test_borsh_deserialize_does_not_validate_curve_point() {
         use borsh::BorshDeserialize;
 
+        // Like nearcore, Borsh decoding checks only the tag and length.
         let mut invalid_ed25519 = vec![0u8]; // KeyType::Ed25519
         invalid_ed25519.extend_from_slice(&[2]);
         invalid_ed25519.extend_from_slice(&[0; 31]);
-        assert!(PublicKey::try_from_slice(&invalid_ed25519).is_err());
+        let key = PublicKey::try_from_slice(&invalid_ed25519).unwrap();
+        assert!(key.validate().is_err());
+        assert_eq!(borsh::to_vec(&key).unwrap(), invalid_ed25519);
 
         let mut invalid_secp256k1 = vec![1u8]; // KeyType::Secp256k1
         invalid_secp256k1.extend_from_slice(&[0u8; 64]);
-        assert!(PublicKey::try_from_slice(&invalid_secp256k1).is_err());
+        let key = PublicKey::try_from_slice(&invalid_secp256k1).unwrap();
+        assert!(key.validate().is_err());
+        assert_eq!(borsh::to_vec(&key).unwrap(), invalid_secp256k1);
+
+        // Wrong length and unknown tags are still rejected.
+        assert!(PublicKey::try_from_slice(&invalid_ed25519[..32]).is_err());
+        let mut unknown_tag = invalid_ed25519.clone();
+        unknown_tag[0] = 9;
+        assert!(PublicKey::try_from_slice(&unknown_tag).is_err());
     }
 
     #[test]
