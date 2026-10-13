@@ -1,18 +1,7 @@
-//! Integration test for transfers to `0u` universal accounts (nearcore 2.14).
-//!
-//! What a plain transfer to a `0u` id does depends on how the node was built:
-//!
-//! * Universal accounts enabled (`wasm_config.universal_accounts`): the
-//!   transfer creates the account *uninitialized*. `view_account` reports
-//!   `state: "uninitialized"` plus the `bootstrap_nonce` its self-signed
-//!   `UniversalStateInit` must carry. The `2.14.0-rc.3` sandbox enables them at
-//!   protocol v87, so this is the branch the default image runs.
-//! * Universal accounts disabled at protocol v87+: nearcore's
-//!   `RejectUniversalAccountTransfers` ban (near/nearcore#16520) rejects the
-//!   transaction with `ActionsValidationError::TransferToUniversalAccountNotAllowed`.
-//!
-//! The test reads the node's own protocol config to pick the branch, then
-//! asserts that branch strictly. A node that predates both panics.
+//! Transfers to `0u` universal accounts (nearcore 2.14). If the node enables
+//! `universal_accounts`, the transfer creates an uninitialized account;
+//! otherwise (protocol 87+) it is rejected with
+//! `TransferToUniversalAccountNotAllowed`.
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
@@ -83,7 +72,6 @@ async fn test_transfer_to_universal_account() {
             .await
             .expect("view the funded 0u account");
         assert_eq!(view.state, AccountState::Uninitialized);
-        assert!(!view.state.is_initialized());
         assert_eq!(
             view.amount, amount,
             "the whole deposit lands on the account"

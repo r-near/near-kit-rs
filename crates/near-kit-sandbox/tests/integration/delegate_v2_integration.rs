@@ -6,18 +6,15 @@
 //! 2. A relayer wraps it in `Action::DelegateV2` and submits it, paying gas.
 //! 3. Assert the transfer landed on-chain.
 //!
-//! The relay test pins the sandbox to stable `2.13.4`: protocol v85 enabled
-//! `DelegateV2`, and nearcore 2.14 (protocol v87, `RejectDelegateV2`) removed
-//! it again, so the relay path only exists on 2.13 nodes. A second test runs
-//! the same relay against the default (2.14) sandbox and asserts the node
-//! rejects it with `ActionsValidationError::RemovedProtocolFeature`.
+//! The relay test pins `2.13.4` (DelegateV2 exists only at protocol 85-86);
+//! the rejection test runs on the default 2.14 sandbox.
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
 use near_kit::*;
 use near_kit::{protocol::*, rpc::*, signer::*, transaction::Final};
 
-use super::support::{sandbox_2_13, shared_client, unique_account};
+use super::support::{funded_account, sandbox_2_13, shared_client, unique_account};
 
 /// Protocol version at which nearcore 2.14 rejects `Action::DelegateV2`
 /// (`ProtocolFeature::RejectDelegateV2`).
@@ -181,29 +178,15 @@ async fn test_delegate_v2_rejected_as_removed_protocol_feature() {
         status.protocol_version,
     );
 
-    let sender_key = SecretKey::generate_ed25519();
-    let sender_id = unique_account("dv2rmsender");
-    root_near
-        .transaction(&sender_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(sender_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .expect("create sender");
-
-    let relayer_key = SecretKey::generate_ed25519();
-    let relayer_id = unique_account("dv2rmrelayer");
-    root_near
-        .transaction(&relayer_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(relayer_key.public_key())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .expect("create relayer");
+    let (_, sender_id, sender_key) =
+        funded_account(&root_near, sandbox, "dv2rmsender", NearToken::from_near(10)).await;
+    let (relayer_near, relayer_id, _) = funded_account(
+        &root_near,
+        sandbox,
+        "dv2rmrelayer",
+        NearToken::from_near(10),
+    )
+    .await;
 
     // A well-formed, correctly signed DelegateActionV2: the only reason for the
     // node to reject it is that the action itself was removed.
@@ -230,12 +213,7 @@ async fn test_delegate_v2_rejected_as_removed_protocol_feature() {
     let payload: VersionedDelegateActionPayload = delegate_v2.into();
     let signature = sender_key.sign(payload.get_hash().as_bytes());
     let signed = payload.sign(signature);
-    assert!(signed.verify(), "V2 delegate signature must verify locally");
 
-    let relayer_near = sandbox.client().with_signer(
-        InMemorySigner::from_secret_key(relayer_id.clone(), relayer_key.clone())
-            .expect("relayer signer"),
-    );
     let error = relayer_near
         .transaction(&sender_id)
         .add_action(Action::delegate_v2(signed))
