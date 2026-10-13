@@ -63,10 +63,11 @@ pub struct AccountView {
     /// for initialized accounts.
     #[serde(default)]
     pub state: AccountState,
-    /// The nonce an uninitialized universal account's own transactions must
-    /// use. Present only while the account is uninitialized: it has no access
-    /// key to read a nonce from, and a self-signed state init is the one
-    /// transaction it can send.
+    /// The current nonce of an uninitialized universal account. Present only
+    /// while the account is uninitialized: it has no access key to read a
+    /// nonce from, and a self-signed state init is the one transaction it can
+    /// send. Like an access key nonce, this is the last used value: the state
+    /// init transaction must carry exactly `bootstrap_nonce + 1`.
     #[serde(default)]
     pub bootstrap_nonce: Option<u64>,
     /// Block height of the query.
