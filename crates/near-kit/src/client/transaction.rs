@@ -90,6 +90,7 @@ fn actions_summary(actions: &[Action]) -> String {
             Action::TransferToGasKey(_) => out.push_str("transfer_to_gas_key"),
             Action::WithdrawFromGasKey(_) => out.push_str("withdraw_from_gas_key"),
             Action::DelegateV2(_) => out.push_str("delegate_v2"),
+            Action::UniversalStateInit(_) => out.push_str("universal_state_init"),
         }
     }
     out

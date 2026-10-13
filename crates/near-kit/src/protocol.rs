@@ -20,9 +20,9 @@ pub use crate::types::{
     PrepareError, PublishMode, ReceiptValidationError, SignedDelegateAction, SignedTransaction,
     SignedTransactionV1, StakeAction, StateInit, StateInitExt, StateInitV1, StorageError,
     Transaction, TransactionNonce, TransactionV1, TransferAction, TransferToGasKeyAction,
-    TryIntoAccountId, TryIntoGlobalContractId, TxExecutionError, UnknownError,
-    UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
-    VersionedTransaction, WasmTrap, WithdrawFromGasKeyAction,
+    TryIntoAccountId, TryIntoGlobalContractId, TxExecutionError, UniversalStateInitAction,
+    UnknownError, UseGlobalContractAction, VersionedDelegateActionPayload,
+    VersionedSignedDelegateAction, VersionedTransaction, WasmTrap, WithdrawFromGasKeyAction,
 };
 
 pub use crate::types::ChainId;
