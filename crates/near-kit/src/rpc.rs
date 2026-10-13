@@ -3,7 +3,7 @@
 //! `RpcClient` includes the generic `RpcClient::call` escape hatch in
 //! addition to typed NEAR RPC methods.
 
-pub use crate::error::RpcError;
+pub use crate::error::{RpcError, TimeoutCause};
 pub use crate::types::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountContractView, AccountState, AccountView, ActionReceiptData, ActionView,
