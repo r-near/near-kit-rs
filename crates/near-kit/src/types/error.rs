@@ -175,6 +175,31 @@ pub enum ActionErrorKind {
         #[serde(default)]
         public_key: Option<PublicKey>,
     },
+    /// A delegate action's gas key nonce index is outside the gas key's
+    /// nonce range.
+    DelegateActionInvalidNonceIndex {
+        nonce_index: u16,
+        num_nonces: u16,
+    },
+    /// The combined size of the receipt's resolved promise inputs exceeded
+    /// the limit.
+    TotalPromiseInputSizeExceeded {
+        size: u64,
+        limit: u64,
+    },
+    /// The receipt recorded more storage proof than the per-receipt limit
+    /// allows.
+    ReceiptStorageProofSizeExceeded {
+        limit: u64,
+    },
+    /// The bytes of a `UniversalStateInit` action are not the canonical encoding
+    /// of a state init.
+    MalformedUniversalStateInit,
+    /// The action needs an initialized account, but the receiver is a
+    /// universal account whose state init hasn't been applied yet.
+    AccountNotInitialized {
+        account_id: AccountId,
+    },
     /// Error variant that this version of near-kit does not recognize, or
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
@@ -334,6 +359,30 @@ impl std::fmt::Display for ActionErrorKind {
                     "balance ({}) of {key_info} for account {account_id} is too high",
                     balance.exact_amount_display()
                 )
+            }
+            Self::DelegateActionInvalidNonceIndex {
+                nonce_index,
+                num_nonces,
+            } => write!(
+                f,
+                "delegate action nonce index {nonce_index} must be smaller than the gas key nonce count {num_nonces}"
+            ),
+            Self::TotalPromiseInputSizeExceeded { size, limit } => write!(
+                f,
+                "combined size of the receipt's promise inputs ({size}) exceeded the limit ({limit})"
+            ),
+            Self::ReceiptStorageProofSizeExceeded { limit } => write!(
+                f,
+                "receipt exceeded the storage proof size limit of {limit} bytes"
+            ),
+            Self::MalformedUniversalStateInit => {
+                write!(
+                    f,
+                    "universal state init payload is not a canonical state init"
+                )
+            }
+            Self::AccountNotInitialized { account_id } => {
+                write!(f, "account {account_id} has no state init applied yet")
             }
             Self::Unknown(value) => write!(f, "unknown action error: {value}"),
         }
@@ -562,6 +611,11 @@ pub enum InvalidAccessKeyError {
         public_key: PublicKey,
     },
     DepositWithFunctionCall,
+    /// A gas key signed a delegate action carrying a plain nonce. Gas keys
+    /// can't sign meta-transactions.
+    DelegateActionRequiresNonGasKey,
+    /// A delegate action with a gas key nonce must be signed by a gas key.
+    DelegateActionRequiresGasKey,
     /// Error variant that this version of near-kit does not recognize, or
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
@@ -605,6 +659,18 @@ impl std::fmt::Display for InvalidAccessKeyError {
             ),
             Self::DepositWithFunctionCall => {
                 write!(f, "deposits are not allowed with function call access keys")
+            }
+            Self::DelegateActionRequiresNonGasKey => {
+                write!(
+                    f,
+                    "gas keys can't sign a delegate action with a plain nonce"
+                )
+            }
+            Self::DelegateActionRequiresGasKey => {
+                write!(
+                    f,
+                    "a delegate action with a gas key nonce must be signed by a gas key"
+                )
             }
             Self::Unknown(value) => write!(f, "unknown access key error: {value}"),
         }
@@ -704,6 +770,8 @@ pub enum PrepareError {
     TooManyParamsPerFunction,
     TooManyParamsPerContract,
     OperandStackTooLarge,
+    /// The contract declares too many entries in the Wasm global section.
+    TooManyGlobals,
     /// Error variant that this version of near-kit does not recognize, or
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
@@ -753,6 +821,7 @@ impl std::fmt::Display for PrepareError {
             Self::OperandStackTooLarge => {
                 write!(f, "operand stack of a Wasm function is too large")
             }
+            Self::TooManyGlobals => write!(f, "too many globals in Wasm module"),
             Self::Unknown(value) => write!(f, "unknown prepare error: {value}"),
         }
     }
@@ -910,6 +979,10 @@ pub enum HostError {
     P256VerifyInvalidInput {
         msg: String,
     },
+    /// Input length mismatch for ML-DSA-65 signature verification.
+    MlDsaVerifyInvalidInput {
+        msg: String,
+    },
     /// Error variant that this version of near-kit does not recognize, or
     /// whose field shape differs from what it expects. The raw JSON is
     /// preserved.
@@ -1005,6 +1078,9 @@ impl std::fmt::Display for HostError {
             Self::P256VerifyInvalidInput { msg } => {
                 write!(f, "P-256 verification invalid input: {msg}")
             }
+            Self::MlDsaVerifyInvalidInput { msg } => {
+                write!(f, "ML-DSA verification invalid input: {msg}")
+            }
             Self::Unknown(value) => write!(f, "unknown host error: {value}"),
         }
     }
@@ -1082,6 +1158,51 @@ pub enum ActionsValidationError {
     TotalNumberOfDeployActionsExceeded {
         limit: u64,
         number_of_deploy_actions: u64,
+    },
+    /// The method name in a function call action must not be empty.
+    FunctionCallEmptyMethodName,
+    /// The receiver of a `UniversalStateInit` action doesn't match the `0u`
+    /// id derived from its state init.
+    InvalidUniversalStateInitReceiver {
+        derived_id: AccountId,
+        receiver_id: AccountId,
+    },
+    /// A storage key in a `UniversalStateInit` exceeds the limit.
+    UniversalStateInitKeyLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
+    /// A storage value in a `UniversalStateInit` exceeds the limit.
+    UniversalStateInitValueLengthExceeded {
+        length: u64,
+        limit: u64,
+    },
+    /// The bytes of a `UniversalStateInit` action don't decode into a state
+    /// init, or aren't its canonical encoding.
+    MalformedUniversalStateInit,
+    /// The transaction uses a protocol feature that has been removed.
+    RemovedProtocolFeature {
+        protocol_feature: String,
+        version: u32,
+    },
+    /// A `WithdrawFromGasKey` action must not be nested inside a delegate
+    /// action.
+    WithdrawFromGasKeyNotAllowedInDelegate,
+    /// The state inits in one receipt commit to more access keys in total
+    /// than allowed.
+    TotalNumberOfStateInitKeysExceeded {
+        limit: u64,
+        number_of_keys: u64,
+    },
+    /// The state inits in one receipt carry more storage entries in total
+    /// than allowed.
+    TotalNumberOfStateInitEntriesExceeded {
+        limit: u64,
+        number_of_entries: u64,
+    },
+    /// Transfers to universal (`0u`) accounts aren't allowed yet.
+    TransferToUniversalAccountNotAllowed {
+        account_id: AccountId,
     },
     /// Error variant that this version of near-kit does not recognize, or
     /// whose field shape differs from what it expects. The raw JSON is
@@ -1193,6 +1314,57 @@ impl std::fmt::Display for ActionsValidationError {
             } => write!(
                 f,
                 "number of deploy actions ({number_of_deploy_actions}) exceeded the limit ({limit})"
+            ),
+            Self::FunctionCallEmptyMethodName => {
+                write!(f, "method name in a function call action must not be empty")
+            }
+            Self::InvalidUniversalStateInitReceiver {
+                derived_id,
+                receiver_id,
+            } => write!(
+                f,
+                "invalid receiver {receiver_id} for universal account {derived_id}"
+            ),
+            Self::UniversalStateInitKeyLengthExceeded { length, limit } => write!(
+                f,
+                "universal state init key length ({length}) exceeded the limit ({limit})"
+            ),
+            Self::UniversalStateInitValueLengthExceeded { length, limit } => write!(
+                f,
+                "universal state init value length ({length}) exceeded the limit ({limit})"
+            ),
+            Self::MalformedUniversalStateInit => write!(
+                f,
+                "universal state init bytes are not a canonical borsh encoding of a state init"
+            ),
+            Self::RemovedProtocolFeature {
+                protocol_feature,
+                version,
+            } => write!(
+                f,
+                "protocol feature {protocol_feature} was removed and is not supported in version {version}"
+            ),
+            Self::WithdrawFromGasKeyNotAllowedInDelegate => write!(
+                f,
+                "withdraw from gas key actions are not allowed inside a delegate action"
+            ),
+            Self::TotalNumberOfStateInitKeysExceeded {
+                number_of_keys,
+                limit,
+            } => write!(
+                f,
+                "state inits in this receipt commit to {number_of_keys} access keys, exceeding the limit ({limit})"
+            ),
+            Self::TotalNumberOfStateInitEntriesExceeded {
+                number_of_entries,
+                limit,
+            } => write!(
+                f,
+                "state inits in this receipt carry {number_of_entries} storage entries, exceeding the limit ({limit})"
+            ),
+            Self::TransferToUniversalAccountNotAllowed { account_id } => write!(
+                f,
+                "transfers to the universal account {account_id} are not allowed yet"
             ),
             Self::Unknown(value) => write!(f, "unknown actions validation error: {value}"),
         }
@@ -1388,6 +1560,7 @@ mod tests {
             ("\"TooManyParamsPerFunction\"", "parameters"),
             ("\"TooManyParamsPerContract\"", "parameters"),
             ("\"OperandStackTooLarge\"", "operand stack"),
+            ("\"TooManyGlobals\"", "globals"),
         ] {
             let err: PrepareError = serde_json::from_str(json).unwrap();
             assert!(
@@ -1431,6 +1604,172 @@ mod tests {
                 assert_eq!(*limit, 4);
             }
             other => panic!("Expected TotalNumberOfDeployActionsExceeded, got {other:?}"),
+        }
+    }
+
+    const UNIVERSAL_ACCOUNT_ID: &str = "0u000g40r40m30e209185gr38e1w8124gk2gahc5rr34d1p70x3rfg";
+
+    #[test]
+    fn test_actions_validation_2_14_variants() {
+        for (json, expected) in [
+            (
+                serde_json::json!("FunctionCallEmptyMethodName"),
+                "must not be empty",
+            ),
+            (
+                serde_json::json!({
+                    "InvalidUniversalStateInitReceiver": {
+                        "receiver_id": "alice.near",
+                        "derived_id": UNIVERSAL_ACCOUNT_ID
+                    }
+                }),
+                "invalid receiver alice.near",
+            ),
+            (
+                serde_json::json!({
+                    "UniversalStateInitKeyLengthExceeded": { "length": 3000, "limit": 2048 }
+                }),
+                "key length (3000)",
+            ),
+            (
+                serde_json::json!({
+                    "UniversalStateInitValueLengthExceeded": { "length": 5000, "limit": 4096 }
+                }),
+                "value length (5000)",
+            ),
+            (
+                serde_json::json!("MalformedUniversalStateInit"),
+                "canonical borsh",
+            ),
+            (
+                serde_json::json!({
+                    "RemovedProtocolFeature": {
+                        "protocol_feature": "DelegateV2",
+                        "version": 87
+                    }
+                }),
+                "DelegateV2 was removed",
+            ),
+            (
+                serde_json::json!("WithdrawFromGasKeyNotAllowedInDelegate"),
+                "inside a delegate action",
+            ),
+            (
+                serde_json::json!({
+                    "TotalNumberOfStateInitKeysExceeded": { "number_of_keys": 9, "limit": 8 }
+                }),
+                "9 access keys",
+            ),
+            (
+                serde_json::json!({
+                    "TotalNumberOfStateInitEntriesExceeded": {
+                        "number_of_entries": 300,
+                        "limit": 256
+                    }
+                }),
+                "300 storage entries",
+            ),
+            (
+                serde_json::json!({
+                    "TransferToUniversalAccountNotAllowed": { "account_id": UNIVERSAL_ACCOUNT_ID }
+                }),
+                UNIVERSAL_ACCOUNT_ID,
+            ),
+        ] {
+            let err: ActionsValidationError = serde_json::from_value(json.clone()).unwrap();
+            assert!(
+                !matches!(err, ActionsValidationError::Unknown(_)),
+                "{json} fell through to Unknown"
+            );
+            assert!(err.to_string().contains(expected), "{json}: {err}");
+        }
+    }
+
+    #[test]
+    fn test_action_error_kind_2_14_variants() {
+        for (json, expected) in [
+            (
+                serde_json::json!({
+                    "DelegateActionInvalidNonceIndex": { "nonce_index": 4, "num_nonces": 4 }
+                }),
+                "nonce index 4",
+            ),
+            (
+                serde_json::json!({
+                    "TotalPromiseInputSizeExceeded": { "size": 5000, "limit": 4096 }
+                }),
+                "promise inputs (5000)",
+            ),
+            (
+                serde_json::json!({ "ReceiptStorageProofSizeExceeded": { "limit": 4000000 } }),
+                "4000000 bytes",
+            ),
+            (
+                serde_json::json!("MalformedUniversalStateInit"),
+                "not a canonical state init",
+            ),
+            (
+                serde_json::json!({
+                    "AccountNotInitialized": { "account_id": UNIVERSAL_ACCOUNT_ID }
+                }),
+                "no state init applied",
+            ),
+        ] {
+            let err: ActionErrorKind = serde_json::from_value(json.clone()).unwrap();
+            assert!(
+                !matches!(err, ActionErrorKind::Unknown(_)),
+                "{json} fell through to Unknown"
+            );
+            assert!(err.to_string().contains(expected), "{json}: {err}");
+        }
+    }
+
+    #[test]
+    fn test_invalid_access_key_2_14_variants() {
+        for (json, expected) in [
+            ("\"DelegateActionRequiresNonGasKey\"", "plain nonce"),
+            ("\"DelegateActionRequiresGasKey\"", "signed by a gas key"),
+        ] {
+            let err: InvalidAccessKeyError = serde_json::from_str(json).unwrap();
+            assert!(
+                !matches!(err, InvalidAccessKeyError::Unknown(_)),
+                "{json} fell through to Unknown"
+            );
+            assert!(err.to_string().contains(expected), "{json}: {err}");
+        }
+    }
+
+    #[test]
+    fn test_host_error_ml_dsa_verify_invalid_input() {
+        let json = serde_json::json!({
+            "MlDsaVerifyInvalidInput": { "msg": "signature must be 3309 bytes" }
+        });
+        let err: HostError = serde_json::from_value(json).unwrap();
+        match &err {
+            HostError::MlDsaVerifyInvalidInput { msg } => {
+                assert_eq!(msg, "signature must be 3309 bytes");
+            }
+            other => panic!("Expected MlDsaVerifyInvalidInput, got {other:?}"),
+        }
+        assert!(err.to_string().contains("ML-DSA"));
+    }
+
+    #[test]
+    fn test_invalid_tx_transfer_to_universal_account_not_allowed() {
+        // A transaction transferring to a `0u` account is rejected at submission.
+        let json = serde_json::json!({
+            "InvalidTxError": {
+                "ActionsValidation": {
+                    "TransferToUniversalAccountNotAllowed": { "account_id": UNIVERSAL_ACCOUNT_ID }
+                }
+            }
+        });
+        let err: TxExecutionError = serde_json::from_value(json).unwrap();
+        match &err {
+            TxExecutionError::InvalidTxError(InvalidTxError::ActionsValidation(
+                ActionsValidationError::TransferToUniversalAccountNotAllowed { account_id },
+            )) => assert_eq!(account_id.as_str(), UNIVERSAL_ACCOUNT_ID),
+            other => panic!("Expected InvalidTxError::ActionsValidation, got {other:?}"),
         }
     }
 
