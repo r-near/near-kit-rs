@@ -6,7 +6,7 @@
 pub use crate::error::RpcError;
 pub use crate::types::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
-    AccountBalance, AccountContractView, AccountView, ActionReceiptData, ActionView,
+    AccountBalance, AccountContractView, AccountState, AccountView, ActionReceiptData, ActionView,
     BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1, BlockEffects,
     BlockHeaderInnerLiteView, BlockHeaderView, BlockReference, BlockView, ChunkHeaderView,
     CongestionInfoView, ContractCodeView, CurrentEpochValidatorInfo, DataReceiptData,

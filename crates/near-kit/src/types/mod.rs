@@ -94,7 +94,7 @@ pub use key::{
 pub use network::ChainId;
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
-    AccountBalance, AccountContractView, AccountView, ActionReceiptData, ActionView,
+    AccountBalance, AccountContractView, AccountState, AccountView, ActionReceiptData, ActionView,
     BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1, BlockEffects,
     BlockHeaderView, BlockView, ChunkHeaderView, CongestionInfoView, ContractCodeView,
     DataReceiptData, DataReceiverView, DelegateActionV2View, DelegateActionView, ExecutionMetadata,

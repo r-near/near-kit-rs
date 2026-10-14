@@ -58,10 +58,37 @@ pub struct AccountView {
     /// Global contract account ID (if using a global contract by account).
     #[serde(default)]
     pub global_contract_account_id: Option<AccountId>,
+    /// Whether the account's state is installed (see [`AccountState`]).
+    #[serde(default)]
+    pub state: AccountState,
+    /// Last used nonce of an uninitialized universal account (`None` once
+    /// initialized). The state init transaction must use `bootstrap_nonce + 1`.
+    #[serde(default)]
+    pub bootstrap_nonce: Option<u64>,
     /// Block height of the query.
     pub block_height: u64,
     /// Block hash of the query.
     pub block_hash: CryptoHash,
+}
+
+/// Whether an account's state is installed (nearcore 2.14). Only `0u`
+/// universal accounts can be [`Uninitialized`](Self::Uninitialized): funded,
+/// but with no keys, code, or data until `UniversalStateInit` is applied.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountState {
+    /// The account's state is installed.
+    #[default]
+    Initialized,
+    /// A universal account whose state init hasn't been applied yet.
+    Uninitialized,
+}
+
+impl AccountState {
+    /// Whether the account's state has been installed.
+    pub fn is_initialized(self) -> bool {
+        self == Self::Initialized
+    }
 }
 
 impl AccountView {
@@ -2233,6 +2260,41 @@ mod tests {
         assert_eq!(meta.gas_profile.as_ref().unwrap().len(), 1);
     }
 
+    #[test]
+    fn test_account_view_initialized_omits_state() {
+        // Pre-2.14 nodes and initialized accounts omit both fields.
+        let view: AccountView = serde_json::from_value(serde_json::json!({
+            "amount": "1000000000000000000000000",
+            "locked": "0",
+            "code_hash": "11111111111111111111111111111111",
+            "storage_usage": 182,
+            "block_height": 100,
+            "block_hash": "11111111111111111111111111111111"
+        }))
+        .unwrap();
+        assert_eq!(view.state, AccountState::Initialized);
+        assert!(view.state.is_initialized());
+        assert_eq!(view.bootstrap_nonce, None);
+    }
+
+    #[test]
+    fn test_account_view_uninitialized_universal_account() {
+        let view: AccountView = serde_json::from_value(serde_json::json!({
+            "amount": "1000000000000000000000000",
+            "locked": "0",
+            "code_hash": "11111111111111111111111111111111",
+            "storage_usage": 100,
+            "state": "uninitialized",
+            "bootstrap_nonce": 100000000,
+            "block_height": 100,
+            "block_hash": "11111111111111111111111111111111"
+        }))
+        .unwrap();
+        assert_eq!(view.state, AccountState::Uninitialized);
+        assert!(!view.state.is_initialized());
+        assert_eq!(view.bootstrap_nonce, Some(100_000_000));
+    }
+
     fn make_account_view(amount: u128, locked: u128, storage_usage: u64) -> AccountView {
         AccountView {
             amount: NearToken::from_yoctonear(amount),
@@ -2242,6 +2304,8 @@ mod tests {
             storage_paid_at: 0,
             global_contract_hash: None,
             global_contract_account_id: None,
+            state: AccountState::Initialized,
+            bootstrap_nonce: None,
             block_height: 0,
             block_hash: CryptoHash::default(),
         }
