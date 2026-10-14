@@ -1,12 +1,14 @@
-//! Transfers to `0u` universal accounts (nearcore 2.14). If the node enables
-//! `universal_accounts`, the transfer creates an uninitialized account;
-//! otherwise (protocol 87+) it is rejected with
-//! `TransferToUniversalAccountNotAllowed`.
+//! `0u` universal accounts (nearcore 2.14). If the node enables
+//! `universal_accounts`, a transfer creates an uninitialized account and a
+//! state init sets it up; otherwise (protocol 87+) the transfer is rejected
+//! with `TransferToUniversalAccountNotAllowed`.
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
 use near_kit::*;
 use near_kit::{protocol::*, rpc::*, transaction::Final};
+
+use near_kit::signer::{InMemorySigner, SecretKey};
 
 use super::support::shared_client;
 
@@ -21,13 +23,9 @@ const UNIVERSAL_ACCOUNTS_PROTOCOL_VERSION: u32 = 87;
 /// is `(block_height - 1) * 1_000_000`, like a new access key's nonce.
 const ACCESS_KEY_NONCE_RANGE_MULTIPLIER: u64 = 1_000_000;
 
-#[tokio::test]
-async fn test_transfer_to_universal_account() {
-    let (_sandbox, root_near) = shared_client().await;
-    let account_id: AccountId = UNIVERSAL_ACCOUNT_ID.parse().expect("valid 0u account id");
-
-    let status = root_near.rpc().status().await.expect("status");
-    let protocol_config: serde_json::Value = root_near
+/// Whether the node runs with `universal_accounts` enabled.
+async fn universal_accounts_enabled(near: &Near) -> bool {
+    let protocol_config: serde_json::Value = near
         .rpc()
         .call(
             "EXPERIMENTAL_protocol_config",
@@ -35,14 +33,96 @@ async fn test_transfer_to_universal_account() {
         )
         .await
         .expect("EXPERIMENTAL_protocol_config");
-    let universal_accounts_enabled =
-        protocol_config["runtime_config"]["wasm_config"]["universal_accounts"]
-            .as_bool()
-            .unwrap_or(false);
+    protocol_config["runtime_config"]["wasm_config"]["universal_accounts"]
+        .as_bool()
+        .unwrap_or(false)
+}
 
+/// A key-only state init for a fresh key.
+fn key_only_state_init() -> (UniversalStateInit, AccountId, SecretKey) {
+    let key = SecretKey::generate_ed25519();
+    let state_init: UniversalStateInit = UniversalStateInitV1::new()
+        .with_access_key(key.public_key())
+        .into();
+    let account_id = state_init.derive_account_id();
+    (state_init, account_id, key)
+}
+
+/// Assert `account_id` is initialized and `key` is one of its access keys.
+async fn assert_initialized_with(near: &Near, account_id: &AccountId, key: &SecretKey) {
+    let view = near
+        .rpc()
+        .view_account(account_id, BlockReference::Finality(Finality::Final))
+        .await
+        .expect("view the 0u account");
+    assert_eq!(view.state, AccountState::Initialized);
+    assert_eq!(view.bootstrap_nonce, None);
+    near.rpc()
+        .view_access_key(
+            account_id,
+            &key.public_key(),
+            BlockReference::Finality(Finality::Final),
+        )
+        .await
+        .expect("the state init installs its access key");
+}
+
+#[tokio::test]
+async fn test_universal_state_init_by_another_account() {
+    let (_sandbox, root_near) = shared_client().await;
+    if !universal_accounts_enabled(&root_near).await {
+        eprintln!("skipping: the sandbox does not enable universal_accounts");
+        return;
+    }
+    let (state_init, account_id, key) = key_only_state_init();
+
+    let outcome = root_near
+        .universal_state_init(state_init, NearToken::from_millinear(100))
+        .wait_until::<Final>()
+        .await
+        .expect("state init sent by another account");
+    assert!(outcome.is_success(), "{outcome:?}");
+    assert_initialized_with(&root_near, &account_id, &key).await;
+}
+
+#[tokio::test]
+async fn test_universal_account_bootstraps_itself() {
+    let (_sandbox, root_near) = shared_client().await;
+    if !universal_accounts_enabled(&root_near).await {
+        eprintln!("skipping: the sandbox does not enable universal_accounts");
+        return;
+    }
+    let (state_init, account_id, key) = key_only_state_init();
+
+    root_near
+        .transfer(&account_id, NearToken::from_near(1))
+        .wait_until::<Final>()
+        .await
+        .expect("fund the 0u id");
+
+    // Plain `send`: the nonce comes from `bootstrap_nonce`, since the key is
+    // not on chain until the state init applies.
+    let signer = InMemorySigner::from_secret_key(account_id.clone(), key.clone())
+        .expect("signer for the 0u account");
+    let outcome = root_near
+        .universal_state_init(state_init, NearToken::ZERO)
+        .sign_with(signer)
+        .wait_until::<Final>()
+        .await
+        .expect("self-signed state init");
+    assert!(outcome.is_success(), "{outcome:?}");
+    assert_initialized_with(&root_near, &account_id, &key).await;
+}
+
+#[tokio::test]
+async fn test_transfer_to_universal_account() {
+    let (_sandbox, root_near) = shared_client().await;
+    let account_id: AccountId = UNIVERSAL_ACCOUNT_ID.parse().expect("valid 0u account id");
+
+    let status = root_near.rpc().status().await.expect("status");
     let amount = NearToken::from_near(1);
 
-    if universal_accounts_enabled {
+    if universal_accounts_enabled(&root_near).await {
         // The id doesn't exist until the transfer funds it.
         let missing = root_near
             .rpc()
