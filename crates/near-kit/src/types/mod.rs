@@ -71,8 +71,8 @@ pub use action::{
     FunctionCallPermission, GasKeyInfo, GlobalContractId, MAX_NONCES_FOR_GAS_KEY,
     NonDelegateAction, PublishMode, SignedDelegateAction, StakeAction, StateInit, StateInitExt,
     StateInitV1, TransferAction, TransferToGasKeyAction, TryIntoGlobalContractId,
-    UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
-    WithdrawFromGasKeyAction,
+    UniversalStateInitAction, UseGlobalContractAction, VersionedDelegateActionPayload,
+    VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
 };
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{

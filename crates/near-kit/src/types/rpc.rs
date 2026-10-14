@@ -12,8 +12,8 @@ use super::action::{
     DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeterministicStateInitAction,
     FunctionCallAction, FunctionCallPermission, GasKeyInfo, GlobalContractId, NonDelegateAction,
     SignedDelegateAction, StakeAction, StateInit, StateInitV1, TransferAction,
-    TransferToGasKeyAction, UseGlobalContractAction, VersionedDelegateActionPayload,
-    VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
+    TransferToGasKeyAction, UniversalStateInitAction, UseGlobalContractAction,
+    VersionedDelegateActionPayload, VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
 };
 use super::block_reference::TxExecutionStatus;
 use super::error::{ActionError, TxExecutionError};
@@ -1357,6 +1357,12 @@ pub enum ActionView {
         public_key: PublicKey,
         amount: NearToken,
     },
+    /// Create a `0u` universal account from its state init.
+    UniversalStateInit {
+        /// Base64 of the borsh-encoded `UniversalStateInit` bytes.
+        state_init: String,
+        deposit: NearToken,
+    },
 }
 
 // ============================================================================
@@ -1556,7 +1562,7 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 ///
 /// # Other errors
 ///
-/// * Invalid base64 in `args`, `code`, or state-init `data` →
+/// * Invalid base64 in `args`, `code`, `data`, or `state_init` →
 ///   [`ActionViewConversionError::InvalidBase64`].
 /// * A delegate action nested inside a `Delegate` / `DelegateV2` view →
 ///   [`ActionViewConversionError::NestedDelegate`].
@@ -1699,6 +1705,13 @@ impl TryFrom<ActionView> for Action {
             ActionView::WithdrawFromGasKey { public_key, amount } => {
                 Self::WithdrawFromGasKey(WithdrawFromGasKeyAction { public_key, amount })
             }
+            ActionView::UniversalStateInit {
+                state_init,
+                deposit,
+            } => Self::UniversalStateInit(UniversalStateInitAction {
+                state_init: decode_view_base64("state_init", &state_init)?,
+                deposit,
+            }),
         })
     }
 }
@@ -3292,6 +3305,33 @@ mod action_view_conversion_tests {
         assert!(matches!(
             convert(json),
             Err(ActionViewConversionError::InvalidBase64 { field: "args", .. })
+        ));
+    }
+
+    #[test]
+    fn universal_state_init_decodes_base64() {
+        let json = serde_json::json!({
+            "UniversalStateInit": {
+                "state_init": "AAAA",
+                "deposit": "1000000000000000000000000"
+            }
+        });
+        assert_eq!(
+            convert(json).unwrap(),
+            Action::UniversalStateInit(UniversalStateInitAction {
+                state_init: vec![0, 0, 0],
+                deposit: NearToken::from_near(1),
+            })
+        );
+        let json = serde_json::json!({
+            "UniversalStateInit": { "state_init": "not base64!", "deposit": "0" }
+        });
+        assert!(matches!(
+            convert(json),
+            Err(ActionViewConversionError::InvalidBase64 {
+                field: "state_init",
+                ..
+            })
         ));
     }
 
