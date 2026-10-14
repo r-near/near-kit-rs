@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.19.0...near-kit-v0.20.0) - 2026-10-14
+
+### Added
+
+- typed construction of nearcore 2.14 universal accounts ([#339](https://github.com/r-near/near-kit-rs/pull/339))
+- [**breaking**] decode nearcore 2.14 TIMEOUT_ERROR cause ([#338](https://github.com/r-near/near-kit-rs/pull/338))
+- [**breaking**] expose universal account state on AccountView ([#336](https://github.com/r-near/near-kit-rs/pull/336))
+- [**breaking**] decode the nearcore 2.14 UniversalStateInit action ([#335](https://github.com/r-near/near-kit-rs/pull/335))
+- [**breaking**] decode nearcore 2.14 error variants ([#333](https://github.com/r-near/near-kit-rs/pull/333))
+
 ## [0.19.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.18.3...near-kit-v0.19.0) - 2026-10-13
 
 ### Fixed
