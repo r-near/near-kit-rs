@@ -4,9 +4,15 @@ All notable changes to `near-kit-sandbox` are documented in this file.
 
 ## [Unreleased]
 
+## [0.20.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.19.0...near-kit-sandbox-v0.20.0-rc.1) - 2026-10-14
+
+### Added
+
+- *(sandbox)* default to nearcore 2.14.0-rc.4 and cover 2.14 behavior ([#341](https://github.com/r-near/near-kit-rs/pull/341))
+
 ### Changed
 
-- bump default image to `2.14.0-rc.4` (protocol v88 / nearcore 2.14)
+- bump default image to `2.14.0-rc.4` (protocol v88 / nearcore 2.14). Use `.version("2.13.4")` to keep the previous default
 
 ## [0.19.0](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.18.3...near-kit-sandbox-v0.19.0) - 2026-10-13
 
