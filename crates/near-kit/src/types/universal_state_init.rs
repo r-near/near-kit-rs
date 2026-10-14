@@ -1,38 +1,4 @@
 //! Typed initial state of a `0u` universal account (nearcore 2.14).
-//!
-//! A [`UniversalStateInit`] fully describes a universal account: its contract
-//! code (if any), initial storage, and full-access keys. The account id is
-//! `0u` followed by the Crockford base32 of SHA3-256 over the state init's
-//! borsh bytes, so whoever knows the state init knows the address before the
-//! account exists.
-//!
-//! The id commits to the *exact* bytes, which is why the wire form is the raw
-//! [`RawStateInit`] and the typed value is only a view of it. From protocol 88
-//! nearcore accepts only the canonical encoding (sorted maps and sets without
-//! duplicates, one struct per version); protocol 87 accepts any well-formed
-//! borsh. [`UniversalStateInit::from_raw`] enforces the strict rule, so each
-//! logical value built here has exactly one id, while
-//! [`UniversalStateInit::from_raw_lenient`] decodes what the chain may hold.
-//!
-//! # Example
-//!
-//! ```rust
-//! use near_kit::protocol::{UniversalStateInit, UniversalStateInitV1};
-//! use near_kit::signer::PublicKey;
-//!
-//! let key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
-//! let state_init: UniversalStateInit = UniversalStateInitV1::new().with_access_key(key).into();
-//!
-//! let account_id = state_init.derive_account_id();
-//! assert!(account_id.as_str().starts_with("0u"));
-//! assert_eq!(account_id.as_str().len(), 54);
-//!
-//! // Round-trips through the canonical wire bytes.
-//! let raw = state_init.to_raw();
-//! assert_eq!(UniversalStateInit::from_raw(&raw)?, state_init);
-//! assert_eq!(raw.derive_account_id(), account_id);
-//! # Ok::<(), Box<dyn std::error::Error>>(())
-//! ```
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Read, Write};
@@ -113,14 +79,49 @@ impl From<UniversalStateInitV1> for RawStateInit {
     }
 }
 
-/// Versioned initial state of a `0u` universal account.
+/// Versioned initial state of a `0u` universal account (nearcore 2.14).
+///
+/// A [`UniversalStateInit`] fully describes a universal account: its contract
+/// code (if any), initial storage, and full-access keys. The account id is
+/// `0u` followed by the Crockford base32 of SHA3-256 over the state init's
+/// borsh bytes, so whoever knows the state init knows the address before the
+/// account exists.
+///
+/// The id commits to the *exact* bytes, which is why the wire form is the raw
+/// [`RawStateInit`] and the typed value is only a view of it. From protocol 88
+/// nearcore accepts only the canonical encoding (sorted maps and sets without
+/// duplicates, one struct per version); protocol 87 accepts any well-formed
+/// borsh. [`UniversalStateInit::from_raw`] enforces the strict rule, so each
+/// logical value built here has exactly one id, while
+/// [`UniversalStateInit::from_raw_lenient`] decodes what the chain may hold.
 ///
 /// Mirrors nearcore's `UniversalStateInit`. New fields or semantics arrive as
-/// a new variant; the borsh discriminant is the only version marker.
+/// a new variant; the borsh discriminant is the only version marker. Create
+/// the account with [`Near::universal_state_init`](crate::Near::universal_state_init).
 ///
 /// Its [`BorshSerialize`] output is always the canonical encoding, so
 /// `borsh::to_vec(&state_init)` equals [`to_raw`](Self::to_raw). Its
 /// [`BorshDeserialize`] is lenient, like [`from_raw_lenient`](Self::from_raw_lenient).
+///
+/// # Example
+///
+/// ```rust
+/// use near_kit::protocol::{UniversalStateInit, UniversalStateInitV1};
+/// use near_kit::signer::PublicKey;
+///
+/// let key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
+/// let state_init: UniversalStateInit = UniversalStateInitV1::new().with_access_key(key).into();
+///
+/// let account_id = state_init.derive_account_id();
+/// assert!(account_id.as_str().starts_with("0u"));
+/// assert_eq!(account_id.as_str().len(), 54);
+///
+/// // Round-trips through the canonical wire bytes.
+/// let raw = state_init.to_raw();
+/// assert_eq!(UniversalStateInit::from_raw(&raw)?, state_init);
+/// assert_eq!(raw.derive_account_id(), account_id);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum UniversalStateInit {
@@ -201,6 +202,14 @@ impl UniversalStateInit {
         match self {
             Self::V1(inner) => &inner.access_keys,
         }
+    }
+
+    /// Whether `key` is one of the full-access keys.
+    ///
+    /// A full ML-DSA-65 key matches the hash the state init stores it by.
+    pub fn has_access_key(&self, key: &PublicKey) -> bool {
+        let full = PublicKeyHandle::Full(key.clone());
+        self.access_keys().contains(&full) || self.access_keys().contains(&canonical_handle(full))
     }
 
     /// The canonical borsh encoding, ready to put in a `UniversalStateInit`
@@ -503,6 +512,7 @@ mod tests {
             .with_access_key(pk.clone())
             .into();
         assert_eq!(via_builder.access_keys(), &BTreeSet::from([hash.clone()]));
+        assert!(via_builder.has_access_key(&pk));
 
         // Inserted as a full key through the public field, it still encodes
         // as the hash, and decodes back as one.
@@ -511,6 +521,10 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(via_field.to_raw(), via_builder.to_raw());
+        assert!(via_field.has_access_key(&pk));
+        assert!(
+            !via_field.has_access_key(&crate::types::SecretKey::generate_ed25519().public_key())
+        );
         assert_eq!(
             UniversalStateInit::from_raw(&via_field.to_raw()).unwrap(),
             via_builder
