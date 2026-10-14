@@ -41,7 +41,7 @@ use crate::error::{Error, RpcError};
 use crate::transaction::FunctionCall;
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, FinalExecutionOutcome, Finality,
-    IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey, PublishMode,
+    IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey, PublishMode, RawStateInit,
     SignedDelegateAction, SignedTransaction, StateInit, Transaction, TryIntoAccountId,
     TryIntoGlobalContractId, UseGlobalContractAction, WaitLevel,
 };
@@ -296,21 +296,53 @@ impl PreparedTransaction {
         public_key: &PublicKey,
         nonce_floor: Option<u64>,
     ) -> Result<(u64, CryptoHash), Error> {
-        let access_key = self
+        let (chain_nonce, block_hash) = match self
             .rpc
             .view_access_key(
                 signer_id,
                 public_key,
                 BlockReference::Finality(Finality::Final),
             )
-            .await?;
+            .await
+        {
+            Ok(access_key) => (access_key.nonce, access_key.block_hash),
+            // A self-signed universal state init installs its own signing key,
+            // so the key isn't on chain yet: the nonce comes from the
+            // uninitialized account's `bootstrap_nonce` instead.
+            Err(error @ RpcError::AccessKeyNotFound { .. })
+                if self.bootstraps(signer_id, public_key) =>
+            {
+                let account = self
+                    .rpc
+                    .view_account(signer_id, BlockReference::Finality(Finality::Final))
+                    .await?;
+                let bootstrap_nonce = account.bootstrap_nonce.ok_or(error)?;
+                (bootstrap_nonce, account.block_hash)
+            }
+            Err(error) => return Err(error.into()),
+        };
         let nonce = nonce_manager().next(
             self.rpc.url().to_string(),
             signer_id.clone(),
             public_key.clone(),
-            nonce_floor.unwrap_or(access_key.nonce),
+            nonce_floor.unwrap_or(chain_nonce),
         );
-        Ok((nonce, access_key.block_hash))
+        Ok((nonce, block_hash))
+    }
+
+    /// Whether this transaction bootstraps `signer_id`: it carries the state
+    /// init of the signer's own `0u` account, and that state init installs
+    /// `public_key`.
+    fn bootstraps(&self, signer_id: &AccountId, public_key: &PublicKey) -> bool {
+        self.actions.iter().any(|action| match action {
+            Action::UniversalStateInit(action) => {
+                action.derive_account_id() == *signer_id
+                    && action
+                        .decode_state_init()
+                        .is_ok_and(|state_init| state_init.has_access_key(public_key))
+            }
+            _ => false,
+        })
     }
 
     fn transaction(
@@ -781,6 +813,34 @@ impl TransactionBuilder {
             Ok(deposit) => {
                 self.receiver_id = self.receiver_id.map(|_| state_init.derive_account_id());
                 self.actions.push(Action::state_init(state_init, deposit));
+            }
+            Err(error) => self.defer_error(error.into()),
+        }
+        self
+    }
+
+    /// Create a `0u` universal account from its state init (nearcore 2.14).
+    ///
+    /// Accepts a typed [`UniversalStateInit`](crate::protocol::UniversalStateInit)
+    /// / [`UniversalStateInitV1`](crate::protocol::UniversalStateInitV1)
+    /// (encoded canonically), or raw bytes carried verbatim. Replaces the
+    /// receiver_id with the account id derived from the state init, so start
+    /// from [`Near::universal_state_init`](crate::Near::universal_state_init),
+    /// which also documents the self-signed bootstrap flow.
+    ///
+    /// Parsing failures are retained and returned when the transaction is sent,
+    /// built, signed, or delegated.
+    pub fn universal_state_init(
+        mut self,
+        state_init: impl Into<RawStateInit>,
+        deposit: impl IntoNearToken,
+    ) -> Self {
+        match deposit.into_near_token() {
+            Ok(deposit) => {
+                let state_init = state_init.into();
+                self.receiver_id = self.receiver_id.map(|_| state_init.derive_account_id());
+                self.actions
+                    .push(Action::universal_state_init(state_init, deposit));
             }
             Err(error) => self.defer_error(error.into()),
         }
@@ -1648,11 +1708,15 @@ mod tests {
             CryptoHash::ZERO,
             Default::default(),
         );
+        let universal = crate::protocol::UniversalStateInitV1::new()
+            .with_access_key(crate::types::PublicKeyHandle::MlDsa65Hash([0x11; 32]));
 
         for terminal in 0..4 {
             for builder in [
                 near.transaction("INVALID")
                     .state_init(state_init.clone(), NearToken::ZERO),
+                near.transaction("INVALID")
+                    .universal_state_init(universal.clone(), NearToken::ZERO),
                 near.transaction("INVALID")
                     .signed_delegate_action(signed_delegate.clone()),
             ] {
@@ -1674,6 +1738,14 @@ mod tests {
                 near.transaction("valid.testnet")
                     .state_init(state_init.clone(), NearToken::ZERO),
                 state_init.derive_account_id(),
+            ),
+            (
+                near.transaction("valid.testnet")
+                    .universal_state_init(universal.clone(), NearToken::ZERO),
+                // nearcore 2.14-release `test_derive_universal_account_id` key-only vector.
+                "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g"
+                    .parse()
+                    .unwrap(),
             ),
             (
                 near.transaction("valid.testnet")
@@ -2081,6 +2153,118 @@ mod tests {
             };
             Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
         }
+    }
+
+    /// An uninitialized `0u` account: every access key is unknown, and
+    /// `view_account` reports a `bootstrap_nonce` of 100000000.
+    #[derive(Default)]
+    struct UninitializedUniversalTransport {
+        sent: Mutex<Vec<String>>,
+    }
+
+    impl RpcTransport for UninitializedUniversalTransport {
+        fn post_json(
+            &self,
+            _url: &str,
+            body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            let response = match request["method"].as_str().unwrap() {
+                "EXPERIMENTAL_view_access_key" => serde_json::json!({
+                    "error": {
+                        "name": "HANDLER_ERROR",
+                        "cause": {
+                            "name": "UNKNOWN_ACCESS_KEY",
+                            "info": {
+                                "public_key": request["params"]["public_key"],
+                                "block_height": 100,
+                                "block_hash": "11111111111111111111111111111111",
+                            },
+                        },
+                        "code": -32000,
+                        "message": "Server error",
+                    },
+                }),
+                "EXPERIMENTAL_view_account" => serde_json::json!({
+                    "result": {
+                        "amount": "1000000000000000000000000",
+                        "locked": "0",
+                        "code_hash": "11111111111111111111111111111111",
+                        "storage_usage": 100,
+                        "state": "uninitialized",
+                        "bootstrap_nonce": 100000000,
+                        "block_height": 100,
+                        "block_hash": CryptoHash::from_bytes([2; 32]),
+                    },
+                }),
+                "send_tx" => {
+                    let signed = request["params"]["signed_tx_base64"].as_str().unwrap();
+                    self.sent.lock().unwrap().push(signed.to_string());
+                    serde_json::json!({ "result": { "final_execution_status": "NONE" } })
+                }
+                other => panic!("unexpected RPC method {other}"),
+            };
+            let mut response = response;
+            response["jsonrpc"] = "2.0".into();
+            response["id"] = 0.into();
+            let body = serde_json::to_vec(&response).unwrap();
+            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+        }
+    }
+
+    #[tokio::test]
+    async fn self_signed_universal_state_init_uses_the_bootstrap_nonce() {
+        let key = SecretKey::generate_ed25519();
+        let state_init =
+            crate::protocol::UniversalStateInitV1::new().with_access_key(key.public_key());
+        let account_id =
+            crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
+        let transport = Arc::new(UninitializedUniversalTransport::default());
+        let near = crate::Near::custom("http://bootstrap.invalid", "test")
+            .transport(transport.clone())
+            .signer(InMemorySigner::from_secret_key(account_id.clone(), key).unwrap())
+            .build();
+
+        near.universal_state_init(state_init, NearToken::ZERO)
+            .wait_until::<Submitted>()
+            .await
+            .expect("bootstrap is sent");
+
+        let sent = transport.sent.lock().unwrap();
+        let tx = SignedTransaction::from_base64(&sent[0])
+            .unwrap()
+            .transaction;
+        assert_eq!(tx.signer_id, account_id);
+        assert_eq!(tx.receiver_id, account_id);
+        assert_eq!(tx.nonce, 100_000_001);
+        assert_eq!(
+            tx.block_hash,
+            CryptoHash::from_bytes([2; 32]),
+            "block hash comes from the account view"
+        );
+    }
+
+    #[tokio::test]
+    async fn state_init_without_the_signing_key_keeps_the_access_key_error() {
+        let key = SecretKey::generate_ed25519();
+        let other = SecretKey::generate_ed25519().public_key();
+        let state_init = crate::protocol::UniversalStateInitV1::new().with_access_key(other);
+        let account_id =
+            crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
+        let near = crate::Near::custom("http://bootstrap.invalid", "test")
+            .transport(UninitializedUniversalTransport::default())
+            .signer(InMemorySigner::from_secret_key(account_id, key).unwrap())
+            .build();
+
+        let error = near
+            .universal_state_init(state_init, NearToken::ZERO)
+            .sign()
+            .await
+            .expect_err("the signing key is not installed by the state init");
+        assert!(
+            matches!(&error, Error::Rpc(e) if matches!(**e, RpcError::AccessKeyNotFound { .. })),
+            "{error:?}"
+        );
     }
 
     fn invalid_nonce_body(tx_nonce: u64, ak_nonce: u64) -> Vec<u8> {

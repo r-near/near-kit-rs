@@ -60,6 +60,7 @@ pub(crate) mod rpc;
 mod rpc_extra;
 mod transaction;
 mod units;
+mod universal_state_init;
 mod wait_level;
 
 pub use account::{AccountId, AccountIdRef, TryIntoAccountId};
@@ -117,6 +118,7 @@ pub use transaction::{
     TransactionNonce, TransactionV1, VersionedTransaction,
 };
 pub use units::{Gas, IntoGas, IntoNearToken, NearToken};
+pub use universal_state_init::{RawStateInit, UniversalStateInit, UniversalStateInitV1};
 pub use wait_level::{
     Executed, ExecutedOptimistic, Final, Included, IncludedFinal, Submitted, WaitLevel,
 };

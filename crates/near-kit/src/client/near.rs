@@ -6,8 +6,8 @@ use std::sync::Arc;
 use crate::contract_support::ContractClient;
 use crate::error::Error;
 use crate::types::{
-    AccountId, ChainId, IntoNearToken, PublicKey, PublishMode, StateInit, TryIntoAccountId,
-    TryIntoGlobalContractId,
+    AccountId, ChainId, IntoNearToken, PublicKey, PublishMode, RawStateInit, StateInit,
+    TryIntoAccountId, TryIntoGlobalContractId,
 };
 
 use super::query::{
@@ -907,6 +907,63 @@ impl Near {
         let receiver_id = state_init.derive_account_id();
         self.transaction(receiver_id)
             .state_init(state_init, deposit)
+    }
+
+    /// Create a `0u` universal account from its state init (nearcore 2.14).
+    ///
+    /// The receiver_id is the account id derived from the state init, so no
+    /// receiver needs to be specified. See
+    /// [`UniversalStateInit`](crate::protocol::UniversalStateInit) for how the
+    /// id is derived.
+    ///
+    /// There are two ways to create the account:
+    ///
+    /// - **Someone else creates it.** Any funded account sends the state init
+    ///   with a deposit that covers the account's storage.
+    /// - **The account bootstraps itself.** Fund the `0u` id with a transfer
+    ///   first, which leaves an uninitialized account. Then send the state init
+    ///   signed by one of its own keys, with `signer_id` set to the `0u` id. The
+    ///   key isn't on chain yet, so the nonce comes from the account's
+    ///   [`bootstrap_nonce`](crate::rpc::AccountView::bootstrap_nonce). This is
+    ///   handled for you when the transaction is built, signed, or sent.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # use near_kit::protocol::{UniversalStateInit, UniversalStateInitV1};
+    /// # use near_kit::signer::{InMemorySigner, SecretKey};
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// let key = SecretKey::generate_ed25519();
+    /// let state_init: UniversalStateInit =
+    ///     UniversalStateInitV1::new().with_access_key(key.public_key()).into();
+    /// let account_id = state_init.derive_account_id();
+    ///
+    /// // Someone else creates it.
+    /// near.universal_state_init(state_init.clone(), NearToken::from_millinear(10))
+    ///     .send()
+    ///     .await?;
+    ///
+    /// // Or: fund the id, then let the account bootstrap itself.
+    /// near.transfer(&account_id, NearToken::from_near(1)).await?;
+    /// near.universal_state_init(state_init, NearToken::ZERO)
+    ///     .sign_with(InMemorySigner::from_secret_key(account_id, key)?)
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Deposit parsing failures are retained and returned when the transaction
+    /// is sent, built, signed, or delegated.
+    pub fn universal_state_init(
+        &self,
+        state_init: impl Into<RawStateInit>,
+        deposit: impl IntoNearToken,
+    ) -> TransactionBuilder {
+        let state_init = state_init.into();
+        self.transaction(state_init.derive_account_id())
+            .universal_state_init(state_init, deposit)
     }
 
     /// Send a pre-signed transaction.
