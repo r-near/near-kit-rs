@@ -8,8 +8,23 @@ git_tag_enable = true
 # Create GitHub releases
 git_release_enable = true
 
+# Mark GitHub releases of pre-release versions (e.g. 0.20.0-rc.1) as pre-releases
+git_release_type = "auto"
+
 # Labels for the release PR
 pr_labels = ["release"]
 
 # Run cargo-semver-checks to detect breaking changes
 semver_check = true
+
+# near-kit-sandbox exposes near-kit types (e.g. `Near`), so a near-kit release
+# that bumps its version must bump the sandbox to match. Otherwise a sandbox
+# patch release could depend on a newer near-kit than callers pin, and they'd
+# compile two incompatible near-kit versions.
+[[package]]
+name = "near-kit"
+version_group = "near-kit"
+
+[[package]]
+name = "near-kit-sandbox"
+version_group = "near-kit"
