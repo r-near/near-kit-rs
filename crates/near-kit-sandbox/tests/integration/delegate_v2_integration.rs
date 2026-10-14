@@ -6,14 +6,19 @@
 //! 2. A relayer wraps it in `Action::DelegateV2` and submits it, paying gas.
 //! 3. Assert the transfer landed on-chain.
 //!
-//! Pins the sandbox to stable `2.13.4` (protocol v85 enables `DelegateV2`).
+//! The relay test pins `2.13.4` (DelegateV2 exists only at protocol 85-86);
+//! the rejection test runs on the default 2.14 sandbox.
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
 use near_kit::*;
 use near_kit::{protocol::*, rpc::*, signer::*, transaction::Final};
 
-use super::support::{sandbox_2_13, unique_account};
+use super::support::{funded_account, sandbox_2_13, shared_client, unique_account};
+
+/// Protocol version at which nearcore 2.14 rejects `Action::DelegateV2`
+/// (`ProtocolFeature::RejectDelegateV2`).
+const REJECT_DELEGATE_V2_PROTOCOL_VERSION: u32 = 87;
 
 #[tokio::test]
 async fn test_delegate_v2_relay() {
@@ -159,4 +164,75 @@ async fn test_delegate_v2_relay() {
         transfer_amount.as_yoctonear(),
         "recipient should have received exactly the delegated transfer"
     );
+}
+
+#[tokio::test]
+async fn test_delegate_v2_rejected_as_removed_protocol_feature() {
+    let (sandbox, root_near) = shared_client().await;
+
+    let status = root_near.rpc().status().await.expect("status");
+    assert!(
+        status.protocol_version >= REJECT_DELEGATE_V2_PROTOCOL_VERSION,
+        "default sandbox runs protocol v{}, but DelegateV2 is only rejected from \
+         v{REJECT_DELEGATE_V2_PROTOCOL_VERSION} (nearcore 2.14)",
+        status.protocol_version,
+    );
+
+    let (_, sender_id, sender_key) =
+        funded_account(&root_near, sandbox, "dv2rmsender", NearToken::from_near(10)).await;
+    let (relayer_near, relayer_id, _) = funded_account(
+        &root_near,
+        sandbox,
+        "dv2rmrelayer",
+        NearToken::from_near(10),
+    )
+    .await;
+
+    // A well-formed, correctly signed DelegateActionV2: the only reason for the
+    // node to reject it is that the action itself was removed.
+    let ak = root_near
+        .rpc()
+        .view_access_key(
+            &sender_id,
+            &sender_key.public_key(),
+            BlockReference::Finality(Finality::Final),
+        )
+        .await
+        .expect("view sender access key");
+    let delegate_v2 = DelegateActionV2 {
+        sender_id: sender_id.clone(),
+        receiver_id: relayer_id.clone(),
+        actions: vec![
+            NonDelegateAction::from_action(Action::transfer(NearToken::from_near(1)))
+                .expect("transfer is not a delegate"),
+        ],
+        nonce: TransactionNonce::from_nonce(ak.nonce + 1),
+        max_block_height: status.sync_info.latest_block_height + 200,
+        public_key: sender_key.public_key(),
+    };
+    let payload: VersionedDelegateActionPayload = delegate_v2.into();
+    let signature = sender_key.sign(payload.get_hash().as_bytes());
+    let signed = payload.sign(signature);
+
+    let error = relayer_near
+        .transaction(&sender_id)
+        .add_action(Action::delegate_v2(signed))
+        .send()
+        .wait_until::<Final>()
+        .await
+        .expect_err("a 2.14 node must reject Action::DelegateV2");
+
+    match error {
+        Error::InvalidTx(invalid_tx) => match *invalid_tx {
+            InvalidTxError::ActionsValidation(ActionsValidationError::RemovedProtocolFeature {
+                protocol_feature,
+                version,
+            }) => {
+                assert_eq!(protocol_feature, "DelegateV2");
+                assert_eq!(version, status.protocol_version);
+            }
+            other => panic!("expected RemovedProtocolFeature, got {other:?}"),
+        },
+        other => panic!("expected Error::InvalidTx, got {other:?}"),
+    }
 }
