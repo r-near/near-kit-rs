@@ -192,7 +192,8 @@ pub enum ActionErrorKind {
     ReceiptStorageProofSizeExceeded {
         limit: u64,
     },
-    /// The bytes of a `UniversalStateInit` action are not a valid state init.
+    /// The bytes of a `UniversalStateInit` action are not the canonical encoding
+    /// of a state init.
     MalformedUniversalStateInit,
     /// The action needs an initialized account, but the receiver is a
     /// universal account whose state init hasn't been applied yet.
@@ -375,7 +376,10 @@ impl std::fmt::Display for ActionErrorKind {
                 "receipt exceeded the storage proof size limit of {limit} bytes"
             ),
             Self::MalformedUniversalStateInit => {
-                write!(f, "universal state init payload is not a valid state init")
+                write!(
+                    f,
+                    "universal state init payload is not a canonical state init"
+                )
             }
             Self::AccountNotInitialized { account_id } => {
                 write!(f, "account {account_id} has no state init applied yet")
@@ -1360,7 +1364,7 @@ impl std::fmt::Display for ActionsValidationError {
             ),
             Self::TransferToUniversalAccountNotAllowed { account_id } => write!(
                 f,
-                "transfers to universal account {account_id} are not allowed yet"
+                "transfers to the universal account {account_id} are not allowed yet"
             ),
             Self::Unknown(value) => write!(f, "unknown actions validation error: {value}"),
         }
@@ -1702,7 +1706,7 @@ mod tests {
             ),
             (
                 serde_json::json!("MalformedUniversalStateInit"),
-                "not a valid state init",
+                "not a canonical state init",
             ),
             (
                 serde_json::json!({
