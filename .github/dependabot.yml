@@ -6,9 +6,14 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
-      # Batch semver-compatible (lockfile-only) bumps into a single weekly PR.
-      # Major bumps still get individual PRs since they change Cargo.toml.
+      # Security updates run as soon as an alert is available, independently
+      # of the weekly version-update schedule.
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
+      # Batch semver-compatible version updates into a single weekly PR.
       patch-and-minor:
+        applies-to: version-updates
         update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
