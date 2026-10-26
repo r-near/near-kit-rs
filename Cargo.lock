@@ -1806,6 +1806,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-account-id"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d2c8642aeca89873dbcf2a2f74ff90cd87f6691f11b66aeed2af7c136192d10"
+dependencies = [
+ "borsh",
+ "serde",
+]
+
+[[package]]
 name = "near-crypto-hash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1831,7 +1841,7 @@ dependencies = [
  "cfg_eval",
  "digest-io",
  "hex",
- "near-account-id",
+ "near-account-id 2.6.0",
  "near-crypto-hash",
  "near-sdk-env",
  "serde",
@@ -1859,7 +1869,7 @@ dependencies = [
  "k256",
  "keyring",
  "ml-dsa",
- "near-account-id",
+ "near-account-id 3.0.0",
  "near-gas",
  "near-global-contracts",
  "near-kit-macros",
