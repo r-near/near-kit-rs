@@ -1823,9 +1823,9 @@ dependencies = [
 
 [[package]]
 name = "near-global-contracts"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3380812ba34540085abe428d13d8152eec8b50f6953934f4bd4025c9ec6ea536"
+checksum = "eb0de76f41525e25893ab50f6abacffe6e14c54939b49c2ddd7295b16e73d2d0"
 dependencies = [
  "borsh",
  "cfg_eval",
@@ -1911,9 +1911,9 @@ dependencies = [
 
 [[package]]
 name = "near-sdk-env"
-version = "0.1.5"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73a159e55901b3a2fab682896ef8e037a3862d4677e762644be922696de28339"
+checksum = "e7797e6eac8dd2532a614df39a3789a3268d6ca620ebe4cfcf7796fb57edb996"
 dependencies = [
  "near-sys",
  "ripemd",
@@ -1923,9 +1923,9 @@ dependencies = [
 
 [[package]]
 name = "near-sys"
-version = "0.2.13"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48b26c10a43e1dccab24e80dd38c3bf73eab9c95da54fcce1144f2b58ef5b507"
+checksum = "d2fd1a525e5bc1d0d8c6e2e0bd53cab86478c9701947f6039f6b3e85d0b564a7"
 
 [[package]]
 name = "near-token"
