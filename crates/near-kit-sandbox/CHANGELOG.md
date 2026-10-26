@@ -4,6 +4,18 @@ All notable changes to `near-kit-sandbox` are documented in this file.
 
 ## [Unreleased]
 
+## [0.20.0-rc.2] - 2026-10-26
+
+### Fixed
+
+- Refresh the locked Docker transport, TLS and trust-root dependencies to patched
+  versions, alongside the near-kit signing dependency security fixes.
+- Update the near-kit dependency to 0.20.0-rc.2.
+
+Applications keep independent lockfiles. After selecting this RC, run
+`cargo update` and `cargo audit --deny warnings` to refresh and check the
+application's resolved dependencies.
+
 ## [0.20.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.19.0...near-kit-sandbox-v0.20.0-rc.1) - 2026-10-14
 
 ### Added

@@ -1841,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "near-kit"
-version = "0.20.0-rc.1"
+version = "0.20.0-rc.2"
 dependencies = [
  "base64 0.23.1",
  "bip39",
@@ -1895,7 +1895,7 @@ dependencies = [
 
 [[package]]
 name = "near-kit-sandbox"
-version = "0.20.0-rc.1"
+version = "0.20.0-rc.2"
 dependencies = [
  "futures",
  "libc",
