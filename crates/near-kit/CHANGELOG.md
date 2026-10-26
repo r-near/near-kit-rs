@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0-rc.2] - 2026-10-26
+
+### Fixed
+
+- Refresh the locked TLS, trust-root and signing dependencies, including the
+  distrusted emSign certificate and constant-time arithmetic security fixes.
+- Clear the workspace's known vulnerability, unsoundness and yanked-package
+  audit findings. Enable Dependabot security updates and daily dependency audits.
+
+### Security update for applications
+
+Applications keep independent lockfiles. After selecting this RC, run
+`cargo update` and `cargo audit --deny warnings`; updating near-kit alone can
+retain vulnerable transitive versions. Native RPC requires rustls >=0.23.46 and
+rustls-webpki >=0.103.16. Signing requires crypto-bigint >=0.7.6,
+ctutils >=0.4.4 and cmov >=0.5.4. Browser and WASI TLS is provided by the host;
+the signing dependency updates also apply to offline and wasm builds.
+
 ## [0.20.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.19.0...near-kit-v0.20.0-rc.1) - 2026-10-14
 
 ### Added
