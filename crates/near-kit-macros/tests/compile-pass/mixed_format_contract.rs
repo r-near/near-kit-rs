@@ -56,19 +56,19 @@ fn main() {
     {
         let client = near.contract::<MixedContract>(account!("contract.testnet"));
         let signing_client = account.contract::<MixedContract>(account!("contract.testnet"));
-        let _: View<'_, Near, u64> = client.get_json_value();
-        let _: View<'_, Near, u64> = client.get_borsh_value();
-        let _: Call<'_, SigningNear> = signing_client.set_json_value();
-        let _: Call<'_, SigningNear> = signing_client.set_borsh_value();
+        let _: View<Near, u64> = client.get_json_value();
+        let _: View<Near, u64> = client.get_borsh_value();
+        let _: Call<SigningNear> = signing_client.set_json_value();
+        let _: Call<SigningNear> = signing_client.set_borsh_value();
     }
 
     {
         let client = near.contract::<MixedContractBorshDefault>(account!("contract.testnet"));
         let signing_client = account.contract::<MixedContractBorshDefault>(account!("contract.testnet"));
-        let _: View<'_, Near, u64> = client.get_borsh_value();
-        let _: View<'_, Near, u64> = client.get_json_value();
-        let _: Call<'_, SigningNear> = signing_client.set_borsh_value();
-        let _: Call<'_, SigningNear> = signing_client.set_json_value();
+        let _: View<Near, u64> = client.get_borsh_value();
+        let _: View<Near, u64> = client.get_json_value();
+        let _: Call<SigningNear> = signing_client.set_borsh_value();
+        let _: Call<SigningNear> = signing_client.set_json_value();
     }
 
     // Static FunctionCall constructors (call methods only, not view)

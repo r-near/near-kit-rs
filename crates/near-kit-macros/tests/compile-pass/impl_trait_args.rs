@@ -27,6 +27,6 @@ fn main() {
             .unwrap(),
     );
     let signing_client = account.contract::<Registry>(account!("registry.testnet"));
-    let _call: Call<'_, SigningNear> = signing_client.register(Key { key: "a".into() });
+    let _call: Call<SigningNear> = signing_client.register(Key { key: "a".into() });
     let _offline: FunctionCall = Registry::register(Key { key: "a".into() });
 }

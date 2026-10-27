@@ -7,6 +7,7 @@
 
 use std::fmt;
 use std::future::{Future, IntoFuture};
+use std::sync::Arc;
 
 use crate::error::CodecError;
 use crate::platform::{BoxFuture, MaybeSend, MaybeSync};
@@ -133,9 +134,16 @@ pub enum ContractError<E> {
 /// otherwise. Awaiting it yields the decoded value; use
 /// [`with_metadata`](Self::with_metadata) to also get the block it was read
 /// at.
+///
+/// A `View` owns its backend (generated clients clone theirs into it), so a
+/// helper can return one and its future is `'static` whenever the backend
+/// is: it can be spawned. To share a backend that isn't `Clone`, hand the
+/// client an `Arc` of it. A borrowed backend (`&B`) works too, but then
+/// `.await` needs a `'static` borrow; [`with_metadata`](Self::with_metadata)
+/// has no such bound.
 #[must_use = "a view does nothing until it is awaited"]
-pub struct View<'a, C, T> {
-    backend: &'a C,
+pub struct View<C, T> {
+    backend: C,
     contract_id: AccountId,
     method: &'static str,
     // Arguments are encoded when the view is created, so borrowed argument
@@ -145,9 +153,9 @@ pub struct View<'a, C, T> {
     decode: fn(&[u8]) -> Result<T, CodecError>,
 }
 
-impl<'a, C, T> View<'a, C, T> {
+impl<C, T> View<C, T> {
     pub(crate) fn new(
-        backend: &'a C,
+        backend: C,
         contract_id: AccountId,
         method: &'static str,
         args: Result<Vec<u8>, CodecError>,
@@ -190,16 +198,12 @@ impl<'a, C, T> View<'a, C, T> {
             Ok(raw) => raw,
             Err(error) => return Err(ContractError::Backend(error)),
         };
-        Ok(ViewFunctionResult::new(
-            (self.decode)(&raw.result).map_err(ContractError::Codec)?,
-            raw.block_height,
-            raw.block_hash,
-        )
-        .with_logs(raw.logs))
+        let result = (self.decode)(&raw.result).map_err(ContractError::Codec)?;
+        Ok(ViewFunctionResult::new(result, raw.block_height, raw.block_hash).with_logs(raw.logs))
     }
 }
 
-impl<C, T> fmt::Debug for View<'_, C, T> {
+impl<C, T> fmt::Debug for View<C, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("View")
             .field("contract_id", &self.contract_id)
@@ -210,14 +214,14 @@ impl<C, T> fmt::Debug for View<'_, C, T> {
     }
 }
 
-impl<'a, C, T> IntoFuture for View<'a, C, T>
+impl<C, T> IntoFuture for View<C, T>
 where
-    C: Viewer,
-    C::ViewError: 'a,
-    T: 'a,
+    C: Viewer + 'static,
+    C::ViewError: 'static,
+    T: 'static,
 {
     type Output = Result<T, ContractError<C::ViewError>>;
-    type IntoFuture = BoxFuture<'a, Self::Output>;
+    type IntoFuture = BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move { self.with_metadata().await.map(|view| view.result) })
@@ -229,15 +233,18 @@ where
 /// Returned by the `#[call]` methods of a `#[contract]` client. Awaiting it
 /// sends one transaction with this function call through the client's
 /// [`TxSender`] and resolves to the sender's [`Output`](TxSender::Output).
+///
+/// Like [`View`], it owns its backend, so its future is `'static` whenever
+/// the backend is.
 #[must_use = "a call does nothing until it is awaited"]
-pub struct Call<'a, C> {
-    backend: &'a C,
+pub struct Call<C> {
+    backend: C,
     contract_id: AccountId,
     call: FunctionCall,
 }
 
-impl<'a, C> Call<'a, C> {
-    pub(crate) fn new(backend: &'a C, contract_id: AccountId, call: FunctionCall) -> Self {
+impl<C> Call<C> {
+    pub(crate) fn new(backend: C, contract_id: AccountId, call: FunctionCall) -> Self {
         Self {
             backend,
             contract_id,
@@ -258,7 +265,7 @@ impl<'a, C> Call<'a, C> {
     }
 }
 
-impl<C> fmt::Debug for Call<'_, C> {
+impl<C> fmt::Debug for Call<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Call")
             .field("contract_id", &self.contract_id)
@@ -267,30 +274,135 @@ impl<C> fmt::Debug for Call<'_, C> {
     }
 }
 
-impl<'a, C> IntoFuture for Call<'a, C>
+impl<C> IntoFuture for Call<C>
 where
-    C: TxSender,
-    C::Output: 'a,
-    C::SendError: 'a,
+    C: TxSender + 'static,
+    C::Output: 'static,
+    C::SendError: 'static,
 {
     type Output = Result<C::Output, ContractError<C::SendError>>;
-    type IntoFuture = BoxFuture<'a, Self::Output>;
+    type IntoFuture = BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
-        // Start the send now: the boxed future then holds only the backend's
-        // own future. Fully qualified, so an inherent `send` on the backend
-        // can't shadow the trait method.
-        let sent = Action::try_from(self.call)
-            .map(|action| TxSender::send(self.backend, self.contract_id, vec![action]));
+        let Self {
+            backend,
+            contract_id,
+            call,
+        } = self;
+        let action = Action::try_from(call);
         Box::pin(async move {
-            match sent {
-                Ok(sent) => match sent.await {
-                    Ok(output) => Ok(output),
-                    Err(error) => Err(ContractError::Backend(error)),
-                },
-                Err(error) => Err(ContractError::Codec(error)),
+            let action = match action {
+                Ok(action) => action,
+                Err(error) => return Err(ContractError::Codec(error)),
+            };
+            // Fully qualified, so an inherent `send` on the backend can't
+            // shadow the trait method.
+            match TxSender::send(&backend, contract_id, vec![action]).await {
+                Ok(output) => Ok(output),
+                Err(error) => Err(ContractError::Backend(error)),
             }
         })
+    }
+}
+
+/// Forwards to `T`, so a borrowed backend can serve several clients.
+impl<T: Viewer + ?Sized> Viewer for &T {
+    type ViewError = T::ViewError;
+
+    fn view_function(
+        &self,
+        contract_id: &AccountId,
+        method: &str,
+        args: &[u8],
+        block: BlockReference,
+    ) -> impl Future<Output = Result<ViewFunctionResult, Self::ViewError>> + MaybeSend {
+        (**self).view_function(contract_id, method, args, block)
+    }
+}
+
+/// Forwards to `T`.
+impl<T: Viewer + ?Sized> Viewer for Box<T> {
+    type ViewError = T::ViewError;
+
+    fn view_function(
+        &self,
+        contract_id: &AccountId,
+        method: &str,
+        args: &[u8],
+        block: BlockReference,
+    ) -> impl Future<Output = Result<ViewFunctionResult, Self::ViewError>> + MaybeSend {
+        (**self).view_function(contract_id, method, args, block)
+    }
+}
+
+/// Forwards to `T`, so a backend that isn't `Clone` can serve several
+/// clients and still give `'static` futures.
+impl<T: Viewer + ?Sized> Viewer for Arc<T> {
+    type ViewError = T::ViewError;
+
+    fn view_function(
+        &self,
+        contract_id: &AccountId,
+        method: &str,
+        args: &[u8],
+        block: BlockReference,
+    ) -> impl Future<Output = Result<ViewFunctionResult, Self::ViewError>> + MaybeSend {
+        (**self).view_function(contract_id, method, args, block)
+    }
+}
+
+/// Forwards to `T`, so a borrowed sender can serve several clients.
+impl<T: TxSender + ?Sized> TxSender for &T {
+    type Output = T::Output;
+    type SendError = T::SendError;
+
+    fn account_id(&self) -> &AccountId {
+        (**self).account_id()
+    }
+
+    fn send(
+        &self,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> impl Future<Output = Result<Self::Output, Self::SendError>> + MaybeSend {
+        (**self).send(receiver_id, actions)
+    }
+}
+
+/// Forwards to `T`.
+impl<T: TxSender + ?Sized> TxSender for Box<T> {
+    type Output = T::Output;
+    type SendError = T::SendError;
+
+    fn account_id(&self) -> &AccountId {
+        (**self).account_id()
+    }
+
+    fn send(
+        &self,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> impl Future<Output = Result<Self::Output, Self::SendError>> + MaybeSend {
+        (**self).send(receiver_id, actions)
+    }
+}
+
+/// Forwards to `T`, so a sender that isn't `Clone` can serve several
+/// clients and still give `'static` futures.
+impl<T: TxSender + ?Sized> TxSender for Arc<T> {
+    type Output = T::Output;
+    type SendError = T::SendError;
+
+    fn account_id(&self) -> &AccountId {
+        (**self).account_id()
+    }
+
+    fn send(
+        &self,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> impl Future<Output = Result<Self::Output, Self::SendError>> + MaybeSend {
+        (**self).send(receiver_id, actions)
     }
 }
 
@@ -300,12 +412,12 @@ pub(crate) mod expansion {
     use super::*;
 
     /// A JSON-decoded view.
-    pub fn view_json<'a, C, T>(
-        backend: &'a C,
+    pub fn view_json<C, T>(
+        backend: C,
         contract_id: AccountId,
         method: &'static str,
         args: Result<Vec<u8>, CodecError>,
-    ) -> View<'a, C, T>
+    ) -> View<C, T>
     where
         C: Viewer,
         T: serde::de::DeserializeOwned,
@@ -319,12 +431,12 @@ pub(crate) mod expansion {
     }
 
     /// A Borsh-decoded view.
-    pub fn view_borsh<'a, C, T>(
-        backend: &'a C,
+    pub fn view_borsh<C, T>(
+        backend: C,
         contract_id: AccountId,
         method: &'static str,
         args: Result<Vec<u8>, CodecError>,
-    ) -> View<'a, C, T>
+    ) -> View<C, T>
     where
         C: Viewer,
         T: borsh::BorshDeserialize,
@@ -335,7 +447,7 @@ pub(crate) mod expansion {
     }
 
     /// A call through `backend`.
-    pub fn call<C>(backend: &C, contract_id: AccountId, call: FunctionCall) -> Call<'_, C>
+    pub fn call<C>(backend: C, contract_id: AccountId, call: FunctionCall) -> Call<C>
     where
         C: TxSender,
     {
@@ -371,11 +483,13 @@ mod tests {
     }
 
     impl MockViewer {
-        fn new(answer: &[u8]) -> Self {
-            Self {
+        /// Shared, so a test can hand a clone to the view and still read
+        /// what the backend saw.
+        fn new(answer: &[u8]) -> Arc<Self> {
+            Arc::new(Self {
                 answer: answer.to_vec(),
                 seen: Mutex::new(None),
-            }
+            })
         }
     }
 
@@ -446,7 +560,7 @@ mod tests {
     fn json_view_decodes_and_defaults_to_final() {
         let viewer = MockViewer::new(b"42");
         let value: u64 = run(view_json(
-            &viewer,
+            viewer.clone(),
             contract(),
             "get",
             json_args(&()).map(|_| b"{}".to_vec()),
@@ -465,10 +579,10 @@ mod tests {
     fn json_view_reads_empty_result_as_null() {
         let viewer = MockViewer::new(b"");
         let value: Option<u64> =
-            run(view_json(&viewer, contract(), "get", Ok(Vec::new()))).unwrap();
+            run(view_json(viewer.clone(), contract(), "get", Ok(Vec::new()))).unwrap();
         assert_eq!(value, None);
         run(view_json::<_, ()>(
-            &viewer,
+            viewer.clone(),
             contract(),
             "get",
             Ok(Vec::new()),
@@ -480,7 +594,7 @@ mod tests {
     fn borsh_view_decodes() {
         let viewer = MockViewer::new(&borsh::to_vec(&7_u32).unwrap());
         let args = borsh_args(&1_u8);
-        let value: u32 = run(view_borsh(&viewer, contract(), "get", args)).unwrap();
+        let value: u32 = run(view_borsh(viewer.clone(), contract(), "get", args)).unwrap();
         assert_eq!(value, 7);
         let (_, _, args, _) = viewer.seen.lock().unwrap().take().unwrap();
         assert_eq!(args, [1]);
@@ -490,7 +604,7 @@ mod tests {
     fn at_and_with_metadata() {
         let viewer = MockViewer::new(b"\"hi\"");
         let result = run(
-            view_json::<_, String>(&viewer, contract(), "get", Ok(Vec::new()))
+            view_json::<_, String>(viewer.clone(), contract(), "get", Ok(Vec::new()))
                 .at(Finality::Optimistic)
                 .with_metadata(),
         )
@@ -507,7 +621,7 @@ mod tests {
         let viewer = MockViewer::new(b"bad");
 
         let error = run(view_json::<_, u64>(
-            &viewer,
+            viewer.clone(),
             contract(),
             "get",
             json_args(&FailingJson),
@@ -517,7 +631,7 @@ mod tests {
         assert!(viewer.seen.lock().unwrap().is_none(), "nothing was sent");
 
         let error = run(view_json::<_, u64>(
-            &viewer,
+            viewer.clone(),
             contract(),
             "fail",
             Ok(Vec::new()),
@@ -526,7 +640,7 @@ mod tests {
         assert!(matches!(&error, ContractError::Backend(e) if e == "backend down"));
 
         let error = run(view_json::<_, u64>(
-            &viewer,
+            viewer.clone(),
             contract(),
             "get",
             Ok(Vec::new()),
@@ -535,7 +649,7 @@ mod tests {
         assert!(matches!(error, ContractError::Codec(CodecError::Json(_))));
 
         let error = run(view_borsh::<_, u64>(
-            &viewer,
+            viewer.clone(),
             contract(),
             "get",
             Ok(Vec::new()),
@@ -546,10 +660,12 @@ mod tests {
 
     #[test]
     fn call_sends_one_function_call() {
-        let sender = MockSender::default();
-        let count = run(call(&sender, contract(), FunctionCall::new("add").args(5))
-            .gas(Gas::from_tgas(50))
-            .deposit(NearToken::from_yoctonear(1)))
+        let sender = Arc::new(MockSender::default());
+        let count = run(
+            call(sender.clone(), contract(), FunctionCall::new("add").args(5))
+                .gas(Gas::from_tgas(50))
+                .deposit(NearToken::from_yoctonear(1)),
+        )
         .unwrap();
         assert_eq!(count, 1);
 
@@ -568,9 +684,9 @@ mod tests {
 
     #[test]
     fn call_encode_error_sends_nothing() {
-        let sender = MockSender::default();
+        let sender = Arc::new(MockSender::default());
         let error = run(call(
-            &sender,
+            sender.clone(),
             contract(),
             FunctionCall::new("add").args(FailingJson),
         ))
@@ -589,19 +705,53 @@ mod tests {
 
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     #[test]
-    fn futures_are_send() {
-        fn assert_send<F: Future + Send>(_: F) {}
-        fn generic<V: Viewer, S: TxSender>(viewer: &V, sender: &S)
+    fn futures_are_send_and_static() {
+        fn assert_spawnable<F: Future + Send + 'static>(_: F) {}
+        fn generic<V, S>(viewer: V, sender: S)
         where
+            V: Viewer + 'static,
+            S: TxSender + 'static,
             V::ViewError: Send,
             S::Output: Send,
             S::SendError: Send,
         {
-            assert_send(
+            assert_spawnable(
                 view_json::<_, u64>(viewer, contract(), "get", Ok(Vec::new())).into_future(),
             );
-            assert_send(call(sender, contract(), FunctionCall::new("add")).into_future());
+            assert_spawnable(call(sender, contract(), FunctionCall::new("add")).into_future());
         }
-        generic(&MockViewer::new(b"1"), &MockSender::default());
+        generic(MockViewer::new(b"1"), Arc::new(MockSender::default()));
+        generic(
+            Box::new(MockViewer::new(b"1")),
+            Box::new(MockSender::default()),
+        );
+    }
+
+    #[test]
+    fn borrowed_and_boxed_backends_forward() {
+        let viewer = MockViewer::new(b"5");
+        let by_ref: u64 = futures::executor::block_on(
+            view_json::<_, u64>(&*viewer, contract(), "get", Ok(Vec::new())).with_metadata(),
+        )
+        .unwrap()
+        .result;
+        assert_eq!(by_ref, 5);
+
+        let boxed: Box<MockSender> = Box::default();
+        assert_eq!(
+            run(call(boxed, contract(), FunctionCall::new("add"))).unwrap(),
+            1
+        );
+
+        let sender = MockSender::default();
+        let borrowed = &sender;
+        let sent = futures::executor::block_on(TxSender::send(
+            &borrowed,
+            contract(),
+            vec![Action::transfer(NearToken::from_yoctonear(1))],
+        ))
+        .unwrap();
+        assert_eq!(sent, 1);
+        assert_eq!(sender.sent.lock().unwrap().len(), 1);
     }
 }

@@ -12,6 +12,7 @@ pub trait Counter {
     fn increment(&mut self);
 }
 
+#[derive(Clone)]
 struct ViewOnly;
 
 impl Viewer for ViewOnly {

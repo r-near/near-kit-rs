@@ -21,13 +21,13 @@ fn main() {
     let near = Near::testnet().build();
     let client: BorshContractClient = near.contract::<BorshContract>(account!("contract.testnet"));
 
-    let _view: View<'_, Near, u64> = client.get_value();
-    let _view: View<'_, Near, bool> = client.get_flag();
+    let _view: View<Near, u64> = client.get_value();
+    let _view: View<Near, bool> = client.get_flag();
     let account: SigningNear = near.with_signer(
         InMemorySigner::from_secret_key(account!("alice.testnet"), SecretKey::generate_ed25519())
             .unwrap(),
     );
     let signing_client: BorshContractClient<SigningNear> =
         account.contract::<BorshContract>(account!("contract.testnet"));
-    let _call: Call<'_, SigningNear> = signing_client.set_value();
+    let _call: Call<SigningNear> = signing_client.set_value();
 }

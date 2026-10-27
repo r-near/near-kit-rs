@@ -30,23 +30,23 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub trait MaybeSend: Send {}
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-impl<T: Send> MaybeSend for T {}
+impl<T: Send + ?Sized> MaybeSend for T {}
 
 /// Implemented by every type on `wasm32-unknown-unknown`; `Send` elsewhere.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub trait MaybeSend {}
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-impl<T> MaybeSend for T {}
+impl<T: ?Sized> MaybeSend for T {}
 
 /// `Sync` everywhere except `wasm32-unknown-unknown`, where every type
 /// implements it. See [`MaybeSend`].
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub trait MaybeSync: Sync {}
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-impl<T: Sync> MaybeSync for T {}
+impl<T: Sync + ?Sized> MaybeSync for T {}
 
 /// Implemented by every type on `wasm32-unknown-unknown`; `Sync` elsewhere.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub trait MaybeSync {}
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-impl<T> MaybeSync for T {}
+impl<T: ?Sized> MaybeSync for T {}

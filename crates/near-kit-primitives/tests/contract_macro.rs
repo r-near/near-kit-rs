@@ -154,3 +154,60 @@ fn generated_view_decode_errors_are_codec_errors() {
         Err(ContractError::Codec(CodecError::Json(_)))
     ));
 }
+
+/// A `Viewer` that isn't `Clone`.
+struct Unclonable;
+
+impl Viewer for Unclonable {
+    type ViewError = String;
+
+    async fn view_function(
+        &self,
+        _contract_id: &AccountId,
+        _method: &str,
+        _args: &[u8],
+        _block: BlockReference,
+    ) -> Result<ViewFunctionResult, String> {
+        Ok(ViewFunctionResult::new(b"3".to_vec(), 1, CryptoHash::ZERO))
+    }
+}
+
+/// An extension-trait helper can return the view itself, so callers can
+/// still pick a block or ask for metadata.
+trait CounterExt: Viewer + Clone + Sized {
+    fn count(&self) -> near_kit_primitives::transaction::View<Self, u64> {
+        Counter::client(self.clone(), account!("c.near")).get_count()
+    }
+}
+
+impl CounterExt for Backend {}
+
+#[test]
+fn views_and_calls_own_their_backend() {
+    let backend = Backend::default();
+    assert_eq!(run(backend.count().at(Finality::Optimistic)).unwrap(), 7);
+
+    // The futures are 'static, so they can be spawned.
+    fn assert_spawnable<F: std::future::Future + Send + 'static>(future: F) -> F {
+        future
+    }
+    let counter = Counter::client(backend.clone(), account!("c.near"));
+    let view = assert_spawnable(counter.get_count().into_future());
+    let call = assert_spawnable(counter.reset().into_future());
+    drop(counter);
+    assert_eq!(futures::executor::block_on(view).unwrap(), 7);
+    futures::executor::block_on(call).unwrap();
+
+    // A backend that isn't `Clone` serves several clients through an `Arc`.
+    let shared = Arc::new(Unclonable);
+    let first = Counter::client(shared.clone(), account!("a.near"));
+    let second = Counter::client(shared, account!("b.near"));
+    assert_eq!(run(first.get_count()).unwrap(), 3);
+    assert_eq!(run(second.get_count()).unwrap(), 3);
+
+    // Or by reference, reading with `with_metadata`.
+    let unclonable = Unclonable;
+    let borrowed = Counter::client(&unclonable, account!("c.near"));
+    let read = futures::executor::block_on(borrowed.get_count().with_metadata()).unwrap();
+    assert_eq!((read.result, read.block_height), (3, 1));
+}

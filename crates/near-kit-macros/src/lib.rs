@@ -298,9 +298,11 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
 
 /// Generate the client method for a view function.
 ///
-/// The `where C: Viewer` bound sits on the method, not the impl block, so
-/// calling it on a client whose backend can't view reports the trait's
-/// `on_unimplemented` text (E0277) instead of "method not found" (E0599).
+/// The `where C: Viewer + Clone` bound sits on the method, not the impl
+/// block, so calling it on a client whose backend can't view reports the
+/// trait's `on_unimplemented` text (E0277) instead of "method not found"
+/// (E0599). `Clone` comes after the trait so that error is reported first.
+/// The view gets its own clone of the backend, so it can outlive `&self`.
 fn generate_view_method(method: &MethodInfo, contract_format: SerializationFormat) -> TokenStream2 {
     let near_kit = near_kit_path();
     let method_name = &method.name;
@@ -337,11 +339,16 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
 
     quote! {
         #(#docs)*
-        pub fn #method_name(&self, #params) -> #near_kit::transaction::View<'_, C, #return_type>
+        pub fn #method_name(&self, #params) -> #near_kit::transaction::View<C, #return_type>
         where
-            C: #near_kit::Viewer,
+            C: #near_kit::Viewer + ::core::clone::Clone,
         {
-            #constructor(&self.backend, self.contract_id.clone(), #method_name_str, #args)
+            #constructor(
+                ::core::clone::Clone::clone(&self.backend),
+                self.contract_id.clone(),
+                #method_name_str,
+                #args,
+            )
         }
     }
 }
@@ -361,12 +368,12 @@ fn generate_call_method(method: &MethodInfo, trait_name: &Ident) -> TokenStream2
 
     quote! {
         #(#docs)*
-        pub fn #method_name(&self, #params) -> #near_kit::transaction::Call<'_, C>
+        pub fn #method_name(&self, #params) -> #near_kit::transaction::Call<C>
         where
-            C: #near_kit::TxSender,
+            C: #near_kit::TxSender + ::core::clone::Clone,
         {
             #near_kit::__private::call(
-                &self.backend,
+                ::core::clone::Clone::clone(&self.backend),
                 self.contract_id.clone(),
                 #trait_name::#method_name(#args),
             )
@@ -434,8 +441,9 @@ fn generate_function_call_method(
 ///   `#[call]` method (e.g. `Counter::increment()`), for composing typed calls
 ///   into transactions;
 /// - a `CounterClient<C>` generic over its backend `C`: view methods need
-///   `C: Viewer` and return a `View`, `#[call]` methods need `C: TxSender` and
-///   return a `Call`. When the expansion resolves to near-kit with its `rpc`
+///   `C: Viewer + Clone` and return a `View`, `#[call]` methods need
+///   `C: TxSender + Clone` and return a `Call`; each owns a clone of the
+///   backend. When the expansion resolves to near-kit with its `rpc`
 ///   feature, `C` defaults to `near_kit::Near`;
 /// - `impl Contract for Counter`, which `Near::contract::<Counter>(id)` uses
 ///   to build the client.
@@ -537,7 +545,7 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
 
     let client_doc = format!(
         " Client for the [`{trait_name}`] contract, sending through the backend `C`.\n\n \
-         View methods need `C: Viewer`; `#[call]` methods need `C: TxSender`."
+         View methods need `C: Viewer + Clone`; `#[call]` methods need `C: TxSender + Clone`."
     );
 
     let expanded = quote! {

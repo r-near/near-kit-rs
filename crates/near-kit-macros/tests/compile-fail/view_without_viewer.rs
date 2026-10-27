@@ -12,6 +12,7 @@ pub trait Counter {
     fn increment(&mut self);
 }
 
+#[derive(Clone)]
 struct SendOnly(AccountId);
 
 impl TxSender for SendOnly {

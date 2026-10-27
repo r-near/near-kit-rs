@@ -33,8 +33,8 @@ fn main() {
     let client: JsonGuestbookClient = near.contract::<JsonGuestbook>(account!("guestbook.testnet"));
     let _: &AccountId = client.contract_id();
 
-    let _view: View<'_, Near, Vec<Message>> = client.get_messages();
-    let _view: View<'_, Near, u32> = client.total_messages().at(near_kit::rpc::Finality::Optimistic);
+    let _view: View<Near, Vec<Message>> = client.get_messages();
+    let _view: View<Near, u32> = client.total_messages().at(near_kit::rpc::Finality::Optimistic);
     // Calls need a sender: the same client over `SigningNear`.
     let account: SigningNear = near.with_signer(
         InMemorySigner::from_secret_key(account!("alice.testnet"), SecretKey::generate_ed25519())
@@ -42,7 +42,7 @@ fn main() {
     );
     let signing_client: JsonGuestbookClient<SigningNear> =
         account.contract::<JsonGuestbook>(account!("guestbook.testnet"));
-    let _call: Call<'_, SigningNear> = signing_client
+    let _call: Call<SigningNear> = signing_client
         .add_message(AddMessageArgs {
             text: "hello".to_string(),
         })
