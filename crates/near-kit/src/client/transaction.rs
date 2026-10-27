@@ -393,6 +393,217 @@ impl PreparedTransaction {
             tx_hash,
         ))
     }
+
+    /// Resolve the nonce and block hash online and sign the transaction.
+    async fn sign(self) -> Result<SignedTransaction, Error> {
+        let prepared = self;
+        let (signer_id, key) = prepared.claim_signer()?;
+        let public_key = key.public_key().clone();
+
+        let span = trace::info_span!(
+            "sign_transaction",
+            sender = %signer_id,
+            receiver = %prepared.receiver_id,
+            action_count = prepared.actions.len(),
+            actions = %actions_summary(&prepared.actions),
+            method = trace::field::Empty,
+            gas = trace::field::Empty,
+            deposit = trace::field::Empty,
+        );
+
+        async move {
+            #[cfg(feature = "tracing")]
+            record_function_call_fields(&prepared.actions);
+
+            let (nonce, block_hash) = prepared
+                .online_context(&signer_id, &public_key, None)
+                .await?;
+            let tx = prepared.into_transaction(signer_id, public_key, nonce, block_hash);
+            let (signed_tx, _tx_hash) = PreparedTransaction::sign_transaction(tx, &key).await?;
+
+            trace::debug!(tx_hash = %_tx_hash, nonce, "Transaction signed");
+
+            Ok(signed_tx)
+        }
+        .instrument(span)
+        .await
+    }
+
+    /// Sign and send, re-signing with a fresh nonce or block hash on
+    /// `InvalidNonce` / `Expired` up to `max_nonce_retries` times.
+    async fn send<W: WaitLevel>(self) -> Result<W::Response, Error> {
+        let prepared = self;
+        // Claim one key for the entire logical send. Retries must keep
+        // nonce state and signatures paired with that same access key.
+        let (signer_id, key) = prepared.claim_signer()?;
+        let public_key = key.public_key().clone();
+
+        let span = trace::info_span!(
+            "send_transaction",
+            sender = %signer_id,
+            receiver = %prepared.receiver_id,
+            action_count = prepared.actions.len(),
+            actions = %actions_summary(&prepared.actions),
+            method = trace::field::Empty,
+            gas = trace::field::Empty,
+            deposit = trace::field::Empty,
+        );
+
+        async move {
+            #[cfg(feature = "tracing")]
+            record_function_call_fields(&prepared.actions);
+
+            // Retry loop for transient InvalidTxErrors (nonce conflicts, expired block hash)
+            let max_nonce_retries = prepared.max_nonce_retries;
+            let wait_until = W::STATUS;
+            let mut last_error: Option<Error> = None;
+            let mut last_ak_nonce: Option<u64> = None;
+
+            for attempt in 0..=max_nonce_retries {
+                let (nonce, block_hash) = prepared
+                    .online_context(&signer_id, &public_key, last_ak_nonce.take())
+                    .await?;
+
+                let tx =
+                    prepared.transaction(signer_id.clone(), public_key.clone(), nonce, block_hash);
+                let (signed_tx, _) = PreparedTransaction::sign_transaction(tx, &key).await?;
+
+                // Send
+                match prepared.rpc.send_tx(&signed_tx, wait_until).await {
+                    Ok(response) => {
+                        // W::convert handles the response appropriately:
+                        // - Executed levels: extract outcome, check for InvalidTxError
+                        // - Non-executed levels: build SendTxResponse (hash + sender,
+                        //   plus SendTxResponse::outcome). On this send_tx path the
+                        //   node returns no outcome at early levels, so it stays None;
+                        //   the tx_status path is where outcome can be Some.
+                        return Ok(W::convert(response, &signer_id)?);
+                    }
+                    Err(RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {
+                        tx_nonce,
+                        ak_nonce,
+                    })) if attempt < max_nonce_retries => {
+                        trace::debug!(
+                            tx_nonce = tx_nonce,
+                            ak_nonce = ak_nonce,
+                            attempt = attempt + 1,
+                            "Invalid nonce, retrying"
+                        );
+                        // Store ak_nonce for next iteration to avoid refetching
+                        last_ak_nonce = Some(ak_nonce);
+                        last_error = Some(Error::InvalidTx(Box::new(
+                            crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
+                        )));
+                        continue;
+                    }
+                    Err(RpcError::InvalidTx(crate::types::InvalidTxError::Expired))
+                        if attempt < max_nonce_retries =>
+                    {
+                        trace::debug!(
+                            attempt = attempt + 1,
+                            "Transaction expired (stale block hash), retrying with fresh block hash"
+                        );
+                        // Expired tx was rejected before nonce consumption.
+                        // No cache invalidation needed: the next iteration calls
+                        // view_access_key which provides a fresh nonce, and
+                        // next() uses max(cached, chain) so stale cache is harmless.
+                        last_error = Some(Error::InvalidTx(Box::new(
+                            crate::types::InvalidTxError::Expired,
+                        )));
+                        continue;
+                    }
+                    Err(e) => {
+                        // DEBUG, not ERROR: the error is returned to the
+                        // caller (see `RpcClient::call`).
+                        trace::debug!(error = %e, "Transaction send failed");
+                        return Err(e.into());
+                    }
+                }
+            }
+
+            Err(last_error.unwrap_or_else(|| {
+                Error::InvalidTransaction("Unknown error during transaction send".to_string())
+            }))
+        }
+        .instrument(span)
+        .await
+    }
+
+    /// Build and sign a delegate action (NEP-366) from these actions.
+    async fn delegate(self, options: DelegateOptions) -> Result<DelegateResult, Error> {
+        let prepared = self;
+
+        // Verify no nested delegates (of any version)
+        for action in &prepared.actions {
+            if action.is_delegate() {
+                return Err(Error::InvalidTransaction(
+                    "Delegate actions cannot contain nested signed delegate actions".to_string(),
+                ));
+            }
+        }
+
+        let (sender_id, key) = prepared.claim_signer()?;
+        let public_key = key.public_key().clone();
+
+        // Get nonce
+        let nonce = if let Some(n) = options.nonce {
+            n
+        } else {
+            let access_key = prepared
+                .rpc
+                .view_access_key(
+                    &sender_id,
+                    &public_key,
+                    BlockReference::Finality(Finality::Optimistic),
+                )
+                .await?;
+            access_key.nonce + 1
+        };
+
+        // Get max block height
+        let max_block_height = if let Some(h) = options.max_block_height {
+            h
+        } else {
+            let status = prepared.rpc.status().await?;
+            let offset = options.block_height_offset.unwrap_or(200);
+            status.sync_info.latest_block_height + offset
+        };
+
+        let PreparedTransaction {
+            receiver_id,
+            actions,
+            ..
+        } = prepared;
+
+        // Convert actions to NonDelegateAction
+        let delegate_actions: Vec<NonDelegateAction> = actions
+            .into_iter()
+            .filter_map(NonDelegateAction::from_action)
+            .collect();
+
+        // Create delegate action
+        let delegate_action = DelegateAction {
+            sender_id,
+            receiver_id,
+            actions: delegate_actions,
+            nonce,
+            max_block_height,
+            public_key: public_key.clone(),
+        };
+
+        // Sign the delegate action
+        let hash = delegate_action.get_hash();
+        let signature = key.sign(hash.as_bytes()).await?;
+
+        // Create signed delegate action
+        let signed_delegate_action = delegate_action.sign(signature);
+        let payload = signed_delegate_action.to_base64();
+
+        Ok(DelegateResult {
+            signed_delegate_action,
+            payload,
+        })
+    }
 }
 
 impl TransactionBuilder {
@@ -641,78 +852,9 @@ impl TransactionBuilder {
     /// # }
     /// ```
     pub async fn delegate(self, options: DelegateOptions) -> Result<DelegateResult, Error> {
-        let prepared = self.prepare("Delegate action requires at least one action")?;
-
-        // Verify no nested delegates (of any version)
-        for action in &prepared.actions {
-            if action.is_delegate() {
-                return Err(Error::InvalidTransaction(
-                    "Delegate actions cannot contain nested signed delegate actions".to_string(),
-                ));
-            }
-        }
-
-        let (sender_id, key) = prepared.claim_signer()?;
-        let public_key = key.public_key().clone();
-
-        // Get nonce
-        let nonce = if let Some(n) = options.nonce {
-            n
-        } else {
-            let access_key = prepared
-                .rpc
-                .view_access_key(
-                    &sender_id,
-                    &public_key,
-                    BlockReference::Finality(Finality::Optimistic),
-                )
-                .await?;
-            access_key.nonce + 1
-        };
-
-        // Get max block height
-        let max_block_height = if let Some(h) = options.max_block_height {
-            h
-        } else {
-            let status = prepared.rpc.status().await?;
-            let offset = options.block_height_offset.unwrap_or(200);
-            status.sync_info.latest_block_height + offset
-        };
-
-        let PreparedTransaction {
-            receiver_id,
-            actions,
-            ..
-        } = prepared;
-
-        // Convert actions to NonDelegateAction
-        let delegate_actions: Vec<NonDelegateAction> = actions
-            .into_iter()
-            .filter_map(NonDelegateAction::from_action)
-            .collect();
-
-        // Create delegate action
-        let delegate_action = DelegateAction {
-            sender_id,
-            receiver_id,
-            actions: delegate_actions,
-            nonce,
-            max_block_height,
-            public_key: public_key.clone(),
-        };
-
-        // Sign the delegate action
-        let hash = delegate_action.get_hash();
-        let signature = key.sign(hash.as_bytes()).await?;
-
-        // Create signed delegate action
-        let signed_delegate_action = delegate_action.sign(signature);
-        let payload = signed_delegate_action.to_base64();
-
-        Ok(DelegateResult {
-            signed_delegate_action,
-            payload,
-        })
+        self.prepare("Delegate action requires at least one action")?
+            .delegate(options)
+            .await
     }
 
     // ========================================================================
@@ -1111,37 +1253,9 @@ impl TransactionBuilder {
     /// # }
     /// ```
     pub async fn sign(self) -> Result<SignedTransaction, Error> {
-        let prepared = self.prepare("Transaction must have at least one action")?;
-        let (signer_id, key) = prepared.claim_signer()?;
-        let public_key = key.public_key().clone();
-
-        let span = trace::info_span!(
-            "sign_transaction",
-            sender = %signer_id,
-            receiver = %prepared.receiver_id,
-            action_count = prepared.actions.len(),
-            actions = %actions_summary(&prepared.actions),
-            method = trace::field::Empty,
-            gas = trace::field::Empty,
-            deposit = trace::field::Empty,
-        );
-
-        async move {
-            #[cfg(feature = "tracing")]
-            record_function_call_fields(&prepared.actions);
-
-            let (nonce, block_hash) = prepared
-                .online_context(&signer_id, &public_key, None)
-                .await?;
-            let tx = prepared.into_transaction(signer_id, public_key, nonce, block_hash);
-            let (signed_tx, _tx_hash) = PreparedTransaction::sign_transaction(tx, &key).await?;
-
-            trace::debug!(tx_hash = %_tx_hash, nonce, "Transaction signed");
-
-            Ok(signed_tx)
-        }
-        .instrument(span)
-        .await
+        self.prepare("Transaction must have at least one action")?
+            .sign()
+            .await
     }
 
     /// Sign the transaction offline without network access.
@@ -1530,106 +1644,10 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            let prepared = self
-                .builder
-                .prepare("Transaction must have at least one action")?;
-            // Claim one key for the entire logical send. Retries must keep
-            // nonce state and signatures paired with that same access key.
-            let (signer_id, key) = prepared.claim_signer()?;
-            let public_key = key.public_key().clone();
-
-            let span = trace::info_span!(
-                "send_transaction",
-                sender = %signer_id,
-                receiver = %prepared.receiver_id,
-                action_count = prepared.actions.len(),
-                actions = %actions_summary(&prepared.actions),
-                method = trace::field::Empty,
-                gas = trace::field::Empty,
-                deposit = trace::field::Empty,
-            );
-
-            async move {
-                #[cfg(feature = "tracing")]
-                record_function_call_fields(&prepared.actions);
-
-                // Retry loop for transient InvalidTxErrors (nonce conflicts, expired block hash)
-                let max_nonce_retries = prepared.max_nonce_retries;
-                let wait_until = W::STATUS;
-                let mut last_error: Option<Error> = None;
-                let mut last_ak_nonce: Option<u64> = None;
-
-                for attempt in 0..=max_nonce_retries {
-                    let (nonce, block_hash) = prepared
-                        .online_context(&signer_id, &public_key, last_ak_nonce.take())
-                        .await?;
-
-                    let tx = prepared.transaction(
-                        signer_id.clone(),
-                        public_key.clone(),
-                        nonce,
-                        block_hash,
-                    );
-                    let (signed_tx, _) = PreparedTransaction::sign_transaction(tx, &key).await?;
-
-                    // Send
-                    match prepared.rpc.send_tx(&signed_tx, wait_until).await {
-                        Ok(response) => {
-                            // W::convert handles the response appropriately:
-                            // - Executed levels: extract outcome, check for InvalidTxError
-                            // - Non-executed levels: build SendTxResponse (hash + sender,
-                            //   plus SendTxResponse::outcome). On this send_tx path the
-                            //   node returns no outcome at early levels, so it stays None;
-                            //   the tx_status path is where outcome can be Some.
-                            return Ok(W::convert(response, &signer_id)?);
-                        }
-                        Err(RpcError::InvalidTx(
-                            crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
-                        )) if attempt < max_nonce_retries => {
-                            trace::debug!(
-                                tx_nonce = tx_nonce,
-                                ak_nonce = ak_nonce,
-                                attempt = attempt + 1,
-                                "Invalid nonce, retrying"
-                            );
-                            // Store ak_nonce for next iteration to avoid refetching
-                            last_ak_nonce = Some(ak_nonce);
-                            last_error = Some(Error::InvalidTx(Box::new(
-                                crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
-                            )));
-                            continue;
-                        }
-                        Err(RpcError::InvalidTx(crate::types::InvalidTxError::Expired))
-                            if attempt < max_nonce_retries =>
-                        {
-                            trace::debug!(
-                                attempt = attempt + 1,
-                                "Transaction expired (stale block hash), retrying with fresh block hash"
-                            );
-                            // Expired tx was rejected before nonce consumption.
-                            // No cache invalidation needed: the next iteration calls
-                            // view_access_key which provides a fresh nonce, and
-                            // next() uses max(cached, chain) so stale cache is harmless.
-                            last_error = Some(Error::InvalidTx(Box::new(
-                                crate::types::InvalidTxError::Expired,
-                            )));
-                            continue;
-                        }
-                        Err(e) => {
-                            // DEBUG, not ERROR: the error is returned to the
-                            // caller (see `RpcClient::call`).
-                            trace::debug!(error = %e, "Transaction send failed");
-                            return Err(e.into());
-                        }
-                    }
-                }
-
-                Err(last_error.unwrap_or_else(|| {
-                    Error::InvalidTransaction("Unknown error during transaction send".to_string())
-                }))
-            }
-            .instrument(span)
-            .await
+            self.builder
+                .prepare("Transaction must have at least one action")?
+                .send::<W>()
+                .await
         })
     }
 }
