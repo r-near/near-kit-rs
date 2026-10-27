@@ -389,6 +389,27 @@ impl<C> fmt::Debug for Call<C> {
     }
 }
 
+/// The function call a [`Call`] would send, without its backend or receiver.
+///
+/// Keeps the method, arguments, gas and deposit, so a typed call can be
+/// batched with other actions in one transaction to the same contract, or
+/// embedded in another contract's promise. An argument encoding error
+/// carries over and surfaces when the `FunctionCall` becomes an action.
+///
+/// ```rust
+/// # use near_kit_primitives::Gas;
+/// # use near_kit_primitives::transaction::{Call, FunctionCall};
+/// # fn batch<C>(call: Call<C>) -> Result<(), near_kit_primitives::transaction::CodecError> {
+/// let action = FunctionCall::from(call.gas(Gas::from_tgas(50))).into_action()?;
+/// # Ok(())
+/// # }
+/// ```
+impl<C> From<Call<C>> for FunctionCall {
+    fn from(call: Call<C>) -> Self {
+        call.call
+    }
+}
+
 impl<C> IntoFuture for Call<C>
 where
     C: TxSender + 'static,
@@ -860,6 +881,25 @@ mod tests {
                 deposit: NearToken::from_yoctonear(1),
             })]
         );
+    }
+
+    #[test]
+    fn call_converts_into_its_function_call() {
+        let sender = Arc::new(MockSender::default());
+        let typed = call(sender.clone(), contract(), FunctionCall::new("add").args(5))
+            .gas(Gas::from_tgas(50))
+            .deposit(NearToken::from_yoctonear(1));
+        let action = FunctionCall::from(typed).into_action().unwrap();
+        assert_eq!(
+            action,
+            Action::FunctionCall(FunctionCallAction {
+                method_name: "add".to_owned(),
+                args: b"5".to_vec(),
+                gas: Gas::from_tgas(50),
+                deposit: NearToken::from_yoctonear(1),
+            })
+        );
+        assert!(sender.sent.lock().unwrap().is_empty());
     }
 
     #[test]

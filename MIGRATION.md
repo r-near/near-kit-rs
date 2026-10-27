@@ -322,13 +322,15 @@ dyn MySender`.
 | `FtAmount`, `FtAmount::parse`, `protocol::ParseAmountError` | Removed |
 | `.with_signer(s)` on a token client | `near.with_signer(s).contract::<FungibleToken>(id)` |
 | Token calls return a `CallBuilder` | They return a `Call<C>`: `.gas(..)`, `.deposit(..)`, `.await` |
+| `call_builder.into_action()` | `FunctionCall::from(call).into_action()?`, or pass `FunctionCall::from(call)` to `add_action` |
 | Token views return `Error` | They return `ContractError<C::ViewError>` (`?` still converts) |
 
 `FungibleToken::client(backend, id)` (the `Contract` trait) builds a client
 over any backend; clones of a client share its metadata cache. A
 non-numeric `U128`/`U64` string from a token contract is now
-`ContractError::Codec`, not an RPC error. To batch a token call with other
-actions, add the `FunctionCall` to `transaction(..)`.
+`ContractError::Codec`, not an RPC error. To batch a token or contract call
+with other actions, convert it: `FunctionCall::from(call)` keeps the method,
+arguments, gas and deposit, and `tx.add_action(..)` accepts it.
 
 ```rust
 // 0.20
