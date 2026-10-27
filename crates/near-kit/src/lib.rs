@@ -546,6 +546,8 @@ pub mod transaction;
 // The root is intentionally small; advanced APIs live in explicit facades.
 pub use error::Error;
 #[doc(inline)]
+pub use near_kit_primitives::account;
+#[doc(inline)]
 pub use near_kit_primitives::{AccountId, CryptoHash, Gas, NearToken};
 
 // Re-export contract types. The traits tie a contract to its `Near`-backed

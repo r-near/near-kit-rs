@@ -70,6 +70,31 @@ pub mod transaction;
 
 pub use types::{AccountId, CryptoHash, Gas, NearToken};
 
+/// An [`AccountId`] from a string literal, checked at compile time.
+///
+/// Expands to `AccountId::from(const { AccountIdRef::new_or_panic("...") })`,
+/// so an invalid literal is a build error rather than a runtime panic. Parse
+/// runtime strings with [`str::parse`] instead.
+///
+/// ```rust
+/// use near_kit_primitives::{AccountId, account};
+///
+/// let alice: AccountId = account!("alice.near");
+/// assert_eq!(alice.as_str(), "alice.near");
+/// ```
+///
+/// An invalid literal does not compile:
+///
+/// ```rust,compile_fail
+/// let _ = near_kit_primitives::account!("Not An Account");
+/// ```
+#[macro_export]
+macro_rules! account {
+    ($account_id:literal) => {
+        $crate::AccountId::from(const { $crate::protocol::AccountIdRef::new_or_panic($account_id) })
+    };
+}
+
 // The typed-contract macro and its marker/format attributes. Expansions name
 // this crate when the caller doesn't depend on near-kit.
 #[cfg(feature = "contracts")]
