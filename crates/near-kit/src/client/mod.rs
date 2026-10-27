@@ -11,14 +11,16 @@
 //!
 //! # Signers
 //!
-//! Signers are used for transaction signing. Several implementations are available:
+//! Signers are used for transaction signing. Two implementations are
+//! available, plus loaders that read a key once into an `InMemorySigner`:
 //!
-//! | Signer | Use Case |
+//! | Signer or loader | Use Case |
 //! |--------|----------|
-//! | [`InMemorySigner`](crate::signer::InMemorySigner) | Simple scripts with a private key in memory |
-//! | `FileSigner` | Load from `~/.near-credentials` (requires `file-signer`) |
-//! | [`EnvSigner`] | CI/CD via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` env vars |
+//! | [`InMemorySigner`](crate::signer::InMemorySigner) | One key in memory |
 //! | [`RotatingSigner`](crate::signer::RotatingSigner) | High-throughput with multiple keys (avoids nonce collisions) |
+//! | [`signer::from_env`](crate::signer::from_env) | CI/CD via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` env vars |
+//! | `signer::from_credentials` | `~/.near-credentials` (requires `file-signer`) |
+//! | `signer::from_keyring` | The system keyring (requires `keyring`) |
 //!
 //! # Query Builders
 //!
@@ -59,7 +61,7 @@ mod transaction;
 mod transport;
 
 #[cfg(feature = "keyring")]
-mod keyring_signer;
+mod keyring;
 
 #[cfg(feature = "rpc")]
 pub use near::{Near, NearBuilder};
@@ -67,9 +69,9 @@ pub use near::{Near, NearBuilder};
 pub use query::{AccountExistsQuery, BalanceQuery, TransactionStatusQuery};
 #[cfg(feature = "rpc")]
 pub use rpc::{RetryConfig, RpcClient};
-pub use signer::EnvSigner;
 #[cfg(feature = "file-signer")]
-pub use signer::FileSigner;
+pub use signer::{from_credentials, from_credentials_file};
+pub use signer::{from_env, from_env_vars};
 #[cfg(feature = "rpc")]
 pub use signing::SigningNear;
 #[cfg(feature = "rpc")]
@@ -91,4 +93,4 @@ pub use transport::ReqwestTransport;
 pub use transport::WasiHttpTransport;
 
 #[cfg(feature = "keyring")]
-pub use keyring_signer::KeyringSigner;
+pub use keyring::from_keyring;

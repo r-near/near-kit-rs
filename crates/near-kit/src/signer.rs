@@ -1,9 +1,9 @@
 //! Transaction and message signing APIs.
 //!
 //! Keys, [`Signer`], [`InMemorySigner`], and [`RotatingSigner`] are re-exported
-//! from `near-kit-primitives`. [`EnvSigner`], `FileSigner` (feature
-//! `file-signer`), and `KeyringSigner` (feature `keyring`) load keys from the
-//! environment and the OS.
+//! from `near-kit-primitives`. [`from_env`], `from_credentials` (feature
+//! `file-signer`), and `from_keyring` (feature `keyring`) load a key once
+//! from the environment or the OS into an [`InMemorySigner`].
 //!
 //! # Example
 //!
@@ -29,7 +29,7 @@
 //! # }
 //! ```
 
-pub use crate::client::EnvSigner;
+pub use crate::client::{from_env, from_env_vars};
 pub use crate::error::KeyStoreError;
 #[doc(inline)]
 pub use near_kit_primitives::signer::{
@@ -42,7 +42,7 @@ pub use near_kit_primitives::signer::{
     Signature,
 };
 
-#[cfg(feature = "file-signer")]
-pub use crate::client::FileSigner;
 #[cfg(feature = "keyring")]
-pub use crate::client::KeyringSigner;
+pub use crate::client::from_keyring;
+#[cfg(feature = "file-signer")]
+pub use crate::client::{from_credentials, from_credentials_file};

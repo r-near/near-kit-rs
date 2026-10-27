@@ -231,13 +231,15 @@ let count = Counter::client(Canned("42"), account!("counter.near")).get_count().
 
 ## Signers
 
-| Signer | When to use it |
+| Signer or loader | When to use it |
 |--------|----------------|
-| `signer::InMemorySigner` | A key you hold in memory |
-| `signer::EnvSigner` | CI/CD via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` |
+| `signer::InMemorySigner` | A key you hold in memory: `InMemorySigner::new(id, "ed25519:...".parse()?)` |
 | `signer::RotatingSigner` | Several keys for one account, to avoid nonce conflicts. `into_per_key_signers()` splits it for sequential send queues |
-| `signer::FileSigner` | Local development: reads `~/.near-credentials` (`file-signer` feature) |
-| `signer::KeyringSigner` | Desktop apps using the system keychain (`keyring` feature) |
+| `signer::from_env()` | CI/CD: an `InMemorySigner` from `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` |
+| `signer::from_credentials(network, id)` | Local development: reads `~/.near-credentials` (`file-signer` feature) |
+| `signer::from_keyring(network, id, &public_key)` | Desktop apps using the system keychain (`keyring` feature) |
+
+The loaders read the key once and return an `InMemorySigner`.
 
 ## Feature Flags
 

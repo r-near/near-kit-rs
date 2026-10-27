@@ -49,6 +49,11 @@ without the RPC client.
 | `signer::{DEFAULT_HD_PATH, DEFAULT_WORD_COUNT, DEFAULT_ML_DSA_65_WORD_COUNT}` | Removed; pass `None` for the default |
 | `RotatingSigner::from_key_strings(id, &keys)` | `RotatingSigner::new(id, keys.iter().map(|k| k.parse()).collect::<Result<_, _>>()?)` |
 | `RotatingSigner::key_count()` | `public_keys().len()` |
+| `signer::EnvSigner::new()` / `EnvSigner::from_env_vars(a, k)` | `signer::from_env()` / `signer::from_env_vars(a, k)`, returning an `InMemorySigner` |
+| `signer::FileSigner::new(network, id)` / `FileSigner::from_file(path, id)` | `signer::from_credentials(network, id)` / `signer::from_credentials_file(path, id)` |
+| `signer::KeyringSigner::new(network, id, "ed25519:...")` | `signer::from_keyring(network, id, &public_key)` (a parsed `PublicKey`) |
+| `.into_inner()` on those signers | Not needed: the loaders return the `InMemorySigner` |
+| `signer.public_key()` on an `InMemorySigner` (inherent, `&PublicKey`) | The `Signer` trait method (`PublicKey`); import `near_kit::signer::Signer` |
 
 `SigningNear` has no `Deref` to `Near`; read through `signing.near()`. Typed
 contract views and token views work on a `SigningNear` directly.
@@ -232,8 +237,8 @@ let account = near
 | `protocol::{TryIntoAccountId, IntoNearToken, IntoGas, TryIntoGlobalContractId, ParseGasError}` | Removed |
 | `Error::ParseAmount`, `Error::ParseGas`, `ParseAmountError::AmbiguousAmount` | Removed. So is the rest of `ParseAmountError`, with `FtAmount` (see tokens). |
 
-This also covers the signer constructors (`InMemorySigner`, `RotatingSigner`,
-`FileSigner`, `KeyringSigner`), `FunctionCall::gas`/`deposit`, the FT/NFT
+This also covers the signer constructors and loaders (`InMemorySigner`,
+`RotatingSigner`, `signer::from_credentials*`, `signer::from_keyring`), `FunctionCall::gas`/`deposit`, the FT/NFT
 helpers, and `near-kit-sandbox`.
 
 ## Typed contracts

@@ -398,11 +398,6 @@ impl InMemorySigner {
             public_key,
         })
     }
-
-    /// Get the public key.
-    pub fn public_key(&self) -> &PublicKey {
-        &self.public_key
-    }
 }
 
 impl std::fmt::Debug for InMemorySigner {
@@ -661,7 +656,7 @@ mod tests {
         let signature = block_on(key.sign(message)).unwrap();
 
         // Verify the key matches
-        assert_eq!(key.public_key(), signer.public_key());
+        assert_eq!(key.public_key(), &signer.public_key());
         assert!(!signature.as_bytes().is_empty());
     }
 
@@ -797,7 +792,7 @@ mod tests {
         let signer = InMemorySigner::new(account!("alice.testnet"), secret);
 
         assert_eq!(signer.account_id().as_str(), "alice.testnet");
-        assert_eq!(signer.public_key(), &expected_pk);
+        assert_eq!(signer.public_key(), expected_pk);
     }
 
     #[test]
@@ -810,7 +805,8 @@ mod tests {
         assert!(account_id.chars().all(|c| c.is_ascii_hexdigit()));
 
         // The account ID should be the hex-encoded public key bytes
-        let pk_bytes = signer.public_key().as_ed25519_bytes().unwrap();
+        let public_key = signer.public_key();
+        let pk_bytes = public_key.as_ed25519_bytes().unwrap();
         assert_eq!(account_id, hex::encode(pk_bytes));
     }
 
@@ -823,7 +819,7 @@ mod tests {
         // Account ID matches hex-encoded public key
         let pk_bytes = expected_pk.as_ed25519_bytes().unwrap();
         assert_eq!(signer.account_id().as_str(), hex::encode(pk_bytes));
-        assert_eq!(signer.public_key(), &expected_pk);
+        assert_eq!(signer.public_key(), expected_pk);
     }
 
     #[test]
@@ -932,7 +928,7 @@ mod tests {
         assert_eq!(per_key.len(), 2);
         for (ims, expected_pk) in per_key.iter().zip(&expected_public_keys) {
             assert_eq!(ims.account_id().as_str(), "bot.testnet");
-            assert_eq!(ims.public_key(), expected_pk);
+            assert_eq!(&ims.public_key(), expected_pk);
         }
     }
 

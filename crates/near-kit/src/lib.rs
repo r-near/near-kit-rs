@@ -244,13 +244,13 @@
 //!
 //! ## Signers
 //!
-//! | Signer | Use case |
+//! | Signer or loader | Use case |
 //! |--------|----------|
 //! | [`signer::InMemorySigner`] | A key you hold in memory |
-//! | [`signer::EnvSigner`] | `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` (CI) |
 //! | [`signer::RotatingSigner`] | Several keys for one account, to avoid nonce collisions |
-//! | `signer::FileSigner` | `~/.near-credentials` (near-cli compatible; `file-signer` feature) |
-//! | `signer::KeyringSigner` | The system keyring (`keyring` feature) |
+//! | [`signer::from_env()`] | An `InMemorySigner` from `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` (CI) |
+//! | `signer::from_credentials(network, id)` | One from `~/.near-credentials` (near-cli compatible; `file-signer` feature) |
+//! | `signer::from_keyring(network, id, &public_key)` | One from the system keyring (`keyring` feature) |
 //!
 //! Signing clients made from one `Near` share its connection, so one client
 //! per account is cheap. `SigningNear::from_env()` reads the network and the
@@ -291,7 +291,7 @@
 //! `near-kit` compiles for `wasm32-unknown-unknown` (Dioxus, Leptos, Yew, etc.) with
 //! `default-features = false`. The `keyring` and `file-signer` features use OS APIs
 //! unavailable in the browser and should stay off; use [`signer::InMemorySigner`] or
-//! [`signer::EnvSigner`] instead. Add the opt-in `tracing` feature if you want spans
+//! [`signer::from_env()`] instead. Add the opt-in `tracing` feature if you want spans
 //! (the `tracing` crate itself is wasm-compatible). Add `rpc` to keep the `Near`
 //! client, which speaks HTTP through the browser's `fetch` on this target.
 //!
@@ -388,7 +388,7 @@
 //! default. With
 //! `default-features = false` you keep the offline core:
 //! all the types, the signers ([`signer::InMemorySigner`],
-//! [`signer::EnvSigner`], ...), transaction construction and signing via
+//! [`signer::RotatingSigner`], [`signer::from_env()`]), transaction construction and signing via
 //! [`protocol::Transaction`] (`new` → `sign` → `to_bytes`), standalone call construction
 //! via [`transaction::FunctionCall`], NEP-413
 //! [`standards::nep413::verify_signature`], and the [`Viewer`] / [`TxSender`]
@@ -413,8 +413,8 @@
 //! | `rpc` | Yes | The RPC layer: `Near`, `SigningNear`, queries, transactions, tokens, and the HTTP transport (reqwest, except on WASI). Disable for offline signing/verification |
 //! | `contracts` | No | Typed contract interfaces and the `#[near_kit::contract]` macro. Works without `rpc` (offline `FunctionCall` constructors and a client over any `Viewer`/`TxSender`); `Near::contract` needs `rpc` |
 //! | `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2` (implies `rpc`; no-op on non-WASI targets; unsupported on earlier WASI targets). On WASI Preview 2 hosts without `wasi:http`, inject a transport via `NearBuilder::transport` |
-//! | `keyring` | No | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
-//! | `file-signer` | No | `signer::FileSigner` for loading keys from `~/.near-credentials` |
+//! | `keyring` | No | `signer::from_keyring`: load a key from the system keyring (macOS Keychain, Windows Credential Manager, etc.) |
+//! | `file-signer` | No | `signer::from_credentials`/`from_credentials_file`: load a key from `~/.near-credentials` |
 //! | `tracing` | No | [`tracing`](https://docs.rs/tracing) spans and events for RPC calls and transactions (see below) |
 //! | `mnemonic` | No | BIP-39 seed phrases and SLIP-10 hierarchical key derivation |
 //! | `js` | No | JS-host entropy backend (`getrandom`'s `wasm_js`) for `wasm32-unknown-unknown` |

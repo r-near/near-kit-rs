@@ -1,7 +1,8 @@
 //! Keys, signatures, and the [`Signer`] abstraction.
 //!
-//! Network- and OS-backed signers (`EnvSigner`, `FileSigner`, `KeyringSigner`)
-//! live in `near-kit`; everything here does local cryptography only.
+//! Loading keys from the environment, a credentials file or the OS keyring
+//! (`near_kit::signer::{from_env, from_credentials, from_keyring}`) lives in
+//! `near-kit`; everything here does local cryptography only.
 
 pub use crate::error::{ParseKeyError, SignerError};
 pub use crate::types::{InMemorySigner, RotatingSigner, Signer, SigningBackend, SigningKey};

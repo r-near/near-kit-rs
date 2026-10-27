@@ -9,8 +9,8 @@ use crate::error::{Error, RpcError};
 use crate::platform::MaybeSend;
 use crate::types::nep413::{SignMessageParams, SignedMessage};
 use crate::types::{
-    AccountId, Action, BlockReference, Final, InMemorySigner, SignedTransaction, Signer,
-    ViewFunctionResult, WaitLevel,
+    AccountId, Action, BlockReference, Final, SignedTransaction, Signer, ViewFunctionResult,
+    WaitLevel,
 };
 
 use super::near::Near;
@@ -99,6 +99,7 @@ impl SigningNear {
     /// - `NEAR_MAX_NONCE_RETRIES` (optional): number of retries on
     ///   `InvalidNonce` errors. `0` means no retries. Defaults to `3`.
     ///
+    /// The signer comes from [`signer::from_env`](crate::signer::from_env).
     /// For a read-only client, build a [`Near`] instead.
     ///
     /// # Example
@@ -133,29 +134,7 @@ impl SigningNear {
     pub fn from_env() -> Result<SigningNear, Error> {
         let network = std::env::var("NEAR_NETWORK").ok();
         let mut chain_id_override = std::env::var("NEAR_CHAIN_ID").ok();
-        let account_id = std::env::var("NEAR_ACCOUNT_ID").ok();
-        let private_key = std::env::var("NEAR_PRIVATE_KEY").ok();
-
-        let signer = match (account_id, private_key) {
-            (Some(account), Some(key)) => {
-                InMemorySigner::new(account.parse::<AccountId>()?, key.parse()?)
-            }
-            (Some(_), None) => {
-                return Err(Error::Config(
-                    "NEAR_ACCOUNT_ID is set but NEAR_PRIVATE_KEY is missing".into(),
-                ));
-            }
-            (None, Some(_)) => {
-                return Err(Error::Config(
-                    "NEAR_PRIVATE_KEY is set but NEAR_ACCOUNT_ID is missing".into(),
-                ));
-            }
-            (None, None) => {
-                return Err(Error::Config(
-                    "NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY must be set".into(),
-                ));
-            }
-        };
+        let signer = crate::signer::from_env()?;
 
         let mut builder = match network.as_deref() {
             Some("mainnet") => Near::mainnet(),
@@ -470,6 +449,7 @@ impl<W: WaitLevel> crate::TxSender for SigningNear<W> {
 mod tests {
     use super::*;
     use crate::account;
+    use crate::signer::InMemorySigner;
     use crate::transaction::{ExecutedOptimistic, Included};
 
     const ALICE_KEY: &str = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
