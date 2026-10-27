@@ -15,6 +15,12 @@ updates:
       patch-and-minor:
         applies-to: version-updates
         update-types: ["minor", "patch"]
+    ignore:
+      # The secp256k1 dev-dependency mirrors the version nearcore's near-crypto
+      # uses, so the compat test checks signatures exactly as the node does.
+      # Bump it only when near-crypto does.
+      - dependency-name: "secp256k1"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: github-actions
     directory: "/"
