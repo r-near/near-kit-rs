@@ -1,7 +1,7 @@
 use std::fmt;
 
-use crate::error::FunctionCallBuildError;
-use crate::types::{Action, FunctionCallAction, Gas, IntoGas, IntoNearToken, NearToken};
+use crate::error::CodecError;
+use crate::types::{Action, FunctionCallAction, Gas, NearToken};
 
 /// A standalone function call configuration, decoupled from any transaction.
 ///
@@ -25,14 +25,14 @@ use crate::types::{Action, FunctionCallAction, Gas, IntoGas, IntoNearToken, Near
 ///     .args(serde_json::json!({"owner": "alice.testnet"}))
 ///     .gas(Gas::from_tgas(50))
 ///     .into_action()?;
-/// # Ok::<(), near_kit_primitives::transaction::FunctionCallBuildError>(())
+/// # Ok::<(), near_kit_primitives::transaction::CodecError>(())
 /// ```
 pub struct FunctionCall {
     method: String,
     args: Vec<u8>,
     gas: Gas,
     deposit: NearToken,
-    construction_error: Option<FunctionCallBuildError>,
+    construction_error: Option<CodecError>,
 }
 
 impl fmt::Debug for FunctionCall {
@@ -59,7 +59,7 @@ impl FunctionCall {
         }
     }
 
-    fn defer_error(&mut self, error: FunctionCallBuildError) {
+    fn defer_error(&mut self, error: CodecError) {
         if self.construction_error.is_none() {
             self.construction_error = Some(error);
         }
@@ -84,36 +84,24 @@ impl FunctionCall {
     pub fn args_borsh(mut self, args: impl borsh::BorshSerialize) -> Self {
         match borsh::to_vec(&args) {
             Ok(args) => self.args = args,
-            Err(error) => self.defer_error(FunctionCallBuildError::Borsh(error)),
+            Err(error) => self.defer_error(CodecError::Borsh(error)),
         }
         self
     }
 
-    /// Set gas limit.
+    /// Set the gas limit.
     ///
-    /// Defaults to 30 TGas if not set.
-    ///
-    /// Parsing failures are retained and returned when the call is converted,
-    /// sent, built, signed, or delegated.
-    pub fn gas(mut self, gas: impl IntoGas) -> Self {
-        match gas.into_gas() {
-            Ok(gas) => self.gas = gas,
-            Err(error) => self.defer_error(error.into()),
-        }
+    /// Defaults to 30 Tgas if not set.
+    pub fn gas(mut self, gas: Gas) -> Self {
+        self.gas = gas;
         self
     }
 
-    /// Set attached deposit.
+    /// Set the attached deposit.
     ///
     /// Defaults to zero if not set.
-    ///
-    /// Parsing failures are retained and returned when the call is converted,
-    /// sent, built, signed, or delegated.
-    pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
-        match amount.into_near_token() {
-            Ok(deposit) => self.deposit = deposit,
-            Err(error) => self.defer_error(error.into()),
-        }
+    pub fn deposit(mut self, deposit: NearToken) -> Self {
+        self.deposit = deposit;
         self
     }
 
@@ -121,15 +109,15 @@ impl FunctionCall {
     ///
     /// # Errors
     ///
-    /// Returns the first serialization, gas, or deposit parsing error captured
-    /// while building the call.
-    pub fn into_action(self) -> Result<Action, FunctionCallBuildError> {
+    /// Returns the first argument serialization error captured while
+    /// building the call.
+    pub fn into_action(self) -> Result<Action, CodecError> {
         self.try_into()
     }
 }
 
 impl TryFrom<FunctionCall> for FunctionCallAction {
-    type Error = FunctionCallBuildError;
+    type Error = CodecError;
 
     fn try_from(call: FunctionCall) -> Result<Self, Self::Error> {
         if let Some(error) = call.construction_error {
@@ -145,7 +133,7 @@ impl TryFrom<FunctionCall> for FunctionCallAction {
 }
 
 impl TryFrom<FunctionCall> for Action {
-    type Error = FunctionCallBuildError;
+    type Error = CodecError;
 
     fn try_from(call: FunctionCall) -> Result<Self, Self::Error> {
         FunctionCallAction::try_from(call).map(Action::FunctionCall)
@@ -221,31 +209,13 @@ mod tests {
             .args(FailingJson)
             .into_action()
             .unwrap_err();
-        assert!(matches!(json_error, FunctionCallBuildError::Json(_)));
+        assert!(matches!(json_error, CodecError::Json(_)));
 
         let borsh_error = FunctionCall::new("method")
             .args_borsh(FailingBorsh)
             .into_action()
             .unwrap_err();
-        assert!(matches!(borsh_error, FunctionCallBuildError::Borsh(_)));
-    }
-
-    #[test]
-    fn function_call_invalid_gas_and_deposit_are_fallible() {
-        let gas_error = FunctionCall::new("method")
-            .gas("definitely not gas")
-            .into_action()
-            .unwrap_err();
-        assert!(matches!(gas_error, FunctionCallBuildError::ParseGas(_)));
-
-        let deposit_error = FunctionCall::new("method")
-            .deposit("definitely not NEAR")
-            .into_action()
-            .unwrap_err();
-        assert!(matches!(
-            deposit_error,
-            FunctionCallBuildError::ParseAmount(_)
-        ));
+        assert!(matches!(borsh_error, CodecError::Borsh(_)));
     }
 
     #[test]
@@ -261,19 +231,18 @@ mod tests {
         assert_eq!(action.deposit, NearToken::from_yoctonear(1));
 
         let error =
-            FunctionCallAction::try_from(FunctionCall::new("init").gas("nope")).unwrap_err();
-        assert!(matches!(error, FunctionCallBuildError::ParseGas(_)));
+            FunctionCallAction::try_from(FunctionCall::new("init").args(FailingJson)).unwrap_err();
+        assert!(matches!(error, CodecError::Json(_)));
     }
 
     #[test]
     fn function_call_preserves_the_first_construction_error() {
         let error = FunctionCall::new("method")
             .args(FailingJson)
-            .gas("definitely not gas")
-            .deposit("definitely not NEAR")
+            .args_borsh(FailingBorsh)
             .into_action()
             .unwrap_err();
 
-        assert!(matches!(error, FunctionCallBuildError::Json(_)));
+        assert!(matches!(error, CodecError::Json(_)));
     }
 }

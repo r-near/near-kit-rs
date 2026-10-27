@@ -57,7 +57,7 @@
 //!
 //!     // Call a contract function
 //!     near.call("counter.testnet", "increment")
-//!         .gas("30 Tgas")
+//!         .gas(Gas::from_tgas(30))
 //!         .await?;
 //!
 //!     Ok(())
@@ -118,20 +118,6 @@
 //! let gas: Gas = "30 Tgas".parse().unwrap();
 //! ```
 //!
-//! Many builder methods also accept strings directly:
-//!
-#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! # use near_kit::*;
-//! # async fn example(near: &Near) -> Result<(), Error> {
-//! near.call("contract.testnet", "method")
-//!     .gas("100 Tgas")
-//!     .deposit("0.1 NEAR")
-//!     .await?;
-//! # Ok(())
-//! # }
-//! ```
-//!
 //! ## Query Builders
 //!
 //! Read operations return query builders that can be customized before awaiting:
@@ -181,8 +167,8 @@
 //! // Function call with arguments, gas, and deposit
 //! near.call("nft.testnet", "nft_mint")
 //!     .args(serde_json::json!({ "token_id": "1", "receiver_id": "alice.testnet" }))
-//!     .gas("100 Tgas")
-//!     .deposit("0.1 NEAR")
+//!     .gas(Gas::from_tgas(100))
+//!     .deposit(NearToken::from_millinear(100))
 //!     .await?;
 //!
 //! // Wait for different execution levels

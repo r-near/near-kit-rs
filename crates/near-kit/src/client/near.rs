@@ -708,8 +708,8 @@ impl Near {
     /// // Call with args, gas, and deposit
     /// near.call("nft.testnet", "nft_mint")
     ///     .args(serde_json::json!({ "token_id": "1" }))
-    ///     .gas("100 Tgas")
-    ///     .deposit("0.1 NEAR")
+    ///     .gas(Gas::from_tgas(100))
+    ///     .deposit(NearToken::from_millinear(100))
     ///     .await?;
     /// # Ok(())
     /// # }

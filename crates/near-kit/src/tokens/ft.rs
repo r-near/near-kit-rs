@@ -8,7 +8,7 @@ use tokio::sync::OnceCell;
 
 use crate::client::{CallBuilder, Near, Signer, TransactionBuilder};
 use crate::error::Error;
-use crate::types::{AccountId, Finality, Gas, IntoNearToken, NearToken, TryIntoAccountId};
+use crate::types::{AccountId, Finality, Gas, NearToken, TryIntoAccountId};
 
 use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 
@@ -266,7 +266,7 @@ impl FungibleToken {
     pub fn storage_deposit(
         &self,
         account_id: impl TryIntoAccountId,
-        deposit: impl IntoNearToken,
+        deposit: NearToken,
     ) -> CallBuilder {
         let (account_id, validation) = validate_account_id(account_id);
 
@@ -517,16 +517,6 @@ mod tests {
         for call in calls {
             assert!(matches!(call.await, Err(Error::ParseAccountId(_))));
         }
-    }
-
-    #[tokio::test]
-    async fn storage_deposit_defers_invalid_amounts() {
-        let error = token_without_signer()
-            .storage_deposit("alice.near", "not an amount")
-            .await
-            .unwrap_err();
-
-        assert!(matches!(error, Error::ParseAmount(_)));
     }
 
     #[tokio::test]

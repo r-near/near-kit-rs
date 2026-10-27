@@ -67,7 +67,7 @@ pub(crate) use near_kit_primitives::protocol::{
 };
 pub(crate) use near_kit_primitives::rpc::OutcomeError;
 pub(crate) use near_kit_primitives::signer::{ParseKeyError, SignerError};
-pub(crate) use near_kit_primitives::transaction::FunctionCallBuildError;
+pub(crate) use near_kit_primitives::transaction::CodecError;
 
 /// Error during keystore operations.
 #[derive(Debug, Error)]
@@ -773,13 +773,11 @@ impl From<SignerError> for Error {
     }
 }
 
-impl From<FunctionCallBuildError> for Error {
-    fn from(err: FunctionCallBuildError) -> Self {
+impl From<CodecError> for Error {
+    fn from(err: CodecError) -> Self {
         match err {
-            FunctionCallBuildError::Json(e) => Error::Json(e),
-            FunctionCallBuildError::Borsh(e) => Error::Borsh(e.to_string()),
-            FunctionCallBuildError::ParseGas(e) => Error::ParseGas(e),
-            FunctionCallBuildError::ParseAmount(e) => Error::ParseAmount(e),
+            CodecError::Json(e) => Error::Json(e),
+            CodecError::Borsh(e) => Error::Borsh(e.to_string()),
             other => Error::InvalidTransaction(other.to_string()),
         }
     }
@@ -1550,22 +1548,25 @@ mod tests {
     }
 
     #[test]
-    fn test_error_from_function_call_build_error() {
+    fn test_error_from_codec_error() {
         use crate::transaction::FunctionCall;
 
-        let err: Error = FunctionCall::new("m")
-            .gas("nope")
-            .into_action()
-            .unwrap_err()
-            .into();
-        assert!(matches!(err, Error::ParseGas(_)));
+        struct FailingJson;
+        impl serde::Serialize for FailingJson {
+            fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+                Err(serde::ser::Error::custom("deliberate"))
+            }
+        }
 
         let err: Error = FunctionCall::new("m")
-            .deposit("nope")
+            .args(FailingJson)
             .into_action()
             .unwrap_err()
             .into();
-        assert!(matches!(err, Error::ParseAmount(_)));
+        assert!(matches!(err, Error::Json(_)));
+
+        let err: Error = CodecError::Borsh(std::io::Error::other("bad")).into();
+        assert!(matches!(&err, Error::Borsh(m) if m == "bad"), "{err:?}");
     }
 
     #[test]

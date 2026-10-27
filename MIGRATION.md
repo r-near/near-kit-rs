@@ -9,7 +9,7 @@ small error type of its own instead:
 |---|---|
 | `SignedTransaction(V1)::from_bytes` / `from_base64` | `DecodeTransactionError` |
 | `FinalExecutionOutcome::result` / `json` | `OutcomeError` |
-| `FunctionCall::into_action`, `TryFrom<FunctionCall>` | `FunctionCallBuildError` |
+| `FunctionCall::into_action`, `TryFrom<FunctionCall>` | `CodecError` |
 | `InMemorySigner::new` / `from_secret_key` / `from_seed_phrase*`, `RotatingSigner::new` / `from_signers` / `from_key_strings` | `SignerError` |
 
 Each converts into `near_kit::Error` with `?` and lands in the same

@@ -187,29 +187,22 @@ pub enum SignerError {
     },
 }
 
-/// Error building a [`FunctionCall`](crate::transaction::FunctionCall).
+/// Error encoding contract arguments or decoding a contract's return value.
 ///
-/// The builder keeps the first failure and returns it when the call is
-/// converted into an action. Converts into `near_kit::Error` with `?`,
-/// keeping the variant it had before this type existed.
+/// [`FunctionCall`](crate::transaction::FunctionCall) keeps the first
+/// argument-encoding failure and returns it when the call is converted into
+/// an action. Converts into `near_kit::Error` with `?`
+/// (`Error::Json` / `Error::Borsh`).
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum FunctionCallBuildError {
-    /// The JSON arguments failed to serialize.
+pub enum CodecError {
+    /// JSON serialization or deserialization failed.
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
-    /// The Borsh arguments failed to serialize.
+    /// Borsh serialization or deserialization failed.
     #[error("Borsh error: {0}")]
     Borsh(#[source] std::io::Error),
-
-    /// The gas amount did not parse.
-    #[error(transparent)]
-    ParseGas(#[from] ParseGasError),
-
-    /// The deposit did not parse.
-    #[error(transparent)]
-    ParseAmount(#[from] ParseAmountError),
 }
 
 /// Error decoding a [`SignedTransaction`](crate::protocol::SignedTransaction)

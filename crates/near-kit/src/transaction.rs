@@ -33,7 +33,7 @@
 //! ```
 
 #[doc(inline)]
-pub use near_kit_primitives::transaction::{FunctionCall, FunctionCallBuildError};
+pub use near_kit_primitives::transaction::{CodecError, FunctionCall};
 
 #[doc(inline)]
 pub use near_kit_primitives::transaction::{

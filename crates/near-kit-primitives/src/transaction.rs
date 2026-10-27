@@ -5,7 +5,7 @@
 //! [`Transaction`](crate::protocol::Transaction) directly.
 
 mod function_call;
-pub use crate::error::FunctionCallBuildError;
+pub use crate::error::CodecError;
 pub use function_call::FunctionCall;
 
 pub use crate::types::{

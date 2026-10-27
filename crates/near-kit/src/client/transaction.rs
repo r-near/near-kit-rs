@@ -41,7 +41,7 @@ use crate::error::{Error, RpcError};
 use crate::transaction::FunctionCall;
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, FinalExecutionOutcome, Finality,
-    IntoGas, IntoNearToken, NearToken, NonDelegateAction, PublicKey, PublishMode, RawStateInit,
+    Gas, IntoNearToken, NearToken, NonDelegateAction, PublicKey, PublishMode, RawStateInit,
     SignedDelegateAction, SignedTransaction, StateInit, Transaction, TryIntoAccountId,
     TryIntoGlobalContractId, UseGlobalContractAction, WaitLevel,
 };
@@ -1265,10 +1265,7 @@ impl CallBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    ///
-    /// Parsing failures are retained and returned when the transaction is sent,
-    /// built, signed, delegated, or converted into an action.
-    pub fn gas(mut self, gas: impl IntoGas) -> Self {
+    pub fn gas(mut self, gas: Gas) -> Self {
         self.call = self.call.gas(gas);
         self
     }
@@ -1288,11 +1285,8 @@ impl CallBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    ///
-    /// Parsing failures are retained and returned when the transaction is sent,
-    /// built, signed, delegated, or converted into an action.
-    pub fn deposit(mut self, amount: impl IntoNearToken) -> Self {
-        self.call = self.call.deposit(amount);
+    pub fn deposit(mut self, deposit: NearToken) -> Self {
+        self.call = self.call.deposit(deposit);
         self
     }
 
@@ -1829,15 +1823,6 @@ mod tests {
             .unwrap_err();
         assert!(matches!(stake_error, Error::ParseAmount(_)));
 
-        let call_error = test_builder()
-            .call("method")
-            .deposit("definitely not NEAR")
-            .gas("definitely not gas")
-            .send()
-            .await
-            .unwrap_err();
-        assert!(matches!(call_error, Error::ParseAmount(_)));
-
         let state_init = <StateInit as crate::types::StateInitExt>::by_hash(
             CryptoHash::ZERO,
             Default::default(),
@@ -2060,20 +2045,6 @@ mod tests {
             }
             other => panic!("expected FunctionCall, got {:?}", other),
         }
-    }
-
-    #[test]
-    fn call_builder_into_call_defers_call_errors() {
-        let call = test_builder()
-            .call("method")
-            .gas("definitely not gas")
-            .into_call()
-            .unwrap();
-
-        assert!(matches!(
-            call.into_action(),
-            Err(crate::error::FunctionCallBuildError::ParseGas(_))
-        ));
     }
 
     #[test]
