@@ -549,6 +549,8 @@ pub use error::Error;
 pub use near_kit_primitives::account;
 #[doc(inline)]
 pub use near_kit_primitives::{AccountId, CryptoHash, Gas, NearToken};
+#[doc(inline)]
+pub use near_kit_primitives::{TxSender, Viewer};
 
 // Re-export contract types. The traits tie a contract to its `Near`-backed
 // client, so they need the RPC layer; the macro itself does not.

@@ -1,7 +1,10 @@
-//! Fluent transaction construction and typed execution wait levels.
+//! Fluent transaction construction, contract calls and views, and typed
+//! execution wait levels.
 //!
-//! The standalone items ([`FunctionCall`] and the wait levels) are re-exported
-//! from `near-kit-primitives`; the builders need the `rpc` feature.
+//! The standalone items ([`FunctionCall`], the awaitable [`View`] and
+//! [`Call`] returned by `#[contract]` clients, and the wait levels) are
+//! re-exported from `near-kit-primitives`; the builders need the `rpc`
+//! feature.
 //!
 //! # Wait levels
 //!
@@ -33,7 +36,7 @@
 //! ```
 
 #[doc(inline)]
-pub use near_kit_primitives::transaction::{CodecError, FunctionCall};
+pub use near_kit_primitives::transaction::{Call, CodecError, ContractError, FunctionCall, View};
 
 #[doc(inline)]
 pub use near_kit_primitives::transaction::{

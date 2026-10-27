@@ -67,7 +67,7 @@ pub(crate) use near_kit_primitives::protocol::{
 };
 pub(crate) use near_kit_primitives::rpc::OutcomeError;
 pub(crate) use near_kit_primitives::signer::{ParseKeyError, SignerError};
-pub(crate) use near_kit_primitives::transaction::CodecError;
+pub(crate) use near_kit_primitives::transaction::{CodecError, ContractError};
 
 /// Error during keystore operations.
 #[derive(Debug, Error)]
@@ -778,6 +778,19 @@ impl From<CodecError> for Error {
         match err {
             CodecError::Json(e) => Error::Json(e),
             CodecError::Borsh(e) => Error::Borsh(e.to_string()),
+            other => Error::InvalidTransaction(other.to_string()),
+        }
+    }
+}
+
+/// Lets `?` turn a contract client's error into an [`Error`]: encoding and
+/// decoding failures map like [`CodecError`], backend errors through their own
+/// `Into<Error>` (`RpcError` becomes [`Error::Rpc`]).
+impl<E: Into<Error> + std::fmt::Display> From<ContractError<E>> for Error {
+    fn from(err: ContractError<E>) -> Self {
+        match err {
+            ContractError::Codec(e) => e.into(),
+            ContractError::Backend(e) => e.into(),
             other => Error::InvalidTransaction(other.to_string()),
         }
     }
@@ -1545,6 +1558,25 @@ mod tests {
             matches!(&err, Error::InvalidTransaction(m) if m.starts_with("RPC returned no execution outcome for transaction ") && m.ends_with(" at wait level Final")),
             "{err:?}"
         );
+    }
+
+    #[test]
+    fn test_error_from_contract_error() {
+        let err: Error =
+            ContractError::<RpcError>::Codec(CodecError::Borsh(std::io::Error::other("bad")))
+                .into();
+        assert!(matches!(&err, Error::Borsh(m) if m == "bad"), "{err:?}");
+
+        let err: Error = ContractError::Backend(RpcError::ContractPanic {
+            message: "boom".to_string(),
+            block_height: None,
+            block_hash: None,
+        })
+        .into();
+        assert!(err.as_rpc().is_some_and(RpcError::is_contract_panic));
+
+        let err: Error = ContractError::Backend(Error::NoSigner).into();
+        assert!(matches!(err, Error::NoSigner));
     }
 
     #[test]
