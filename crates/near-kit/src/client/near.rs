@@ -389,29 +389,24 @@ impl Near {
     /// a [`View`](crate::transaction::View) and `#[call]` methods a
     /// [`Call`](crate::transaction::Call); both are `.await`ed directly.
     ///
+    /// A `Near`-backed client can only view; for `#[call]` methods, use
+    /// [`SigningNear::contract`](crate::SigningNear::contract).
+    ///
     /// # Example
     ///
-    /// ```ignore
+    #[cfg_attr(feature = "contracts", doc = "```rust,no_run")]
+    #[cfg_attr(not(feature = "contracts"), doc = "```rust,ignore")]
     /// use near_kit::*;
-    /// use serde::Serialize;
     ///
     /// #[near_kit::contract]
     /// pub trait Counter {
     ///     fn get_count(&self) -> u64;
-    ///
-    ///     #[call]
-    ///     fn add(&mut self, args: AddArgs);
-    /// }
-    ///
-    /// #[derive(Serialize)]
-    /// pub struct AddArgs {
-    ///     pub value: u64,
     /// }
     ///
     /// async fn example(near: &Near) -> Result<(), near_kit::Error> {
     ///     let counter = near.contract::<Counter>(account!("counter.testnet"));
     ///     let count = counter.get_count().await?;
-    ///     counter.add(AddArgs { value: 5 }).await?;
+    ///     let earlier = counter.get_count().at(180_000_000).await?;
     ///     Ok(())
     /// }
     /// ```

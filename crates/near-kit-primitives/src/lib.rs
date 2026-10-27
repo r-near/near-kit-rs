@@ -10,6 +10,13 @@
 //! crate directly when you only need the types: wasm contracts, signing services,
 //! indexers, or any target without a network stack.
 //!
+//! Chain work here is plain values ([`protocol::Action`],
+//! [`transaction::FunctionCall`], [`rpc::BlockReference`]) plus two verbs:
+//! [`Viewer`] runs a view function at a block and [`TxSender`] sends a receiver
+//! and its actions. This crate defines the verbs but implements neither;
+//! `near-kit`'s `Near` and `SigningNear` do, and so can your own backend. With
+//! the `contracts` feature, `#[contract]` clients run on any of them.
+//!
 //! | Module | Contents |
 //! |--------|----------|
 //! | crate root | [`AccountId`], [`NearToken`], [`Gas`], [`CryptoHash`], the chain verbs [`Viewer`] and [`TxSender`], [`account!`], the platform bounds [`MaybeSend`] / [`MaybeSync`] |

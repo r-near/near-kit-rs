@@ -21,55 +21,43 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
-//! use near_kit::{account, NearToken, protocol::Action, signer::SecretKey};
+//! ```rust,no_run
+//! use near_kit::protocol::Action;
+//! use near_kit::signer::{InMemorySigner, SecretKey};
+//! use near_kit::{NearToken, account};
 //! use near_kit_sandbox::SandboxConfig;
 //!
-//! #[tokio::test]
-//! async fn test_transfer() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Same pattern as production - just different network
-//!     let root = SandboxConfig::shared().await?.client();
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // One process-wide sandbox; use `SandboxConfig::fresh()` for isolated state.
+//! let sandbox = SandboxConfig::shared().await?;
+//! let root = sandbox.client(); // a `SigningNear` for the root account
 //!
-//!     // Create accounts the normal way
-//!     let alice_key = SecretKey::generate_ed25519();
-//!     root.transaction(account!("alice.sandbox"))
-//!         .add_action(Action::create_account())
-//!         .add_action(Action::transfer(NearToken::from_near(100)))
-//!         .add_action(Action::add_full_access_key(alice_key.public_key()))
-//!         .await?;
-//!     Ok(())
-//! }
+//! // Create an account the normal way.
+//! let alice_key = SecretKey::generate_ed25519();
+//! root.transaction(account!("alice.sandbox"))
+//!     .add_action(Action::create_account())
+//!     .add_action(Action::transfer(NearToken::from_near(100)))
+//!     .add_action(Action::add_full_access_key(alice_key.public_key()))
+//!     .await?;
 //!
-//! #[tokio::test]
-//! async fn test_isolated() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Fresh sandbox - completely isolated, stopped when container drops
-//!     let sandbox = SandboxConfig::fresh().await?;
-//!     let near = sandbox.client();
-//!     Ok(())
-//! }
+//! // Sign as the new account over the same connection.
+//! let alice = root
+//!     .near()
+//!     .with_signer(InMemorySigner::from_secret_key(account!("alice.sandbox"), alice_key)?);
+//! let balance = alice.near().balance(alice.account_id()).await?;
+//! # Ok(())
+//! # }
 //!
-//! #[tokio::test]
-//! async fn test_custom_version() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Specific sandbox version
-//!     let sandbox = SandboxConfig::builder()
-//!         .version("2.10.5")
-//!         .fresh()
-//!         .await?;
-//!     let near = sandbox.client();
-//!     Ok(())
-//! }
-//!
-//! #[tokio::test]
-//! async fn test_custom_root() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Custom root account name
-//!     let sandbox = SandboxConfig::builder()
-//!         .root_account(account!("sb"))
-//!         .fresh()
-//!         .await?;
-//!     let near = sandbox.client();
-//!     // Root account is now "sb" instead of "sandbox"
-//!     Ok(())
-//! }
+//! # async fn custom() -> Result<(), Box<dyn std::error::Error>> {
+//! // A specific sandbox version and root account.
+//! let sandbox = SandboxConfig::builder()
+//!     .version("2.13.4")
+//!     .root_account(account!("sb"))
+//!     .fresh()
+//!     .await?;
+//! assert_eq!(sandbox.client().account_id(), "sb");
+//! # Ok(())
+//! # }
 //! ```
 
 use std::borrow::Cow;

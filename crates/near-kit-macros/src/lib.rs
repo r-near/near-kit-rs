@@ -1,48 +1,64 @@
 //! Proc macros for near-kit typed contract interfaces.
 //!
-//! This crate provides the `#[near_kit::contract]` attribute macro for defining
-//! type-safe contract interfaces. The `#[call]`, `#[json]` and `#[borsh]`
-//! markers inside the trait are read by `#[contract]` itself and need no
-//! import.
+//! Use the macro through near-kit's `contracts` feature (`#[near_kit::contract]`)
+//! or near-kit-primitives' `contracts` feature, not by depending on this crate
+//! directly. The `#[call]`, `#[json]` and `#[borsh]` markers inside the trait
+//! are read by `#[contract]` itself and need no import.
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```rust,no_run
+//! use near_kit::protocol::Action;
 //! use near_kit::*;
-//! use serde::Serialize;
 //!
 //! #[near_kit::contract]
 //! pub trait Counter {
 //!     fn get_count(&self) -> u64;
-//!     
-//!     #[call]
-//!     fn increment(&mut self);
-//!     
+//!
 //!     #[call]
 //!     fn add(&mut self, args: AddArgs);
 //! }
 //!
-//! #[derive(Serialize)]
+//! #[derive(serde::Serialize)]
 //! pub struct AddArgs {
 //!     pub value: u64,
 //! }
+//!
+//! # async fn example(near: &Near, alice: &SigningNear) -> Result<(), Error> {
+//! // A client: views on any `Viewer`, calls on any `TxSender`.
+//! let count = near.contract::<Counter>(account!("counter.near")).get_count().await?;
+//! alice
+//!     .contract::<Counter>(account!("counter.near"))
+//!     .add(AddArgs { value: 5 })
+//!     .gas(Gas::from_tgas(10))
+//!     .await?;
+//!
+//! // An offline `FunctionCall`, to batch with other actions.
+//! alice
+//!     .transaction(account!("counter.near"))
+//!     .add_action(Action::transfer(NearToken::from_millinear(1)))
+//!     .add_action(Counter::add(AddArgs { value: 1 }))
+//!     .await?;
+//! # Ok(())
+//! # }
 //! ```
 //!
-//! # Per-Method Format Override
+//! # Per-method format
 //!
-//! You can override the serialization format for individual methods:
+//! Arguments and results are JSON by default. `#[near_kit::contract(borsh)]`
+//! switches the default; `#[borsh]` or `#[json]` overrides it for one method:
 //!
-//! ```ignore
-//! #[near_kit::contract]  // Default: JSON
-//! pub trait MixedContract {
-//!     fn get_json_data(&self) -> JsonData;  // Uses JSON (default)
-//!     
-//!     #[borsh]  // Override: use Borsh for this method
-//!     fn get_binary_state(&self) -> BinaryState;
-//!     
+//! ```rust
+//! #[near_kit::contract]
+//! pub trait Mixed {
+//!     fn get_json(&self) -> u64;
+//!
+//!     #[borsh]
+//!     fn get_borsh(&self) -> u64;
+//!
 //!     #[call]
-//!     #[borsh]  // Override: use Borsh for this call
-//!     fn set_binary_state(&mut self, args: BinaryArgs);
+//!     #[borsh]
+//!     fn set_borsh(&mut self, value: u64);
 //! }
 //! ```
 
