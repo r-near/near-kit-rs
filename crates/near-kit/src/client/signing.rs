@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use crate::error::{Error, RpcError};
 use crate::platform::MaybeSend;
-use crate::types::nep413::{SignMessageParams, SignedMessage};
 use crate::types::{
     AccountId, Action, BlockReference, Final, SignedDelegateAction, SignedTransaction, Signer,
     ViewFunctionResult, WaitLevel,
@@ -336,39 +335,6 @@ impl<W: WaitLevel> SigningNear<W> {
         .delegate(options)
         .await
     }
-
-    /// Sign a message for off-chain authentication (NEP-413).
-    ///
-    /// Proves ownership of the account without a transaction or gas, e.g. for
-    /// a web login.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # use near_kit::standards::nep413;
-    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
-    /// let signed = alice.sign_message(nep413::SignMessageParams {
-    ///     message: "Login to MyApp".to_string(),
-    ///     recipient: "myapp.com".to_string(),
-    ///     nonce: nep413::generate_nonce(),
-    ///     callback_url: None,
-    ///     state: None,
-    /// }).await?;
-    ///
-    /// println!("Signed by: {}", signed.account_id);
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// See <https://github.com/near/NEPs/blob/master/neps/nep-0413.md>.
-    pub async fn sign_message(&self, params: SignMessageParams) -> Result<SignedMessage, Error> {
-        self.signer
-            .key()
-            .sign_nep413(self.signer.account_id(), &params)
-            .await
-            .map_err(Error::Signing)
-    }
 }
 
 impl<W: WaitLevel> crate::Viewer for SigningNear<W> {
@@ -474,21 +440,6 @@ mod tests {
             alice.contract::<NonFungibleToken>(&nft_id).contract_id(),
             &nft_id
         );
-    }
-
-    #[tokio::test]
-    async fn sign_message_uses_the_signer_account() {
-        let signed = alice()
-            .sign_message(SignMessageParams {
-                message: "hello".to_string(),
-                recipient: "app.example".to_string(),
-                nonce: [7; 32],
-                callback_url: None,
-                state: None,
-            })
-            .await
-            .unwrap();
-        assert_eq!(signed.account_id.as_str(), "alice.testnet");
     }
 
     // Environment variable tests are consolidated into a single test because

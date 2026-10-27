@@ -36,7 +36,7 @@ without the RPC client.
 | `near.with_signer(s) -> Near` | `near.with_signer(s) -> SigningNear` |
 | `near.account_id()` / `try_account_id()` | `signing.account_id()`. A `Near` has no account. |
 | `near.signer()` / `public_key()` | `signing.signer()` (an `&Arc<dyn Signer>`), `signing.signer().public_key()` |
-| `near.sign_message(params)` | `signing.sign_message(params)` |
+| `near.sign_message(params)` | `signing.signer().key().sign_nep413(signing.account_id(), &params).await?` (or the same on any `Signer`; import `near_kit::signer::Signer`). There is no `SigningNear::sign_message`. |
 | `near.rpc_url()` | `near.rpc().url()` |
 | `Near::from_rpc(rpc, chain_id)` | `Near::custom(url, chain_id).transport(t).retry_config(c).build()` |
 | `NearBuilder::http_client(client)` | `.transport(ReqwestTransport::with_client(client))` |
