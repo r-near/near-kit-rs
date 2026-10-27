@@ -18,8 +18,8 @@
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let signer = InMemorySigner::new(
 //!     account!("alice.testnet"),
-//!     "ed25519:..."
-//! )?;
+//!     "ed25519:...".parse()?,
+//! );
 //!
 //! let near = Near::testnet().build();
 //! let alice = near.with_signer(signer);

@@ -870,7 +870,6 @@ impl Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::account;
     use crate::types::FinalExecutionStatus;
 
     // ========================================================================
@@ -1461,7 +1460,8 @@ mod tests {
 
     #[test]
     fn test_error_from_signer_construction_errors() {
-        let err: Error = crate::signer::InMemorySigner::new(account!("alice.near"), "nope")
+        let err: Error = "nope"
+            .parse::<crate::signer::SecretKey>()
             .unwrap_err()
             .into();
         assert!(matches!(err, Error::ParseKey(_)));

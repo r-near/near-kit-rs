@@ -309,10 +309,10 @@ async fn test_function_call_span_fields() {
     // Clear setup spans — we only care about the function call
     captured.spans.lock().unwrap().clear();
 
-    let ft_near = sandbox
-        .client()
-        .near()
-        .with_signer(InMemorySigner::new(&ft_id, ft_key.to_string()).unwrap());
+    let ft_near = sandbox.client().near().with_signer(InMemorySigner::new(
+        &ft_id,
+        ft_key.to_string().parse().unwrap(),
+    ));
 
     ft_near
         .wait_until::<Final>()
@@ -398,10 +398,10 @@ async fn test_ft_balance_of_span_hierarchy() {
         .await
         .unwrap();
 
-    let ft_near = sandbox
-        .client()
-        .near()
-        .with_signer(InMemorySigner::new(&ft_id, ft_key.to_string()).unwrap());
+    let ft_near = sandbox.client().near().with_signer(InMemorySigner::new(
+        &ft_id,
+        ft_key.to_string().parse().unwrap(),
+    ));
 
     ft_near
         .wait_until::<Final>()

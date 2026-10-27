@@ -41,7 +41,7 @@ const DEFAULT_MAX_NONCE_RETRIES: u32 = 3;
 ///     let balance = near.balance(account!("alice.testnet")).await?;
 ///     println!("Balance: {}", balance);
 ///
-///     let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...")?);
+///     let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...".parse()?));
 ///     alice
 ///         .transaction(account!("bob.testnet"))
 ///         .add_action(Action::transfer(NearToken::from_near(1)))
@@ -163,8 +163,8 @@ impl Near {
     /// # fn example() -> Result<(), Error> {
     /// let near = Near::testnet().build();
     ///
-    /// let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...")?);
-    /// let bob = near.with_signer(InMemorySigner::new(account!("bob.testnet"), "ed25519:...")?);
+    /// let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...".parse()?));
+    /// let bob = near.with_signer(InMemorySigner::new(account!("bob.testnet"), "ed25519:...".parse()?));
     /// assert_eq!(alice.account_id().as_str(), "alice.testnet");
     /// # Ok(())
     /// # }
@@ -679,7 +679,7 @@ mod tests {
     #[test]
     fn test_near_with_signer_derived() {
         let near = Near::testnet().build();
-        let signer = InMemorySigner::new(account!("alice.testnet"), ALICE_KEY).unwrap();
+        let signer = InMemorySigner::new(account!("alice.testnet"), ALICE_KEY.parse().unwrap());
 
         let alice = near.with_signer(signer);
         assert_eq!(alice.account_id().as_str(), "alice.testnet");
@@ -691,10 +691,14 @@ mod tests {
     fn test_near_with_signer_multiple_accounts() {
         let near = Near::testnet().build();
 
-        let alice =
-            near.with_signer(InMemorySigner::new(account!("alice.testnet"), ALICE_KEY).unwrap());
-        let bob =
-            near.with_signer(InMemorySigner::new(account!("bob.testnet"), ALICE_KEY).unwrap());
+        let alice = near.with_signer(InMemorySigner::new(
+            account!("alice.testnet"),
+            ALICE_KEY.parse().unwrap(),
+        ));
+        let bob = near.with_signer(InMemorySigner::new(
+            account!("bob.testnet"),
+            ALICE_KEY.parse().unwrap(),
+        ));
 
         assert_eq!(alice.account_id().as_str(), "alice.testnet");
         assert_eq!(bob.account_id().as_str(), "bob.testnet");
@@ -714,7 +718,7 @@ mod tests {
         assert_eq!(near.max_nonce_retries, 0);
 
         // A signing client takes the setting of the Near it came from.
-        let signer = InMemorySigner::new(account!("alice.testnet"), ALICE_KEY).unwrap();
+        let signer = InMemorySigner::new(account!("alice.testnet"), ALICE_KEY.parse().unwrap());
         assert_eq!(near.with_signer(signer).near().max_nonce_retries, 0);
     }
 }

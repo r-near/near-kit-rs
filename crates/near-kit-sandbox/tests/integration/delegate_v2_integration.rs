@@ -107,10 +107,9 @@ async fn test_delegate_v2_relay() {
     assert_eq!(received, signed);
 
     // --- RELAYER: wrap in Action::DelegateV2 and submit, paying gas. ---------
-    let relayer_near = root_near.near().with_signer(
-        InMemorySigner::from_secret_key(relayer_id.clone(), relayer_key.clone())
-            .expect("relayer signer"),
-    );
+    let relayer_near = root_near
+        .near()
+        .with_signer(InMemorySigner::new(relayer_id.clone(), relayer_key.clone()));
 
     // Sign the outer relay tx and submit it. We submit via the generic
     // `send_tx` RPC and inspect the raw response: the high-level

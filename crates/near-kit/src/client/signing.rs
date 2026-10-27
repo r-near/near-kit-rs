@@ -44,7 +44,7 @@ use super::transaction::{DelegateOptions, DelegateResult, PreparedTransaction, T
 ///
 /// # async fn example() -> Result<(), Error> {
 /// let near = Near::testnet().build();
-/// let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...")?);
+/// let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...".parse()?));
 ///
 /// alice
 ///     .transaction(account!("bob.testnet"))
@@ -137,7 +137,9 @@ impl SigningNear {
         let private_key = std::env::var("NEAR_PRIVATE_KEY").ok();
 
         let signer = match (account_id, private_key) {
-            (Some(account), Some(key)) => InMemorySigner::new(account.parse::<AccountId>()?, key)?,
+            (Some(account), Some(key)) => {
+                InMemorySigner::new(account.parse::<AccountId>()?, key.parse()?)
+            }
             (Some(_), None) => {
                 return Err(Error::Config(
                     "NEAR_ACCOUNT_ID is set but NEAR_PRIVATE_KEY is missing".into(),
@@ -473,9 +475,10 @@ mod tests {
     const ALICE_KEY: &str = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
 
     fn alice() -> SigningNear {
-        Near::testnet()
-            .build()
-            .with_signer(InMemorySigner::new(account!("alice.testnet"), ALICE_KEY).unwrap())
+        Near::testnet().build().with_signer(InMemorySigner::new(
+            account!("alice.testnet"),
+            ALICE_KEY.parse().unwrap(),
+        ))
     }
 
     #[test]
@@ -484,8 +487,7 @@ mod tests {
         assert_eq!(alice.account_id().as_str(), "alice.testnet");
         assert_eq!(
             alice.signer().public_key(),
-            InMemorySigner::new(account!("alice.testnet"), ALICE_KEY)
-                .unwrap()
+            InMemorySigner::new(account!("alice.testnet"), ALICE_KEY.parse().unwrap())
                 .public_key()
                 .clone()
         );

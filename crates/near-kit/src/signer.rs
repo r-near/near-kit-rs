@@ -16,8 +16,8 @@
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let signer = InMemorySigner::new(
 //!     account!("alice.testnet"),
-//!     "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
-//! )?;
+//!     "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr".parse()?,
+//! );
 //!
 //! let alice = Near::testnet().build().with_signer(signer);
 //!
@@ -31,11 +31,6 @@
 
 pub use crate::client::EnvSigner;
 pub use crate::error::KeyStoreError;
-#[cfg(feature = "mnemonic")]
-#[doc(inline)]
-pub use near_kit_primitives::signer::{
-    DEFAULT_HD_PATH, DEFAULT_ML_DSA_65_WORD_COUNT, DEFAULT_WORD_COUNT, generate_seed_phrase,
-};
 #[doc(inline)]
 pub use near_kit_primitives::signer::{
     InMemorySigner, ParseKeyError, RotatingSigner, Signer, SignerError, SigningBackend, SigningKey,

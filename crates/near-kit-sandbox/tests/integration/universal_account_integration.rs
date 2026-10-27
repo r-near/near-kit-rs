@@ -111,8 +111,7 @@ async fn test_universal_account_bootstraps_itself() {
 
     // Plain `send`: the nonce comes from `bootstrap_nonce`, since the key is
     // not on chain until the state init applies.
-    let signer = InMemorySigner::from_secret_key(account_id.clone(), key.clone())
-        .expect("signer for the 0u account");
+    let signer = InMemorySigner::new(account_id.clone(), key.clone());
     let outcome = root_near
         .near()
         .with_signer(signer)

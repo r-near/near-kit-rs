@@ -187,8 +187,8 @@ async fn multi_account_example(me: &SigningNear) -> Result<(), Error> {
     // In a real app, this would be a different account's key.
     let second = me.near().with_signer(InMemorySigner::new(
         me.account_id(),
-        std::env::var("NEAR_PRIVATE_KEY").unwrap(),
-    )?);
+        std::env::var("NEAR_PRIVATE_KEY").unwrap().parse()?,
+    ));
 
     // Both clients share the same RPC connection (no extra overhead)
     println!("Original signer: {}", me.account_id());
@@ -218,9 +218,10 @@ async fn main() -> Result<(), Error> {
 
     match (account_id, private_key) {
         (Some(account), Some(key)) => {
-            let me = Near::testnet()
-                .build()
-                .with_signer(InMemorySigner::new(account.parse::<AccountId>()?, &key)?);
+            let me = Near::testnet().build().with_signer(InMemorySigner::new(
+                account.parse::<AccountId>()?,
+                key.parse()?,
+            ));
 
             call_example(&me).await?;
             transfer_example(&me).await?;

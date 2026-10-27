@@ -30,7 +30,7 @@ without the RPC client.
 
 | 0.20 | 0.21 |
 |---|---|
-| `Near::testnet().credentials(key, id)?.build()` | `Near::testnet().build().with_signer(InMemorySigner::new(id, key)?)` |
+| `Near::testnet().credentials(key, id)?.build()` | `Near::testnet().build().with_signer(InMemorySigner::new(id, key.parse()?))` |
 | `NearBuilder::signer(s)` | `near.with_signer(s)` after `build()` |
 | `Near::from_env()` | `SigningNear::from_env()`. It now fails unless both `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` are set; build a `Near` for read-only use. |
 | `near.with_signer(s) -> Near` | `near.with_signer(s) -> SigningNear` |
@@ -40,6 +40,15 @@ without the RPC client.
 | `near.rpc_url()` | `near.rpc().url()` |
 | `Error::NoSigner` | Removed: a send without a signer is a compile error. |
 | `Near::sandbox(&sandbox)`, `rpc::SandboxNetwork` | `sandbox.client()` |
+| `InMemorySigner::new(id, "ed25519:...")?` | `InMemorySigner::new(id, "ed25519:...".parse()?)`. `new` takes a `SecretKey` and can't fail. |
+| `InMemorySigner::from_secret_key(id, sk)?`, `InMemorySigner::from_parts(id, sk)` | `InMemorySigner::new(id, sk)` |
+| `InMemorySigner::generate_implicit()` | `InMemorySigner::implicit(SecretKey::generate_ed25519())?` |
+| `InMemorySigner::from_seed_phrase(id, phrase)` / `from_seed_phrase_with_path(id, phrase, path)` | `InMemorySigner::new(id, SecretKey::from_seed_phrase(KeyType::Ed25519, phrase, None, None)?)` (`Some(path)` for a path) |
+| `SecretKey::{from_seed_phrase, from_seed_phrase_with_path, from_seed_phrase_with_path_and_passphrase}` and the `ml_dsa65_` versions | `SecretKey::from_seed_phrase(key_type, phrase, hd_path, passphrase)`: `KeyType::Ed25519` or `KeyType::MlDsa65`; `None` is the default path / no passphrase |
+| `SecretKey::{generate_with_seed_phrase, generate_with_seed_phrase_words, generate_with_seed_phrase_custom}` and the `ml_dsa65_` versions, `signer::generate_seed_phrase` | `SecretKey::generate_with_seed_phrase(key_type, word_count)`; `None` words is 12 (Ed25519) or 24 (ML-DSA-65). For another path or a passphrase, derive again from the returned phrase. |
+| `signer::{DEFAULT_HD_PATH, DEFAULT_WORD_COUNT, DEFAULT_ML_DSA_65_WORD_COUNT}` | Removed; pass `None` for the default |
+| `RotatingSigner::from_key_strings(id, &keys)` | `RotatingSigner::new(id, keys.iter().map(|k| k.parse()).collect::<Result<_, _>>()?)` |
+| `RotatingSigner::key_count()` | `public_keys().len()` |
 
 `SigningNear` has no `Deref` to `Near`; read through `signing.near()`. Typed
 contract views and token views work on a `SigningNear` directly.
@@ -52,7 +61,7 @@ let balance = near.balance("me.testnet").await?;
 // 0.21
 let me = Near::testnet()
     .build()
-    .with_signer(InMemorySigner::new(account!("me.testnet"), "ed25519:...")?);
+    .with_signer(InMemorySigner::new(account!("me.testnet"), "ed25519:...".parse()?));
 let balance = me.near().balance(me.account_id()).await?;
 ```
 
@@ -330,7 +339,7 @@ Code that runs without an RPC client returns its own error type instead of
 | `SignedTransaction(V1)::from_bytes` / `from_base64` | `DecodeTransactionError` |
 | `FinalExecutionOutcome::result` / `json` | `OutcomeError` |
 | `FunctionCall::into_action`, `TryFrom<FunctionCall>` | `CodecError` |
-| `InMemorySigner::new` / `from_secret_key` / `from_seed_phrase*`, `RotatingSigner::new` / `from_signers` / `from_key_strings` | `SignerError` |
+| `InMemorySigner::implicit`, `SecretKey::from_seed_phrase` / `generate_with_seed_phrase`, `RotatingSigner::new` / `from_signers` | `SignerError` |
 
 Each converts into `near_kit::Error` with `?` and lands in the same variant,
 with the same message, as before. Two patterns need a change:

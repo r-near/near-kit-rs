@@ -43,7 +43,7 @@
 //! // Sign as the new account over the same connection.
 //! let alice = root
 //!     .near()
-//!     .with_signer(InMemorySigner::from_secret_key(account!("alice.sandbox"), alice_key)?);
+//!     .with_signer(InMemorySigner::new(account!("alice.sandbox"), alice_key));
 //! let balance = alice.near().balance(alice.account_id()).await?;
 //! # Ok(())
 //! # }
@@ -66,7 +66,7 @@ use std::time::Duration;
 
 use near_kit::protocol::{AccountIdRef, ChainId};
 use near_kit::rpc::RpcError;
-use near_kit::signer::{InMemorySigner, Signer};
+use near_kit::signer::{InMemorySigner, ParseKeyError, Signer};
 use near_kit::{AccountId, Error, Near, NearToken, SigningNear};
 use testcontainers::{
     ContainerAsync, CopyToContainer, Healthcheck, Image, ImageExt,
@@ -353,10 +353,10 @@ impl Sandbox {
             "Starting sandbox container"
         );
 
-        let root_signer = Arc::new(
-            InMemorySigner::new(&root_account, SANDBOX_ROOT_SECRET_KEY)
-                .map_err(|e| SandboxError::RootSigner(e.into()))?,
-        );
+        let root_key = SANDBOX_ROOT_SECRET_KEY
+            .parse()
+            .map_err(|e: ParseKeyError| SandboxError::RootSigner(e.into()))?;
+        let root_signer = Arc::new(InMemorySigner::new(&root_account, root_key));
         let mut image = NearSandbox::new(version).with_account_id(root_account.to_string());
         if let Some(ref id) = chain_id {
             image = image.with_chain_id(id.to_string());

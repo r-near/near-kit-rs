@@ -47,8 +47,8 @@
 //!     // Writes need a signer.
 //!     let me = near.with_signer(InMemorySigner::new(
 //!         account!("me.testnet"),
-//!         "ed25519:YOUR_PRIVATE_KEY",
-//!     )?);
+//!         "ed25519:YOUR_PRIVATE_KEY".parse()?,
+//!     ));
 //!     me.transaction(account!("bob.testnet"))
 //!         .add_action(Action::transfer(NearToken::from_near(1)))
 //!         .await?;

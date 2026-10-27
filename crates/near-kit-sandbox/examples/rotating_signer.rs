@@ -42,10 +42,7 @@ async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
     let bot_near = sandbox
         .client()
         .near()
-        .with_signer(InMemorySigner::from_secret_key(
-            &bot_account,
-            secret_keys[0].clone(),
-        )?);
+        .with_signer(InMemorySigner::new(&bot_account, secret_keys[0].clone()));
 
     println!("Adding {} more access keys...", num_keys - 1);
 

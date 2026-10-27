@@ -84,10 +84,6 @@ pub use error::{
     UnknownError, WasmTrap,
 };
 pub use hash::CryptoHash;
-#[cfg(feature = "mnemonic")]
-pub use key::{
-    DEFAULT_HD_PATH, DEFAULT_ML_DSA_65_WORD_COUNT, DEFAULT_WORD_COUNT, generate_seed_phrase,
-};
 pub use key::{
     KeyType, ML_DSA_65_HASH_LENGTH, ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SECRET_KEY_LENGTH,
     ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH, PublicKey, PublicKeyHandle, SecretKey,

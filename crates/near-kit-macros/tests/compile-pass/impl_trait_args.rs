@@ -23,8 +23,7 @@ fn main() {
 
     let _view = client.lookup(Key { key: "a".into() });
     let account: SigningNear = near.with_signer(
-        InMemorySigner::from_secret_key(account!("alice.testnet"), SecretKey::generate_ed25519())
-            .unwrap(),
+        InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519()),
     );
     let signing_client = account.contract::<Registry>(account!("registry.testnet"));
     let _call: Call<SigningNear> = signing_client.register(Key { key: "a".into() });

@@ -628,11 +628,11 @@ impl Debug for PublicKeyHandle {
 /// Default BIP-32 HD derivation path for NEAR keys.
 /// NEAR uses coin type 397 per SLIP-44.
 #[cfg(feature = "mnemonic")]
-pub const DEFAULT_HD_PATH: &str = "m/44'/397'/0'";
+const DEFAULT_HD_PATH: &str = "m/44'/397'/0'";
 
 /// Default number of words in generated seed phrases.
 #[cfg(feature = "mnemonic")]
-pub const DEFAULT_WORD_COUNT: usize = 12;
+const DEFAULT_WORD_COUNT: usize = 12;
 
 /// Default number of words in seed phrases generated for ML-DSA-65 keys.
 ///
@@ -641,10 +641,10 @@ pub const DEFAULT_WORD_COUNT: usize = 12;
 /// bits of entropy, below ML-DSA-65's NIST Category 3 security level. The NEP's
 /// own test vectors use 24 words, so that is the default here.
 ///
-/// Recovery is unaffected — [`SecretKey::ml_dsa65_from_seed_phrase`] and
-/// friends still accept any valid 12–24-word BIP-39 phrase.
+/// Recovery is unaffected: [`SecretKey::from_seed_phrase`] still accepts any
+/// valid 12–24-word BIP-39 phrase.
 #[cfg(feature = "mnemonic")]
-pub const DEFAULT_ML_DSA_65_WORD_COUNT: usize = 24;
+const DEFAULT_ML_DSA_65_WORD_COUNT: usize = 24;
 
 /// Minimum number of words NEP-649 allows in a newly generated ML-DSA-65 seed
 /// phrase.
@@ -859,335 +859,101 @@ impl SecretKey {
     // Seed Phrase / Mnemonic Support
     // ========================================================================
 
-    /// Derive an Ed25519 secret key from a BIP-39 seed phrase.
+    /// Derive a secret key of `key_type` from a BIP-39 seed phrase.
     ///
-    /// Uses SLIP-10 derivation with the default NEAR HD path (`m/44'/397'/0'`).
+    /// `hd_path` defaults to NEAR's `m/44'/397'/0'` (SLIP-44 coin type 397);
+    /// only hardened paths are supported (every component ends in `'`).
+    /// `passphrase` is the optional BIP-39 passphrase; `None` and `Some("")`
+    /// are the same. The phrase is trimmed, lowercased and
+    /// whitespace-collapsed first, and any valid 12–24-word phrase is
+    /// accepted.
     ///
-    /// # Arguments
-    ///
-    /// * `phrase` - BIP-39 mnemonic phrase (12, 15, 18, 21, or 24 words)
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit_primitives::signer::SecretKey;
-    ///
-    /// // Valid BIP-39 mnemonic (all zeros entropy)
-    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-    /// let secret_key = SecretKey::from_seed_phrase(phrase).unwrap();
-    /// ```
-    #[cfg(feature = "mnemonic")]
-    pub fn from_seed_phrase(phrase: impl AsRef<str>) -> Result<Self, SignerError> {
-        Self::from_seed_phrase_with_path(phrase, DEFAULT_HD_PATH)
-    }
-
-    /// Derive an Ed25519 secret key from a BIP-39 seed phrase with custom HD path.
-    ///
-    /// Uses SLIP-10 derivation for Ed25519 keys. Only hardened derivation paths
-    /// are supported (all path components must use `'` suffix).
-    ///
-    /// # Arguments
-    ///
-    /// * `phrase` - BIP-39 mnemonic phrase (12, 15, 18, 21, or 24 words)
-    /// * `hd_path` - BIP-32 derivation path (e.g., `"m/44'/397'/0'"`)
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit_primitives::signer::SecretKey;
-    ///
-    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-    /// let secret_key = SecretKey::from_seed_phrase_with_path(phrase, "m/44'/397'/1'").unwrap();
-    /// ```
-    #[cfg(feature = "mnemonic")]
-    pub fn from_seed_phrase_with_path(
-        phrase: impl AsRef<str>,
-        hd_path: impl AsRef<str>,
-    ) -> Result<Self, SignerError> {
-        Self::from_seed_phrase_with_path_and_passphrase(phrase, hd_path, None)
-    }
-
-    /// Derive an Ed25519 secret key from a BIP-39 seed phrase with passphrase.
-    ///
-    /// The passphrase provides additional entropy for seed generation (BIP-39 feature).
-    /// An empty passphrase is equivalent to no passphrase.
-    ///
-    /// # Arguments
-    ///
-    /// * `phrase` - BIP-39 mnemonic phrase
-    /// * `hd_path` - BIP-32 derivation path
-    /// * `passphrase` - Optional passphrase for additional entropy
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit_primitives::signer::SecretKey;
-    ///
-    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-    /// let secret_key = SecretKey::from_seed_phrase_with_path_and_passphrase(
-    ///     phrase,
-    ///     "m/44'/397'/0'",
-    ///     Some("my-passphrase")
-    /// ).unwrap();
-    /// ```
-    #[cfg(feature = "mnemonic")]
-    pub fn from_seed_phrase_with_path_and_passphrase(
-        phrase: impl AsRef<str>,
-        hd_path: impl AsRef<str>,
-        passphrase: Option<&str>,
-    ) -> Result<Self, SignerError> {
-        let seed = mnemonic_to_seed(phrase, passphrase)?;
-        let path = parse_hd_path(hd_path.as_ref())
-            .map_err(|e| SignerError::KeyDerivationFailed(format!("Invalid HD path: {e}")))?;
-        let derived = derive_ed25519_slip10(&seed, &path);
-
-        Ok(Self::ed25519_from_bytes(derived))
-    }
-
-    /// Derive an ML-DSA-65 secret key from a BIP-39 seed phrase.
-    ///
-    /// Uses the post-quantum SLIP-10 construction from satoshilabs/slips#1968,
-    /// specified for NEAR by NEP-649 (<https://github.com/near/NEPs/pull/649>),
-    /// with the default NEAR HD path (`m/44'/397'/0'`): the 32-byte node secret
-    /// is the FIPS-204 seed ξ fed to ML-DSA-65 KeyGen.
-    ///
-    /// The master HMAC salt differs from the Ed25519 branch (`"ML-DSA-65 seed"`
-    /// vs `"ed25519 seed"`), so the ML-DSA-65 key derived from a phrase is
-    /// **unrelated** to the Ed25519 key derived from the same phrase.
-    ///
-    /// This is a *recovery* entry point and accepts any valid 12–24-word BIP-39
-    /// phrase. Newly generated phrases have a higher floor — see
-    /// [`SecretKey::ml_dsa65_generate_with_seed_phrase`].
-    ///
-    /// # Arguments
-    ///
-    /// * `phrase` - BIP-39 mnemonic phrase (12, 15, 18, 21, or 24 words)
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit_primitives::signer::SecretKey;
-    ///
-    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-    /// let secret_key = SecretKey::ml_dsa65_from_seed_phrase(phrase).unwrap();
-    /// assert!(secret_key.to_string().starts_with("ml-dsa-65:"));
-    /// ```
-    #[cfg(feature = "mnemonic")]
-    pub fn ml_dsa65_from_seed_phrase(phrase: impl AsRef<str>) -> Result<Self, SignerError> {
-        Self::ml_dsa65_from_seed_phrase_with_path(phrase, DEFAULT_HD_PATH)
-    }
-
-    /// Derive an ML-DSA-65 secret key from a BIP-39 seed phrase with a custom
-    /// HD path.
-    ///
-    /// Uses the satoshilabs/slips#1968 SLIP-10 construction, as specified by
-    /// NEP-649 (<https://github.com/near/NEPs/pull/649>). Only hardened
-    /// derivation paths are supported (all path components must use `'`).
-    ///
-    /// # Arguments
-    ///
-    /// * `phrase` - BIP-39 mnemonic phrase (12, 15, 18, 21, or 24 words)
-    /// * `hd_path` - BIP-32 derivation path (e.g., `"m/44'/397'/0'"`)
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit_primitives::signer::SecretKey;
-    ///
-    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-    /// let secret_key = SecretKey::ml_dsa65_from_seed_phrase_with_path(phrase, "m/44'/397'/1'").unwrap();
-    /// ```
-    #[cfg(feature = "mnemonic")]
-    pub fn ml_dsa65_from_seed_phrase_with_path(
-        phrase: impl AsRef<str>,
-        hd_path: impl AsRef<str>,
-    ) -> Result<Self, SignerError> {
-        Self::ml_dsa65_from_seed_phrase_with_path_and_passphrase(phrase, hd_path, None)
-    }
-
-    /// Derive an ML-DSA-65 secret key from a BIP-39 seed phrase with a
-    /// passphrase.
-    ///
-    /// The passphrase provides additional entropy for seed generation (BIP-39
-    /// feature). An empty passphrase is equivalent to no passphrase. Derivation
-    /// otherwise follows satoshilabs/slips#1968 / NEP-649
-    /// (<https://github.com/near/NEPs/pull/649>) — see
-    /// [`SecretKey::ml_dsa65_from_seed_phrase`] for the salt caveat.
-    ///
-    /// # Arguments
-    ///
-    /// * `phrase` - BIP-39 mnemonic phrase
-    /// * `hd_path` - BIP-32 derivation path
-    /// * `passphrase` - Optional passphrase for additional entropy
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit_primitives::signer::SecretKey;
-    ///
-    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-    /// let secret_key = SecretKey::ml_dsa65_from_seed_phrase_with_path_and_passphrase(
-    ///     phrase,
-    ///     "m/44'/397'/0'",
-    ///     Some("my-passphrase"),
-    /// )
-    /// .unwrap();
-    /// ```
-    #[cfg(feature = "mnemonic")]
-    pub fn ml_dsa65_from_seed_phrase_with_path_and_passphrase(
-        phrase: impl AsRef<str>,
-        hd_path: impl AsRef<str>,
-        passphrase: Option<&str>,
-    ) -> Result<Self, SignerError> {
-        let seed = mnemonic_to_seed(phrase, passphrase)?;
-        let path = parse_hd_path(hd_path.as_ref())
-            .map_err(|e| SignerError::KeyDerivationFailed(format!("Invalid HD path: {e}")))?;
-        let derived = derive_ml_dsa65_slip10(&seed, &path);
-
-        Ok(Self::ml_dsa65_from_seed(derived))
-    }
-
-    /// Generate a new random seed phrase and derive the corresponding secret key.
-    ///
-    /// Returns both the seed phrase (for backup) and the derived secret key.
-    /// Uses 12 words by default and the standard NEAR HD path.
-    ///
-    /// If you intend to derive an ML-DSA-65 key from the phrase, use
-    /// [`SecretKey::ml_dsa65_generate_with_seed_phrase`] instead (or pass at
-    /// least 18 words), since NEP-649
-    /// (<https://github.com/near/NEPs/pull/649>) requires a newly generated
-    /// ML-DSA-65 mnemonic to carry at least 18 words.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit_primitives::signer::SecretKey;
-    ///
-    /// let (phrase, secret_key) = SecretKey::generate_with_seed_phrase().unwrap();
-    /// println!("Backup your seed phrase: {}", phrase);
-    /// ```
-    #[cfg(feature = "mnemonic")]
-    pub fn generate_with_seed_phrase() -> Result<(String, Self), SignerError> {
-        Self::generate_with_seed_phrase_custom(DEFAULT_WORD_COUNT, DEFAULT_HD_PATH, None)
-    }
-
-    /// Generate a new random seed phrase with custom word count.
-    ///
-    /// # Arguments
-    ///
-    /// * `word_count` - Number of words (12, 15, 18, 21, or 24)
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit_primitives::signer::SecretKey;
-    ///
-    /// let (phrase, secret_key) = SecretKey::generate_with_seed_phrase_words(24).unwrap();
-    /// assert_eq!(phrase.split_whitespace().count(), 24);
-    /// ```
-    #[cfg(feature = "mnemonic")]
-    pub fn generate_with_seed_phrase_words(
-        word_count: usize,
-    ) -> Result<(String, Self), SignerError> {
-        Self::generate_with_seed_phrase_custom(word_count, DEFAULT_HD_PATH, None)
-    }
-
-    /// Generate a new random seed phrase with full customization.
-    ///
-    /// # Arguments
-    ///
-    /// * `word_count` - Number of words (12, 15, 18, 21, or 24)
-    /// * `hd_path` - BIP-32 derivation path
-    /// * `passphrase` - Optional passphrase for additional entropy
-    #[cfg(feature = "mnemonic")]
-    pub fn generate_with_seed_phrase_custom(
-        word_count: usize,
-        hd_path: impl AsRef<str>,
-        passphrase: Option<&str>,
-    ) -> Result<(String, Self), SignerError> {
-        let phrase = generate_seed_phrase(word_count)?;
-        let secret_key =
-            Self::from_seed_phrase_with_path_and_passphrase(&phrase, hd_path, passphrase)?;
-        Ok((phrase, secret_key))
-    }
-
-    /// Generate a new random seed phrase and derive the corresponding
-    /// ML-DSA-65 secret key.
-    ///
-    /// Returns both the seed phrase (for backup) and the derived secret key.
-    /// Uses [`DEFAULT_ML_DSA_65_WORD_COUNT`] (24) words and the standard NEAR
-    /// HD path.
-    ///
-    /// NEP-649 (<https://github.com/near/NEPs/pull/649>) requires a newly
-    /// generated ML-DSA-65 mnemonic to carry at least 18 words — 12 words is
-    /// 128 bits of entropy, below ML-DSA-65's NIST Category 3 level — and its
-    /// own vectors use 24. Recovery is unaffected:
-    /// [`SecretKey::ml_dsa65_from_seed_phrase`] and friends still accept any
-    /// valid 12–24-word BIP-39 phrase.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit_primitives::signer::SecretKey;
-    ///
-    /// let (phrase, secret_key) = SecretKey::ml_dsa65_generate_with_seed_phrase().unwrap();
-    /// assert_eq!(phrase.split_whitespace().count(), 24);
-    /// assert!(secret_key.to_string().starts_with("ml-dsa-65:"));
-    /// println!("Backup your seed phrase: {}", phrase);
-    /// ```
-    #[cfg(feature = "mnemonic")]
-    pub fn ml_dsa65_generate_with_seed_phrase() -> Result<(String, Self), SignerError> {
-        Self::ml_dsa65_generate_with_seed_phrase_custom(
-            DEFAULT_ML_DSA_65_WORD_COUNT,
-            DEFAULT_HD_PATH,
-            None,
-        )
-    }
-
-    /// Generate a new random ML-DSA-65 seed phrase with custom word count.
-    ///
-    /// # Arguments
-    ///
-    /// * `word_count` - Number of words (18, 21, or 24). Per NEP-649
-    ///   (<https://github.com/near/NEPs/pull/649>), 12 and 15 are rejected for
-    ///   newly generated ML-DSA-65 phrases.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit_primitives::signer::SecretKey;
-    ///
-    /// let (phrase, secret_key) = SecretKey::ml_dsa65_generate_with_seed_phrase_words(18).unwrap();
-    /// assert_eq!(phrase.split_whitespace().count(), 18);
-    /// assert!(SecretKey::ml_dsa65_generate_with_seed_phrase_words(12).is_err());
-    /// ```
-    #[cfg(feature = "mnemonic")]
-    pub fn ml_dsa65_generate_with_seed_phrase_words(
-        word_count: usize,
-    ) -> Result<(String, Self), SignerError> {
-        Self::ml_dsa65_generate_with_seed_phrase_custom(word_count, DEFAULT_HD_PATH, None)
-    }
-
-    /// Generate a new random ML-DSA-65 seed phrase with full customization.
-    ///
-    /// # Arguments
-    ///
-    /// * `word_count` - Number of words (18, 21, or 24)
-    /// * `hd_path` - BIP-32 derivation path
-    /// * `passphrase` - Optional passphrase for additional entropy
+    /// - [`KeyType::Ed25519`] uses SLIP-10 Ed25519 derivation, compatible
+    ///   with near-cli and wallets.
+    /// - [`KeyType::MlDsa65`] uses the post-quantum SLIP-10 construction from
+    ///   satoshilabs/slips#1968, specified for NEAR by NEP-649
+    ///   (<https://github.com/near/NEPs/pull/649>): the 32-byte node secret is
+    ///   the FIPS-204 seed ξ fed to ML-DSA-65 KeyGen. Its master salt differs
+    ///   from the Ed25519 branch, so the two keys derived from one phrase are
+    ///   unrelated.
     ///
     /// # Errors
     ///
-    /// Returns [`SignerError::KeyDerivationFailed`] if `word_count` is below
-    /// the 18-word NEP-649 floor for newly generated ML-DSA-65 phrases, or is
-    /// not one of the valid BIP-39 word counts.
+    /// [`SignerError::InvalidSeedPhrase`] for an invalid phrase, and
+    /// [`SignerError::KeyDerivationFailed`] for an invalid path or for
+    /// [`KeyType::Secp256k1`], which has no seed-phrase derivation.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit_primitives::signer::{KeyType, SecretKey};
+    ///
+    /// let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    /// let ed25519 = SecretKey::from_seed_phrase(KeyType::Ed25519, phrase, None, None)?;
+    /// let second = SecretKey::from_seed_phrase(KeyType::Ed25519, phrase, Some("m/44'/397'/1'"), None)?;
+    /// let ml_dsa = SecretKey::from_seed_phrase(KeyType::MlDsa65, phrase, None, Some("passphrase"))?;
+    /// assert!(ml_dsa.to_string().starts_with("ml-dsa-65:"));
+    /// # Ok::<(), near_kit_primitives::signer::SignerError>(())
+    /// ```
     #[cfg(feature = "mnemonic")]
-    pub fn ml_dsa65_generate_with_seed_phrase_custom(
-        word_count: usize,
-        hd_path: impl AsRef<str>,
+    pub fn from_seed_phrase(
+        key_type: KeyType,
+        phrase: impl AsRef<str>,
+        hd_path: Option<&str>,
         passphrase: Option<&str>,
+    ) -> Result<Self, SignerError> {
+        let seed = mnemonic_to_seed(phrase, passphrase)?;
+        let path = parse_hd_path(hd_path.unwrap_or(DEFAULT_HD_PATH))
+            .map_err(|e| SignerError::KeyDerivationFailed(format!("Invalid HD path: {e}")))?;
+        match key_type {
+            KeyType::Ed25519 => Ok(Self::ed25519_from_bytes(derive_ed25519_slip10(
+                &seed, &path,
+            ))),
+            KeyType::MlDsa65 => Ok(Self::ml_dsa65_from_seed(derive_ml_dsa65_slip10(
+                &seed, &path,
+            ))),
+            KeyType::Secp256k1 => Err(SignerError::KeyDerivationFailed(
+                "seed-phrase derivation supports Ed25519 and ML-DSA-65 keys, not secp256k1"
+                    .to_string(),
+            )),
+        }
+    }
+
+    /// Generate a random BIP-39 seed phrase and derive a secret key of
+    /// `key_type` from it with the default HD path and no passphrase.
+    ///
+    /// Returns the phrase (for backup) and the key. `word_count` is 12, 15,
+    /// 18, 21 or 24; `None` means 12 for Ed25519 and 24 for ML-DSA-65.
+    /// NEP-649 (<https://github.com/near/NEPs/pull/649>) requires a newly
+    /// generated ML-DSA-65 phrase to have at least 18 words (12 words is 128
+    /// bits of entropy, below ML-DSA-65's NIST Category 3 level), so 12 and
+    /// 15 are rejected for it. Recovery with
+    /// [`from_seed_phrase`](Self::from_seed_phrase) accepts any length. For
+    /// another path or a passphrase, derive again from the returned phrase.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit_primitives::signer::{KeyType, SecretKey};
+    ///
+    /// let (phrase, key) = SecretKey::generate_with_seed_phrase(KeyType::Ed25519, None)?;
+    /// assert_eq!(phrase.split_whitespace().count(), 12);
+    ///
+    /// let (phrase, key) = SecretKey::generate_with_seed_phrase(KeyType::MlDsa65, None)?;
+    /// assert_eq!(phrase.split_whitespace().count(), 24);
+    /// assert!(SecretKey::generate_with_seed_phrase(KeyType::MlDsa65, Some(12)).is_err());
+    /// # Ok::<(), near_kit_primitives::signer::SignerError>(())
+    /// ```
+    #[cfg(feature = "mnemonic")]
+    pub fn generate_with_seed_phrase(
+        key_type: KeyType,
+        word_count: Option<usize>,
     ) -> Result<(String, Self), SignerError> {
-        if word_count < MIN_ML_DSA_65_WORD_COUNT {
+        let word_count = word_count.unwrap_or(match key_type {
+            KeyType::MlDsa65 => DEFAULT_ML_DSA_65_WORD_COUNT,
+            KeyType::Ed25519 | KeyType::Secp256k1 => DEFAULT_WORD_COUNT,
+        });
+        if key_type == KeyType::MlDsa65 && word_count < MIN_ML_DSA_65_WORD_COUNT {
             return Err(SignerError::KeyDerivationFailed(format!(
                 "Invalid word count: {}. NEP-649 requires at least {} words for a newly \
                  generated ML-DSA-65 seed phrase (12 words is 128 bits of entropy, below \
@@ -1196,8 +962,7 @@ impl SecretKey {
             )));
         }
         let phrase = generate_seed_phrase(word_count)?;
-        let secret_key =
-            Self::ml_dsa65_from_seed_phrase_with_path_and_passphrase(&phrase, hd_path, passphrase)?;
+        let secret_key = Self::from_seed_phrase(key_type, &phrase, None, None)?;
         Ok((phrase, secret_key))
     }
 }
@@ -1551,22 +1316,9 @@ fn mnemonic_to_seed(
     Ok(mnemonic.to_seed(passphrase.unwrap_or("")))
 }
 
-/// Generate a random BIP-39 seed phrase.
-///
-/// # Arguments
-///
-/// * `word_count` - Number of words (12, 15, 18, 21, or 24)
-///
-/// # Example
-///
-/// ```rust
-/// use near_kit_primitives::signer::generate_seed_phrase;
-///
-/// let phrase = generate_seed_phrase(12).unwrap();
-/// assert_eq!(phrase.split_whitespace().count(), 12);
-/// ```
+/// Generate a random BIP-39 seed phrase of 12, 15, 18, 21 or 24 words.
 #[cfg(feature = "mnemonic")]
-pub fn generate_seed_phrase(word_count: usize) -> Result<String, SignerError> {
+fn generate_seed_phrase(word_count: usize) -> Result<String, SignerError> {
     // Word count to entropy bytes: 12->16, 15->20, 18->24, 21->28, 24->32
     let entropy_bytes = match word_count {
         12 => 16,
@@ -1720,10 +1472,12 @@ mod tests {
     #[test]
     fn test_from_seed_phrase_known_vector() {
         // Test vector: known seed phrase should produce consistent key
-        let secret_key = SecretKey::from_seed_phrase(TEST_PHRASE).unwrap();
+        let secret_key =
+            SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, None, None).unwrap();
 
         // Same phrase should always produce the same key
-        let secret_key2 = SecretKey::from_seed_phrase(TEST_PHRASE).unwrap();
+        let secret_key2 =
+            SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, None, None).unwrap();
         assert_eq!(secret_key.public_key(), secret_key2.public_key());
     }
 
@@ -1734,9 +1488,9 @@ mod tests {
         let phrase2 = "  abandon   abandon  abandon abandon abandon abandon abandon abandon abandon abandon abandon about  ";
         let phrase3 = "ABANDON ABANDON ABANDON ABANDON ABANDON ABANDON ABANDON ABANDON ABANDON ABANDON ABANDON ABOUT";
 
-        let key1 = SecretKey::from_seed_phrase(phrase1).unwrap();
-        let key2 = SecretKey::from_seed_phrase(phrase2).unwrap();
-        let key3 = SecretKey::from_seed_phrase(phrase3).unwrap();
+        let key1 = SecretKey::from_seed_phrase(KeyType::Ed25519, phrase1, None, None).unwrap();
+        let key2 = SecretKey::from_seed_phrase(KeyType::Ed25519, phrase2, None, None).unwrap();
+        let key3 = SecretKey::from_seed_phrase(KeyType::Ed25519, phrase3, None, None).unwrap();
 
         assert_eq!(key1.public_key(), key2.public_key());
         assert_eq!(key1.public_key(), key3.public_key());
@@ -1745,15 +1499,24 @@ mod tests {
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_from_seed_phrase_invalid() {
-        let result = SecretKey::from_seed_phrase("invalid words that are not a mnemonic");
+        let result = SecretKey::from_seed_phrase(
+            KeyType::Ed25519,
+            "invalid words that are not a mnemonic",
+            None,
+            None,
+        );
         assert!(result.is_err());
     }
 
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_from_seed_phrase_different_paths() {
-        let key1 = SecretKey::from_seed_phrase_with_path(TEST_PHRASE, "m/44'/397'/0'").unwrap();
-        let key2 = SecretKey::from_seed_phrase_with_path(TEST_PHRASE, "m/44'/397'/1'").unwrap();
+        let key1 =
+            SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, Some("m/44'/397'/0'"), None)
+                .unwrap();
+        let key2 =
+            SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, Some("m/44'/397'/1'"), None)
+                .unwrap();
 
         // Different paths should produce different keys
         assert_ne!(key1.public_key(), key2.public_key());
@@ -1762,16 +1525,14 @@ mod tests {
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_from_seed_phrase_with_passphrase() {
-        let key_no_pass = SecretKey::from_seed_phrase_with_path_and_passphrase(
-            TEST_PHRASE,
-            DEFAULT_HD_PATH,
-            None,
-        )
-        .unwrap();
+        let key_no_pass =
+            SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, Some(DEFAULT_HD_PATH), None)
+                .unwrap();
 
-        let key_with_pass = SecretKey::from_seed_phrase_with_path_and_passphrase(
+        let key_with_pass = SecretKey::from_seed_phrase(
+            KeyType::Ed25519,
             TEST_PHRASE,
-            DEFAULT_HD_PATH,
+            Some(DEFAULT_HD_PATH),
             Some("my-password"),
         )
         .unwrap();
@@ -1783,31 +1544,34 @@ mod tests {
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_generate_with_seed_phrase() {
-        let (phrase, secret_key) = SecretKey::generate_with_seed_phrase().unwrap();
+        let (phrase, secret_key) =
+            SecretKey::generate_with_seed_phrase(KeyType::Ed25519, None).unwrap();
 
         // Phrase should be 12 words
         assert_eq!(phrase.split_whitespace().count(), 12);
 
         // Re-deriving from the phrase should produce the same key
-        let derived = SecretKey::from_seed_phrase(&phrase).unwrap();
+        let derived = SecretKey::from_seed_phrase(KeyType::Ed25519, &phrase, None, None).unwrap();
         assert_eq!(secret_key.public_key(), derived.public_key());
     }
 
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_generate_with_seed_phrase_24_words() {
-        let (phrase, secret_key) = SecretKey::generate_with_seed_phrase_words(24).unwrap();
+        let (phrase, secret_key) =
+            SecretKey::generate_with_seed_phrase(KeyType::Ed25519, Some(24)).unwrap();
 
         assert_eq!(phrase.split_whitespace().count(), 24);
 
-        let derived = SecretKey::from_seed_phrase(&phrase).unwrap();
+        let derived = SecretKey::from_seed_phrase(KeyType::Ed25519, &phrase, None, None).unwrap();
         assert_eq!(secret_key.public_key(), derived.public_key());
     }
 
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_seed_phrase_key_can_sign() {
-        let secret_key = SecretKey::from_seed_phrase(TEST_PHRASE).unwrap();
+        let secret_key =
+            SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, None, None).unwrap();
 
         let message = b"test message";
         let signature = secret_key.sign(message);
@@ -2570,7 +2334,8 @@ mod tests {
         // TypeScript SDK (r-near/near-kit#224). This proves both SDKs derive
         // byte-identically. ML-DSA-65 secret keys serialize as their 32-byte
         // FIPS-204 seed under the `ml-dsa-65:` prefix.
-        let secret = SecretKey::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
+        let secret =
+            SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, None, None).unwrap();
         assert_eq!(secret.key_type(), KeyType::MlDsa65);
         assert_eq!(
             secret.to_string(),
@@ -2581,8 +2346,8 @@ mod tests {
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_from_seed_phrase_deterministic() {
-        let key1 = SecretKey::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
-        let key2 = SecretKey::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
+        let key1 = SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, None, None).unwrap();
+        let key2 = SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, None, None).unwrap();
         assert_eq!(key1.as_bytes(), key2.as_bytes());
         assert_eq!(key1.public_key(), key2.public_key());
     }
@@ -2591,24 +2356,24 @@ mod tests {
     #[test]
     fn test_ml_dsa65_from_seed_phrase_different_paths() {
         let key1 =
-            SecretKey::ml_dsa65_from_seed_phrase_with_path(TEST_PHRASE, "m/44'/397'/0'").unwrap();
+            SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, Some("m/44'/397'/0'"), None)
+                .unwrap();
         let key2 =
-            SecretKey::ml_dsa65_from_seed_phrase_with_path(TEST_PHRASE, "m/44'/397'/1'").unwrap();
+            SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, Some("m/44'/397'/1'"), None)
+                .unwrap();
         assert_ne!(key1.public_key(), key2.public_key());
     }
 
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_from_seed_phrase_with_passphrase() {
-        let no_pass = SecretKey::ml_dsa65_from_seed_phrase_with_path_and_passphrase(
+        let no_pass =
+            SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, Some(DEFAULT_HD_PATH), None)
+                .unwrap();
+        let with_pass = SecretKey::from_seed_phrase(
+            KeyType::MlDsa65,
             TEST_PHRASE,
-            DEFAULT_HD_PATH,
-            None,
-        )
-        .unwrap();
-        let with_pass = SecretKey::ml_dsa65_from_seed_phrase_with_path_and_passphrase(
-            TEST_PHRASE,
-            DEFAULT_HD_PATH,
+            Some(DEFAULT_HD_PATH),
             Some("my-password"),
         )
         .unwrap();
@@ -2620,8 +2385,8 @@ mod tests {
     fn test_ml_dsa65_seed_phrase_differs_from_ed25519() {
         // The ML-DSA-65 and Ed25519 branches share the SLIP-10 machinery but
         // use different master salts, so the same phrase yields unrelated keys.
-        let ml = SecretKey::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
-        let ed = SecretKey::from_seed_phrase(TEST_PHRASE).unwrap();
+        let ml = SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, None, None).unwrap();
+        let ed = SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, None, None).unwrap();
         assert_eq!(ml.key_type(), KeyType::MlDsa65);
         assert_eq!(ed.key_type(), KeyType::Ed25519);
         // The 32-byte node secrets (both keys' `as_bytes`) must not collide.
@@ -2631,14 +2396,20 @@ mod tests {
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_from_seed_phrase_invalid() {
-        let result = SecretKey::ml_dsa65_from_seed_phrase("invalid words that are not a mnemonic");
+        let result = SecretKey::from_seed_phrase(
+            KeyType::MlDsa65,
+            "invalid words that are not a mnemonic",
+            None,
+            None,
+        );
         assert!(result.is_err());
     }
 
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_seed_phrase_key_can_sign() {
-        let secret = SecretKey::ml_dsa65_from_seed_phrase(TEST_PHRASE).unwrap();
+        let secret =
+            SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, None, None).unwrap();
         let public = secret.public_key();
         let message = b"post-quantum seed phrase";
         assert!(secret.sign(message).verify(message, &public));
@@ -2647,7 +2418,8 @@ mod tests {
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_generate_with_seed_phrase_defaults_to_24_words() {
-        let (phrase, secret) = SecretKey::ml_dsa65_generate_with_seed_phrase().unwrap();
+        let (phrase, secret) =
+            SecretKey::generate_with_seed_phrase(KeyType::MlDsa65, None).unwrap();
 
         assert_eq!(DEFAULT_ML_DSA_65_WORD_COUNT, 24);
         assert_eq!(
@@ -2660,10 +2432,11 @@ mod tests {
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_generate_with_seed_phrase_roundtrips() {
-        let (phrase, secret) = SecretKey::ml_dsa65_generate_with_seed_phrase().unwrap();
+        let (phrase, secret) =
+            SecretKey::generate_with_seed_phrase(KeyType::MlDsa65, None).unwrap();
 
         // Re-deriving from the returned phrase yields the same key.
-        let derived = SecretKey::ml_dsa65_from_seed_phrase(&phrase).unwrap();
+        let derived = SecretKey::from_seed_phrase(KeyType::MlDsa65, &phrase, None, None).unwrap();
         assert_eq!(secret.public_key(), derived.public_key());
     }
 
@@ -2672,7 +2445,8 @@ mod tests {
     fn test_ml_dsa65_generate_with_seed_phrase_rejects_short_word_counts() {
         // NEP-649: a newly generated ML-DSA-65 mnemonic needs at least 18 words.
         for word_count in [12, 15] {
-            let err = SecretKey::ml_dsa65_generate_with_seed_phrase_words(word_count).unwrap_err();
+            let err = SecretKey::generate_with_seed_phrase(KeyType::MlDsa65, Some(word_count))
+                .unwrap_err();
             assert!(
                 matches!(err, SignerError::KeyDerivationFailed(ref msg) if msg.contains("NEP-649")),
                 "unexpected error for {word_count} words: {err}"
@@ -2685,7 +2459,7 @@ mod tests {
     fn test_ml_dsa65_generate_with_seed_phrase_accepts_18_21_24() {
         for word_count in [18, 21, 24] {
             let (phrase, secret) =
-                SecretKey::ml_dsa65_generate_with_seed_phrase_words(word_count).unwrap();
+                SecretKey::generate_with_seed_phrase(KeyType::MlDsa65, Some(word_count)).unwrap();
             assert_eq!(phrase.split_whitespace().count(), word_count);
             assert_eq!(secret.key_type(), KeyType::MlDsa65);
         }
@@ -2693,26 +2467,33 @@ mod tests {
 
     #[cfg(feature = "mnemonic")]
     #[test]
-    fn test_ml_dsa65_generate_with_seed_phrase_custom() {
+    fn test_ml_dsa65_generate_with_seed_phrase_uses_default_path_and_no_passphrase() {
         let (phrase, secret) =
-            SecretKey::ml_dsa65_generate_with_seed_phrase_custom(18, "m/44'/397'/1'", Some("pw"))
-                .unwrap();
+            SecretKey::generate_with_seed_phrase(KeyType::MlDsa65, Some(18)).unwrap();
         assert_eq!(phrase.split_whitespace().count(), 18);
 
-        let derived = SecretKey::ml_dsa65_from_seed_phrase_with_path_and_passphrase(
-            &phrase,
-            "m/44'/397'/1'",
-            Some("pw"),
-        )
-        .unwrap();
+        let derived =
+            SecretKey::from_seed_phrase(KeyType::MlDsa65, &phrase, Some("m/44'/397'/0'"), Some(""))
+                .unwrap();
         assert_eq!(secret.public_key(), derived.public_key());
+    }
+
+    #[cfg(feature = "mnemonic")]
+    #[test]
+    fn test_secp256k1_has_no_seed_phrase_derivation() {
+        assert!(matches!(
+            SecretKey::from_seed_phrase(KeyType::Secp256k1, TEST_PHRASE, None, None),
+            Err(SignerError::KeyDerivationFailed(_))
+        ));
+        assert!(SecretKey::generate_with_seed_phrase(KeyType::Secp256k1, None).is_err());
     }
 
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ed25519_generate_with_seed_phrase_still_12_words() {
         // The NEP-649 floor applies only to the ML-DSA-65 path.
-        let (phrase, secret) = SecretKey::generate_with_seed_phrase().unwrap();
+        let (phrase, secret) =
+            SecretKey::generate_with_seed_phrase(KeyType::Ed25519, None).unwrap();
         assert_eq!(DEFAULT_WORD_COUNT, 12);
         assert_eq!(phrase.split_whitespace().count(), DEFAULT_WORD_COUNT);
         assert_eq!(secret.key_type(), KeyType::Ed25519);

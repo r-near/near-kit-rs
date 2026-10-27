@@ -61,8 +61,7 @@ async fn with_signer_replaces_the_client_signer() {
     let (_, override_id, override_key) =
         funded_account(&root, sandbox, "override", NearToken::from_near(10)).await;
     let child: AccountId = format!("child.{override_id}").parse().unwrap();
-    let override_signer =
-        InMemorySigner::from_secret_key(override_id, override_key).expect("override signer");
+    let override_signer = InMemorySigner::new(override_id, override_key);
 
     default_client
         .near()

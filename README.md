@@ -52,7 +52,7 @@ async fn main() -> Result<(), Error> {
     println!("{} available, count = {count}", balance.available);
 
     // Writes need a signer.
-    let me = near.with_signer(InMemorySigner::new(account!("me.testnet"), "ed25519:...")?);
+    let me = near.with_signer(InMemorySigner::new(account!("me.testnet"), "ed25519:...".parse()?));
     me.transaction(account!("bob.testnet"))
         .add_action(Action::transfer(NearToken::from_near(1)))
         .await?;
@@ -143,8 +143,8 @@ account:
 
 ```rust
 let near = Near::testnet().build();
-let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...")?);
-let bob = near.with_signer(InMemorySigner::new(account!("bob.testnet"), "ed25519:...")?);
+let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...".parse()?));
+let bob = near.with_signer(InMemorySigner::new(account!("bob.testnet"), "ed25519:...".parse()?));
 ```
 
 `alice.near()` gets the read-only client back.

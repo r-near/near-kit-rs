@@ -794,13 +794,10 @@ mod tests {
     fn test_signing() -> SigningNear {
         crate::Near::custom("http://127.0.0.1:1", "test")
             .build()
-            .with_signer(
-                InMemorySigner::from_secret_key(
-                    account!("alice.testnet"),
-                    SecretKey::generate_ed25519(),
-                )
-                .unwrap(),
-            )
+            .with_signer(InMemorySigner::new(
+                account!("alice.testnet"),
+                SecretKey::generate_ed25519(),
+            ))
     }
 
     fn test_tx() -> Tx {
@@ -1068,7 +1065,7 @@ mod tests {
         let near = crate::Near::custom("http://bootstrap.invalid", "test")
             .transport(transport.clone())
             .build()
-            .with_signer(InMemorySigner::from_secret_key(account_id.clone(), key).unwrap());
+            .with_signer(InMemorySigner::new(account_id.clone(), key));
 
         near.wait_until::<Submitted>()
             .transaction(&account_id)
@@ -1100,7 +1097,7 @@ mod tests {
         let near = crate::Near::custom("http://bootstrap.invalid", "test")
             .transport(UninitializedUniversalTransport::default())
             .build()
-            .with_signer(InMemorySigner::from_secret_key(account_id.clone(), key).unwrap());
+            .with_signer(InMemorySigner::new(account_id.clone(), key));
 
         let error = near
             .sign(
@@ -1207,11 +1204,7 @@ mod tests {
     #[tokio::test]
     async fn tx_sender_send_uses_the_same_retrying_path() {
         let transport = NonceRetryTransport::new(vec![invalid_nonce_body(6, 20), accepted_body()]);
-        let signer = InMemorySigner::from_secret_key(
-            account!("alice.testnet"),
-            SecretKey::generate_ed25519(),
-        )
-        .unwrap();
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
         let near = crate::Near::custom("http://tx-sender.invalid", "test")
             .transport(transport.clone())
             .build()
@@ -1235,11 +1228,7 @@ mod tests {
     async fn expired_retries_honor_configured_maximum() {
         let transport =
             NonceRetryTransport::new(vec![expired_body(), expired_body(), accepted_body()]);
-        let signer = InMemorySigner::from_secret_key(
-            account!("alice.testnet"),
-            SecretKey::generate_ed25519(),
-        )
-        .unwrap();
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
         let near = crate::Near::custom("http://expired-retry.invalid", "test")
             .transport(transport.clone())
             .max_nonce_retries(2)
@@ -1259,11 +1248,7 @@ mod tests {
     #[tokio::test]
     async fn expired_with_zero_retries_sends_once() {
         let transport = NonceRetryTransport::new(vec![expired_body()]);
-        let signer = InMemorySigner::from_secret_key(
-            account!("alice.testnet"),
-            SecretKey::generate_ed25519(),
-        )
-        .unwrap();
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
         let near = crate::Near::custom("http://no-expired-retry.invalid", "test")
             .transport(transport.clone())
             .max_nonce_retries(0)

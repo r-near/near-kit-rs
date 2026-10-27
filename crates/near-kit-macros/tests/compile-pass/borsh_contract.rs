@@ -24,8 +24,7 @@ fn main() {
     let _view: View<Near, u64> = client.get_value();
     let _view: View<Near, bool> = client.get_flag();
     let account: SigningNear = near.with_signer(
-        InMemorySigner::from_secret_key(account!("alice.testnet"), SecretKey::generate_ed25519())
-            .unwrap(),
+        InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519()),
     );
     let signing_client: BorshContractClient<SigningNear> =
         account.contract::<BorshContract>(account!("contract.testnet"));

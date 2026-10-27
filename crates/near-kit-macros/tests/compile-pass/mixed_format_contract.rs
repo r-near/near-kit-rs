@@ -49,8 +49,7 @@ pub trait MixedContractBorshDefault {
 fn main() {
     let near = Near::testnet().build();
     let account: SigningNear = near.with_signer(
-        InMemorySigner::from_secret_key(account!("alice.testnet"), SecretKey::generate_ed25519())
-            .unwrap(),
+        InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519()),
     );
 
     {

@@ -46,10 +46,7 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
     let bot_near = sandbox
         .client()
         .near()
-        .with_signer(InMemorySigner::from_secret_key(
-            &bot_account,
-            secret_keys[0].clone(),
-        )?);
+        .with_signer(InMemorySigner::new(&bot_account, secret_keys[0].clone()));
 
     secret_keys[1..]
         .iter()
@@ -71,7 +68,7 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
 
     println!(
         "Splitting {} keys into per-key signers...",
-        rotating.key_count()
+        rotating.public_keys().len()
     );
     let per_key_signers = rotating.into_per_key_signers();
 

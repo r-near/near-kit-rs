@@ -34,7 +34,7 @@ async fn deploy_ft_contract(
     // The near-sdk-rs example FT uses "new" with owner_id, total_supply, metadata
     let ft_near = near
         .near()
-        .with_signer(InMemorySigner::new(&ft_id, ft_key.to_string())?);
+        .with_signer(InMemorySigner::new(&ft_id, ft_key.to_string().parse()?));
 
     ft_near
         .transaction(&ft_id)
@@ -155,10 +155,10 @@ async fn test_ft_transfer() {
     let receiver_key = SecretKey::generate_ed25519();
     let receiver_id: AccountId = format!("receiver.{}", owner_id).parse().unwrap();
 
-    let owner_near = sandbox
-        .client()
-        .near()
-        .with_signer(InMemorySigner::new(&owner_id, owner_key.to_string()).unwrap());
+    let owner_near = sandbox.client().near().with_signer(InMemorySigner::new(
+        &owner_id,
+        owner_key.to_string().parse().unwrap(),
+    ));
 
     owner_near
         .wait_until::<Final>()
@@ -232,7 +232,7 @@ async fn deploy_nft_contract(
     // Initialize the NFT contract
     let nft_near = near
         .near()
-        .with_signer(InMemorySigner::new(&nft_id, nft_key.to_string())?);
+        .with_signer(InMemorySigner::new(&nft_id, nft_key.to_string().parse()?));
 
     nft_near
         .transaction(&nft_id)
@@ -263,7 +263,7 @@ async fn mint_nft(
 ) -> Result<(), Error> {
     let nft_near = near
         .near()
-        .with_signer(InMemorySigner::new(nft_id, nft_key.to_string())?);
+        .with_signer(InMemorySigner::new(nft_id, nft_key.to_string().parse()?));
 
     nft_near
         .transaction(nft_id)
@@ -438,10 +438,10 @@ async fn test_nft_transfer() {
         .unwrap();
 
     // Create owner's client for signing
-    let owner_near = sandbox
-        .client()
-        .near()
-        .with_signer(InMemorySigner::new(&owner_id, owner_key.to_string()).unwrap());
+    let owner_near = sandbox.client().near().with_signer(InMemorySigner::new(
+        &owner_id,
+        owner_key.to_string().parse().unwrap(),
+    ));
 
     // Create receiver account - must be created by owner
     let receiver_key = SecretKey::generate_ed25519();
@@ -547,10 +547,10 @@ async fn test_nft_supply_for_owner() {
         .unwrap();
 
     // Create owner1's client for signing
-    let owner1_near = sandbox
-        .client()
-        .near()
-        .with_signer(InMemorySigner::new(&owner1_id, owner1_key.to_string()).unwrap());
+    let owner1_near = sandbox.client().near().with_signer(InMemorySigner::new(
+        &owner1_id,
+        owner1_key.to_string().parse().unwrap(),
+    ));
 
     // Create second owner as subaccount of owner1
     let owner2_key = SecretKey::generate_ed25519();

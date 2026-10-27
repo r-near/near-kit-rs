@@ -54,9 +54,9 @@ async fn test_gas_key_signed_transaction() {
         .await
         .expect("create owner account");
 
-    let owner_near = root_near.near().with_signer(
-        InMemorySigner::from_secret_key(owner_id.clone(), owner_key.clone()).expect("owner signer"),
-    );
+    let owner_near = root_near
+        .near()
+        .with_signer(InMemorySigner::new(owner_id.clone(), owner_key.clone()));
 
     // --- 2. Add a gas key (GasKeyFullAccess) and fund it. -------------------
     let gas_key = SecretKey::generate_ed25519();

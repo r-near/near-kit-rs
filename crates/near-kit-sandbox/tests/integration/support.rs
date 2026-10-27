@@ -36,8 +36,7 @@ pub(crate) fn client_for(
     account_id: &AccountId,
     secret_key: &SecretKey,
 ) -> SigningNear {
-    let signer = InMemorySigner::from_secret_key(account_id.clone(), secret_key.clone())
-        .expect("typed sandbox account and key must create a signer");
+    let signer = InMemorySigner::new(account_id.clone(), secret_key.clone());
     sandbox.client().near().with_signer(signer)
 }
 

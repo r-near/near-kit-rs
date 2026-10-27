@@ -102,7 +102,7 @@ impl FileSigner {
             ))
         })?;
 
-        let inner = InMemorySigner::new(account_id, &cred.private_key)?;
+        let inner = InMemorySigner::new(account_id, cred.private_key.parse()?);
         Ok(Self { inner })
     }
 
@@ -208,7 +208,7 @@ impl EnvSigner {
             crate::error::Error::Config(format!("Environment variable {} not set", key_var))
         })?;
 
-        let inner = InMemorySigner::new(account_id.parse::<AccountId>()?, &private_key)?;
+        let inner = InMemorySigner::new(account_id.parse::<AccountId>()?, private_key.parse()?);
         Ok(Self { inner })
     }
 
