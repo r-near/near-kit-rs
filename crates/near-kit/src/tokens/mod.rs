@@ -19,9 +19,9 @@
 //! let metadata = token.metadata().await?;
 //! println!("Token: {} ({})", metadata.name, metadata.symbol);
 //!
-//! // Query balance - returns FtAmount with decimals for formatting
+//! // Query a balance, in the token's smallest unit (scale by metadata.decimals)
 //! let balance = token.balance_of(account!("alice.near")).await?;
-//! println!("Balance: {}", balance);
+//! println!("Balance: {balance}");
 //!
 //! // Transfer tokens as alice, with or without a memo
 //! token.transfer(account!("bob.near"), 1_500_000_u128, None).await?;

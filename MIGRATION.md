@@ -221,7 +221,7 @@ let account = near
 | `impl IntoGas` (`"30 Tgas"`) | `Gas` (`Gas::from_tgas(30)`, or `"30 Tgas".parse()?`) |
 | `impl TryIntoGlobalContractId` | `Action::deploy_from_account(id)` / `Action::deploy_from_hash(hash)`, or a `GlobalContractId` |
 | `protocol::{TryIntoAccountId, IntoNearToken, IntoGas, TryIntoGlobalContractId, ParseGasError}` | Removed |
-| `Error::ParseAmount`, `Error::ParseGas`, `ParseAmountError::AmbiguousAmount` | Removed. `ParseAmountError` stays for `FtAmount::parse`. |
+| `Error::ParseAmount`, `Error::ParseGas`, `ParseAmountError::AmbiguousAmount` | Removed. So is the rest of `ParseAmountError`, with `FtAmount` (see tokens). |
 
 This also covers the signer constructors (`InMemorySigner`, `RotatingSigner`,
 `FileSigner`, `KeyringSigner`), `FunctionCall::gas`/`deposit`, the FT/NFT
@@ -297,6 +297,8 @@ dyn MySender`.
 | `FungibleToken`, `NonFungibleToken` | `FungibleToken<C = Near>`, `NonFungibleToken<C = Near>` |
 | `near.ft(id).transfer(to, amount)` on a signing `Near` | `signing.ft(id).transfer(to, amount, None)`. `near.ft(id)` is read-only. |
 | `transfer_with_memo(to, amount, memo)` | `transfer(to, amount, Some(memo))` |
+| `balance_of(..)` / `total_supply()` returning `FtAmount` (`.raw()`, `.decimals()`, `.symbol()`, `Display`) | They return `u128` in the token's smallest unit and no longer read metadata first. Drop `.raw()`; for display, use `metadata().await?.decimals` and `.symbol`. |
+| `FtAmount`, `FtAmount::parse`, `protocol::ParseAmountError` | Removed |
 | `.with_signer(s)` on a token client | `near.with_signer(s).ft(id)` |
 | Token calls return a `CallBuilder` | They return a `Call<C>`: `.gas(..)`, `.deposit(..)`, `.await` |
 | Token views return `Error` | They return `ContractError<C::ViewError>` (`?` still converts) |

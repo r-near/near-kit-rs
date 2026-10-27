@@ -5,7 +5,7 @@
 use near_kit::protocol::Action;
 use near_kit::transaction::FunctionCall;
 use near_kit::*;
-use near_kit::{signer::*, standards::FtAmount, transaction::Final};
+use near_kit::{signer::*, transaction::Final};
 
 use super::support::{fungible_token_wasm, nft_wasm, shared_client, unique_account};
 
@@ -92,15 +92,13 @@ async fn test_ft_metadata_and_cache() {
         "second metadata call should return the cached reference"
     );
 
-    // Queries that need metadata should reuse the same cached value.
     let first_balance = ft.balance_of(&owner_id).await.unwrap();
     let second_balance = ft.balance_of(&owner_id).await.unwrap();
-    assert_eq!(first_balance.symbol(), second_balance.symbol());
-    assert_eq!(first_balance.decimals(), second_balance.decimals());
+    assert_eq!(first_balance, second_balance);
 }
 
 #[tokio::test]
-async fn test_ft_balance_supply_and_amount_roundtrip() {
+async fn test_ft_balance_and_supply() {
     let (_sandbox, root_near) = shared_client().await;
 
     // Create owner account (will receive initial supply)
@@ -123,31 +121,17 @@ async fn test_ft_balance_supply_and_amount_roundtrip() {
     let ft = root_near.ft(&ft_id);
     let balance = ft.balance_of(&owner_id).await.unwrap();
 
-    // Owner should have initial supply
+    // Owner should have initial supply: 1M tokens with 18 decimals
     assert_eq!(
-        balance.raw(),
-        1_000_000_000_000_000_000_000_000_u128,
+        balance, 1_000_000_000_000_000_000_000_000_u128,
         "Owner should have 1M tokens"
     );
-    assert_eq!(balance.symbol(), "TEST");
-    assert_eq!(balance.decimals(), 18);
+    let metadata = ft.metadata().await.unwrap();
+    assert_eq!(metadata.symbol, "TEST");
+    assert_eq!(metadata.decimals, 18);
 
-    // Check display formatting
-    assert_eq!(format!("{}", balance), "1000000 TEST");
     let supply = ft.total_supply().await.unwrap();
-    assert_eq!(supply.raw(), 1_000_000_000_000_000_000_000_000_u128);
-    assert_eq!(balance.raw(), supply.raw());
-    assert_eq!(balance.decimals(), supply.decimals());
-    assert_eq!(balance.symbol(), supply.symbol());
-
-    let parsed = FtAmount::parse(
-        &balance.format_amount(),
-        balance.decimals(),
-        balance.symbol(),
-    )
-    .unwrap();
-    assert_eq!(parsed.raw(), balance.raw());
-    assert_eq!(parsed.to_string(), balance.to_string());
+    assert_eq!(supply, balance);
 }
 
 #[tokio::test]
@@ -217,13 +201,10 @@ async fn test_ft_transfer() {
     let receiver_balance_after = ft.balance_of(&receiver_id).await.unwrap();
 
     // Verify balances changed correctly
+    assert_eq!(owner_balance_after, owner_balance_before - transfer_amount);
     assert_eq!(
-        owner_balance_after.raw(),
-        owner_balance_before.raw() - transfer_amount
-    );
-    assert_eq!(
-        receiver_balance_after.raw(),
-        receiver_balance_before.raw() + transfer_amount
+        receiver_balance_after,
+        receiver_balance_before + transfer_amount
     );
 }
 

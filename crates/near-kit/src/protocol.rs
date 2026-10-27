@@ -24,8 +24,8 @@ pub use near_kit_primitives::protocol::{
 };
 #[doc(inline)]
 pub use near_kit_primitives::protocol::{
-    ActionViewConversionError, DecodeTransactionError, ParseAccountIdError, ParseAmountError,
-    ParseHashError, UniversalStateInitError,
+    ActionViewConversionError, DecodeTransactionError, ParseAccountIdError, ParseHashError,
+    UniversalStateInitError,
 };
 
 #[doc(inline)]

@@ -13,7 +13,7 @@ use crate::transaction::{Call, ContractError, FunctionCall};
 use crate::types::{AccountId, Gas, NearToken};
 use crate::{TxSender, Viewer};
 
-use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
+use super::types::{FtMetadata, StorageBalance, StorageBalanceBounds};
 use super::{Stringified, read};
 
 // =============================================================================
@@ -44,9 +44,9 @@ use super::{Stringified, read};
 /// let meta = token.metadata().await?;
 /// println!("{} has {} decimals", meta.symbol, meta.decimals);
 ///
-/// // Get balance (returns FtAmount for nice formatting)
-/// let balance = token.balance_of(account!("alice.near")).await?;
-/// println!("Balance: {}", balance);
+/// // Get a balance, in the token's smallest unit
+/// let balance: u128 = token.balance_of(account!("alice.near")).await?;
+/// println!("Balance: {balance}");
 /// # Ok(())
 /// # }
 /// ```
@@ -90,7 +90,8 @@ impl<C: Viewer> FungibleToken<C> {
 
     /// Get token balance for an account (ft_balance_of).
     ///
-    /// Returns an [`FtAmount`] with the token's decimals and symbol for easy formatting.
+    /// The balance is in the token's smallest unit. To display it, scale by
+    /// the `decimals` from [`metadata`](Self::metadata).
     ///
     /// # Example
     ///
@@ -99,21 +100,21 @@ impl<C: Viewer> FungibleToken<C> {
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
     /// let token = near.ft(account!("wrap.near"));
     ///
-    /// let balance = token.balance_of(account!("alice.near")).await?;
-    /// println!("Balance: {}", balance);
-    /// println!("Raw: {}", balance.raw());
+    /// let balance: u128 = token.balance_of(account!("alice.near")).await?;
+    /// let meta = token.metadata().await?;
+    /// let whole = balance / 10u128.pow(meta.decimals.into());
+    /// println!("{whole} {} (and {balance} raw)", meta.symbol);
     /// # Ok(())
     /// # }
     /// ```
     pub async fn balance_of(
         &self,
         account_id: impl Into<AccountId>,
-    ) -> Result<FtAmount, ContractError<C::ViewError>> {
+    ) -> Result<u128, ContractError<C::ViewError>> {
         let account_id = account_id.into();
         let span = trace::debug_span!("ft_balance_of", contract = %self.contract_id, %account_id);
 
         async {
-            let metadata = self.metadata().await?;
             let Stringified(raw) = read(
                 &self.backend,
                 &self.contract_id,
@@ -121,20 +122,17 @@ impl<C: Viewer> FungibleToken<C> {
                 Some(json!({ "account_id": account_id })),
             )
             .await?;
-            Ok(FtAmount::from_metadata(raw, metadata))
+            Ok(raw)
         }
         .instrument(span)
         .await
     }
 
-    /// Get total token supply (ft_total_supply).
-    ///
-    /// Returns an [`FtAmount`] with the token's decimals and symbol.
-    pub async fn total_supply(&self) -> Result<FtAmount, ContractError<C::ViewError>> {
-        let metadata = self.metadata().await?;
+    /// Get total token supply (ft_total_supply), in the token's smallest unit.
+    pub async fn total_supply(&self) -> Result<u128, ContractError<C::ViewError>> {
         let Stringified(raw) =
             read(&self.backend, &self.contract_id, "ft_total_supply", None).await?;
-        Ok(FtAmount::from_metadata(raw, metadata))
+        Ok(raw)
     }
 
     // =========================================================================
@@ -235,8 +233,8 @@ impl<C: TxSender + Clone> FungibleToken<C> {
 
     /// Transfer tokens to a receiver (ft_transfer), with an optional memo.
     ///
-    /// Amount is in raw token units. Use [`FtAmount`] from a previous query,
-    /// or specify the raw value directly.
+    /// Amount is in the token's smallest unit, as [`balance_of`](Self::balance_of)
+    /// returns it.
     ///
     /// # Security
     ///
@@ -252,7 +250,7 @@ impl<C: TxSender + Clone> FungibleToken<C> {
     ///
     /// token.transfer(account!("bob.near"), 1_500_000_u128, None).await?;
     ///
-    /// // Or use an FtAmount from a query, with a memo
+    /// // Or send a whole balance, with a memo
     /// let balance = token.balance_of(account!("alice.near")).await?;
     /// token
     ///     .transfer(account!("bob.near"), balance, Some("rent".into()))
@@ -417,31 +415,33 @@ mod tests {
             .answer("ft_total_supply", json!("9000000"));
         let token = FungibleToken::new(mock.clone(), account!("token.near"));
 
-        let balance = token.balance_of(account!("alice.near")).await.unwrap();
-        assert_eq!(balance.raw(), 1_500_000);
-        assert_eq!(balance.to_string(), "1.5 TEST");
-        assert_eq!(token.total_supply().await.unwrap().raw(), 9_000_000);
+        assert_eq!(
+            token.balance_of(account!("alice.near")).await.unwrap(),
+            1_500_000
+        );
+        assert_eq!(token.total_supply().await.unwrap(), 9_000_000);
+        assert_eq!(token.metadata().await.unwrap().decimals, 6);
+        assert_eq!(token.metadata().await.unwrap().symbol, "TEST");
 
         let seen = mock.seen.lock().unwrap().clone();
         assert_eq!(
             seen,
             [
-                ("ft_metadata".to_owned(), serde_json::Value::Null),
                 (
                     "ft_balance_of".to_owned(),
                     json!({ "account_id": "alice.near" })
                 ),
                 ("ft_total_supply".to_owned(), serde_json::Value::Null),
+                ("ft_metadata".to_owned(), serde_json::Value::Null),
             ],
-            "metadata is read once and no-argument views send no arguments"
+            "amounts don't read metadata, metadata is read once, and \
+             no-argument views send no arguments"
         );
     }
 
     #[tokio::test]
     async fn view_errors_keep_the_backend_error_and_bad_numbers_are_codec_errors() {
-        let mock = Mock::default()
-            .answer("ft_metadata", metadata())
-            .answer("ft_balance_of", json!("not a number"));
+        let mock = Mock::default().answer("ft_balance_of", json!("not a number"));
         let token = FungibleToken::new(mock, account!("token.near"));
 
         assert!(matches!(

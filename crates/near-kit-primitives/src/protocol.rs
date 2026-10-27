@@ -6,8 +6,8 @@
 //! [`Gas`](crate::Gas), and [`CryptoHash`](crate::CryptoHash).
 
 pub use crate::error::{
-    ActionViewConversionError, DecodeTransactionError, ParseAccountIdError, ParseAmountError,
-    ParseHashError, UniversalStateInitError,
+    ActionViewConversionError, DecodeTransactionError, ParseAccountIdError, ParseHashError,
+    UniversalStateInitError,
 };
 pub use crate::types::{
     AccessKey, AccessKeyPermission, AccountIdRef, Action, ActionError, ActionErrorKind,

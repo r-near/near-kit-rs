@@ -13,19 +13,6 @@ use crate::types::{AccountId, ActionError, CryptoHash, FinalExecutionStatus, Inv
 /// This is a re-export of the upstream [`near_account_id::ParseAccountError`].
 pub type ParseAccountIdError = near_account_id::ParseAccountError;
 
-/// Error parsing a decimal token amount (near-kit's `FtAmount::parse`).
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
-pub enum ParseAmountError {
-    #[error("Invalid amount format: '{0}'")]
-    InvalidFormat(String),
-
-    #[error("Invalid number in amount: '{0}'")]
-    InvalidNumber(String),
-
-    #[error("Amount overflow: value too large")]
-    Overflow,
-}
-
 /// Error parsing a public or secret key.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ParseKeyError {
@@ -275,26 +262,6 @@ mod tests {
 
         let err = "bad..account".parse::<AccountId>().unwrap_err();
         assert!(err.to_string().contains("redundant separator"));
-    }
-
-    // ========================================================================
-    // ParseAmountError tests
-    // ========================================================================
-
-    #[test]
-    fn test_parse_amount_error_display() {
-        assert_eq!(
-            ParseAmountError::InvalidFormat("xyz".to_string()).to_string(),
-            "Invalid amount format: 'xyz'"
-        );
-        assert_eq!(
-            ParseAmountError::InvalidNumber("abc".to_string()).to_string(),
-            "Invalid number in amount: 'abc'"
-        );
-        assert_eq!(
-            ParseAmountError::Overflow.to_string(),
-            "Amount overflow: value too large"
-        );
     }
 
     // ========================================================================
