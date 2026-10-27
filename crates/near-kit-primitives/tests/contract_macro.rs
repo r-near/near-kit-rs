@@ -103,7 +103,7 @@ fn run<F: IntoFuture>(future: F) -> F::Output {
 #[test]
 fn generated_client_runs_on_any_backend() {
     let backend = Backend::default();
-    let counter: CounterClient<Backend> = Counter::handle(backend.clone(), account!("c.near"));
+    let counter: CounterClient<Backend> = Counter::client(backend.clone(), account!("c.near"));
     assert_eq!(counter.contract_id(), &account!("c.near"));
 
     assert_eq!(run(counter.get_count()).unwrap(), 7);
@@ -148,7 +148,7 @@ fn generated_view_decode_errors_are_codec_errors() {
         fn get_count(&self) -> String;
     }
 
-    let wrong = Wrong::handle(Backend::default(), account!("c.near"));
+    let wrong = Wrong::client(Backend::default(), account!("c.near"));
     assert!(matches!(
         run(wrong.get_count()),
         Err(ContractError::Codec(CodecError::Json(_)))

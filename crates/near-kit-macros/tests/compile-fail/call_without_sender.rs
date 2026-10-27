@@ -29,7 +29,7 @@ impl Viewer for ViewOnly {
 }
 
 async fn run() {
-    let counter = Counter::handle(ViewOnly, account!("counter.near"));
+    let counter = Counter::client(ViewOnly, account!("counter.near"));
     let _ = counter.get_count().await;
     let _ = counter.increment().await;
 }

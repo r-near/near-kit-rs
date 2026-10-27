@@ -51,7 +51,7 @@ fn main() {
 
     // The client can also be built from the trait, for any backend.
     let _: JsonGuestbookClient<Near> =
-        <JsonGuestbook as Contract>::handle(near.clone(), account!("guestbook.testnet"));
+        <JsonGuestbook as Contract>::client(near.clone(), account!("guestbook.testnet"));
 
     // Static FunctionCall constructors on the unit struct
     let _fc: FunctionCall = JsonGuestbook::add_message(AddMessageArgs {

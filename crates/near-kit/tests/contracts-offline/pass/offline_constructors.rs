@@ -70,7 +70,7 @@ fn main() {
     use near_kit::Contract;
 
     let counter: CounterClient<Fixed> =
-        Counter::handle(Fixed, near_kit::account!("counter.near"));
+        Counter::client(Fixed, near_kit::account!("counter.near"));
     let _view: near_kit::transaction::View<'_, Fixed, u64> = counter.get_count();
 
     let call: FunctionCall = Counter::add(AddArgs { value: 5 })

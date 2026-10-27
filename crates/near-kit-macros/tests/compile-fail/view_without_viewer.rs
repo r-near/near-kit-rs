@@ -28,7 +28,7 @@ impl TxSender for SendOnly {
 }
 
 async fn run() {
-    let counter = Counter::handle(SendOnly(account!("me.near")), account!("counter.near"));
+    let counter = Counter::client(SendOnly(account!("me.near")), account!("counter.near"));
     let _ = counter.increment().await;
     let _ = counter.get_count().await;
 }

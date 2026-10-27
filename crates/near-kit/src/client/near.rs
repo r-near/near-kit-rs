@@ -508,8 +508,8 @@ impl Near {
     pub fn contract<T: crate::Contract>(
         &self,
         contract_id: impl Into<AccountId>,
-    ) -> T::Handle<Near> {
-        T::handle(self.clone(), contract_id.into())
+    ) -> T::Client<Near> {
+        T::client(self.clone(), contract_id.into())
     }
 }
 

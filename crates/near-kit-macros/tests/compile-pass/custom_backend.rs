@@ -54,6 +54,6 @@ where
 fn assert_send<F: std::future::Future + Send>(_: F) {}
 
 fn main() {
-    let counter: CounterClient<Mock> = Counter::handle(Mock(account!("me.near")), account!("c.near"));
+    let counter: CounterClient<Mock> = Counter::client(Mock(account!("me.near")), account!("c.near"));
     assert_send(bump(&counter));
 }

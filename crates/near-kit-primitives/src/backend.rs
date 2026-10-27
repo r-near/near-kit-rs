@@ -95,23 +95,23 @@ pub trait TxSender: MaybeSend + MaybeSync {
 /// generates to its client.
 ///
 /// For `#[contract] trait Counter`, the macro implements this as
-/// `type Handle<C> = CounterClient<C>`. `near_kit::Near::contract::<Counter>(id)`
-/// calls [`handle`](Self::handle) with a clone of the client; any other
+/// `type Client<C> = CounterClient<C>`. `near_kit::Near::contract::<Counter>(id)`
+/// calls [`client`](Self::client) with a clone of the client; any other
 /// backend can call it directly:
 ///
 /// ```rust,ignore
 /// use near_kit_primitives::Contract;
 ///
-/// let counter = Counter::handle(my_backend, account_id);
+/// let counter = Counter::client(my_backend, account_id);
 /// let count = counter.get_count().await?;
 /// ```
 pub trait Contract {
     /// The generated client, generic over its backend.
-    type Handle<C>;
+    type Client<C>;
 
     /// A client for the contract at `contract_id` that talks through
     /// `backend`.
-    fn handle<C>(backend: C, contract_id: AccountId) -> Self::Handle<C>;
+    fn client<C>(backend: C, contract_id: AccountId) -> Self::Client<C>;
 }
 
 /// Error from a [`View`] or [`Call`].

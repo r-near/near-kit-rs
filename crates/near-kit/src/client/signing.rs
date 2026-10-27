@@ -255,8 +255,8 @@ impl<W: WaitLevel> SigningNear<W> {
     pub fn contract<T: crate::Contract>(
         &self,
         contract_id: impl Into<AccountId>,
-    ) -> T::Handle<Self> {
-        T::handle(self.clone(), contract_id.into())
+    ) -> T::Client<Self> {
+        T::client(self.clone(), contract_id.into())
     }
 
     /// Sign a transaction without sending it.

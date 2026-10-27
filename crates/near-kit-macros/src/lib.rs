@@ -134,6 +134,19 @@ struct MethodInfo {
 fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
     let name = method.sig.ident.clone();
 
+    // `contract_id` is the generated client's accessor and `client` is the
+    // `Contract` constructor on the marker type; a contract method with
+    // either name would collide with or shadow them.
+    if name == "contract_id" || name == "client" {
+        return Err(syn::Error::new(
+            name.span(),
+            format!(
+                "`{name}` is reserved by #[near_kit::contract] (the generated client uses it); \
+                 rename the method"
+            ),
+        ));
+    }
+
     // Check receiver type
     let receiver = method.sig.receiver();
     let (is_view, is_mut) = match receiver {
@@ -250,9 +263,18 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         }
     }
 
-    // Parse return type
+    // Parse return type. A `#[call]` resolves to the sender's
+    // `TxSender::Output`, so a declared return type would be silently
+    // ignored; reject it so it can be given a meaning later.
     let return_type = match &method.sig.output {
         ReturnType::Default => None,
+        ReturnType::Type(_, ty) if is_call => {
+            return Err(syn::Error::new(
+                ty.span(),
+                "`#[call]` methods resolve to the sender's `TxSender::Output`; \
+                 remove the return type",
+            ));
+        }
         ReturnType::Type(_, ty) => Some((**ty).clone()),
     };
 
@@ -548,9 +570,9 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         }
 
         impl #near_kit::Contract for #trait_name {
-            type Handle<C> = #client_name<C>;
+            type Client<C> = #client_name<C>;
 
-            fn handle<C>(backend: C, contract_id: #near_kit::AccountId) -> #client_name<C> {
+            fn client<C>(backend: C, contract_id: #near_kit::AccountId) -> #client_name<C> {
                 #client_name {
                     backend,
                     contract_id,
