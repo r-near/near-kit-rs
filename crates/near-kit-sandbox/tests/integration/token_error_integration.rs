@@ -4,6 +4,7 @@
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
 use near_kit::protocol::Action;
+use near_kit::standards::{FungibleToken, NonFungibleToken};
 use near_kit::transaction::ContractError;
 use near_kit::*;
 use near_kit::{rpc::RpcError, signer::SecretKey, transaction::Final};
@@ -40,7 +41,7 @@ async fn test_ft_queries_on_non_contract_account() {
         .unwrap();
 
     // Try to get FT metadata from non-contract account
-    let ft = near.ft(&account_id);
+    let ft = near.contract::<FungibleToken>(&account_id);
     let metadata_error = ft.metadata().await.unwrap_err();
     assert_contract_not_deployed(metadata_error, &account_id);
 
@@ -53,7 +54,7 @@ async fn test_ft_metadata_on_nonexistent_account() {
     let (_sandbox, near) = shared_client().await;
 
     // Try to get FT metadata from non-existent account
-    let ft = near.ft(account!("nonexistent-ft-contract.sandbox"));
+    let ft = near.contract::<FungibleToken>(account!("nonexistent-ft-contract.sandbox"));
     let error = ft.metadata().await.unwrap_err();
     assert!(matches!(
         error,
@@ -79,7 +80,7 @@ async fn test_token_metadata_on_wrong_contract_type() {
         .unwrap();
 
     // Try to use FT methods on non-FT contract (no init needed)
-    let ft = near.ft(&contract_id);
+    let ft = near.contract::<FungibleToken>(&contract_id);
     let result = ft.metadata().await;
 
     assert!(result.is_err(), "Should error for non-FT contract");
@@ -96,7 +97,7 @@ async fn test_token_metadata_on_wrong_contract_type() {
         other => panic!("Expected MethodNotFound, got: {other:?}"),
     }
 
-    let nft = near.nft(&contract_id);
+    let nft = near.contract::<NonFungibleToken>(&contract_id);
     let err = nft.metadata().await.unwrap_err();
     match err {
         ContractError::Backend(RpcError::MethodNotFound {
@@ -131,7 +132,7 @@ async fn test_nft_queries_on_non_contract() {
         .await
         .unwrap();
 
-    let nft = near.nft(&account_id);
+    let nft = near.contract::<NonFungibleToken>(&account_id);
     let metadata_error = nft.metadata().await.unwrap_err();
     assert_contract_not_deployed(metadata_error, &account_id);
 

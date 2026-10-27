@@ -1,19 +1,21 @@
 //! Token helpers for NEP-141 (Fungible Tokens) and NEP-171 (Non-Fungible Tokens).
 //!
-//! [`FungibleToken`] and [`NonFungibleToken`] are clients over a backend `C`,
-//! like the clients `#[contract]` generates. Their views need `C: Viewer` and
-//! their calls `C: TxSender + Clone`, so [`Near::ft`](crate::Near::ft) gives
-//! a read-only client and [`SigningNear::ft`](crate::SigningNear::ft) one that
-//! can also send. Any other backend works through
-//! [`FungibleToken::new`].
+//! [`FungibleToken`] and [`NonFungibleToken`] implement
+//! [`Contract`](crate::Contract) like the markers `#[contract]` generates, so
+//! `near.contract::<FungibleToken>(id)` gives a read-only
+//! [`FungibleTokenClient`] and `signing.contract::<FungibleToken>(id)` one
+//! that can also send. Views need `C: Viewer` and calls
+//! `C: TxSender + Clone`; any other backend works through
+//! [`Contract::client`](crate::Contract::client).
 //!
 //! # Fungible Tokens (NEP-141)
 //!
 //! ```rust,no_run
 //! use near_kit::*;
+//! use near_kit::standards::FungibleToken;
 //!
 //! # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
-//! let token = alice.ft(account!("wrap.near"));
+//! let token = alice.contract::<FungibleToken>(account!("wrap.near"));
 //!
 //! // Query metadata (cached after first call)
 //! let metadata = token.metadata().await?;
@@ -36,9 +38,10 @@
 //!
 //! ```rust,no_run
 //! use near_kit::*;
+//! use near_kit::standards::NonFungibleToken;
 //!
 //! # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
-//! let nft = alice.nft(account!("nft-contract.near"));
+//! let nft = alice.contract::<NonFungibleToken>(account!("nft-contract.near"));
 //!
 //! // Query a specific token
 //! if let Some(token) = nft.token("token-123").await? {

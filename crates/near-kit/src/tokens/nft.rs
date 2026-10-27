@@ -11,7 +11,7 @@ use tokio::sync::OnceCell;
 use crate::Near;
 use crate::transaction::{Call, ContractError, FunctionCall};
 use crate::types::{AccountId, Gas, NearToken};
-use crate::{TxSender, Viewer};
+use crate::{Contract, TxSender, Viewer};
 
 use super::types::{NftContractMetadata, NftToken};
 use super::{Stringified, read};
@@ -20,25 +20,21 @@ use super::{Stringified, read};
 // NonFungibleToken
 // =============================================================================
 
-/// Client for a NEP-171 non-fungible token contract, over a backend `C`.
+/// A NEP-171 non-fungible token contract.
 ///
-/// Views need `C: Viewer` and read at optimistic finality; calls need
-/// `C: TxSender + Clone` and return a [`Call`] that sends one transaction
-/// when awaited. [`Near::nft`](crate::Near::nft) gives a read-only client
-/// and [`SigningNear::nft`](crate::SigningNear::nft) one that can also send.
-///
-/// # Caching
-///
-/// Contract metadata is fetched on first use and cached. Clones share the
-/// cache.
+/// The marker for [`Near::contract`](crate::Near::contract) and
+/// [`SigningNear::contract`](crate::SigningNear::contract), like the unit
+/// struct `#[contract]` generates. Its client is [`NonFungibleTokenClient`];
+/// for another backend, use [`Contract::client`].
 ///
 /// # Example
 ///
 /// ```rust,no_run
 /// use near_kit::*;
+/// use near_kit::standards::NonFungibleToken;
 ///
 /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
-/// let nft = near.nft(account!("nft-contract.near"));
+/// let nft = near.contract::<NonFungibleToken>(account!("nft-contract.near"));
 ///
 /// // Get contract metadata
 /// let meta = nft.metadata().await?;
@@ -54,23 +50,40 @@ use super::{Stringified, read};
 /// # Ok(())
 /// # }
 /// ```
-pub struct NonFungibleToken<C = Near> {
+#[derive(Debug, Clone)]
+pub struct NonFungibleToken;
+
+/// Client for a NEP-171 non-fungible token contract, over a backend `C`.
+///
+/// Views need `C: Viewer` and read at optimistic finality; calls need
+/// `C: TxSender + Clone` and return a [`Call`] that sends one transaction
+/// when awaited. `near.contract::<NonFungibleToken>(id)` gives a read-only
+/// client and `signing.contract::<NonFungibleToken>(id)` one that can also
+/// send.
+///
+/// # Caching
+///
+/// Contract metadata is fetched on first use and cached. Clones share the
+/// cache.
+pub struct NonFungibleTokenClient<C = Near> {
     backend: C,
     contract_id: AccountId,
     metadata: Arc<OnceCell<NftContractMetadata>>,
 }
 
-impl<C> NonFungibleToken<C> {
-    /// A client for the collection at `contract_id` that talks through
-    /// `backend`.
-    pub fn new(backend: C, contract_id: impl Into<AccountId>) -> Self {
-        Self {
+impl Contract for NonFungibleToken {
+    type Client<C> = NonFungibleTokenClient<C>;
+
+    fn client<C>(backend: C, contract_id: AccountId) -> NonFungibleTokenClient<C> {
+        NonFungibleTokenClient {
             backend,
-            contract_id: contract_id.into(),
+            contract_id,
             metadata: Arc::new(OnceCell::new()),
         }
     }
+}
 
+impl<C> NonFungibleTokenClient<C> {
     /// Get the contract ID.
     pub fn contract_id(&self) -> &AccountId {
         &self.contract_id
@@ -81,7 +94,7 @@ impl<C> NonFungibleToken<C> {
 // View Methods
 // =============================================================================
 
-impl<C: Viewer> NonFungibleToken<C> {
+impl<C: Viewer> NonFungibleTokenClient<C> {
     /// Get contract metadata (nft_metadata).
     ///
     /// Metadata is cached after the first call.
@@ -99,8 +112,9 @@ impl<C: Viewer> NonFungibleToken<C> {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::standards::NonFungibleToken;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
-    /// let nft = near.nft(account!("nft-contract.near"));
+    /// let nft = near.contract::<NonFungibleToken>(account!("nft-contract.near"));
     ///
     /// if let Some(token) = nft.token("token-123").await? {
     ///     println!("Token {} owned by {}", token.token_id, token.owner_id);
@@ -136,8 +150,9 @@ impl<C: Viewer> NonFungibleToken<C> {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::standards::NonFungibleToken;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
-    /// let nft = near.nft(account!("nft-contract.near"));
+    /// let nft = near.contract::<NonFungibleToken>(account!("nft-contract.near"));
     ///
     /// // Get first 10 tokens
     /// let tokens = nft.tokens_for_owner(account!("alice.near"), None, Some(10)).await?;
@@ -207,7 +222,7 @@ impl<C: Viewer> NonFungibleToken<C> {
 // Call Methods
 // =============================================================================
 
-impl<C: TxSender + Clone> NonFungibleToken<C> {
+impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
     /// Transfer an NFT to a receiver (nft_transfer), with an optional memo.
     ///
     /// # Security
@@ -219,8 +234,9 @@ impl<C: TxSender + Clone> NonFungibleToken<C> {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::standards::NonFungibleToken;
     /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let nft = near.nft(account!("nft-contract.near"));
+    /// let nft = near.contract::<NonFungibleToken>(account!("nft-contract.near"));
     ///
     /// nft.transfer(account!("bob.near"), "token-123", None).await?;
     /// nft.transfer(account!("bob.near"), "token-456", Some("gift".into()))
@@ -287,8 +303,9 @@ impl<C: TxSender + Clone> NonFungibleToken<C> {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::standards::NonFungibleToken;
     /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let nft = near.nft(account!("nft-contract.near"));
+    /// let nft = near.contract::<NonFungibleToken>(account!("nft-contract.near"));
     ///
     /// nft.transfer_call(
     ///     account!("marketplace.near"),
@@ -324,7 +341,7 @@ impl<C: TxSender + Clone> NonFungibleToken<C> {
     }
 }
 
-impl<C: Clone> Clone for NonFungibleToken<C> {
+impl<C: Clone> Clone for NonFungibleTokenClient<C> {
     fn clone(&self) -> Self {
         Self {
             backend: self.backend.clone(),
@@ -334,9 +351,9 @@ impl<C: Clone> Clone for NonFungibleToken<C> {
     }
 }
 
-impl<C> std::fmt::Debug for NonFungibleToken<C> {
+impl<C> std::fmt::Debug for NonFungibleTokenClient<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("NonFungibleToken")
+        f.debug_struct("NonFungibleTokenClient")
             .field("contract_id", &self.contract_id)
             .field("metadata_cached", &self.metadata.initialized())
             .finish_non_exhaustive()
@@ -351,7 +368,7 @@ mod tests {
 
     #[test]
     fn clones_share_metadata_cache() {
-        let token = NonFungibleToken::new(Mock::default(), account!("nft.near"));
+        let token = NonFungibleToken::client(Mock::default(), account!("nft.near"));
         token
             .metadata
             .set(NftContractMetadata {
@@ -378,7 +395,7 @@ mod tests {
             .answer("nft_tokens_for_owner", json!([]))
             .answer("nft_total_supply", json!("12"))
             .answer("nft_supply_for_owner", json!("3"));
-        let nft = NonFungibleToken::new(mock.clone(), account!("nft.near"));
+        let nft = NonFungibleToken::client(mock.clone(), account!("nft.near"));
 
         assert!(nft.token("token-1").await.unwrap().is_none());
         assert!(
@@ -411,7 +428,7 @@ mod tests {
 
     #[tokio::test]
     async fn calls_preserve_nep_171_arguments() {
-        let nft = NonFungibleToken::new(Mock::default(), account!("nft.near"));
+        let nft = NonFungibleToken::client(Mock::default(), account!("nft.near"));
         let tgas = Gas::from_tgas(1).as_gas();
 
         assert_eq!(

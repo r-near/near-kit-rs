@@ -314,16 +314,18 @@ dyn MySender`.
 
 | 0.20 | 0.21 |
 |---|---|
-| `FungibleToken`, `NonFungibleToken` | `FungibleToken<C = Near>`, `NonFungibleToken<C = Near>` |
-| `near.ft(id).transfer(to, amount)` on a signing `Near` | `signing.ft(id).transfer(to, amount, None)`. `near.ft(id)` is read-only. |
+| `FungibleToken`, `NonFungibleToken` (the clients) | `FungibleTokenClient<C = Near>`, `NonFungibleTokenClient<C = Near>`. `FungibleToken` and `NonFungibleToken` are now unit `Contract` markers, like the ones `#[contract]` generates. |
+| `near.ft(id)`, `near.nft(id)` | `near.contract::<FungibleToken>(id)`, `near.contract::<NonFungibleToken>(id)` (import them from `near_kit::standards`) |
+| `near.ft(id).transfer(to, amount)` on a signing `Near` | `signing.contract::<FungibleToken>(id).transfer(to, amount, None)`. The client from `near.contract::<FungibleToken>(id)` is read-only. |
 | `transfer_with_memo(to, amount, memo)` | `transfer(to, amount, Some(memo))` |
 | `balance_of(..)` / `total_supply()` returning `FtAmount` (`.raw()`, `.decimals()`, `.symbol()`, `Display`) | They return `u128` in the token's smallest unit and no longer read metadata first. Drop `.raw()`; for display, use `metadata().await?.decimals` and `.symbol`. |
 | `FtAmount`, `FtAmount::parse`, `protocol::ParseAmountError` | Removed |
-| `.with_signer(s)` on a token client | `near.with_signer(s).ft(id)` |
+| `.with_signer(s)` on a token client | `near.with_signer(s).contract::<FungibleToken>(id)` |
 | Token calls return a `CallBuilder` | They return a `Call<C>`: `.gas(..)`, `.deposit(..)`, `.await` |
 | Token views return `Error` | They return `ContractError<C::ViewError>` (`?` still converts) |
 
-`FungibleToken::new(backend, id)` builds a client over any backend. A
+`FungibleToken::client(backend, id)` (the `Contract` trait) builds a client
+over any backend; clones of a client share its metadata cache. A
 non-numeric `U128`/`U64` string from a token contract is now
 `ContractError::Codec`, not an RPC error. To batch a token call with other
 actions, add the `FunctionCall` to `transaction(..)`.
@@ -335,7 +337,9 @@ near.ft("wrap.near".parse::<AccountId>()?)
     .await?;
 
 // 0.21
-me.ft(account!("wrap.near"))
+use near_kit::standards::FungibleToken;
+
+me.contract::<FungibleToken>(account!("wrap.near"))
     .transfer(account!("bob.near"), 1_000_u128, Some("rent".to_owned()))
     .await?;
 ```

@@ -369,49 +369,6 @@ impl<W: WaitLevel> SigningNear<W> {
             .await
             .map_err(Error::Signing)
     }
-
-    /// Get a fungible token client for a NEP-141 contract.
-    ///
-    /// The client reads through this client's [`Near`] and its calls send as
-    /// this account, waiting for `W`. Use [`Near::ft`] for a read-only one.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
-    /// let token = alice.ft(account!("wrap.near"));
-    ///
-    /// let meta = token.metadata().await?;
-    /// println!("{} ({})", meta.name, meta.symbol);
-    ///
-    /// token.transfer(account!("bob.near"), 1_000_u128, None).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn ft(&self, contract: impl Into<AccountId>) -> crate::tokens::FungibleToken<Self> {
-        crate::tokens::FungibleToken::new(self.clone(), contract)
-    }
-
-    /// Get a non-fungible token client for a NEP-171 contract.
-    ///
-    /// Like [`ft`](Self::ft), it reads through [`Near`] and sends as this
-    /// account.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
-    /// let nft = alice.nft(account!("nft-contract.near"));
-    ///
-    /// nft.transfer(account!("bob.near"), "token-123", None).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn nft(&self, contract: impl Into<AccountId>) -> crate::tokens::NonFungibleToken<Self> {
-        crate::tokens::NonFungibleToken::new(self.clone(), contract)
-    }
 }
 
 impl<W: WaitLevel> crate::Viewer for SigningNear<W> {
@@ -496,18 +453,27 @@ mod tests {
     }
 
     #[test]
-    fn token_helpers_take_account_ids_without_network() {
+    fn token_clients_take_account_ids_without_network() {
+        use crate::tokens::{FungibleToken, NonFungibleToken};
         use crate::types::AccountIdRef;
 
         const WRAP: &AccountIdRef = AccountIdRef::new_or_panic("wrap.testnet");
 
         let alice = alice();
-        let ft = alice.ft(WRAP);
+        let ft = alice.contract::<FungibleToken>(WRAP);
         assert_eq!(ft.contract_id().as_str(), "wrap.testnet");
 
         let nft_id: AccountId = "nft.testnet".parse().unwrap();
-        assert_eq!(alice.nft(nft_id.clone()).contract_id(), &nft_id);
-        assert_eq!(alice.nft(&nft_id).contract_id(), &nft_id);
+        assert_eq!(
+            alice
+                .contract::<NonFungibleToken>(nft_id.clone())
+                .contract_id(),
+            &nft_id
+        );
+        assert_eq!(
+            alice.contract::<NonFungibleToken>(&nft_id).contract_id(),
+            &nft_id
+        );
     }
 
     #[tokio::test]

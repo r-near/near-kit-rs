@@ -11,7 +11,7 @@ use tokio::sync::OnceCell;
 use crate::Near;
 use crate::transaction::{Call, ContractError, FunctionCall};
 use crate::types::{AccountId, Gas, NearToken};
-use crate::{TxSender, Viewer};
+use crate::{Contract, TxSender, Viewer};
 
 use super::types::{FtMetadata, StorageBalance, StorageBalanceBounds};
 use super::{Stringified, read};
@@ -20,25 +20,21 @@ use super::{Stringified, read};
 // FungibleToken
 // =============================================================================
 
-/// Client for a NEP-141 fungible token contract, over a backend `C`.
+/// A NEP-141 fungible token contract.
 ///
-/// Views need `C: Viewer` and read at optimistic finality; calls need
-/// `C: TxSender + Clone` and return a [`Call`] that sends one transaction
-/// when awaited. [`Near::ft`](crate::Near::ft) gives a read-only client and
-/// [`SigningNear::ft`](crate::SigningNear::ft) one that can also send.
-///
-/// # Caching
-///
-/// Token metadata and storage bounds are fetched on first use and cached.
-/// Clones share the cache.
+/// The marker for [`Near::contract`](crate::Near::contract) and
+/// [`SigningNear::contract`](crate::SigningNear::contract), like the unit
+/// struct `#[contract]` generates. Its client is [`FungibleTokenClient`]; for
+/// another backend, use [`Contract::client`].
 ///
 /// # Example
 ///
 /// ```rust,no_run
 /// use near_kit::*;
+/// use near_kit::standards::FungibleToken;
 ///
 /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
-/// let token = near.ft(account!("wrap.near"));
+/// let token = near.contract::<FungibleToken>(account!("wrap.near"));
 ///
 /// // Get metadata
 /// let meta = token.metadata().await?;
@@ -50,24 +46,42 @@ use super::{Stringified, read};
 /// # Ok(())
 /// # }
 /// ```
-pub struct FungibleToken<C = Near> {
+#[derive(Debug, Clone)]
+pub struct FungibleToken;
+
+/// Client for a NEP-141 fungible token contract, over a backend `C`.
+///
+/// Views need `C: Viewer` and read at optimistic finality; calls need
+/// `C: TxSender + Clone` and return a [`Call`] that sends one transaction
+/// when awaited. `near.contract::<FungibleToken>(id)` gives a read-only
+/// client and `signing.contract::<FungibleToken>(id)` one that can also
+/// send.
+///
+/// # Caching
+///
+/// Token metadata and storage bounds are fetched on first use and cached.
+/// Clones share the cache.
+pub struct FungibleTokenClient<C = Near> {
     backend: C,
     contract_id: AccountId,
     metadata: Arc<OnceCell<FtMetadata>>,
     storage_bounds: Arc<OnceCell<StorageBalanceBounds>>,
 }
 
-impl<C> FungibleToken<C> {
-    /// A client for the token at `contract_id` that talks through `backend`.
-    pub fn new(backend: C, contract_id: impl Into<AccountId>) -> Self {
-        Self {
+impl Contract for FungibleToken {
+    type Client<C> = FungibleTokenClient<C>;
+
+    fn client<C>(backend: C, contract_id: AccountId) -> FungibleTokenClient<C> {
+        FungibleTokenClient {
             backend,
-            contract_id: contract_id.into(),
+            contract_id,
             metadata: Arc::new(OnceCell::new()),
             storage_bounds: Arc::new(OnceCell::new()),
         }
     }
+}
 
+impl<C> FungibleTokenClient<C> {
     /// Get the contract ID.
     pub fn contract_id(&self) -> &AccountId {
         &self.contract_id
@@ -78,7 +92,7 @@ impl<C> FungibleToken<C> {
 // View Methods
 // =============================================================================
 
-impl<C: Viewer> FungibleToken<C> {
+impl<C: Viewer> FungibleTokenClient<C> {
     /// Get token metadata (ft_metadata).
     ///
     /// Metadata is cached after the first call.
@@ -97,8 +111,9 @@ impl<C: Viewer> FungibleToken<C> {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::standards::FungibleToken;
     /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
-    /// let token = near.ft(account!("wrap.near"));
+    /// let token = near.contract::<FungibleToken>(account!("wrap.near"));
     ///
     /// let balance: u128 = token.balance_of(account!("alice.near")).await?;
     /// let meta = token.metadata().await?;
@@ -192,7 +207,7 @@ impl<C: Viewer> FungibleToken<C> {
 // Call Methods
 // =============================================================================
 
-impl<C: TxSender + Clone> FungibleToken<C> {
+impl<C: TxSender + Clone> FungibleTokenClient<C> {
     fn call(&self, function_call: FunctionCall) -> Call<C> {
         call_through(
             self.backend.clone(),
@@ -207,8 +222,9 @@ impl<C: TxSender + Clone> FungibleToken<C> {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::standards::FungibleToken;
     /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let token = near.ft(account!("wrap.near"));
+    /// let token = near.contract::<FungibleToken>(account!("wrap.near"));
     ///
     /// // Register bob with the contract's minimum deposit
     /// let bounds = token.storage_balance_bounds().await?;
@@ -245,8 +261,9 @@ impl<C: TxSender + Clone> FungibleToken<C> {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::standards::FungibleToken;
     /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let token = near.ft(account!("wrap.near"));
+    /// let token = near.contract::<FungibleToken>(account!("wrap.near"));
     ///
     /// token.transfer(account!("bob.near"), 1_500_000_u128, None).await?;
     ///
@@ -293,8 +310,9 @@ impl<C: TxSender + Clone> FungibleToken<C> {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::standards::FungibleToken;
     /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let token = near.ft(account!("wrap.near"));
+    /// let token = near.contract::<FungibleToken>(account!("wrap.near"));
     ///
     /// token
     ///     .transfer_call(account!("defi.near"), 1_000_000_u128, r#"{"action":"deposit"}"#)
@@ -324,7 +342,7 @@ impl<C: TxSender + Clone> FungibleToken<C> {
     }
 }
 
-impl<C: Clone> Clone for FungibleToken<C> {
+impl<C: Clone> Clone for FungibleTokenClient<C> {
     fn clone(&self) -> Self {
         Self {
             backend: self.backend.clone(),
@@ -335,9 +353,9 @@ impl<C: Clone> Clone for FungibleToken<C> {
     }
 }
 
-impl<C> std::fmt::Debug for FungibleToken<C> {
+impl<C> std::fmt::Debug for FungibleTokenClient<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FungibleToken")
+        f.debug_struct("FungibleTokenClient")
             .field("contract_id", &self.contract_id)
             .field("metadata_cached", &self.metadata.initialized())
             .finish_non_exhaustive()
@@ -362,7 +380,7 @@ mod tests {
 
     #[test]
     fn clones_share_metadata_and_storage_caches() {
-        let token = FungibleToken::new(Mock::default(), account!("token.near"));
+        let token = FungibleToken::client(Mock::default(), account!("token.near"));
         token
             .metadata
             .set(FtMetadata {
@@ -397,13 +415,13 @@ mod tests {
     #[test]
     fn view_futures_are_send_for_sync_backends() {
         fn assert_send<T: Send>(_: T) {}
-        let token = FungibleToken::new(Mock::default(), account!("token.near"));
+        let token = FungibleToken::client(Mock::default(), account!("token.near"));
         assert_send(token.metadata());
         assert_send(token.balance_of(account!("alice.near")));
         assert_send(token.storage_balance_bounds());
         let near_token = crate::Near::custom("http://127.0.0.1:1", "test")
             .build()
-            .ft(account!("token.near"));
+            .contract::<FungibleToken>(account!("token.near"));
         assert_send(near_token.balance_of(account!("alice.near")));
     }
 
@@ -413,7 +431,7 @@ mod tests {
             .answer("ft_metadata", metadata())
             .answer("ft_balance_of", json!("1500000"))
             .answer("ft_total_supply", json!("9000000"));
-        let token = FungibleToken::new(mock.clone(), account!("token.near"));
+        let token = FungibleToken::client(mock.clone(), account!("token.near"));
 
         assert_eq!(
             token.balance_of(account!("alice.near")).await.unwrap(),
@@ -442,7 +460,7 @@ mod tests {
     #[tokio::test]
     async fn view_errors_keep_the_backend_error_and_bad_numbers_are_codec_errors() {
         let mock = Mock::default().answer("ft_balance_of", json!("not a number"));
-        let token = FungibleToken::new(mock, account!("token.near"));
+        let token = FungibleToken::client(mock, account!("token.near"));
 
         assert!(matches!(
             token.balance_of(account!("alice.near")).await,
@@ -456,7 +474,7 @@ mod tests {
 
     #[tokio::test]
     async fn calls_preserve_nep_141_arguments() {
-        let token = FungibleToken::new(Mock::default(), account!("token.near"));
+        let token = FungibleToken::client(Mock::default(), account!("token.near"));
         let one_yocto = 1;
         let tgas = Gas::from_tgas(1).as_gas();
 

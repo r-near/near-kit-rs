@@ -181,24 +181,28 @@
 //!
 //! ## Tokens
 //!
-//! NEP-141 and NEP-171 helpers: `near.ft(id)` / `near.nft(id)` read, and
-//! `signing.ft(id)` / `signing.nft(id)` also transfer.
+//! NEP-141 and NEP-171 clients: [`standards::FungibleToken`] and
+//! [`standards::NonFungibleToken`] are [`Contract`] markers, so
+//! `near.contract::<FungibleToken>(id)` reads and
+//! `signing.contract::<FungibleToken>(id)` also transfers.
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
+//! use near_kit::standards::{FungibleToken, NonFungibleToken};
 //!
 //! # async fn example(near: &Near, alice: &SigningNear) -> Result<(), Error> {
-//! let balance = near.ft(account!("wrap.near")).balance_of(account!("alice.near")).await?;
+//! let wrap = account!("wrap.near");
+//! let balance = near.contract::<FungibleToken>(&wrap).balance_of(account!("alice.near")).await?;
 //! println!("{balance}");
 //!
 //! alice
-//!     .ft(account!("wrap.near"))
+//!     .contract::<FungibleToken>(&wrap)
 //!     .transfer(account!("bob.near"), 1_000_u128, None)
 //!     .await?;
 //!
 //! let nfts = near
-//!     .nft(account!("nft.near"))
+//!     .contract::<NonFungibleToken>(account!("nft.near"))
 //!     .tokens_for_owner(account!("alice.near"), None, Some(10))
 //!     .await?;
 //! # Ok(())

@@ -184,18 +184,24 @@ with other actions.
 
 ## Token Standards
 
-NEP-141 and NEP-171 helpers. `near.ft(..)`/`near.nft(..)` read;
-`me.ft(..)`/`me.nft(..)` also transfer.
+NEP-141 and NEP-171 clients. `FungibleToken` and `NonFungibleToken` in
+`near_kit::standards` are `Contract` markers like the ones `#[contract]`
+generates: `near.contract::<FungibleToken>(..)` reads, and
+`me.contract::<FungibleToken>(..)` also transfers.
 
 ```rust
-let balance = near.ft(account!("wrap.near")).balance_of(account!("alice.near")).await?;
+use near_kit::standards::{FungibleToken, NonFungibleToken};
+
+let wrap = near.contract::<FungibleToken>(account!("wrap.near"));
+let balance = wrap.balance_of(account!("alice.near")).await?;
 println!("{balance}");
 
-me.ft(account!("wrap.near"))
+me.contract::<FungibleToken>(account!("wrap.near"))
     .transfer(account!("bob.near"), 1_000_u128, None)
     .await?;
 
-if let Some(token) = near.nft(account!("nft.near")).token("token-123").await? {
+let nft = near.contract::<NonFungibleToken>(account!("nft.near"));
+if let Some(token) = nft.token("token-123").await? {
     println!("Owner: {}", token.owner_id);
 }
 ```

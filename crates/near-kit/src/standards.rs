@@ -4,6 +4,7 @@ pub mod nep413;
 
 #[cfg(feature = "rpc")]
 pub use crate::tokens::{
-    FtMetadata, FungibleToken, NftContractMetadata, NftToken, NftTokenMetadata, NonFungibleToken,
-    StorageBalance, StorageBalanceBounds,
+    FtMetadata, FungibleToken, FungibleTokenClient, NftContractMetadata, NftToken,
+    NftTokenMetadata, NonFungibleToken, NonFungibleTokenClient, StorageBalance,
+    StorageBalanceBounds,
 };
