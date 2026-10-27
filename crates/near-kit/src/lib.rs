@@ -10,7 +10,7 @@
 //! [`FunctionCall`](transaction::FunctionCall)s, and a
 //! [`BlockReference`](rpc::BlockReference) saying which block to read.
 //!
-//! Exactly **two verbs** touch the chain:
+//! Two **verbs**, one small trait each, are what the rest is built on:
 //!
 //! | Verb | Does | Implemented by |
 //! |------|------|----------------|

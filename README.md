@@ -18,8 +18,8 @@
 
 ## Why near-kit?
 
-near-kit is a ground-up NEAR client with a small surface. Chain work is
-described by **plain values**, and **two verbs** touch the chain:
+near-kit is a ground-up NEAR client with a small surface: chain work is
+described by **plain values**, and two **verbs** (one trait each) do it:
 
 - **Values** need no client: `AccountId` (write literals with `account!`, checked
   at compile time), `NearToken` and `Gas` (always with a unit), `Action` and
