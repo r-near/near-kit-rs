@@ -61,11 +61,14 @@ async fn test_secp256k1_signed_transfer_and_delegate_accepted_on_chain() {
         .delegate(
             &recipient_id,
             vec![Action::transfer(NearToken::from_near(3))],
-            DelegateOptions::with_offset(200),
+            DelegateOptions {
+                block_height_offset: Some(200),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
-    let signed_delegate = SignedDelegateAction::from_base64(&delegate.payload).unwrap();
+    let signed_delegate = SignedDelegateAction::from_base64(&delegate.to_base64()).unwrap();
     let da = &signed_delegate.delegate_action;
     assert!(
         signed_delegate

@@ -49,4 +49,4 @@ pub use near_kit_primitives::transaction::{
 };
 
 #[cfg(feature = "rpc")]
-pub use crate::client::{DelegateOptions, DelegateResult, SignedTransactionSend, Tx};
+pub use crate::client::{DelegateOptions, SignedTransactionSend, Tx};

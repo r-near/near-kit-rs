@@ -132,6 +132,9 @@ fn record_function_call_fields(actions: &[Action]) {
 // ============================================================================
 
 /// Options for creating a delegate action (meta-transaction).
+///
+/// Set the fields you need on top of `Default`:
+/// `DelegateOptions { block_height_offset: Some(100), ..Default::default() }`.
 #[derive(Clone, Debug, Default)]
 pub struct DelegateOptions {
     /// Explicit block height at which the delegate action expires.
@@ -145,52 +148,6 @@ pub struct DelegateOptions {
     /// Override nonce to use for the delegate action. If omitted, fetches
     /// from the access key and uses nonce + 1.
     pub nonce: Option<u64>,
-}
-
-impl DelegateOptions {
-    /// Create options with a specific block height offset.
-    pub fn with_offset(offset: u64) -> Self {
-        Self {
-            block_height_offset: Some(offset),
-            ..Default::default()
-        }
-    }
-
-    /// Create options with a specific max block height.
-    pub fn with_max_height(height: u64) -> Self {
-        Self {
-            max_block_height: Some(height),
-            ..Default::default()
-        }
-    }
-}
-
-/// Result of creating a delegate action.
-///
-/// Contains the signed delegate action plus a pre-encoded payload for transport.
-#[derive(Clone, Debug)]
-pub struct DelegateResult {
-    /// The fully signed delegate action.
-    pub signed_delegate_action: SignedDelegateAction,
-    /// Base64-encoded payload for HTTP/JSON transport.
-    pub payload: String,
-}
-
-impl DelegateResult {
-    /// Get the raw bytes of the signed delegate action.
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.signed_delegate_action.to_bytes()
-    }
-
-    /// Get the sender account ID.
-    pub fn sender_id(&self) -> &AccountId {
-        self.signed_delegate_action.sender_id()
-    }
-
-    /// Get the receiver account ID.
-    pub fn receiver_id(&self) -> &AccountId {
-        self.signed_delegate_action.receiver_id()
-    }
 }
 
 /// A non-empty list of actions for one receiver, with the signer and RPC
@@ -475,7 +432,10 @@ impl PreparedTransaction {
     }
 
     /// Build and sign a delegate action (NEP-366) from these actions.
-    pub(crate) async fn delegate(self, options: DelegateOptions) -> Result<DelegateResult, Error> {
+    pub(crate) async fn delegate(
+        self,
+        options: DelegateOptions,
+    ) -> Result<SignedDelegateAction, Error> {
         let prepared = self;
 
         // Verify no nested delegates (of any version)
@@ -540,14 +500,7 @@ impl PreparedTransaction {
         let hash = delegate_action.get_hash();
         let signature = key.sign(hash.as_bytes()).await?;
 
-        // Create signed delegate action
-        let signed_delegate_action = delegate_action.sign(signature);
-        let payload = signed_delegate_action.to_base64();
-
-        Ok(DelegateResult {
-            signed_delegate_action,
-            payload,
-        })
+        Ok(delegate_action.sign(signature))
     }
 }
 

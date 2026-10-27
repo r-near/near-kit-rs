@@ -75,7 +75,7 @@ pub use signer::{from_env, from_env_vars};
 #[cfg(feature = "rpc")]
 pub use signing::SigningNear;
 #[cfg(feature = "rpc")]
-pub use transaction::{DelegateOptions, DelegateResult, SignedTransactionSend, Tx};
+pub use transaction::{DelegateOptions, SignedTransactionSend, Tx};
 #[cfg(feature = "rpc")]
 pub use transport::{BoxFuture, RpcTransport, TransportResponse};
 // Only the operational built-in transport matching the build configuration is

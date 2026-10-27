@@ -9,12 +9,12 @@ use crate::error::{Error, RpcError};
 use crate::platform::MaybeSend;
 use crate::types::nep413::{SignMessageParams, SignedMessage};
 use crate::types::{
-    AccountId, Action, BlockReference, Final, SignedTransaction, Signer, ViewFunctionResult,
-    WaitLevel,
+    AccountId, Action, BlockReference, Final, SignedDelegateAction, SignedTransaction, Signer,
+    ViewFunctionResult, WaitLevel,
 };
 
 use super::near::Near;
-use super::transaction::{DelegateOptions, DelegateResult, PreparedTransaction, Tx};
+use super::transaction::{DelegateOptions, PreparedTransaction, Tx};
 
 /// A [`Near`] client with a signer: sends transactions as the signer's
 /// account.
@@ -288,7 +288,9 @@ impl<W: WaitLevel> SigningNear<W> {
     /// The user signs `actions` off-chain; a relayer wraps the result in a
     /// transaction of its own (with
     /// [`Action::delegate`](crate::protocol::Action::delegate), sent to
-    /// [`sender_id()`](DelegateResult::sender_id)) and pays the gas.
+    /// [`sender_id()`](SignedDelegateAction::sender_id)) and pays the gas.
+    /// [`to_base64()`](SignedDelegateAction::to_base64) is the encoding to hand
+    /// a relayer over HTTP.
     ///
     /// # Example
     ///
@@ -301,14 +303,14 @@ impl<W: WaitLevel> SigningNear<W> {
     /// let call = FunctionCall::new("add_message")
     ///     .args(serde_json::json!({ "text": "Hello!" }))
     ///     .gas(Gas::from_tgas(30));
-    /// let result = alice
+    /// let signed = alice
     ///     .delegate(account!("guestbook.testnet"), vec![call.try_into()?], Default::default())
     ///     .await?;
     ///
     /// // Relayer submits it and pays the gas
     /// relayer
-    ///     .transaction(result.sender_id())
-    ///     .add_action(Action::delegate(result.signed_delegate_action))
+    ///     .transaction(signed.sender_id())
+    ///     .add_action(Action::delegate(signed))
     ///     .await?;
     /// # Ok(())
     /// # }
@@ -323,7 +325,7 @@ impl<W: WaitLevel> SigningNear<W> {
         receiver_id: impl Into<AccountId>,
         actions: Vec<Action>,
         options: DelegateOptions,
-    ) -> Result<DelegateResult, Error> {
+    ) -> Result<SignedDelegateAction, Error> {
         PreparedTransaction::new(
             &self.near,
             self.signer.clone(),

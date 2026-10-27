@@ -88,14 +88,17 @@ async fn test_delegate_action_transfer() {
         .delegate(
             &recipient_id,
             vec![Action::transfer(NearToken::from_near(2))],
-            DelegateOptions::with_offset(200),
+            DelegateOptions {
+                block_height_offset: Some(200),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
 
     println!(
         "Sender signed delegate action, payload length: {} bytes",
-        delegate_result.payload.len()
+        delegate_result.to_base64().len()
     );
 
     // --- RELAYER: Submit the delegate action ---
@@ -105,7 +108,7 @@ async fn test_delegate_action_transfer() {
         .with_signer(InMemorySigner::new(&relayer_id, relayer_key.clone()));
 
     // Decode the payload (simulating receiving it via HTTP)
-    let signed_delegate = SignedDelegateAction::from_base64(&delegate_result.payload).unwrap();
+    let signed_delegate = SignedDelegateAction::from_base64(&delegate_result.to_base64()).unwrap();
 
     // Verify the delegate action contains the expected data
     assert_eq!(signed_delegate.sender_id().as_str(), sender_id.as_str());
@@ -210,7 +213,10 @@ async fn test_delegate_action_function_call() {
                     .try_into()
                     .expect("encodable call"),
             ],
-            DelegateOptions::with_offset(200),
+            DelegateOptions {
+                block_height_offset: Some(200),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -223,7 +229,7 @@ async fn test_delegate_action_function_call() {
         .near()
         .with_signer(InMemorySigner::new(&relayer_id, relayer_key.clone()));
 
-    let signed_delegate = SignedDelegateAction::from_base64(&delegate_result.payload).unwrap();
+    let signed_delegate = SignedDelegateAction::from_base64(&delegate_result.to_base64()).unwrap();
 
     let _outcome = relayer_near
         .wait_until::<Final>()

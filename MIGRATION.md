@@ -84,6 +84,8 @@ let balance = me.near().balance(me.account_id()).await?;
 | `.add_actions(vec)` | Call `add_action` in a loop. |
 | `.send()`, `.send().wait_until::<W>()` | `.await` sends; set the wait level on the client (see below). |
 | `.sign()` / `.delegate(opts)` | `signing.sign(rx, actions)` / `signing.delegate(rx, actions, opts)` |
+| `DelegateResult` (`.signed_delegate_action`, `.payload`, `.sender_id()`) | `delegate` returns the `SignedDelegateAction` itself: use it directly, `.to_base64()` for the payload |
+| `DelegateOptions::with_offset(n)` / `with_max_height(h)` | `DelegateOptions { block_height_offset: Some(n), ..Default::default() }` / `max_block_height: Some(h)` |
 | `.sign_with(other)` | `signing.near().with_signer(other).transaction(..)` |
 | `.max_nonce_retries(n)` | `NearBuilder::max_nonce_retries(n)` or `near.max_nonce_retries(n)` |
 | `.build()`, `.build_offline(..)`, `.sign_offline(..)`, `.into_parts()` | `protocol::Transaction::new(..).sign(&key)` |

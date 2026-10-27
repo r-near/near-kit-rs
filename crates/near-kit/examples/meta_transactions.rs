@@ -10,16 +10,17 @@
 //!   RELAYER_ACCOUNT_ID / RELAYER_PRIVATE_KEY - The relayer who submits (pays gas)
 
 use near_kit::protocol::Action;
+use near_kit::protocol::SignedDelegateAction;
 use near_kit::rpc::FinalExecutionOutcome;
 use near_kit::signer::InMemorySigner;
-use near_kit::transaction::{DelegateOptions, DelegateResult, FunctionCall};
+use near_kit::transaction::{DelegateOptions, FunctionCall};
 use near_kit::*;
 
 // ============================================================================
 // User Side: Create and sign delegate action (off-chain, no gas cost)
 // ============================================================================
 
-async fn user_creates_delegate(user: &SigningNear) -> Result<DelegateResult, Error> {
+async fn user_creates_delegate(user: &SigningNear) -> Result<SignedDelegateAction, Error> {
     println!("=== User Side ===\n");
 
     // Sign the actions off-chain with .delegate()
@@ -37,13 +38,16 @@ async fn user_creates_delegate(user: &SigningNear) -> Result<DelegateResult, Err
 
     println!("User signed delegate action (no gas paid)");
     println!("Sender: {}", user.account_id());
-    println!("Payload length: {} bytes", delegate_result.payload.len());
+    println!(
+        "Payload length: {} bytes",
+        delegate_result.to_base64().len()
+    );
 
     // In a real app, the user would send this payload to the relayer via HTTP:
     //
     // reqwest::Client::new()
     //     .post("https://relayer.example.com/relay")
-    //     .json(&serde_json::json!({ "payload": delegate_result.payload }))
+    //     .json(&serde_json::json!({ "payload": delegate_result.to_base64() }))
     //     .send()
     //     .await?;
 
@@ -56,7 +60,7 @@ async fn user_creates_delegate(user: &SigningNear) -> Result<DelegateResult, Err
 
 async fn relayer_submits_delegate(
     relayer: &SigningNear,
-    delegate_result: DelegateResult,
+    delegate_result: SignedDelegateAction,
 ) -> Result<FinalExecutionOutcome, Error> {
     println!("\n=== Relayer Side ===\n");
 
@@ -65,7 +69,7 @@ async fn relayer_submits_delegate(
     // The transaction goes to the user's account, the delegate's sender.
     let outcome = relayer
         .transaction(delegate_result.sender_id())
-        .add_action(Action::delegate(delegate_result.signed_delegate_action))
+        .add_action(Action::delegate(delegate_result))
         .await?;
 
     println!(
