@@ -156,7 +156,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 # uses, to check secp256k1 signatures exactly as the node does
 # (tests/secp256k1_nearcore_compat.rs).
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-secp256k1 = { version = "0.27", default-features = false, features = ["std", "recovery"] }
+secp256k1 = { version = "0.33", default-features = false, features = ["std", "recovery"] }
 # Compile tests for `#[near_kit::contract]` without `rpc`
 # (tests/contracts_offline.rs). serde and borsh are listed so the generated
 # test crates can derive the argument types.
