@@ -5,8 +5,8 @@
 //! so these bounds are unnecessary (and often impossible to satisfy with browser
 //! APIs). WASI targets (`wasm32-wasip1`/`p2`) keep the regular bounds.
 //!
-//! `near-kit` keeps its own copy for the RPC transport; the trait aliases have
-//! blanket impls, so the two copies accept exactly the same types.
+//! `near-kit` re-exports these through `__private` for its RPC transport
+//! rather than defining its own.
 
 use std::future::Future;
 use std::pin::Pin;

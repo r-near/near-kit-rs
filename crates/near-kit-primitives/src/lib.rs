@@ -68,3 +68,12 @@ pub mod standards;
 pub mod transaction;
 
 pub use types::{AccountId, CryptoHash, Gas, NearToken};
+
+/// Support code shared with `near-kit`. Not public API.
+#[doc(hidden)]
+pub mod __private {
+    // One definition of the platform bounds for both crates, so a
+    // `MaybeSend` bound written in near-kit and one written here are the
+    // same trait.
+    pub use crate::platform::{BoxFuture, MaybeSend, MaybeSync};
+}
