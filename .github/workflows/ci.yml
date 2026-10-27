@@ -84,6 +84,8 @@ jobs:
         run: cargo test -p near-kit --no-default-features --features mnemonic --lib
       - name: Run near-kit-primitives tests without optional features
         run: cargo test -p near-kit-primitives --no-default-features
+      - name: Run #[contract] through near-kit-primitives alone
+        run: cargo test -p near-kit-primitives --no-default-features --features contracts --test contract_macro
       - name: Run contract macro compile tests
         run: cargo test -p near-kit-macros --test trybuild
       - name: Run offline (no rpc) contract macro compile tests
@@ -142,5 +144,6 @@ jobs:
       # native entropy, then JS hosts with the `js` entropy backend
       - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features
       - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features --features mnemonic
+      - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features --features contracts
       - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js
       - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js,mnemonic

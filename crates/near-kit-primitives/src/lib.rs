@@ -48,6 +48,7 @@
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
 //! | `mnemonic` | No | BIP-39 seed phrases and SLIP-10 hierarchical key derivation |
+//! | `contracts` | No | The `#[contract]` macro, generating offline `FunctionCall` constructors (the `Near`-backed client needs `near-kit`) |
 //! | `js` | No | JS-host entropy backend (`getrandom`'s `wasm_js`) for `wasm32-unknown-unknown` |
 //! | `tracing` | No | [`tracing`](https://docs.rs/tracing) events (a WARN for unrecognized RPC error variants) |
 //!
@@ -69,11 +70,29 @@ pub mod transaction;
 
 pub use types::{AccountId, CryptoHash, Gas, NearToken};
 
-/// Support code shared with `near-kit`. Not public API.
+// The typed-contract macro and its marker/format attributes. Expansions name
+// this crate when the caller doesn't depend on near-kit.
+#[cfg(feature = "contracts")]
+pub use near_kit_macros::{borsh, call, contract, json};
+
+/// Support code shared with `near-kit` and the `#[contract]` expansion. Not
+/// public API.
 #[doc(hidden)]
 pub mod __private {
     // One definition of the platform bounds for both crates, so a
     // `MaybeSend` bound written in near-kit and one written here are the
     // same trait.
     pub use crate::platform::{BoxFuture, MaybeSend, MaybeSync};
+
+    // There is no client here, so the expansion's `Near`-backed half is
+    // always dropped.
+    #[cfg(feature = "contracts")]
+    pub use crate::__near_kit_primitives_rpc_only as rpc_only;
+}
+
+#[doc(hidden)]
+#[cfg(feature = "contracts")]
+#[macro_export]
+macro_rules! __near_kit_primitives_rpc_only {
+    ($($tokens:tt)*) => {};
 }
