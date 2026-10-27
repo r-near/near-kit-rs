@@ -50,7 +50,7 @@ and `block` anything that converts into a `BlockReference`, like
 | `ft(id)`, `nft(id)` | `near.contract::<FungibleToken>(id)`, `near.contract::<NonFungibleToken>(id)` (`near_kit::standards`) |
 | `global_contract(id)` | `near.rpc().view_global_contract_code(id, block)` |
 | `into_action()` (on a call) | `FunctionCall::from(call).into_action()?` |
-| `max_nonce_retries(n)` | `signing.max_nonce_retries(n)` or `near.max_nonce_retries(n)` |
+| `max_nonce_retries(n)` | `signing.clone().max_nonce_retries(n)` or `near.max_nonce_retries(n)` |
 | `public_key()` | `signing.signer().public_key()` |
 | `rpc()` | `near.rpc()`, or `signing.near().rpc()` |
 | `rpc_url()` | `near.rpc().url()` |
@@ -265,9 +265,13 @@ your enum is two conversions, and `?` does one. Convert first, or add the
 second `From`:
 
 ```rust
-let key = mpc.public_key(args).await.map_err(near_kit::Error::from)?;
+// MyError has a `Near(#[from] near_kit::Error)` variant.
+let count: u64 = near
+    .view(account!("counter.testnet"), "get_count")
+    .await
+    .map_err(near_kit::Error::from)?;
 
-// or, once:
+// or, once, so a plain `?` works:
 impl From<ContractError<RpcError>> for MyError {
     fn from(e: ContractError<RpcError>) -> Self {
         MyError::Near(e.into())
