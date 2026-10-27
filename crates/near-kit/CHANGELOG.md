@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0-rc.3](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.20.0-rc.2...near-kit-v0.20.0-rc.3) - 2026-10-27
+
+### Added
+
+- [**breaking**] upgrade to near-account-id 3 and near-global-contracts 0.3 ([#360](https://github.com/r-near/near-kit-rs/pull/360))
+
 ## [0.20.0-rc.2] - 2026-10-26
 
 ### Fixed
