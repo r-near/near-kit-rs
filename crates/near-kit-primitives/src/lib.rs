@@ -48,7 +48,7 @@
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
 //! | `mnemonic` | No | BIP-39 seed phrases and SLIP-10 hierarchical key derivation |
-//! | `contracts` | No | The `#[contract]` macro, generating offline `FunctionCall` constructors (the `Near`-backed client needs `near-kit`) |
+//! | `contracts` | No | The `#[contract]` macro: offline `FunctionCall` constructors plus a client generic over any [`Viewer`] / [`TxSender`] |
 //! | `js` | No | JS-host entropy backend (`getrandom`'s `wasm_js`) for `wasm32-unknown-unknown` |
 //! | `tracing` | No | [`tracing`](https://docs.rs/tracing) events (a WARN for unrecognized RPC error variants) |
 //!
@@ -69,7 +69,7 @@ pub mod signer;
 pub mod standards;
 pub mod transaction;
 
-pub use backend::{TxSender, Viewer};
+pub use backend::{Contract, TxSender, Viewer};
 pub use types::{AccountId, CryptoHash, Gas, NearToken};
 
 /// An [`AccountId`] from a string literal, checked at compile time.
@@ -114,15 +114,15 @@ pub mod __private {
     // What `#[contract]` expansions call to build views and calls.
     pub use crate::backend::expansion::{borsh_args, call, json_args, view_borsh, view_json};
 
-    // There is no client here, so the expansion's `Near`-backed half is
-    // always dropped.
-    #[cfg(feature = "contracts")]
-    pub use crate::__near_kit_primitives_rpc_only as rpc_only;
+    // There is no client here, so the generated client's backend has no
+    // default.
+    pub use crate::__near_kit_primitives_client_struct as client_struct;
 }
 
 #[doc(hidden)]
-#[cfg(feature = "contracts")]
 #[macro_export]
-macro_rules! __near_kit_primitives_rpc_only {
-    ($($tokens:tt)*) => {};
+macro_rules! __near_kit_primitives_client_struct {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident<$backend:ident> $body:tt) => {
+        $(#[$attr])* $vis struct $name<$backend> $body
+    };
 }

@@ -1,13 +1,14 @@
 //! The main Near client.
 
+use std::future::{Future, IntoFuture};
 use std::sync::Arc;
 
-#[cfg(feature = "contracts")]
-use crate::contract_support::ContractClient;
-use crate::error::Error;
+use crate::error::{Error, RpcError};
+use crate::platform::MaybeSend;
 use crate::types::{
-    AccountId, ChainId, IntoNearToken, PublicKey, PublishMode, RawStateInit, StateInit,
-    TryIntoAccountId, TryIntoGlobalContractId,
+    AccountId, Action, BlockReference, ChainId, FinalExecutionOutcome, IntoNearToken, PublicKey,
+    PublishMode, RawStateInit, StateInit, TryIntoAccountId, TryIntoGlobalContractId,
+    ViewFunctionResult,
 };
 
 use super::query::{
@@ -1053,10 +1054,12 @@ impl Near {
     // Typed Contract Interfaces
     // ========================================================================
 
-    /// Create a typed contract client.
+    /// Create a typed contract client backed by this `Near`.
     ///
-    /// This method creates a type-safe client for interacting with a contract,
-    /// using the interface defined via the `#[near_kit::contract]` macro.
+    /// `T` is the marker type `#[near_kit::contract]` generates for a trait;
+    /// the result is its generated `<Name>Client<Near>`. View methods return
+    /// a [`View`](crate::transaction::View) and `#[call]` methods a
+    /// [`Call`](crate::transaction::Call); both are `.await`ed directly.
     ///
     /// # Example
     ///
@@ -1067,10 +1070,7 @@ impl Near {
     /// #[near_kit::contract]
     /// pub trait Counter {
     ///     fn get_count(&self) -> u64;
-    ///     
-    ///     #[call]
-    ///     fn increment(&mut self);
-    ///     
+    ///
     ///     #[call]
     ///     fn add(&mut self, args: AddArgs);
     /// }
@@ -1081,29 +1081,21 @@ impl Near {
     /// }
     ///
     /// async fn example(near: &Near) -> Result<(), near_kit::Error> {
-    ///     let counter = near.contract::<Counter>("counter.testnet".parse::<AccountId>()?);
-    ///     
-    ///     // View call - type-safe!
+    ///     let counter = near.contract::<Counter>(account!("counter.testnet"));
     ///     let count = counter.get_count().await?;
-    ///     
-    ///     // Change call - type-safe!
-    ///     counter.increment().await?;
     ///     counter.add(AddArgs { value: 5 }).await?;
-    ///     
     ///     Ok(())
     /// }
     /// ```
     ///
-    /// Takes an already-validated account ID — an [`AccountId`], `&AccountId`,
-    /// or `&AccountIdRef` — so creating the client cannot fail. Parse runtime
-    /// strings first (`"counter.near".parse::<AccountId>()?`), or use
-    /// [`AccountIdRef::new_or_panic`](crate::protocol::AccountIdRef::new_or_panic)
-    /// in a `const` for a compile-time-checked literal.
-    ///
-    /// Requires both the `contracts` and `rpc` features.
-    #[cfg(feature = "contracts")]
-    pub fn contract<T: crate::Contract>(&self, contract_id: impl Into<AccountId>) -> T::Client {
-        T::Client::new(self.clone(), contract_id.into())
+    /// Takes an already-validated account ID (an [`AccountId`], `&AccountId`,
+    /// or `&AccountIdRef`), so creating the client cannot fail. Use
+    /// [`account!`](crate::account) for a literal.
+    pub fn contract<T: crate::Contract>(
+        &self,
+        contract_id: impl Into<AccountId>,
+    ) -> T::Handle<Near> {
+        T::handle(self.clone(), contract_id.into())
     }
 
     // ========================================================================
@@ -1170,6 +1162,44 @@ impl Near {
     /// ```
     pub fn nft(&self, contract: impl Into<AccountId>) -> crate::tokens::NonFungibleToken {
         crate::tokens::NonFungibleToken::new(self.clone(), contract.into())
+    }
+}
+
+impl crate::Viewer for Near {
+    type Error = RpcError;
+
+    fn view_function(
+        &self,
+        contract_id: &AccountId,
+        method: &str,
+        args: &[u8],
+        block: BlockReference,
+    ) -> impl Future<Output = Result<ViewFunctionResult, RpcError>> + MaybeSend {
+        self.rpc.view_function(contract_id, method, args, block)
+    }
+}
+
+// TEMPORARY scaffolding for the 1.0 refactor (stage 2): `Near` still carries
+// an optional signer, so generated clients' `#[call]` methods keep working
+// through `Near` until stage 3 adds `SigningNear` and deletes this impl.
+// Without a signer, `send` fails with `Error::NoSigner` and `account_id`
+// panics like `Near::account_id`.
+impl crate::TxSender for Near {
+    type Output = FinalExecutionOutcome;
+    type Error = Error;
+
+    fn account_id(&self) -> &AccountId {
+        Near::account_id(self)
+    }
+
+    fn send(
+        &self,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> impl Future<Output = Result<FinalExecutionOutcome, Error>> + MaybeSend {
+        self.transaction(receiver_id)
+            .add_actions(actions)
+            .into_future()
     }
 }
 

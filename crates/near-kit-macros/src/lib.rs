@@ -1,7 +1,9 @@
 //! Proc macros for near-kit typed contract interfaces.
 //!
 //! This crate provides the `#[near_kit::contract]` attribute macro for defining
-//! type-safe contract interfaces.
+//! type-safe contract interfaces. The `#[call]`, `#[json]` and `#[borsh]`
+//! markers inside the trait are read by `#[contract]` itself and need no
+//! import.
 //!
 //! # Example
 //!
@@ -65,10 +67,9 @@ enum SerializationFormat {
 
 /// The crate the expansion names for its runtime support.
 ///
-/// near-kit when the caller depends on it, since only near-kit has the
-/// `Near`-backed client. Otherwise near-kit-primitives, which has everything
-/// the offline half needs (`transaction::FunctionCall` and a `__private`
-/// whose `rpc_only!` drops the client half), so crates that can't take the
+/// near-kit when the caller depends on it, so the generated client can
+/// default its backend to `near_kit::Near`. Otherwise near-kit-primitives,
+/// which has every item the expansion names, so crates that can't take the
 /// RPC client, such as contracts built for wasm, can still use the macro.
 fn near_kit_path() -> TokenStream2 {
     let found = |name: &str, itself: TokenStream2| match crate_name(name) {
@@ -119,6 +120,8 @@ impl Parse for ContractArgs {
 #[derive(Debug)]
 struct MethodInfo {
     name: Ident,
+    /// The method's `#[doc]` attributes, copied onto the generated methods.
+    docs: Vec<syn::Attribute>,
     is_view: bool,
     /// Per-method format override (if specified via #[json] or #[borsh])
     format_override: Option<SerializationFormat>,
@@ -253,8 +256,16 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         ReturnType::Type(_, ty) => Some((**ty).clone()),
     };
 
+    let docs = method
+        .attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("doc"))
+        .cloned()
+        .collect();
+
     Ok(MethodInfo {
         name,
+        docs,
         is_view,
         format_override,
         arg_name,
@@ -263,13 +274,17 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
     })
 }
 
-/// Generate client method for a view function.
+/// Generate the client method for a view function.
+///
+/// The `where C: Viewer` bound sits on the method, not the impl block, so
+/// calling it on a client whose backend can't view reports the trait's
+/// `on_unimplemented` text (E0277) instead of "method not found" (E0599).
 fn generate_view_method(method: &MethodInfo, contract_format: SerializationFormat) -> TokenStream2 {
     let near_kit = near_kit_path();
     let method_name = &method.name;
     let method_name_str = method_name.to_string();
+    let docs = &method.docs;
 
-    // Use method override if present, otherwise contract default
     let format = method.format_override.unwrap_or(contract_format);
 
     let return_type = method
@@ -278,95 +293,61 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
         .map(|t| quote! { #t })
         .unwrap_or_else(|| quote! { () });
 
-    // For Borsh format, chain .borsh() to switch to Borsh deserialization
-    let borsh_suffix = match format {
-        SerializationFormat::Json => quote! {},
-        SerializationFormat::Borsh => quote! { .borsh() },
+    let constructor = match format {
+        SerializationFormat::Json => quote! { #near_kit::__private::view_json },
+        SerializationFormat::Borsh => quote! { #near_kit::__private::view_borsh },
     };
 
-    // Return type differs based on format
-    let view_return_type = match format {
-        SerializationFormat::Json => quote! { #near_kit::rpc::ViewCall<#return_type> },
-        SerializationFormat::Borsh => quote! { #near_kit::rpc::ViewCallBorsh<#return_type> },
+    // Arguments are encoded now, so borrowed argument types never enter the
+    // future. Without arguments, JSON views send `{}` and Borsh views nothing.
+    let (params, args) = match (&method.arg_name, &method.arg_type, format) {
+        (Some(arg_name), Some(arg_type), SerializationFormat::Json) => (
+            quote! { #arg_name: #arg_type },
+            quote! { #near_kit::__private::json_args(&#arg_name) },
+        ),
+        (Some(arg_name), Some(arg_type), SerializationFormat::Borsh) => (
+            quote! { #arg_name: #arg_type },
+            quote! { #near_kit::__private::borsh_args(&#arg_name) },
+        ),
+        (_, _, SerializationFormat::Json) => (quote! {}, quote! { Ok(b"{}".to_vec()) }),
+        (_, _, SerializationFormat::Borsh) => (quote! {}, quote! { Ok(::std::vec::Vec::new()) }),
     };
 
-    if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
-        // View with args
-        let args_method = match format {
-            SerializationFormat::Json => quote! { .args(#arg_name) },
-            SerializationFormat::Borsh => quote! { .args_borsh(#arg_name) },
-        };
-
-        quote! {
-            pub fn #method_name(&self, #arg_name: #arg_type) -> #view_return_type {
-                self.near.view::<#return_type>(&self.contract_id, #method_name_str)
-                    #args_method
-                    #borsh_suffix
-            }
-        }
-    } else {
-        // View without args - for JSON, pass empty object; for Borsh, no args
-        match format {
-            SerializationFormat::Json => {
-                quote! {
-                    pub fn #method_name(&self) -> #view_return_type {
-                        self.near.view::<#return_type>(&self.contract_id, #method_name_str)
-                            .args_raw(b"{}".to_vec())
-                    }
-                }
-            }
-            SerializationFormat::Borsh => {
-                quote! {
-                    pub fn #method_name(&self) -> #view_return_type {
-                        self.near.view::<#return_type>(&self.contract_id, #method_name_str)
-                            .borsh()
-                    }
-                }
-            }
+    quote! {
+        #(#docs)*
+        pub fn #method_name(&self, #params) -> #near_kit::transaction::View<'_, C, #return_type>
+        where
+            C: #near_kit::Viewer,
+        {
+            #constructor(&self.backend, self.contract_id.clone(), #method_name_str, #args)
         }
     }
 }
 
-/// Generate client method for a call function.
-fn generate_call_method(method: &MethodInfo, contract_format: SerializationFormat) -> TokenStream2 {
+/// Generate the client method for a call function, on top of the static
+/// `FunctionCall` constructor. Bounded at the method for the same reason as
+/// views.
+fn generate_call_method(method: &MethodInfo, trait_name: &Ident) -> TokenStream2 {
     let near_kit = near_kit_path();
     let method_name = &method.name;
-    let method_name_str = method_name.to_string();
+    let docs = &method.docs;
 
-    // Use method override if present, otherwise contract default
-    let format = method.format_override.unwrap_or(contract_format);
+    let (params, args) = match (&method.arg_name, &method.arg_type) {
+        (Some(arg_name), Some(arg_type)) => (quote! { #arg_name: #arg_type }, quote! { #arg_name }),
+        _ => (quote! {}, quote! {}),
+    };
 
-    if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
-        // Call with args
-        let args_method = match format {
-            SerializationFormat::Json => quote! { .args(#arg_name) },
-            SerializationFormat::Borsh => quote! { .args_borsh(#arg_name) },
-        };
-
-        quote! {
-            pub fn #method_name(&self, #arg_name: #arg_type) -> #near_kit::transaction::CallBuilder {
-                self.near.call(&self.contract_id, #method_name_str)
-                    #args_method
-            }
-        }
-    } else {
-        // Call without args - for JSON, pass empty object; for Borsh, no args
-        match format {
-            SerializationFormat::Json => {
-                quote! {
-                    pub fn #method_name(&self) -> #near_kit::transaction::CallBuilder {
-                        self.near.call(&self.contract_id, #method_name_str)
-                            .args_raw(b"{}".to_vec())
-                    }
-                }
-            }
-            SerializationFormat::Borsh => {
-                quote! {
-                    pub fn #method_name(&self) -> #near_kit::transaction::CallBuilder {
-                        self.near.call(&self.contract_id, #method_name_str)
-                    }
-                }
-            }
+    quote! {
+        #(#docs)*
+        pub fn #method_name(&self, #params) -> #near_kit::transaction::Call<'_, C>
+        where
+            C: #near_kit::TxSender,
+        {
+            #near_kit::__private::call(
+                &self.backend,
+                self.contract_id.clone(),
+                #trait_name::#method_name(#args),
+            )
         }
     }
 }
@@ -384,6 +365,7 @@ fn generate_function_call_method(
     let method_name_str = method_name.to_string();
 
     let format = method.format_override.unwrap_or(contract_format);
+    let docs = &method.docs;
 
     if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
         let args_method = match format {
@@ -392,6 +374,7 @@ fn generate_function_call_method(
         };
 
         quote! {
+            #(#docs)*
             pub fn #method_name(#arg_name: #arg_type) -> #near_kit::transaction::FunctionCall {
                 #near_kit::transaction::FunctionCall::new(#method_name_str)
                     #args_method
@@ -402,6 +385,7 @@ fn generate_function_call_method(
             SerializationFormat::Json => {
                 // Use args_raw to avoid depending on serde_json in expanded code
                 quote! {
+                    #(#docs)*
                     pub fn #method_name() -> #near_kit::transaction::FunctionCall {
                         #near_kit::transaction::FunctionCall::new(#method_name_str)
                             .args_raw(b"{}".to_vec())
@@ -410,6 +394,7 @@ fn generate_function_call_method(
             }
             SerializationFormat::Borsh => {
                 quote! {
+                    #(#docs)*
                     pub fn #method_name() -> #near_kit::transaction::FunctionCall {
                         #near_kit::transaction::FunctionCall::new(#method_name_str)
                     }
@@ -425,11 +410,16 @@ fn generate_function_call_method(
 ///
 /// - a unit struct `Counter` with a static `FunctionCall` constructor for each
 ///   `#[call]` method (e.g. `Counter::increment()`), for composing typed calls
-///   into transactions. Needs only near-kit's `contracts` feature, so it works
-///   offline (`default-features = false, features = ["contracts"]`);
-/// - a `CounterClient` backed by `near_kit::Near`, plus the `Contract` and
-///   `ContractClient` impls behind `Near::contract::<Counter>(..)`. These are
-///   generated only when near-kit's `rpc` feature is also enabled.
+///   into transactions;
+/// - a `CounterClient<C>` generic over its backend `C`: view methods need
+///   `C: Viewer` and return a `View`, `#[call]` methods need `C: TxSender` and
+///   return a `Call`. When the expansion resolves to near-kit with its `rpc`
+///   feature, `C` defaults to `near_kit::Near`;
+/// - `impl Contract for Counter`, which `Near::contract::<Counter>(id)` uses
+///   to build the client.
+///
+/// Everything it names is in near-kit-primitives, so it works without the
+/// RPC client (e.g. in contracts built for wasm).
 #[proc_macro_attribute]
 pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as ContractArgs);
@@ -501,14 +491,14 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         }
     }
 
-    // Generate client methods (view → ViewCall, call → CallBuilder)
+    // Client methods: views return `View`, calls return `Call`.
     let client_methods: Vec<TokenStream2> = methods
         .iter()
         .map(|m| {
             if m.is_view {
                 generate_view_method(m, args.format)
             } else {
-                generate_call_method(m, args.format)
+                generate_call_method(m, trait_name)
             }
         })
         .collect();
@@ -520,25 +510,14 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         .map(|m| generate_function_call_method(m, args.format))
         .collect();
 
-    // Every argument and return type the trait mentions. Without near-kit's
-    // `rpc` feature the client methods are dropped, so view-only types would
-    // otherwise leave the caller's imports for them unused. Argument types are
-    // mentioned in argument position, where `impl Trait` is allowed.
-    let mentioned_arg_types: Vec<&Type> =
-        methods.iter().filter_map(|m| m.arg_type.as_ref()).collect();
-    let mentioned_return_types: Vec<&Type> = methods
-        .iter()
-        .filter_map(|m| m.return_type.as_ref())
-        .collect();
-
     // Propagate trait-level attributes (doc comments, #[cfg], etc.) to the struct
     let trait_attrs = &input.attrs;
 
-    // Build the output. The marker struct and its offline `FunctionCall`
-    // constructors are always generated. The `Near`-backed client needs
-    // near-kit's `rpc` feature, which a `cfg` here cannot see (it would be
-    // evaluated against the calling crate's features), so it is wrapped in a
-    // near-kit shim that keeps or drops it based on near-kit's own features.
+    let client_doc = format!(
+        " Client for the [`{trait_name}`] contract, sending through the backend `C`.\n\n \
+         View methods need `C: Viewer`; `#[call]` methods need `C: TxSender`."
+    );
+
     let expanded = quote! {
         #(#trait_attrs)*
         #[derive(Debug, Clone)]
@@ -548,63 +527,35 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
             #(#function_call_methods)*
         }
 
-        // One helper per argument type: a single helper taking every argument
-        // would trip `clippy::too_many_arguments` in the caller's crate for
-        // traits with more than seven argument-taking methods.
-        #(
-            const _: () = {
-                #[allow(dead_code, clippy::needless_pass_by_value)]
-                fn __near_kit_mention_arg_type(_: #mentioned_arg_types) {}
-            };
-        )*
-        const _: () = {
-            #[allow(dead_code)]
-            fn __near_kit_mention_return_types() {
-                #(let _: ::core::marker::PhantomData<#mentioned_return_types> = ::core::marker::PhantomData;)*
+        // `client_struct!` adds the `= Near` default for `C` when near-kit
+        // has its client; a `cfg` here would test the caller's features.
+        #near_kit::__private::client_struct! {
+            #[doc = #client_doc]
+            #[derive(Debug, Clone)]
+            #vis struct #client_name<C> {
+                backend: C,
+                contract_id: #near_kit::AccountId,
             }
-        };
-
-        #near_kit::__private::rpc_only! {
-        // Generated client struct for the simple (non-composed) case.
-        #[derive(Debug, Clone)]
-        #vis struct #client_name {
-            near: #near_kit::Near,
-            contract_id: #near_kit::AccountId,
         }
 
-        impl #client_name {
-            /// Create a new contract client.
-            pub fn new(near: #near_kit::Near, contract_id: #near_kit::AccountId) -> Self {
-                Self { near, contract_id }
-            }
-
-            /// Get the contract account ID.
+        impl<C> #client_name<C> {
+            /// The contract account this client talks to.
             pub fn contract_id(&self) -> &#near_kit::AccountId {
                 &self.contract_id
-            }
-
-            /// Return a new client that uses the given signer for transactions.
-            pub fn with_signer(&self, signer: impl #near_kit::signer::Signer + 'static) -> Self {
-                Self {
-                    near: self.near.with_signer(signer),
-                    contract_id: self.contract_id.clone(),
-                }
             }
 
             #(#client_methods)*
         }
 
-        // Implement ContractClient trait for construction via near.contract::<T>()
-        impl #near_kit::ContractClient for #client_name {
-            fn new(near: #near_kit::Near, contract_id: #near_kit::AccountId) -> Self {
-                Self::new(near, contract_id)
-            }
-        }
-
-        // Implement Contract marker trait
         impl #near_kit::Contract for #trait_name {
-            type Client = #client_name;
-        }
+            type Handle<C> = #client_name<C>;
+
+            fn handle<C>(backend: C, contract_id: #near_kit::AccountId) -> #client_name<C> {
+                #client_name {
+                    backend,
+                    contract_id,
+                }
+            }
         }
     };
 

@@ -2,8 +2,7 @@
 //!
 //! Note: We use primitive types to avoid needing external borsh/serde derives.
 
-use near_kit::rpc::{ViewCall, ViewCallBorsh};
-use near_kit::transaction::{CallBuilder, FunctionCall};
+use near_kit::transaction::{Call, FunctionCall, View};
 use near_kit::*;
 
 /// Mixed contract - JSON default with Borsh overrides
@@ -49,34 +48,23 @@ pub trait MixedContractBorshDefault {
 fn main() {
     let near = Near::testnet().build();
 
-    // Test MixedContract (JSON default)
     {
-        let client = MixedContractClient::new(near.clone(), "contract.testnet".parse().unwrap());
-
-        // JSON methods return ViewCall
-        let _: ViewCall<u64> = client.get_json_value();
-        let _: CallBuilder = client.set_json_value();
-
-        // Borsh-overridden methods return ViewCallBorsh
-        let _: ViewCallBorsh<u64> = client.get_borsh_value();
-        let _: CallBuilder = client.set_borsh_value();
+        let client = near.contract::<MixedContract>(account!("contract.testnet"));
+        let _: View<'_, Near, u64> = client.get_json_value();
+        let _: View<'_, Near, u64> = client.get_borsh_value();
+        let _: Call<'_, Near> = client.set_json_value();
+        let _: Call<'_, Near> = client.set_borsh_value();
     }
 
-    // Test MixedContractBorshDefault (Borsh default)
     {
-        let client =
-            MixedContractBorshDefaultClient::new(near.clone(), "contract.testnet".parse().unwrap());
-
-        // Borsh methods return ViewCallBorsh
-        let _: ViewCallBorsh<u64> = client.get_borsh_value();
-        let _: CallBuilder = client.set_borsh_value();
-
-        // JSON-overridden methods return ViewCall
-        let _: ViewCall<u64> = client.get_json_value();
-        let _: CallBuilder = client.set_json_value();
+        let client = near.contract::<MixedContractBorshDefault>(account!("contract.testnet"));
+        let _: View<'_, Near, u64> = client.get_borsh_value();
+        let _: View<'_, Near, u64> = client.get_json_value();
+        let _: Call<'_, Near> = client.set_borsh_value();
+        let _: Call<'_, Near> = client.set_json_value();
     }
 
-    // Verify static FunctionCall constructors (call methods only, not view)
+    // Static FunctionCall constructors (call methods only, not view)
     let _: FunctionCall = MixedContract::set_json_value();
     let _: FunctionCall = MixedContract::set_borsh_value();
     let _: FunctionCall = MixedContractBorshDefault::set_borsh_value();

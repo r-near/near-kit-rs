@@ -87,10 +87,10 @@ default = ["rpc"]
 # `default-features = false`) for offline use — types, signing, and transaction
 # building without a network stack.
 rpc = ["dep:reqwest", "dep:tokio", "dep:hyper"]
-# Typed contract interfaces and the `#[near_kit::contract]` proc macro. Works
-# offline: the macro always generates the `FunctionCall` constructors; the
-# `Near`-backed `<Name>Client`, `Contract`/`ContractClient`, and `Near::contract`
-# additionally need `rpc`.
+# The `#[near_kit::contract]` proc macro. Works offline: it generates the
+# `FunctionCall` constructors and a `<Name>Client<C>` generic over any
+# `Viewer`/`TxSender` backend; with `rpc` too, `C` defaults to `Near` and
+# `Near::contract` builds it.
 contracts = ["dep:near-kit-macros"]
 # The built-in `wasi:http` transport for `wasm32-wasip2` (implies `rpc`; a
 # no-op on every other target). Kept separate from `rpc` because merely

@@ -783,7 +783,7 @@ impl From<CodecError> for Error {
     }
 }
 
-/// Lets `?` turn a contract client's error into an [`Error`]: encoding and
+/// Lets `?` turn a contract client's error into an [`enum@Error`]: encoding and
 /// decoding failures map like [`CodecError`], backend errors through their own
 /// `Into<Error>` (`RpcError` becomes [`Error::Rpc`]).
 impl<E: Into<Error> + std::fmt::Display> From<ContractError<E>> for Error {

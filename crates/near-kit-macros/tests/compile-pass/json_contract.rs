@@ -1,8 +1,6 @@
 //! Test that JSON contract macro generates valid code.
 
-use near_kit::rpc::ViewCall;
-use near_kit::signer::InMemorySigner;
-use near_kit::transaction::{CallBuilder, FunctionCall};
+use near_kit::transaction::{Call, FunctionCall, View};
 use near_kit::*;
 use serde::{Deserialize, Serialize};
 
@@ -19,45 +17,44 @@ pub struct AddMessageArgs {
 /// JSON contract (default format)
 #[near_kit::contract]
 pub trait JsonGuestbook {
+    /// Every message, oldest first.
     fn get_messages(&self) -> Vec<Message>;
     fn total_messages(&self) -> u32;
 
+    /// Append a message.
     #[call]
     fn add_message(&mut self, args: AddMessageArgs);
 }
 
 fn main() {
-    // Verify the generated client can be constructed
     let near = Near::testnet().build();
-    let client = JsonGuestbookClient::new(near.clone(), "guestbook.testnet".parse().unwrap());
+    // `JsonGuestbookClient` defaults its backend to `Near`.
+    let client: JsonGuestbookClient = near.contract::<JsonGuestbook>(account!("guestbook.testnet"));
+    let _: &AccountId = client.contract_id();
 
-    // Verify methods exist and have correct return types
-    let _view: ViewCall<Vec<Message>> = client.get_messages();
-    let _view: ViewCall<u32> = client.total_messages();
-    let _call: CallBuilder = client.add_message(AddMessageArgs {
-        text: "hello".to_string(),
-    });
+    let _view: View<'_, Near, Vec<Message>> = client.get_messages();
+    let _view: View<'_, Near, u32> = client.total_messages().at(near_kit::rpc::Finality::Optimistic);
+    let _call: Call<'_, Near> = client
+        .add_message(AddMessageArgs {
+            text: "hello".to_string(),
+        })
+        .gas(Gas::from_tgas(50))
+        .deposit(NearToken::from_yoctonear(1));
 
-    // Verify with_signer returns a new client with the same type
-    let signer = InMemorySigner::new(
-        "bob.testnet",
-        "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
-    )
-    .unwrap();
-    let _client2: JsonGuestbookClient = client.with_signer(signer);
+    // The client can also be built from the trait, for any backend.
+    let _: JsonGuestbookClient<Near> =
+        <JsonGuestbook as Contract>::handle(near.clone(), account!("guestbook.testnet"));
 
-    // Verify static FunctionCall constructors on the unit struct
+    // Static FunctionCall constructors on the unit struct
     let _fc: FunctionCall = JsonGuestbook::add_message(AddMessageArgs {
         text: "composable".to_string(),
     });
 
-    // Verify FunctionCall can be composed into a transaction via add_action
-    let _tx = near
-        .transaction("guestbook.testnet")
-        .add_action(
-            JsonGuestbook::add_message(AddMessageArgs {
-                text: "composed".to_string(),
-            })
-            .gas(Gas::from_tgas(50)),
-        );
+    // FunctionCall composes into a transaction via add_action
+    let _tx = near.transaction("guestbook.testnet").add_action(
+        JsonGuestbook::add_message(AddMessageArgs {
+            text: "composed".to_string(),
+        })
+        .gas(Gas::from_tgas(50)),
+    );
 }

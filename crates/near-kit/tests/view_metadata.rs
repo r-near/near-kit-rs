@@ -268,12 +268,7 @@ async fn generated_borsh_views_can_be_pinned_to_a_block() {
     let counter =
         near.contract::<BorshCounter>("counter.testnet".parse::<near_kit::AccountId>().unwrap());
     let hash = CryptoHash::from_bytes([7; 32]);
-    let result = counter
-        .get_count()
-        .block_reference(hash)
-        .with_metadata()
-        .await
-        .unwrap();
+    let result = counter.get_count().at(hash).with_metadata().await.unwrap();
     assert_eq!(result.result, 5);
     assert_eq!(
         requests.lock().unwrap()[0]["params"]["block_id"],

@@ -1,5 +1,5 @@
-//! Without `rpc`, the `Near`-backed client and the `Contract` impl are not
-//! generated.
+//! Without `rpc` there is no `Near`, so the generated client's backend has
+//! no default and must be named.
 
 #[near_kit::contract]
 pub trait Counter {

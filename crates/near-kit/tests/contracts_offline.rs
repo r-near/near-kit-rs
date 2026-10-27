@@ -1,6 +1,6 @@
 //! Compile tests for `#[near_kit::contract]` with `contracts` but without
-//! `rpc`: the offline `FunctionCall` constructors must be generated, the
-//! `Near`-backed client must not be.
+//! `rpc`: the offline `FunctionCall` constructors and the backend-generic
+//! client are generated, but the client has no `Near` default.
 //!
 //! Run with:
 //! `cargo test -p near-kit --no-default-features --features contracts --test contracts_offline`

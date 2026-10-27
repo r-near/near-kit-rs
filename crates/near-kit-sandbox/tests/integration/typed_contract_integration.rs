@@ -1,7 +1,7 @@
 //! Typed-contract macro behavior that crosses the RPC and runtime boundary.
 
 use near_kit::rpc::Finality;
-use near_kit::transaction::Final;
+use near_kit::transaction::{CodecError, ContractError, Final};
 use near_kit::{AccountId, Error, Gas, Near, NearToken};
 use near_kit_sandbox::Sandbox;
 use serde::{Deserialize, Serialize};
@@ -60,12 +60,15 @@ async fn typed_views_and_calls_roundtrip() {
         .add_message(AddMessageArgs {
             text: "typed message".to_owned(),
         })
-        .send()
-        .wait_until::<Final>()
         .await
         .expect("typed call");
 
-    let messages = guestbook.get_messages().await.expect("updated messages");
+    // `Near`'s calls wait for `ExecutedOptimistic`, so read optimistic state.
+    let messages = guestbook
+        .get_messages()
+        .at(Finality::Optimistic)
+        .await
+        .expect("updated messages");
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].text, "typed message");
 }
@@ -81,14 +84,12 @@ async fn typed_call_configuration_reaches_the_contract() {
         })
         .gas(Gas::from_tgas(50))
         .deposit(NearToken::from_near(1))
-        .send()
-        .wait_until::<Final>()
         .await
         .expect("configured typed call");
 
     let messages = guestbook
         .get_messages()
-        .finality(Finality::Optimistic)
+        .at(Finality::Optimistic)
         .await
         .expect("configured typed view");
     assert_eq!(messages.len(), 1);
@@ -108,7 +109,7 @@ async fn typed_views_work_without_a_signer_but_calls_do_not() {
         })
         .await
         .expect_err("call without signer must fail");
-    assert!(matches!(error, Error::NoSigner));
+    assert!(matches!(error, ContractError::Backend(Error::NoSigner)));
 }
 
 #[tokio::test]
@@ -120,11 +121,14 @@ async fn typed_views_preserve_decode_and_block_errors() {
 
     let (_, near, contract_id) = deploy_guestbook("typederrors").await;
     let wrong = near.contract::<WrongGuestbook>(&contract_id);
-    assert!(matches!(wrong.total_messages().await, Err(Error::Json(_))));
+    assert!(matches!(
+        wrong.total_messages().await,
+        Err(ContractError::Codec(CodecError::Json(_)))
+    ));
 
     let guestbook = near.contract::<Guestbook>(&contract_id);
     assert!(matches!(
-        guestbook.total_messages().at_block(999_999_999_u64).await,
-        Err(Error::Rpc(_))
+        guestbook.total_messages().at(999_999_999_u64).await,
+        Err(ContractError::Backend(_))
     ));
 }
