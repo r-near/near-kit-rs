@@ -811,9 +811,9 @@ impl Error {
 
     /// The underlying [`RpcError`], if this is an [`Error::Rpc`].
     ///
-    /// High-level calls (`Near::view`, typed `#[near_kit::contract]` views,
-    /// queries) return [`Error`], which boxes the RPC error. Use this to
-    /// inspect it without matching through the box.
+    /// Queries such as `Near::balance`, signed sends, and views converted with
+    /// `?` or `Error::from` give an [`Error`](crate::Error), which boxes the
+    /// RPC error. Use this to inspect it without matching through the box.
     ///
     /// Structured transaction validation errors are promoted to
     /// [`Error::InvalidTx`] and are not returned here.
