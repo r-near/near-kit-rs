@@ -97,10 +97,11 @@ macro_rules! account {
     };
 }
 
-// The typed-contract macro and its marker/format attributes. Expansions name
-// this crate when the caller doesn't depend on near-kit.
+// The typed-contract macro. Expansions name this crate when the caller
+// doesn't depend on near-kit. Its `#[call]` / `#[json]` / `#[borsh]` markers
+// are read by the macro itself and need no import.
 #[cfg(feature = "contracts")]
-pub use near_kit_macros::{borsh, call, contract, json};
+pub use near_kit_macros::contract;
 
 /// Support code shared with `near-kit` and the `#[contract]` expansion. Not
 /// public API.

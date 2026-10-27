@@ -553,9 +553,10 @@ pub use near_kit_primitives::{Contract, TxSender, Viewer};
 #[cfg(feature = "rpc")]
 pub use client::{Near, NearBuilder};
 
-// Re-export the typed-contract macro and its marker/format attributes together.
+// The typed-contract macro. Its `#[call]` / `#[json]` / `#[borsh]` markers are
+// read by the macro itself and need no import.
 #[cfg(feature = "contracts")]
-pub use near_kit_macros::{borsh, call, contract, json};
+pub use near_kit_macros::contract;
 
 /// Support code for the `#[near_kit::contract]` expansion. Not public API.
 ///

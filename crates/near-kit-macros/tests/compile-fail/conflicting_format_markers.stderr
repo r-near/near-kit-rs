@@ -1,5 +1,5 @@
 error: #[json] and #[borsh] cannot be used together
- --> tests/compile-fail/conflicting_format_markers.rs:9:7
+ --> tests/compile-fail/conflicting_format_markers.rs:6:7
   |
-9 |     #[borsh]
+6 |     #[borsh]
   |       ^^^^^
