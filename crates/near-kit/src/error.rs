@@ -55,8 +55,9 @@
 use thiserror::Error;
 
 use crate::types::{
-    AccountId, CryptoHash, DelegateDecodeError, FinalExecutionOutcome,
-    GlobalContractIdentifierView, InvalidTxError, PublicKey, TxExecutionStatus,
+    AccountId, ActionError, CryptoHash, DelegateDecodeError, FinalExecutionOutcome,
+    FinalExecutionStatus, GlobalContractIdentifierView, InvalidTxError, PublicKey,
+    TxExecutionStatus,
 };
 
 /// Error parsing an account ID.
@@ -198,8 +199,13 @@ pub enum UniversalStateInitError {
     NonCanonical,
 }
 
-/// Error during signing operations.
+/// Error building a signer or signing with it.
+///
+/// Converts into [`Error`](enum@Error) with `?`. Parse failures keep their
+/// [`Error::ParseAccountId`] and [`Error::ParseKey`] variants and an invalid
+/// key set becomes [`Error::Config`], as before this type existed.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SignerError {
     #[error("Invalid seed phrase")]
     InvalidSeedPhrase,
@@ -212,6 +218,106 @@ pub enum SignerError {
 
     #[error("Implicit accounts require an Ed25519 secret key")]
     ImplicitAccountRequiresEd25519,
+
+    /// The signer's account ID did not parse.
+    #[error(transparent)]
+    InvalidAccountId(#[from] ParseAccountIdError),
+
+    /// A secret key did not parse.
+    #[error(transparent)]
+    InvalidKey(#[from] ParseKeyError),
+
+    /// A rotating signer was given no keys.
+    #[error("RotatingSigner requires at least one key")]
+    NoKeys,
+
+    /// A rotating signer was given signers for different accounts.
+    #[error("All signers must share the same account ID, got {expected} and {found}")]
+    MixedAccounts {
+        expected: AccountId,
+        found: AccountId,
+    },
+}
+
+/// Error building a [`FunctionCall`](crate::transaction::FunctionCall).
+///
+/// The builder keeps the first failure and returns it when the call is
+/// converted into an action. Converts into [`Error`](enum@Error) with `?`,
+/// keeping the variant it had before this type existed.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum FunctionCallBuildError {
+    /// The JSON arguments failed to serialize.
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    /// The Borsh arguments failed to serialize.
+    #[error("Borsh error: {0}")]
+    Borsh(#[source] std::io::Error),
+
+    /// The gas amount did not parse.
+    #[error(transparent)]
+    ParseGas(#[from] ParseGasError),
+
+    /// The deposit did not parse.
+    #[error(transparent)]
+    ParseAmount(#[from] ParseAmountError),
+}
+
+/// Error decoding a [`SignedTransaction`](crate::protocol::SignedTransaction)
+/// or [`SignedTransactionV1`](crate::protocol::SignedTransactionV1).
+///
+/// Converts into [`Error::InvalidTransaction`] with `?`.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum DecodeTransactionError {
+    /// The input is not valid base64.
+    #[error("Invalid base64: {0}")]
+    Base64(String),
+
+    /// The bytes are not a Borsh-encoded signed transaction.
+    #[error("Failed to deserialize signed transaction: {0}")]
+    Borsh(#[source] std::io::Error),
+}
+
+/// Error reading the result of a transaction from its outcome.
+///
+/// Returned by [`FinalExecutionOutcome::result`] and
+/// [`FinalExecutionOutcome::json`], and by the wait levels when the RPC
+/// response has no usable outcome. Converts into [`Error`](enum@Error) with
+/// `?`: [`InvalidTx`](Self::InvalidTx) and [`Json`](Self::Json) keep their
+/// variants and the rest become [`Error::InvalidTransaction`].
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum OutcomeError {
+    /// The transaction was rejected before execution.
+    #[error("Invalid transaction: {0}")]
+    InvalidTx(Box<InvalidTxError>),
+
+    /// An action failed during execution.
+    #[error("Action error: {0}")]
+    ActionFailed(Box<ActionError>),
+
+    /// The transaction has not finished with a return value.
+    #[error("Transaction status is {0:?}, expected SuccessValue")]
+    NotSuccess(Box<FinalExecutionStatus>),
+
+    /// The return value is not valid base64.
+    #[error("Failed to decode base64 SuccessValue: {0}")]
+    InvalidBase64(String),
+
+    /// The return value is not the expected JSON.
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    /// The RPC response carried no execution outcome at an executed wait level.
+    #[error(
+        "RPC returned no execution outcome for transaction {transaction_hash} at wait level {wait_level}"
+    )]
+    MissingOutcome {
+        transaction_hash: CryptoHash,
+        wait_level: &'static str,
+    },
 }
 
 /// Error during keystore operations.
@@ -878,7 +984,7 @@ pub enum Error {
 
     // ─── Signing ───
     #[error("Signing failed: {0}")]
-    Signing(#[from] SignerError),
+    Signing(SignerError),
 
     // ─── KeyStore ───
     #[error(transparent)]
@@ -901,6 +1007,46 @@ impl From<RpcError> for Error {
             // Promote structured tx validation errors to Error::InvalidTx
             RpcError::InvalidTx(e) => Error::InvalidTx(Box::new(e)),
             other => Error::Rpc(Box::new(other)),
+        }
+    }
+}
+
+impl From<SignerError> for Error {
+    fn from(err: SignerError) -> Self {
+        match err {
+            SignerError::InvalidAccountId(e) => Error::ParseAccountId(e),
+            SignerError::InvalidKey(e) => Error::ParseKey(e),
+            SignerError::NoKeys | SignerError::MixedAccounts { .. } => {
+                Error::Config(err.to_string())
+            }
+            other => Error::Signing(other),
+        }
+    }
+}
+
+impl From<FunctionCallBuildError> for Error {
+    fn from(err: FunctionCallBuildError) -> Self {
+        match err {
+            FunctionCallBuildError::Json(e) => Error::Json(e),
+            FunctionCallBuildError::Borsh(e) => Error::Borsh(e.to_string()),
+            FunctionCallBuildError::ParseGas(e) => Error::ParseGas(e),
+            FunctionCallBuildError::ParseAmount(e) => Error::ParseAmount(e),
+        }
+    }
+}
+
+impl From<DecodeTransactionError> for Error {
+    fn from(err: DecodeTransactionError) -> Self {
+        Error::InvalidTransaction(err.to_string())
+    }
+}
+
+impl From<OutcomeError> for Error {
+    fn from(err: OutcomeError) -> Self {
+        match err {
+            OutcomeError::InvalidTx(e) => Error::InvalidTx(e),
+            OutcomeError::Json(e) => Error::Json(e),
+            other => Error::InvalidTransaction(other.to_string()),
         }
     }
 }
@@ -1710,6 +1856,102 @@ mod tests {
         let signer_err = SignerError::InvalidSeedPhrase;
         let err: Error = signer_err.into();
         assert!(matches!(err, Error::Signing(_)));
+    }
+
+    // The layer errors convert into the variant (and message) the same
+    // failure produced before they existed, so `?` into `Error` is unchanged.
+
+    #[test]
+    fn test_error_from_signer_construction_errors() {
+        let err: Error = crate::signer::InMemorySigner::new("bad..id", "ed25519:x")
+            .unwrap_err()
+            .into();
+        assert!(matches!(err, Error::ParseAccountId(_)));
+
+        let err: Error = crate::signer::InMemorySigner::new("alice.near", "nope")
+            .unwrap_err()
+            .into();
+        assert!(matches!(err, Error::ParseKey(_)));
+
+        let err: Error = SignerError::NoKeys.into();
+        assert_eq!(
+            err.to_string(),
+            "Invalid configuration: RotatingSigner requires at least one key"
+        );
+
+        let err: Error = SignerError::MixedAccounts {
+            expected: "a.near".parse().unwrap(),
+            found: "b.near".parse().unwrap(),
+        }
+        .into();
+        assert_eq!(
+            err.to_string(),
+            "Invalid configuration: All signers must share the same account ID, got a.near and b.near"
+        );
+    }
+
+    #[test]
+    fn test_error_from_decode_transaction_error() {
+        let err: Error = crate::protocol::SignedTransaction::from_base64("!!")
+            .unwrap_err()
+            .into();
+        assert!(
+            matches!(&err, Error::InvalidTransaction(m) if m.starts_with("Invalid base64: ")),
+            "{err:?}"
+        );
+
+        let err: Error = crate::protocol::SignedTransaction::from_bytes(&[1, 2, 3])
+            .unwrap_err()
+            .into();
+        assert!(
+            matches!(&err, Error::InvalidTransaction(m) if m.starts_with("Failed to deserialize signed transaction: ")),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn test_error_from_outcome_error() {
+        let err: Error = OutcomeError::InvalidTx(Box::new(InvalidTxError::Expired)).into();
+        assert!(matches!(err, Error::InvalidTx(_)));
+
+        let json = serde_json::from_str::<u8>("x").unwrap_err();
+        let err: Error = OutcomeError::Json(json).into();
+        assert!(matches!(err, Error::Json(_)));
+
+        let err: Error = OutcomeError::NotSuccess(Box::new(FinalExecutionStatus::Started)).into();
+        assert!(
+            matches!(&err, Error::InvalidTransaction(m) if m == "Transaction status is Started, expected SuccessValue"),
+            "{err:?}"
+        );
+
+        let err: Error = OutcomeError::MissingOutcome {
+            transaction_hash: CryptoHash::default(),
+            wait_level: "Final",
+        }
+        .into();
+        assert!(
+            matches!(&err, Error::InvalidTransaction(m) if m.starts_with("RPC returned no execution outcome for transaction ") && m.ends_with(" at wait level Final")),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn test_error_from_function_call_build_error() {
+        use crate::transaction::FunctionCall;
+
+        let err: Error = FunctionCall::new("m")
+            .gas("nope")
+            .into_action()
+            .unwrap_err()
+            .into();
+        assert!(matches!(err, Error::ParseGas(_)));
+
+        let err: Error = FunctionCall::new("m")
+            .deposit("nope")
+            .into_action()
+            .unwrap_err()
+            .into();
+        assert!(matches!(err, Error::ParseAmount(_)));
     }
 
     #[test]

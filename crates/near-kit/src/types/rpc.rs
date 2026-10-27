@@ -7,6 +7,8 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use serde_with::{base64::Base64, serde_as};
 
+use crate::error::OutcomeError;
+
 use super::action::{
     AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction, DelegateAction,
     DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeterministicStateInitAction,
@@ -986,23 +988,18 @@ impl FinalExecutionOutcome {
     /// with `outcome.is_failure() == true`. This method is primarily useful
     /// when working with the low-level `rpc().send_tx()` API or when you
     /// already have an outcome and want to decode its return value.
-    pub fn result(&self) -> Result<Vec<u8>, crate::error::Error> {
+    pub fn result(&self) -> Result<Vec<u8>, OutcomeError> {
         match &self.status {
             FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
-                Err(crate::error::Error::InvalidTx(Box::new(e.clone())))
+                Err(OutcomeError::InvalidTx(Box::new(e.clone())))
             }
-            FinalExecutionStatus::Failure(TxExecutionError::ActionError(e)) => Err(
-                crate::error::Error::InvalidTransaction(format!("Action error: {e}")),
-            ),
-            FinalExecutionStatus::SuccessValue(s) => STANDARD.decode(s).map_err(|e| {
-                crate::error::Error::InvalidTransaction(format!(
-                    "Failed to decode base64 SuccessValue: {e}"
-                ))
-            }),
-            other => Err(crate::error::Error::InvalidTransaction(format!(
-                "Transaction status is {:?}, expected SuccessValue",
-                other,
-            ))),
+            FinalExecutionStatus::Failure(TxExecutionError::ActionError(e)) => {
+                Err(OutcomeError::ActionFailed(Box::new(e.clone())))
+            }
+            FinalExecutionStatus::SuccessValue(s) => STANDARD
+                .decode(s)
+                .map_err(|e| OutcomeError::InvalidBase64(e.to_string())),
+            other => Err(OutcomeError::NotSuccess(Box::new(other.clone()))),
         }
     }
 
@@ -1010,11 +1007,11 @@ impl FinalExecutionOutcome {
     ///
     /// Returns `Err` if `result()` fails (on-chain failure, unexpected status,
     /// or invalid base64) or if JSON deserialization fails.
-    pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, crate::error::Error> {
+    pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, OutcomeError> {
         let bytes = self.result()?;
         // Empty SuccessValue (void change method) -> treat as null.
         let bytes: &[u8] = if bytes.is_empty() { b"null" } else { &bytes };
-        serde_json::from_slice(bytes).map_err(crate::error::Error::from)
+        Ok(serde_json::from_slice(bytes)?)
     }
 }
 

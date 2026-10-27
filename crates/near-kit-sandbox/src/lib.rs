@@ -375,7 +375,7 @@ impl Sandbox {
 
         let root_signer = Arc::new(
             InMemorySigner::new(&root_account, SANDBOX_ROOT_SECRET_KEY)
-                .map_err(SandboxError::RootSigner)?,
+                .map_err(|e| SandboxError::RootSigner(e.into()))?,
         );
         let mut image = NearSandbox::new(version).with_account_id(root_account.to_string());
         if let Some(ref id) = chain_id {

@@ -21,6 +21,7 @@ use std::io::{Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use super::{AccountId, Action, CryptoHash, PublicKey, SecretKey, Signature};
+use crate::error::DecodeTransactionError;
 
 /// Nonce value type, matching nearcore's `Nonce` (`u64`).
 pub type Nonce = u64;
@@ -150,13 +151,8 @@ impl SignedTransaction {
     /// let bytes: Vec<u8> = /* received from offline signer */;
     /// let signed_tx = SignedTransaction::from_bytes(&bytes)?;
     /// ```
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::error::Error> {
-        borsh::from_slice(bytes).map_err(|e| {
-            crate::error::Error::InvalidTransaction(format!(
-                "Failed to deserialize signed transaction: {}",
-                e
-            ))
-        })
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeTransactionError> {
+        borsh::from_slice(bytes).map_err(DecodeTransactionError::Borsh)
     }
 
     /// Deserialize from base64.
@@ -171,11 +167,11 @@ impl SignedTransaction {
     /// let signed_tx = SignedTransaction::from_base64(base64_str)?;
     /// # Ok::<(), near_kit::Error>(())
     /// ```
-    pub fn from_base64(s: &str) -> Result<Self, crate::error::Error> {
+    pub fn from_base64(s: &str) -> Result<Self, DecodeTransactionError> {
         use base64::{Engine as _, engine::general_purpose::STANDARD};
-        let bytes = STANDARD.decode(s).map_err(|e| {
-            crate::error::Error::InvalidTransaction(format!("Invalid base64: {}", e))
-        })?;
+        let bytes = STANDARD
+            .decode(s)
+            .map_err(|e| DecodeTransactionError::Base64(e.to_string()))?;
         Self::from_bytes(&bytes)
     }
 }
@@ -544,21 +540,16 @@ impl SignedTransactionV1 {
     }
 
     /// Deserialize from bytes (round-trips [`to_bytes`](Self::to_bytes)).
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::error::Error> {
-        borsh::from_slice(bytes).map_err(|e| {
-            crate::error::Error::InvalidTransaction(format!(
-                "Failed to deserialize signed transaction: {}",
-                e
-            ))
-        })
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeTransactionError> {
+        borsh::from_slice(bytes).map_err(DecodeTransactionError::Borsh)
     }
 
     /// Deserialize from base64 (round-trips [`to_base64`](Self::to_base64)).
-    pub fn from_base64(s: &str) -> Result<Self, crate::error::Error> {
+    pub fn from_base64(s: &str) -> Result<Self, DecodeTransactionError> {
         use base64::{Engine as _, engine::general_purpose::STANDARD};
-        let bytes = STANDARD.decode(s).map_err(|e| {
-            crate::error::Error::InvalidTransaction(format!("Invalid base64: {}", e))
-        })?;
+        let bytes = STANDARD
+            .decode(s)
+            .map_err(|e| DecodeTransactionError::Base64(e.to_string()))?;
         Self::from_bytes(&bytes)
     }
 }

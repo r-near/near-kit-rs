@@ -1,6 +1,7 @@
 //! Fluent transaction construction and typed execution wait levels.
 
 mod function_call;
+pub use crate::error::FunctionCallBuildError;
 pub use function_call::FunctionCall;
 
 pub use crate::types::{
