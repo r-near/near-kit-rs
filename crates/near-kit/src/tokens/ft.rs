@@ -9,9 +9,7 @@ use tokio::sync::OnceCell;
 use crate::client::{SigningNear, Tx};
 use crate::error::Error;
 use crate::transaction::FunctionCall;
-use crate::types::{
-    AccountId, ExecutedOptimistic, Finality, Gas, NearToken, TryIntoAccountId, WaitLevel,
-};
+use crate::types::{AccountId, Final, Finality, Gas, NearToken, TryIntoAccountId, WaitLevel};
 
 use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 
@@ -48,7 +46,7 @@ use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 /// # Ok(())
 /// # }
 /// ```
-pub struct FungibleToken<W: WaitLevel = ExecutedOptimistic> {
+pub struct FungibleToken<W: WaitLevel = Final> {
     client: SigningNear<W>,
     contract_id: AccountId,
     metadata: Arc<OnceCell<FtMetadata>>,

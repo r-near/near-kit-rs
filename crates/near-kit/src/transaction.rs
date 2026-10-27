@@ -17,16 +17,16 @@
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! # use near_kit::*;
 //! # use near_kit::protocol::Action;
-//! # use near_kit::transaction::{Final, Included};
+//! # use near_kit::transaction::{ExecutedOptimistic, Included};
 //! # async fn example(alice: &SigningNear) -> Result<(), Error> {
 //! let transfer = || Action::transfer(NearToken::from_near(1));
 //! let bob = account!("bob.testnet");
 //!
-//! // Default (ExecutedOptimistic) — returns FinalExecutionOutcome
+//! // Default (Final) — returns FinalExecutionOutcome
 //! alice.transaction(&bob).add_action(transfer()).await?;
 //!
-//! // Executed levels — also returns FinalExecutionOutcome
-//! alice.wait_until::<Final>().transaction(&bob).add_action(transfer()).await?;
+//! // Other executed levels — also return FinalExecutionOutcome
+//! alice.wait_until::<ExecutedOptimistic>().transaction(&bob).add_action(transfer()).await?;
 //!
 //! // Non-executed levels — returns SendTxResponse (hash + sender, plus any
 //! // partial outcome the RPC has already produced)

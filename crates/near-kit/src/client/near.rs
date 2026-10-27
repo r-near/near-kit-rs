@@ -159,7 +159,7 @@ impl Near {
     ///
     /// The RPC connection is shared (via `Arc`), so deriving one signing
     /// client per account costs nothing. The result waits for
-    /// [`ExecutedOptimistic`](crate::transaction::ExecutedOptimistic); pick
+    /// [`Final`](crate::transaction::Final), the level reads default to; pick
     /// another level once with
     /// [`SigningNear::wait_until`](SigningNear::wait_until).
     ///

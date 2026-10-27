@@ -9,9 +9,7 @@ use tokio::sync::OnceCell;
 use crate::client::{SigningNear, Tx};
 use crate::error::Error;
 use crate::transaction::FunctionCall;
-use crate::types::{
-    AccountId, ExecutedOptimistic, Finality, Gas, NearToken, TryIntoAccountId, WaitLevel,
-};
+use crate::types::{AccountId, Final, Finality, Gas, NearToken, TryIntoAccountId, WaitLevel};
 
 use super::types::{NftContractMetadata, NftToken};
 
@@ -51,7 +49,7 @@ use super::types::{NftContractMetadata, NftToken};
 /// # Ok(())
 /// # }
 /// ```
-pub struct NonFungibleToken<W: WaitLevel = ExecutedOptimistic> {
+pub struct NonFungibleToken<W: WaitLevel = Final> {
     client: SigningNear<W>,
     contract_id: AccountId,
     metadata: Arc<OnceCell<NftContractMetadata>>,

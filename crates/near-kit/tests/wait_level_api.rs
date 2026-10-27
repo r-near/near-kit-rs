@@ -26,7 +26,7 @@ fn signing_clients_select_wait_levels_in_type_position() {
     let alice = alice();
     let transfer = || Action::transfer(NearToken::from_near(1));
 
-    let _default: Tx<ExecutedOptimistic> = alice
+    let _default: Tx<Final> = alice
         .transaction(account!("bob.testnet"))
         .add_action(transfer());
 

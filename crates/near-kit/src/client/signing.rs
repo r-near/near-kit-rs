@@ -9,8 +9,8 @@ use crate::error::{Error, RpcError};
 use crate::platform::MaybeSend;
 use crate::types::nep413::{SignMessageParams, SignedMessage};
 use crate::types::{
-    AccountId, Action, BlockReference, ExecutedOptimistic, InMemorySigner, SignedTransaction,
-    Signer, ViewFunctionResult, WaitLevel,
+    AccountId, Action, BlockReference, Final, InMemorySigner, SignedTransaction, Signer,
+    ViewFunctionResult, WaitLevel,
 };
 
 use super::near::Near;
@@ -25,7 +25,8 @@ use super::transaction::{DelegateOptions, DelegateResult, PreparedTransaction, T
 /// separately created clients for the same key don't collide.
 ///
 /// `W` is the [`WaitLevel`] every transaction from this client waits for,
-/// [`ExecutedOptimistic`] by default. Pick another once with
+/// [`Final`] by default: the same finality reads use by default, so a read
+/// after a write sees it. Pick another once with
 /// [`wait_until`](Self::wait_until); the response type follows the level.
 ///
 /// Reads go through [`near()`](Self::near): there is no `Deref` and no
@@ -39,7 +40,7 @@ use super::transaction::{DelegateOptions, DelegateResult, PreparedTransaction, T
 /// use near_kit::*;
 /// use near_kit::protocol::Action;
 /// use near_kit::signer::InMemorySigner;
-/// use near_kit::transaction::Final;
+/// use near_kit::transaction::Included;
 ///
 /// # async fn example() -> Result<(), Error> {
 /// let near = Near::testnet().build();
@@ -50,15 +51,15 @@ use super::transaction::{DelegateOptions, DelegateResult, PreparedTransaction, T
 ///     .add_action(Action::transfer(NearToken::from_near(1)))
 ///     .await?;
 ///
-/// // The same account, waiting for finality on every transaction.
-/// let alice_final = alice.wait_until::<Final>();
+/// // The same account, returning once each transaction is in a block.
+/// let alice_fast = alice.wait_until::<Included>();
 ///
 /// // Reads go through the read-only client.
 /// let balance = alice.near().balance(alice.account_id()).await?;
 /// # Ok(())
 /// # }
 /// ```
-pub struct SigningNear<W: WaitLevel = ExecutedOptimistic> {
+pub struct SigningNear<W: WaitLevel = Final> {
     near: Near,
     signer: Arc<dyn Signer>,
     _wait: PhantomData<fn() -> W>,
@@ -469,7 +470,7 @@ impl<W: WaitLevel> crate::TxSender for SigningNear<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transaction::{Final, Included};
+    use crate::transaction::{ExecutedOptimistic, Included};
 
     const ALICE_KEY: &str = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
 
@@ -496,8 +497,8 @@ mod tests {
     #[test]
     fn wait_until_keeps_the_account_and_connection() {
         let alice = alice();
-        let alice_final: SigningNear<Final> = alice.wait_until::<Final>();
-        let alice_included: SigningNear<Included> = alice_final.wait_until();
+        let alice_fast: SigningNear<ExecutedOptimistic> = alice.wait_until::<ExecutedOptimistic>();
+        let alice_included: SigningNear<Included> = alice_fast.wait_until();
         assert_eq!(alice_included.account_id(), alice.account_id());
         assert!(Arc::ptr_eq(alice_included.signer(), alice.signer()));
         assert_eq!(alice_included.near().rpc_url(), alice.near().rpc_url());
@@ -505,9 +506,11 @@ mod tests {
 
     #[test]
     fn debug_shows_account_and_wait_level() {
-        let debug = format!("{:?}", alice().wait_until::<Final>());
+        let debug = format!("{:?}", alice());
         assert!(debug.contains("alice.testnet"), "{debug}");
         assert!(debug.contains("Final"), "{debug}");
+        let debug = format!("{:?}", alice().wait_until::<Included>());
+        assert!(debug.contains("Included"), "{debug}");
     }
 
     #[test]

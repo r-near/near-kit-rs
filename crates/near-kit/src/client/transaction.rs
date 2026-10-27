@@ -564,7 +564,8 @@ impl PreparedTransaction {
 /// the client's [`max_nonce_retries`](crate::NearBuilder::max_nonce_retries),
 /// and waits for the client's wait level `W`, so it resolves to
 /// `W::Response` (a [`FinalExecutionOutcome`](crate::rpc::FinalExecutionOutcome)
-/// for the default [`ExecutedOptimistic`](crate::transaction::ExecutedOptimistic)).
+/// for the default [`Final`](crate::transaction::Final)). Final is also what
+/// reads default to, so a default read after a default write sees it.
 ///
 /// Actions come from the [`Action`] constructors, typed
 /// [`FunctionCall`](crate::transaction::FunctionCall)s, or the static
@@ -579,16 +580,17 @@ impl PreparedTransaction {
 /// ```rust,no_run
 /// # use near_kit::*;
 /// # use near_kit::protocol::Action;
-/// # use near_kit::transaction::{Final, FunctionCall};
+/// # use near_kit::transaction::{ExecutedOptimistic, FunctionCall};
 /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
 /// alice
 ///     .transaction(account!("bob.testnet"))
 ///     .add_action(Action::transfer(NearToken::from_near(1)))
 ///     .await?;
 ///
-/// // Several actions, one atomic transaction, waiting for finality.
+/// // Several actions in one atomic transaction, returning as soon as it
+/// // executes rather than waiting for finality.
 /// alice
-///     .wait_until::<Final>()
+///     .wait_until::<ExecutedOptimistic>()
 ///     .transaction(account!("counter.testnet"))
 ///     .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
 ///     .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
@@ -597,7 +599,7 @@ impl PreparedTransaction {
 /// # }
 /// ```
 #[must_use = "transactions are not sent unless awaited"]
-pub struct Tx<W: WaitLevel = crate::types::ExecutedOptimistic> {
+pub struct Tx<W: WaitLevel = crate::types::Final> {
     pub(crate) sender: SigningNear<W>,
     pub(crate) receiver_id: AccountId,
     pub(crate) actions: Vec<Action>,
@@ -687,7 +689,8 @@ impl<W: WaitLevel> IntoFuture for Tx<W> {
 ///
 /// Created by [`Near::send_signed`]. The type parameter `W` determines the wait
 /// level and response type. Awaiting
-/// this builder directly uses [`ExecutedOptimistic`](crate::transaction::ExecutedOptimistic),
+/// this builder directly uses [`Final`](crate::transaction::Final), like
+/// [`SigningNear`],
 /// while [`wait_until`](Self::wait_until) selects a different wait level at compile time.
 ///
 /// The builder borrows the signed transaction, so the future produced by
@@ -705,7 +708,7 @@ impl<W: WaitLevel> IntoFuture for Tx<W> {
 /// # async fn example(near: &Near, signed: &SignedTransaction) -> Result<(), Error> {
 /// // Early wait levels return SendTxResponse, useful for fire-and-track
 /// // workflows. Awaiting directly without `.wait_until` uses the
-/// // ExecutedOptimistic default and returns FinalExecutionOutcome instead.
+/// // Final default and returns FinalExecutionOutcome instead.
 /// let submitted: SendTxResponse = near.send_signed(signed)
 ///     .wait_until::<Included>()
 ///     .await?;
@@ -713,7 +716,7 @@ impl<W: WaitLevel> IntoFuture for Tx<W> {
 /// # }
 /// ```
 #[must_use = "signed transactions are not sent unless awaited"]
-pub struct SignedTransactionSend<'tx, W: WaitLevel = crate::types::ExecutedOptimistic> {
+pub struct SignedTransactionSend<'tx, W: WaitLevel = crate::types::Final> {
     rpc: Arc<RpcClient>,
     signed_tx: &'tx SignedTransaction,
     _marker: PhantomData<W>,
