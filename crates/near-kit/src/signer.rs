@@ -15,7 +15,7 @@
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let signer = InMemorySigner::new(
-//!     "alice.testnet",
+//!     account!("alice.testnet"),
 //!     "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
 //! )?;
 //!

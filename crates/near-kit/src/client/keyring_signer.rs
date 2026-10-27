@@ -26,7 +26,7 @@
 //! // Load a key stored by near-cli-rs
 //! let signer = KeyringSigner::new(
 //!     "testnet",
-//!     "alice.testnet",
+//!     account!("alice.testnet"),
 //!     "ed25519:6fWy..."
 //! )?;
 //!
@@ -50,9 +50,7 @@
 //! ```
 
 use crate::error::{Error, KeyStoreError, ParseKeyError};
-use crate::types::{
-    AccountId, InMemorySigner, PublicKey, SecretKey, Signer, SigningKey, TryIntoAccountId,
-};
+use crate::types::{AccountId, InMemorySigner, PublicKey, SecretKey, Signer, SigningKey};
 
 /// Signer that loads keys from the system keyring.
 ///
@@ -64,11 +62,12 @@ use crate::types::{
 /// because keyring entries are keyed by `{account_id}:{public_key}`.
 ///
 /// ```rust,no_run
+/// use near_kit::account;
 /// use near_kit::signer::KeyringSigner;
 ///
 /// let signer = KeyringSigner::new(
 ///     "testnet",
-///     "alice.testnet",
+///     account!("alice.testnet"),
 ///     "ed25519:6fWy..."
 /// )?;
 /// # Ok::<(), near_kit::Error>(())
@@ -97,22 +96,23 @@ impl KeyringSigner {
     /// # Example
     ///
     /// ```rust,no_run
+    /// use near_kit::account;
     /// use near_kit::signer::KeyringSigner;
     ///
     /// let signer = KeyringSigner::new(
     ///     "testnet",
-    ///     "alice.testnet",
+    ///     account!("alice.testnet"),
     ///     "ed25519:6fWy..."
     /// )?;
     /// # Ok::<(), near_kit::Error>(())
     /// ```
     pub fn new(
         network: impl AsRef<str>,
-        account_id: impl TryIntoAccountId,
+        account_id: impl Into<AccountId>,
         public_key: impl AsRef<str>,
     ) -> Result<Self, Error> {
         let network = network.as_ref();
-        let account_id: AccountId = account_id.try_into_account_id()?;
+        let account_id: AccountId = account_id.into();
         let public_key_str = public_key.as_ref();
 
         // Parse public key for validation

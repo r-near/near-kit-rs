@@ -44,7 +44,7 @@ async fn downstream_can_implement_an_async_signing_backend() {
     let public_key = secret_key.public_key();
     let signing_calls = Arc::new(AtomicUsize::new(0));
     let signer = CustomSigner {
-        account_id: "hsm-user.testnet".parse().unwrap(),
+        account_id: near_kit::account!("hsm-user.testnet"),
         key: SigningKey::from_backend(
             public_key.clone(),
             MockHsm {

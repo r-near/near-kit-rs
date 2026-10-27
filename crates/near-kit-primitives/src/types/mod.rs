@@ -64,7 +64,7 @@ mod units;
 mod universal_state_init;
 mod wait_level;
 
-pub use account::{AccountId, AccountIdRef, TryIntoAccountId};
+pub use account::{AccountId, AccountIdRef};
 pub use action::{
     AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction,
     DELEGATE_ACTION_PREFIX, DELEGATE_V2_ACTION_PREFIX, DecodeError as DelegateDecodeError,
@@ -72,9 +72,9 @@ pub use action::{
     DeployGlobalContractAction, DeterministicStateInitAction, FunctionCallAction,
     FunctionCallPermission, GasKeyInfo, GlobalContractId, MAX_NONCES_FOR_GAS_KEY,
     NonDelegateAction, PublishMode, SignedDelegateAction, StakeAction, StateInit, StateInitExt,
-    StateInitV1, TransferAction, TransferToGasKeyAction, TryIntoGlobalContractId,
-    UniversalStateInitAction, UseGlobalContractAction, VersionedDelegateActionPayload,
-    VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
+    StateInitV1, TransferAction, TransferToGasKeyAction, UniversalStateInitAction,
+    UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
+    WithdrawFromGasKeyAction,
 };
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{
@@ -119,7 +119,7 @@ pub use transaction::{
     Nonce, NonceIndex, NonceMode, SignedTransaction, SignedTransactionV1, Transaction,
     TransactionNonce, TransactionV1, VersionedTransaction,
 };
-pub use units::{Gas, IntoGas, IntoNearToken, NearToken};
+pub use units::{Gas, NearToken};
 pub use universal_state_init::{RawStateInit, UniversalStateInit, UniversalStateInitV1};
 pub use wait_level::{
     Executed, ExecutedOptimistic, Final, Included, IncludedFinal, Submitted, WaitLevel,

@@ -24,16 +24,16 @@
 //! ```rust
 //! use near_kit_primitives::protocol::{Action, Transaction};
 //! use near_kit_primitives::signer::SecretKey;
-//! use near_kit_primitives::{CryptoHash, NearToken};
+//! use near_kit_primitives::{CryptoHash, NearToken, account};
 //!
 //! let secret = SecretKey::generate_ed25519();
 //! let block_hash = CryptoHash::ZERO; // a recent block hash, fetched elsewhere
 //!
 //! let tx = Transaction::new(
-//!     "alice.testnet".parse()?,
+//!     account!("alice.testnet"),
 //!     secret.public_key(),
 //!     1, // nonce: the access key's current nonce + 1
-//!     "bob.testnet".parse()?,
+//!     account!("bob.testnet"),
 //!     block_hash,
 //!     vec![Action::transfer(NearToken::from_near(1))],
 //! );

@@ -485,7 +485,7 @@ async fn test_action_add_function_call_key() {
         create_funded_account(&root_near, sandbox, NearToken::from_near(10)).await;
 
     let fc_key = SecretKey::generate_ed25519();
-    let receiver_contract: AccountId = "some-contract.sandbox".parse().unwrap();
+    let receiver_contract: AccountId = near_kit::account!("some-contract.sandbox");
 
     let _outcome = account_near
         .wait_until::<Final>()

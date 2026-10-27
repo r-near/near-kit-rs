@@ -11,13 +11,13 @@
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::Near;
+//! use near_kit::{Near, account};
 //! use near_kit::signer::InMemorySigner;
 //! use near_kit::standards::nep413;
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let signer = InMemorySigner::new(
-//!     "alice.testnet",
+//!     account!("alice.testnet"),
 //!     "ed25519:..."
 //! )?;
 //!

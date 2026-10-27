@@ -99,8 +99,14 @@ async fn main() -> Result<(), Error> {
         (Some(user_key), Some(relayer_key)) => {
             // Set up both clients
             let near = Near::testnet().build();
-            let user = near.with_signer(InMemorySigner::new(&user_account, &user_key)?);
-            let relayer = near.with_signer(InMemorySigner::new(&relayer_account, &relayer_key)?);
+            let user = near.with_signer(InMemorySigner::new(
+                user_account.parse::<AccountId>()?,
+                &user_key,
+            )?);
+            let relayer = near.with_signer(InMemorySigner::new(
+                relayer_account.parse::<AccountId>()?,
+                &relayer_key,
+            )?);
 
             // Step 1: User signs the action off-chain
             let delegate_result = user_creates_delegate(&user).await?;

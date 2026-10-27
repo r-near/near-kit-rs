@@ -13,20 +13,19 @@ pub use near_kit_primitives::protocol::{
     DelegateDecodeError, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     DeployGlobalContractAction, DepositCostFailureReason, DeterministicStateInitAction,
     FunctionCallAction, FunctionCallError, FunctionCallPermission, GasKeyInfo, GlobalContractId,
-    HostError, IntoGas, IntoNearToken, InvalidAccessKeyError, InvalidTxError,
-    MAX_NONCES_FOR_GAS_KEY, MethodResolveError, NonDelegateAction, Nonce, NonceIndex, NonceMode,
-    PrepareError, PublishMode, RawStateInit, ReceiptValidationError, SignedDelegateAction,
-    SignedTransaction, SignedTransactionV1, StakeAction, StateInit, StateInitExt, StateInitV1,
-    StorageError, Transaction, TransactionNonce, TransactionV1, TransferAction,
-    TransferToGasKeyAction, TryIntoAccountId, TryIntoGlobalContractId, TxExecutionError,
-    UniversalStateInit, UniversalStateInitAction, UniversalStateInitV1, UnknownError,
-    UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
-    VersionedTransaction, WasmTrap, WithdrawFromGasKeyAction,
+    HostError, InvalidAccessKeyError, InvalidTxError, MAX_NONCES_FOR_GAS_KEY, MethodResolveError,
+    NonDelegateAction, Nonce, NonceIndex, NonceMode, PrepareError, PublishMode, RawStateInit,
+    ReceiptValidationError, SignedDelegateAction, SignedTransaction, SignedTransactionV1,
+    StakeAction, StateInit, StateInitExt, StateInitV1, StorageError, Transaction, TransactionNonce,
+    TransactionV1, TransferAction, TransferToGasKeyAction, TxExecutionError, UniversalStateInit,
+    UniversalStateInitAction, UniversalStateInitV1, UnknownError, UseGlobalContractAction,
+    VersionedDelegateActionPayload, VersionedSignedDelegateAction, VersionedTransaction, WasmTrap,
+    WithdrawFromGasKeyAction,
 };
 #[doc(inline)]
 pub use near_kit_primitives::protocol::{
     ActionViewConversionError, DecodeTransactionError, ParseAccountIdError, ParseAmountError,
-    ParseGasError, ParseHashError, UniversalStateInitError,
+    ParseHashError, UniversalStateInitError,
 };
 
 #[doc(inline)]

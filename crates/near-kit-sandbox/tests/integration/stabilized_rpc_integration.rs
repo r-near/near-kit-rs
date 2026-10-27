@@ -80,7 +80,7 @@ async fn test_block_effects_returns_changes_for_block() {
 async fn test_maintenance_windows_for_account() {
     let (_, near) = super::support::shared_client().await;
 
-    let account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+    let account: AccountId = SANDBOX_ROOT_ACCOUNT.into();
     // The root account is the sandbox's sole validator, so this must not error.
     // Windows may be empty depending on the epoch; the call succeeding and the
     // ranges being well-formed (start <= end) is the contract under test.

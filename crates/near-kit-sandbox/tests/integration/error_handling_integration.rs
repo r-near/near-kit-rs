@@ -56,10 +56,7 @@ async fn account_without_code_returns_contract_not_deployed() {
 
     let error = near
         .near()
-        .view::<serde_json::Value>(
-            SANDBOX_ROOT_ACCOUNT.parse::<AccountId>().unwrap(),
-            "get_greeting",
-        )
+        .view::<serde_json::Value>(AccountId::from(SANDBOX_ROOT_ACCOUNT), "get_greeting")
         .args(())
         .await
         .expect_err("root account has no contract");

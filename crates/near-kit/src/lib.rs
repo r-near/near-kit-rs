@@ -55,7 +55,7 @@
 //! async fn main() -> Result<(), Error> {
 //!     let near = Near::testnet().build();
 //!     let me = near.with_signer(InMemorySigner::new(
-//!         "your-account.testnet",
+//!         account!("your-account.testnet"),
 //!         "ed25519:YOUR_PRIVATE_KEY",
 //!     )?);
 //!
@@ -290,7 +290,7 @@
 //! let near = Near::testnet().build();
 //!
 //! // Using a key directly
-//! let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
+//! let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...")?);
 //!
 //! // Environment variables (CI/CD)
 //! let me = near.with_signer(EnvSigner::new()?);
@@ -315,8 +315,8 @@
 //! # fn example() -> Result<(), Error> {
 //! let near = Near::testnet().build();
 //!
-//! let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
-//! let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
+//! let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...")?);
+//! let bob = near.with_signer(InMemorySigner::new(account!("bob.testnet"), "ed25519:...")?);
 //!
 //! // Both share the same connection, no overhead
 //! assert_eq!(alice.near().rpc().url(), bob.near().rpc().url());

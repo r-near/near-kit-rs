@@ -7,8 +7,6 @@
 #[cfg(feature = "file-signer")]
 use std::path::Path;
 
-#[cfg(feature = "file-signer")]
-use crate::types::TryIntoAccountId;
 use crate::types::{AccountId, InMemorySigner, PublicKey, Signer, SigningKey};
 
 // ============================================================================
@@ -25,10 +23,11 @@ use crate::types::{AccountId, InMemorySigner, PublicKey, Signer, SigningKey};
 /// # Example
 ///
 /// ```rust,no_run
+/// use near_kit::account;
 /// use near_kit::signer::FileSigner;
 ///
 /// // Load from ~/.near-credentials/testnet/alice.testnet.json
-/// let signer = FileSigner::new("testnet", "alice.testnet").unwrap();
+/// let signer = FileSigner::new("testnet", account!("alice.testnet")).unwrap();
 /// ```
 #[cfg(feature = "file-signer")]
 #[derive(Clone)]
@@ -63,9 +62,9 @@ impl FileSigner {
     /// - The file cannot be parsed
     pub fn new(
         network: impl AsRef<str>,
-        account_id: impl TryIntoAccountId,
+        account_id: impl Into<AccountId>,
     ) -> Result<Self, crate::error::Error> {
-        let account_id: AccountId = account_id.try_into_account_id()?;
+        let account_id: AccountId = account_id.into();
         let home = dirs::home_dir().ok_or_else(|| {
             crate::error::Error::Config("Could not determine home directory".to_string())
         })?;
@@ -85,7 +84,7 @@ impl FileSigner {
     /// * `account_id` - The NEAR account ID
     pub fn from_file(
         path: impl AsRef<Path>,
-        account_id: impl TryIntoAccountId,
+        account_id: impl Into<AccountId>,
     ) -> Result<Self, crate::error::Error> {
         let content = std::fs::read_to_string(path.as_ref()).map_err(|e| {
             crate::error::Error::Config(format!(
@@ -118,12 +117,13 @@ impl FileSigner {
     /// [`RotatingSigner`](crate::signer::RotatingSigner):
     ///
     /// ```rust,no_run
+    /// use near_kit::account;
     /// use near_kit::signer::{FileSigner, RotatingSigner};
     ///
     /// // Load keys from separate credential files for the same account
     /// let signers = vec![
-    ///     FileSigner::from_file("keys/bot-key-0.json", "bot.testnet")?.into_inner(),
-    ///     FileSigner::from_file("keys/bot-key-1.json", "bot.testnet")?.into_inner(),
+    ///     FileSigner::from_file("keys/bot-key-0.json", account!("bot.testnet"))?.into_inner(),
+    ///     FileSigner::from_file("keys/bot-key-1.json", account!("bot.testnet"))?.into_inner(),
     /// ];
     /// let rotating = RotatingSigner::from_signers(signers)?;
     /// # Ok::<(), near_kit::Error>(())
@@ -208,7 +208,7 @@ impl EnvSigner {
             crate::error::Error::Config(format!("Environment variable {} not set", key_var))
         })?;
 
-        let inner = InMemorySigner::new(account_id, &private_key)?;
+        let inner = InMemorySigner::new(account_id.parse::<AccountId>()?, &private_key)?;
         Ok(Self { inner })
     }
 

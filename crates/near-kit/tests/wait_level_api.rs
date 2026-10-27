@@ -14,7 +14,7 @@ use near_kit::*;
 fn alice() -> SigningNear {
     Near::testnet().build().with_signer(
         InMemorySigner::new(
-            "alice.testnet",
+            account!("alice.testnet"),
             "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJnpBKWieC73hVTpBeA6FZiCc5tfyZL3a3tHeQJegQe4qGSv8FLsYp7TYd1r6",
         )
         .unwrap(),

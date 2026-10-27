@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::error::SignerError;
 use crate::types::nep413::{self, SignMessageParams, SignedMessage};
-use crate::types::{AccountId, KeyType, PublicKey, SecretKey, Signature, TryIntoAccountId};
+use crate::types::{AccountId, KeyType, PublicKey, SecretKey, Signature};
 
 // ============================================================================
 // Signer Trait
@@ -109,10 +109,11 @@ impl<T: Signer + ?Sized> Signer for Arc<T> {
 /// # Example
 ///
 /// ```rust
+/// use near_kit_primitives::account;
 /// use near_kit_primitives::signer::{InMemorySigner, Signer};
 ///
 /// # async fn example() -> Result<(), near_kit_primitives::signer::SignerError> {
-/// let signer = InMemorySigner::new("alice.testnet", "ed25519:...")?;
+/// let signer = InMemorySigner::new(account!("alice.testnet"), "ed25519:...")?;
 ///
 /// let key = signer.key();
 /// println!("Public key: {}", key.public_key());
@@ -324,10 +325,11 @@ impl SigningBackend for SecretKeyBackend {
 /// # Example
 ///
 /// ```rust
+/// use near_kit_primitives::account;
 /// use near_kit_primitives::signer::InMemorySigner;
 ///
 /// let signer = InMemorySigner::new(
-///     "alice.testnet",
+///     account!("alice.testnet"),
 ///     "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
 /// ).unwrap();
 /// ```
@@ -350,10 +352,10 @@ impl InMemorySigner {
     ///
     /// Returns an error if the account ID or secret key cannot be parsed.
     pub fn new(
-        account_id: impl TryIntoAccountId,
+        account_id: impl Into<AccountId>,
         secret_key: impl AsRef<str>,
     ) -> Result<Self, SignerError> {
-        let account_id: AccountId = account_id.try_into_account_id()?;
+        let account_id: AccountId = account_id.into();
         let secret_key: SecretKey = secret_key.as_ref().parse()?;
         let public_key = secret_key.public_key();
 
@@ -370,10 +372,10 @@ impl InMemorySigner {
     ///
     /// Returns an error if `account_id` cannot be converted to a valid [`AccountId`].
     pub fn from_secret_key(
-        account_id: impl TryIntoAccountId,
+        account_id: impl Into<AccountId>,
         secret_key: SecretKey,
     ) -> Result<Self, SignerError> {
-        let account_id: AccountId = account_id.try_into_account_id()?;
+        let account_id: AccountId = account_id.into();
         let public_key = secret_key.public_key();
         Ok(Self {
             account_id,
@@ -391,10 +393,10 @@ impl InMemorySigner {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit_primitives::AccountId;
+    /// use near_kit_primitives::account;
     /// use near_kit_primitives::signer::{InMemorySigner, SecretKey, Signer};
     ///
-    /// let account_id: AccountId = "alice.testnet".parse()?;
+    /// let account_id = account!("alice.testnet");
     /// let signer = InMemorySigner::from_parts(&account_id, SecretKey::generate_ed25519());
     /// assert_eq!(signer.account_id(), &account_id);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -471,16 +473,17 @@ impl InMemorySigner {
     /// # Example
     ///
     /// ```rust
+    /// use near_kit_primitives::account;
     /// use near_kit_primitives::signer::InMemorySigner;
     ///
     /// let signer = InMemorySigner::from_seed_phrase(
-    ///     "alice.testnet",
+    ///     account!("alice.testnet"),
     ///     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
     /// ).unwrap();
     /// ```
     #[cfg(feature = "mnemonic")]
     pub fn from_seed_phrase(
-        account_id: impl TryIntoAccountId,
+        account_id: impl Into<AccountId>,
         phrase: impl AsRef<str>,
     ) -> Result<Self, SignerError> {
         let secret_key = SecretKey::from_seed_phrase(phrase)?;
@@ -498,17 +501,18 @@ impl InMemorySigner {
     /// # Example
     ///
     /// ```rust
+    /// use near_kit_primitives::account;
     /// use near_kit_primitives::signer::InMemorySigner;
     ///
     /// let signer = InMemorySigner::from_seed_phrase_with_path(
-    ///     "alice.testnet",
+    ///     account!("alice.testnet"),
     ///     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
     ///     "m/44'/397'/1'"
     /// ).unwrap();
     /// ```
     #[cfg(feature = "mnemonic")]
     pub fn from_seed_phrase_with_path(
-        account_id: impl TryIntoAccountId,
+        account_id: impl Into<AccountId>,
         phrase: impl AsRef<str>,
         hd_path: impl AsRef<str>,
     ) -> Result<Self, SignerError> {
@@ -566,11 +570,12 @@ impl Signer for InMemorySigner {
 /// [`from_signers()`](Self::from_signers):
 ///
 /// ```rust
+/// use near_kit_primitives::account;
 /// # use near_kit_primitives::signer::{InMemorySigner, RotatingSigner, SecretKey};
 /// # let (key_0, key_1) = (SecretKey::generate_ed25519(), SecretKey::generate_ed25519());
 /// let rotating = RotatingSigner::from_signers(vec![
-///     InMemorySigner::from_secret_key("bot.testnet", key_0)?,
-///     InMemorySigner::from_secret_key("bot.testnet", key_1)?,
+///     InMemorySigner::from_secret_key(account!("bot.testnet"), key_0)?,
+///     InMemorySigner::from_secret_key(account!("bot.testnet"), key_1)?,
 /// ])?;
 /// # Ok::<(), near_kit_primitives::signer::SignerError>(())
 /// ```
@@ -584,6 +589,7 @@ impl Signer for InMemorySigner {
 /// # Example
 ///
 /// ```rust
+/// use near_kit_primitives::account;
 /// use near_kit_primitives::signer::{RotatingSigner, SecretKey, Signer};
 ///
 /// let keys = vec![
@@ -592,7 +598,7 @@ impl Signer for InMemorySigner {
 ///     SecretKey::generate_ed25519(),
 /// ];
 ///
-/// let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+/// let signer = RotatingSigner::new(account!("bot.testnet"), keys).unwrap();
 ///
 /// // Each key() call atomically claims the next key in sequence
 /// let key1 = signer.key();
@@ -621,14 +627,14 @@ impl RotatingSigner {
     /// - The account ID cannot be parsed
     /// - The keys vector is empty
     pub fn new(
-        account_id: impl TryIntoAccountId,
+        account_id: impl Into<AccountId>,
         keys: Vec<SecretKey>,
     ) -> Result<Self, SignerError> {
         if keys.is_empty() {
             return Err(SignerError::NoKeys);
         }
 
-        let account_id: AccountId = account_id.try_into_account_id()?;
+        let account_id: AccountId = account_id.into();
 
         Ok(Self {
             account_id,
@@ -645,12 +651,13 @@ impl RotatingSigner {
     /// # Example
     ///
     /// ```rust
+    /// use near_kit_primitives::account;
     /// use near_kit_primitives::signer::{InMemorySigner, RotatingSigner, SecretKey};
     ///
     /// // Keys for the same account, loaded from wherever you keep them
     /// let signers = vec![
-    ///     InMemorySigner::from_secret_key("bot.testnet", SecretKey::generate_ed25519())?,
-    ///     InMemorySigner::from_secret_key("bot.testnet", SecretKey::generate_ed25519())?,
+    ///     InMemorySigner::from_secret_key(account!("bot.testnet"), SecretKey::generate_ed25519())?,
+    ///     InMemorySigner::from_secret_key(account!("bot.testnet"), SecretKey::generate_ed25519())?,
     /// ];
     /// let rotating = RotatingSigner::from_signers(signers)?;
     /// # Ok::<(), near_kit_primitives::signer::SignerError>(())
@@ -685,7 +692,7 @@ impl RotatingSigner {
     /// * `account_id` - The NEAR account ID
     /// * `keys` - Slice of secret keys in string format (e.g., "ed25519:...")
     pub fn from_key_strings(
-        account_id: impl TryIntoAccountId,
+        account_id: impl Into<AccountId>,
         keys: &[impl AsRef<str>],
     ) -> Result<Self, SignerError> {
         let parsed_keys: Result<Vec<SecretKey>, _> =
@@ -724,10 +731,11 @@ impl RotatingSigner {
     /// # Example
     ///
     /// ```rust
+    /// use near_kit_primitives::account;
     /// use near_kit_primitives::signer::{RotatingSigner, SecretKey};
     ///
     /// let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
-    /// let rotating = RotatingSigner::new("bot.testnet", keys).unwrap();
+    /// let rotating = RotatingSigner::new(account!("bot.testnet"), keys).unwrap();
     ///
     /// // Create per-key signers for sequential queue workers
     /// let per_key: Vec<_> = rotating.into_per_key_signers();
@@ -782,12 +790,13 @@ mod tests {
     use futures::executor::block_on;
 
     use super::*;
+    use crate::account;
     use crate::types::{Action, CryptoHash, NearToken, Transaction};
 
     #[test]
     fn test_in_memory_signer() {
         let signer = InMemorySigner::new(
-            "alice.testnet",
+            account!("alice.testnet"),
             "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
         )
         .unwrap();
@@ -807,7 +816,7 @@ mod tests {
     fn test_signature_consistency() {
         // Same message should produce the same signature (Ed25519 is deterministic)
         let signer = InMemorySigner::new(
-            "alice.testnet",
+            account!("alice.testnet"),
             "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
         )
         .unwrap();
@@ -823,7 +832,7 @@ mod tests {
     #[test]
     fn test_different_messages_different_signatures() {
         let signer = InMemorySigner::new(
-            "alice.testnet",
+            account!("alice.testnet"),
             "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
         )
         .unwrap();
@@ -838,7 +847,8 @@ mod tests {
     #[test]
     fn test_transaction_signing_with_signer_trait() {
         let secret_key = SecretKey::generate_ed25519();
-        let signer = InMemorySigner::from_secret_key("alice.testnet", secret_key).unwrap();
+        let signer =
+            InMemorySigner::from_secret_key(account!("alice.testnet"), secret_key).unwrap();
 
         // Get a key for signing
         let key = signer.key();
@@ -884,7 +894,7 @@ mod tests {
         ];
         let expected_public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
 
-        let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+        let signer = RotatingSigner::new(account!("bot.testnet"), keys).unwrap();
 
         // Verify round-robin rotation
         let key1 = signer.key();
@@ -907,7 +917,7 @@ mod tests {
         let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
         let expected_pks: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
 
-        let signer = RotatingSigner::new("bot.testnet", keys.clone()).unwrap();
+        let signer = RotatingSigner::new(account!("bot.testnet"), keys.clone()).unwrap();
         let message = b"test";
 
         // Claim first key and sign
@@ -931,7 +941,7 @@ mod tests {
 
     #[test]
     fn test_rotating_signer_empty_keys() {
-        let result = RotatingSigner::new("bot.testnet", vec![]);
+        let result = RotatingSigner::new(account!("bot.testnet"), vec![]);
         assert!(result.is_err());
     }
 
@@ -940,24 +950,17 @@ mod tests {
         let secret = SecretKey::generate_ed25519();
         let expected_pk = secret.public_key();
 
-        let signer = InMemorySigner::from_secret_key("alice.testnet", secret).unwrap();
+        let signer = InMemorySigner::from_secret_key(account!("alice.testnet"), secret).unwrap();
 
         assert_eq!(signer.account_id().as_str(), "alice.testnet");
         assert_eq!(signer.public_key(), &expected_pk);
     }
 
     #[test]
-    fn test_from_secret_key_accepts_string() {
+    fn test_from_secret_key_accepts_account_id() {
         let secret = SecretKey::generate_ed25519();
-        let signer = InMemorySigner::from_secret_key("alice.testnet", secret);
+        let signer = InMemorySigner::from_secret_key(account!("alice.testnet"), secret);
         assert!(signer.is_ok());
-    }
-
-    #[test]
-    fn test_from_secret_key_rejects_invalid_account() {
-        let secret = SecretKey::generate_ed25519();
-        let signer = InMemorySigner::from_secret_key("", secret);
-        assert!(signer.is_err());
     }
 
     #[test]
@@ -1014,7 +1017,7 @@ mod tests {
             SecretKey::generate_ed25519(),
         ];
 
-        let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+        let signer = RotatingSigner::new(account!("bot.testnet"), keys).unwrap();
 
         assert_eq!(signer.key_count(), 3);
         assert_eq!(signer.public_keys().len(), 3);
@@ -1027,7 +1030,7 @@ mod tests {
             "ed25519:4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi5kL6YJt9Z6iLqMBkVfqDH2Zj8bxqXTdMkNmvPcAD8LqCZ",
         ];
 
-        let signer = RotatingSigner::from_key_strings("bot.testnet", &keys).unwrap();
+        let signer = RotatingSigner::from_key_strings(account!("bot.testnet"), &keys).unwrap();
 
         assert_eq!(signer.key_count(), 2);
         assert_eq!(signer.account_id().as_str(), "bot.testnet");
@@ -1036,7 +1039,7 @@ mod tests {
     #[test]
     fn test_in_memory_signer_debug_hides_secret() {
         let signer = InMemorySigner::new(
-            "alice.testnet",
+            account!("alice.testnet"),
             "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
         )
         .unwrap();
@@ -1057,7 +1060,7 @@ mod tests {
 
         let signers: Vec<InMemorySigner> = keys
             .into_iter()
-            .map(|sk| InMemorySigner::from_secret_key("bot.testnet", sk).unwrap())
+            .map(|sk| InMemorySigner::from_secret_key(account!("bot.testnet"), sk).unwrap())
             .collect();
 
         let rotating = RotatingSigner::from_signers(signers).unwrap();
@@ -1068,9 +1071,13 @@ mod tests {
     #[test]
     fn test_rotating_signer_from_signers_mismatched_accounts() {
         let signers = vec![
-            InMemorySigner::from_secret_key("alice.testnet", SecretKey::generate_ed25519())
+            InMemorySigner::from_secret_key(
+                account!("alice.testnet"),
+                SecretKey::generate_ed25519(),
+            )
+            .unwrap(),
+            InMemorySigner::from_secret_key(account!("bob.testnet"), SecretKey::generate_ed25519())
                 .unwrap(),
-            InMemorySigner::from_secret_key("bob.testnet", SecretKey::generate_ed25519()).unwrap(),
         ];
 
         let result = RotatingSigner::from_signers(signers);
@@ -1086,7 +1093,7 @@ mod tests {
         ];
         let expected_public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
 
-        let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+        let signer = RotatingSigner::new(account!("bot.testnet"), keys).unwrap();
 
         // signing_keys() should not advance the counter
         let counter_before = signer.counter.load(Ordering::Relaxed);
@@ -1106,7 +1113,7 @@ mod tests {
         let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
         let expected_public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
 
-        let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+        let signer = RotatingSigner::new(account!("bot.testnet"), keys).unwrap();
         let per_key = signer.into_per_key_signers();
 
         assert_eq!(per_key.len(), 2);
@@ -1125,7 +1132,7 @@ mod tests {
         ];
         let pks: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
 
-        let signer = RotatingSigner::new("bot.testnet", keys).unwrap();
+        let signer = RotatingSigner::new(account!("bot.testnet"), keys).unwrap();
 
         // public_key() peeks at the next key without advancing the counter
         assert_eq!(signer.public_key(), pks[0]);
@@ -1153,7 +1160,7 @@ mod tests {
     #[test]
     fn test_signing_key_is_clone() {
         let signer = InMemorySigner::new(
-            "alice.testnet",
+            account!("alice.testnet"),
             "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr",
         )
         .unwrap();

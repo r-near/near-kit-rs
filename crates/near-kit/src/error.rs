@@ -66,7 +66,7 @@ use crate::types::{
 // near-kit through the facade modules). They are imported here so the
 // `From` impls below, and `crate::error::*` paths elsewhere, keep working.
 pub(crate) use near_kit_primitives::protocol::{
-    DecodeTransactionError, ParseAccountIdError, ParseAmountError, ParseGasError,
+    DecodeTransactionError, ParseAccountIdError, ParseAmountError,
 };
 pub(crate) use near_kit_primitives::rpc::OutcomeError;
 pub(crate) use near_kit_primitives::signer::{ParseKeyError, SignerError};
@@ -703,12 +703,6 @@ pub enum Error {
     ParseAccountId(#[from] ParseAccountIdError),
 
     #[error(transparent)]
-    ParseAmount(#[from] ParseAmountError),
-
-    #[error(transparent)]
-    ParseGas(#[from] ParseGasError),
-
-    #[error(transparent)]
     ParseKey(#[from] ParseKeyError),
 
     // ─── RPC ───
@@ -761,7 +755,6 @@ impl From<RpcError> for Error {
 impl From<SignerError> for Error {
     fn from(err: SignerError) -> Self {
         match err {
-            SignerError::InvalidAccountId(e) => Error::ParseAccountId(e),
             SignerError::InvalidKey(e) => Error::ParseKey(e),
             SignerError::NoKeys | SignerError::MixedAccounts { .. } => {
                 Error::Config(err.to_string())
@@ -879,6 +872,7 @@ impl Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::account;
     use crate::types::FinalExecutionStatus;
 
     // ========================================================================
@@ -1444,16 +1438,6 @@ mod tests {
         let err: Error = parse_err.into();
         assert!(matches!(err, Error::ParseAccountId(_)));
 
-        // ParseAmountError -> Error
-        let parse_err = ParseAmountError::Overflow;
-        let err: Error = parse_err.into();
-        assert!(matches!(err, Error::ParseAmount(_)));
-
-        // ParseGasError -> Error
-        let parse_err = ParseGasError::Overflow;
-        let err: Error = parse_err.into();
-        assert!(matches!(err, Error::ParseGas(_)));
-
         // ParseKeyError -> Error
         let parse_err = ParseKeyError::InvalidFormat;
         let err: Error = parse_err.into();
@@ -1479,12 +1463,7 @@ mod tests {
 
     #[test]
     fn test_error_from_signer_construction_errors() {
-        let err: Error = crate::signer::InMemorySigner::new("bad..id", "ed25519:x")
-            .unwrap_err()
-            .into();
-        assert!(matches!(err, Error::ParseAccountId(_)));
-
-        let err: Error = crate::signer::InMemorySigner::new("alice.near", "nope")
+        let err: Error = crate::signer::InMemorySigner::new(account!("alice.near"), "nope")
             .unwrap_err()
             .into();
         assert!(matches!(err, Error::ParseKey(_)));

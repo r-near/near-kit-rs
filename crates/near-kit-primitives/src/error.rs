@@ -13,12 +13,9 @@ use crate::types::{AccountId, ActionError, CryptoHash, FinalExecutionStatus, Inv
 /// This is a re-export of the upstream [`near_account_id::ParseAccountError`].
 pub type ParseAccountIdError = near_account_id::ParseAccountError;
 
-/// Error parsing a NEAR token amount.
+/// Error parsing a decimal token amount (near-kit's `FtAmount::parse`).
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ParseAmountError {
-    #[error("Ambiguous amount '{0}'. Use explicit units like '5 NEAR' or '1000 yocto'")]
-    AmbiguousAmount(String),
-
     #[error("Invalid amount format: '{0}'")]
     InvalidFormat(String),
 
@@ -26,19 +23,6 @@ pub enum ParseAmountError {
     InvalidNumber(String),
 
     #[error("Amount overflow: value too large")]
-    Overflow,
-}
-
-/// Error parsing a gas value.
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
-pub enum ParseGasError {
-    #[error("Invalid gas format: '{0}'. Use '30 Tgas', '5 Ggas', or '1000000 gas'")]
-    InvalidFormat(String),
-
-    #[error("Invalid number in gas: '{0}'")]
-    InvalidNumber(String),
-
-    #[error("Gas overflow: value too large")]
     Overflow,
 }
 
@@ -149,9 +133,8 @@ pub enum UniversalStateInitError {
 
 /// Error building a signer or signing with it.
 ///
-/// Converts into `near_kit::Error` with `?`. Parse failures keep their
-/// `Error::ParseAccountId` and `Error::ParseKey` variants and an invalid
-/// key set becomes `Error::Config`, as before this type existed.
+/// Converts into `near_kit::Error` with `?`. A key that fails to parse
+/// becomes `Error::ParseKey` and an invalid key set `Error::Config`.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SignerError {
@@ -166,10 +149,6 @@ pub enum SignerError {
 
     #[error("Implicit accounts require an Ed25519 secret key")]
     ImplicitAccountRequiresEd25519,
-
-    /// The signer's account ID did not parse.
-    #[error(transparent)]
-    InvalidAccountId(#[from] ParseAccountIdError),
 
     /// A secret key did not parse.
     #[error(transparent)]
@@ -305,10 +284,6 @@ mod tests {
     #[test]
     fn test_parse_amount_error_display() {
         assert_eq!(
-            ParseAmountError::AmbiguousAmount("123".to_string()).to_string(),
-            "Ambiguous amount '123'. Use explicit units like '5 NEAR' or '1000 yocto'"
-        );
-        assert_eq!(
             ParseAmountError::InvalidFormat("xyz".to_string()).to_string(),
             "Invalid amount format: 'xyz'"
         );
@@ -319,26 +294,6 @@ mod tests {
         assert_eq!(
             ParseAmountError::Overflow.to_string(),
             "Amount overflow: value too large"
-        );
-    }
-
-    // ========================================================================
-    // ParseGasError tests
-    // ========================================================================
-
-    #[test]
-    fn test_parse_gas_error_display() {
-        assert_eq!(
-            ParseGasError::InvalidFormat("xyz".to_string()).to_string(),
-            "Invalid gas format: 'xyz'. Use '30 Tgas', '5 Ggas', or '1000000 gas'"
-        );
-        assert_eq!(
-            ParseGasError::InvalidNumber("abc".to_string()).to_string(),
-            "Invalid number in gas: 'abc'"
-        );
-        assert_eq!(
-            ParseGasError::Overflow.to_string(),
-            "Gas overflow: value too large"
         );
     }
 

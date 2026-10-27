@@ -63,7 +63,7 @@
 //! async fn test_custom_root() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Custom root account name
 //!     let sandbox = SandboxConfig::builder()
-//!         .root_account("sb")
+//!         .root_account(account!("sb"))
 //!         .fresh()
 //!         .await?;
 //!     let near = sandbox.client();
@@ -76,7 +76,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 
-use near_kit::protocol::{ChainId, ParseAccountIdError, TryIntoAccountId};
+use near_kit::protocol::{AccountIdRef, ChainId};
 use near_kit::rpc::RpcError;
 use near_kit::signer::{InMemorySigner, Signer};
 use near_kit::{AccountId, Error, Near, NearToken, SigningNear};
@@ -97,7 +97,7 @@ macro_rules! info {
 }
 
 /// Default sandbox root account ID.
-pub const SANDBOX_ROOT_ACCOUNT: &str = "sandbox";
+pub const SANDBOX_ROOT_ACCOUNT: &AccountIdRef = AccountIdRef::new_or_panic("sandbox");
 
 /// Default sandbox root secret key.
 ///
@@ -107,14 +107,6 @@ pub const SANDBOX_ROOT_SECRET_KEY: &str = "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJ
 /// Failure while validating sandbox configuration or starting its container.
 #[derive(Debug, ThisError)]
 pub enum SandboxError {
-    /// The configured root account is not a valid NEAR account ID.
-    #[error("invalid sandbox root account: {0}")]
-    InvalidRootAccount(#[source] ParseAccountIdError),
-
-    /// An account passed to a sandbox helper is not a valid NEAR account ID.
-    #[error("invalid sandbox account: {0}")]
-    InvalidAccount(#[from] ParseAccountIdError),
-
     /// The requested chain ID is reserved for a public network.
     #[error("sandbox chain ID {0:?} is reserved by neard; use a custom ID such as \"localnet\"")]
     UnsupportedChainId(String),
@@ -467,21 +459,21 @@ impl Sandbox {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use near_kit::{NearToken};
+    /// use near_kit::{NearToken, account};
     /// use near_kit_sandbox::SandboxConfig;
     ///
     /// let sandbox = SandboxConfig::shared().await?;
     ///
     /// // Set account balance to 1M NEAR for staking test
-    /// sandbox.set_balance("validator.sandbox", NearToken::from_near(1_000_000)).await?;
+    /// sandbox.set_balance(account!("validator.sandbox"), NearToken::from_near(1_000_000)).await?;
     /// ```
     pub async fn set_balance(
         &self,
-        account_id: impl TryIntoAccountId,
+        account_id: impl Into<AccountId>,
         balance: NearToken,
     ) -> Result<(), SandboxError> {
         let near = self.near();
-        let account_id = account_id.try_into_account_id()?;
+        let account_id = account_id.into();
 
         // Fetch raw account data from RPC - this includes all fields the sandbox expects
         let mut account_response: serde_json::Value = near
@@ -652,7 +644,7 @@ impl SandboxConfig {
     /// ```rust,ignore
     /// let sandbox = SandboxConfig::builder()
     ///     .version("2.10.5")
-    ///     .root_account("sb")
+    ///     .root_account(account!("sb"))
     ///     .fresh()
     ///     .await?;
     /// ```
@@ -698,9 +690,7 @@ impl SandboxBuilder {
 
         let root_account = match self.root_account {
             Some(account_id) => account_id,
-            None => SANDBOX_ROOT_ACCOUNT
-                .try_into_account_id()
-                .map_err(SandboxError::InvalidRootAccount)?,
+            None => SANDBOX_ROOT_ACCOUNT.into(),
         };
 
         Ok(ResolvedSandboxConfig {
@@ -735,16 +725,13 @@ impl SandboxBuilder {
     ///
     /// ```rust,ignore
     /// let sandbox = SandboxConfig::builder()
-    ///     .root_account("sb")
+    ///     .root_account(account!("sb"))
     ///     .fresh()
     ///     .await?;
     /// // Sub-accounts will be "alice.sb" instead of "alice.sandbox"
     /// ```
-    pub fn root_account(mut self, name: impl TryIntoAccountId) -> Self {
-        match name.try_into_account_id() {
-            Ok(account_id) => self.root_account = Some(account_id),
-            Err(error) => self.record_error(SandboxError::InvalidRootAccount(error)),
-        }
+    pub fn root_account(mut self, name: impl Into<AccountId>) -> Self {
+        self.root_account = Some(name.into());
         self
     }
 
@@ -829,12 +816,6 @@ mod tests {
     }
 
     #[test]
-    fn invalid_root_account_is_deferred_as_an_error() {
-        let result = SandboxConfig::builder().root_account("INVALID").resolve();
-        assert!(matches!(result, Err(SandboxError::InvalidRootAccount(_))));
-    }
-
-    #[test]
     fn chain_id_custom_is_accepted() {
         let config = SandboxConfig::builder()
             .chain_id("localnet")
@@ -849,9 +830,12 @@ mod tests {
     #[test]
     fn builder_preserves_the_first_construction_error() {
         let result = SandboxConfig::builder()
-            .root_account("INVALID")
             .chain_id("mainnet")
+            .chain_id("testnet")
             .resolve();
-        assert!(matches!(result, Err(SandboxError::InvalidRootAccount(_))));
+        assert!(matches!(
+            result,
+            Err(SandboxError::UnsupportedChainId(chain_id)) if chain_id == "mainnet"
+        ));
     }
 }

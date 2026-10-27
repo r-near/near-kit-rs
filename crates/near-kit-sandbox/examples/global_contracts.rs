@@ -41,7 +41,7 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         .client()
         .near()
         .with_signer(InMemorySigner::from_secret_key(
-            publisher_account.as_str(),
+            &publisher_account,
             publisher_key,
         )?);
 
@@ -76,10 +76,7 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
     let user_near = sandbox
         .client()
         .near()
-        .with_signer(InMemorySigner::from_secret_key(
-            user_account.as_str(),
-            user_key,
-        )?);
+        .with_signer(InMemorySigner::from_secret_key(&user_account, user_key)?);
 
     // Deploy from the publisher's global contract
     user_near
@@ -140,10 +137,7 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
     let user2_near = sandbox
         .client()
         .near()
-        .with_signer(InMemorySigner::from_secret_key(
-            user2_account.as_str(),
-            user2_key,
-        )?);
+        .with_signer(InMemorySigner::from_secret_key(&user2_account, user2_key)?);
 
     // Deploy from hash (type dispatches on CryptoHash)
     user2_near

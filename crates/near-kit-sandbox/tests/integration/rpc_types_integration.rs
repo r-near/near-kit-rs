@@ -179,7 +179,7 @@ async fn test_status_response_full_fields() {
 async fn test_account_view_full_fields() {
     let (_, near) = super::support::shared_client().await;
 
-    let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+    let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.into();
     let account = near
         .near()
         .rpc()
@@ -208,7 +208,7 @@ async fn test_account_view_full_fields() {
 async fn test_access_key_list_view() {
     let (_, near) = super::support::shared_client().await;
 
-    let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+    let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.into();
     let keys = near
         .near()
         .rpc()
@@ -257,7 +257,7 @@ async fn test_access_key_list_view() {
 async fn test_final_execution_outcome_full_fields() {
     let (_, near) = super::support::shared_client().await;
 
-    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.into();
 
     // Create and execute a transaction
     let receiver_key = SecretKey::generate_ed25519();
@@ -373,7 +373,7 @@ async fn test_execution_metadata_and_gas_profile() {
 async fn test_tx_status_with_receipts() {
     let (_, near) = super::support::shared_client().await;
 
-    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.into();
 
     // Execute a transaction first
     let receiver_key = SecretKey::generate_ed25519();
@@ -446,7 +446,7 @@ async fn test_tx_status_with_receipts() {
 async fn test_tx_status_early_wait_level_surfaces_receipts() {
     let (_, near) = super::support::shared_client().await;
 
-    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.into();
 
     // Execute a transaction and let it settle.
     let receiver_key = SecretKey::generate_ed25519();
@@ -590,7 +590,7 @@ async fn test_action_view_variants() {
 async fn test_account_not_found_error() {
     let (_, near) = super::support::shared_client().await;
 
-    let non_existent: AccountId = "non-existent-account.testnet".parse().unwrap();
+    let non_existent: AccountId = near_kit::account!("non-existent-account.testnet");
     let result = near.near().balance(&non_existent).await;
 
     assert!(
@@ -613,7 +613,7 @@ async fn test_view_function_result() {
     // so we'll test that the ViewFunctionResult structure is correct
     // by checking what happens when we call a non-existent contract
 
-    let contract_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+    let contract_id: AccountId = SANDBOX_ROOT_ACCOUNT.into();
     let result = near
         .near()
         .rpc()

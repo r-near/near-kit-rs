@@ -220,7 +220,7 @@ async fn main() -> Result<(), Error> {
         (Some(account), Some(key)) => {
             let me = Near::testnet()
                 .build()
-                .with_signer(InMemorySigner::new(&account, &key)?);
+                .with_signer(InMemorySigner::new(account.parse::<AccountId>()?, &key)?);
 
             call_example(&me).await?;
             transfer_example(&me).await?;
