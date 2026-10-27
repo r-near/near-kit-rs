@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.20.0-rc.2...near-kit-v0.20.0) - 2026-10-27
+
+### Added
+
+- [**breaking**] upgrade to near-account-id 3 and near-global-contracts 0.3 ([#360](https://github.com/r-near/near-kit-rs/pull/360))
+
+### Changed
+
+- The minimum supported Rust version is now 1.95, as near-global-contracts 0.3 requires.
+
 ## [0.20.0-rc.2] - 2026-10-26
 
 ### Fixed

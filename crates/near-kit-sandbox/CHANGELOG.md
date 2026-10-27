@@ -4,6 +4,17 @@ All notable changes to `near-kit-sandbox` are documented in this file.
 
 ## [Unreleased]
 
+## [0.20.0](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.20.0-rc.2...near-kit-sandbox-v0.20.0) - 2026-10-27
+
+### Added
+
+- [**breaking**] upgrade to near-account-id 3 and near-global-contracts 0.3 ([#360](https://github.com/r-near/near-kit-rs/pull/360))
+
+### Changed
+
+- The default sandbox image is now the stable nearcore `2.14.0`, replacing `2.14.0-rc.4`.
+- The minimum supported Rust version is now 1.95.
+
 ## [0.20.0-rc.2] - 2026-10-26
 
 ### Fixed
