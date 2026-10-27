@@ -23,6 +23,10 @@ use crate::types::{AccountId, Action, BlockReference, Gas, NearToken, ViewFuncti
 /// Implement it with an `async fn`. The future must be `Send` on every target
 /// except `wasm32-unknown-unknown`.
 ///
+/// Generated contract clients also need the backend to be `Clone`, because
+/// each `View` they return owns a copy of it. A backend that isn't `Clone`
+/// still works through `&T` or `Arc<T>`, which are `Viewer` whenever `T` is.
+///
 /// ```rust
 /// use near_kit_primitives::rpc::{BlockReference, ViewFunctionResult};
 /// use near_kit_primitives::{AccountId, CryptoHash, Viewer};
@@ -69,6 +73,11 @@ pub trait Viewer: MaybeSend + MaybeSync {
 /// This is the write verb: a transaction is a receiver plus actions, and the
 /// backend decides how to sign, how long to wait and what to return
 /// ([`Output`](Self::Output)).
+///
+/// Generated contract clients also need the backend to be `Clone`, because
+/// each `Call` they return owns a copy of it. A backend that isn't `Clone`
+/// still works through `&T` or `Arc<T>`, which are `TxSender` whenever `T`
+/// is.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot send transactions",
     label = "needs a signer",
