@@ -110,9 +110,8 @@ pub use rpc::{
     ViewStateAllResult, ViewStateResult,
 };
 pub use rpc_extra::{
-    BlockHeaderInnerLiteView, CurrentEpochValidatorInfo, EpochValidatorInfo,
-    LightClientBlockLiteView, LightClientBlockView, NextEpochValidatorInfo, StateChangeCauseView,
-    StateChangeValueView, StateChangeWithCauseView, ValidatorKickoutReason, ValidatorKickoutView,
+    CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutReason,
+    ValidatorKickoutView,
 };
 pub use signer::{InMemorySigner, RotatingSigner, Signer, SigningBackend, SigningKey};
 pub use transaction::{

@@ -408,9 +408,8 @@ pub struct ContractCodeView {
 /// One entry in a [`BlockEffects`] response: which kind of state was touched
 /// for an account in the block.
 ///
-/// `block_effects` reports only the *kind* of change per account (no cause or
-/// value), so this is a lighter view than the per-account
-/// `StateChangeWithCauseView`.
+/// `block_effects` reports only the *kind* of change per account, with no
+/// cause or value.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum StateChangeKindView {

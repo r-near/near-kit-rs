@@ -186,6 +186,7 @@ impl<S: TxSender> WrapAny for S {}
 | `near.global_contract(id)` / `.exists()` | `near.rpc().view_global_contract_code(&id, block)`; match `is_global_contract_not_found()` |
 | `near.validators()` | `near.rpc().validators(None)` |
 | `AccountQuery`, `AccessKeysQuery`, `ContractCodeQuery`, `GlobalContractQuery`, `ViewCall`, `ViewCallBorsh` | Removed (see above) |
+| `rpc::{LightClientBlockView, LightClientBlockLiteView, BlockHeaderInnerLiteView}`, `rpc::{StateChangeWithCauseView, StateChangeCauseView, StateChangeValueView}` | Removed: no `RpcClient` method returned them. For `EXPERIMENTAL_changes` or light-client proofs, use `near.rpc().call::<_, serde_json::Value>(method, params)` or your own serde type. |
 
 `balance`, `account_exists`, `tx_status` and `view` stay on `Near`. `block` is
 the `BlockReference` to read at; `BlockReference::default()` is `Final`.
