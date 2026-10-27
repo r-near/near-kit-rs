@@ -170,6 +170,21 @@ impl PreparedTransaction {
         if actions.is_empty() {
             return Err(Error::InvalidTransaction(empty_error.to_string()));
         }
+        // A state init only applies to the account it derives, so the
+        // receiver has to be that account. Catch it here rather than on chain.
+        for action in &actions {
+            let derived = match action {
+                Action::DeterministicStateInit(action) => action.derive_account_id(),
+                Action::UniversalStateInit(action) => action.derive_account_id(),
+                _ => continue,
+            };
+            if derived != receiver_id {
+                return Err(Error::InvalidTransaction(format!(
+                    "state init creates {derived}, but the receiver is {receiver_id}; \
+                     send the transaction to {derived}"
+                )));
+            }
+        }
         Ok(Self {
             rpc: near.rpc.clone(),
             signer,
@@ -507,7 +522,7 @@ impl PreparedTransaction {
 /// Created by [`SigningNear::transaction`]. Add actions with
 /// [`add_action`](Self::add_action), then `.await` it. Awaiting signs with a
 /// fresh nonce, sends, retries `InvalidNonce` / `Expired` rejections up to
-/// the client's [`max_nonce_retries`](crate::NearBuilder::max_nonce_retries),
+/// the client's [`max_nonce_retries`](crate::SigningNear::max_nonce_retries),
 /// and waits for the client's wait level `W`, so it resolves to
 /// `W::Response` (a [`FinalExecutionOutcome`](crate::rpc::FinalExecutionOutcome)
 /// for the default [`Final`](crate::transaction::Final)). Final is also what
@@ -517,6 +532,11 @@ impl PreparedTransaction {
 /// [`FunctionCall`](crate::transaction::FunctionCall)s, or the static
 /// constructors `#[near_kit::contract]` generates. An argument-encoding
 /// error is kept and returned from `.await`, so building never fails.
+///
+/// Before signing, `.await` checks the transaction: an empty action list,
+/// or a state init (`Action::state_init`, `Action::universal_state_init`)
+/// whose derived account isn't the receiver, is an
+/// [`Error::InvalidTransaction`] and nothing is sent.
 ///
 /// To sign without sending, or to build a meta-transaction, pass the same
 /// actions to [`SigningNear::sign`] or [`SigningNear::delegate`].
@@ -849,6 +869,49 @@ mod tests {
             .delegate(
                 signed_delegate.sender_id(),
                 vec![Action::delegate(signed_delegate.clone())],
+                Default::default(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, Error::InvalidTransaction(_)), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn state_init_to_another_receiver_is_rejected_before_any_rpc() {
+        let state_init = <StateInit as crate::types::StateInitExt>::by_hash(
+            CryptoHash::ZERO,
+            Default::default(),
+        );
+        let derived = state_init.derive_account_id();
+        let signing = test_signing();
+        let wrong = crate::account!("contract.testnet");
+
+        let error = signing
+            .transaction(&wrong)
+            .add_action(Action::state_init(state_init.clone(), NearToken::ZERO))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&error, Error::InvalidTransaction(message)
+                if message.contains(derived.as_str()) && message.contains("contract.testnet")),
+            "{error:?}"
+        );
+
+        let universal = crate::protocol::UniversalStateInitV1::new()
+            .with_access_key(SecretKey::generate_ed25519().public_key());
+        let error = signing
+            .sign(
+                &wrong,
+                vec![Action::universal_state_init(universal, NearToken::ZERO)],
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, Error::InvalidTransaction(_)), "{error:?}");
+
+        let error = signing
+            .delegate(
+                &wrong,
+                vec![Action::state_init(state_init, NearToken::ZERO)],
                 Default::default(),
             )
             .await

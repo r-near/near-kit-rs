@@ -746,7 +746,9 @@ impl Action {
     /// Create a NEP-616 deterministic state init action.
     ///
     /// The account ID is derived from the state init data:
-    /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`
+    /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`. Send the
+    /// transaction to that account ([`StateInit::derive_account_id`]);
+    /// near-kit's `Tx` rejects any other receiver before signing.
     pub fn state_init(state_init: StateInit, deposit: NearToken) -> Self {
         Self::DeterministicStateInit(DeterministicStateInitAction {
             state_init,

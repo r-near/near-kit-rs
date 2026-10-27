@@ -84,7 +84,7 @@ let balance = me.near().balance(me.account_id()).await?;
 | `near.call(id, "m")` | `signing.transaction(id).add_action(FunctionCall::new("m"))` |
 | `near.transfer(id, amount)` | `signing.transaction(id).add_action(Action::transfer(amount))` |
 | `near.deploy(wasm)`, `publish`, `deploy_from`, `add_full_access_key`, `delete_key` | `signing.transaction(signing.account_id()).add_action(Action::...)` |
-| `near.state_init(si, deposit)` / `universal_state_init(..)` | `signing.transaction(si.derive_account_id()).add_action(Action::state_init(si, deposit))`. The receiver is no longer filled in for you. |
+| `near.state_init(si, deposit)` / `universal_state_init(..)` | `signing.transaction(si.derive_account_id()).add_action(Action::state_init(si, deposit))`. The receiver is no longer filled in for you; a state init sent to any other receiver fails at `.await` with `Error::InvalidTransaction`, before signing. |
 | `.add_actions(vec)` | Call `add_action` in a loop. |
 | `.send()`, `.send().wait_until::<W>()` | `.await` sends; set the wait level on the client (see below). |
 | `.sign()` / `.delegate(opts)` | `signing.sign(rx, actions)` / `signing.delegate(rx, actions, opts)` |
