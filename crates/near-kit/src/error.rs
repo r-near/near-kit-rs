@@ -58,8 +58,8 @@
 use thiserror::Error;
 
 use crate::types::{
-    AccountId, CryptoHash, DelegateDecodeError, FinalExecutionOutcome,
-    GlobalContractIdentifierView, InvalidTxError, PublicKey, TxExecutionStatus,
+    AccountId, CryptoHash, FinalExecutionOutcome, GlobalContractIdentifierView, InvalidTxError,
+    PublicKey, TxExecutionStatus,
 };
 
 // The client-free error types live in near-kit-primitives (each is public in
@@ -485,8 +485,14 @@ impl RpcError {
         }
     }
 
+    // Only the `rpc` client builds these three.
+    #[cfg_attr(not(feature = "rpc"), allow(dead_code))]
     /// Create a network error.
-    pub fn network(message: impl Into<String>, status_code: Option<u16>, retryable: bool) -> Self {
+    pub(crate) fn network(
+        message: impl Into<String>,
+        status_code: Option<u16>,
+        retryable: bool,
+    ) -> Self {
         RpcError::Network {
             message: message.into(),
             status_code,
@@ -494,8 +500,9 @@ impl RpcError {
         }
     }
 
+    #[cfg_attr(not(feature = "rpc"), allow(dead_code))]
     /// Create an invalid transaction error, attempting to parse structured data first.
-    pub fn invalid_transaction(
+    pub(crate) fn invalid_transaction(
         message: impl Into<String>,
         details: Option<serde_json::Value>,
     ) -> Self {
@@ -512,6 +519,7 @@ impl RpcError {
         }
     }
 
+    #[cfg_attr(not(feature = "rpc"), allow(dead_code))]
     /// Try to extract an `InvalidTxError` from the RPC error data JSON.
     ///
     /// The data field typically looks like:
@@ -735,9 +743,6 @@ pub enum Error {
 
     #[error("Borsh error: {0}")]
     Borsh(String),
-
-    #[error("Delegate action decode error: {0}")]
-    DelegateDecode(#[from] DelegateDecodeError),
 }
 
 impl From<RpcError> for Error {
@@ -802,11 +807,6 @@ impl From<OutcomeError> for Error {
 }
 
 impl Error {
-    /// Returns `true` if this is an [`Error::InvalidTx`] variant.
-    pub fn is_invalid_tx(&self) -> bool {
-        matches!(self, Error::InvalidTx(_))
-    }
-
     /// The underlying [`RpcError`], if this is an [`Error::Rpc`].
     ///
     /// Queries such as `Near::balance`, signed sends, and views converted with

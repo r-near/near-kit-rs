@@ -430,7 +430,7 @@ impl RpcClient {
     /// `view_state` query as paginated when `limit` or `after_key` is present,
     /// and only paginated queries are exempt from the `TOO_LARGE_CONTRACT_STATE`
     /// size gate.
-    pub const DEFAULT_VIEW_STATE_PAGE_SIZE: u32 = 10_000;
+    pub(crate) const DEFAULT_VIEW_STATE_PAGE_SIZE: u32 = 10_000;
 
     /// Page size [`RpcClient::view_access_key_list`] requests per round trip.
     ///
@@ -441,7 +441,7 @@ impl RpcClient {
     /// `limit` or `after_key` is present, and an unpaginated request for an
     /// account with more keys than the cap fails with
     /// [`RpcError::TooManyAccessKeys`] instead of returning the list.
-    pub const DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE: u32 = 100;
+    pub(crate) const DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE: u32 = 100;
 
     /// Create a new RPC client with the given URL.
     ///
@@ -1021,7 +1021,7 @@ impl RpcClient {
     /// (100 by default) and rejects an *unpaginated* request for a larger
     /// account with [`RpcError::TooManyAccessKeys`]. This helper is cap-safe by
     /// construction: every request carries
-    /// `limit = `[`DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE`](Self::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE)
+    /// `limit = 100` (nearcore's default `view_access_keys_limit`)
     /// and it follows the [`last_key`](AccessKeyListView::last_key) cursor with
     /// `after_key` until the node reports no more keys.
     ///
@@ -1326,8 +1326,8 @@ impl RpcClient {
     /// and returns all matching [`StateItem`](crate::rpc::StateItem)s as a
     /// [`ViewStateAllResult`] together with the `block_height`/`block_hash`
     /// the state was read at. Pass an empty `prefix` for the whole state.
-    /// `page_size` of `0` means the default page size,
-    /// [`RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`].
+    /// `page_size` of `0` means the default page size, 10,000 entries
+    /// (nearcore's `MAX_VIEW_STATE_PAGE_ITEMS`).
     ///
     /// Every request carries a positive `limit`, so the node treats it as
     /// paginated and does not reject large states with

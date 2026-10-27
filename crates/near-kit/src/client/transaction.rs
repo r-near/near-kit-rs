@@ -24,7 +24,6 @@
 //! # }
 //! ```
 
-use std::convert::Infallible;
 use std::fmt;
 use std::future::IntoFuture;
 use std::marker::PhantomData;
@@ -50,12 +49,6 @@ use crate::types::{Signer, SigningKey};
 fn nonce_manager() -> &'static NonceManager {
     static NONCE_MANAGER: OnceLock<NonceManager> = OnceLock::new();
     NONCE_MANAGER.get_or_init(NonceManager::new)
-}
-
-impl From<Infallible> for Error {
-    fn from(value: Infallible) -> Self {
-        match value {}
-    }
 }
 
 /// Produce a comma-separated summary of action types for tracing spans.
