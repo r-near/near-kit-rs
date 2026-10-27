@@ -984,7 +984,7 @@ pub enum Error {
 
     // ─── Signing ───
     #[error("Signing failed: {0}")]
-    Signing(SignerError),
+    Signing(#[source] SignerError),
 
     // ─── KeyStore ───
     #[error(transparent)]
