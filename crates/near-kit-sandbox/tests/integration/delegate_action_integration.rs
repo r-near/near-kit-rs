@@ -78,10 +78,10 @@ async fn test_delegate_action_transfer() {
     println!("Recipient initial balance: {}", initial_balance);
 
     // --- SENDER: Create and sign a delegate action ---
-    let sender_near = sandbox.client().near().with_signer(InMemorySigner::new(
-        &sender_id,
-        sender_key.to_string().parse().unwrap(),
-    ));
+    let sender_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.clone()));
 
     // Build a delegate action for transferring 2 NEAR to recipient
     let delegate_result = sender_near
@@ -99,10 +99,10 @@ async fn test_delegate_action_transfer() {
     );
 
     // --- RELAYER: Submit the delegate action ---
-    let relayer_near = sandbox.client().near().with_signer(InMemorySigner::new(
-        &relayer_id,
-        relayer_key.to_string().parse().unwrap(),
-    ));
+    let relayer_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&relayer_id, relayer_key.clone()));
 
     // Decode the payload (simulating receiving it via HTTP)
     let signed_delegate = SignedDelegateAction::from_base64(&delegate_result.payload).unwrap();
@@ -195,10 +195,10 @@ async fn test_delegate_action_function_call() {
     );
 
     // --- SENDER: Create delegate action for function call ---
-    let sender_near = sandbox.client().near().with_signer(InMemorySigner::new(
-        &sender_id,
-        sender_key.to_string().parse().unwrap(),
-    ));
+    let sender_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&sender_id, sender_key.clone()));
 
     let delegate_result = sender_near
         .delegate(
@@ -218,10 +218,10 @@ async fn test_delegate_action_function_call() {
     println!("Sender signed delegate action for function call");
 
     // --- RELAYER: Submit the delegate action ---
-    let relayer_near = sandbox.client().near().with_signer(InMemorySigner::new(
-        &relayer_id,
-        relayer_key.to_string().parse().unwrap(),
-    ));
+    let relayer_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&relayer_id, relayer_key.clone()));
 
     let signed_delegate = SignedDelegateAction::from_base64(&delegate_result.payload).unwrap();
 

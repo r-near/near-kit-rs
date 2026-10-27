@@ -155,10 +155,10 @@ async fn test_ft_transfer() {
     let receiver_key = SecretKey::generate_ed25519();
     let receiver_id: AccountId = format!("receiver.{}", owner_id).parse().unwrap();
 
-    let owner_near = sandbox.client().near().with_signer(InMemorySigner::new(
-        &owner_id,
-        owner_key.to_string().parse().unwrap(),
-    ));
+    let owner_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&owner_id, owner_key.clone()));
 
     owner_near
         .wait_until::<Final>()
@@ -438,10 +438,10 @@ async fn test_nft_transfer() {
         .unwrap();
 
     // Create owner's client for signing
-    let owner_near = sandbox.client().near().with_signer(InMemorySigner::new(
-        &owner_id,
-        owner_key.to_string().parse().unwrap(),
-    ));
+    let owner_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&owner_id, owner_key.clone()));
 
     // Create receiver account - must be created by owner
     let receiver_key = SecretKey::generate_ed25519();
@@ -547,10 +547,10 @@ async fn test_nft_supply_for_owner() {
         .unwrap();
 
     // Create owner1's client for signing
-    let owner1_near = sandbox.client().near().with_signer(InMemorySigner::new(
-        &owner1_id,
-        owner1_key.to_string().parse().unwrap(),
-    ));
+    let owner1_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&owner1_id, owner1_key.clone()));
 
     // Create second owner as subaccount of owner1
     let owner2_key = SecretKey::generate_ed25519();

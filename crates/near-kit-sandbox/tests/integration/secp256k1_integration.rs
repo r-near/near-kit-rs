@@ -40,10 +40,10 @@ async fn test_secp256k1_signed_transfer_and_delegate_accepted_on_chain() {
         .await
         .unwrap();
 
-    let sender_near = sandbox.client().near().with_signer(InMemorySigner::new(
-        &sender_id,
-        secp_key.to_string().parse().unwrap(),
-    ));
+    let sender_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&sender_id, secp_key.clone()));
 
     // Plain transaction signed by the secp256k1 key.
     let before = root_near.near().balance(&recipient_id).await.unwrap().total;

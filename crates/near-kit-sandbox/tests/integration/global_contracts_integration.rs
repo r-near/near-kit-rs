@@ -420,10 +420,10 @@ async fn test_action_delete_account() {
     );
 
     // Delete the account
-    let to_delete_near = sandbox.client().near().with_signer(InMemorySigner::new(
-        &to_delete_id,
-        to_delete_key.to_string().parse().unwrap(),
-    ));
+    let to_delete_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&to_delete_id, to_delete_key.clone()));
 
     to_delete_near
         .wait_until::<Final>()

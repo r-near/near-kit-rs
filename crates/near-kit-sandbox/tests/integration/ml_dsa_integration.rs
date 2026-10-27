@@ -85,10 +85,10 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
         .await
         .unwrap();
 
-    let signed = sandbox.client().near().with_signer(InMemorySigner::new(
-        &account_id,
-        ml_dsa_key.to_string().parse().unwrap(),
-    ));
+    let signed = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&account_id, ml_dsa_key.clone()));
 
     let before = near.near().balance(&recipient).await.unwrap().total;
 
