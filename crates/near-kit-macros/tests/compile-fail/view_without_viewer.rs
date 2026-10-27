@@ -16,7 +16,7 @@ struct SendOnly(AccountId);
 
 impl TxSender for SendOnly {
     type Output = ();
-    type Error = String;
+    type SendError = String;
 
     fn account_id(&self) -> &AccountId {
         &self.0

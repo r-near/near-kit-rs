@@ -65,7 +65,7 @@ struct Backend {
 }
 
 impl Viewer for Backend {
-    type Error = String;
+    type ViewError = String;
 
     async fn view_function(
         &self,
@@ -78,18 +78,13 @@ impl Viewer for Backend {
             .lock()
             .unwrap()
             .push((method.to_owned(), args.to_vec(), block));
-        Ok(ViewFunctionResult {
-            result: b"7".to_vec(),
-            logs: Vec::new(),
-            block_height: 1,
-            block_hash: CryptoHash::ZERO,
-        })
+        Ok(ViewFunctionResult::new(b"7".to_vec(), 1, CryptoHash::ZERO))
     }
 }
 
 impl TxSender for Backend {
     type Output = ();
-    type Error = String;
+    type SendError = String;
 
     fn account_id(&self) -> &AccountId {
         unreachable!("not used by generated clients")

@@ -17,7 +17,7 @@ pub trait Counter {
 struct Mock(AccountId);
 
 impl Viewer for Mock {
-    type Error = String;
+    type ViewError = String;
 
     async fn view_function(
         &self,
@@ -32,7 +32,7 @@ impl Viewer for Mock {
 
 impl TxSender for Mock {
     type Output = ();
-    type Error = String;
+    type SendError = String;
 
     fn account_id(&self) -> &AccountId {
         &self.0
@@ -43,7 +43,7 @@ impl TxSender for Mock {
     }
 }
 
-async fn bump<C>(counter: &CounterClient<C>) -> Result<u64, ContractError<<C as Viewer>::Error>>
+async fn bump<C>(counter: &CounterClient<C>) -> Result<u64, ContractError<C::ViewError>>
 where
     C: Viewer + TxSender,
 {

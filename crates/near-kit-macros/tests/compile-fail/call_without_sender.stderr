@@ -41,8 +41,8 @@ help: the trait `IntoFuture` is conditionally implemented for `Call<'_, C>`
    | |     C: TxSender,
    | |        -------- unsatisfied requirement introduced here: `ViewOnly: TxSender`
    | |     C::Output: 'a,
-   | |     C::Error: 'a,
-   | |_________________^
+   | |     C::SendError: 'a,
+   | |_____________________^
 help: remove the `.await`
    |
 34 -     let _ = counter.increment().await;

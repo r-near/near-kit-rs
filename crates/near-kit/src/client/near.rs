@@ -514,7 +514,7 @@ impl Near {
 }
 
 impl crate::Viewer for Near {
-    type Error = RpcError;
+    type ViewError = RpcError;
 
     fn view_function(
         &self,

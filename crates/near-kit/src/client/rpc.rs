@@ -1210,12 +1210,10 @@ impl RpcClient {
                 other => other,
             })?;
 
-        Ok(ViewFunctionResult {
-            result: response.result,
-            logs: response.logs,
-            block_height: response.block_height,
-            block_hash: response.block_hash,
-        })
+        Ok(
+            ViewFunctionResult::new(response.result, response.block_height, response.block_hash)
+                .with_logs(response.logs),
+        )
     }
 
     /// View the WASM code deployed on an account.

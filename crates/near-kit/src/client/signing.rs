@@ -434,7 +434,7 @@ impl<W: WaitLevel> SigningNear<W> {
 }
 
 impl<W: WaitLevel> crate::Viewer for SigningNear<W> {
-    type Error = RpcError;
+    type ViewError = RpcError;
 
     fn view_function(
         &self,
@@ -449,7 +449,7 @@ impl<W: WaitLevel> crate::Viewer for SigningNear<W> {
 
 impl<W: WaitLevel> crate::TxSender for SigningNear<W> {
     type Output = W::Response;
-    type Error = Error;
+    type SendError = Error;
 
     fn account_id(&self) -> &AccountId {
         self.signer.account_id()

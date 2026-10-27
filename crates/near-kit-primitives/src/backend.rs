@@ -30,7 +30,7 @@ use crate::types::{AccountId, Action, BlockReference, Gas, NearToken, ViewFuncti
 /// struct Fixed;
 ///
 /// impl Viewer for Fixed {
-///     type Error = std::convert::Infallible;
+///     type ViewError = std::convert::Infallible;
 ///
 ///     async fn view_function(
 ///         &self,
@@ -38,13 +38,8 @@ use crate::types::{AccountId, Action, BlockReference, Gas, NearToken, ViewFuncti
 ///         _method: &str,
 ///         _args: &[u8],
 ///         _block: BlockReference,
-///     ) -> Result<ViewFunctionResult, Self::Error> {
-///         Ok(ViewFunctionResult {
-///             result: b"42".to_vec(),
-///             logs: Vec::new(),
-///             block_height: 1,
-///             block_hash: CryptoHash::ZERO,
-///         })
+///     ) -> Result<ViewFunctionResult, Self::ViewError> {
+///         Ok(ViewFunctionResult::new(b"42".to_vec(), 1, CryptoHash::ZERO))
 ///     }
 /// }
 /// ```
@@ -55,7 +50,7 @@ use crate::types::{AccountId, Action, BlockReference, Gas, NearToken, ViewFuncti
 )]
 pub trait Viewer: MaybeSend + MaybeSync {
     /// The backend's error. Unbounded, so `anyhow::Error` or a string works.
-    type Error;
+    type ViewError;
 
     /// Run `method` on `contract_id` with already-encoded `args`, reading the
     /// state at `block`.
@@ -65,7 +60,7 @@ pub trait Viewer: MaybeSend + MaybeSync {
         method: &str,
         args: &[u8],
         block: BlockReference,
-    ) -> impl Future<Output = Result<ViewFunctionResult, Self::Error>> + MaybeSend;
+    ) -> impl Future<Output = Result<ViewFunctionResult, Self::ViewError>> + MaybeSend;
 }
 
 /// A backend that can send transactions from a fixed account.
@@ -83,7 +78,7 @@ pub trait TxSender: MaybeSend + MaybeSync {
     /// just a transaction hash.
     type Output;
     /// The backend's error. Unbounded.
-    type Error;
+    type SendError;
 
     /// The account transactions are sent from.
     fn account_id(&self) -> &AccountId;
@@ -93,7 +88,7 @@ pub trait TxSender: MaybeSend + MaybeSync {
         &self,
         receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> impl Future<Output = Result<Self::Output, Self::Error>> + MaybeSend;
+    ) -> impl Future<Output = Result<Self::Output, Self::SendError>> + MaybeSend;
 }
 
 /// A typed contract interface: ties the marker type that `#[contract]`
@@ -176,7 +171,7 @@ impl<'a, C, T> View<'a, C, T> {
 
     /// Run the view and keep the block height, block hash and logs alongside
     /// the decoded value.
-    pub async fn with_metadata(self) -> Result<ViewFunctionResult<T>, ContractError<C::Error>>
+    pub async fn with_metadata(self) -> Result<ViewFunctionResult<T>, ContractError<C::ViewError>>
     where
         C: Viewer,
     {
@@ -185,7 +180,7 @@ impl<'a, C, T> View<'a, C, T> {
             Err(error) => return Err(ContractError::Codec(error)),
         };
         // `match` rather than `?` on the backend result: a `?` temporary
-        // holding `C::Error` would make the future `!Send` for a `!Send`
+        // holding `C::ViewError` would make the future `!Send` for a `!Send`
         // error.
         let raw = match self
             .backend
@@ -195,12 +190,12 @@ impl<'a, C, T> View<'a, C, T> {
             Ok(raw) => raw,
             Err(error) => return Err(ContractError::Backend(error)),
         };
-        Ok(ViewFunctionResult {
-            result: (self.decode)(&raw.result).map_err(ContractError::Codec)?,
-            logs: raw.logs,
-            block_height: raw.block_height,
-            block_hash: raw.block_hash,
-        })
+        Ok(ViewFunctionResult::new(
+            (self.decode)(&raw.result).map_err(ContractError::Codec)?,
+            raw.block_height,
+            raw.block_hash,
+        )
+        .with_logs(raw.logs))
     }
 }
 
@@ -218,10 +213,10 @@ impl<C, T> fmt::Debug for View<'_, C, T> {
 impl<'a, C, T> IntoFuture for View<'a, C, T>
 where
     C: Viewer,
-    C::Error: 'a,
+    C::ViewError: 'a,
     T: 'a,
 {
-    type Output = Result<T, ContractError<C::Error>>;
+    type Output = Result<T, ContractError<C::ViewError>>;
     type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
@@ -276,9 +271,9 @@ impl<'a, C> IntoFuture for Call<'a, C>
 where
     C: TxSender,
     C::Output: 'a,
-    C::Error: 'a,
+    C::SendError: 'a,
 {
-    type Output = Result<C::Output, ContractError<C::Error>>;
+    type Output = Result<C::Output, ContractError<C::SendError>>;
     type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
@@ -385,7 +380,7 @@ mod tests {
     }
 
     impl Viewer for MockViewer {
-        type Error = String;
+        type ViewError = String;
 
         async fn view_function(
             &self,
@@ -399,12 +394,10 @@ mod tests {
             if method == "fail" {
                 return Err("backend down".to_owned());
             }
-            Ok(ViewFunctionResult {
-                result: self.answer.clone(),
-                logs: vec!["log".to_owned()],
-                block_height: 7,
-                block_hash: CryptoHash::ZERO,
-            })
+            Ok(
+                ViewFunctionResult::new(self.answer.clone(), 7, CryptoHash::ZERO)
+                    .with_logs(vec!["log".to_owned()]),
+            )
         }
     }
 
@@ -416,7 +409,7 @@ mod tests {
 
     impl TxSender for MockSender {
         type Output = usize;
-        type Error = String;
+        type SendError = String;
 
         fn account_id(&self) -> &AccountId {
             unreachable!("not used by Call")
@@ -600,9 +593,9 @@ mod tests {
         fn assert_send<F: Future + Send>(_: F) {}
         fn generic<V: Viewer, S: TxSender>(viewer: &V, sender: &S)
         where
-            V::Error: Send,
+            V::ViewError: Send,
             S::Output: Send,
-            S::Error: Send,
+            S::SendError: Send,
         {
             assert_send(
                 view_json::<_, u64>(viewer, contract(), "get", Ok(Vec::new())).into_future(),

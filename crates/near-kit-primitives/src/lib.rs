@@ -12,7 +12,7 @@
 //!
 //! | Module | Contents |
 //! |--------|----------|
-//! | crate root | [`AccountId`], [`NearToken`], [`Gas`], [`CryptoHash`], the chain verbs [`Viewer`] and [`TxSender`], [`account!`] |
+//! | crate root | [`AccountId`], [`NearToken`], [`Gas`], [`CryptoHash`], the chain verbs [`Viewer`] and [`TxSender`], [`account!`], the platform bounds [`MaybeSend`] / [`MaybeSync`] |
 //! | [`protocol`] | Actions, transactions, delegate actions, execution errors |
 //! | [`signer`] | Keys, signatures, [`signer::Signer`], [`signer::InMemorySigner`], [`signer::RotatingSigner`] |
 //! | [`transaction`] | [`transaction::FunctionCall`], the awaitable [`transaction::View`] / [`transaction::Call`], and the typed wait levels |
@@ -70,6 +70,7 @@ pub mod standards;
 pub mod transaction;
 
 pub use backend::{Contract, TxSender, Viewer};
+pub use platform::{MaybeSend, MaybeSync};
 pub use types::{AccountId, CryptoHash, Gas, NearToken};
 
 /// An [`AccountId`] from a string literal, checked at compile time.
@@ -107,10 +108,8 @@ pub use near_kit_macros::contract;
 /// public API.
 #[doc(hidden)]
 pub mod __private {
-    // One definition of the platform bounds for both crates, so a
-    // `MaybeSend` bound written in near-kit and one written here are the
-    // same trait.
-    pub use crate::platform::{BoxFuture, MaybeSend, MaybeSync};
+    // One definition of the boxed future for both crates.
+    pub use crate::platform::BoxFuture;
 
     // What `#[contract]` expansions call to build views and calls.
     pub use crate::backend::expansion::{borsh_args, call, json_args, view_borsh, view_json};

@@ -15,7 +15,7 @@ pub trait Counter {
 struct ViewOnly;
 
 impl Viewer for ViewOnly {
-    type Error = String;
+    type ViewError = String;
 
     async fn view_function(
         &self,

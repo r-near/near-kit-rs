@@ -1844,6 +1844,28 @@ pub struct ViewFunctionResult<T = Vec<u8>> {
     pub block_hash: CryptoHash,
 }
 
+impl<T> ViewFunctionResult<T> {
+    /// A result read at `block_height` / `block_hash`, with no logs.
+    ///
+    /// [`Viewer`](crate::Viewer) implementations build their results with
+    /// this (and [`with_logs`](Self::with_logs)) rather than a struct
+    /// literal, so fields can be added later without breaking them.
+    pub fn new(result: T, block_height: u64, block_hash: CryptoHash) -> Self {
+        Self {
+            result,
+            logs: Vec::new(),
+            block_height,
+            block_hash,
+        }
+    }
+
+    /// Attach the logs the view emitted.
+    pub fn with_logs(mut self, logs: Vec<String>) -> Self {
+        self.logs = logs;
+        self
+    }
+}
+
 impl ViewFunctionResult {
     /// Get the result as raw bytes.
     pub fn bytes(&self) -> &[u8] {
@@ -2379,12 +2401,7 @@ mod tests {
     // ========================================================================
 
     fn make_view_result(result: Vec<u8>) -> ViewFunctionResult {
-        ViewFunctionResult {
-            result,
-            logs: vec![],
-            block_height: 12345,
-            block_hash: CryptoHash::default(),
-        }
+        ViewFunctionResult::new(result, 12345, CryptoHash::default())
     }
 
     #[test]

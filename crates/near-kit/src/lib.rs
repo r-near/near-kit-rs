@@ -548,7 +548,7 @@ pub use near_kit_primitives::account;
 #[doc(inline)]
 pub use near_kit_primitives::{AccountId, CryptoHash, Gas, NearToken};
 #[doc(inline)]
-pub use near_kit_primitives::{Contract, TxSender, Viewer};
+pub use near_kit_primitives::{Contract, MaybeSend, MaybeSync, TxSender, Viewer};
 
 #[cfg(feature = "rpc")]
 pub use client::{Near, NearBuilder, SigningNear};

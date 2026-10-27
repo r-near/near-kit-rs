@@ -45,7 +45,7 @@ help: the trait `IntoFuture` is conditionally implemented for `View<'_, C, T>`
    | | where
    | |     C: Viewer,
    | |        ------ unsatisfied requirement introduced here: `SendOnly: Viewer`
-   | |     C::Error: 'a,
+   | |     C::ViewError: 'a,
    | |     T: 'a,
    | |__________^
 help: remove the `.await`

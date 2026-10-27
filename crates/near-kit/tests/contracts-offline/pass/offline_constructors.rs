@@ -53,7 +53,7 @@ pub trait Store {
 struct Fixed;
 
 impl near_kit::Viewer for Fixed {
-    type Error = std::convert::Infallible;
+    type ViewError = std::convert::Infallible;
 
     async fn view_function(
         &self,
@@ -61,13 +61,8 @@ impl near_kit::Viewer for Fixed {
         _method: &str,
         _args: &[u8],
         _block: near_kit::rpc::BlockReference,
-    ) -> Result<near_kit::rpc::ViewFunctionResult, Self::Error> {
-        Ok(near_kit::rpc::ViewFunctionResult {
-            result: b"3".to_vec(),
-            logs: Vec::new(),
-            block_height: 1,
-            block_hash: near_kit::CryptoHash::ZERO,
-        })
+    ) -> Result<near_kit::rpc::ViewFunctionResult, Self::ViewError> {
+        Ok(near_kit::rpc::ViewFunctionResult::new(b"3".to_vec(), 1, near_kit::CryptoHash::ZERO))
     }
 }
 

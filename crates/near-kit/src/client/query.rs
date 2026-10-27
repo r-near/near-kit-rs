@@ -453,12 +453,12 @@ where
     D: ViewResponseDecoder<T>,
 {
     let response = request.execute().await?;
-    Ok(ViewFunctionResult {
-        result: D::decode(&response)?,
-        logs: response.logs,
-        block_height: response.block_height,
-        block_hash: response.block_hash,
-    })
+    Ok(ViewFunctionResult::new(
+        D::decode(&response)?,
+        response.block_height,
+        response.block_hash,
+    )
+    .with_logs(response.logs))
 }
 
 /// Query builder for calling view functions on contracts.
