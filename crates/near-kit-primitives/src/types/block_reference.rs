@@ -53,6 +53,12 @@ impl From<CryptoHash> for BlockReference {
     }
 }
 
+impl From<SyncCheckpoint> for BlockReference {
+    fn from(checkpoint: SyncCheckpoint) -> Self {
+        Self::SyncCheckpoint(checkpoint)
+    }
+}
+
 /// Finality level for queries.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -200,6 +206,14 @@ mod tests {
         assert_eq!(
             TxExecutionStatus::ExecutedOptimistic.as_str(),
             "EXECUTED_OPTIMISTIC"
+        );
+    }
+
+    #[test]
+    fn test_block_reference_from_sync_checkpoint() {
+        assert_eq!(
+            BlockReference::from(SyncCheckpoint::Genesis),
+            BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis)
         );
     }
 

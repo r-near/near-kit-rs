@@ -313,6 +313,14 @@ pub struct UseGlobalContractAction {
 // upstream `near-global-contracts` crate and are re-exported above. The action wrapper and the
 // `by_hash`/`by_publisher` construction ergonomics stay in near-kit.
 
+// Allowed by the orphan rule because `CryptoHash` is local. Upstream already
+// converts from `[u8; 32]` and `AccountId`.
+impl From<CryptoHash> for GlobalContractId {
+    fn from(code_hash: CryptoHash) -> Self {
+        Self::CodeHash(*code_hash.as_bytes())
+    }
+}
+
 /// Deploy a contract with a deterministically derived account ID (NEP-616).
 ///
 /// This enables creating accounts where the account ID is derived from the
@@ -913,6 +921,15 @@ impl TryFrom<Action> for NonDelegateAction {
 mod tests {
     use super::*;
     use crate::types::{Gas, NearToken, SecretKey};
+
+    #[test]
+    fn global_contract_id_from_crypto_hash_is_the_code_hash() {
+        let hash = CryptoHash::hash(b"code");
+        assert_eq!(
+            GlobalContractId::from(hash),
+            GlobalContractId::CodeHash(*hash.as_bytes())
+        );
+    }
 
     fn create_test_delegate_action() -> DelegateAction {
         let sender_id: AccountId = "alice.testnet".parse().unwrap();

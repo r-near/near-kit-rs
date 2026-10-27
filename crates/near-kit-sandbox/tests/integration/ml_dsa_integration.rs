@@ -55,7 +55,7 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
     let keys = near
         .near()
         .rpc()
-        .view_access_key_list(&account_id, Default::default())
+        .view_access_key_list(&account_id, near_kit::rpc::Finality::Final)
         .await
         .unwrap();
     assert_eq!(keys.keys.len(), 1);

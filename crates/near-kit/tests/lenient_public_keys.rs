@@ -117,7 +117,10 @@ mod rpc {
 
         let list = near
             .rpc()
-            .view_access_key_list(&near_kit::account!("alice.testnet"), Default::default())
+            .view_access_key_list(
+                &near_kit::account!("alice.testnet"),
+                near_kit::rpc::Finality::Final,
+            )
             .await
             .unwrap();
         assert_eq!(list.keys.len(), 2);

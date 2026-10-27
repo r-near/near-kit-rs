@@ -31,7 +31,7 @@ async fn failing_middle_action_rolls_back_prior_action() {
     let keys = root
         .near()
         .rpc()
-        .view_access_key_list(&account_id, Default::default())
+        .view_access_key_list(&account_id, near_kit::rpc::Finality::Final)
         .await
         .expect("access keys after failed transaction");
     assert!(

@@ -59,7 +59,7 @@ async fn wait_for_global_contract(near: &SigningNear, id: impl Into<GlobalContra
 async fn global_contract_exists(near: &Near, id: &GlobalContractId) -> bool {
     match near
         .rpc()
-        .view_global_contract_code(id, Default::default())
+        .view_global_contract_code(id.clone(), near_kit::rpc::Finality::Final)
         .await
     {
         Ok(_) => true,
@@ -384,7 +384,7 @@ async fn test_action_add_function_call_key() {
     let keys = root_near
         .near()
         .rpc()
-        .view_access_key_list(&account_id, Default::default())
+        .view_access_key_list(&account_id, near_kit::rpc::Finality::Final)
         .await
         .unwrap();
     assert_eq!(keys.keys.len(), 2);
@@ -476,7 +476,7 @@ async fn test_action_stake() {
     let account = root_near
         .near()
         .rpc()
-        .view_account(&staker_id, Default::default())
+        .view_account(&staker_id, near_kit::rpc::Finality::Final)
         .await
         .unwrap();
     println!("Locked balance after staking: {}", account.locked);
@@ -550,7 +550,7 @@ async fn test_global_contract_query_by_account() {
     let contract = root_near
         .near()
         .rpc()
-        .view_global_contract_code(&id, Default::default())
+        .view_global_contract_code(id.clone(), near_kit::rpc::Finality::Final)
         .await
         .unwrap();
     assert_eq!(contract.code, wasm_code);
@@ -577,11 +577,11 @@ async fn test_global_contract_query_by_hash() {
         .unwrap();
     wait_for_global_contract(&root_near, *code_hash.as_bytes()).await;
 
-    let id = GlobalContractId::from(*code_hash.as_bytes());
+    let id = GlobalContractId::from(code_hash);
     let contract = root_near
         .near()
         .rpc()
-        .view_global_contract_code(&id, Default::default())
+        .view_global_contract_code(id.clone(), near_kit::rpc::Finality::Final)
         .await
         .unwrap();
     assert_eq!(contract.code, wasm_code);
@@ -600,7 +600,7 @@ async fn test_global_contract_query_not_found() {
     let err = root_near
         .near()
         .rpc()
-        .view_global_contract_code(&unpublished, Default::default())
+        .view_global_contract_code(unpublished.clone(), near_kit::rpc::Finality::Final)
         .await
         .unwrap_err();
     assert!(
@@ -632,7 +632,7 @@ async fn test_contract_code_query() {
 
     // No contract deployed yet
     let err = rpc
-        .view_code(&account_id, Default::default())
+        .view_code(&account_id, near_kit::rpc::Finality::Final)
         .await
         .unwrap_err();
     assert!(err.is_contract_not_deployed(), "unexpected error: {err:?}");
@@ -645,7 +645,7 @@ async fn test_contract_code_query() {
         .unwrap();
 
     let contract = rpc
-        .view_code(&account_id, Default::default())
+        .view_code(&account_id, near_kit::rpc::Finality::Final)
         .await
         .unwrap();
     assert_eq!(contract.code, wasm_code);

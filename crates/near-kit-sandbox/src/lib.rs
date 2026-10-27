@@ -523,7 +523,7 @@ impl Sandbox {
         for _ in 0..OBSERVATION_ATTEMPTS {
             match near
                 .rpc()
-                .view_account(&account_id, Default::default())
+                .view_account(&account_id, near_kit::rpc::Finality::Final)
                 .await
             {
                 Ok(account) if account.amount == balance => return Ok(()),

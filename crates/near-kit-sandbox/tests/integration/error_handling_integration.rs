@@ -37,7 +37,7 @@ async fn missing_account_access_keys_are_empty() {
     let keys = near
         .near()
         .rpc()
-        .view_access_key_list(&account_id, Default::default())
+        .view_access_key_list(&account_id, near_kit::rpc::Finality::Final)
         .await
         .expect("the node represents missing-account keys as an empty list");
     assert!(keys.keys.is_empty());

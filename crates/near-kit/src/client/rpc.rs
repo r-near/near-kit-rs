@@ -20,8 +20,8 @@ use crate::error::{RpcError, TimeoutCause};
 use crate::trace;
 use crate::types::RawTransactionResponse;
 use crate::types::{
-    AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockEffects, BlockReference,
-    BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
+    AccessKeyListView, AccessKeyView, AccountId, AccountIdRef, AccountView, BlockEffects,
+    BlockReference, BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
     FunctionCallError, GasKeyNoncesView, GasPrice, GlobalContractId, GlobalContractIdentifierView,
     HostError, MaintenanceWindow, MethodResolveError, PublicKey, PublicKeyHandle,
     ReceiptToTxResponse, SignedTransaction, StatusResponse, SyncCheckpoint, TxExecutionStatus,
@@ -227,7 +227,7 @@ fn classify_function_call_error(
     match error {
         FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist { account_id }) => {
             Some(RpcError::ContractNotDeployed {
-                account_id: account_id.clone(),
+                account_id: account_id.to_owned(),
                 block_height,
                 block_hash,
             })
@@ -960,9 +960,10 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
     pub async fn view_account(
         &self,
-        account_id: &AccountId,
-        block: BlockReference,
+        account_id: &AccountIdRef,
+        block: impl Into<BlockReference>,
     ) -> Result<AccountView, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "account_id": account_id.to_string(),
         });
@@ -974,10 +975,11 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id, %public_key)))]
     pub async fn view_access_key(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
         public_key: &PublicKey,
-        block: BlockReference,
+        block: impl Into<BlockReference>,
     ) -> Result<AccessKeyView, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "account_id": account_id.to_string(),
             "public_key": public_key.to_string(),
@@ -995,7 +997,7 @@ impl RpcClient {
                     block_hash,
                     ..
                 } => RpcError::AccessKeyNotFound {
-                    account_id: account_id.clone(),
+                    account_id: account_id.to_owned(),
                     public_key,
                     block_height,
                     block_hash,
@@ -1024,9 +1026,10 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
     pub async fn view_access_key_list(
         &self,
-        account_id: &AccountId,
-        block: BlockReference,
+        account_id: &AccountIdRef,
+        block: impl Into<BlockReference>,
     ) -> Result<AccessKeyListView, RpcError> {
+        let block = block.into();
         let limit = NonZeroU32::new(Self::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE)
             .expect("DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE is non-zero");
         let mut list = self
@@ -1094,11 +1097,12 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, after_key, block), fields(%account_id)))]
     pub async fn view_access_key_list_page(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
         after_key: Option<&PublicKeyHandle>,
         limit: Option<NonZeroU32>,
-        block: BlockReference,
+        block: impl Into<BlockReference>,
     ) -> Result<AccessKeyListView, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "request_type": "view_access_key_list",
             "account_id": account_id.to_string(),
@@ -1122,10 +1126,11 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id, %public_key)))]
     pub async fn view_gas_key_nonces(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
         public_key: &PublicKey,
-        block: BlockReference,
+        block: impl Into<BlockReference>,
     ) -> Result<GasKeyNoncesView, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "request_type": "view_gas_key_nonces",
             "account_id": account_id.to_string(),
@@ -1141,7 +1146,7 @@ impl RpcClient {
                 block_hash,
                 ..
             } => RpcError::GasKeyNotFound {
-                account_id: account_id.clone(),
+                account_id: account_id.to_owned(),
                 public_key,
                 block_height,
                 block_hash,
@@ -1154,11 +1159,12 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, args, block), fields(contract_id = %account_id, method = method_name)))]
     pub async fn view_function(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
         method_name: &str,
         args: &[u8],
-        block: BlockReference,
+        block: impl Into<BlockReference>,
     ) -> Result<ViewFunctionResult, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "account_id": account_id.to_string(),
             "method_name": method_name,
@@ -1180,7 +1186,7 @@ impl RpcClient {
                     block_hash,
                     ..
                 } => RpcError::ContractExecution {
-                    contract_id: account_id.clone(),
+                    contract_id: account_id.to_owned(),
                     method_name: Some(method_name.to_string()),
                     message,
                     block_height,
@@ -1191,7 +1197,7 @@ impl RpcClient {
                     block_hash,
                     ..
                 } => RpcError::MethodNotFound {
-                    contract_id: account_id.clone(),
+                    contract_id: account_id.to_owned(),
                     method_name: method_name.to_string(),
                     block_height,
                     block_hash,
@@ -1211,9 +1217,10 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
     pub async fn view_code(
         &self,
-        account_id: &AccountId,
-        block: BlockReference,
+        account_id: &AccountIdRef,
+        block: impl Into<BlockReference>,
     ) -> Result<ContractCodeView, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "request_type": "view_code",
             "account_id": account_id.to_string(),
@@ -1227,13 +1234,16 @@ impl RpcClient {
     /// Picks the request type from the identifier kind:
     /// `view_global_contract_code` for code-hash identifiers,
     /// `view_global_contract_code_by_account_id` for publisher accounts.
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(?id)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, id, block), fields(id = tracing::field::Empty)))]
     pub async fn view_global_contract_code(
         &self,
-        id: &GlobalContractId,
-        block: BlockReference,
+        id: impl Into<GlobalContractId>,
+        block: impl Into<BlockReference>,
     ) -> Result<ContractCodeView, RpcError> {
-        let mut params = match id {
+        let block = block.into();
+        let id = id.into();
+        trace::Span::current().record("id", trace::field::debug(&id));
+        let mut params = match &id {
             GlobalContractId::CodeHash(hash) => serde_json::json!({
                 "request_type": "view_global_contract_code",
                 "code_hash": CryptoHash::from_bytes(*hash).to_string(),
@@ -1253,7 +1263,7 @@ impl RpcClient {
                 block_hash,
                 ..
             } => RpcError::GlobalContractNotFound {
-                identifier: match id {
+                identifier: match &id {
                     GlobalContractId::CodeHash(hash) => {
                         GlobalContractIdentifierView::CodeHash(CryptoHash::from_bytes(*hash))
                     }
@@ -1281,12 +1291,13 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, prefix, after_key, block), fields(%account_id)))]
     pub async fn view_state(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
         prefix: &[u8],
         after_key: Option<&[u8]>,
         limit: Option<u32>,
-        block: BlockReference,
+        block: impl Into<BlockReference>,
     ) -> Result<ViewStateResult, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "request_type": "view_state",
             "account_id": account_id.to_string(),
@@ -1332,11 +1343,12 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, prefix, block), fields(%account_id)))]
     pub async fn view_state_all(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
         prefix: &[u8],
         page_size: u32,
-        block: BlockReference,
+        block: impl Into<BlockReference>,
     ) -> Result<ViewStateAllResult, RpcError> {
+        let block = block.into();
         // Always send a positive limit: an omitted `limit` on the first page
         // would make the node treat that request as unpaginated and apply
         // its `TOO_LARGE_CONTRACT_STATE` size gate.
@@ -1376,7 +1388,8 @@ impl RpcClient {
 
     /// Get block information.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block)))]
-    pub async fn block(&self, block: BlockReference) -> Result<BlockView, RpcError> {
+    pub async fn block(&self, block: impl Into<BlockReference>) -> Result<BlockView, RpcError> {
+        let block = block.into();
         let params = block_params(&block);
         self.call("block", params).await
     }
@@ -1386,7 +1399,11 @@ impl RpcClient {
     /// Uses the stabilized `block_effects` method (protocol 2.13), the new name
     /// for `EXPERIMENTAL_changes_in_block`.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block)))]
-    pub async fn block_effects(&self, block: BlockReference) -> Result<BlockEffects, RpcError> {
+    pub async fn block_effects(
+        &self,
+        block: impl Into<BlockReference>,
+    ) -> Result<BlockEffects, RpcError> {
+        let block = block.into();
         let params = block_params(&block);
         self.call("block_effects", params).await
     }
@@ -1399,7 +1416,7 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%account_id)))]
     pub async fn maintenance_windows(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
     ) -> Result<Vec<MaintenanceWindow>, RpcError> {
         let params = serde_json::json!({ "account_id": account_id.to_string() });
         self.call("maintenance_windows", params).await
@@ -1471,7 +1488,7 @@ impl RpcClient {
     pub async fn tx_status(
         &self,
         tx_hash: &CryptoHash,
-        sender_id: &AccountId,
+        sender_id: &AccountIdRef,
         wait_until: TxExecutionStatus,
     ) -> Result<RawTransactionResponse, RpcError> {
         let params = serde_json::json!({
@@ -5159,9 +5176,8 @@ mod tests {
         assert_eq!(view.block_hash, QUERY_BLOCK_HASH.parse().unwrap());
 
         // Same wire shape for the global-contract lookups.
-        let id = GlobalContractId::CodeHash(*code_hash.as_bytes());
         let global = rpc
-            .view_global_contract_code(&id, BlockReference::Finality(Finality::Final))
+            .view_global_contract_code(code_hash, Finality::Final)
             .await
             .unwrap();
         assert_eq!(global, view);

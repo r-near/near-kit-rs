@@ -196,20 +196,24 @@ impl<S: TxSender> WrapAny for S {}
 |---|---|
 | `.at_block(h)`, `.at_block_hash(hash)`, `.finality(f)`, `.block_reference(r)` | `.at(h)`, `.at(hash)`, `.at(f)`, `.at(r)` |
 | `BlockReference::at_height(h)`, `at_hash`, `final_()`, `near_final()`, `optimistic()` | `h.into()`, `hash.into()`, `Finality::Final.into()`, or the enum variant |
-| `BlockReference::genesis()` / `earliest_available()` | `BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis)` / `(SyncCheckpoint::EarliestAvailable)` |
+| `BlockReference::genesis()` / `earliest_available()` | `SyncCheckpoint::Genesis.into()` / `SyncCheckpoint::EarliestAvailable.into()`; `RpcClient` reads and `.at(..)` take the `SyncCheckpoint` directly |
 | `BlockReference::to_rpc_params()` | Removed. `RpcClient` builds the params. |
 | `near.view::<T>(id, m)` (a `ViewCall<T>`) | `near.view::<T>(id, m)` (a `transaction::View<Near, T>`) |
 | `near.view::<T>(id, m).borsh()` | `View::<_, T>::borsh(near.clone(), id, m)` |
 | `near.account(id)` | `near.rpc().view_account(&id, block)` |
 | `near.access_keys(id)` / `.page(..)` | `near.rpc().view_access_key_list(&id, block)` / `view_access_key_list_page(..)` |
 | `near.contract_code(id)` / `.exists()` | `near.rpc().view_code(&id, block)`; for `exists`, treat `is_contract_not_deployed()` / `is_account_not_found()` as `false` |
-| `near.global_contract(id)` / `.exists()` | `near.rpc().view_global_contract_code(&id, block)`; match `is_global_contract_not_found()` |
+| `near.global_contract(id)` / `.exists()` | `near.rpc().view_global_contract_code(id, block)` with a `CryptoHash`, `AccountId` or `GlobalContractId`; match `is_global_contract_not_found()` |
 | `near.validators()` | `near.rpc().validators(None)` |
 | `AccountQuery`, `AccessKeysQuery`, `ContractCodeQuery`, `GlobalContractQuery`, `ViewCall`, `ViewCallBorsh` | Removed (see above) |
 | `rpc::{LightClientBlockView, LightClientBlockLiteView, BlockHeaderInnerLiteView}`, `rpc::{StateChangeWithCauseView, StateChangeCauseView, StateChangeValueView}` | Removed: no `RpcClient` method returned them. For `EXPERIMENTAL_changes` or light-client proofs, use `near.rpc().call::<_, serde_json::Value>(method, params)` or your own serde type. |
 
 `balance`, `account_exists`, `tx_status` and `view` stay on `Near`. `block` is
-the `BlockReference` to read at; `BlockReference::default()` is `Final`.
+anything that converts into a `BlockReference`, like `.at(..)`: a `Finality`, a
+height, a block hash or a `SyncCheckpoint`. `RpcClient` reads take the account
+as `&AccountIdRef`, so `&AccountId` and `account!(..)` both work. Pass
+`Finality::Final` where 0.20 code read the default; `Default::default()` no
+longer infers.
 
 A view now returns `Result<T, ContractError<RpcError>>` rather than
 `Result<T, Error>`. `?` into `Error` still works. Code that matched `Error`
@@ -228,7 +232,7 @@ let read = near.view::<u64>(account!("counter.testnet"), "get_count").with_metad
 println!("{} at block {}", read.result, read.block_height);
 let account = near
     .rpc()
-    .view_account(&account!("alice.testnet"), Finality::Optimistic.into())
+    .view_account(&account!("alice.testnet"), Finality::Optimistic)
     .await?;
 ```
 

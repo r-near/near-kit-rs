@@ -72,7 +72,7 @@ For CI, `SigningNear::from_env()` reads `NEAR_NETWORK`, `NEAR_ACCOUNT_ID` and
 is on `near.rpc()`.
 
 ```rust
-use near_kit::rpc::{BlockReference, Finality};
+use near_kit::rpc::Finality;
 
 let messages: Vec<serde_json::Value> = near
     .view(account!("guestbook.testnet"), "get_messages")
@@ -89,7 +89,7 @@ println!("{} at block {}", read.result, read.block_height);
 
 let keys = near
     .rpc()
-    .view_access_key_list(&account!("alice.testnet"), BlockReference::default())
+    .view_access_key_list(&account!("alice.testnet"), Finality::Final)
     .await?;
 ```
 

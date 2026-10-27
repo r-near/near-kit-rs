@@ -183,7 +183,7 @@ async fn test_account_view_full_fields() {
     let account = near
         .near()
         .rpc()
-        .view_account(&account_id, Default::default())
+        .view_account(&account_id, near_kit::rpc::Finality::Final)
         .await
         .unwrap();
 
@@ -212,7 +212,7 @@ async fn test_access_key_list_view() {
     let keys = near
         .near()
         .rpc()
-        .view_access_key_list(&account_id, Default::default())
+        .view_access_key_list(&account_id, near_kit::rpc::Finality::Final)
         .await
         .unwrap();
 

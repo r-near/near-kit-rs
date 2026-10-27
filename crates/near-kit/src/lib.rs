@@ -70,7 +70,7 @@
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::rpc::{BlockReference, Finality};
+//! use near_kit::rpc::Finality;
 //! use near_kit::*;
 //!
 //! # async fn example(near: &Near) -> Result<(), Error> {
@@ -90,7 +90,7 @@
 //! let old = near.balance(account!("alice.testnet")).at(180_000_000).await?;
 //! let keys = near
 //!     .rpc()
-//!     .view_access_key_list(&account!("alice.testnet"), BlockReference::default())
+//!     .view_access_key_list(&account!("alice.testnet"), Finality::Final)
 //!     .await?;
 //! # Ok(())
 //! # }
