@@ -1,37 +1,387 @@
 # Migrating to near-kit 0.21
 
-0.21 starts moving the protocol types toward a client-free
-`near-kit-primitives` crate (#328). Code that can run without an RPC
-client no longer returns the client's `near_kit::Error`; each returns a
-small error type of its own instead:
+0.21 is a clean break. It shrinks near-kit to plain values plus two verbs,
+and there are no deprecated aliases to migrate through. Most of the work is
+mechanical:
+
+- **Reads and writes are two types.** `Near` only reads.
+  `near.with_signer(signer)` returns a `SigningNear`, which reads and sends.
+- **Transactions are a receiver plus `Action`s.**
+  `signing.transaction(receiver).add_action(Action::...)`, then `.await`.
+  The per-action builder helpers and the `Near::transfer`/`call`/`deploy`
+  shortcuts are gone.
+- **Arguments are typed.** Pass an `AccountId` (`account!("x.near")` for
+  literals), a `NearToken` and a `Gas`. Strings no longer convert implicitly.
+- **One way to pick a block: `.at(..)`.** It takes a height, a hash or a
+  `Finality`.
+- **Sends wait for `Final` by default** (was `ExecutedOptimistic`).
+- **Two traits, `Viewer` and `TxSender`,** are what typed contract clients
+  and the FT/NFT helpers run on. `Near` is a `Viewer`; `SigningNear` is both.
+  Your own types can be either.
+- **Client-free code returns its own error types** instead of
+  `near_kit::Error`. They all convert into `Error` with `?`.
+
+The protocol types also moved into the new `near-kit-primitives` crate.
+near-kit re-exports every item at its old `near_kit::` path, so imports keep
+working. Depend on `near-kit-primitives` directly only if you want the types
+without the RPC client.
+
+## Clients and signers
+
+| 0.20 | 0.21 |
+|---|---|
+| `Near::testnet().credentials(key, id)?.build()` | `Near::testnet().build().with_signer(InMemorySigner::new(id, key)?)` |
+| `NearBuilder::signer(s)` | `near.with_signer(s)` after `build()` |
+| `Near::from_env()` | `SigningNear::from_env()`. It now fails unless both `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` are set; build a `Near` for read-only use. |
+| `near.with_signer(s) -> Near` | `near.with_signer(s) -> SigningNear` |
+| `near.account_id()` / `try_account_id()` | `signing.account_id()`. A `Near` has no account. |
+| `near.signer()` / `public_key()` | `signing.signer()` (an `&Arc<dyn Signer>`), `signing.signer().public_key()` |
+| `near.sign_message(params)` | `signing.sign_message(params)` |
+| `near.rpc_url()` | `near.rpc().url()` |
+| `Error::NoSigner` | Removed: a send without a signer is a compile error. |
+| `Near::sandbox(&sandbox)`, `rpc::SandboxNetwork` | `sandbox.client()` |
+
+`SigningNear` has no `Deref` to `Near`; read through `signing.near()`. Typed
+contract views and token views work on a `SigningNear` directly.
+
+```rust
+// 0.20
+let near = Near::testnet().credentials("ed25519:...", "me.testnet")?.build();
+let balance = near.balance("me.testnet").await?;
+
+// 0.21
+let me = Near::testnet()
+    .build()
+    .with_signer(InMemorySigner::new(account!("me.testnet"), "ed25519:...")?);
+let balance = me.near().balance(me.account_id()).await?;
+```
+
+## Transactions
+
+| 0.20 | 0.21 |
+|---|---|
+| `near.transaction(rx)` (a `TransactionBuilder`) | `signing.transaction(rx)` (a `Tx`) |
+| `.transfer(amount)`, `.create_account()`, `.deploy(wasm)`, `.add_full_access_key(pk)`, `.add_function_call_key(..)`, `.delete_key(pk)`, `.delete_account(b)`, `.stake(..)`, `.publish(..)`, `.deploy_from(..)`, `.state_init(..)`, `.universal_state_init(..)`, `.signed_delegate_action(..)` | `.add_action(Action::transfer(amount))` and so on: one `Action::*` constructor per helper. `deploy_from` becomes `Action::deploy_from_account(id)` or `Action::deploy_from_hash(hash)`. |
+| `.call("m").args(a).gas(g).deposit(d)` … `.finish()` | `.add_action(FunctionCall::new("m").args(a).gas(g).deposit(d))` |
+| `near.call(id, "m")` | `signing.transaction(id).add_action(FunctionCall::new("m"))` |
+| `near.transfer(id, amount)` | `signing.transaction(id).add_action(Action::transfer(amount))` |
+| `near.deploy(wasm)`, `publish`, `deploy_from`, `add_full_access_key`, `delete_key` | `signing.transaction(signing.account_id()).add_action(Action::...)` |
+| `near.state_init(si, deposit)` / `universal_state_init(..)` | `signing.transaction(si.derive_account_id()).add_action(Action::state_init(si, deposit))`. The receiver is no longer filled in for you. |
+| `.add_actions(vec)` | Call `add_action` in a loop. |
+| `.send()`, `.send().wait_until::<W>()` | `.await` sends; set the wait level on the client (see below). |
+| `.sign()` / `.delegate(opts)` | `signing.sign(rx, actions)` / `signing.delegate(rx, actions, opts)` |
+| `.sign_with(other)` | `signing.near().with_signer(other).transaction(..)` |
+| `.max_nonce_retries(n)` | `NearBuilder::max_nonce_retries(n)` or `near.max_nonce_retries(n)` |
+| `.build()`, `.build_offline(..)`, `.sign_offline(..)`, `.into_parts()` | `protocol::Transaction::new(..).sign(&key)` |
+| `near.send(&signed)` | `near.send_signed(&signed)` |
+| `CallBuilder`, `TransactionBuilder`, `TransactionSend` | `Tx` |
+
+`Tx::add_action` takes anything that converts into an `Action`, including a
+`FunctionCall`. An argument-encoding error is returned from `.await`, as
+before.
+
+```rust
+// 0.20
+near.transaction("sub.me.testnet")
+    .create_account()
+    .transfer(NearToken::from_near(5))
+    .add_full_access_key(key)
+    .deploy(wasm)
+    .call("new")
+        .args(serde_json::json!({ "owner_id": "me.testnet" }))
+    .send()
+    .await?;
+
+// 0.21
+me.transaction(account!("sub.me.testnet"))
+    .add_action(Action::create_account())
+    .add_action(Action::transfer(NearToken::from_near(5)))
+    .add_action(Action::add_full_access_key(key))
+    .add_action(Action::deploy_contract(wasm))
+    .add_action(FunctionCall::new("new").args(serde_json::json!({ "owner_id": "me.testnet" })))
+    .await?;
+```
+
+### Wait levels
+
+The wait level is now part of the signing client's type, set once with
+`.wait_until::<W>()`. `SigningNear` (no parameter) means
+`SigningNear<Final>`. **The default changed from `ExecutedOptimistic` to
+`Final`.** This is not a compile error, and it makes sends slower but means a
+default (final) read sees the write. To keep the 0.20 behaviour, use
+`.wait_until::<ExecutedOptimistic>()`.
+
+```rust
+// 0.20
+let response = near
+    .transfer("bob.testnet", NearToken::from_near(1))
+    .send()
+    .wait_until::<Included>()
+    .await?;
+
+// 0.21
+let response = me
+    .wait_until::<Included>()
+    .transaction(account!("bob.testnet"))
+    .add_action(Action::transfer(NearToken::from_near(1)))
+    .await?;
+```
+
+### Extension traits over a signing client
+
+Helper traits implemented for `Near` move to `SigningNear`:
+
+```rust
+// 0.20
+trait Wrap {
+    async fn wrap(&self, amount: NearToken) -> Result<(), Error>;
+}
+impl Wrap for Near {
+    async fn wrap(&self, amount: NearToken) -> Result<(), Error> {
+        self.call("wrap.testnet", "near_deposit").deposit(amount).await?;
+        Ok(())
+    }
+}
+
+// 0.21
+trait Wrap {
+    async fn wrap(&self, amount: NearToken) -> Result<(), Error>;
+}
+impl Wrap for SigningNear {
+    async fn wrap(&self, amount: NearToken) -> Result<(), Error> {
+        self.transaction(account!("wrap.testnet"))
+            .add_action(FunctionCall::new("near_deposit").deposit(amount))
+            .await?;
+        Ok(())
+    }
+}
+```
+
+A helper that only sends can instead be written once for every `TxSender`, so
+it also runs on test doubles and other senders:
+
+```rust
+trait WrapAny: TxSender {
+    async fn wrap(&self, amount: NearToken) -> Result<Self::Output, Self::SendError> {
+        let deposit = Action::function_call("near_deposit", "{}", Gas::from_tgas(10), amount);
+        self.send(account!("wrap.testnet"), vec![deposit]).await
+    }
+}
+impl<S: TxSender> WrapAny for S {}
+```
+
+## Reads
+
+| 0.20 | 0.21 |
+|---|---|
+| `.at_block(h)`, `.at_block_hash(hash)`, `.finality(f)`, `.block_reference(r)` | `.at(h)`, `.at(hash)`, `.at(f)`, `.at(r)` |
+| `BlockReference::at_height(h)`, `at_hash`, `final_()`, `near_final()`, `optimistic()` | `h.into()`, `hash.into()`, `Finality::Final.into()`, or the enum variant |
+| `BlockReference::genesis()` / `earliest_available()` | `BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis)` / `(SyncCheckpoint::EarliestAvailable)` |
+| `BlockReference::to_rpc_params()` | Removed. `RpcClient` builds the params. |
+| `near.view::<T>(id, m)` (a `ViewCall<T>`) | `near.view::<T>(id, m)` (a `transaction::View<Near, T>`) |
+| `near.view::<T>(id, m).borsh()` | `View::<_, T>::borsh(near.clone(), id, m)` |
+| `near.account(id)` | `near.rpc().view_account(&id, block)` |
+| `near.access_keys(id)` / `.page(..)` | `near.rpc().view_access_key_list(&id, block)` / `view_access_key_list_page(..)` |
+| `near.contract_code(id)` / `.exists()` | `near.rpc().view_code(&id, block)`; for `exists`, treat `is_contract_not_deployed()` / `is_account_not_found()` as `false` |
+| `near.global_contract(id)` / `.exists()` | `near.rpc().view_global_contract_code(&id, block)`; match `is_global_contract_not_found()` |
+| `near.validators()` | `near.rpc().validators(None)` |
+| `AccountQuery`, `AccessKeysQuery`, `ContractCodeQuery`, `GlobalContractQuery`, `ViewCall`, `ViewCallBorsh` | Removed (see above) |
+
+`balance`, `account_exists`, `tx_status` and `view` stay on `Near`. `block` is
+the `BlockReference` to read at; `BlockReference::default()` is `Final`.
+
+A view now returns `Result<T, ContractError<RpcError>>` rather than
+`Result<T, Error>`. `?` into `Error` still works. Code that matched `Error`
+should match `ContractError::Backend(rpc_error)` /
+`ContractError::Codec(codec_error)`, or call `.map_err(Error::from)` first.
+
+```rust
+// 0.20
+let count: u64 = near.view("counter.testnet", "get_count").at_block(180_000_000).await?;
+let read = near.view::<u64>("counter.testnet", "get_count").with_metadata().await?;
+let account = near.account("alice.testnet").finality(Finality::Optimistic).await?;
+
+// 0.21
+let count: u64 = near.view(account!("counter.testnet"), "get_count").at(180_000_000).await?;
+let read = near.view::<u64>(account!("counter.testnet"), "get_count").with_metadata().await?;
+println!("{} at block {}", read.result, read.block_height);
+let account = near
+    .rpc()
+    .view_account(&account!("alice.testnet"), Finality::Optimistic.into())
+    .await?;
+```
+
+## Typed arguments
+
+| 0.20 | 0.21 |
+|---|---|
+| `impl TryIntoAccountId` (`"alice.near"`, `String`) | `impl Into<AccountId>` (`AccountId`, `&AccountId`, `&AccountIdRef`). Use `account!("alice.near")` for a literal (checked at compile time) or `"alice.near".parse::<AccountId>()?` for runtime input. |
+| `impl IntoNearToken` (`"5 NEAR"`) | `NearToken` (`NearToken::from_near(5)`, or `"5 NEAR".parse()?`) |
+| `impl IntoGas` (`"30 Tgas"`) | `Gas` (`Gas::from_tgas(30)`, or `"30 Tgas".parse()?`) |
+| `impl TryIntoGlobalContractId` | `Action::deploy_from_account(id)` / `Action::deploy_from_hash(hash)`, or a `GlobalContractId` |
+| `protocol::{TryIntoAccountId, IntoNearToken, IntoGas, TryIntoGlobalContractId, ParseGasError}` | Removed |
+| `Error::ParseAmount`, `Error::ParseGas`, `ParseAmountError::AmbiguousAmount` | Removed. `ParseAmountError` stays for `FtAmount::parse`. |
+
+This also covers the signer constructors (`InMemorySigner`, `RotatingSigner`,
+`FileSigner`, `KeyringSigner`), `FunctionCall::gas`/`deposit`, the FT/NFT
+helpers, and `near-kit-sandbox`.
+
+## Typed contracts
+
+| 0.20 | 0.21 |
+|---|---|
+| `trait Contract { type Client: ContractClient }`, `ContractClient::new(near, id)` | `trait Contract { type Client<C>; fn client<C>(backend: C, id) }` |
+| `CounterClient` (holds a `Near`) | `CounterClient<C = Near>`. Views need `C: Viewer + Clone`; `#[call]` methods need `C: TxSender + Clone`. |
+| `near.contract::<Counter>(id).increment()` | `signing.contract::<Counter>(id).increment()`. `near.contract` gives a view-only client. |
+| A call method resolves to `FinalExecutionOutcome` | It resolves to the backend's output: `W::Response` for `SigningNear<W>` (`FinalExecutionOutcome` for the default `Final`) |
+| `#[call] fn m(&mut self) -> T` (return type ignored) | A compile error. Decode the outcome yourself. |
+| Contract methods named `contract_id` or `client` | A compile error. Rename them. |
+| `near_kit::{call, json, borsh}` attribute re-exports and the standalone `near_kit_macros::{call, json, borsh}` | Removed. `#[contract]` reads the markers itself and they need no import. |
+
+Views return `transaction::View` and calls return `transaction::Call`, so
+they take `.at(..)` and `.gas(..)`/`.deposit(..)` before `.await`, the same as
+`Near::view`. Their error is `ContractError<C::ViewError>` /
+`ContractError<C::SendError>`. To use a different wait level, build the client
+from a re-levelled sender:
+`signing.wait_until::<Included>().contract::<Counter>(id)`.
+
+```rust
+// 0.20
+let counter = near.contract::<Counter>("counter.testnet".parse::<AccountId>()?);
+counter.increment().await?;
+
+// 0.21
+let counter = me.contract::<Counter>(account!("counter.testnet"));
+counter.increment().gas(Gas::from_tgas(10)).await?;
+let count = counter.get_count().at(180_000_000).await?;
+```
+
+## Your own backend
+
+`Viewer` and `TxSender` are new. Implement one or both, and typed contract
+clients, `View`/`Call` and the token helpers run on your type. Build the
+view result with `ViewFunctionResult::new(bytes, block_height, block_hash)`.
+On wasm targets, write `MaybeSend`, not `Send`, in any forwarding bounds.
+
+```rust
+#[derive(Clone)]
+struct Gateway;
+
+impl Viewer for Gateway {
+    type ViewError = String;
+
+    async fn view_function(
+        &self,
+        contract_id: &AccountId,
+        method: &str,
+        args: &[u8],
+        block: BlockReference,
+    ) -> Result<ViewFunctionResult, String> {
+        // ...call your service...
+        Ok(ViewFunctionResult::new(b"42".to_vec(), 1, CryptoHash::ZERO))
+    }
+}
+
+let count = Counter::client(Gateway, account!("counter.testnet")).get_count().await?;
+```
+
+Both traits are implemented for `&T`, `Box<T>` and `Arc<T>` (including
+`T: ?Sized`), so `Arc<dyn MySender>` works once you implement `TxSender for
+dyn MySender`.
+
+## Fungible and non-fungible tokens
+
+| 0.20 | 0.21 |
+|---|---|
+| `FungibleToken`, `NonFungibleToken` | `FungibleToken<C = Near>`, `NonFungibleToken<C = Near>` |
+| `near.ft(id).transfer(to, amount)` on a signing `Near` | `signing.ft(id).transfer(to, amount, None)`. `near.ft(id)` is read-only. |
+| `transfer_with_memo(to, amount, memo)` | `transfer(to, amount, Some(memo))` |
+| `.with_signer(s)` on a token client | `near.with_signer(s).ft(id)` |
+| Token calls return a `CallBuilder` | They return a `Call<C>`: `.gas(..)`, `.deposit(..)`, `.await` |
+| Token views return `Error` | They return `ContractError<C::ViewError>` (`?` still converts) |
+
+`FungibleToken::new(backend, id)` builds a client over any backend. A
+non-numeric `U128`/`U64` string from a token contract is now
+`ContractError::Codec`, not an RPC error. To batch a token call with other
+actions, add the `FunctionCall` to `transaction(..)`.
+
+```rust
+// 0.20
+near.ft("wrap.near".parse::<AccountId>()?)
+    .transfer_with_memo("bob.near", 1_000_u128, "rent")
+    .await?;
+
+// 0.21
+me.ft(account!("wrap.near"))
+    .transfer(account!("bob.near"), 1_000_u128, Some("rent".to_owned()))
+    .await?;
+```
+
+## Errors in client-free code
+
+Code that runs without an RPC client returns its own error type instead of
+`near_kit::Error`:
 
 | API | Now returns |
 |---|---|
 | `SignedTransaction(V1)::from_bytes` / `from_base64` | `DecodeTransactionError` |
 | `FinalExecutionOutcome::result` / `json` | `OutcomeError` |
-| `FunctionCall::into_action`, `TryFrom<FunctionCall>` | `CodecError` |
+| `FunctionCall::into_action`, `TryFrom<FunctionCall>` | `CodecError` (was `FunctionCallBuildError`) |
 | `InMemorySigner::new` / `from_secret_key` / `from_seed_phrase*`, `RotatingSigner::new` / `from_signers` / `from_key_strings` | `SignerError` |
 
-Each converts into `near_kit::Error` with `?` and lands in the same
-variant, with the same message, as before. A function that returns
-`Result<_, near_kit::Error>` and uses `?` needs no change. Two patterns do
-need one:
+Each converts into `near_kit::Error` with `?` and lands in the same variant,
+with the same message, as before. Two patterns need a change:
 
 - **Passing a variant constructor to `map_err`.** Convert first:
-
-  ```rust
-  InMemorySigner::new(id, key).map_err(|e| MyError::Signer(e.into()))?;
-  // was .map_err(MyError::Signer)? with MyError::Signer(near_kit::Error)
-  ```
-
-- **Matching the result directly.** Match the new type's variants, for
-  example `OutcomeError::InvalidTx` instead of `Error::InvalidTx`, or call
+  `.map_err(|e| MyError::Signer(e.into()))?`.
+- **Matching the result directly.** Match the new type's variants (for example
+  `OutcomeError::InvalidTx` instead of `Error::InvalidTx`), or call
   `.map_err(near_kit::Error::from)` first.
 
-`SignerError` is now `#[non_exhaustive]` and gained `InvalidAccountId`,
-`InvalidKey`, `NoKeys` and `MixedAccounts`. `WaitLevel::convert` is
-`#[doc(hidden)]` and now returns `OutcomeError`; `STATUS` and `Response`
-are unchanged.
+`SignerError` is `#[non_exhaustive]` and gained `InvalidKey`, `NoKeys` and
+`MixedAccounts`. `WaitLevel::convert` is `#[doc(hidden)]` and returns
+`OutcomeError`.
+
+The new view and call values have one error type, `ContractError<E>`:
+`Codec(CodecError)` for argument or result encoding, or `Backend(E)` for the
+backend's error. It implements `std::error::Error` whenever `E` is `Debug +
+Display`, so `?` into `anyhow` works, and `From<ContractError<E>> for Error`
+covers near-kit's backends.
+
+## Sandbox
+
+| 0.20 | 0.21 |
+|---|---|
+| `sandbox.client() -> Near` | `sandbox.client() -> SigningNear` for the root account |
+| `Near::sandbox(&sandbox)` | `sandbox.client()` |
+| `SandboxBuilder::root_account("x")`, `set_balance("x", ..)` | Take `impl Into<AccountId>`: `account!("x")` |
+| `SANDBOX_ROOT_ACCOUNT: &str` | `&AccountIdRef` |
+| `SandboxError::{InvalidRootAccount, InvalidAccount}` | Removed (account IDs are typed) |
+
+```rust
+// 0.20
+let root = SandboxConfig::shared().await?.client();
+root.transaction("alice.sandbox")
+    .create_account()
+    .transfer(NearToken::from_near(10))
+    .add_full_access_key(key)
+    .await?;
+
+// 0.21
+let root = SandboxConfig::shared().await?.client();
+root.transaction(account!("alice.sandbox"))
+    .add_action(Action::create_account())
+    .add_action(Action::transfer(NearToken::from_near(10)))
+    .add_action(Action::add_full_access_key(key))
+    .await?;
+```
+
+## Macros crate
+
+`near-kit-macros` changed incompatibly with this release (`Client`, the
+reserved method names, the removed standalone markers). Depend on near-kit
+with the `contracts` feature, or on near-kit-primitives with `contracts`,
+rather than on `near-kit-macros` directly.
 
 # Migrating to near-kit 0.19
 
