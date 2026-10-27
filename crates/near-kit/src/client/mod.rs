@@ -14,10 +14,10 @@
 //!
 //! | Signer | Use Case |
 //! |--------|----------|
-//! | [`InMemorySigner`] | Simple scripts with a private key in memory |
+//! | [`InMemorySigner`](crate::signer::InMemorySigner) | Simple scripts with a private key in memory |
 //! | `FileSigner` | Load from `~/.near-credentials` (requires `file-signer`) |
 //! | [`EnvSigner`] | CI/CD via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` env vars |
-//! | [`RotatingSigner`] | High-throughput with multiple keys (avoids nonce collisions) |
+//! | [`RotatingSigner`](crate::signer::RotatingSigner) | High-throughput with multiple keys (avoids nonce collisions) |
 //!
 //! # Query Builders
 //!
@@ -66,9 +66,13 @@ pub use query::{
 };
 #[cfg(feature = "rpc")]
 pub use rpc::{RetryConfig, RpcClient};
+pub use signer::EnvSigner;
 #[cfg(feature = "file-signer")]
 pub use signer::FileSigner;
-pub use signer::{EnvSigner, InMemorySigner, RotatingSigner, Signer, SigningBackend, SigningKey};
+// The core signers moved to near-kit-primitives; client code and tests still
+// name some of them through this module.
+#[cfg(feature = "rpc")]
+pub(crate) use near_kit_primitives::signer::Signer;
 #[cfg(feature = "rpc")]
 pub use transaction::{
     CallBuilder, DelegateOptions, DelegateResult, SignedTransactionSend, TransactionBuilder,

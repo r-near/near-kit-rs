@@ -1,7 +1,6 @@
 //! High-level APIs for NEAR ecosystem standards.
 
-/// NEP-413 message signing and verification.
-pub use crate::types::nep413;
+pub mod nep413;
 
 #[cfg(feature = "rpc")]
 pub use crate::tokens::{

@@ -48,7 +48,7 @@ use crate::types::{
 
 use super::nonce_manager::NonceManager;
 use super::rpc::RpcClient;
-use super::signer::{Signer, SigningKey};
+use crate::types::{Signer, SigningKey};
 
 /// Global nonce manager shared across all TransactionBuilder instances.
 /// This is an implementation detail - not exposed to users.
@@ -1657,10 +1657,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
-    use crate::client::{
-        BoxFuture, InMemorySigner, RotatingSigner, RpcTransport, TransportResponse,
-    };
-    use crate::types::{Gas, SecretKey, Submitted};
+    use crate::client::{BoxFuture, RpcTransport, TransportResponse};
+    use crate::types::{Gas, InMemorySigner, RotatingSigner, SecretKey, Submitted};
 
     struct FailingJson;
 

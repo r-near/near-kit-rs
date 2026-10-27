@@ -38,6 +38,19 @@ jobs:
       - run: cargo check -p near-kit --all-targets --no-default-features
       # Mnemonic derivation is independently opt-in and works without networking.
       - run: cargo check -p near-kit --all-targets --no-default-features --features mnemonic
+      # near-kit-primitives on its own, with no optional features.
+      - run: cargo clippy -p near-kit-primitives --all-targets --no-default-features
+      # near-kit-primitives must stay client-free: no async runtime or HTTP
+      # stack in its normal dependency graph, on any target. Fails if one appears.
+      - name: near-kit-primitives has no tokio/reqwest/hyper
+        shell: bash
+        run: |
+          set -euo pipefail
+          tree=$(cargo tree -p near-kit-primitives --all-features -e normal --target all --prefix none)
+          if grep -E '^(tokio|reqwest|hyper) ' <<<"$tree"; then
+            echo "::error::near-kit-primitives depends on tokio, reqwest or hyper (see above)"
+            exit 1
+          fi
 
   test:
     name: Test
@@ -69,6 +82,8 @@ jobs:
         run: cargo test -p near-kit --no-default-features --doc
       - name: Run offline mnemonic tests
         run: cargo test -p near-kit --no-default-features --features mnemonic --lib
+      - name: Run near-kit-primitives tests without optional features
+        run: cargo test -p near-kit-primitives --no-default-features
       - name: Run contract macro compile tests
         run: cargo test -p near-kit-macros --test trybuild
       - name: Run offline (no rpc) contract macro compile tests
@@ -123,3 +138,9 @@ jobs:
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features rpc,contracts
       # WASI with the built-in wasi:http transport
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features wasi-http
+      # near-kit-primitives alone (what wasm contracts depend on): WASI with
+      # native entropy, then JS hosts with the `js` entropy backend
+      - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features
+      - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features --features mnemonic
+      - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js
+      - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js,mnemonic

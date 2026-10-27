@@ -1,10 +1,43 @@
 //! Low-level RPC access, transports, query builders, and response types.
 //!
 //! `RpcClient` includes the generic `RpcClient::call` escape hatch in
-//! addition to typed NEAR RPC methods.
+//! addition to typed NEAR RPC methods. The response and view types are
+//! re-exported from `near-kit-primitives`.
+//!
+//! # Polling a transaction's progress
+//!
+//! Send at an early wait level, then poll `tx_status` for the partial outcome
+//! carried by [`SendTxResponse`]:
+//!
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
+//! # use near_kit::*;
+//! # use near_kit::transaction::Included;
+//! # async fn example(near: &Near) -> Result<(), Error> {
+//! let response = near.transfer("bob.testnet", NearToken::from_near(1))
+//!     .wait_until::<Included>()
+//!     .await?;
+//!
+//! // Later, poll for progress without waiting for finality. At early wait
+//! // levels EXPERIMENTAL_tx_status still returns per-receipt data:
+//! let status = near
+//!     .tx_status(&response.transaction_hash, &response.sender_id)
+//!     .wait_until::<Included>()
+//!     .await?;
+//! if let Some(outcome) = &status.outcome {
+//!     for receipt_outcome in &outcome.receipts_outcome {
+//!         // drive a progressive UI from each receipt's status
+//!     }
+//! }
+//! # Ok(())
+//! # }
+//! ```
 
-pub use crate::error::{OutcomeError, RpcError, TimeoutCause};
-pub use crate::types::{
+pub use crate::error::{RpcError, TimeoutCause};
+#[doc(inline)]
+pub use near_kit_primitives::rpc::OutcomeError;
+#[doc(inline)]
+pub use near_kit_primitives::rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountContractView, AccountState, AccountView, ActionReceiptData, ActionView,
     BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1, BlockEffects,

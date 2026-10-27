@@ -19,9 +19,9 @@ pub(crate) use tracing::{
     Instrument, Span, debug, debug_span, error, field, info, info_span, trace, warn,
 };
 
-// Only the event-macro stand-ins have users in every feature combination
-// (e.g. `types/error.rs`); the span/instrument/field stand-ins are used
-// exclusively from `rpc`-gated code, so without `rpc` they are dead code.
+// Every user is `rpc`-gated code (the protocol types, which log one WARN,
+// moved to near-kit-primitives with their own copy of this shim), so without
+// `rpc` these stand-ins are dead code.
 #[cfg(not(feature = "tracing"))]
 #[cfg_attr(not(feature = "rpc"), allow(dead_code, unused_macros))]
 mod noop {

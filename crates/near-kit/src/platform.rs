@@ -10,6 +10,9 @@
 //! is re-exported from there; `MaybeSend`/`MaybeSync` stay unnameable outside
 //! the crate (their blanket impls apply to every eligible type, so implementors
 //! never spell them out).
+//!
+//! near-kit-primitives has its own copy for `SigningBackend`; the trait
+//! aliases have blanket impls, so both copies accept exactly the same types.
 
 use std::future::Future;
 use std::pin::Pin;

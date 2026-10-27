@@ -97,7 +97,7 @@ impl From<UniversalStateInitV1> for RawStateInit {
 ///
 /// Mirrors nearcore's `UniversalStateInit`. New fields or semantics arrive as
 /// a new variant; the borsh discriminant is the only version marker. Create
-/// the account with [`Near::universal_state_init`](crate::Near::universal_state_init).
+/// the account with `near-kit`'s `Near::universal_state_init`.
 ///
 /// Its [`BorshSerialize`] output is always the canonical encoding, so
 /// `borsh::to_vec(&state_init)` equals [`to_raw`](Self::to_raw). Its
@@ -106,8 +106,8 @@ impl From<UniversalStateInitV1> for RawStateInit {
 /// # Example
 ///
 /// ```rust
-/// use near_kit::protocol::{UniversalStateInit, UniversalStateInitV1};
-/// use near_kit::signer::PublicKey;
+/// use near_kit_primitives::protocol::{UniversalStateInit, UniversalStateInitV1};
+/// use near_kit_primitives::signer::PublicKey;
 ///
 /// let key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
 /// let state_init: UniversalStateInit = UniversalStateInitV1::new().with_access_key(key).into();

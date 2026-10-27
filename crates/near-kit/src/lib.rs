@@ -482,6 +482,11 @@
 //! near-kit = { version = "0.18", default-features = false }
 //! ```
 //!
+//! The offline core is also published on its own as
+//! [`near-kit-primitives`](https://docs.rs/near-kit-primitives), which never
+//! depends on an async runtime or HTTP client. near-kit re-exports it at the
+//! paths above, so its types are near-kit's types.
+//!
 //! ## Feature Flags
 //!
 //! | Feature | Default | Description |
@@ -539,6 +544,7 @@ mod client;
 #[path = "contract.rs"]
 mod contract_support;
 mod error;
+#[cfg(feature = "rpc")]
 mod platform;
 #[cfg(feature = "rpc")]
 mod tokens;
@@ -553,7 +559,8 @@ pub mod transaction;
 
 // The root is intentionally small; advanced APIs live in explicit facades.
 pub use error::Error;
-pub use types::{AccountId, CryptoHash, Gas, NearToken};
+#[doc(inline)]
+pub use near_kit_primitives::{AccountId, CryptoHash, Gas, NearToken};
 
 // Re-export contract types. The traits tie a contract to its `Near`-backed
 // client, so they need the RPC layer; the macro itself does not.

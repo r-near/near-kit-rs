@@ -5,11 +5,8 @@
 //! root: [`AccountId`](crate::AccountId), [`NearToken`](crate::NearToken),
 //! [`Gas`](crate::Gas), and [`CryptoHash`](crate::CryptoHash).
 
-pub use crate::error::{
-    ActionViewConversionError, DecodeTransactionError, ParseAccountIdError, ParseAmountError,
-    ParseGasError, ParseHashError, UniversalStateInitError,
-};
-pub use crate::types::{
+#[doc(inline)]
+pub use near_kit_primitives::protocol::{
     AccessKey, AccessKeyPermission, AccountIdRef, Action, ActionError, ActionErrorKind,
     ActionsValidationError, AddKeyAction, CompilationError, CreateAccountAction,
     DELEGATE_ACTION_PREFIX, DELEGATE_V2_ACTION_PREFIX, DelegateAction, DelegateActionV2,
@@ -26,5 +23,11 @@ pub use crate::types::{
     UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
     VersionedTransaction, WasmTrap, WithdrawFromGasKeyAction,
 };
+#[doc(inline)]
+pub use near_kit_primitives::protocol::{
+    ActionViewConversionError, DecodeTransactionError, ParseAccountIdError, ParseAmountError,
+    ParseGasError, ParseHashError, UniversalStateInitError,
+};
 
-pub use crate::types::ChainId;
+#[doc(inline)]
+pub use near_kit_primitives::protocol::ChainId;

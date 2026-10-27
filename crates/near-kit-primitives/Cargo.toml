@@ -1,0 +1,71 @@
+[package]
+name = "near-kit-primitives"
+description = "NEAR Protocol types, keys, signing, and transaction building for near-kit, without an RPC client"
+keywords = ["near", "blockchain", "crypto", "web3", "no-network"]
+categories = ["cryptography::cryptocurrencies", "encoding", "wasm"]
+readme = "README.md"
+version = "0.20.1"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# Everything here works offline: no async runtime, no HTTP client. `near-kit`
+# depends on this crate and re-exports it at its original paths. CI asserts
+# that tokio, reqwest and hyper never enter the normal dependency tree.
+[dependencies]
+# NEAR ecosystem types (re-exported as-is, never newtyped)
+near-account-id.workspace = true
+near-token.workspace = true
+near-gas.workspace = true
+near-global-contracts.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+serde_with = { version = "3.20", features = ["hex", "base64"] }
+borsh.workspace = true
+base64.workspace = true
+
+# Cryptography
+ed25519-dalek.workspace = true
+sha2.workspace = true
+sha3.workspace = true
+ml-dsa.workspace = true
+getrandom.workspace = true
+bip39 = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
+k256.workspace = true
+
+# Encoding
+bs58.workspace = true
+hex.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Logging (optional; gated by `tracing` — see src/trace.rs for the no-op fallback)
+tracing = { workspace = true, optional = true }
+
+# JS-host wasm only (`wasm32-unknown-unknown`, i.e. browsers/Node/Deno — NOT
+# WASI): the NEP-413 nonce timestamp reads the JS clock, since
+# `SystemTime::now()` panics there. `getrandom`'s JS entropy backend is opt-in
+# via the `js` feature below.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+js-sys = "0.3"
+
+[features]
+default = []
+# Emit `tracing` events (currently: a WARN when an RPC error variant is not
+# recognized and falls back to `Unknown`).
+tracing = ["dep:tracing"]
+# BIP-39 seed phrases and SLIP-10 hierarchical key derivation.
+mnemonic = ["dep:bip39", "dep:hmac"]
+# JS-host entropy backend for `wasm32-unknown-unknown`. Enables `getrandom`'s
+# `wasm_js` feature. Leave this off on non-JS wasm embedders (register your own
+# `getrandom` backend) and on WASI targets (which `getrandom` supports natively).
+js = ["getrandom/wasm_js"]
+
+[dev-dependencies]
+# Drives the async signing tests without pulling an async runtime into the crate.
+futures.workspace = true

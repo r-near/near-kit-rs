@@ -818,32 +818,8 @@ pub enum FinalExecutionStatus {
 ///
 /// The outcome is exposed as-is (not validated); inspect
 /// [`FinalExecutionOutcome::status`] to see how far execution has progressed.
-///
-/// # Example
-///
-#[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-/// # use near_kit::*;
-/// # use near_kit::transaction::Included;
-/// # async fn example(near: &Near) -> Result<(), Error> {
-/// let response = near.transfer("bob.testnet", NearToken::from_near(1))
-///     .wait_until::<Included>()
-///     .await?;
-///
-/// // Later, poll for progress without waiting for finality. At early wait
-/// // levels EXPERIMENTAL_tx_status still returns per-receipt data:
-/// let status = near
-///     .tx_status(&response.transaction_hash, &response.sender_id)
-///     .wait_until::<Included>()
-///     .await?;
-/// if let Some(outcome) = &status.outcome {
-///     for receipt_outcome in &outcome.receipts_outcome {
-///         // drive a progressive UI from each receipt's status
-///     }
-/// }
-/// # Ok(())
-/// # }
-/// ```
+/// See `near-kit`'s `rpc` module docs for polling with `tx_status` at an early
+/// wait level.
 #[derive(Debug, Clone)]
 pub struct SendTxResponse {
     /// Hash of the submitted transaction.
@@ -951,7 +927,7 @@ impl FinalExecutionOutcome {
     /// # Example
     ///
     /// ```rust
-    /// # use near_kit::rpc::FinalExecutionOutcome;
+    /// # use near_kit_primitives::rpc::FinalExecutionOutcome;
     /// fn events(outcome: &FinalExecutionOutcome) -> Vec<&str> {
     ///     outcome
     ///         .logs()
@@ -1022,7 +998,7 @@ impl FinalExecutionOutcome {
 /// The `Failure` variant contains an [`ActionError`] rather than
 /// [`TxExecutionError`] because receipt execution outcomes can only fail with
 /// action errors. Transaction-validation errors (`InvalidTxError`) are caught
-/// earlier in the send path and surfaced as [`crate::Error::InvalidTx`].
+/// earlier in the send path and surfaced as `near_kit::Error::InvalidTx`.
 ///
 /// The NEAR RPC serialises the failure as `{"Failure": {"ActionError": {…}}}`.
 /// A custom [`Deserialize`] impl unwraps the outer `TxExecutionError` envelope.
@@ -1059,8 +1035,8 @@ impl ExecutionStatus {
     /// Find the value a specific contract returned anywhere in a transaction:
     ///
     /// ```rust
-    /// # use near_kit::AccountId;
-    /// # use near_kit::rpc::FinalExecutionOutcome;
+    /// # use near_kit_primitives::AccountId;
+    /// # use near_kit_primitives::rpc::FinalExecutionOutcome;
     /// fn returned_by(outcome: &FinalExecutionOutcome, contract: &AccountId) -> Option<Vec<u8>> {
     ///     outcome
     ///         .receipts_outcome
@@ -1487,8 +1463,8 @@ impl ActionView {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit::CryptoHash;
-    /// use near_kit::rpc::ActionView;
+    /// use near_kit_primitives::CryptoHash;
+    /// use near_kit_primitives::rpc::ActionView;
     ///
     /// // `code` is base64(sha256(wasm)); here the WASM is the empty byte string.
     /// let view: ActionView = serde_json::from_value(serde_json::json!({
@@ -1597,9 +1573,9 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 /// [`Action`]s (one action shown, deserialized from the JSON the node returns):
 ///
 /// ```rust
-/// use near_kit::{Gas, NearToken};
-/// use near_kit::protocol::Action;
-/// use near_kit::rpc::ActionView;
+/// use near_kit_primitives::{Gas, NearToken};
+/// use near_kit_primitives::protocol::Action;
+/// use near_kit_primitives::rpc::ActionView;
 ///
 /// let view: ActionView = serde_json::from_value(serde_json::json!({
 ///     "FunctionCall": {
@@ -1623,7 +1599,7 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
-/// With a live client (requires the `rpc` feature):
+/// With a live `near-kit` client:
 ///
 /// ```rust,ignore
 /// let outcome = near.tx_status(&tx_hash, "alice.near").wait_until::<Final>().await?;

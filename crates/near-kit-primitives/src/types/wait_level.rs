@@ -4,28 +4,23 @@
 //! associated `Response` type. This lets the compiler determine the return type
 //! of `send().wait_until::<W>()` from the selected type:
 //!
-#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! # use near_kit::*;
-//! # use near_kit::transaction::{Final, Included};
-//! # async fn example(near: &Near) -> Result<(), Error> {
-//! // Default — returns FinalExecutionOutcome
-//! near.transfer("bob.testnet", NearToken::from_near(1)).await?;
+//! ```rust
+//! use near_kit_primitives::rpc::TxExecutionStatus;
+//! use near_kit_primitives::transaction::{Final, Included, WaitLevel};
 //!
-//! // Executed levels — also returns FinalExecutionOutcome
-//! near.transfer("bob.testnet", NearToken::from_near(1))
-//!     .wait_until::<Final>()
-//!     .await?;
+//! // Each level carries the `wait_until` value sent to the RPC...
+//! assert_eq!(Final::STATUS, TxExecutionStatus::Final);
+//! assert_eq!(Included::STATUS, TxExecutionStatus::Included);
 //!
-//! // Non-executed levels — returns SendTxResponse (hash + sender, plus any
-//! // partial outcome the RPC has already produced)
-//! let response = near.transfer("bob.testnet", NearToken::from_near(1))
-//!     .wait_until::<Included>()
-//!     .await?;
-//! println!("tx hash: {}", response.transaction_hash);
-//! # Ok(())
-//! # }
+//! // ...and fixes the response type at compile time: executed levels return a
+//! // `FinalExecutionOutcome`, earlier ones a `SendTxResponse`.
+//! fn response_of<W: WaitLevel>(response: W::Response) -> W::Response {
+//!     response
+//! }
 //! ```
+//!
+//! See `near-kit`'s `transaction` module for these levels in use with
+//! `send().wait_until::<W>()`.
 
 use crate::error::OutcomeError;
 use crate::types::AccountId;

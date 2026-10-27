@@ -5,21 +5,12 @@
 //!
 //! # Example
 //!
-#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::Near;
-//! use near_kit::signer::InMemorySigner;
-//! use near_kit::standards::nep413;
+//! ```rust
+//! use near_kit_primitives::signer::{InMemorySigner, Signer};
+//! use near_kit_primitives::standards::nep413;
 //!
-//! # async fn example() -> Result<(), near_kit::Error> {
-//! let signer = InMemorySigner::new(
-//!     "alice.testnet",
-//!     "ed25519:..."
-//! )?;
-//!
-//! let near = Near::testnet()
-//!     .signer(signer)
-//!     .build();
+//! # async fn example() -> Result<(), near_kit_primitives::signer::SignerError> {
+//! let signer = InMemorySigner::generate_implicit();
 //!
 //! // Sign a message
 //! let params = nep413::SignMessageParams {
@@ -29,14 +20,17 @@
 //!     callback_url: None,
 //!     state: None,
 //! };
+//! let signed = signer.key().sign_nep413(signer.account_id(), &params).await?;
 //!
-//! let signed = near.sign_message(params.clone()).await?;
-//!
-//! // Verify the signature
-//! let is_valid = nep413::verify(&signed, &params, &near, Default::default()).await?;
+//! // Verify the signature (offline: checks the signature and nonce age only)
+//! assert!(nep413::verify_signature(&signed, &params, nep413::NonceValidation::default()));
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! [`verify_signature()`] does not check that the public key belongs to the
+//! claimed account. `near-kit`'s `nep413::verify` adds that check by querying
+//! the account's access keys over RPC.
 //!
 //! # Nonces
 //!
@@ -45,9 +39,9 @@
 //! millisecond timestamp in the first 8 bytes so that verification can enforce a maximum
 //! signature age. This timestamp embedding is a near-kit convention, not part of the spec.
 //!
-//! By default, [`verify_signature()`] and `verify()` assume this convention
-//! ([`NonceValidation::Timestamp`]). If you are verifying messages from an app that uses its
-//! own nonce scheme (e.g. random bytes, or a custom structured nonce), pass
+//! By default, [`verify_signature()`] (and `near-kit`'s RPC-backed `verify()`) assume this
+//! convention ([`NonceValidation::Timestamp`]). If you are verifying messages from an app that
+//! uses its own nonce scheme (e.g. random bytes, or a custom structured nonce), pass
 //! [`NonceValidation::None`] to skip the timestamp interpretation — you are then responsible
 //! for replay protection yourself (e.g. tracking used nonces or validating your own embedded
 //! structure).
@@ -60,14 +54,6 @@ use borsh::BorshSerialize;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{hex::Hex, serde_as};
 
-// These three are only used by the RPC-backed `verify()`; the offline
-// `verify_signature()` path doesn't need them.
-#[cfg(feature = "rpc")]
-use crate::Near;
-#[cfg(feature = "rpc")]
-use crate::error::Error;
-#[cfg(feature = "rpc")]
-use crate::types::BlockReference;
 use crate::types::{AccountId, CryptoHash, PublicKey, Signature};
 
 /// NEP-413 tag prefix: 2^31 + 413 = 2147484061
@@ -120,7 +106,7 @@ pub struct SignMessageParams {
 /// ```rust,no_run
 /// use std::collections::HashSet;
 ///
-/// use near_kit::standards::nep413::{AuthPayload, NonceValidation, verify_signature};
+/// use near_kit_primitives::standards::nep413::{AuthPayload, NonceValidation, verify_signature};
 ///
 /// /// The offline checks on a login request body (in a real app, from
 /// /// req.body). `issued` holds the nonces this server generated with
@@ -141,8 +127,8 @@ pub struct SignMessageParams {
 ///
 /// `verify_signature` checks the signature and the nonce's age, not that the
 /// key belongs to the account the message names. Before accepting the
-/// account, confirm that with `nep413::verify` (an RPC lookup), then remove
-/// the nonce from `issued` so it is accepted once.
+/// account, confirm that with near-kit's `nep413::verify` (an RPC lookup),
+/// then remove the nonce from `issued` so it is accepted once.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -185,15 +171,12 @@ impl AuthPayload {
     ///
     /// # Example
     ///
-    #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-    #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-    /// use near_kit::Near;
-    /// use near_kit::standards::nep413;
+    /// ```rust
+    /// use near_kit_primitives::signer::{InMemorySigner, Signer};
+    /// use near_kit_primitives::standards::nep413;
     ///
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///     .credentials("ed25519:...", "alice.testnet")?
-    ///     .build();
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let signer = InMemorySigner::generate_implicit();
     ///
     /// let params = nep413::SignMessageParams {
     ///     message: "Sign in to My App".to_string(),
@@ -203,7 +186,7 @@ impl AuthPayload {
     ///     state: None,
     /// };
     ///
-    /// let signed = near.sign_message(params.clone()).await?;
+    /// let signed = signer.key().sign_nep413(signer.account_id(), &params).await?;
     /// let payload = nep413::AuthPayload::from_signed(signed, &params);
     ///
     /// // Serialize to JSON for HTTP request
@@ -364,7 +347,7 @@ fn now_millis() -> u64 {
 /// # Example
 ///
 /// ```rust
-/// use near_kit::standards::nep413;
+/// use near_kit_primitives::standards::nep413;
 ///
 /// let nonce = nep413::generate_nonce();
 /// assert_eq!(nonce.len(), 32);
@@ -402,7 +385,7 @@ pub fn extract_timestamp_from_nonce(nonce: &[u8; 32]) -> u64 {
 /// # Example
 ///
 /// ```rust
-/// use near_kit::standards::nep413::{self, SignMessageParams};
+/// use near_kit_primitives::standards::nep413::{self, SignMessageParams};
 ///
 /// let params = SignMessageParams {
 ///     message: "Hello".to_string(),
@@ -459,7 +442,7 @@ pub fn serialize_message(params: &SignMessageParams) -> CryptoHash {
 /// [`NonceValidation::None`] and handle replay protection yourself:
 ///
 /// ```rust,no_run
-/// use near_kit::standards::nep413::{verify_signature, NonceValidation};
+/// use near_kit_primitives::standards::nep413::{verify_signature, NonceValidation};
 ///
 /// # let (signed, params) = todo!();
 /// // The app embeds its own structure in the nonce — don't interpret it as a timestamp.
@@ -490,103 +473,6 @@ pub fn verify_signature(
 
     // Verify the signature
     signed.signature.verify(hash.as_bytes(), &signed.public_key)
-}
-
-/// Verify a NEP-413 signed message with full verification.
-///
-/// This checks:
-/// - The signature is valid for the message
-/// - The nonce passes validation (by default, the near-kit timestamp convention with a
-///   5 minute max age — see [`NonceValidation`])
-/// - The public key belongs to the claimed account (via RPC)
-/// - The key has full access permission (not a function call key)
-///
-/// # Arguments
-///
-/// * `signed` - The signed message to verify
-/// * `params` - Original message parameters (must match what was signed)
-/// * `near` - Near client for RPC verification
-/// * `options` - Verification options
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use near_kit::Near;
-/// use near_kit::standards::nep413;
-///
-/// # async fn example() -> Result<(), near_kit::Error> {
-/// let near = Near::testnet().build();
-///
-/// # let signed = todo!();
-/// # let params = todo!();
-/// let is_valid = nep413::verify(&signed, &params, &near, Default::default()).await?;
-/// # Ok(())
-/// # }
-/// ```
-///
-/// For messages that use a custom nonce scheme (NEP-413 nonces are arbitrary 32 bytes;
-/// the timestamp layout is a near-kit convention), disable nonce interpretation and
-/// handle replay protection yourself:
-///
-/// ```rust,no_run
-/// use near_kit::Near;
-/// use near_kit::standards::nep413::{self, NonceValidation, VerifyOptions};
-///
-/// # async fn example() -> Result<(), near_kit::Error> {
-/// let near = Near::testnet().build();
-///
-/// # let signed = todo!();
-/// # let params = todo!();
-/// let options = VerifyOptions {
-///     nonce_validation: NonceValidation::None,
-///     ..Default::default()
-/// };
-/// let is_valid = nep413::verify(&signed, &params, &near, options).await?;
-/// # Ok(())
-/// # }
-/// ```
-#[cfg(feature = "rpc")]
-pub async fn verify(
-    signed: &SignedMessage,
-    params: &SignMessageParams,
-    near: &Near,
-    options: VerifyOptions,
-) -> Result<bool, Error> {
-    // First, do cryptographic verification
-    if !verify_signature(signed, params, options.nonce_validation) {
-        return Ok(false);
-    }
-
-    // If RPC verification is requested, check key ownership
-    if options.require_full_access {
-        // Query the access key
-        let access_key_result = near
-            .rpc()
-            .view_access_key(
-                &signed.account_id,
-                &signed.public_key,
-                BlockReference::optimistic(),
-            )
-            .await;
-
-        match access_key_result {
-            Ok(access_key) => {
-                // Check if it's a full access key
-                if !matches!(
-                    access_key.permission,
-                    crate::types::AccessKeyPermissionView::FullAccess
-                ) {
-                    return Ok(false);
-                }
-            }
-            Err(_) => {
-                // Key not found or RPC error - verification fails
-                return Ok(false);
-            }
-        }
-    }
-
-    Ok(true)
 }
 
 // ============================================================================

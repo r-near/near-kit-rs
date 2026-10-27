@@ -18,7 +18,7 @@ use super::transport::RpcTransport;
 use super::transport;
 use crate::error::{RpcError, TimeoutCause};
 use crate::trace;
-use crate::types::rpc::RawTransactionResponse;
+use crate::types::RawTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockEffects, BlockReference,
     BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
