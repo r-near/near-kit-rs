@@ -4,20 +4,18 @@
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
 use near_kit::protocol::Action;
+use near_kit::transaction::ContractError;
 use near_kit::*;
 use near_kit::{rpc::RpcError, signer::SecretKey, transaction::Final};
 
 use super::support::{guestbook_wasm, shared_client, unique_account};
 
-fn assert_contract_not_deployed(error: Error, expected_account: &AccountId) {
+fn assert_contract_not_deployed(error: ContractError<RpcError>, expected_account: &AccountId) {
     match error {
-        Error::Rpc(error) => match error.as_ref() {
-            RpcError::ContractNotDeployed { account_id, .. } => {
-                assert_eq!(account_id, expected_account);
-            }
-            other => panic!("expected ContractNotDeployed, got {other:?}"),
-        },
-        other => panic!("expected RPC contract error, got {other:?}"),
+        ContractError::Backend(RpcError::ContractNotDeployed { account_id, .. }) => {
+            assert_eq!(&account_id, expected_account);
+        }
+        other => panic!("expected ContractNotDeployed, got {other:?}"),
     }
 }
 
@@ -46,7 +44,7 @@ async fn test_ft_queries_on_non_contract_account() {
     let metadata_error = ft.metadata().await.unwrap_err();
     assert_contract_not_deployed(metadata_error, &account_id);
 
-    let balance_error = ft.balance_of("alice.near").await.unwrap_err();
+    let balance_error = ft.balance_of(account!("alice.near")).await.unwrap_err();
     assert_contract_not_deployed(balance_error, &account_id);
 }
 
@@ -55,13 +53,11 @@ async fn test_ft_metadata_on_nonexistent_account() {
     let (_sandbox, near) = shared_client().await;
 
     // Try to get FT metadata from non-existent account
-    let ft = near.ft("nonexistent-ft-contract.sandbox"
-        .parse::<AccountId>()
-        .unwrap());
+    let ft = near.ft(account!("nonexistent-ft-contract.sandbox"));
     let error = ft.metadata().await.unwrap_err();
     assert!(matches!(
         error,
-        Error::Rpc(ref error) if matches!(error.as_ref(), RpcError::AccountNotFound { .. })
+        ContractError::Backend(RpcError::AccountNotFound { .. })
     ));
 }
 
@@ -89,35 +85,29 @@ async fn test_token_metadata_on_wrong_contract_type() {
     assert!(result.is_err(), "Should error for non-FT contract");
     let err = result.unwrap_err();
     match err {
-        Error::Rpc(e) => match e.as_ref() {
-            RpcError::MethodNotFound {
-                contract_id: actual_contract_id,
-                method_name,
-                ..
-            } => {
-                assert_eq!(actual_contract_id, &contract_id);
-                assert_eq!(method_name, "ft_metadata");
-            }
-            other => panic!("Expected MethodNotFound, got: {other:?}"),
-        },
-        other => panic!("Expected RPC error, got: {other:?}"),
+        ContractError::Backend(RpcError::MethodNotFound {
+            contract_id: actual_contract_id,
+            method_name,
+            ..
+        }) => {
+            assert_eq!(actual_contract_id, contract_id);
+            assert_eq!(method_name, "ft_metadata");
+        }
+        other => panic!("Expected MethodNotFound, got: {other:?}"),
     }
 
     let nft = near.nft(&contract_id);
     let err = nft.metadata().await.unwrap_err();
     match err {
-        Error::Rpc(error) => match error.as_ref() {
-            RpcError::MethodNotFound {
-                contract_id: actual_contract_id,
-                method_name,
-                ..
-            } => {
-                assert_eq!(actual_contract_id, &contract_id);
-                assert_eq!(method_name, "nft_metadata");
-            }
-            other => panic!("Expected MethodNotFound, got: {other:?}"),
-        },
-        other => panic!("Expected RPC error, got: {other:?}"),
+        ContractError::Backend(RpcError::MethodNotFound {
+            contract_id: actual_contract_id,
+            method_name,
+            ..
+        }) => {
+            assert_eq!(actual_contract_id, contract_id);
+            assert_eq!(method_name, "nft_metadata");
+        }
+        other => panic!("Expected MethodNotFound, got: {other:?}"),
     }
 }
 

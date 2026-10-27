@@ -268,6 +268,34 @@ impl Near {
         View::json(self.clone(), contract_id, method)
     }
 
+    /// A read-only client for a NEP-141 fungible token contract.
+    ///
+    /// Its views read through this client; it can't send. Use
+    /// [`SigningNear::ft`] for transfers.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// let token = near.ft(account!("wrap.near"));
+    /// let balance = token.balance_of(account!("alice.near")).await?;
+    /// println!("Balance: {balance}");
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn ft(&self, contract_id: impl Into<AccountId>) -> crate::tokens::FungibleToken {
+        crate::tokens::FungibleToken::new(self.clone(), contract_id)
+    }
+
+    /// A read-only client for a NEP-171 non-fungible token contract.
+    ///
+    /// Its views read through this client; it can't send. Use
+    /// [`SigningNear::nft`] for transfers.
+    pub fn nft(&self, contract_id: impl Into<AccountId>) -> crate::tokens::NonFungibleToken {
+        crate::tokens::NonFungibleToken::new(self.clone(), contract_id)
+    }
+
     /// Send a pre-signed transaction.
     ///
     /// Use this with transactions signed via

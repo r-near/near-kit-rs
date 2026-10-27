@@ -3,40 +3,45 @@
 use std::sync::Arc;
 
 use crate::trace::{self, Instrument};
-use serde::Serialize;
+// The constructor `#[contract]` clients build their calls with.
+use near_kit_primitives::__private::call as call_through;
+use serde_json::json;
 use tokio::sync::OnceCell;
 
-use crate::client::{SigningNear, Tx};
-use crate::error::Error;
-use crate::transaction::FunctionCall;
-use crate::types::{AccountId, Final, Finality, Gas, NearToken, TryIntoAccountId, WaitLevel};
+use crate::Near;
+use crate::transaction::{Call, ContractError, FunctionCall};
+use crate::types::{AccountId, Gas, NearToken};
+use crate::{TxSender, Viewer};
 
 use super::types::{NftContractMetadata, NftToken};
+use super::{Stringified, read};
 
 // =============================================================================
 // NonFungibleToken
 // =============================================================================
 
-/// Client for interacting with a NEP-171 Non-Fungible Token contract.
+/// Client for a NEP-171 non-fungible token contract, over a backend `C`.
 ///
-/// Create via [`SigningNear::nft()`](crate::SigningNear::nft). It reads through
-/// the client's [`Near`](crate::Near) and sends its calls as the client's
-/// account, waiting for the client's wait level `W`.
+/// Views need `C: Viewer` and read at optimistic finality; calls need
+/// `C: TxSender + Clone` and return a [`Call`] that sends one transaction
+/// when awaited. [`Near::nft`](crate::Near::nft) gives a read-only client
+/// and [`SigningNear::nft`](crate::SigningNear::nft) one that can also send.
 ///
 /// # Caching
 ///
-/// Contract metadata is lazily fetched and cached on first use.
+/// Contract metadata is fetched on first use and cached. Clones share the
+/// cache.
 ///
 /// # Example
 ///
 /// ```rust,no_run
 /// use near_kit::*;
 ///
-/// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-/// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
+/// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+/// let nft = near.nft(account!("nft-contract.near"));
 ///
 /// // Get contract metadata
-/// let meta = nft.metadata().await.map_err(Error::from)?;
+/// let meta = nft.metadata().await?;
 /// println!("Collection: {}", meta.name);
 ///
 /// // Get a specific token
@@ -45,22 +50,23 @@ use super::types::{NftContractMetadata, NftToken};
 /// }
 ///
 /// // List tokens owned by an account
-/// let tokens = nft.tokens_for_owner("alice.near", None, Some(10)).await.map_err(Error::from)?;
+/// let tokens = nft.tokens_for_owner(account!("alice.near"), None, Some(10)).await?;
 /// # Ok(())
 /// # }
 /// ```
-pub struct NonFungibleToken<W: WaitLevel = Final> {
-    client: SigningNear<W>,
+pub struct NonFungibleToken<C = Near> {
+    backend: C,
     contract_id: AccountId,
     metadata: Arc<OnceCell<NftContractMetadata>>,
 }
 
-impl<W: WaitLevel> NonFungibleToken<W> {
-    /// Create a new NonFungibleToken client.
-    pub(crate) fn new(client: SigningNear<W>, contract_id: AccountId) -> Self {
+impl<C> NonFungibleToken<C> {
+    /// A client for the collection at `contract_id` that talks through
+    /// `backend`.
+    pub fn new(backend: C, contract_id: impl Into<AccountId>) -> Self {
         Self {
-            client,
-            contract_id,
+            backend,
+            contract_id: contract_id.into(),
             metadata: Arc::new(OnceCell::new()),
         }
     }
@@ -69,34 +75,19 @@ impl<W: WaitLevel> NonFungibleToken<W> {
     pub fn contract_id(&self) -> &AccountId {
         &self.contract_id
     }
+}
 
-    /// A transaction to this contract carrying `call`, keeping an argument
-    /// validation error to return from `.await`.
-    fn call(&self, validation: Result<(), Error>, call: FunctionCall) -> Tx<W> {
-        let mut tx = self.client.transaction(&self.contract_id);
-        if let Err(error) = validation {
-            tx.defer(error);
-        }
-        tx.add_action(call)
-    }
+// =============================================================================
+// View Methods
+// =============================================================================
 
-    // =========================================================================
-    // View Methods
-    // =========================================================================
-
+impl<C: Viewer> NonFungibleToken<C> {
     /// Get contract metadata (nft_metadata).
     ///
     /// Metadata is cached after the first call.
-    pub async fn metadata(&self) -> Result<&NftContractMetadata, Error> {
+    pub async fn metadata(&self) -> Result<&NftContractMetadata, ContractError<C::ViewError>> {
         self.metadata
-            .get_or_try_init(|| async {
-                self.client
-                    .near()
-                    .view(&self.contract_id, "nft_metadata")
-                    .at(Finality::Optimistic)
-                    .await
-                    .map_err(Error::from)
-            })
+            .get_or_try_init(|| read(&self.backend, &self.contract_id, "nft_metadata", None))
             .await
     }
 
@@ -108,8 +99,8 @@ impl<W: WaitLevel> NonFungibleToken<W> {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// let nft = near.nft(account!("nft-contract.near"));
     ///
     /// if let Some(token) = nft.token("token-123").await? {
     ///     println!("Token {} owned by {}", token.token_id, token.owner_id);
@@ -120,24 +111,19 @@ impl<W: WaitLevel> NonFungibleToken<W> {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn token(&self, token_id: impl AsRef<str>) -> Result<Option<NftToken>, Error> {
+    pub async fn token(
+        &self,
+        token_id: impl AsRef<str>,
+    ) -> Result<Option<NftToken>, ContractError<C::ViewError>> {
         let token_id = token_id.as_ref();
         let span = trace::debug_span!("nft_token", contract = %self.contract_id, token_id);
 
-        async {
-            #[derive(Serialize)]
-            struct Args<'a> {
-                token_id: &'a str,
-            }
-
-            self.client
-                .near()
-                .view(&self.contract_id, "nft_token")
-                .args(Args { token_id })
-                .at(Finality::Optimistic)
-                .await
-                .map_err(Error::from)
-        }
+        read(
+            &self.backend,
+            &self.contract_id,
+            "nft_token",
+            Some(json!({ "token_id": token_id })),
+        )
         .instrument(span)
         .await
     }
@@ -150,103 +136,79 @@ impl<W: WaitLevel> NonFungibleToken<W> {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
+    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
+    /// let nft = near.nft(account!("nft-contract.near"));
     ///
     /// // Get first 10 tokens
-    /// let tokens = nft.tokens_for_owner("alice.near", None, Some(10)).await?;
+    /// let tokens = nft.tokens_for_owner(account!("alice.near"), None, Some(10)).await?;
     /// for token in &tokens {
     ///     println!("Token: {}", token.token_id);
     /// }
     ///
     /// // Get next 10 tokens
-    /// let more = nft.tokens_for_owner("alice.near", Some(10), Some(10)).await?;
+    /// let more = nft
+    ///     .tokens_for_owner(account!("alice.near"), Some(10), Some(10))
+    ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
     pub async fn tokens_for_owner(
         &self,
-        account_id: impl TryIntoAccountId,
+        account_id: impl Into<AccountId>,
         from_index: Option<u64>,
         limit: Option<u64>,
-    ) -> Result<Vec<NftToken>, Error> {
-        let account_id: AccountId = account_id.try_into_account_id()?;
+    ) -> Result<Vec<NftToken>, ContractError<C::ViewError>> {
+        let account_id = account_id.into();
         let span =
             trace::debug_span!("nft_tokens_for_owner", contract = %self.contract_id, %account_id);
 
-        async {
-            #[derive(Serialize)]
-            struct Args<'a> {
-                account_id: &'a str,
-                #[serde(skip_serializing_if = "Option::is_none")]
-                from_index: Option<String>,
-                #[serde(skip_serializing_if = "Option::is_none")]
-                limit: Option<u64>,
-            }
-
-            self.client
-                .near()
-                .view(&self.contract_id, "nft_tokens_for_owner")
-                .args(Args {
-                    account_id: account_id.as_str(),
-                    from_index: from_index.map(|i| i.to_string()),
-                    limit,
-                })
-                .at(Finality::Optimistic)
-                .await
-                .map_err(Error::from)
+        let mut args = json!({ "account_id": account_id });
+        if let Some(from_index) = from_index {
+            args["from_index"] = from_index.to_string().into();
         }
+        if let Some(limit) = limit {
+            args["limit"] = limit.into();
+        }
+        read(
+            &self.backend,
+            &self.contract_id,
+            "nft_tokens_for_owner",
+            Some(args),
+        )
         .instrument(span)
         .await
     }
 
     /// Get total supply of tokens (nft_total_supply).
-    pub async fn total_supply(&self) -> Result<u64, Error> {
-        let supply_str: String = self
-            .client
-            .near()
-            .view(&self.contract_id, "nft_total_supply")
-            .at(Finality::Optimistic)
-            .await?;
-        supply_str.parse().map_err(|_| {
-            Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
-                "Invalid supply format: {}",
-                supply_str
-            ))))
-        })
+    pub async fn total_supply(&self) -> Result<u64, ContractError<C::ViewError>> {
+        let Stringified(supply) =
+            read(&self.backend, &self.contract_id, "nft_total_supply", None).await?;
+        Ok(supply)
     }
 
     /// Get token supply for an owner (nft_supply_for_owner).
-    pub async fn supply_for_owner(&self, account_id: impl TryIntoAccountId) -> Result<u64, Error> {
-        let account_id: AccountId = account_id.try_into_account_id()?;
-
-        #[derive(Serialize)]
-        struct Args<'a> {
-            account_id: &'a str,
-        }
-
-        let supply_str: String = self
-            .client
-            .near()
-            .view(&self.contract_id, "nft_supply_for_owner")
-            .args(Args {
-                account_id: account_id.as_str(),
-            })
-            .at(Finality::Optimistic)
-            .await?;
-        supply_str.parse().map_err(|_| {
-            Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
-                "Invalid supply format: {}",
-                supply_str
-            ))))
-        })
+    pub async fn supply_for_owner(
+        &self,
+        account_id: impl Into<AccountId>,
+    ) -> Result<u64, ContractError<C::ViewError>> {
+        let account_id = account_id.into();
+        let Stringified(supply) = read(
+            &self.backend,
+            &self.contract_id,
+            "nft_supply_for_owner",
+            Some(json!({ "account_id": account_id })),
+        )
+        .await?;
+        Ok(supply)
     }
+}
 
-    // =========================================================================
-    // Transfer Methods
-    // =========================================================================
+// =============================================================================
+// Call Methods
+// =============================================================================
 
-    /// Transfer an NFT to a receiver (nft_transfer).
+impl<C: TxSender + Clone> NonFungibleToken<C> {
+    /// Transfer an NFT to a receiver (nft_transfer), with an optional memo.
     ///
     /// # Security
     ///
@@ -258,70 +220,60 @@ impl<W: WaitLevel> NonFungibleToken<W> {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
+    /// let nft = near.nft(account!("nft-contract.near"));
     ///
-    /// nft.transfer("bob.near", "token-123").await?;
+    /// nft.transfer(account!("bob.near"), "token-123", None).await?;
+    /// nft.transfer(account!("bob.near"), "token-456", Some("gift".into()))
+    ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn transfer(&self, receiver_id: impl TryIntoAccountId, token_id: impl AsRef<str>) -> Tx<W> {
-        self.transfer_with_options(receiver_id, token_id, NftTransferOptions::default())
-    }
-
-    /// Transfer an NFT with a memo (nft_transfer).
-    ///
-    /// Same as [`transfer`](Self::transfer) but with an optional memo field.
-    pub fn transfer_with_memo(
+    pub fn transfer(
         &self,
-        receiver_id: impl TryIntoAccountId,
+        receiver_id: impl Into<AccountId>,
         token_id: impl AsRef<str>,
-        memo: impl Into<String>,
-    ) -> Tx<W> {
-        self.transfer_with_options(
-            receiver_id,
-            token_id,
-            NftTransferOptions {
-                memo: Some(memo.into()),
-                ..Default::default()
-            },
-        )
+        memo: Option<String>,
+    ) -> Call<C> {
+        self.nft_transfer(receiver_id.into(), token_id.as_ref(), None, memo)
     }
 
-    /// Transfer an NFT with approval ID (for approved transfers).
+    /// Transfer an NFT as an approved account (nft_transfer with
+    /// `approval_id`).
     pub fn transfer_with_approval(
         &self,
-        receiver_id: impl TryIntoAccountId,
+        receiver_id: impl Into<AccountId>,
         token_id: impl AsRef<str>,
         approval_id: u64,
-    ) -> Tx<W> {
-        self.transfer_with_options(
-            receiver_id,
-            token_id,
-            NftTransferOptions {
-                approval_id: Some(approval_id),
-                ..Default::default()
-            },
+    ) -> Call<C> {
+        self.nft_transfer(
+            receiver_id.into(),
+            token_id.as_ref(),
+            Some(approval_id),
+            None,
         )
     }
 
-    fn transfer_with_options(
+    fn nft_transfer(
         &self,
-        receiver_id: impl TryIntoAccountId,
-        token_id: impl AsRef<str>,
-        options: NftTransferOptions,
-    ) -> Tx<W> {
-        let (receiver_id, validation) = validate_account_id(receiver_id);
-        trace::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), receiver = %receiver_id, "nft_transfer");
+        receiver_id: AccountId,
+        token_id: &str,
+        approval_id: Option<u64>,
+        memo: Option<String>,
+    ) -> Call<C> {
+        trace::debug!(contract = %self.contract_id, token_id, receiver = %receiver_id, "nft_transfer");
 
-        self.call(
-            validation,
+        let mut args = json!({ "receiver_id": receiver_id, "token_id": token_id });
+        if let Some(approval_id) = approval_id {
+            args["approval_id"] = approval_id.into();
+        }
+        if let Some(memo) = memo {
+            args["memo"] = memo.into();
+        }
+        call_through(
+            self.backend.clone(),
+            self.contract_id.clone(),
             FunctionCall::new("nft_transfer")
-                .args(NftTransferArgs {
-                    receiver_id,
-                    token_id: token_id.as_ref().to_string(),
-                    approval_id: options.approval_id,
-                    memo: options.memo,
-                })
+                .args(args)
                 .deposit(NearToken::from_yoctonear(1))
                 .gas(Gas::from_tgas(30)),
         )
@@ -336,115 +288,70 @@ impl<W: WaitLevel> NonFungibleToken<W> {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
+    /// let nft = near.nft(account!("nft-contract.near"));
     ///
-    /// nft.transfer_call("marketplace.near", "token-123", r#"{"action":"list","price":"10"}"#)
-    ///     .await?;
+    /// nft.transfer_call(
+    ///     account!("marketplace.near"),
+    ///     "token-123",
+    ///     r#"{"action":"list","price":"10"}"#,
+    /// )
+    /// .await?;
     /// # Ok(())
     /// # }
     /// ```
     pub fn transfer_call(
         &self,
-        receiver_id: impl TryIntoAccountId,
+        receiver_id: impl Into<AccountId>,
         token_id: impl AsRef<str>,
         msg: impl Into<String>,
-    ) -> Tx<W> {
-        let (receiver_id, validation) = validate_account_id(receiver_id);
-        trace::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), receiver = %receiver_id, "nft_transfer_call");
-        #[derive(Serialize)]
-        struct TransferCallArgs {
-            receiver_id: String,
-            token_id: String,
-            msg: String,
-        }
+    ) -> Call<C> {
+        let receiver_id = receiver_id.into();
+        let token_id = token_id.as_ref();
+        trace::debug!(contract = %self.contract_id, token_id, receiver = %receiver_id, "nft_transfer_call");
 
-        self.call(
-            validation,
+        call_through(
+            self.backend.clone(),
+            self.contract_id.clone(),
             FunctionCall::new("nft_transfer_call")
-                .args(TransferCallArgs {
-                    receiver_id,
-                    token_id: token_id.as_ref().to_string(),
-                    msg: msg.into(),
-                })
+                .args(json!({
+                    "receiver_id": receiver_id,
+                    "token_id": token_id,
+                    "msg": msg.into(),
+                }))
                 .deposit(NearToken::from_yoctonear(1))
                 .gas(Gas::from_tgas(100)),
         )
     }
 }
 
-#[derive(Default)]
-struct NftTransferOptions {
-    approval_id: Option<u64>,
-    memo: Option<String>,
-}
-
-#[derive(Serialize)]
-struct NftTransferArgs {
-    receiver_id: String,
-    token_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    approval_id: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    memo: Option<String>,
-}
-
-fn validate_account_id(account_id: impl TryIntoAccountId) -> (String, Result<(), Error>) {
-    let original = account_id.as_str().to_owned();
-    match account_id.try_into_account_id() {
-        Ok(account_id) => (account_id.to_string(), Ok(())),
-        Err(error) => (original, Err(error.into())),
-    }
-}
-
-impl<W: WaitLevel> Clone for NonFungibleToken<W> {
+impl<C: Clone> Clone for NonFungibleToken<C> {
     fn clone(&self) -> Self {
         Self {
-            client: self.client.clone(),
+            backend: self.backend.clone(),
             contract_id: self.contract_id.clone(),
             metadata: self.metadata.clone(),
         }
     }
 }
 
-impl<W: WaitLevel> std::fmt::Debug for NonFungibleToken<W> {
+impl<C> std::fmt::Debug for NonFungibleToken<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NonFungibleToken")
-            .field("account_id", self.client.account_id())
             .field("contract_id", &self.contract_id)
             .field("metadata_cached", &self.metadata.initialized())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Action, InMemorySigner, SecretKey};
-
-    fn token_without_signer() -> NonFungibleToken {
-        NonFungibleToken::new(
-            crate::Near::custom("http://127.0.0.1:1", "test")
-                .build()
-                .with_signer(
-                    InMemorySigner::from_secret_key("alice.near", SecretKey::generate_ed25519())
-                        .unwrap(),
-                ),
-            "nft.near".parse().unwrap(),
-        )
-    }
-
-    fn call_args(call: Tx) -> serde_json::Value {
-        assert!(call.error.is_none(), "{:?}", call.error);
-        assert_eq!(call.actions.len(), 1);
-        match call.actions.into_iter().next().unwrap() {
-            Action::FunctionCall(action) => serde_json::from_slice(&action.args).unwrap(),
-            action => panic!("expected function call, got {action:?}"),
-        }
-    }
+    use crate::account;
+    use crate::tokens::mock::{Mock, sent_call};
 
     #[test]
     fn clones_share_metadata_cache() {
-        let token = token_without_signer();
+        let token = NonFungibleToken::new(Mock::default(), account!("nft.near"));
         token
             .metadata
             .set(NftContractMetadata {
@@ -464,44 +371,92 @@ mod tests {
         assert_eq!(cloned.metadata.get().unwrap().symbol, "TEST");
     }
 
-    #[test]
-    fn transfer_helpers_preserve_nep_171_arguments() {
-        let token = token_without_signer();
+    #[tokio::test]
+    async fn views_send_nep_171_arguments_and_decode_string_supplies() {
+        let mock = Mock::default()
+            .answer("nft_token", serde_json::Value::Null)
+            .answer("nft_tokens_for_owner", json!([]))
+            .answer("nft_total_supply", json!("12"))
+            .answer("nft_supply_for_owner", json!("3"));
+        let nft = NonFungibleToken::new(mock.clone(), account!("nft.near"));
 
-        assert_eq!(
-            call_args(token.transfer("alice.near", "token-1")),
-            serde_json::json!({"receiver_id": "alice.near", "token_id": "token-1"})
+        assert!(nft.token("token-1").await.unwrap().is_none());
+        assert!(
+            nft.tokens_for_owner(account!("alice.near"), Some(10), Some(5))
+                .await
+                .unwrap()
+                .is_empty()
         );
+        nft.tokens_for_owner(account!("alice.near"), None, None)
+            .await
+            .unwrap();
+        assert_eq!(nft.total_supply().await.unwrap(), 12);
         assert_eq!(
-            call_args(token.transfer_with_memo("alice.near", "token-1", "memo")),
-            serde_json::json!({
-                "receiver_id": "alice.near",
-                "token_id": "token-1",
-                "memo": "memo"
-            })
+            nft.supply_for_owner(account!("alice.near")).await.unwrap(),
+            3
         );
+
+        let seen = mock.seen.lock().unwrap().clone();
         assert_eq!(
-            call_args(token.transfer_with_approval("alice.near", "token-1", 7)),
-            serde_json::json!({
-                "receiver_id": "alice.near",
-                "token_id": "token-1",
-                "approval_id": 7
-            })
+            seen.into_iter().map(|(_, args)| args).collect::<Vec<_>>(),
+            [
+                json!({"token_id": "token-1"}),
+                json!({"account_id": "alice.near", "from_index": "10", "limit": 5}),
+                json!({"account_id": "alice.near"}),
+                serde_json::Value::Null,
+                json!({"account_id": "alice.near"}),
+            ]
         );
     }
 
     #[tokio::test]
-    async fn call_methods_defer_invalid_account_ids() {
-        let token = token_without_signer();
-        let calls = [
-            token.transfer("INVALID", "token-1"),
-            token.transfer_with_memo("INVALID", "token-1", "memo"),
-            token.transfer_with_approval("INVALID", "token-1", 1),
-            token.transfer_call("INVALID", "token-1", "message"),
-        ];
+    async fn calls_preserve_nep_171_arguments() {
+        let nft = NonFungibleToken::new(Mock::default(), account!("nft.near"));
+        let tgas = Gas::from_tgas(1).as_gas();
 
-        for call in calls {
-            assert!(matches!(call.await, Err(Error::ParseAccountId(_))));
-        }
+        assert_eq!(
+            sent_call(
+                nft.transfer(account!("alice.near"), "token-1", None)
+                    .await
+                    .unwrap()
+            ),
+            (
+                "nft_transfer".to_owned(),
+                json!({"receiver_id": "alice.near", "token_id": "token-1"}),
+                1,
+                30 * tgas
+            )
+        );
+        assert_eq!(
+            sent_call(
+                nft.transfer(account!("alice.near"), "token-1", Some("memo".into()))
+                    .await
+                    .unwrap()
+            )
+            .1,
+            json!({"receiver_id": "alice.near", "token_id": "token-1", "memo": "memo"})
+        );
+        assert_eq!(
+            sent_call(
+                nft.transfer_with_approval(account!("alice.near"), "token-1", 7)
+                    .await
+                    .unwrap()
+            )
+            .1,
+            json!({"receiver_id": "alice.near", "token_id": "token-1", "approval_id": 7})
+        );
+        assert_eq!(
+            sent_call(
+                nft.transfer_call(account!("market.near"), "token-1", "list")
+                    .await
+                    .unwrap()
+            ),
+            (
+                "nft_transfer_call".to_owned(),
+                json!({"receiver_id": "market.near", "token_id": "token-1", "msg": "list"}),
+                1,
+                100 * tgas
+            )
+        );
     }
 }

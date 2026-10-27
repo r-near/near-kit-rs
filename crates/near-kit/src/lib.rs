@@ -208,14 +208,20 @@
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
 //!
-//! # async fn example(alice: &SigningNear) -> Result<(), Error> {
-//! let token = alice.ft(account!("wrap.near"));
-//! let balance = token.balance_of("alice.near").await?;
+//! # async fn example(near: &Near, alice: &SigningNear) -> Result<(), Error> {
+//! // Reads work from a plain `Near`
+//! let token = near.ft(account!("wrap.near"));
+//! let balance = token.balance_of(account!("alice.near")).await?;
 //! println!("Balance: {}", balance);
 //!
+//! // Transfers need a signer
+//! alice.ft(account!("wrap.near"))
+//!     .transfer(account!("bob.near"), 1_000_u128, None)
+//!     .await?;
+//!
 //! // NFTs (NEP-171)
-//! let nft = alice.nft(account!("nft.testnet"));
-//! let tokens = nft.tokens_for_owner("alice.testnet", None, Some(10)).await?;
+//! let nft = near.nft(account!("nft.testnet"));
+//! let tokens = nft.tokens_for_owner(account!("alice.testnet"), None, Some(10)).await?;
 //! # Ok(())
 //! # }
 //! ```

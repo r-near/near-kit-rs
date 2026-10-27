@@ -389,8 +389,8 @@ impl<W: WaitLevel> SigningNear<W> {
 
     /// Get a fungible token client for a NEP-141 contract.
     ///
-    /// The client reads through this client's [`Near`] and sends its calls
-    /// as this account, waiting for `W`.
+    /// The client reads through this client's [`Near`] and its calls send as
+    /// this account, waiting for `W`. Use [`Near::ft`] for a read-only one.
     ///
     /// # Example
     ///
@@ -402,13 +402,12 @@ impl<W: WaitLevel> SigningNear<W> {
     /// let meta = token.metadata().await?;
     /// println!("{} ({})", meta.name, meta.symbol);
     ///
-    /// let balance = token.balance_of("alice.near").await?;
-    /// println!("Balance: {}", balance);
+    /// token.transfer(account!("bob.near"), 1_000_u128, None).await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn ft(&self, contract: impl Into<AccountId>) -> crate::tokens::FungibleToken<W> {
-        crate::tokens::FungibleToken::new(self.clone(), contract.into())
+    pub fn ft(&self, contract: impl Into<AccountId>) -> crate::tokens::FungibleToken<Self> {
+        crate::tokens::FungibleToken::new(self.clone(), contract)
     }
 
     /// Get a non-fungible token client for a NEP-171 contract.
@@ -423,14 +422,12 @@ impl<W: WaitLevel> SigningNear<W> {
     /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
     /// let nft = alice.nft(account!("nft-contract.near"));
     ///
-    /// if let Some(token) = nft.token("token-123").await? {
-    ///     println!("Owner: {}", token.owner_id);
-    /// }
+    /// nft.transfer(account!("bob.near"), "token-123", None).await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn nft(&self, contract: impl Into<AccountId>) -> crate::tokens::NonFungibleToken<W> {
-        crate::tokens::NonFungibleToken::new(self.clone(), contract.into())
+    pub fn nft(&self, contract: impl Into<AccountId>) -> crate::tokens::NonFungibleToken<Self> {
+        crate::tokens::NonFungibleToken::new(self.clone(), contract)
     }
 }
 
