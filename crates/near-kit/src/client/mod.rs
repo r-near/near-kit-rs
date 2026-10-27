@@ -2,7 +2,8 @@
 //!
 //! This module provides the core client infrastructure:
 //!
-//! - [`Near`] — The main client, the single entry point for all operations
+//! - [`Near`] — The read-only client: chain reads and pre-signed submission
+//! - [`SigningNear`] — A `Near` plus a signer: sends transactions
 //! - [`NearBuilder`] — Fluent builder for configuring the client
 //! - [`RpcClient`] — Low-level JSON-RPC client with retry logic
 //! - [`RpcTransport`] — Pluggable HTTP layer under [`RpcClient`] (reqwest by
@@ -30,12 +31,10 @@
 //! - [`TransactionStatusQuery`] — Poll or wait for transaction progress
 //! - [`ViewCall`] — Call view functions on contracts
 //!
-//! # Transaction Builders
+//! # Transactions
 //!
-//! Transaction builders provide a fluent API for write operations:
-//!
-//! - [`TransactionBuilder`] — Multi-action transaction builder
-//! - [`CallBuilder`] — Function call builder (part of transactions)
+//! - [`Tx`] — A transaction from a [`SigningNear`]: add
+//!   [`Action`](crate::protocol::Action)s, then `.await`
 //! - [`FunctionCall`](crate::transaction::FunctionCall) — Standalone function call for composable transactions
 
 // Everything that talks to the network lives behind the `rpc` feature; the
@@ -50,6 +49,8 @@ mod query;
 mod rpc;
 mod signer;
 #[cfg(feature = "rpc")]
+mod signing;
+#[cfg(feature = "rpc")]
 mod transaction;
 #[cfg(feature = "rpc")]
 mod transport;
@@ -58,7 +59,7 @@ mod transport;
 mod keyring_signer;
 
 #[cfg(feature = "rpc")]
-pub use near::{Near, NearBuilder, SandboxNetwork};
+pub use near::{Near, NearBuilder};
 #[cfg(feature = "rpc")]
 pub use query::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ContractCodeQuery,
@@ -69,15 +70,10 @@ pub use rpc::{RetryConfig, RpcClient};
 pub use signer::EnvSigner;
 #[cfg(feature = "file-signer")]
 pub use signer::FileSigner;
-// The core signers moved to near-kit-primitives; client code and tests still
-// name some of them through this module.
 #[cfg(feature = "rpc")]
-pub(crate) use near_kit_primitives::signer::Signer;
+pub use signing::SigningNear;
 #[cfg(feature = "rpc")]
-pub use transaction::{
-    CallBuilder, DelegateOptions, DelegateResult, SignedTransactionSend, TransactionBuilder,
-    TransactionSend,
-};
+pub use transaction::{DelegateOptions, DelegateResult, SignedTransactionSend, Tx};
 #[cfg(feature = "rpc")]
 pub use transport::{BoxFuture, RpcTransport, TransportResponse};
 // Only the operational built-in transport matching the build configuration is

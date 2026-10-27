@@ -9,6 +9,7 @@
 //! Pins the sandbox to stable `2.13.4`. Protocol or ML-DSA incompatibility
 //! fails the test rather than silently skipping its assertions.
 
+use near_kit::protocol::Action;
 use near_kit::*;
 use near_kit::{signer::*, transaction::Final};
 
@@ -25,7 +26,7 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
     let sandbox = sandbox_2_13().await;
     let near = sandbox.client();
 
-    let status = near.rpc().status().await.expect("node status");
+    let status = near.near().rpc().status().await.expect("node status");
     assert!(
         status.protocol_version >= ML_DSA_PROTOCOL_VERSION,
         "stable sandbox must support ML-DSA protocol v{ML_DSA_PROTOCOL_VERSION}, got v{}",
@@ -42,17 +43,16 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
 
     // Create the account with the ML-DSA-65 key as its only full-access key.
     // This exercises AddKey with a 1952-byte [2][..] borsh pubkey.
-    near.transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(20))
-        .add_full_access_key(public_key.clone())
-        .send()
-        .wait_until::<Final>()
+    near.wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(20)))
+        .add_action(Action::add_full_access_key(public_key.clone()))
         .await
         .expect("create_account with ML-DSA-65 key must be accepted");
 
     // The view RPC returns the key as an `ml-dsa-65-hash:` handle.
-    let keys = near.access_keys(&account_id).await.unwrap();
+    let keys = near.near().access_keys(&account_id).await.unwrap();
     assert_eq!(keys.keys.len(), 1);
     let listed = &keys.keys[0].public_key;
     assert_eq!(listed.key_type(), KeyType::MlDsa65);
@@ -72,29 +72,29 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
     // Acceptance proves the node verified an ML-DSA-65 signature.
     let recipient = unique_account("mldsa");
     let recipient_key = SecretKey::generate_ed25519();
-    near.transaction(&recipient)
-        .create_account()
-        .transfer(NearToken::from_near(1))
-        .add_full_access_key(recipient_key.public_key())
-        .send()
-        .wait_until::<Final>()
+    near.wait_until::<Final>()
+        .transaction(&recipient)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(1)))
+        .add_action(Action::add_full_access_key(recipient_key.public_key()))
         .await
         .unwrap();
 
-    let signed = Near::sandbox(sandbox)
+    let signed = sandbox
+        .client()
+        .near()
         .with_signer(InMemorySigner::new(&account_id, ml_dsa_key.to_string()).unwrap());
 
-    let before = near.balance(&recipient).await.unwrap().total;
+    let before = near.near().balance(&recipient).await.unwrap().total;
 
     signed
-        .transaction(&recipient)
-        .transfer(NearToken::from_near(5))
-        .send()
         .wait_until::<Final>()
+        .transaction(&recipient)
+        .add_action(Action::transfer(NearToken::from_near(5)))
         .await
         .expect("ML-DSA-65-signed transfer must be accepted on-chain");
 
-    let after = near.balance(&recipient).await.unwrap().total;
+    let after = near.near().balance(&recipient).await.unwrap().total;
     assert_eq!(
         after,
         before.saturating_add(NearToken::from_near(5)),

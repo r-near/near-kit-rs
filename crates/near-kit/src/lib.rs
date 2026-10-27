@@ -40,24 +40,33 @@
 //!
 //! ### Transactions (Writes)
 //!
-//! For state-changing operations, configure a signer:
+//! For state-changing operations, attach a signer. That gives a
+//! `SigningNear`, which sends transactions built from
+//! [`Action`](protocol::Action)s:
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
+//! use near_kit::protocol::Action;
+//! use near_kit::signer::InMemorySigner;
+//! use near_kit::transaction::FunctionCall;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
-//!     let near = Near::testnet()
-//!         .credentials("ed25519:YOUR_PRIVATE_KEY", "your-account.testnet")?
-//!         .build();
+//!     let near = Near::testnet().build();
+//!     let me = near.with_signer(InMemorySigner::new(
+//!         "your-account.testnet",
+//!         "ed25519:YOUR_PRIVATE_KEY",
+//!     )?);
 //!
 //!     // Transfer NEAR
-//!     near.transfer("bob.testnet", NearToken::from_near(1)).await?;
+//!     me.transaction(account!("bob.testnet"))
+//!         .add_action(Action::transfer(NearToken::from_near(1)))
+//!         .await?;
 //!
 //!     // Call a contract function
-//!     near.call("counter.testnet", "increment")
-//!         .gas(Gas::from_tgas(30))
+//!     me.transaction(account!("counter.testnet"))
+//!         .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(30)))
 //!         .await?;
 //!
 //!     Ok(())
@@ -66,8 +75,8 @@
 //!
 //! ## Design Principles
 //!
-//! 1. **Single entry point** — Everything flows through the `Near` client
-//! 2. **Configure once** — Network and signer are set at client creation
+//! 1. **Two clients** — `Near` reads; `SigningNear` (a `Near` plus a signer) also sends
+//! 2. **Configure once** — Network, signer and wait level are set at client creation
 //! 3. **Type-safe but ergonomic** — Accept both typed values and string parsing
 //! 4. **Explicit units** — No ambiguous amounts; must specify `NEAR`, `yocto`, `Tgas`, etc.
 //! 5. **Progressive disclosure** — Simple things are simple; advanced options available when needed
@@ -76,7 +85,8 @@
 //!
 //! | Type | Description |
 //! |------|-------------|
-//! | `Near` | Main client — the single entry point for all operations |
+//! | `Near` | Read-only client: chain reads and pre-signed submission |
+//! | `SigningNear` | `Near` plus a signer: sends transactions |
 //! | [`AccountId`] | Validated NEAR account identifier |
 //! | [`NearToken`] | Token amount with yoctoNEAR precision |
 //! | [`Gas`] | Gas units for transactions |
@@ -154,53 +164,43 @@
 //! # }
 //! ```
 //!
-//! ## Transaction Builders
+//! ## Transactions
 //!
-//! Write operations return transaction builders for customization:
-//!
-#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::*;
-//! use near_kit::transaction::Final;
-//!
-//! # async fn example(near: &Near) -> Result<(), Error> {
-//! // Function call with arguments, gas, and deposit
-//! near.call("nft.testnet", "nft_mint")
-//!     .args(serde_json::json!({ "token_id": "1", "receiver_id": "alice.testnet" }))
-//!     .gas(Gas::from_tgas(100))
-//!     .deposit(NearToken::from_millinear(100))
-//!     .await?;
-//!
-//! // Wait for different execution levels
-//! near.transfer("bob.testnet", NearToken::from_near(1))
-//!     .wait_until::<Final>()
-//!     .await?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ## Multi-Action Transactions
-//!
-//! Chain multiple actions into a single atomic transaction:
+//! A transaction is a receiver plus a list of actions. Build the actions with
+//! the [`Action`](protocol::Action) constructors (or typed
+//! [`FunctionCall`](transaction::FunctionCall)s) and `.await`:
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
+//! use near_kit::protocol::Action;
 //! use near_kit::signer::PublicKey;
+//! use near_kit::transaction::{Final, FunctionCall};
 //!
-//! # async fn example(near: &Near) -> Result<(), Box<dyn std::error::Error>> {
-//! // Create a sub-account with funding and deploy a contract
-//! let new_key: PublicKey = "ed25519:6E8sCci...".parse()?;
+//! # async fn example(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
+//! // Function call with arguments, gas, and deposit
+//! alice
+//!     .transaction(account!("nft.testnet"))
+//!     .add_action(
+//!         FunctionCall::new("nft_mint")
+//!             .args(serde_json::json!({ "token_id": "1", "receiver_id": "alice.testnet" }))
+//!             .gas(Gas::from_tgas(100))
+//!             .deposit(NearToken::from_millinear(100)),
+//!     )
+//!     .await?;
+//!
+//! // Create a sub-account with funding and deploy a contract, atomically,
+//! // waiting for finality
+//! let new_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
 //! let wasm = std::fs::read("contract.wasm")?;
-//!
-//! near.transaction("sub.alice.testnet")
-//!     .create_account()
-//!     .transfer(NearToken::from_near(10))
-//!     .add_full_access_key(new_key)
-//!     .deploy(wasm)
-//!     .call("new")
-//!         .args(serde_json::json!({ "owner_id": "alice.testnet" }))
-//!     .send()
+//! alice
+//!     .wait_until::<Final>()
+//!     .transaction(account!("sub.alice.testnet"))
+//!     .add_action(Action::create_account())
+//!     .add_action(Action::transfer(NearToken::from_near(10)))
+//!     .add_action(Action::add_full_access_key(new_key))
+//!     .add_action(Action::deploy_contract(wasm))
+//!     .add_action(FunctionCall::new("new").args(serde_json::json!({ "owner_id": "alice.testnet" })))
 //!     .await?;
 //! # Ok(())
 //! # }
@@ -214,15 +214,13 @@
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
 //!
-//! # async fn example() -> Result<(), Error> {
-//! let near = Near::mainnet().build();
-//!
-//! let token = near.ft("wrap.near".parse::<AccountId>()?);
+//! # async fn example(alice: &SigningNear) -> Result<(), Error> {
+//! let token = alice.ft(account!("wrap.near"));
 //! let balance = token.balance_of("alice.near").await?;
 //! println!("Balance: {}", balance);
 //!
 //! // NFTs (NEP-171)
-//! let nft = near.nft("nft.testnet".parse::<AccountId>()?);
+//! let nft = alice.nft(account!("nft.testnet"));
 //! let tokens = nft.tokens_for_owner("alice.testnet", None, Some(10)).await?;
 //! # Ok(())
 //! # }
@@ -256,13 +254,12 @@
 //!     pub value: u64,
 //! }
 //!
-//! async fn example(near: &Near) -> Result<(), Error> {
-//!     let counter = near.contract::<Counter>(account!("counter.testnet"));
+//! async fn example(near: &Near, alice: &SigningNear) -> Result<(), Error> {
+//!     // Views work on any client
+//!     let count = near.contract::<Counter>(account!("counter.testnet")).get_count().await?;
 //!
-//!     // Type-safe view call
-//!     let count = counter.get_count().await?;
-//!
-//!     // Type-safe change calls
+//!     // Calls need a signing client
+//!     let counter = alice.contract::<Counter>(account!("counter.testnet"));
 //!     counter.increment().await?;
 //!     counter.add(AddArgs { value: 5 }).await?;
 //!
@@ -288,14 +285,18 @@
 //! use near_kit::signer::EnvSigner;
 //!
 //! # fn example() -> Result<(), Error> {
-//! // Using credentials directly
-//! let near = Near::testnet()
-//!     .credentials("ed25519:...", "alice.testnet")?
-//!     .build();
+//! use near_kit::signer::InMemorySigner;
+//!
+//! let near = Near::testnet().build();
+//!
+//! // Using a key directly
+//! let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
 //!
 //! // Environment variables (CI/CD)
-//! let signer = EnvSigner::new()?;
-//! let near = Near::testnet().signer(signer).build();
+//! let me = near.with_signer(EnvSigner::new()?);
+//!
+//! // Or network and credentials both from the environment
+//! let me = SigningNear::from_env()?;
 //! # Ok(())
 //! # }
 //! ```
@@ -303,7 +304,8 @@
 //! ### Multiple Accounts
 //!
 //! For production apps that manage multiple accounts, use `Near::with_signer` to
-//! derive clients that share the same RPC connection but sign as different accounts:
+//! derive signing clients that share the same RPC connection but sign as
+//! different accounts:
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
@@ -317,16 +319,14 @@
 //! let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
 //!
 //! // Both share the same connection, no overhead
-//! // alice.transfer("carol.testnet", NearToken::from_near(1)).await?;
-//! // bob.transfer("carol.testnet", NearToken::from_near(2)).await?;
+//! assert_eq!(alice.near().rpc_url(), bob.near().rpc_url());
 //! # Ok(())
 //! # }
 //! ```
 //!
 //! Use `Near::with_signer` for multi-account management and
 //! [`signer::RotatingSigner`] for high-throughput single-account usage (multiple keys to
-//! avoid nonce collisions). For one-off overrides on a single transaction, use
-//! `.sign_with()` on the transaction builder.
+//! avoid nonce collisions).
 //!
 //! ## Sandbox Testing
 //!
@@ -345,10 +345,11 @@
 //! #[tokio::test]
 //! async fn test_contract() -> Result<(), Box<dyn std::error::Error>> {
 //!     let sandbox = SandboxConfig::fresh().await?;
-//!     let near = Near::sandbox(&sandbox);
+//!     let root = sandbox.client(); // a SigningNear for the root account
 //!
-//!     // Root account is pre-configured with credentials
-//!     near.transfer("alice.sandbox", NearToken::from_near(10)).await?;
+//!     root.transaction(account!("alice.sandbox"))
+//!         .add_action(protocol::Action::transfer(NearToken::from_near(10)))
+//!         .await?;
 //!     Ok(())
 //! }
 //! ```
@@ -446,7 +447,7 @@
 //!
 //! ## Offline / no-network usage
 //!
-//! The entire RPC layer — `Near`, the query/transaction builders, token helpers,
+//! The entire RPC layer — `Near`, `SigningNear`, the query builders, token helpers,
 //! and the HTTP client underneath — is gated behind the default-on `rpc` feature.
 //! Typed-contract interfaces and macros additionally require `contracts`; with
 //! `contracts` but not `rpc`, `#[near_kit::contract]` still generates the
@@ -459,8 +460,7 @@
 //! [`protocol::Transaction`] (`new` → `sign` → `to_bytes`), standalone call construction
 //! via [`transaction::FunctionCall`], and NEP-413
 //! [`standards::nep413::verify_signature`].
-//! The fluent `transaction::TransactionBuilder` is part of the RPC layer — it is created
-//! from a `Near` client — so it requires `rpc`.
+//! Sending a `transaction::Tx` needs a `SigningNear`, so it requires `rpc`.
 //! This is what you want on targets with no network stack at all — sign
 //! transactions and messages locally, send them elsewhere:
 //!
@@ -478,7 +478,7 @@
 //!
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
-//! | `rpc` | Yes | The RPC layer: `Near`, queries, transactions, tokens, and the HTTP transport (reqwest, except on WASI). Disable for offline signing/verification |
+//! | `rpc` | Yes | The RPC layer: `Near`, `SigningNear`, queries, transactions, tokens, and the HTTP transport (reqwest, except on WASI). Disable for offline signing/verification |
 //! | `contracts` | No | Typed contract interfaces and the `#[near_kit::contract]` macro. Works without `rpc` (offline `FunctionCall` constructors and a client over any `Viewer`/`TxSender`); `Near::contract` needs `rpc` |
 //! | `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2` (implies `rpc`; no-op on non-WASI targets; unsupported on earlier WASI targets). On WASI Preview 2 hosts without `wasi:http`, inject a transport via `NearBuilder::transport` |
 //! | `keyring` | No | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
@@ -551,7 +551,7 @@ pub use near_kit_primitives::{AccountId, CryptoHash, Gas, NearToken};
 pub use near_kit_primitives::{Contract, TxSender, Viewer};
 
 #[cfg(feature = "rpc")]
-pub use client::{Near, NearBuilder};
+pub use client::{Near, NearBuilder, SigningNear};
 
 // The typed-contract macro. Its `#[call]` / `#[json]` / `#[borsh]` markers are
 // read by the macro itself and need no import.

@@ -1,6 +1,7 @@
 //! Test that JSON contract macro generates valid code.
 
 use near_kit::transaction::{Call, FunctionCall, View};
+use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::*;
 use serde::{Deserialize, Serialize};
 
@@ -34,7 +35,14 @@ fn main() {
 
     let _view: View<'_, Near, Vec<Message>> = client.get_messages();
     let _view: View<'_, Near, u32> = client.total_messages().at(near_kit::rpc::Finality::Optimistic);
-    let _call: Call<'_, Near> = client
+    // Calls need a sender: the same client over `SigningNear`.
+    let account: SigningNear = near.with_signer(
+        InMemorySigner::from_secret_key(account!("alice.testnet"), SecretKey::generate_ed25519())
+            .unwrap(),
+    );
+    let signing_client: JsonGuestbookClient<SigningNear> =
+        account.contract::<JsonGuestbook>(account!("guestbook.testnet"));
+    let _call: Call<'_, SigningNear> = signing_client
         .add_message(AddMessageArgs {
             text: "hello".to_string(),
         })
@@ -51,7 +59,7 @@ fn main() {
     });
 
     // FunctionCall composes into a transaction via add_action
-    let _tx = near.transaction("guestbook.testnet").add_action(
+    let _tx = account.transaction(account!("guestbook.testnet")).add_action(
         JsonGuestbook::add_message(AddMessageArgs {
             text: "composed".to_string(),
         })

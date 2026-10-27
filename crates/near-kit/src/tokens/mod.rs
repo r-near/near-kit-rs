@@ -2,12 +2,14 @@
 //!
 //! This module provides ergonomic APIs for interacting with standard NEAR token contracts.
 //!
-//! Create a token client from the contract's account ID:
+//! Create a token client from a [`SigningNear`](crate::SigningNear) and the
+//! contract's account ID. It reads through the client's
+//! [`Near`](crate::Near) and sends its calls as the client's account:
 //!
 //! ```rust,no_run
 //! # use near_kit::*;
-//! # fn example(near: &Near) -> Result<(), near_kit::Error> {
-//! let token = near.ft("wrap.near".parse::<AccountId>()?);
+//! # fn example(alice: &SigningNear) -> Result<(), near_kit::Error> {
+//! let token = alice.ft(account!("wrap.near"));
 //! # Ok(())
 //! # }
 //! ```
@@ -17,10 +19,8 @@
 //! ```rust,no_run
 //! use near_kit::*;
 //!
-//! # async fn example() -> Result<(), near_kit::Error> {
-//! let near = Near::mainnet().build();
-//!
-//! let token = near.ft("wrap.near".parse::<AccountId>()?);
+//! # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+//! let token = alice.ft(account!("wrap.near"));
 //!
 //! // Query metadata (cached after first call)
 //! let metadata = token.metadata().await?;
@@ -30,12 +30,7 @@
 //! let balance = token.balance_of("alice.near").await?;
 //! println!("Balance: {}", balance);
 //!
-//! // Transfer tokens (requires signer)
-//! let near = Near::mainnet()
-//!     .credentials("ed25519:...", "alice.near")?
-//!     .build();
-//! let token = near.ft("wrap.near".parse::<AccountId>()?);
-//!
+//! // Transfer tokens as alice
 //! token.transfer("bob.near", 1_500_000_u128).await?;
 //!
 //! // Or with a memo
@@ -49,11 +44,8 @@
 //! ```rust,no_run
 //! use near_kit::*;
 //!
-//! # async fn example() -> Result<(), near_kit::Error> {
-//! let near = Near::testnet().build();
-//!
-//! // Get an NFT client
-//! let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
+//! # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+//! let nft = alice.nft(account!("nft-contract.near"));
 //!
 //! // Query a specific token
 //! if let Some(token) = nft.token("token-123").await? {
@@ -66,12 +58,7 @@
 //!     println!("Token: {}", token.token_id);
 //! }
 //!
-//! // Transfer an NFT (requires signer)
-//! let near = Near::testnet()
-//!     .credentials("ed25519:...", "alice.near")?
-//!     .build();
-//! let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
-//!
+//! // Transfer an NFT as alice
 //! nft.transfer("bob.near", "token-123").await?;
 //!
 //! // Or with a memo

@@ -76,7 +76,7 @@ pub trait Viewer: MaybeSend + MaybeSync {
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot send transactions",
     label = "needs a signer",
-    note = "attach a signer with `near.with_signer(signer)`"
+    note = "`near.with_signer(signer)` returns a sender; or implement `TxSender`"
 )]
 pub trait TxSender: MaybeSend + MaybeSync {
     /// What a sent transaction resolves to, such as an execution outcome or

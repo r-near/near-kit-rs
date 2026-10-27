@@ -1,7 +1,9 @@
 //! End-to-end outcome semantics that require a real node.
 
+use near_kit::protocol::Action;
 use near_kit::signer::SecretKey;
 use near_kit::transaction::Final;
+use near_kit::transaction::FunctionCall;
 use near_kit::{NearToken, rpc::AccessKeyPermissionView};
 
 use super::support::{funded_account, guestbook_wasm, shared_client};
@@ -15,12 +17,11 @@ async fn failing_middle_action_rolls_back_prior_action() {
     let missing_key = SecretKey::generate_ed25519().public_key();
 
     let outcome = account
-        .transaction(&account_id)
-        .add_full_access_key(added_key.clone())
-        .delete_key(missing_key)
-        .transfer(NearToken::from_near(1))
-        .send()
         .wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::add_full_access_key(added_key.clone()))
+        .add_action(Action::delete_key(missing_key))
+        .add_action(Action::transfer(NearToken::from_near(1)))
         .await
         .expect("action failures must return an inspectable outcome");
 
@@ -28,6 +29,7 @@ async fn failing_middle_action_rolls_back_prior_action() {
     assert!(outcome.failure_message().is_some());
 
     let keys = root
+        .near()
         .access_keys(&account_id)
         .await
         .expect("access keys after failed transaction");
@@ -49,15 +51,15 @@ async fn failed_contract_call_preserves_receipts() {
         funded_account(&root, sandbox, "errreceipt", NearToken::from_near(10)).await;
 
     contract
-        .deploy(guestbook_wasm())
-        .send()
         .wait_until::<Final>()
+        .transaction(contract.account_id())
+        .add_action(Action::deploy_contract(guestbook_wasm()))
         .await
         .expect("guestbook deployment");
 
     let outcome = contract
-        .call(&contract_id, "nonexistent_method")
-        .args(serde_json::json!({}))
+        .transaction(&contract_id)
+        .add_action(FunctionCall::new("nonexistent_method").args(serde_json::json!({})))
         .await
         .expect("executed contract failures must return an outcome");
 

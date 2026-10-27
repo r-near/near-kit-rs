@@ -6,9 +6,12 @@ use crate::trace::{self, Instrument};
 use serde::Serialize;
 use tokio::sync::OnceCell;
 
-use crate::client::{CallBuilder, Near, Signer, TransactionBuilder};
+use crate::client::{SigningNear, Tx};
 use crate::error::Error;
-use crate::types::{AccountId, Finality, Gas, NearToken, TryIntoAccountId};
+use crate::transaction::FunctionCall;
+use crate::types::{
+    AccountId, ExecutedOptimistic, Finality, Gas, NearToken, TryIntoAccountId, WaitLevel,
+};
 
 use super::types::{NftContractMetadata, NftToken};
 
@@ -18,7 +21,9 @@ use super::types::{NftContractMetadata, NftToken};
 
 /// Client for interacting with a NEP-171 Non-Fungible Token contract.
 ///
-/// Create via [`Near::nft()`](crate::Near::nft).
+/// Create via [`SigningNear::nft()`](crate::SigningNear::nft). It reads through
+/// the client's [`Near`](crate::Near) and sends its calls as the client's
+/// account, waiting for the client's wait level `W`.
 ///
 /// # Caching
 ///
@@ -29,8 +34,7 @@ use super::types::{NftContractMetadata, NftToken};
 /// ```rust,no_run
 /// use near_kit::*;
 ///
-/// # async fn example() -> Result<(), near_kit::Error> {
-/// let near = Near::testnet().build();
+/// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
 /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
 ///
 /// // Get contract metadata
@@ -47,18 +51,17 @@ use super::types::{NftContractMetadata, NftToken};
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone)]
-pub struct NonFungibleToken {
-    near: Near,
+pub struct NonFungibleToken<W: WaitLevel = ExecutedOptimistic> {
+    client: SigningNear<W>,
     contract_id: AccountId,
     metadata: Arc<OnceCell<NftContractMetadata>>,
 }
 
-impl NonFungibleToken {
+impl<W: WaitLevel> NonFungibleToken<W> {
     /// Create a new NonFungibleToken client.
-    pub(crate) fn new(near: Near, contract_id: AccountId) -> Self {
+    pub(crate) fn new(client: SigningNear<W>, contract_id: AccountId) -> Self {
         Self {
-            near,
+            client,
             contract_id,
             metadata: Arc::new(OnceCell::new()),
         }
@@ -69,21 +72,14 @@ impl NonFungibleToken {
         &self.contract_id
     }
 
-    /// Create a new client with a different signer, sharing the same RPC connection.
-    ///
-    /// Cached metadata is shared with the original client.
-    pub fn with_signer(&self, signer: impl Signer + 'static) -> Self {
-        let mut token = self.clone();
-        token.near = self.near.with_signer(signer);
-        token
-    }
-
-    /// Create a transaction builder that surfaces argument validation errors
-    /// when the builder is consumed.
-    fn transaction_with_validation(&self, validation: Result<(), Error>) -> TransactionBuilder {
-        self.near
-            .transaction(&self.contract_id)
-            .with_validation(validation)
+    /// A transaction to this contract carrying `call`, keeping an argument
+    /// validation error to return from `.await`.
+    fn call(&self, validation: Result<(), Error>, call: FunctionCall) -> Tx<W> {
+        let mut tx = self.client.transaction(&self.contract_id);
+        if let Err(error) = validation {
+            tx.defer(error);
+        }
+        tx.add_action(call)
     }
 
     // =========================================================================
@@ -96,7 +92,8 @@ impl NonFungibleToken {
     pub async fn metadata(&self) -> Result<&NftContractMetadata, Error> {
         self.metadata
             .get_or_try_init(|| async {
-                self.near
+                self.client
+                    .near()
                     .view(&self.contract_id, "nft_metadata")
                     .finality(Finality::Optimistic)
                     .await
@@ -112,8 +109,7 @@ impl NonFungibleToken {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
+    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
     /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
     ///
     /// if let Some(token) = nft.token("token-123").await? {
@@ -135,7 +131,8 @@ impl NonFungibleToken {
                 token_id: &'a str,
             }
 
-            self.near
+            self.client
+                .near()
                 .view(&self.contract_id, "nft_token")
                 .args(Args { token_id })
                 .finality(Finality::Optimistic)
@@ -153,8 +150,7 @@ impl NonFungibleToken {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
+    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
     /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
     ///
     /// // Get first 10 tokens
@@ -188,7 +184,8 @@ impl NonFungibleToken {
                 limit: Option<u64>,
             }
 
-            self.near
+            self.client
+                .near()
                 .view(&self.contract_id, "nft_tokens_for_owner")
                 .args(Args {
                     account_id: account_id.as_str(),
@@ -205,7 +202,8 @@ impl NonFungibleToken {
     /// Get total supply of tokens (nft_total_supply).
     pub async fn total_supply(&self) -> Result<u64, Error> {
         let supply_str: String = self
-            .near
+            .client
+            .near()
             .view(&self.contract_id, "nft_total_supply")
             .finality(Finality::Optimistic)
             .await?;
@@ -227,7 +225,8 @@ impl NonFungibleToken {
         }
 
         let supply_str: String = self
-            .near
+            .client
+            .near()
             .view(&self.contract_id, "nft_supply_for_owner")
             .args(Args {
                 account_id: account_id.as_str(),
@@ -257,21 +256,14 @@ impl NonFungibleToken {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///     .credentials("ed25519:...", "alice.near")?
-    ///     .build();
+    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
     /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
     ///
     /// nft.transfer("bob.near", "token-123").await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn transfer(
-        &self,
-        receiver_id: impl TryIntoAccountId,
-        token_id: impl AsRef<str>,
-    ) -> CallBuilder {
+    pub fn transfer(&self, receiver_id: impl TryIntoAccountId, token_id: impl AsRef<str>) -> Tx<W> {
         self.transfer_with_options(receiver_id, token_id, NftTransferOptions::default())
     }
 
@@ -283,7 +275,7 @@ impl NonFungibleToken {
         receiver_id: impl TryIntoAccountId,
         token_id: impl AsRef<str>,
         memo: impl Into<String>,
-    ) -> CallBuilder {
+    ) -> Tx<W> {
         self.transfer_with_options(
             receiver_id,
             token_id,
@@ -300,7 +292,7 @@ impl NonFungibleToken {
         receiver_id: impl TryIntoAccountId,
         token_id: impl AsRef<str>,
         approval_id: u64,
-    ) -> CallBuilder {
+    ) -> Tx<W> {
         self.transfer_with_options(
             receiver_id,
             token_id,
@@ -316,20 +308,22 @@ impl NonFungibleToken {
         receiver_id: impl TryIntoAccountId,
         token_id: impl AsRef<str>,
         options: NftTransferOptions,
-    ) -> CallBuilder {
+    ) -> Tx<W> {
         let (receiver_id, validation) = validate_account_id(receiver_id);
         trace::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), receiver = %receiver_id, "nft_transfer");
 
-        self.transaction_with_validation(validation)
-            .call("nft_transfer")
-            .args(NftTransferArgs {
-                receiver_id,
-                token_id: token_id.as_ref().to_string(),
-                approval_id: options.approval_id,
-                memo: options.memo,
-            })
-            .deposit(NearToken::from_yoctonear(1))
-            .gas(Gas::from_tgas(30))
+        self.call(
+            validation,
+            FunctionCall::new("nft_transfer")
+                .args(NftTransferArgs {
+                    receiver_id,
+                    token_id: token_id.as_ref().to_string(),
+                    approval_id: options.approval_id,
+                    memo: options.memo,
+                })
+                .deposit(NearToken::from_yoctonear(1))
+                .gas(Gas::from_tgas(30)),
+        )
     }
 
     /// Transfer an NFT with a callback to the receiver (nft_transfer_call).
@@ -340,10 +334,7 @@ impl NonFungibleToken {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///     .credentials("ed25519:...", "alice.near")?
-    ///     .build();
+    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
     /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
     ///
     /// nft.transfer_call("marketplace.near", "token-123", r#"{"action":"list","price":"10"}"#)
@@ -356,7 +347,7 @@ impl NonFungibleToken {
         receiver_id: impl TryIntoAccountId,
         token_id: impl AsRef<str>,
         msg: impl Into<String>,
-    ) -> CallBuilder {
+    ) -> Tx<W> {
         let (receiver_id, validation) = validate_account_id(receiver_id);
         trace::debug!(contract = %self.contract_id, token_id = token_id.as_ref(), receiver = %receiver_id, "nft_transfer_call");
         #[derive(Serialize)]
@@ -366,15 +357,17 @@ impl NonFungibleToken {
             msg: String,
         }
 
-        self.transaction_with_validation(validation)
-            .call("nft_transfer_call")
-            .args(TransferCallArgs {
-                receiver_id,
-                token_id: token_id.as_ref().to_string(),
-                msg: msg.into(),
-            })
-            .deposit(NearToken::from_yoctonear(1))
-            .gas(Gas::from_tgas(100))
+        self.call(
+            validation,
+            FunctionCall::new("nft_transfer_call")
+                .args(TransferCallArgs {
+                    receiver_id,
+                    token_id: token_id.as_ref().to_string(),
+                    msg: msg.into(),
+                })
+                .deposit(NearToken::from_yoctonear(1))
+                .gas(Gas::from_tgas(100)),
+        )
     }
 }
 
@@ -402,9 +395,20 @@ fn validate_account_id(account_id: impl TryIntoAccountId) -> (String, Result<(),
     }
 }
 
-impl std::fmt::Debug for NonFungibleToken {
+impl<W: WaitLevel> Clone for NonFungibleToken<W> {
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client.clone(),
+            contract_id: self.contract_id.clone(),
+            metadata: self.metadata.clone(),
+        }
+    }
+}
+
+impl<W: WaitLevel> std::fmt::Debug for NonFungibleToken<W> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NonFungibleToken")
+            .field("account_id", self.client.account_id())
             .field("contract_id", &self.contract_id)
             .field("metadata_cached", &self.metadata.initialized())
             .finish()
@@ -414,17 +418,24 @@ impl std::fmt::Debug for NonFungibleToken {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Action, CryptoHash, StateInit, StateInitExt};
+    use crate::types::{Action, InMemorySigner, SecretKey};
 
     fn token_without_signer() -> NonFungibleToken {
         NonFungibleToken::new(
-            Near::custom("http://127.0.0.1:1", "test").build(),
+            crate::Near::custom("http://127.0.0.1:1", "test")
+                .build()
+                .with_signer(
+                    InMemorySigner::from_secret_key("alice.near", SecretKey::generate_ed25519())
+                        .unwrap(),
+                ),
             "nft.near".parse().unwrap(),
         )
     }
 
-    fn call_args(call: CallBuilder) -> serde_json::Value {
-        match call.into_action().unwrap() {
+    fn call_args(call: Tx) -> serde_json::Value {
+        assert!(call.error.is_none(), "{:?}", call.error);
+        assert_eq!(call.actions.len(), 1);
+        match call.actions.into_iter().next().unwrap() {
             Action::FunctionCall(action) => serde_json::from_slice(&action.args).unwrap(),
             action => panic!("expected function call, got {action:?}"),
         }
@@ -491,31 +502,5 @@ mod tests {
         for call in calls {
             assert!(matches!(call.await, Err(Error::ParseAccountId(_))));
         }
-    }
-
-    #[tokio::test]
-    async fn valid_call_still_reaches_send_validation() {
-        let error = token_without_signer()
-            .transfer("alice.near", "token-1")
-            .await
-            .unwrap_err();
-
-        assert!(matches!(error, Error::NoSigner));
-    }
-
-    #[tokio::test]
-    async fn receiver_override_does_not_clear_invalid_account_id() {
-        let error = token_without_signer()
-            .transfer("INVALID", "token-1")
-            .finish()
-            .state_init(
-                StateInit::by_hash(CryptoHash::ZERO, Default::default()),
-                NearToken::ZERO,
-            )
-            .send()
-            .await
-            .unwrap_err();
-
-        assert!(matches!(error, Error::ParseAccountId(_)));
     }
 }

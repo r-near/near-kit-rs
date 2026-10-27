@@ -249,7 +249,6 @@ async fn near_from_rpc_reuses_the_rpc_client_transport() {
     let near = Near::from_rpc(rpc, "custom");
     assert_eq!(near.chain_id().as_str(), "custom");
     assert_eq!(near.rpc_url(), "https://rpc.invalid");
-    assert!(near.try_account_id().is_none());
 
     let value: u64 = near.view("counter.testnet", "get").await.unwrap();
     assert_eq!(value, 9);

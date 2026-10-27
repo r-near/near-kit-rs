@@ -4,6 +4,7 @@
 //! re-exports to avoid needing a direct borsh dependency in the test.
 
 use near_kit::transaction::{Call, View};
+use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::*;
 
 /// Borsh contract using primitive types that already implement Borsh traits
@@ -22,5 +23,11 @@ fn main() {
 
     let _view: View<'_, Near, u64> = client.get_value();
     let _view: View<'_, Near, bool> = client.get_flag();
-    let _call: Call<'_, Near> = client.set_value();
+    let account: SigningNear = near.with_signer(
+        InMemorySigner::from_secret_key(account!("alice.testnet"), SecretKey::generate_ed25519())
+            .unwrap(),
+    );
+    let signing_client: BorshContractClient<SigningNear> =
+        account.contract::<BorshContract>(account!("contract.testnet"));
+    let _call: Call<'_, SigningNear> = signing_client.set_value();
 }

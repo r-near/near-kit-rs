@@ -21,9 +21,8 @@
 //!     "ed25519:..."
 //! )?;
 //!
-//! let near = Near::testnet()
-//!     .signer(signer)
-//!     .build();
+//! let near = Near::testnet().build();
+//! let alice = near.with_signer(signer);
 //!
 //! // Sign a message
 //! let params = nep413::SignMessageParams {
@@ -34,7 +33,7 @@
 //!     state: None,
 //! };
 //!
-//! let signed = near.sign_message(params.clone()).await?;
+//! let signed = alice.sign_message(params.clone()).await?;
 //!
 //! // Verify the signature
 //! let is_valid = nep413::verify(&signed, &params, &near, Default::default()).await?;

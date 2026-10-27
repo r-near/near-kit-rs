@@ -6,6 +6,7 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
+use near_kit::protocol::Action;
 use near_kit::*;
 use near_kit::{protocol::*, rpc::*, signer::*};
 use near_kit_sandbox::SandboxConfig;
@@ -16,7 +17,7 @@ use super::support::{funded_account as setup_funded_account, guestbook_wasm};
 async fn funded_account(
     sandbox: &near_kit_sandbox::Sandbox,
     balance: NearToken,
-) -> (Near, AccountId, SecretKey) {
+) -> (SigningNear, AccountId, SecretKey) {
     let near = sandbox.client();
     setup_funded_account(&near, sandbox, "typerr", balance).await
 }
@@ -24,13 +25,13 @@ async fn funded_account(
 /// Build, sign, and send a transaction via `rpc().send_tx()` so we get the
 /// raw `FinalExecutionOutcome` without the client converting failures to `Err`.
 async fn send_raw_tx(
-    near: &Near,
+    near: &SigningNear,
     sender: &AccountId,
     key: &SecretKey,
     receiver: &AccountId,
     actions: Vec<Action>,
 ) -> FinalExecutionOutcome {
-    let rpc = near.rpc();
+    let rpc = near.near().rpc();
 
     let ak = rpc
         .view_access_key(
@@ -185,7 +186,10 @@ async fn test_call_nonexistent_method_deserializes_as_typed_error() {
 
     // Deploy a contract first
     let wasm = guestbook_wasm();
-    near.deploy(wasm).await.unwrap();
+    near.transaction(near.account_id())
+        .add_action(Action::deploy_contract(wasm))
+        .await
+        .unwrap();
 
     // Call a method that doesn't exist
     let outcome = send_raw_tx(

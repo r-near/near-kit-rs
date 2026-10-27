@@ -207,6 +207,14 @@ pub enum CodecError {
     Borsh(#[source] std::io::Error),
 }
 
+/// Lets infallible conversions (an [`Action`](crate::protocol::Action) into
+/// itself) go wherever a fallible action conversion is accepted.
+impl From<std::convert::Infallible> for CodecError {
+    fn from(value: std::convert::Infallible) -> Self {
+        match value {}
+    }
+}
+
 /// Error decoding a [`SignedTransaction`](crate::protocol::SignedTransaction)
 /// or [`SignedTransactionV1`](crate::protocol::SignedTransactionV1).
 ///

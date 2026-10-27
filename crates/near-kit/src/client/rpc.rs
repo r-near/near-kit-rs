@@ -78,7 +78,7 @@ pub const TESTNET: NetworkConfig = NetworkConfig {
 ///
 /// A transaction rejected with `InvalidNonce` is never retried here —
 /// re-sending the same signed bytes can't change the outcome. Nonce refresh
-/// and re-signing happen one layer up, in the `Near::send*` transaction path
+/// and re-signing happen one layer up, in the `SigningNear` transaction path
 /// (see `NearBuilder::max_nonce_retries`).
 ///
 /// Use [`RetryConfig::none()`] to disable retries entirely, e.g. when the

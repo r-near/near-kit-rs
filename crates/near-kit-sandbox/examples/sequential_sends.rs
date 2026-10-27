@@ -11,6 +11,7 @@
 //!
 //! This example starts a local NEAR node through Docker.
 
+use near_kit::protocol::Action;
 use near_kit::*;
 
 use near_kit::signer::{InMemorySigner, RotatingSigner, SecretKey};
@@ -31,38 +32,38 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     // Create a bot account with the first key
-    let bot_account = format!("bot-{}.{}", std::process::id(), root_account);
+    let bot_account: AccountId = format!("bot-{}.{}", std::process::id(), root_account).parse()?;
     println!("Creating bot account: {bot_account}");
 
     root_near
         .transaction(&bot_account)
-        .create_account()
-        .transfer(NearToken::from_near(50))
-        .add_full_access_key(secret_keys[0].public_key())
-        .send()
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(50)))
+        .add_action(Action::add_full_access_key(secret_keys[0].public_key()))
         .await?;
 
     // Add remaining keys
-    let bot_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
-        bot_account.as_str(),
-        secret_keys[0].clone(),
-    )?);
+    let bot_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::from_secret_key(
+            bot_account.as_str(),
+            secret_keys[0].clone(),
+        )?);
 
     secret_keys[1..]
         .iter()
         .fold(bot_near.transaction(&bot_account), |tx, key| {
-            tx.add_full_access_key(key.public_key())
+            tx.add_action(Action::add_full_access_key(key.public_key()))
         })
-        .send()
         .await?;
 
     // Create recipient
-    let recipient = format!("recipient.{root_account}");
+    let recipient: AccountId = format!("recipient.{root_account}").parse()?;
     root_near
         .transaction(&recipient)
-        .create_account()
-        .transfer(NearToken::from_millinear(100))
-        .send()
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_millinear(100)))
         .await?;
 
     // Split RotatingSigner into per-key signers
@@ -86,13 +87,13 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
         .into_iter()
         .enumerate()
         .map(|(key_idx, signer)| {
-            let near = bot_near.with_signer(signer);
+            let near = bot_near.near().with_signer(signer);
             let recipient = recipient.clone();
             tokio::spawn(async move {
                 for tx_idx in 0..txs_per_key {
-                    near.transfer(&recipient, NearToken::from_millinear(1))
-                        .send()
-                        .wait_until::<Included>()
+                    near.wait_until::<Included>()
+                        .transaction(&recipient)
+                        .add_action(Action::transfer(NearToken::from_millinear(1)))
                         .await
                         .unwrap();
                     println!("  key[{key_idx}] tx {tx_idx} included");
@@ -117,7 +118,7 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Verify balance
-    let balance = bot_near.balance(&recipient).await?;
+    let balance = bot_near.near().balance(&recipient).await?;
     println!("\nRecipient balance: {}", balance.available);
 
     println!("\nDone.");

@@ -10,32 +10,32 @@
 //! # Design Principles
 //!
 //! 1. **Consistent with production**: Test code looks like production code.
-//!    `Near` is always the entry point - you just pass a different network.
+//!    [`Sandbox::client`] is an ordinary `SigningNear` for the root account,
+//!    pointed at the sandbox network.
 //!
 //! 2. **Sandbox lifecycle management**: The library handles starting/stopping
 //!    sandboxes, including a shared singleton for test performance.
 //!
 //! 3. **No magic account creation**: All accounts are created through the
-//!    standard `near.transaction().create_account()` flow.
+//!    standard `Action::create_account()` transaction flow.
 //!
 //! # Example
 //!
 //! ```rust,ignore
-//! use near_kit::{NearToken, signer::SecretKey};
+//! use near_kit::{account, NearToken, protocol::Action, signer::SecretKey};
 //! use near_kit_sandbox::SandboxConfig;
 //!
 //! #[tokio::test]
 //! async fn test_transfer() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Same pattern as production - just different network
-//!     let near = SandboxConfig::shared().await?.client();
+//!     let root = SandboxConfig::shared().await?.client();
 //!
 //!     // Create accounts the normal way
 //!     let alice_key = SecretKey::generate_ed25519();
-//!     near.transaction("alice.sandbox")
-//!         .create_account()
-//!         .transfer("100 NEAR")
-//!         .add_full_access_key(alice_key.public_key())
-//!         .send()
+//!     root.transaction(account!("alice.sandbox"))
+//!         .add_action(Action::create_account())
+//!         .add_action(Action::transfer(NearToken::from_near(100)))
+//!         .add_action(Action::add_full_access_key(alice_key.public_key()))
 //!         .await?;
 //!     Ok(())
 //! }
@@ -77,9 +77,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use near_kit::protocol::{ChainId, ParseAccountIdError, TryIntoAccountId};
-use near_kit::rpc::{RpcError, SandboxNetwork};
+use near_kit::rpc::RpcError;
 use near_kit::signer::{InMemorySigner, Signer};
-use near_kit::{AccountId, Error, Near, NearToken};
+use near_kit::{AccountId, Error, Near, NearToken, SigningNear};
 use testcontainers::{
     ContainerAsync, CopyToContainer, Healthcheck, Image, ImageExt,
     core::{ContainerPort, WaitFor},
@@ -422,11 +422,18 @@ impl Sandbox {
         })
     }
 
-    /// Get a configured `Near` client for this sandbox.
+    /// Get a signing client for this sandbox's root account.
     ///
-    /// This is a convenience method equivalent to `Near::sandbox(self)`.
-    pub fn client(&self) -> Near {
-        Near::sandbox(self)
+    /// The root account is funded at genesis, so it can create and fund
+    /// test accounts. For reads use `client().near()`; for another account,
+    /// `client().near().with_signer(signer)`.
+    pub fn client(&self) -> SigningNear {
+        self.near().with_signer(self.root_signer())
+    }
+
+    /// A read-only client for this sandbox's RPC endpoint.
+    fn near(&self) -> Near {
+        Near::custom(&self.rpc_url, self.chain_id.clone()).build()
     }
 
     /// Return the sandbox RPC URL.
@@ -473,7 +480,7 @@ impl Sandbox {
         account_id: impl TryIntoAccountId,
         balance: NearToken,
     ) -> Result<(), SandboxError> {
-        let near = self.client();
+        let near = self.near();
         let account_id = account_id.try_into_account_id()?;
 
         // Fetch raw account data from RPC - this includes all fields the sandbox expects
@@ -544,25 +551,8 @@ impl Sandbox {
     /// sandbox.fast_forward(1000).await?;
     /// ```
     pub async fn fast_forward(&self, delta_height: u64) -> Result<(), SandboxError> {
-        self.client()
-            .rpc()
-            .sandbox_fast_forward(delta_height)
-            .await?;
+        self.near().rpc().sandbox_fast_forward(delta_height).await?;
         Ok(())
-    }
-}
-
-impl SandboxNetwork for Sandbox {
-    fn rpc_url(&self) -> &str {
-        self.rpc_url()
-    }
-
-    fn chain_id(&self) -> &ChainId {
-        self.chain_id()
-    }
-
-    fn root_signer(&self) -> Arc<dyn Signer> {
-        self.root_signer()
     }
 }
 

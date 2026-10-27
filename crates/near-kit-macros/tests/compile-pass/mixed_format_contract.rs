@@ -3,6 +3,7 @@
 //! Note: We use primitive types to avoid needing external borsh/serde derives.
 
 use near_kit::transaction::{Call, FunctionCall, View};
+use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::*;
 
 /// Mixed contract - JSON default with Borsh overrides
@@ -47,21 +48,27 @@ pub trait MixedContractBorshDefault {
 
 fn main() {
     let near = Near::testnet().build();
+    let account: SigningNear = near.with_signer(
+        InMemorySigner::from_secret_key(account!("alice.testnet"), SecretKey::generate_ed25519())
+            .unwrap(),
+    );
 
     {
         let client = near.contract::<MixedContract>(account!("contract.testnet"));
+        let signing_client = account.contract::<MixedContract>(account!("contract.testnet"));
         let _: View<'_, Near, u64> = client.get_json_value();
         let _: View<'_, Near, u64> = client.get_borsh_value();
-        let _: Call<'_, Near> = client.set_json_value();
-        let _: Call<'_, Near> = client.set_borsh_value();
+        let _: Call<'_, SigningNear> = signing_client.set_json_value();
+        let _: Call<'_, SigningNear> = signing_client.set_borsh_value();
     }
 
     {
         let client = near.contract::<MixedContractBorshDefault>(account!("contract.testnet"));
+        let signing_client = account.contract::<MixedContractBorshDefault>(account!("contract.testnet"));
         let _: View<'_, Near, u64> = client.get_borsh_value();
         let _: View<'_, Near, u64> = client.get_json_value();
-        let _: Call<'_, Near> = client.set_borsh_value();
-        let _: Call<'_, Near> = client.set_json_value();
+        let _: Call<'_, SigningNear> = signing_client.set_borsh_value();
+        let _: Call<'_, SigningNear> = signing_client.set_json_value();
     }
 
     // Static FunctionCall constructors (call methods only, not view)

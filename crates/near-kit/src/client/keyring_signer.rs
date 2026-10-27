@@ -18,8 +18,9 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use near_kit::Near;
+//! use near_kit::protocol::Action;
 //! use near_kit::signer::KeyringSigner;
+//! use near_kit::{Near, NearToken, account};
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! // Load a key stored by near-cli-rs
@@ -29,8 +30,11 @@
 //!     "ed25519:6fWy..."
 //! )?;
 //!
-//! let near = Near::testnet().signer(signer).build();
-//! near.transfer("bob.testnet", "1 NEAR").await?;
+//! let alice = Near::testnet().build().with_signer(signer);
+//! alice
+//!     .transaction(account!("bob.testnet"))
+//!     .add_action(Action::transfer(NearToken::from_near(1)))
+//!     .await?;
 //! # Ok(())
 //! # }
 //! ```

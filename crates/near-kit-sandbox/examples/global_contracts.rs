@@ -9,6 +9,8 @@
 //!
 //! This example starts a local NEAR node through Docker.
 
+use near_kit::protocol::Action;
+use near_kit::transaction::FunctionCall;
 use near_kit::*;
 
 use near_kit::protocol::PublishMode;
@@ -26,20 +28,22 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Create a publisher account ---
     let publisher_key = SecretKey::generate_ed25519();
-    let publisher_account = format!("publisher.{root_account}");
+    let publisher_account: AccountId = format!("publisher.{root_account}").parse()?;
 
     root_near
         .transaction(&publisher_account)
-        .create_account()
-        .transfer(NearToken::from_near(50))
-        .add_full_access_key(publisher_key.public_key())
-        .send()
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(50)))
+        .add_action(Action::add_full_access_key(publisher_key.public_key()))
         .await?;
 
-    let publisher_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
-        publisher_account.as_str(),
-        publisher_key,
-    )?);
+    let publisher_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::from_secret_key(
+            publisher_account.as_str(),
+            publisher_key,
+        )?);
 
     println!("Created publisher: {publisher_account}");
 
@@ -51,51 +55,55 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
     .to_vec();
 
     publisher_near
-        .publish(wasm_code.clone(), PublishMode::Updatable)
-        .send()
         .wait_until::<Final>()
+        .transaction(publisher_near.account_id())
+        .add_action(Action::publish(wasm_code.clone(), PublishMode::Updatable))
         .await?;
 
     println!("Published guestbook contract (updatable)\n");
 
     // --- Create a user account and deploy from the publisher ---
     let user_key = SecretKey::generate_ed25519();
-    let user_account = format!("app.{root_account}");
+    let user_account: AccountId = format!("app.{root_account}").parse()?;
 
     root_near
         .transaction(&user_account)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(user_key.public_key())
-        .send()
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(10)))
+        .add_action(Action::add_full_access_key(user_key.public_key()))
         .await?;
 
-    let user_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
-        user_account.as_str(),
-        user_key,
-    )?);
+    let user_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::from_secret_key(
+            user_account.as_str(),
+            user_key,
+        )?);
 
     // Deploy from the publisher's global contract
     user_near
-        .deploy_from(&publisher_account)
-        .send()
         .wait_until::<Final>()
+        .transaction(user_near.account_id())
+        .add_action(Action::deploy_from_account(publisher_account.clone()))
         .await?;
 
     println!("Deployed to {user_account} from publisher\n");
 
     // --- Interact with the deployed contract ---
     user_near
-        .transaction(&user_account)
-        .call("add_message")
-        .args(serde_json::json!({ "text": "Hello from a global contract!" }))
-        .gas(Gas::from_tgas(30))
-        .deposit(NearToken::ZERO)
-        .send()
         .wait_until::<Final>()
+        .transaction(&user_account)
+        .add_action(
+            FunctionCall::new("add_message")
+                .args(serde_json::json!({ "text": "Hello from a global contract!" }))
+                .gas(Gas::from_tgas(30))
+                .deposit(NearToken::ZERO),
+        )
         .await?;
 
     let messages: Vec<serde_json::Value> = root_near
+        .near()
         .view(&user_account, "get_messages")
         .args(serde_json::json!({}))
         .await?;
@@ -111,41 +119,44 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
 
     // Publish the same contract immutably (by hash)
     publisher_near
-        .publish(wasm_code, PublishMode::Immutable)
-        .send()
         .wait_until::<Final>()
+        .transaction(publisher_near.account_id())
+        .add_action(Action::publish(wasm_code, PublishMode::Immutable))
         .await?;
 
     println!("Published same contract (immutable)\n");
 
     // Deploy to a second account using the hash
     let user2_key = SecretKey::generate_ed25519();
-    let user2_account = format!("app2.{root_account}");
+    let user2_account: AccountId = format!("app2.{root_account}").parse()?;
 
     root_near
         .transaction(&user2_account)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(user2_key.public_key())
-        .send()
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(10)))
+        .add_action(Action::add_full_access_key(user2_key.public_key()))
         .await?;
 
-    let user2_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
-        user2_account.as_str(),
-        user2_key,
-    )?);
+    let user2_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::from_secret_key(
+            user2_account.as_str(),
+            user2_key,
+        )?);
 
     // Deploy from hash (type dispatches on CryptoHash)
     user2_near
-        .deploy_from(code_hash)
-        .send()
         .wait_until::<Final>()
+        .transaction(user2_near.account_id())
+        .add_action(Action::deploy_from_hash(code_hash))
         .await?;
 
     println!("Deployed to {user2_account} from code hash");
 
     // Verify it works
     let messages: Vec<serde_json::Value> = root_near
+        .near()
         .view(&user2_account, "get_messages")
         .args(serde_json::json!({}))
         .await?;

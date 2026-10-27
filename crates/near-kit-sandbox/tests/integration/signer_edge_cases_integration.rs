@@ -1,10 +1,11 @@
 //! Signer behaviors that need real access-key and nonce state.
 
-use near_kit::Error;
 use near_kit::NearToken;
+use near_kit::protocol::Action;
 use near_kit::rpc::RpcError;
 use near_kit::signer::{InMemorySigner, RotatingSigner, SecretKey};
 use near_kit::transaction::Final;
+use near_kit::{AccountId, Error};
 
 use super::support::{client_for, funded_account, shared_client, unique_account};
 
@@ -18,58 +19,70 @@ async fn rotating_signer_uses_every_on_chain_key() {
     ];
     let account_id = unique_account("rotate");
 
-    root.transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(keys[0].public_key())
-        .add_full_access_key(keys[1].public_key())
-        .add_full_access_key(keys[2].public_key())
-        .send()
-        .wait_until::<Final>()
+    root.wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(100)))
+        .add_action(Action::add_full_access_key(keys[0].public_key()))
+        .add_action(Action::add_full_access_key(keys[1].public_key()))
+        .add_action(Action::add_full_access_key(keys[2].public_key()))
         .await
         .expect("multi-key account");
 
     let signer = RotatingSigner::new(&account_id, keys.to_vec()).expect("rotating signer");
-    let account = root.with_signer(signer);
+    let account = root.near().with_signer(signer);
 
     for index in 0..6 {
-        let child = format!("child{index}.{account_id}");
+        let child: AccountId = format!("child{index}.{account_id}").parse().unwrap();
         account
-            .transaction(&child)
-            .create_account()
-            .transfer(NearToken::from_near(1))
-            .add_full_access_key(SecretKey::generate_ed25519().public_key())
-            .send()
             .wait_until::<Final>()
+            .transaction(&child)
+            .add_action(Action::create_account())
+            .add_action(Action::transfer(NearToken::from_near(1)))
+            .add_action(Action::add_full_access_key(
+                SecretKey::generate_ed25519().public_key(),
+            ))
             .await
             .expect("rotating-key transaction");
-        assert!(root.account_exists(&child).await.expect("child query"));
+        assert!(
+            root.near()
+                .account_exists(&child)
+                .await
+                .expect("child query")
+        );
     }
 }
 
 #[tokio::test]
-async fn sign_with_overrides_the_client_signer() {
+async fn with_signer_replaces_the_client_signer() {
     let (sandbox, root) = shared_client().await;
     let (default_client, _, _) =
         funded_account(&root, sandbox, "defaultsigner", NearToken::from_near(10)).await;
     let (_, override_id, override_key) =
         funded_account(&root, sandbox, "override", NearToken::from_near(10)).await;
-    let child = format!("child.{override_id}");
+    let child: AccountId = format!("child.{override_id}").parse().unwrap();
     let override_signer =
         InMemorySigner::from_secret_key(override_id, override_key).expect("override signer");
 
     default_client
-        .transaction(&child)
-        .create_account()
-        .transfer(NearToken::from_near(1))
-        .add_full_access_key(SecretKey::generate_ed25519().public_key())
-        .sign_with(override_signer)
-        .send()
+        .near()
+        .with_signer(override_signer)
         .wait_until::<Final>()
+        .transaction(&child)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(1)))
+        .add_action(Action::add_full_access_key(
+            SecretKey::generate_ed25519().public_key(),
+        ))
         .await
         .expect("signer override transaction");
 
-    assert!(root.account_exists(&child).await.expect("child query"));
+    assert!(
+        root.near()
+            .account_exists(&child)
+            .await
+            .expect("child query")
+    );
 }
 
 #[tokio::test]
@@ -80,25 +93,27 @@ async fn deleted_key_is_rejected() {
     let retained_key = SecretKey::generate_ed25519();
     let account_id = unique_account("deletedkey");
 
-    root.transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(key_to_delete.public_key())
-        .add_full_access_key(retained_key.public_key())
-        .send()
-        .wait_until::<Final>()
+    root.wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(10)))
+        .add_action(Action::add_full_access_key(key_to_delete.public_key()))
+        .add_action(Action::add_full_access_key(retained_key.public_key()))
         .await
         .expect("two-key account");
 
-    client_for(sandbox, &account_id, &retained_key)
-        .delete_key(deleted_public_key.clone())
+    let retained_key_client = client_for(sandbox, &account_id, &retained_key);
+    retained_key_client
         .wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::delete_key(deleted_public_key.clone()))
         .await
         .expect("key deletion");
 
     let deleted_key_client = client_for(sandbox, &account_id, &key_to_delete);
     let error = deleted_key_client
-        .transfer("sandbox", NearToken::from_near(1))
+        .transaction(near_kit::account!("sandbox"))
+        .add_action(Action::transfer(NearToken::from_near(1)))
         .await
         .expect_err("deleted key must be rejected");
     match error {

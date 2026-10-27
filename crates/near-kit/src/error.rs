@@ -20,11 +20,14 @@
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
+//! use near_kit::protocol::Action;
 //!
-//! # async fn example() -> Result<(), Error> {
-//! let near = Near::testnet().build();
+//! # async fn example(alice: SigningNear) -> Result<(), Error> {
+//! let transfer = alice
+//!     .transaction(account!("bob.testnet"))
+//!     .add_action(Action::transfer(NearToken::from_near(1)));
 //!
-//! match near.transfer("bob.testnet", "1 NEAR").await {
+//! match transfer.await {
 //!     Ok(outcome) if outcome.is_success() => {
 //!         println!("Success! Hash: {}", outcome.transaction_hash());
 //!     }
@@ -437,7 +440,7 @@ impl RpcError {
     /// too ([`InvalidTxError::is_retryable`] says so) but re-sending the
     /// rejected transaction byte-for-byte can never succeed — it needs a
     /// fresh nonce and a new signature. That refresh-and-re-sign loop lives
-    /// in the transaction layer (`Near::send*`), where retrying can actually
+    /// in the transaction layer (`SigningNear` sends), where retrying can actually
     /// change the outcome, so it is `false` here.
     ///
     /// A connection the server reset, aborted, or closed mid-exchange counts
@@ -692,11 +695,6 @@ impl RpcError {
 #[derive(Debug, Error)]
 pub enum Error {
     // ─── Configuration ───
-    #[error(
-        "No signer configured. Use .credentials()/.signer() on NearBuilder, .with_signer() on the client, or .sign_with() on the transaction."
-    )]
-    NoSigner,
-
     #[error("Invalid configuration: {0}")]
     Config(String),
 
@@ -1401,14 +1399,6 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_error_no_signer_display() {
-        assert_eq!(
-            Error::NoSigner.to_string(),
-            "No signer configured. Use .credentials()/.signer() on NearBuilder, .with_signer() on the client, or .sign_with() on the transaction."
-        );
-    }
-
-    #[test]
     fn test_error_config_display() {
         assert_eq!(
             Error::Config("invalid url".to_string()).to_string(),
@@ -1575,8 +1565,8 @@ mod tests {
         .into();
         assert!(err.as_rpc().is_some_and(RpcError::is_contract_panic));
 
-        let err: Error = ContractError::Backend(Error::NoSigner).into();
-        assert!(matches!(err, Error::NoSigner));
+        let err: Error = ContractError::Backend(Error::Config("x".to_string())).into();
+        assert!(matches!(err, Error::Config(m) if m == "x"));
     }
 
     #[test]
@@ -1616,9 +1606,9 @@ mod tests {
             other => panic!("unexpected: {other:?}"),
         }
 
-        let err = Error::NoSigner;
+        let err = Error::Config("x".to_string());
         assert!(err.as_rpc().is_none());
-        assert!(matches!(err.into_rpc(), Err(Error::NoSigner)));
+        assert!(matches!(err.into_rpc(), Err(Error::Config(_))));
 
         // Structured tx validation errors are promoted out of `Error::Rpc`.
         let err: Error = RpcError::InvalidTx(InvalidTxError::Expired).into();

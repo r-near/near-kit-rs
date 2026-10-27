@@ -6,9 +6,12 @@ use crate::trace::{self, Instrument};
 use serde::Serialize;
 use tokio::sync::OnceCell;
 
-use crate::client::{CallBuilder, Near, Signer, TransactionBuilder};
+use crate::client::{SigningNear, Tx};
 use crate::error::Error;
-use crate::types::{AccountId, Finality, Gas, NearToken, TryIntoAccountId};
+use crate::transaction::FunctionCall;
+use crate::types::{
+    AccountId, ExecutedOptimistic, Finality, Gas, NearToken, TryIntoAccountId, WaitLevel,
+};
 
 use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 
@@ -18,7 +21,9 @@ use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 
 /// Client for interacting with a NEP-141 Fungible Token contract.
 ///
-/// Create via [`Near::ft()`](crate::Near::ft).
+/// Create via [`SigningNear::ft()`](crate::SigningNear::ft). It reads through
+/// the client's [`Near`](crate::Near) and sends its calls as the client's
+/// account, waiting for the client's wait level `W`.
 ///
 /// # Caching
 ///
@@ -30,8 +35,7 @@ use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 /// ```rust,no_run
 /// use near_kit::*;
 ///
-/// # async fn example() -> Result<(), near_kit::Error> {
-/// let near = Near::mainnet().build();
+/// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
 /// let token = near.ft("wrap.near".parse::<AccountId>()?);
 ///
 /// // Get metadata
@@ -44,19 +48,18 @@ use super::types::{FtAmount, FtMetadata, StorageBalance, StorageBalanceBounds};
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone)]
-pub struct FungibleToken {
-    near: Near,
+pub struct FungibleToken<W: WaitLevel = ExecutedOptimistic> {
+    client: SigningNear<W>,
     contract_id: AccountId,
     metadata: Arc<OnceCell<FtMetadata>>,
     storage_bounds: Arc<OnceCell<StorageBalanceBounds>>,
 }
 
-impl FungibleToken {
+impl<W: WaitLevel> FungibleToken<W> {
     /// Create a new FungibleToken client.
-    pub(crate) fn new(near: Near, contract_id: AccountId) -> Self {
+    pub(crate) fn new(client: SigningNear<W>, contract_id: AccountId) -> Self {
         Self {
-            near,
+            client,
             contract_id,
             metadata: Arc::new(OnceCell::new()),
             storage_bounds: Arc::new(OnceCell::new()),
@@ -68,37 +71,14 @@ impl FungibleToken {
         &self.contract_id
     }
 
-    /// Create a new client with a different signer, sharing the same RPC connection.
-    ///
-    /// Cached metadata and storage bounds are shared with the original client.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # use near_kit::signer::InMemorySigner;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().credentials("ed25519:...", "alice.testnet")?.build();
-    /// let ft = near.ft("wrap.testnet".parse::<AccountId>()?);
-    ///
-    /// // Reuse the same client with a different signer
-    /// let bob_signer = InMemorySigner::new("bob.testnet", "ed25519:...")?;
-    /// let ft_bob = ft.with_signer(bob_signer);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn with_signer(&self, signer: impl Signer + 'static) -> Self {
-        let mut token = self.clone();
-        token.near = self.near.with_signer(signer);
-        token
-    }
-
-    /// Create a transaction builder that surfaces argument validation errors
-    /// when the builder is consumed.
-    fn transaction_with_validation(&self, validation: Result<(), Error>) -> TransactionBuilder {
-        self.near
-            .transaction(&self.contract_id)
-            .with_validation(validation)
+    /// A transaction to this contract carrying `call`, keeping an argument
+    /// validation error to return from `.await`.
+    fn call(&self, validation: Result<(), Error>, call: FunctionCall) -> Tx<W> {
+        let mut tx = self.client.transaction(&self.contract_id);
+        if let Err(error) = validation {
+            tx.defer(error);
+        }
+        tx.add_action(call)
     }
 
     // =========================================================================
@@ -111,7 +91,8 @@ impl FungibleToken {
     pub async fn metadata(&self) -> Result<&FtMetadata, Error> {
         self.metadata
             .get_or_try_init(|| async {
-                self.near
+                self.client
+                    .near()
                     .view(&self.contract_id, "ft_metadata")
                     .finality(Finality::Optimistic)
                     .await
@@ -127,8 +108,7 @@ impl FungibleToken {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::mainnet().build();
+    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
     /// let token = near.ft("wrap.near".parse::<AccountId>()?);
     ///
     /// let balance = token.balance_of("alice.near").await?;
@@ -150,7 +130,8 @@ impl FungibleToken {
             }
 
             let balance_str: String = self
-                .near
+                .client
+                .near()
                 .view(&self.contract_id, "ft_balance_of")
                 .args(Args {
                     account_id: account_id.as_str(),
@@ -177,7 +158,8 @@ impl FungibleToken {
         let metadata = self.metadata().await?;
 
         let supply_str: String = self
-            .near
+            .client
+            .near()
             .view(&self.contract_id, "ft_total_supply")
             .finality(Finality::Optimistic)
             .await?;
@@ -218,7 +200,8 @@ impl FungibleToken {
             account_id: &'a str,
         }
 
-        self.near
+        self.client
+            .near()
             .view(&self.contract_id, "storage_balance_of")
             .args(Args {
                 account_id: account_id.as_str(),
@@ -234,7 +217,8 @@ impl FungibleToken {
     pub async fn storage_balance_bounds(&self) -> Result<&StorageBalanceBounds, Error> {
         self.storage_bounds
             .get_or_try_init(|| async {
-                self.near
+                self.client
+                    .near()
                     .view(&self.contract_id, "storage_balance_bounds")
                     .finality(Finality::Optimistic)
                     .await
@@ -248,10 +232,7 @@ impl FungibleToken {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::mainnet()
-    ///     .credentials("ed25519:...", "alice.near")?
-    ///     .build();
+    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
     /// let token = near.ft("wrap.near".parse::<AccountId>()?);
     ///
     /// // Register bob with auto-detected minimum deposit
@@ -263,11 +244,7 @@ impl FungibleToken {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn storage_deposit(
-        &self,
-        account_id: impl TryIntoAccountId,
-        deposit: NearToken,
-    ) -> CallBuilder {
+    pub fn storage_deposit(&self, account_id: impl TryIntoAccountId, deposit: NearToken) -> Tx<W> {
         let (account_id, validation) = validate_account_id(account_id);
 
         #[derive(Serialize)]
@@ -276,14 +253,16 @@ impl FungibleToken {
             registration_only: bool,
         }
 
-        self.transaction_with_validation(validation)
-            .call("storage_deposit")
-            .args(DepositArgs {
-                account_id,
-                registration_only: true,
-            })
-            .deposit(deposit)
-            .gas(Gas::from_tgas(30))
+        self.call(
+            validation,
+            FunctionCall::new("storage_deposit")
+                .args(DepositArgs {
+                    account_id,
+                    registration_only: true,
+                })
+                .deposit(deposit)
+                .gas(Gas::from_tgas(30)),
+        )
     }
 
     // =========================================================================
@@ -304,10 +283,7 @@ impl FungibleToken {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::mainnet()
-    ///     .credentials("ed25519:...", "alice.near")?
-    ///     .build();
+    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
     /// let token = near.ft("wrap.near".parse::<AccountId>()?);
     ///
     /// token.transfer("bob.near", 1_500_000_u128).await?;
@@ -318,11 +294,7 @@ impl FungibleToken {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn transfer(
-        &self,
-        receiver_id: impl TryIntoAccountId,
-        amount: impl Into<u128>,
-    ) -> CallBuilder {
+    pub fn transfer(&self, receiver_id: impl TryIntoAccountId, amount: impl Into<u128>) -> Tx<W> {
         self.transfer_with_optional_memo(receiver_id, amount.into(), None)
     }
 
@@ -334,7 +306,7 @@ impl FungibleToken {
         receiver_id: impl TryIntoAccountId,
         amount: impl Into<u128>,
         memo: impl Into<String>,
-    ) -> CallBuilder {
+    ) -> Tx<W> {
         self.transfer_with_optional_memo(receiver_id, amount.into(), Some(memo.into()))
     }
 
@@ -343,19 +315,21 @@ impl FungibleToken {
         receiver_id: impl TryIntoAccountId,
         amount: u128,
         memo: Option<String>,
-    ) -> CallBuilder {
+    ) -> Tx<W> {
         let (receiver_id, validation) = validate_account_id(receiver_id);
         trace::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer");
 
-        self.transaction_with_validation(validation)
-            .call("ft_transfer")
-            .args(FtTransferArgs {
-                receiver_id,
-                amount: amount.to_string(),
-                memo,
-            })
-            .deposit(NearToken::from_yoctonear(1))
-            .gas(Gas::from_tgas(30))
+        self.call(
+            validation,
+            FunctionCall::new("ft_transfer")
+                .args(FtTransferArgs {
+                    receiver_id,
+                    amount: amount.to_string(),
+                    memo,
+                })
+                .deposit(NearToken::from_yoctonear(1))
+                .gas(Gas::from_tgas(30)),
+        )
     }
 
     /// Transfer tokens with a callback to the receiver (ft_transfer_call).
@@ -369,10 +343,7 @@ impl FungibleToken {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::mainnet()
-    ///     .credentials("ed25519:...", "alice.near")?
-    ///     .build();
+    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
     /// let token = near.ft("wrap.near".parse::<AccountId>()?);
     ///
     /// token.transfer_call("defi.near", 1_000_000_u128, r#"{"action":"deposit"}"#)
@@ -385,7 +356,7 @@ impl FungibleToken {
         receiver_id: impl TryIntoAccountId,
         amount: impl Into<u128>,
         msg: impl Into<String>,
-    ) -> CallBuilder {
+    ) -> Tx<W> {
         let (receiver_id, validation) = validate_account_id(receiver_id);
         trace::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer_call");
 
@@ -396,15 +367,17 @@ impl FungibleToken {
             msg: String,
         }
 
-        self.transaction_with_validation(validation)
-            .call("ft_transfer_call")
-            .args(TransferCallArgs {
-                receiver_id,
-                amount: amount.into().to_string(),
-                msg: msg.into(),
-            })
-            .deposit(NearToken::from_yoctonear(1))
-            .gas(Gas::from_tgas(100))
+        self.call(
+            validation,
+            FunctionCall::new("ft_transfer_call")
+                .args(TransferCallArgs {
+                    receiver_id,
+                    amount: amount.into().to_string(),
+                    msg: msg.into(),
+                })
+                .deposit(NearToken::from_yoctonear(1))
+                .gas(Gas::from_tgas(100)),
+        )
     }
 }
 
@@ -424,9 +397,21 @@ fn validate_account_id(account_id: impl TryIntoAccountId) -> (String, Result<(),
     }
 }
 
-impl std::fmt::Debug for FungibleToken {
+impl<W: WaitLevel> Clone for FungibleToken<W> {
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client.clone(),
+            contract_id: self.contract_id.clone(),
+            metadata: self.metadata.clone(),
+            storage_bounds: self.storage_bounds.clone(),
+        }
+    }
+}
+
+impl<W: WaitLevel> std::fmt::Debug for FungibleToken<W> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FungibleToken")
+            .field("account_id", self.client.account_id())
             .field("contract_id", &self.contract_id)
             .field("metadata_cached", &self.metadata.initialized())
             .finish()
@@ -436,17 +421,24 @@ impl std::fmt::Debug for FungibleToken {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Action, CryptoHash, StateInit, StateInitExt};
+    use crate::types::{Action, InMemorySigner, SecretKey};
 
     fn token_without_signer() -> FungibleToken {
         FungibleToken::new(
-            Near::custom("http://127.0.0.1:1", "test").build(),
+            crate::Near::custom("http://127.0.0.1:1", "test")
+                .build()
+                .with_signer(
+                    InMemorySigner::from_secret_key("alice.near", SecretKey::generate_ed25519())
+                        .unwrap(),
+                ),
             "token.near".parse().unwrap(),
         )
     }
 
-    fn call_args(call: CallBuilder) -> serde_json::Value {
-        match call.into_action().unwrap() {
+    fn call_args(call: Tx) -> serde_json::Value {
+        assert!(call.error.is_none(), "{:?}", call.error);
+        assert_eq!(call.actions.len(), 1);
+        match call.actions.into_iter().next().unwrap() {
             Action::FunctionCall(action) => serde_json::from_slice(&action.args).unwrap(),
             action => panic!("expected function call, got {action:?}"),
         }
@@ -517,31 +509,5 @@ mod tests {
         for call in calls {
             assert!(matches!(call.await, Err(Error::ParseAccountId(_))));
         }
-    }
-
-    #[tokio::test]
-    async fn receiver_override_does_not_clear_invalid_account_id() {
-        let error = token_without_signer()
-            .transfer("INVALID", 1_u128)
-            .finish()
-            .state_init(
-                StateInit::by_hash(CryptoHash::ZERO, Default::default()),
-                NearToken::ZERO,
-            )
-            .send()
-            .await
-            .unwrap_err();
-
-        assert!(matches!(error, Error::ParseAccountId(_)));
-    }
-
-    #[tokio::test]
-    async fn valid_call_still_reaches_send_validation() {
-        let error = token_without_signer()
-            .transfer("alice.near", 1_u128)
-            .await
-            .unwrap_err();
-
-        assert!(matches!(error, Error::NoSigner));
     }
 }

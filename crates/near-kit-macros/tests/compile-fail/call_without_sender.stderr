@@ -9,12 +9,12 @@ help: the trait `TxSender` is not implemented for `ViewOnly`
    |
 15 | struct ViewOnly;
    | ^^^^^^^^^^^^^^^
-   = note: attach a signer with `near.with_signer(signer)`
-help: the trait `TxSender` is implemented for `Near`
-  --> $WORKSPACE/crates/near-kit/src/client/near.rs
+   = note: `near.with_signer(signer)` returns a sender; or implement `TxSender`
+help: the trait `TxSender` is implemented for `SigningNear<W>`
+  --> $WORKSPACE/crates/near-kit/src/client/signing.rs
    |
-   | impl crate::TxSender for Near {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | impl<W: WaitLevel> crate::TxSender for SigningNear<W> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: required by a bound in `CounterClient::<C>::increment`
   --> tests/compile-fail/call_without_sender.rs:7:1
    |

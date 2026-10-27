@@ -2,7 +2,7 @@
 //! [`Call`] values that contract clients return, and typed execution wait
 //! levels.
 //!
-//! The fluent `TransactionBuilder` needs a client and lives in `near-kit`;
+//! Sending a transaction needs a client (`near-kit`'s `SigningNear::transaction`);
 //! to build and sign a transaction offline, use
 //! [`Transaction`](crate::protocol::Transaction) directly.
 

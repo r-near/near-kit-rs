@@ -9,8 +9,9 @@
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::Near;
+//! use near_kit::protocol::Action;
 //! use near_kit::signer::InMemorySigner;
+//! use near_kit::{Near, NearToken, account};
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let signer = InMemorySigner::new(
@@ -18,11 +19,12 @@
 //!     "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
 //! )?;
 //!
-//! let near = Near::testnet()
-//!     .signer(signer)
-//!     .build();
+//! let alice = Near::testnet().build().with_signer(signer);
 //!
-//! near.transfer("bob.testnet", "1 NEAR").await?;
+//! alice
+//!     .transaction(account!("bob.testnet"))
+//!     .add_action(Action::transfer(NearToken::from_near(1)))
+//!     .await?;
 //! # Ok(())
 //! # }
 //! ```

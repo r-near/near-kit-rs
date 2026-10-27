@@ -12,15 +12,19 @@
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! # use near_kit::*;
+//! # use near_kit::protocol::Action;
 //! # use near_kit::transaction::Included;
-//! # async fn example(near: &Near) -> Result<(), Error> {
-//! let response = near.transfer("bob.testnet", NearToken::from_near(1))
+//! # async fn example(alice: &SigningNear) -> Result<(), Error> {
+//! let response = alice
 //!     .wait_until::<Included>()
+//!     .transaction(account!("bob.testnet"))
+//!     .add_action(Action::transfer(NearToken::from_near(1)))
 //!     .await?;
 //!
 //! // Later, poll for progress without waiting for finality. At early wait
 //! // levels EXPERIMENTAL_tx_status still returns per-receipt data:
-//! let status = near
+//! let status = alice
+//!     .near()
 //!     .tx_status(&response.transaction_hash, &response.sender_id)
 //!     .wait_until::<Included>()
 //!     .await?;
@@ -68,6 +72,6 @@ pub use crate::client::WasiHttpTransport;
 #[cfg(feature = "rpc")]
 pub use crate::client::{
     AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, BoxFuture, ContractCodeQuery,
-    GlobalContractQuery, RetryConfig, RpcClient, RpcTransport, SandboxNetwork,
-    TransactionStatusQuery, TransportResponse, ViewCall, ViewCallBorsh,
+    GlobalContractQuery, RetryConfig, RpcClient, RpcTransport, TransactionStatusQuery,
+    TransportResponse, ViewCall, ViewCallBorsh,
 };

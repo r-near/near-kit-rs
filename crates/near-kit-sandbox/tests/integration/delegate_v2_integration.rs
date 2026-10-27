@@ -11,6 +11,7 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
+use near_kit::protocol::Action;
 use near_kit::*;
 use near_kit::{protocol::*, rpc::*, signer::*, transaction::Final};
 
@@ -29,40 +30,38 @@ async fn test_delegate_v2_relay() {
     let sender_key = SecretKey::generate_ed25519();
     let sender_id = unique_account("dv2sender");
     root_near
-        .transaction(&sender_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(sender_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&sender_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(10)))
+        .add_action(Action::add_full_access_key(sender_key.public_key()))
         .await
         .expect("create sender");
 
     let relayer_key = SecretKey::generate_ed25519();
     let relayer_id = unique_account("dv2relayer");
     root_near
-        .transaction(&relayer_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(relayer_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&relayer_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(10)))
+        .add_action(Action::add_full_access_key(relayer_key.public_key()))
         .await
         .expect("create relayer");
 
     let recipient_key = SecretKey::generate_ed25519();
     let recipient_id = unique_account("dv2recipient");
     root_near
-        .transaction(&recipient_id)
-        .create_account()
-        .transfer(NearToken::from_near(1))
-        .add_full_access_key(recipient_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&recipient_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(1)))
+        .add_action(Action::add_full_access_key(recipient_key.public_key()))
         .await
         .expect("create recipient");
 
     let recipient_before = root_near
+        .near()
         .balance(&recipient_id)
         .await
         .expect("recipient balance before")
@@ -70,6 +69,7 @@ async fn test_delegate_v2_relay() {
 
     // --- SENDER: build + sign a DelegateActionV2 (transfer to recipient). ----
     let ak = root_near
+        .near()
         .rpc()
         .view_access_key(
             &sender_id,
@@ -78,7 +78,7 @@ async fn test_delegate_v2_relay() {
         )
         .await
         .expect("view sender access key");
-    let status = root_near.rpc().status().await.expect("status");
+    let status = root_near.near().rpc().status().await.expect("status");
     let max_block_height = status.sync_info.latest_block_height + 200;
 
     let transfer_amount = NearToken::from_near(2);
@@ -107,7 +107,7 @@ async fn test_delegate_v2_relay() {
     assert_eq!(received, signed);
 
     // --- RELAYER: wrap in Action::DelegateV2 and submit, paying gas. ---------
-    let relayer_near = root_near.with_signer(
+    let relayer_near = root_near.near().with_signer(
         InMemorySigner::from_secret_key(relayer_id.clone(), relayer_key.clone())
             .expect("relayer signer"),
     );
@@ -118,12 +118,12 @@ async fn test_delegate_v2_relay() {
     // not yet model the v4 execution metadata these receipts carry, so the raw
     // path is what definitively proves on-chain acceptance here.
     let signed_outer = relayer_near
-        .transaction(&sender_id) // outer receiver must be the meta-tx sender
-        .add_action(Action::delegate_v2(received))
-        .sign()
+        // The outer receiver must be the meta-tx sender.
+        .sign(&sender_id, vec![Action::delegate_v2(received)])
         .await
         .expect("sign outer relay tx");
     let raw: serde_json::Value = root_near
+        .near()
         .rpc()
         .call(
             "send_tx",
@@ -154,6 +154,7 @@ async fn test_delegate_v2_relay() {
 
     // --- VERIFY the transfer landed. ----------------------------------------
     let recipient_after = root_near
+        .near()
         .balance(&recipient_id)
         .await
         .expect("recipient balance after")
@@ -170,7 +171,7 @@ async fn test_delegate_v2_relay() {
 async fn test_delegate_v2_rejected_as_removed_protocol_feature() {
     let (sandbox, root_near) = shared_client().await;
 
-    let status = root_near.rpc().status().await.expect("status");
+    let status = root_near.near().rpc().status().await.expect("status");
     assert!(
         status.protocol_version >= REJECT_DELEGATE_V2_PROTOCOL_VERSION,
         "default sandbox runs protocol v{}, but DelegateV2 is only rejected from \
@@ -191,6 +192,7 @@ async fn test_delegate_v2_rejected_as_removed_protocol_feature() {
     // A well-formed, correctly signed DelegateActionV2: the only reason for the
     // node to reject it is that the action itself was removed.
     let ak = root_near
+        .near()
         .rpc()
         .view_access_key(
             &sender_id,
@@ -215,10 +217,9 @@ async fn test_delegate_v2_rejected_as_removed_protocol_feature() {
     let signed = payload.sign(signature);
 
     let error = relayer_near
+        .wait_until::<Final>()
         .transaction(&sender_id)
         .add_action(Action::delegate_v2(signed))
-        .send()
-        .wait_until::<Final>()
         .await
         .expect_err("a 2.14 node must reject Action::DelegateV2");
 
