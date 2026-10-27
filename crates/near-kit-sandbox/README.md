@@ -6,7 +6,7 @@ Docker-backed local NEAR sandbox support for [`near-kit`](https://crates.io/crat
 
 This companion crate owns the Docker/testcontainers lifecycle that previously
 lived behind near-kit's `sandbox` feature. It starts a `nearprotocol/sandbox`
-container and returns a normal signed `near_kit::Near` client.
+container and returns a normal `near_kit::SigningNear` for its root account.
 
 ## Setup
 
@@ -15,8 +15,8 @@ dependency:
 
 ```toml
 [dev-dependencies]
-near-kit = "0.18"
-near-kit-sandbox = "0.18"
+near-kit = "0.21"
+near-kit-sandbox = "0.21"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -52,9 +52,8 @@ Use `SandboxConfig::fresh()` when a test needs isolated chain state. Use
 cost. The shared instance persists until process exit; tests sharing it must use
 unique accounts or otherwise coordinate state.
 
-`sandbox.client()` returns a `SigningNear` for the sandbox root account; use
-`sandbox.client().near()` for reads and
-`sandbox.client().near().with_signer(signer)` for other accounts. `Sandbox::set_balance` and
+`sandbox.client()` returns a `SigningNear` for the sandbox root account. Sign
+as another account with `sandbox.client().near().with_signer(signer)`. `Sandbox::set_balance` and
 `Sandbox::fast_forward` expose sandbox-owned test controls.
 
 For custom configuration:
@@ -62,7 +61,7 @@ For custom configuration:
 ```rust
 let sandbox = SandboxConfig::builder()
     .version("2.13.4")
-    .root_account("local")
+    .root_account(account!("local"))
     .chain_id("localnet")
     .fresh()
     .await?;

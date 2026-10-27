@@ -2,7 +2,7 @@
 //!
 //! Demonstrates the global contract workflow:
 //! 1. Publish a contract to the global registry
-//! 2. Deploy it to another account using `deploy_from`
+//! 2. Deploy it to another account with `Action::deploy_from_account`/`deploy_from_hash`
 //! 3. Call methods on the deployed contract
 //!
 //! Run: cargo run -p near-kit-sandbox --example global_contracts --features integration-tests
@@ -110,7 +110,7 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         println!("  - {}", msg["text"]);
     }
 
-    // --- Also demonstrate deploy_from with a CryptoHash ---
+    // --- Also deploy from a code hash (Action::deploy_from_hash) ---
     let code_hash = CryptoHash::hash(&wasm_code);
     println!("\nContract code hash: {code_hash}");
 
