@@ -75,8 +75,8 @@ impl FunctionCall {
     }
 
     /// Set raw byte arguments.
-    pub fn args_raw(mut self, args: Vec<u8>) -> Self {
-        self.args = args;
+    pub fn args_raw(mut self, args: impl Into<Vec<u8>>) -> Self {
+        self.args = args.into();
         self
     }
 

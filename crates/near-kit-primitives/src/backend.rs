@@ -116,15 +116,37 @@ pub trait Contract {
 }
 
 /// Error from a [`View`] or [`Call`].
-#[derive(Debug, thiserror::Error)]
+///
+/// Displays as the underlying error. It is a [`std::error::Error`] whenever
+/// the backend error is `Debug + Display`, not only when it is itself an
+/// `Error`, so `ContractError<anyhow::Error>` converts into `anyhow::Error`
+/// with `?`. [`source`](std::error::Error::source) is the codec error's
+/// source; a backend error's own source chain isn't reachable through it.
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum ContractError<E> {
     /// The arguments failed to encode, or the view result failed to decode.
-    #[error(transparent)]
     Codec(CodecError),
     /// The backend failed.
-    #[error(transparent)]
     Backend(E),
+}
+
+impl<E: fmt::Display> fmt::Display for ContractError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Codec(error) => error.fmt(f),
+            Self::Backend(error) => error.fmt(f),
+        }
+    }
+}
+
+impl<E: fmt::Debug + fmt::Display> std::error::Error for ContractError<E> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Codec(error) => std::error::Error::source(error),
+            Self::Backend(_) => None,
+        }
+    }
 }
 
 /// A typed contract view, ready to `.await`.
@@ -693,6 +715,29 @@ mod tests {
         .unwrap_err();
         assert!(matches!(error, ContractError::Codec(CodecError::Json(_))));
         assert!(sender.sent.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn contract_error_is_an_error_for_display_only_backend_errors() {
+        /// Like `anyhow::Error`: `Debug + Display`, but not an `Error`.
+        #[derive(Debug)]
+        struct DisplayOnly;
+
+        impl fmt::Display for DisplayOnly {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("display only")
+            }
+        }
+
+        fn into_boxed(
+            result: Result<(), ContractError<DisplayOnly>>,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            result?;
+            Ok(())
+        }
+
+        let error = into_boxed(Err(ContractError::Backend(DisplayOnly))).unwrap_err();
+        assert_eq!(error.to_string(), "display only");
     }
 
     #[test]

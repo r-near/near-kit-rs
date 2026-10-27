@@ -671,20 +671,20 @@ impl Action {
     }
 
     /// Create a DeployContract action.
-    pub fn deploy_contract(code: Vec<u8>) -> Self {
-        Self::DeployContract(DeployContractAction { code })
+    pub fn deploy_contract(code: impl Into<Vec<u8>>) -> Self {
+        Self::DeployContract(DeployContractAction { code: code.into() })
     }
 
     /// Create a FunctionCall action.
     pub fn function_call(
         method_name: impl Into<String>,
-        args: Vec<u8>,
+        args: impl Into<Vec<u8>>,
         gas: Gas,
         deposit: NearToken,
     ) -> Self {
         Self::FunctionCall(FunctionCallAction {
             method_name: method_name.into(),
-            args,
+            args: args.into(),
             gas,
             deposit,
         })
@@ -764,9 +764,9 @@ impl Action {
     /// // Publish immutable contract (identified by its hash)
     /// let immutable = Action::publish(wasm_code, PublishMode::Immutable);
     /// ```
-    pub fn publish(code: Vec<u8>, mode: PublishMode) -> Self {
+    pub fn publish(code: impl Into<Vec<u8>>, mode: PublishMode) -> Self {
         Self::DeployGlobalContract(DeployGlobalContractAction {
-            code,
+            code: code.into(),
             deploy_mode: mode,
         })
     }
