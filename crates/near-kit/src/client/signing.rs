@@ -285,10 +285,35 @@ impl<W: WaitLevel> SigningNear<W> {
     /// # }
     /// ```
     ///
+    /// To sign with a nonce and block hash you already have, without the
+    /// network, build the [`Transaction`](crate::protocol::Transaction)
+    /// yourself and sign its hash with the signer's key. This works for any
+    /// [`Signer`](crate::signer::Signer), including keys you can't export:
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # use near_kit::protocol::{Action, Transaction};
+    /// # use near_kit::signer::Signer;
+    /// # async fn example(alice: SigningNear, nonce: u64, block_hash: CryptoHash) -> Result<(), Error> {
+    /// let signer = alice.signer();
+    /// let tx = Transaction::new(
+    ///     signer.account_id().clone(),
+    ///     signer.public_key(),
+    ///     nonce,
+    ///     account!("bob.testnet"),
+    ///     block_hash,
+    ///     vec![Action::transfer(NearToken::from_near(1))],
+    /// );
+    /// let signature = signer.key().sign(tx.get_hash().as_bytes()).await?;
+    /// let signed = tx.complete(signature);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     /// # Errors
     ///
-    /// [`Error::InvalidTransaction`] if `actions` is empty, otherwise RPC
-    /// and signing errors.
+    /// [`Error::InvalidTransaction`] if `actions` is empty or a state init
+    /// targets another receiver, otherwise RPC and signing errors.
     pub async fn sign(
         &self,
         receiver_id: impl Into<AccountId>,

@@ -12,8 +12,8 @@ mechanical:
   shortcuts are gone.
 - **Arguments are typed.** Pass an `AccountId` (`account!("x.near")` for
   literals), a `NearToken` and a `Gas`. Strings no longer convert implicitly.
-- **One way to pick a block: `.at(..)`.** It takes a height, a hash or a
-  `Finality`.
+- **One way to pick a block: `.at(..)`.** It takes a height, a hash, a
+  `Finality` or a `SyncCheckpoint`.
 - **Sends wait for `Final` by default** (was `ExecutedOptimistic`).
 - **Two traits, `Viewer` and `TxSender`,** are what typed contract clients
   and the FT/NFT helpers run on. `Near` is a `Viewer`; `SigningNear` is both.
@@ -25,6 +25,45 @@ The protocol types also moved into the new `near-kit-primitives` crate.
 near-kit re-exports every item at its old `near_kit::` path, so imports keep
 working. Depend on `near-kit-primitives` directly only if you want the types
 without the RPC client.
+
+## Where did this method go?
+
+The compiler reports a removed method as ``no method named `x` found for
+struct `SigningNear<W>` `` with no hint where it went. Look `x` up here; the
+sections below have the details. `near` is a `Near`, `signing` a `SigningNear`,
+and `block` anything that converts into a `BlockReference`, like
+`Finality::Final`.
+
+| 0.20 method | 0.21 |
+|---|---|
+| `access_keys(id)` | `near.rpc().view_access_key_list(&id, block)` |
+| `account(id)` | `near.rpc().view_account(&id, block)` |
+| `account_exists(id)`, `balance(id)`, `chain_id()`, `tx_status(..)`, `view(id, m)` | On `Near`; from a `SigningNear`, `signing.near().balance(id)` and so on |
+| `account_id()`, `signer()` | `signing.account_id()`, `signing.signer()` |
+| `add_full_access_key(pk)`, `delete_key(pk)`, `deploy(wasm)`, `deploy_from(..)`, `publish(..)` | `signing.transaction(signing.account_id()).add_action(Action::add_full_access_key(pk))` and so on |
+| `call(id, m)` | `signing.transaction(id).add_action(FunctionCall::new(m))` |
+| `contract::<T>(id)` | Unchanged on both `Near` and `SigningNear` |
+| `contract_code(id)` | `near.rpc().view_code(&id, block)` |
+| `credentials(key, id)` (builder), `signer(s)` (builder) | `Near::testnet().build().with_signer(InMemorySigner::new(id, key.parse()?))` |
+| `delegate(..)`, `sign()` (on a transaction builder) | `signing.delegate(rx, actions, opts)`, `signing.sign(rx, actions)` |
+| `from_env()` | `SigningNear::from_env()` |
+| `ft(id)`, `nft(id)` | `near.contract::<FungibleToken>(id)`, `near.contract::<NonFungibleToken>(id)` (`near_kit::standards`) |
+| `global_contract(id)` | `near.rpc().view_global_contract_code(id, block)` |
+| `into_action()` (on a call) | `FunctionCall::from(call).into_action()?` |
+| `max_nonce_retries(n)` | `signing.max_nonce_retries(n)` or `near.max_nonce_retries(n)` |
+| `public_key()` | `signing.signer().public_key()` |
+| `rpc()` | `near.rpc()`, or `signing.near().rpc()` |
+| `rpc_url()` | `near.rpc().url()` |
+| `sandbox(&sandbox)` | `sandbox.client()` |
+| `send(&signed)` | `near.send_signed(&signed)` |
+| `sign_message(params)` | `signing.signer().key().sign_nep413(signing.account_id(), &params)` |
+| `state_init(si, deposit)` | `signing.transaction(si.derive_account_id()).add_action(Action::state_init(si, deposit))` |
+| `transaction(rx)` | `signing.transaction(rx)` |
+| `transfer(id, amount)` | `signing.transaction(id).add_action(Action::transfer(amount))` |
+| `transfer_with_memo(to, amount, memo)` (token) | `transfer(to, amount, Some(memo))` |
+| `validators()` | `near.rpc().validators(None)` |
+| `wait_until::<W>()` (on a send) | `signing.wait_until::<W>()`, before `transaction(..)` |
+| `with_signer(s)` (on a signing client) | `signing.near().with_signer(s)` |
 
 ## Clients and signers
 
@@ -219,6 +258,22 @@ A view now returns `Result<T, ContractError<RpcError>>` rather than
 `Result<T, Error>`. `?` into `Error` still works. Code that matched `Error`
 should match `ContractError::Backend(rpc_error)` /
 `ContractError::Codec(codec_error)`, or call `.map_err(Error::from)` first.
+
+If your own error enum wraps `near_kit::Error` with `#[from]`, `?` on a typed
+view or call no longer reaches it: `ContractError<RpcError>` to `Error` to
+your enum is two conversions, and `?` does one. Convert first, or add the
+second `From`:
+
+```rust
+let key = mpc.public_key(args).await.map_err(near_kit::Error::from)?;
+
+// or, once:
+impl From<ContractError<RpcError>> for MyError {
+    fn from(e: ContractError<RpcError>) -> Self {
+        MyError::Near(e.into())
+    }
+}
+```
 
 ```rust
 // 0.20

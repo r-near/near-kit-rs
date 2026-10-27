@@ -255,7 +255,8 @@ impl Near {
     ///     .sign(account!("bob.testnet"), vec![Action::transfer(NearToken::from_near(1))])
     ///     .await?;
     ///
-    /// // Send later. The default waits for optimistic execution.
+    /// // Send later. Like a `Tx`, it waits for `Final` unless you pick
+    /// // another level with `.wait_until::<W>()`.
     /// let outcome: FinalExecutionOutcome = alice.near().send_signed(&signed).await?;
     /// # Ok(())
     /// # }
