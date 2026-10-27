@@ -29,11 +29,11 @@ export DOCKER_HOST="$(docker context inspect --format '{{.Endpoints.docker.Host}
 
 ```rust
 use near_kit::{account, NearToken, protocol::Action, signer::SecretKey};
-use near_kit_sandbox::SandboxConfig;
+use near_kit_sandbox::Sandbox;
 
 #[tokio::test]
 async fn creates_an_account() -> Result<(), Box<dyn std::error::Error>> {
-    let sandbox = SandboxConfig::fresh().await?;
+    let sandbox = Sandbox::builder().fresh().await?;
     let root = sandbox.client();
     let alice_key = SecretKey::generate_ed25519();
 
@@ -47,8 +47,8 @@ async fn creates_an_account() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Use `SandboxConfig::fresh()` when a test needs isolated chain state. Use
-`SandboxConfig::shared()` to reuse one process-wide sandbox and reduce startup
+Use `Sandbox::builder().fresh()` when a test needs isolated chain state. Use
+`Sandbox::builder().shared()` to reuse one process-wide sandbox and reduce startup
 cost. The shared instance persists until process exit; tests sharing it must use
 unique accounts or otherwise coordinate state.
 
@@ -59,7 +59,7 @@ as another account with `sandbox.client().near().with_signer(signer)`. `Sandbox:
 For custom configuration:
 
 ```rust
-let sandbox = SandboxConfig::builder()
+let sandbox = Sandbox::builder()
     .version("2.13.4")
     .root_account(account!("local"))
     .chain_id("localnet")

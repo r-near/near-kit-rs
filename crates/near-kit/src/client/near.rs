@@ -85,32 +85,6 @@ impl Near {
         NearBuilder::new(rpc_url, chain_id.into())
     }
 
-    /// Wrap an existing [`RpcClient`] in a `Near` client.
-    ///
-    /// The client keeps the RPC client's URL, transport and retry
-    /// configuration. Use this when a component is handed an `RpcClient` but
-    /// wants the high-level API on top of it, such as typed
-    /// `#[near_kit::contract]` views. Add a signer with
-    /// [`with_signer`](Self::with_signer).
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit::Near;
-    /// use near_kit::rpc::RpcClient;
-    ///
-    /// let rpc = RpcClient::new("https://rpc.testnet.near.org");
-    /// let near = Near::from_rpc(rpc, "testnet");
-    /// assert_eq!(near.chain_id().as_str(), "testnet");
-    /// ```
-    pub fn from_rpc(rpc: RpcClient, chain_id: impl Into<ChainId>) -> Near {
-        Near {
-            rpc: Arc::new(rpc),
-            chain_id: chain_id.into(),
-            max_nonce_retries: DEFAULT_MAX_NONCE_RETRIES,
-        }
-    }
-
     /// Get the underlying RPC client.
     pub fn rpc(&self) -> &RpcClient {
         &self.rpc
@@ -514,29 +488,15 @@ impl NearBuilder {
         self
     }
 
-    /// Use a preconfigured HTTP client for RPC requests.
-    ///
-    /// This allows callers to configure transport concerns such as default
-    /// headers, proxies, TLS, and timeouts without expanding near-kit's API for
-    /// each individual HTTP setting.
-    ///
-    /// Not available on WASI, where reqwest doesn't build — see
-    /// [`NearBuilder::transport`] for full transport replacement.
-    #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
-    pub fn http_client(mut self, client: reqwest::Client) -> Self {
-        self.transport = Some(Arc::new(transport::ReqwestTransport::with_client(client)));
-        self
-    }
-
     /// Replace the HTTP transport entirely with a custom [`RpcTransport`].
     ///
     /// This is the injection point for platforms whose HTTP stack near-kit
     /// doesn't know about — e.g. a runtime that proxies RPC traffic through a
     /// host call instead of exposing raw HTTP. On WASI builds without the
     /// `wasi-http` feature it is the *only* way to reach the network — the
-    /// default there only returns a typed transport error. For merely
-    /// *configuring* the default reqwest transport (headers, proxies, TLS), prefer
-    /// [`NearBuilder::http_client`].
+    /// default there only returns a typed transport error. To configure the
+    /// default reqwest transport (headers, proxies, TLS, timeouts), pass
+    /// `ReqwestTransport::with_client(client)`.
     pub fn transport(mut self, transport: impl RpcTransport + 'static) -> Self {
         self.transport = Some(Arc::new(transport));
         self

@@ -16,11 +16,11 @@ use near_kit::*;
 
 use near_kit::signer::{InMemorySigner, RotatingSigner, SecretKey};
 use near_kit::transaction::Included;
-use near_kit_sandbox::{Sandbox, SandboxConfig};
+use near_kit_sandbox::Sandbox;
 
 async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting local sandbox...\n");
-    let sandbox: Sandbox = SandboxConfig::fresh().await?;
+    let sandbox: Sandbox = Sandbox::builder().fresh().await?;
 
     let root_near = sandbox.client();
     let root_account = root_near.account_id().to_string();

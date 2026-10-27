@@ -30,9 +30,7 @@ async fn test_view_state_pagination_reads_all_entries() {
     let sandbox = sandbox_2_13().await;
     let near = sandbox.client();
 
-    let contract_id: AccountId = format!("vstate.{}", sandbox.root_account_id())
-        .parse()
-        .unwrap();
+    let contract_id: AccountId = format!("vstate.{}", near.account_id()).parse().unwrap();
     deploy_guestbook(&near, &contract_id).await;
 
     // Populate state: each message extends the on-trie Vector, adding entries.

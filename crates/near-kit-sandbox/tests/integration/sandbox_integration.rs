@@ -4,7 +4,7 @@ use near_kit::NearToken;
 use near_kit::protocol::Action;
 use near_kit::rpc::SendTxResponse;
 use near_kit::transaction::{Final, Included};
-use near_kit_sandbox::SandboxConfig;
+use near_kit_sandbox::Sandbox;
 
 use super::support::{funded_account, guestbook_wasm, shared_client};
 
@@ -113,7 +113,7 @@ async fn pre_signed_transaction_is_accepted() {
 
 #[tokio::test]
 async fn custom_chain_id_reaches_the_client() {
-    let sandbox = SandboxConfig::builder()
+    let sandbox = Sandbox::builder()
         .chain_id("pinet")
         .fresh()
         .await
@@ -133,7 +133,7 @@ async fn custom_chain_id_reaches_the_client() {
 
 #[tokio::test]
 async fn fast_forward_advances_block_height() {
-    let sandbox = SandboxConfig::fresh().await.expect("fresh sandbox");
+    let sandbox = Sandbox::builder().fresh().await.expect("fresh sandbox");
     let near = sandbox.client();
     let before = near
         .near()

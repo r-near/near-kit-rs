@@ -460,17 +460,6 @@ impl RpcClient {
         )
     }
 
-    /// Create a new RPC client with custom retry configuration.
-    ///
-    /// Only exists where a built-in transport does — see [`RpcClient::new`].
-    #[cfg(any(
-        not(all(target_arch = "wasm32", target_os = "wasi")),
-        all(feature = "wasi-http", target_env = "p2")
-    ))]
-    pub fn with_retry_config(url: impl Into<String>, retry_config: RetryConfig) -> Self {
-        Self::with_transport_and_retry_config(url, transport::default_transport(), retry_config)
-    }
-
     /// Create a new RPC client with a custom [`RpcTransport`] and retry
     /// configuration.
     ///
@@ -1402,19 +1391,6 @@ impl RpcClient {
         self.call("block_effects", params).await
     }
 
-    /// Get the network's genesis configuration as raw JSON.
-    ///
-    /// Uses the stabilized `genesis_config` method (protocol 2.13), the new name
-    /// for `EXPERIMENTAL_genesis_config`. The genesis config is a large,
-    /// network-specific document, so it is returned as untyped JSON.
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    pub async fn genesis_config(&self) -> Result<serde_json::Value, RpcError> {
-        // Send an empty params array (not `null`) — this is what the other
-        // no-arg methods here use, and some JSON-RPC servers require `params` to
-        // be an array/object.
-        self.call("genesis_config", serde_json::json!([])).await
-    }
-
     /// Get the upcoming maintenance windows for a validator account.
     ///
     /// Each window is a half-open block-height range during which the validator
@@ -1536,90 +1512,6 @@ impl RpcClient {
         {
             map.extend(block_params);
         }
-    }
-
-    // ========================================================================
-    // Sandbox-only methods
-    // ========================================================================
-
-    /// Patch account state in sandbox.
-    ///
-    /// This is a sandbox-only method that allows modifying account state directly,
-    /// useful for testing scenarios that require specific account configurations
-    /// (e.g., setting a high balance for staking tests).
-    ///
-    /// # Arguments
-    ///
-    /// * `records` - State records to patch (Account, Data, Contract, AccessKey, etc.)
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// // Set account balance to 1M NEAR
-    /// rpc.sandbox_patch_state(serde_json::json!([
-    ///     {
-    ///         "Account": {
-    ///             "account_id": "alice.sandbox",
-    ///             "account": {
-    ///                 "amount": "1000000000000000000000000000000",
-    ///                 "locked": "0",
-    ///                 "code_hash": "11111111111111111111111111111111",
-    ///                 "storage_usage": 182
-    ///             }
-    ///         }
-    ///     }
-    /// ])).await?;
-    /// ```
-    /// Fast-forward the sandbox by `delta_height` blocks.
-    ///
-    /// This is useful for testing time-dependent logic (e.g., lockups, staking
-    /// epoch changes) without waiting for real block production.
-    ///
-    /// **Note:** This can take a while for large deltas — the sandbox node
-    /// internally produces all intermediate blocks. The RPC call will block
-    /// until fast-forwarding completes (up to 1 hour server-side timeout).
-    /// It is sent once, without retries: a retry after a lost response could
-    /// advance the chain twice.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// // Advance the sandbox by 1000 blocks
-    /// rpc.sandbox_fast_forward(1000).await?;
-    /// ```
-    pub async fn sandbox_fast_forward(&self, delta_height: u64) -> Result<(), RpcError> {
-        let params = serde_json::json!({
-            "delta_height": delta_height,
-        });
-
-        let _: serde_json::Value = self.call("sandbox_fast_forward", params).await?;
-        Ok(())
-    }
-
-    pub async fn sandbox_patch_state(&self, records: serde_json::Value) -> Result<(), RpcError> {
-        let params = serde_json::json!({
-            "records": records,
-        });
-
-        // The sandbox_patch_state method returns an empty result on success
-        let _: serde_json::Value = self.call("sandbox_patch_state", params).await?;
-
-        // NOTE: For some reason, patching account-related items sometimes requires
-        // sending the patch twice for it to take effect reliably.
-        // See: https://github.com/near/near-workspaces-rs/commit/2b72b9b8491c3140ff2d30b0c45d09b200cb027b
-        let _: serde_json::Value = self
-            .call(
-                "sandbox_patch_state",
-                serde_json::json!({
-                    "records": records,
-                }),
-            )
-            .await?;
-
-        // Small delay to allow state to propagate - sandbox patch_state has race conditions
-        async_sleep(std::time::Duration::from_millis(100)).await;
-
-        Ok(())
     }
 }
 
@@ -1900,6 +1792,15 @@ mod tests {
         }
     }
 
+    /// An `RpcClient` over the default reqwest transport.
+    fn test_client(url: &str, retry_config: RetryConfig) -> RpcClient {
+        RpcClient::with_transport_and_retry_config(
+            url,
+            Arc::new(transport::ReqwestTransport::default()),
+            retry_config,
+        )
+    }
+
     /// Retry config with `max_retries` retries and negligible backoff, so
     /// retry-loop tests don't sleep for real.
     fn fast_retries(max_retries: u32) -> RetryConfig {
@@ -2147,17 +2048,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_client_with_retry_config() {
-        let config = RetryConfig {
-            max_retries: 5,
-            initial_delay_ms: 100,
-            max_delay_ms: 1000,
-        };
-        let client = RpcClient::with_retry_config("https://rpc.example.com", config);
-        assert_eq!(client.url(), "https://rpc.example.com");
-    }
-
-    #[test]
     fn test_rpc_client_clone() {
         let client = RpcClient::new("https://rpc.testnet.near.org");
         let cloned = client.clone();
@@ -2308,7 +2198,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_near_builder_uses_custom_http_client() {
+    async fn test_near_builder_uses_a_configured_reqwest_client() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let (request_tx, request_rx) = mpsc::channel();
@@ -2351,7 +2241,7 @@ mod tests {
             .build()
             .unwrap();
         let near = crate::Near::custom(format!("http://{address}"), "test")
-            .http_client(http_client)
+            .transport(transport::ReqwestTransport::with_client(http_client))
             .build();
         let debug = format!("{:?}", near.rpc());
         assert!(!debug.contains(secret));
@@ -2456,14 +2346,14 @@ mod tests {
     async fn test_connection_reset_is_retried() {
         let (url, server) = scripted_server(vec![Conn::Reset, Conn::Reset, Conn::Respond]);
 
-        let error = RpcClient::with_retry_config(&url, RetryConfig::none())
+        let error = test_client(&url, RetryConfig::none())
             .call::<_, serde_json::Value>("status", ())
             .await
             .unwrap_err();
         assert!(matches!(error, RpcError::Http(_)), "{error:?}");
         assert!(error.is_retryable(), "{error:?}");
 
-        let response: serde_json::Value = RpcClient::with_retry_config(&url, fast_retries(1))
+        let response: serde_json::Value = test_client(&url, fast_retries(1))
             .call("status", ())
             .await
             .unwrap();
@@ -2478,14 +2368,14 @@ mod tests {
     async fn test_connection_closed_before_response_is_retried() {
         let (url, server) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
 
-        let error = RpcClient::with_retry_config(&url, RetryConfig::none())
+        let error = test_client(&url, RetryConfig::none())
             .call::<_, serde_json::Value>("status", ())
             .await
             .unwrap_err();
         assert!(is_incomplete_message(&error), "{error:?}");
         assert!(error.is_retryable(), "{error:?}");
 
-        let response: serde_json::Value = RpcClient::with_retry_config(&url, fast_retries(1))
+        let response: serde_json::Value = test_client(&url, fast_retries(1))
             .call("status", ())
             .await
             .unwrap();
@@ -2501,9 +2391,15 @@ mod tests {
         // If fast_forward were retried, it would consume all three
         // connections and succeed.
         let (url, server) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
-        let client = RpcClient::with_retry_config(&url, fast_retries(2));
+        let client = test_client(&url, fast_retries(2));
 
-        let error = client.sandbox_fast_forward(1).await.unwrap_err();
+        let error = client
+            .call::<_, serde_json::Value>(
+                "sandbox_fast_forward",
+                serde_json::json!({ "delta_height": 1 }),
+            )
+            .await
+            .unwrap_err();
         assert!(is_incomplete_message(&error), "{error:?}");
 
         let response: serde_json::Value = client

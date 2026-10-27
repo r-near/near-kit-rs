@@ -259,8 +259,8 @@ The loaders read the key once and return an `InMemorySigner`.
 With `tracing` on, RPC calls and transactions run inside spans (`call`, `view_function`, `send_transaction`, ...) and emit events at DEBUG (retries, failed requests, transaction lifecycle) and TRACE (raw request/response payloads). near-kit never logs at WARN or ERROR for an error it returns to you — that is the caller's decision — so a WARN-level subscriber stays quiet on expected failures such as probing a contract for a method it doesn't export. The one WARN is reserved for an anomaly that is *not* surfaced as an error: an RPC error variant this version couldn't parse and mapped to `Unknown`.
 
 Docker-backed local testing lives in the companion `near-kit-sandbox` crate. Add
-it as a dev-dependency and call `SandboxConfig::fresh().await?` or
-`SandboxConfig::shared().await?`; `sandbox.client()` is a `SigningNear` for the
+it as a dev-dependency and call `Sandbox::builder().fresh().await?` or
+`Sandbox::builder().shared().await?`; `sandbox.client()` is a `SigningNear` for the
 sandbox root account. See the
 [`near-kit-sandbox` guide](https://github.com/r-near/near-kit-rs/blob/main/crates/near-kit-sandbox/README.md) for setup and
 lifecycle details.

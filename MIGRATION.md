@@ -38,6 +38,10 @@ without the RPC client.
 | `near.signer()` / `public_key()` | `signing.signer()` (an `&Arc<dyn Signer>`), `signing.signer().public_key()` |
 | `near.sign_message(params)` | `signing.sign_message(params)` |
 | `near.rpc_url()` | `near.rpc().url()` |
+| `Near::from_rpc(rpc, chain_id)` | `Near::custom(url, chain_id).transport(t).retry_config(c).build()` |
+| `NearBuilder::http_client(client)` | `.transport(ReqwestTransport::with_client(client))` |
+| `RpcClient::with_retry_config(url, c)` | `RpcClient::with_transport_and_retry_config(url, Arc::new(ReqwestTransport::default()), c)`, or `Near::custom(url, id).retry_config(c)` |
+| `rpc.genesis_config()` | `rpc.call::<_, serde_json::Value>("genesis_config", json!([]))` |
 | `Error::NoSigner` | Removed: a send without a signer is a compile error. |
 | `Near::sandbox(&sandbox)`, `rpc::SandboxNetwork` | `sandbox.client()` |
 | `InMemorySigner::new(id, "ed25519:...")?` | `InMemorySigner::new(id, "ed25519:...".parse()?)`. `new` takes a `SecretKey` and can't fail. |
@@ -386,6 +390,12 @@ These had no producer or only an internal use, and are gone:
 | `SandboxBuilder::root_account("x")`, `set_balance("x", ..)` | Take `impl Into<AccountId>`: `account!("x")` |
 | `SANDBOX_ROOT_ACCOUNT: &str` | `&AccountIdRef` |
 | `SandboxError::{InvalidRootAccount, InvalidAccount}` | Removed (account IDs are typed) |
+| `SandboxConfig::shared()` / `fresh()` / `builder()` | `Sandbox::builder().shared()` / `.fresh()` / `Sandbox::builder()` |
+| `sandbox.rpc_url()` | `sandbox.client().near().rpc().url()` |
+| `sandbox.root_account_id()` | `sandbox.client().account_id()` |
+| `sandbox.chain_id()` | `sandbox.client().near().chain_id()` |
+| `sandbox.root_signer()` | `sandbox.client().signer().clone()` |
+| `rpc.sandbox_fast_forward(n)` / `rpc.sandbox_patch_state(records)` | `sandbox.fast_forward(n)` / `sandbox.set_balance(..)`, or `rpc.call("sandbox_patch_state", json!({ "records": records }))` |
 
 ```rust
 // 0.20
@@ -397,7 +407,7 @@ root.transaction("alice.sandbox")
     .await?;
 
 // 0.21
-let root = SandboxConfig::shared().await?.client();
+let root = Sandbox::builder().shared().await?.client();
 root.transaction(account!("alice.sandbox"))
     .add_action(Action::create_account())
     .add_action(Action::transfer(NearToken::from_near(10)))

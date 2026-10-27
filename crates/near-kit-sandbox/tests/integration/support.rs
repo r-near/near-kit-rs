@@ -4,7 +4,7 @@ use near_kit::protocol::Action;
 use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::transaction::Final;
 use near_kit::{AccountId, NearToken, SigningNear};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, Sandbox, SandboxConfig};
+use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, Sandbox};
 use tokio::sync::OnceCell;
 
 static ACCOUNT_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -18,7 +18,8 @@ pub(crate) fn unique_account(prefix: &str) -> AccountId {
 }
 
 pub(crate) async fn shared_client() -> (&'static Sandbox, SigningNear) {
-    let sandbox = SandboxConfig::shared()
+    let sandbox = Sandbox::builder()
+        .shared()
         .await
         .expect("shared sandbox must start");
     (sandbox, sandbox.client())
@@ -26,7 +27,7 @@ pub(crate) async fn shared_client() -> (&'static Sandbox, SigningNear) {
 
 pub(crate) async fn sandbox_2_13() -> &'static Sandbox {
     SANDBOX_2_13
-        .get_or_try_init(|| async { SandboxConfig::builder().version("2.13.4").fresh().await })
+        .get_or_try_init(|| async { Sandbox::builder().version("2.13.4").fresh().await })
         .await
         .expect("2.13 sandbox must start")
 }

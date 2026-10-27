@@ -25,11 +25,11 @@
 //! use near_kit::protocol::Action;
 //! use near_kit::signer::{InMemorySigner, SecretKey};
 //! use near_kit::{NearToken, account};
-//! use near_kit_sandbox::SandboxConfig;
+//! use near_kit_sandbox::Sandbox;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // One process-wide sandbox; use `SandboxConfig::fresh()` for isolated state.
-//! let sandbox = SandboxConfig::shared().await?;
+//! // One process-wide sandbox; use `.fresh()` for isolated state.
+//! let sandbox = Sandbox::builder().shared().await?;
 //! let root = sandbox.client(); // a `SigningNear` for the root account
 //!
 //! // Create an account the normal way.
@@ -50,7 +50,7 @@
 //!
 //! # async fn custom() -> Result<(), Box<dyn std::error::Error>> {
 //! // A specific sandbox version and root account.
-//! let sandbox = SandboxConfig::builder()
+//! let sandbox = Sandbox::builder()
 //!     .version("2.13.4")
 //!     .root_account(account!("sb"))
 //!     .fresh()
@@ -318,8 +318,9 @@ fn register_shared_cleanup() {
 /// Cloning a `Sandbox` shares the underlying container — the container is stopped
 /// only when the last `Arc` reference is dropped.
 ///
-/// Obtain one via [`SandboxConfig::shared()`] (global singleton) or
-/// [`SandboxConfig::fresh()`] (new isolated instance).
+/// Obtain one via `Sandbox::builder().shared()` (global singleton) or
+/// `Sandbox::builder().fresh()` (new isolated instance); see
+/// [`Sandbox::builder`].
 ///
 /// # Cleanup
 ///
@@ -335,7 +336,6 @@ pub struct Sandbox {
     /// the shared container synchronously without touching the async client.
     container_id: String,
     rpc_url: String,
-    root_account: AccountId,
     chain_id: ChainId,
     root_signer: Arc<dyn Signer>,
 }
@@ -396,10 +396,40 @@ impl Sandbox {
             container: Arc::new(container),
             container_id,
             rpc_url,
-            root_account,
             chain_id: chain_id.unwrap_or_else(|| ChainId::new("sandbox")),
             root_signer,
         })
+    }
+
+    /// A builder for a sandbox: `.fresh()` for a new isolated instance,
+    /// `.shared()` for the process-wide one, after any
+    /// [`version`](SandboxBuilder::version),
+    /// [`root_account`](SandboxBuilder::root_account) or
+    /// [`chain_id`](SandboxBuilder::chain_id).
+    ///
+    /// - [`shared`](SandboxBuilder::shared) starts the sandbox on first use and
+    ///   returns the same `&'static Sandbox` afterwards. It is never stopped
+    ///   during the run, which suits most tests.
+    /// - [`fresh`](SandboxBuilder::fresh) starts one with clean state, stopped
+    ///   when the last clone of the returned [`Sandbox`] drops.
+    ///
+    /// ```rust,no_run
+    /// use near_kit::account;
+    /// use near_kit_sandbox::Sandbox;
+    ///
+    /// # async fn example() -> Result<(), near_kit_sandbox::SandboxError> {
+    /// let root = Sandbox::builder().shared().await?.client();
+    ///
+    /// let sandbox = Sandbox::builder()
+    ///     .version("2.13.4")
+    ///     .root_account(account!("sb"))
+    ///     .fresh()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn builder() -> SandboxBuilder {
+        SandboxBuilder::new()
     }
 
     /// Get a signing client for this sandbox's root account.
@@ -408,34 +438,12 @@ impl Sandbox {
     /// test accounts. For reads use `client().near()`; for another account,
     /// `client().near().with_signer(signer)`.
     pub fn client(&self) -> SigningNear {
-        self.near().with_signer(self.root_signer())
+        self.near().with_signer(self.root_signer.clone())
     }
 
     /// A read-only client for this sandbox's RPC endpoint.
     fn near(&self) -> Near {
         Near::custom(&self.rpc_url, self.chain_id.clone()).build()
-    }
-
-    /// Return the sandbox RPC URL.
-    pub fn rpc_url(&self) -> &str {
-        &self.rpc_url
-    }
-
-    /// Return the configured root account ID.
-    pub fn root_account_id(&self) -> &AccountId {
-        &self.root_account
-    }
-
-    /// Return the sandbox chain ID.
-    pub fn chain_id(&self) -> &ChainId {
-        &self.chain_id
-    }
-
-    /// Return the stable root signer used by [`Sandbox::client`].
-    ///
-    /// This only clones an [`Arc`]; it does not claim or rotate a signing key.
-    pub fn root_signer(&self) -> Arc<dyn Signer> {
-        self.root_signer.clone()
     }
 
     /// Set an account's balance in this sandbox.
@@ -448,9 +456,9 @@ impl Sandbox {
     ///
     /// ```rust,ignore
     /// use near_kit::{NearToken, account};
-    /// use near_kit_sandbox::SandboxConfig;
+    /// use near_kit_sandbox::Sandbox;
     ///
-    /// let sandbox = SandboxConfig::shared().await?;
+    /// let sandbox = Sandbox::builder().shared().await?;
     ///
     /// // Set account balance to 1M NEAR for staking test
     /// sandbox.set_balance(account!("validator.sandbox"), NearToken::from_near(1_000_000)).await?;
@@ -493,12 +501,23 @@ impl Sandbox {
             }
         ]);
 
-        near.rpc().sandbox_patch_state(records).await?;
+        // Patching account state sometimes only takes effect reliably when sent
+        // twice. See
+        // https://github.com/near/near-workspaces-rs/commit/2b72b9b8491c3140ff2d30b0c45d09b200cb027b
+        for _ in 0..2 {
+            let _: serde_json::Value = near
+                .rpc()
+                .call(
+                    "sandbox_patch_state",
+                    serde_json::json!({ "records": records }),
+                )
+                .await?;
+        }
 
-        // `sandbox_patch_state` applies asynchronously and is racy (see the note
-        // in `RpcClient::sandbox_patch_state`). Rather than trust a fixed delay,
-        // poll until the new balance is observable so callers can read it back
-        // immediately. Bounded so a genuinely failed patch still returns.
+        // The patch applies asynchronously and is racy. Rather than trust a
+        // fixed delay, poll until the new balance is observable so callers can
+        // read it back immediately. Bounded so a genuinely failed patch still
+        // returns.
         const OBSERVATION_ATTEMPTS: u32 = 50;
         let mut last_error = None;
         for _ in 0..OBSERVATION_ATTEMPTS {
@@ -529,115 +548,23 @@ impl Sandbox {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use near_kit_sandbox::SandboxConfig;
+    /// use near_kit_sandbox::Sandbox;
     ///
-    /// let sandbox = SandboxConfig::shared().await?;
+    /// let sandbox = Sandbox::builder().shared().await?;
     /// sandbox.fast_forward(1000).await?;
     /// ```
     pub async fn fast_forward(&self, delta_height: u64) -> Result<(), SandboxError> {
-        self.near().rpc().sandbox_fast_forward(delta_height).await?;
+        // Sent once: `RpcClient::call` never retries this method, because a
+        // retry after a lost response could advance the chain twice.
+        let _: serde_json::Value = self
+            .near()
+            .rpc()
+            .call(
+                "sandbox_fast_forward",
+                serde_json::json!({ "delta_height": delta_height }),
+            )
+            .await?;
         Ok(())
-    }
-}
-
-// ============================================================================
-// SandboxConfig
-// ============================================================================
-
-/// Configuration and factory for sandbox instances.
-///
-/// Provides two main ways to get a sandbox:
-/// - [`SandboxConfig::shared()`] - Returns a reference to a global singleton sandbox
-/// - [`SandboxConfig::fresh()`] - Spawns a new sandbox that is stopped when the last clone drops
-///
-/// For custom configuration (e.g., specific version or root account), use [`SandboxConfig::builder()`].
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use near_kit_sandbox::SandboxConfig;
-///
-/// #[tokio::test]
-/// async fn test_shared() -> Result<(), Box<dyn std::error::Error>> {
-///     // Fast - reuses existing sandbox
-///     let near = SandboxConfig::shared().await?.client();
-///     Ok(())
-/// }
-///
-/// #[tokio::test]
-/// async fn test_fresh() -> Result<(), Box<dyn std::error::Error>> {
-///     // Isolated - gets its own sandbox
-///     let sandbox = SandboxConfig::fresh().await?;
-///     let near = sandbox.client();
-///     Ok(())
-/// }
-///
-/// #[tokio::test]
-/// async fn test_custom_version() -> Result<(), Box<dyn std::error::Error>> {
-///     let sandbox = SandboxConfig::builder()
-///         .version("2.10.5")
-///         .fresh()
-///         .await?;
-///     let near = sandbox.client();
-///     Ok(())
-/// }
-/// ```
-pub struct SandboxConfig;
-
-impl SandboxConfig {
-    /// Get a reference to the global shared sandbox.
-    ///
-    /// The first call will start the sandbox; subsequent calls return
-    /// the same instance. This is ideal for most tests where you don't
-    /// need completely fresh blockchain state.
-    ///
-    /// The shared sandbox is never stopped - it persists for the entire
-    /// test run.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let near = SandboxConfig::shared().await?.client();
-    /// ```
-    pub async fn shared() -> Result<&'static Sandbox, SandboxError> {
-        SandboxBuilder::new().shared().await
-    }
-
-    /// Spawn a fresh sandbox instance.
-    ///
-    /// Creates a new sandbox with clean state. The sandbox container will be
-    /// stopped and cleaned up when the last clone of the returned [`Sandbox`]
-    /// is dropped.
-    ///
-    /// Use this for tests that need guaranteed isolation from other tests.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let sandbox = SandboxConfig::fresh().await?;
-    /// let near = sandbox.client();
-    /// // sandbox is stopped when last reference goes out of scope
-    /// ```
-    pub async fn fresh() -> Result<Sandbox, SandboxError> {
-        SandboxBuilder::new().fresh().await
-    }
-
-    /// Create a builder for custom sandbox configuration.
-    ///
-    /// Use this when you need to specify a particular sandbox version
-    /// or custom root account name.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let sandbox = SandboxConfig::builder()
-    ///     .version("2.10.5")
-    ///     .root_account(account!("sb"))
-    ///     .fresh()
-    ///     .await?;
-    /// ```
-    pub fn builder() -> SandboxBuilder {
-        SandboxBuilder::new()
     }
 }
 
@@ -647,7 +574,7 @@ impl SandboxConfig {
 
 /// Builder for custom sandbox configuration.
 ///
-/// Created via [`SandboxConfig::builder()`].
+/// Created via [`Sandbox::builder()`].
 pub struct SandboxBuilder {
     version: Option<String>,
     root_account: Option<AccountId>,
@@ -695,7 +622,7 @@ impl SandboxBuilder {
     /// # Example
     ///
     /// ```rust,ignore
-    /// let sandbox = SandboxConfig::builder()
+    /// let sandbox = Sandbox::builder()
     ///     .version("2.10.5")
     ///     .fresh()
     ///     .await?;
@@ -712,7 +639,7 @@ impl SandboxBuilder {
     /// # Example
     ///
     /// ```rust,ignore
-    /// let sandbox = SandboxConfig::builder()
+    /// let sandbox = Sandbox::builder()
     ///     .root_account(account!("sb"))
     ///     .fresh()
     ///     .await?;
@@ -742,7 +669,7 @@ impl SandboxBuilder {
     /// # Example
     ///
     /// ```rust,ignore
-    /// let sandbox = SandboxConfig::builder()
+    /// let sandbox = Sandbox::builder()
     ///     .chain_id("localnet")
     ///     .fresh()
     ///     .await?;
@@ -796,7 +723,7 @@ mod tests {
 
     #[test]
     fn chain_id_mainnet_is_deferred_as_an_error() {
-        let result = SandboxConfig::builder().chain_id("mainnet").resolve();
+        let result = Sandbox::builder().chain_id("mainnet").resolve();
         assert!(matches!(
             result,
             Err(SandboxError::UnsupportedChainId(chain_id)) if chain_id == "mainnet"
@@ -805,10 +732,7 @@ mod tests {
 
     #[test]
     fn chain_id_custom_is_accepted() {
-        let config = SandboxConfig::builder()
-            .chain_id("localnet")
-            .resolve()
-            .unwrap();
+        let config = Sandbox::builder().chain_id("localnet").resolve().unwrap();
         assert_eq!(
             config.chain_id.as_ref().map(ChainId::as_str),
             Some("localnet")
@@ -817,7 +741,7 @@ mod tests {
 
     #[test]
     fn builder_preserves_the_first_construction_error() {
-        let result = SandboxConfig::builder()
+        let result = Sandbox::builder()
             .chain_id("mainnet")
             .chain_id("testnet")
             .resolve();
