@@ -325,7 +325,8 @@ impl Near {
 
     /// Get a global contract's code and hash.
     ///
-    /// Accepts the same identifiers as [`Near::deploy_from`]: a publisher
+    /// Accepts the same identifiers as `Action::deploy_from_account` and
+    /// `Action::deploy_from_hash`: a publisher
     /// account ID (updatable contracts, where `hash` reflects the currently
     /// published version) or a code hash (immutable contracts). Use
     /// `.exists()` to check whether anything is published under the

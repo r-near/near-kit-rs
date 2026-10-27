@@ -804,7 +804,7 @@ pub enum FinalExecutionStatus {
 /// Whether a (partial) execution outcome is available depends on which RPC
 /// produced the response, not on the wait level alone:
 ///
-/// - Via `Near::send` / `.send()` (the `send_tx` RPC): the
+/// - Via a sent transaction or `Near::send_signed` (the `send_tx` RPC): the
 ///   node returns no execution outcome at these early levels, so `outcome` is
 ///   [`None`].
 /// - Via `Near::tx_status` (the `EXPERIMENTAL_tx_status`
