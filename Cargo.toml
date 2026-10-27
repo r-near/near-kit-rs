@@ -45,7 +45,7 @@ sha2 = "0.11"
 sha3 = "0.12"
 ml-dsa = { version = "0.1", default-features = false, features = ["alloc"] }
 getrandom = { version = "0.4", features = ["sys_rng"] }
-bip39 = "2"
+bip39 = "3"
 hmac = "0.13"
 k256 = { version = "0.14", default-features = false, features = ["ecdsa"] }
 
