@@ -22,14 +22,17 @@
 //!
 //! # Query Builders
 //!
-//! Query builders provide a fluent API for read operations:
+//! [`Near`] keeps the reads that add something to the matching
+//! [`RpcClient`] method; each returns an awaitable value with one block
+//! selector, `.at(..)`:
 //!
 //! - [`BalanceQuery`] — Get account balance
-//! - [`AccountQuery`] — Get full account info
 //! - [`AccountExistsQuery`] — Check if account exists
-//! - [`AccessKeysQuery`] — List access keys
 //! - [`TransactionStatusQuery`] — Poll or wait for transaction progress
-//! - [`ViewCall`] — Call view functions on contracts
+//! - [`View`](crate::transaction::View) — Call view functions on contracts
+//!
+//! Every other read (accounts, access keys, contract code, validators, …)
+//! is an [`RpcClient`] method, reached through [`Near::rpc`].
 //!
 //! # Transactions
 //!
@@ -61,10 +64,7 @@ mod keyring_signer;
 #[cfg(feature = "rpc")]
 pub use near::{Near, NearBuilder};
 #[cfg(feature = "rpc")]
-pub use query::{
-    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ContractCodeQuery,
-    GlobalContractQuery, TransactionStatusQuery, ViewCall, ViewCallBorsh,
-};
+pub use query::{AccountExistsQuery, BalanceQuery, TransactionStatusQuery};
 #[cfg(feature = "rpc")]
 pub use rpc::{RetryConfig, RpcClient};
 pub use signer::EnvSigner;

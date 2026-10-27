@@ -27,11 +27,11 @@
 //!     let near = Near::testnet().build();
 //!
 //!     // Check account balance
-//!     let balance = near.balance("alice.testnet").await?;
+//!     let balance = near.balance(account!("alice.testnet")).await?;
 //!     println!("Balance: {}", balance.available);
 //!
 //!     // Call a view function
-//!     let count: u64 = near.view("counter.testnet", "get_count").await?;
+//!     let count: u64 = near.view(account!("counter.testnet"), "get_count").await?;
 //!     println!("Count: {}", count);
 //!
 //!     Ok(())
@@ -141,25 +141,19 @@
 //! let near = Near::testnet().build();
 //!
 //! // Simple query
-//! let balance = near.balance("alice.testnet").await?;
+//! let balance = near.balance(account!("alice.testnet")).await?;
 //!
-//! // Query at a specific block height
-//! let old_balance = near.balance("alice.testnet")
-//!     .at_block(100_000_000)
+//! // Query at a specific block height, hash or finality
+//! let old_balance = near.balance(account!("alice.testnet"))
+//!     .at(100_000_000)
+//!     .await?;
+//! let optimistic = near.balance(account!("alice.testnet"))
+//!     .at(Finality::Optimistic)
 //!     .await?;
 //!
-//! // Query with different finality
-//! let optimistic = near.balance("alice.testnet")
-//!     .finality(Finality::Optimistic)
-//!     .await?;
-//!
-//! // Contract code — regular accounts and the global registry
-//! let contract = near.contract_code("app.near").await?;
-//! let global = near.global_contract("publisher.near").await?;
-//! println!("current global code hash: {}", global.hash);
-//! if near.global_contract("publisher.near").exists().await? {
-//!     println!("published!");
-//! }
+//! // Every other read is an `RpcClient` method
+//! let code = near.rpc().view_code(&account!("app.near"), Default::default()).await?;
+//! println!("code hash: {}", code.hash);
 //! # Ok(())
 //! # }
 //! ```
@@ -319,7 +313,7 @@
 //! let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
 //!
 //! // Both share the same connection, no overhead
-//! assert_eq!(alice.near().rpc_url(), bob.near().rpc_url());
+//! assert_eq!(alice.near().rpc().url(), bob.near().rpc().url());
 //! # Ok(())
 //! # }
 //! ```
@@ -510,7 +504,7 @@
 //! # async fn example() -> Result<(), Error> {
 //! let near = Near::testnet().build();
 //!
-//! match near.balance("nonexistent.testnet").await {
+//! match near.balance(account!("nonexistent.testnet")).await {
 //!     Ok(balance) => println!("Balance: {}", balance.available),
 //!     Err(e) => {
 //!         println!("Error: {}", e);

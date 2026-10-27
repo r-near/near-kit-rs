@@ -55,7 +55,7 @@ async fn test_block_effects_returns_changes_for_block() {
     let effects = near
         .near()
         .rpc()
-        .block_effects(BlockReference::at_hash(block_hash))
+        .block_effects(BlockReference::Hash(block_hash))
         .await
         .expect("block_effects must parse");
 

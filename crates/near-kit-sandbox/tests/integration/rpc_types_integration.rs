@@ -24,7 +24,7 @@ async fn test_block_view_full_fields() {
     let block = near
         .near()
         .rpc()
-        .block(BlockReference::final_())
+        .block(BlockReference::Finality(Finality::Final))
         .await
         .unwrap();
 
@@ -85,7 +85,7 @@ async fn test_chunk_header_view_full_fields() {
     let block = near
         .near()
         .rpc()
-        .block(BlockReference::final_())
+        .block(BlockReference::Finality(Finality::Final))
         .await
         .unwrap();
 
@@ -180,7 +180,12 @@ async fn test_account_view_full_fields() {
     let (_, near) = super::support::shared_client().await;
 
     let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
-    let account = near.near().account(&account_id).await.unwrap();
+    let account = near
+        .near()
+        .rpc()
+        .view_account(&account_id, Default::default())
+        .await
+        .unwrap();
 
     // Verify AccountView fields
     assert!(
@@ -204,7 +209,12 @@ async fn test_access_key_list_view() {
     let (_, near) = super::support::shared_client().await;
 
     let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
-    let keys = near.near().access_keys(&account_id).await.unwrap();
+    let keys = near
+        .near()
+        .rpc()
+        .view_access_key_list(&account_id, Default::default())
+        .await
+        .unwrap();
 
     // Verify AccessKeyListView fields
     assert!(
@@ -607,7 +617,12 @@ async fn test_view_function_result() {
     let result = near
         .near()
         .rpc()
-        .view_function(&contract_id, "get_greeting", &[], BlockReference::final_())
+        .view_function(
+            &contract_id,
+            "get_greeting",
+            &[],
+            BlockReference::Finality(Finality::Final),
+        )
         .await;
 
     // This will fail because sandbox root account has no contract,

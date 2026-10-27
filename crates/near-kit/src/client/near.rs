@@ -3,17 +3,14 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use crate::error::{Error, RpcError};
+use crate::error::RpcError;
 use crate::platform::MaybeSend;
-use crate::types::{
-    AccountId, BlockReference, ChainId, TryIntoAccountId, TryIntoGlobalContractId,
-    ViewFunctionResult,
-};
+use serde::de::DeserializeOwned;
 
-use super::query::{
-    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ContractCodeQuery,
-    GlobalContractQuery, TransactionStatusQuery, ViewCall,
-};
+use crate::transaction::View;
+use crate::types::{AccountId, BlockReference, ChainId, ViewFunctionResult};
+
+use super::query::{AccountExistsQuery, BalanceQuery, TransactionStatusQuery};
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
 use super::signing::SigningNear;
 use super::transaction::SignedTransactionSend;
@@ -41,7 +38,7 @@ const DEFAULT_MAX_NONCE_RETRIES: u32 = 3;
 /// #[tokio::main]
 /// async fn main() -> Result<(), near_kit::Error> {
 ///     let near = Near::testnet().build();
-///     let balance = near.balance("alice.testnet").await?;
+///     let balance = near.balance(account!("alice.testnet")).await?;
 ///     println!("Balance: {}", balance);
 ///
 ///     let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
@@ -119,11 +116,6 @@ impl Near {
         &self.rpc
     }
 
-    /// Get the RPC URL.
-    pub fn rpc_url(&self) -> &str {
-        self.rpc.url()
-    }
-
     /// Get the chain ID this client is connected to.
     pub fn chain_id(&self) -> &ChainId {
         &self.chain_id
@@ -182,13 +174,19 @@ impl Near {
     }
 
     // ========================================================================
-    // Read Operations (Query Builders)
+    // Reads
     // ========================================================================
+    //
+    // Only reads that add something to the matching `RpcClient` method live
+    // here; for everything else use `near.rpc()` (e.g.
+    // `near.rpc().view_account(&id, block)`).
 
-    /// Get account balance.
+    /// Get an account's balance: total, available, locked and the amount
+    /// reserved for storage.
     ///
-    /// Returns a query builder that can be customized with block reference
-    /// options before awaiting.
+    /// Assembles an [`AccountBalance`](crate::rpc::AccountBalance) from the
+    /// account view and the storage cost. Reads at the final block unless
+    /// [`at`](BalanceQuery::at) picks another.
     ///
     /// # Example
     ///
@@ -198,27 +196,23 @@ impl Near {
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
     ///
-    /// // Simple query
-    /// let balance = near.balance("alice.testnet").await?;
+    /// let balance = near.balance(account!("alice.testnet")).await?;
     /// println!("Available: {}", balance.available);
     ///
-    /// // Query at specific block height
-    /// let balance = near.balance("alice.testnet")
-    ///     .at_block(100_000_000)
-    ///     .await?;
-    ///
-    /// // Query with specific finality
-    /// let balance = near.balance("alice.testnet")
-    ///     .finality(Finality::Optimistic)
-    ///     .await?;
+    /// // At a specific block height, or with another finality
+    /// let balance = near.balance(account!("alice.testnet")).at(100_000_000).await?;
+    /// let balance = near.balance(account!("alice.testnet")).at(Finality::Optimistic).await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn balance(&self, account_id: impl TryIntoAccountId) -> BalanceQuery {
-        BalanceQuery::new(self.rpc.clone(), account_id)
+    pub fn balance(&self, account_id: impl Into<AccountId>) -> BalanceQuery {
+        BalanceQuery::new(self.rpc.clone(), account_id.into())
     }
 
-    /// Get full account information.
+    /// Check whether an account exists.
+    ///
+    /// Maps [`RpcError::AccountNotFound`] to `false`. For the account itself,
+    /// use `near.rpc().view_account(&id, block)`.
     ///
     /// # Example
     ///
@@ -226,160 +220,52 @@ impl Near {
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
-    /// let account = near.account("alice.testnet").await?;
-    /// println!("Storage used: {} bytes", account.storage_usage);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn account(&self, account_id: impl TryIntoAccountId) -> AccountQuery {
-        AccountQuery::new(self.rpc.clone(), account_id)
-    }
-
-    /// Check if an account exists.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    /// if near.account_exists("alice.testnet").await? {
+    /// if near.account_exists(account!("alice.testnet")).await? {
     ///     println!("Account exists!");
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub fn account_exists(&self, account_id: impl TryIntoAccountId) -> AccountExistsQuery {
-        AccountExistsQuery::new(self.rpc.clone(), account_id)
+    pub fn account_exists(&self, account_id: impl Into<AccountId>) -> AccountExistsQuery {
+        AccountExistsQuery::new(self.rpc.clone(), account_id.into())
     }
 
-    /// Call a view function on a contract.
+    /// Call a view function and decode its JSON result.
     ///
-    /// Returns a query builder that can be customized with arguments
-    /// and block reference options before awaiting.
+    /// Returns the same [`View`] a `#[near_kit::contract]` client returns:
+    /// set arguments with [`args`](View::args) (JSON),
+    /// [`args_borsh`](View::args_borsh) or [`args_raw`](View::args_raw), pick
+    /// a block with [`at`](View::at), and `.await` it. It sends no arguments
+    /// unless one of those sets them. For a Borsh-encoded result, build the
+    /// view with [`View::borsh`] instead.
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::transaction::View;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
     ///
-    /// // Simple view call
-    /// let count: u64 = near.view("counter.testnet", "get_count").await?;
+    /// let count: u64 = near.view(account!("counter.testnet"), "get_count").await?;
     ///
-    /// // View call with arguments
-    /// let messages: Vec<String> = near.view("guestbook.testnet", "get_messages")
+    /// let messages: Vec<String> = near
+    ///     .view(account!("guestbook.testnet"), "get_messages")
     ///     .args(serde_json::json!({ "limit": 10 }))
     ///     .await?;
+    ///
+    /// #[derive(borsh::BorshDeserialize)]
+    /// struct State { count: u64 }
+    /// let state: State = View::borsh(near.clone(), account!("counter.testnet"), "get_state").await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn view<T>(&self, contract_id: impl TryIntoAccountId, method: &str) -> ViewCall<T> {
-        ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
-    }
-
-    /// Get all access keys for an account.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    /// let keys = near.access_keys("alice.testnet").await?;
-    /// for key_info in keys.keys {
-    ///     println!("Key: {}", key_info.public_key);
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn access_keys(&self, account_id: impl TryIntoAccountId) -> AccessKeysQuery {
-        AccessKeysQuery::new(self.rpc.clone(), account_id)
-    }
-
-    /// Get the WASM code deployed on an account.
-    ///
-    /// Returns the code bytes plus their SHA-256 hash. Use `.exists()` to
-    /// check for a deployed contract without caring about the code itself.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    ///
-    /// let contract = near.contract_code("app.near").await?;
-    /// println!("code hash: {}, {} bytes", contract.hash, contract.code.len());
-    ///
-    /// if near.contract_code("app.near").exists().await? {
-    ///     println!("Contract deployed!");
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn contract_code(&self, account_id: impl TryIntoAccountId) -> ContractCodeQuery {
-        ContractCodeQuery::new(self.rpc.clone(), account_id)
-    }
-
-    /// Get a global contract's code and hash.
-    ///
-    /// Accepts the same identifiers as `Action::deploy_from_account` and
-    /// `Action::deploy_from_hash`: a publisher
-    /// account ID (updatable contracts, where `hash` reflects the currently
-    /// published version) or a code hash (immutable contracts). Use
-    /// `.exists()` to check whether anything is published under the
-    /// identifier.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example(code_hash: CryptoHash) -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    ///
-    /// // By publisher account (updatable)
-    /// let contract = near.global_contract("publisher.near").await?;
-    /// println!("current code hash: {}", contract.hash);
-    ///
-    /// // By code hash (immutable)
-    /// let contract = near.global_contract(code_hash).await?;
-    ///
-    /// // Deployment check
-    /// if near.global_contract("publisher.near").exists().await? {
-    ///     println!("Global contract published!");
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn global_contract(&self, id: impl TryIntoGlobalContractId) -> GlobalContractQuery {
-        GlobalContractQuery::new(self.rpc.clone(), id)
-    }
-
-    // ========================================================================
-    // Validator / Epoch Queries
-    // ========================================================================
-
-    /// Get validator information for the latest epoch.
-    ///
-    /// Returns current validators, next epoch validators, current proposals,
-    /// and kicked-out validators.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    /// let info = near.validators().await?;
-    /// println!("Current validators: {}", info.current_validators.len());
-    /// println!("Epoch height: {}", info.epoch_height);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn validators(&self) -> Result<crate::types::EpochValidatorInfo, Error> {
-        Ok(self.rpc.validators(None).await?)
+    pub fn view<T: DeserializeOwned>(
+        &self,
+        contract_id: impl Into<AccountId>,
+        method: impl Into<String>,
+    ) -> View<Near, T> {
+        View::json(self.clone(), contract_id, method)
     }
 
     /// Send a pre-signed transaction.
@@ -442,14 +328,14 @@ impl Near {
     /// # use near_kit::transaction::Final;
     /// # async fn example(near: &Near, tx_hash: CryptoHash) -> Result<(), Error> {
     /// let outcome = near
-    ///     .tx_status(&tx_hash, "alice.testnet")
+    ///     .tx_status(&tx_hash, account!("alice.testnet"))
     ///     .wait_until::<Final>()
     ///     .await?;
     /// println!("Gas used: {}", outcome.total_gas_used());
     /// println!("Receipts: {}", outcome.receipts.len());
     ///
     /// // Poll current progress without blocking:
-    /// let status = near.tx_status(&tx_hash, "alice.testnet").await?;
+    /// let status = near.tx_status(&tx_hash, account!("alice.testnet")).await?;
     /// if let Some(partial) = &status.outcome {
     ///     println!("Receipts so far: {}", partial.receipts_outcome.len());
     /// }
@@ -459,9 +345,9 @@ impl Near {
     pub fn tx_status(
         &self,
         tx_hash: &crate::types::CryptoHash,
-        sender_id: impl crate::types::TryIntoAccountId,
+        sender_id: impl Into<AccountId>,
     ) -> TransactionStatusQuery {
-        TransactionStatusQuery::new(self.rpc.clone(), *tx_hash, sender_id)
+        TransactionStatusQuery::new(self.rpc.clone(), *tx_hash, sender_id.into())
     }
 
     // ========================================================================
@@ -686,21 +572,21 @@ mod tests {
     #[test]
     fn test_near_mainnet_builder() {
         let near = Near::mainnet().build();
-        assert!(near.rpc_url().contains("fastnear") || near.rpc_url().contains("near"));
+        assert!(near.rpc().url().contains("fastnear") || near.rpc().url().contains("near"));
         assert!(near.chain_id().is_mainnet());
     }
 
     #[test]
     fn test_near_testnet_builder() {
         let near = Near::testnet().build();
-        assert!(near.rpc_url().contains("fastnear") || near.rpc_url().contains("test"));
+        assert!(near.rpc().url().contains("fastnear") || near.rpc().url().contains("test"));
         assert!(near.chain_id().is_testnet());
     }
 
     #[test]
     fn test_near_custom_builder() {
         let near = Near::custom("https://custom-rpc.example.com", "mainnet").build();
-        assert_eq!(near.rpc_url(), "https://custom-rpc.example.com");
+        assert_eq!(near.rpc().url(), "https://custom-rpc.example.com");
         assert!(near.chain_id().is_mainnet());
     }
 
@@ -725,17 +611,6 @@ mod tests {
         assert!(!rpc.url().is_empty());
     }
 
-    #[tokio::test]
-    async fn invalid_builder_account_ids_return_errors_instead_of_panicking() {
-        let near = Near::testnet().build();
-
-        let query_error = near.balance("INVALID").await.unwrap_err();
-        assert!(matches!(query_error, Error::ParseAccountId(_)));
-
-        let global_contract_error = near.global_contract("INVALID").await.unwrap_err();
-        assert!(matches!(global_contract_error, Error::ParseAccountId(_)));
-    }
-
     // ========================================================================
     // NearBuilder tests
     // ========================================================================
@@ -744,7 +619,7 @@ mod tests {
     fn test_near_builder_new() {
         let builder = NearBuilder::new("https://example.com", ChainId::new("custom"));
         let near = builder.build();
-        assert_eq!(near.rpc_url(), "https://example.com");
+        assert_eq!(near.rpc().url(), "https://example.com");
     }
 
     #[test]
@@ -756,14 +631,14 @@ mod tests {
         };
         let near = Near::testnet().retry_config(config).build();
         // Can't directly test retry config, but we can verify it builds
-        assert!(!near.rpc_url().is_empty());
+        assert!(!near.rpc().url().is_empty());
     }
 
     #[test]
     fn test_near_builder_from_trait() {
         let builder = Near::testnet();
         let near: Near = builder.into();
-        assert!(!near.rpc_url().is_empty());
+        assert!(!near.rpc().url().is_empty());
     }
 
     // ========================================================================
@@ -774,7 +649,7 @@ mod tests {
     fn test_near_clone() {
         let near1 = Near::testnet().build();
         let near2 = near1.clone();
-        assert_eq!(near1.rpc_url(), near2.rpc_url());
+        assert_eq!(near1.rpc().url(), near2.rpc().url());
     }
 
     #[test]
@@ -784,7 +659,7 @@ mod tests {
 
         let alice = near.with_signer(signer);
         assert_eq!(alice.account_id().as_str(), "alice.testnet");
-        assert_eq!(alice.near().rpc_url(), near.rpc_url()); // Same transport
+        assert_eq!(alice.near().rpc().url(), near.rpc().url()); // Same transport
         assert!(Arc::ptr_eq(&alice.near().rpc, &near.rpc));
     }
 

@@ -54,17 +54,6 @@ fn wait_level_types_map_to_rpc_statuses() {
     assert_eq!(Final::STATUS, TxExecutionStatus::Final);
 }
 
-#[tokio::test]
-async fn status_query_reports_invalid_sender_when_awaited() {
-    let near = Near::testnet().build();
-    let error = near
-        .tx_status(&CryptoHash::ZERO, "not a valid account ID")
-        .await
-        .unwrap_err();
-
-    assert!(matches!(error, Error::ParseAccountId(_)));
-}
-
 // These helpers are intentionally compile-only. Their signatures document and
 // verify the response type selected by each default and generic wait level.
 

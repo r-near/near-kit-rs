@@ -27,7 +27,11 @@ async fn view_gas_key_nonces(
 ) -> Vec<u64> {
     near.near()
         .rpc()
-        .view_gas_key_nonces(account_id, public_key, BlockReference::final_())
+        .view_gas_key_nonces(
+            account_id,
+            public_key,
+            BlockReference::Finality(Finality::Final),
+        )
         .await
         .expect("view_gas_key_nonces query failed")
         .nonces

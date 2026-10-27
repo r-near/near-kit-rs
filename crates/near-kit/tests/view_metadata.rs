@@ -3,7 +3,8 @@
 use std::sync::{Arc, Mutex};
 
 use near_kit::rpc::{BoxFuture, RpcError, RpcTransport, TransportResponse, ViewFunctionResult};
-use near_kit::{CryptoHash, Error, Near};
+use near_kit::transaction::{CodecError, ContractError, View};
+use near_kit::{CryptoHash, Error, Near, account};
 use serde_json::{Value, json};
 
 type Requests = Arc<Mutex<Vec<Value>>>;
@@ -60,9 +61,9 @@ fn assert_metadata<T>(result: &ViewFunctionResult<T>) {
 async fn json_value_and_metadata_come_from_one_selected_block_query() {
     let (near, requests) = client(b"123".to_vec());
     let result = near
-        .view::<u64>("counter.testnet", "get_count")
-        .args_raw(b"{}".to_vec())
-        .at_block_hash(CryptoHash::from_bytes([7; 32]))
+        .view::<u64>(account!("counter.testnet"), "get_count")
+        .args_raw(b"{}")
+        .at(CryptoHash::from_bytes([7; 32]))
         .with_metadata()
         .await
         .unwrap();
@@ -80,17 +81,18 @@ async fn json_value_and_metadata_come_from_one_selected_block_query() {
             CryptoHash::from_bytes([7; 32]).to_string()
         );
     }
-    let plain: u64 = near.view("counter.testnet", "get_count").await.unwrap();
+    let plain: u64 = near
+        .view(account!("counter.testnet"), "get_count")
+        .await
+        .unwrap();
     assert_eq!(plain, result.result);
 }
 
 #[tokio::test]
 async fn borsh_value_preserves_metadata_and_plain_await() {
     let (near, requests) = client(borsh::to_vec(&123_u64).unwrap());
-    let result = near
-        .view::<u64>("counter.testnet", "get_count")
-        .at_block(42)
-        .borsh()
+    let result = View::<_, u64>::borsh(near.clone(), account!("counter.testnet"), "get_count")
+        .at(42)
         .with_metadata()
         .await
         .unwrap();
@@ -98,9 +100,7 @@ async fn borsh_value_preserves_metadata_and_plain_await() {
     assert_metadata(&result);
     assert_eq!(requests.lock().unwrap().len(), 1);
     assert_eq!(requests.lock().unwrap()[0]["params"]["block_id"], 42);
-    let plain: u64 = near
-        .view("counter.testnet", "get_count")
-        .borsh()
+    let plain: u64 = View::borsh(near.clone(), account!("counter.testnet"), "get_count")
         .await
         .unwrap();
     assert_eq!(plain, result.result);
@@ -110,13 +110,13 @@ async fn borsh_value_preserves_metadata_and_plain_await() {
 async fn empty_json_response_still_decodes_as_null() {
     let (near, _) = client(Vec::new());
     let unit: ViewFunctionResult<()> = near
-        .view("counter.testnet", "empty")
+        .view(account!("counter.testnet"), "empty")
         .with_metadata()
         .await
         .unwrap();
     assert_metadata(&unit);
     let optional: ViewFunctionResult<Option<u64>> = near
-        .view("counter.testnet", "empty")
+        .view(account!("counter.testnet"), "empty")
         .with_metadata()
         .await
         .unwrap();
@@ -126,19 +126,20 @@ async fn empty_json_response_still_decodes_as_null() {
 #[tokio::test]
 async fn decoding_errors_keep_their_json_and_borsh_variants() {
     let (near, _) = client(vec![255]);
-    assert!(matches!(
-        near.view::<u64>("counter.testnet", "invalid")
-            .with_metadata()
-            .await,
-        Err(Error::Json(_))
-    ));
-    assert!(matches!(
-        near.view::<u64>("counter.testnet", "invalid")
-            .borsh()
-            .with_metadata()
-            .await,
-        Err(Error::Borsh(_))
-    ));
+    let json = near
+        .view::<u64>(account!("counter.testnet"), "invalid")
+        .with_metadata()
+        .await
+        .unwrap_err();
+    assert!(matches!(json, ContractError::Codec(CodecError::Json(_))));
+    assert!(matches!(Error::from(json), Error::Json(_)));
+
+    let borsh = View::<_, u64>::borsh(near.clone(), account!("counter.testnet"), "invalid")
+        .with_metadata()
+        .await
+        .unwrap_err();
+    assert!(matches!(borsh, ContractError::Codec(CodecError::Borsh(_))));
+    assert!(matches!(Error::from(borsh), Error::Borsh(_)));
 }
 
 struct InvalidArgs;
@@ -153,47 +154,31 @@ impl serde::Serialize for InvalidArgs {
 async fn invalid_arguments_fail_before_sending_a_request() {
     let (near, requests) = client(b"123".to_vec());
     assert!(matches!(
-        near.view::<u64>("counter.testnet", "get_count")
+        near.view::<u64>(account!("counter.testnet"), "get_count")
             .args(InvalidArgs)
             .with_metadata()
             .await,
-        Err(Error::Json(_))
+        Err(ContractError::Codec(CodecError::Json(_)))
     ));
     assert!(requests.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn views_accept_a_block_reference() {
-    use near_kit::rpc::{BlockReference, Finality};
+    use near_kit::rpc::{BlockReference, Finality, SyncCheckpoint};
 
     let (near, requests) = client(borsh::to_vec(&123_u64).unwrap());
     let hash = CryptoHash::from_bytes([7; 32]);
-    let pinned = BlockReference::at_hash(hash);
+    let pinned = BlockReference::Hash(hash);
+    let view = || View::<_, u64>::borsh(near.clone(), account!("counter.testnet"), "get_count");
 
-    let at_hash: u64 = near
-        .view::<u64>("counter.testnet", "get_count")
-        .block_reference(pinned)
-        .borsh()
+    let at_hash: u64 = view().at(pinned).await.unwrap();
+    let at_genesis: u64 = view()
+        .at(BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis))
         .await
         .unwrap();
-    let at_genesis: u64 = near
-        .view::<u64>("counter.testnet", "get_count")
-        .borsh()
-        .block_reference(BlockReference::genesis())
-        .await
-        .unwrap();
-    let _: u64 = near
-        .view::<u64>("counter.testnet", "get_count")
-        .borsh()
-        .block_reference(42_u64)
-        .await
-        .unwrap();
-    let _: u64 = near
-        .view::<u64>("counter.testnet", "get_count")
-        .borsh()
-        .block_reference(Finality::Optimistic)
-        .await
-        .unwrap();
+    let _: u64 = view().at(42_u64).await.unwrap();
+    let _: u64 = view().at(Finality::Optimistic).await.unwrap();
     assert_eq!((at_hash, at_genesis), (123, 123));
 
     let requests = requests.lock().unwrap();
@@ -212,10 +197,10 @@ async fn account_queries_accept_a_block_reference() {
     // The canned response is a view-function result, so decoding fails; only
     // the request shape matters here.
     let _ = near
-        .account("alice.testnet")
-        .block_reference(BlockReference::at_hash(hash))
+        .account_exists(account!("alice.testnet"))
+        .at(BlockReference::Hash(hash))
         .await;
-    let _ = near.balance("alice.testnet").block_reference(7_u64).await;
+    let _ = near.balance(account!("alice.testnet")).at(7_u64).await;
 
     let requests = requests.lock().unwrap();
     assert_eq!(requests[0]["params"]["block_id"], hash.to_string());
@@ -248,9 +233,9 @@ async fn near_from_rpc_reuses_the_rpc_client_transport() {
     );
     let near = Near::from_rpc(rpc, "custom");
     assert_eq!(near.chain_id().as_str(), "custom");
-    assert_eq!(near.rpc_url(), "https://rpc.invalid");
+    assert_eq!(near.rpc().url(), "https://rpc.invalid");
 
-    let value: u64 = near.view("counter.testnet", "get").await.unwrap();
+    let value: u64 = near.view(account!("counter.testnet"), "get").await.unwrap();
     assert_eq!(value, 9);
     assert_eq!(requests.lock().unwrap().len(), 1);
 }
@@ -264,8 +249,7 @@ async fn generated_borsh_views_can_be_pinned_to_a_block() {
     }
 
     let (near, requests) = client(borsh::to_vec(&5_u64).unwrap());
-    let counter =
-        near.contract::<BorshCounter>("counter.testnet".parse::<near_kit::AccountId>().unwrap());
+    let counter = near.contract::<BorshCounter>(account!("counter.testnet"));
     let hash = CryptoHash::from_bytes([7; 32]);
     let result = counter.get_count().at(hash).with_metadata().await.unwrap();
     assert_eq!(result.result, 5);
@@ -284,8 +268,7 @@ async fn generated_contract_views_expose_metadata_without_macro_changes() {
     }
 
     let (near, _) = client(b"123".to_vec());
-    let counter =
-        near.contract::<Counter>("counter.testnet".parse::<near_kit::AccountId>().unwrap());
+    let counter = near.contract::<Counter>(account!("counter.testnet"));
     let result = counter.get_count().with_metadata().await.unwrap();
     assert_eq!(result.result, 123);
     assert_metadata(&result);

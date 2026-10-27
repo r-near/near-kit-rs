@@ -42,21 +42,30 @@ async fn create_funded_account(
 /// the same block as the distribution; under load the distribution can land
 /// later and the query sees `GlobalContractNotFound`. Bounded so a genuinely
 /// failed publish still fails the test instead of hanging.
-async fn wait_for_global_contract(near: &SigningNear, id: impl TryIntoGlobalContractId + Clone) {
+async fn wait_for_global_contract(near: &SigningNear, id: impl Into<GlobalContractId>) {
     const ATTEMPTS: u32 = 50;
+    let id = id.into();
     for _ in 0..ATTEMPTS {
-        if near
-            .near()
-            .global_contract(id.clone())
-            .exists()
-            .await
-            .unwrap()
-        {
+        if global_contract_exists(near.near(), &id).await {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
     panic!("global contract not visible at final after {ATTEMPTS} polls");
+}
+
+/// Whether anything is published under `id`: "not found" (and, for a
+/// publisher account, "no such account") reads as `false`.
+async fn global_contract_exists(near: &Near, id: &GlobalContractId) -> bool {
+    match near
+        .rpc()
+        .view_global_contract_code(id, Default::default())
+        .await
+    {
+        Ok(_) => true,
+        Err(e) if e.is_global_contract_not_found() || e.is_account_not_found() => false,
+        Err(e) => panic!("unexpected error: {e:?}"),
+    }
 }
 
 // =============================================================================
@@ -491,7 +500,12 @@ async fn test_action_add_function_call_key() {
         .unwrap();
 
     // Verify the key was added
-    let keys = root_near.near().access_keys(&account_id).await.unwrap();
+    let keys = root_near
+        .near()
+        .rpc()
+        .view_access_key_list(&account_id, Default::default())
+        .await
+        .unwrap();
     assert_eq!(keys.keys.len(), 2);
 }
 
@@ -578,7 +592,12 @@ async fn test_action_stake() {
     println!("Stake action completed: {:?}", outcome.transaction_hash());
 
     // Verify locked balance reflects the stake
-    let account = root_near.near().account(&staker_id).await.unwrap();
+    let account = root_near
+        .near()
+        .rpc()
+        .view_account(&staker_id, Default::default())
+        .await
+        .unwrap();
     println!("Locked balance after staking: {}", account.locked);
     assert!(account.locked >= stake_amount);
 }
@@ -644,24 +663,18 @@ async fn test_global_contract_query_by_account() {
         .add_action(Action::publish(wasm_code.clone(), PublishMode::Updatable))
         .await
         .unwrap();
-    wait_for_global_contract(&root_near, &publisher_id).await;
+    wait_for_global_contract(&root_near, publisher_id.clone()).await;
 
+    let id = GlobalContractId::from(publisher_id.clone());
     let contract = root_near
         .near()
-        .global_contract(&publisher_id)
+        .rpc()
+        .view_global_contract_code(&id, Default::default())
         .await
         .unwrap();
     assert_eq!(contract.code, wasm_code);
     assert_eq!(contract.hash, CryptoHash::hash(&wasm_code));
-
-    assert!(
-        root_near
-            .near()
-            .global_contract(&publisher_id)
-            .exists()
-            .await
-            .unwrap()
-    );
+    assert!(global_contract_exists(root_near.near(), &id).await);
 }
 
 /// Query a published (immutable) global contract by code hash.
@@ -681,104 +694,79 @@ async fn test_global_contract_query_by_hash() {
         .add_action(Action::publish(wasm_code.clone(), PublishMode::Immutable))
         .await
         .unwrap();
-    wait_for_global_contract(&root_near, code_hash).await;
+    wait_for_global_contract(&root_near, *code_hash.as_bytes()).await;
 
-    let contract = root_near.near().global_contract(code_hash).await.unwrap();
+    let id = GlobalContractId::from(*code_hash.as_bytes());
+    let contract = root_near
+        .near()
+        .rpc()
+        .view_global_contract_code(&id, Default::default())
+        .await
+        .unwrap();
     assert_eq!(contract.code, wasm_code);
     assert_eq!(contract.hash, code_hash);
-
-    assert!(
-        root_near
-            .near()
-            .global_contract(code_hash)
-            .exists()
-            .await
-            .unwrap()
-    );
+    assert!(global_contract_exists(root_near.near(), &id).await);
 }
 
-/// Missing global contracts surface a typed error, and exists() returns false.
+/// Missing global contracts surface a typed error, which reads as "not
+/// published".
 #[tokio::test]
 async fn test_global_contract_query_not_found() {
     let (_, root_near) = super::support::shared_client().await;
 
     // An account that never published anything
-    let unpublished_account = unique_account("gc");
+    let unpublished = GlobalContractId::from(unique_account("gc"));
     let err = root_near
         .near()
-        .global_contract(&unpublished_account)
+        .rpc()
+        .view_global_contract_code(&unpublished, Default::default())
         .await
         .unwrap_err();
     assert!(
-        matches!(&err, Error::Rpc(e) if e.is_global_contract_not_found()),
+        err.is_global_contract_not_found(),
         "unexpected error: {err:?}"
     );
-
-    assert!(
-        !root_near
-            .near()
-            .global_contract(&unpublished_account)
-            .exists()
-            .await
-            .unwrap()
-    );
+    assert!(!global_contract_exists(root_near.near(), &unpublished).await);
 
     // A hash nothing was published under
     let bogus_hash = CryptoHash::hash(b"no contract with this hash");
     assert!(
-        !root_near
-            .near()
-            .global_contract(bogus_hash)
-            .exists()
-            .await
-            .unwrap()
+        !global_contract_exists(
+            root_near.near(),
+            &GlobalContractId::from(*bogus_hash.as_bytes())
+        )
+        .await
     );
 }
 
-/// near.near().contract_code() returns the code deployed on a regular account.
+/// `RpcClient::view_code` returns the code deployed on a regular account,
+/// and a typed error before anything is deployed.
 #[tokio::test]
 async fn test_contract_code_query() {
     let (sandbox, root_near) = super::support::shared_client().await;
 
     let (account_near, account_id, _) =
         create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
+    let rpc = root_near.near().rpc();
 
     // No contract deployed yet
-    assert!(
-        !root_near
-            .near()
-            .contract_code(&account_id)
-            .exists()
-            .await
-            .unwrap()
-    );
-    let err = root_near
-        .near()
-        .contract_code(&account_id)
+    let err = rpc
+        .view_code(&account_id, Default::default())
         .await
         .unwrap_err();
-    assert!(
-        matches!(&err, Error::Rpc(e) if e.is_contract_not_deployed()),
-        "unexpected error: {err:?}"
-    );
+    assert!(err.is_contract_not_deployed(), "unexpected error: {err:?}");
 
     let wasm_code = load_test_contract();
     account_near
-        .wait_until::<Final>()
         .transaction(account_near.account_id())
         .add_action(Action::deploy_contract(wasm_code.clone()))
         .await
         .unwrap();
 
-    let contract = root_near.near().contract_code(&account_id).await.unwrap();
+    let contract = rpc
+        .view_code(&account_id, Default::default())
+        .await
+        .unwrap();
     assert_eq!(contract.code, wasm_code);
     assert_eq!(contract.hash, CryptoHash::hash(&wasm_code));
-    assert!(
-        root_near
-            .near()
-            .contract_code(&account_id)
-            .exists()
-            .await
-            .unwrap()
-    );
 }

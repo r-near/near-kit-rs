@@ -23,19 +23,19 @@ async fn view_example() -> Result<(), Error> {
     let near = Near::testnet().build();
 
     // Check an account balance
-    let balance = near.balance("alice.testnet").await?;
+    let balance = near.balance(account!("alice.testnet")).await?;
     println!("Alice's balance: {}", balance.available);
 
     // Call a view function on a contract
     let messages: Vec<serde_json::Value> = near
-        .view("guestbook.near-examples.testnet", "get_messages")
+        .view(account!("guestbook.near-examples.testnet"), "get_messages")
         .args(serde_json::json!({ "from_index": "0", "limit": "5" }))
         .await?;
 
     println!("Guestbook has {} messages", messages.len());
 
     // Check if an account exists
-    let exists = near.account_exists("alice.testnet").await?;
+    let exists = near.account_exists(account!("alice.testnet")).await?;
     println!("alice.testnet exists: {exists}");
 
     Ok(())
@@ -195,7 +195,7 @@ async fn multi_account_example(me: &SigningNear) -> Result<(), Error> {
     println!("Derived signer: {}", second.account_id());
     println!(
         "Same RPC endpoint: {}",
-        me.near().rpc_url() == second.near().rpc_url()
+        me.near().rpc().url() == second.near().rpc().url()
     );
 
     Ok(())

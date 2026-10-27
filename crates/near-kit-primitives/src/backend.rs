@@ -151,11 +151,44 @@ impl<E: fmt::Debug + fmt::Display> std::error::Error for ContractError<E> {
 
 /// A typed contract view, ready to `.await`.
 ///
-/// Returned by the view methods of a `#[contract]` client. Reads at
-/// [`BlockReference::default()`] (final) unless [`at`](Self::at) says
-/// otherwise. Awaiting it yields the decoded value; use
-/// [`with_metadata`](Self::with_metadata) to also get the block it was read
-/// at.
+/// Returned by the view methods of a `#[contract]` client and by
+/// `near_kit::Near::view`; build one for any [`Viewer`] with
+/// [`json`](Self::json) or [`borsh`](Self::borsh), which pick how the result
+/// is decoded. Reads at [`BlockReference::default()`] (final) unless
+/// [`at`](Self::at) says otherwise. Awaiting it yields the decoded value;
+/// use [`with_metadata`](Self::with_metadata) to also get the block it was
+/// read at.
+///
+/// ```rust
+/// use near_kit_primitives::transaction::View;
+/// use near_kit_primitives::rpc::{BlockReference, ViewFunctionResult};
+/// use near_kit_primitives::{AccountId, CryptoHash, Viewer, account};
+///
+/// struct Fixed;
+///
+/// impl Viewer for Fixed {
+///     type ViewError = std::convert::Infallible;
+///
+///     async fn view_function(
+///         &self,
+///         _contract_id: &AccountId,
+///         _method: &str,
+///         _args: &[u8],
+///         _block: BlockReference,
+///     ) -> Result<ViewFunctionResult, Self::ViewError> {
+///         Ok(ViewFunctionResult::new(b"42".to_vec(), 1, CryptoHash::ZERO))
+///     }
+/// }
+///
+/// # futures::executor::block_on(async {
+/// let count: u64 = View::json(Fixed, account!("counter.near"), "get_count")
+///     .args(serde_json::json!({ "at": "now" }))
+///     .at(1_000_u64)
+///     .await?;
+/// assert_eq!(count, 42);
+/// # Ok::<(), near_kit_primitives::transaction::ContractError<std::convert::Infallible>>(())
+/// # }).unwrap();
+/// ```
 ///
 /// A `View` owns its backend (generated clients clone theirs into it), so a
 /// helper can return one and its future is `'static` whenever the backend
@@ -167,7 +200,7 @@ impl<E: fmt::Debug + fmt::Display> std::error::Error for ContractError<E> {
 pub struct View<C, T> {
     backend: C,
     contract_id: AccountId,
-    method: &'static str,
+    method: String,
     // Arguments are encoded when the view is created, so borrowed argument
     // types never end up inside the future.
     args: Result<Vec<u8>, CodecError>,
@@ -176,21 +209,72 @@ pub struct View<C, T> {
 }
 
 impl<C, T> View<C, T> {
-    pub(crate) fn new(
+    fn new(
         backend: C,
         contract_id: AccountId,
-        method: &'static str,
-        args: Result<Vec<u8>, CodecError>,
+        method: String,
         decode: fn(&[u8]) -> Result<T, CodecError>,
     ) -> Self {
         Self {
             backend,
             contract_id,
             method,
-            args,
+            args: Ok(Vec::new()),
             block: BlockReference::default(),
             decode,
         }
+    }
+
+    /// A view of `method` on `contract_id` whose result is decoded as JSON.
+    ///
+    /// It sends no arguments until [`args`](Self::args),
+    /// [`args_borsh`](Self::args_borsh) or [`args_raw`](Self::args_raw) sets
+    /// them. An empty result (a void method) decodes as `null`, so `()` and
+    /// `Option<_>` work.
+    pub fn json(backend: C, contract_id: impl Into<AccountId>, method: impl Into<String>) -> Self
+    where
+        C: Viewer,
+        T: serde::de::DeserializeOwned,
+    {
+        Self::new(backend, contract_id.into(), method.into(), |bytes| {
+            let bytes = if bytes.is_empty() { b"null" } else { bytes };
+            Ok(serde_json::from_slice(bytes)?)
+        })
+    }
+
+    /// A view of `method` on `contract_id` whose result is decoded as Borsh.
+    ///
+    /// Like [`json`](Self::json), it sends no arguments until one of the
+    /// `args` methods sets them.
+    pub fn borsh(backend: C, contract_id: impl Into<AccountId>, method: impl Into<String>) -> Self
+    where
+        C: Viewer,
+        T: borsh::BorshDeserialize,
+    {
+        Self::new(backend, contract_id.into(), method.into(), |bytes| {
+            borsh::from_slice(bytes).map_err(CodecError::Borsh)
+        })
+    }
+
+    /// JSON-encode `args` as the view's arguments.
+    ///
+    /// An encoding error is kept and returned from `.await`. Each `args`
+    /// method replaces what an earlier one set, error included.
+    pub fn args(mut self, args: impl serde::Serialize) -> Self {
+        self.args = serde_json::to_vec(&args).map_err(CodecError::from);
+        self
+    }
+
+    /// Borsh-encode `args` as the view's arguments. See [`args`](Self::args).
+    pub fn args_borsh(mut self, args: impl borsh::BorshSerialize) -> Self {
+        self.args = borsh::to_vec(&args).map_err(CodecError::Borsh);
+        self
+    }
+
+    /// Send `args` as the view's arguments as they are.
+    pub fn args_raw(mut self, args: impl Into<Vec<u8>>) -> Self {
+        self.args = Ok(args.into());
+        self
     }
 
     /// Read at a specific block height, hash or finality.
@@ -214,7 +298,7 @@ impl<C, T> View<C, T> {
         // error.
         let raw = match self
             .backend
-            .view_function(&self.contract_id, self.method, &args, self.block)
+            .view_function(&self.contract_id, &self.method, &args, self.block)
             .await
         {
             Ok(raw) => raw,
@@ -444,12 +528,10 @@ pub(crate) mod expansion {
         C: Viewer,
         T: serde::de::DeserializeOwned,
     {
-        View::new(backend, contract_id, method, args, |bytes| {
-            // Void methods return no bytes; read them as `null` so `()` and
-            // `Option<T>` decode.
-            let bytes = if bytes.is_empty() { b"null" } else { bytes };
-            Ok(serde_json::from_slice(bytes)?)
-        })
+        View {
+            args,
+            ..View::json(backend, contract_id, method)
+        }
     }
 
     /// A Borsh-decoded view.
@@ -463,9 +545,10 @@ pub(crate) mod expansion {
         C: Viewer,
         T: borsh::BorshDeserialize,
     {
-        View::new(backend, contract_id, method, args, |bytes| {
-            borsh::from_slice(bytes).map_err(CodecError::Borsh)
-        })
+        View {
+            args,
+            ..View::borsh(backend, contract_id, method)
+        }
     }
 
     /// A call through `backend`.
@@ -678,6 +761,72 @@ mod tests {
         ))
         .unwrap_err();
         assert!(matches!(error, ContractError::Codec(CodecError::Borsh(_))));
+    }
+
+    struct FailingBorsh;
+
+    impl borsh::BorshSerialize for FailingBorsh {
+        fn serialize<W: std::io::Write>(&self, _: &mut W) -> std::io::Result<()> {
+            Err(std::io::Error::other("deliberate"))
+        }
+    }
+
+    #[test]
+    fn public_constructors_send_no_args_until_set() {
+        let viewer = MockViewer::new(b"");
+        let value: Option<u64> =
+            run(View::json(viewer.clone(), contract(), String::from("get"))).unwrap();
+        assert_eq!(value, None);
+        let (_, method, args, _) = viewer.seen.lock().unwrap().take().unwrap();
+        assert_eq!((method.as_str(), args), ("get", Vec::new()));
+
+        let viewer = MockViewer::new(&borsh::to_vec(&9_u16).unwrap());
+        let value: u16 =
+            run(View::borsh(viewer.clone(), contract(), "get").args_borsh(3_u8)).unwrap();
+        assert_eq!(value, 9);
+        let (_, _, args, _) = viewer.seen.lock().unwrap().take().unwrap();
+        assert_eq!(args, [3]);
+    }
+
+    #[test]
+    fn argument_encode_errors_are_returned_from_await() {
+        let viewer = MockViewer::new(b"1");
+        let error = run(View::<_, u64>::json(viewer.clone(), contract(), "get").args(FailingJson))
+            .unwrap_err();
+        assert!(matches!(error, ContractError::Codec(CodecError::Json(_))));
+        let error =
+            run(View::<_, u64>::borsh(viewer.clone(), contract(), "get").args_borsh(FailingBorsh))
+                .unwrap_err();
+        assert!(matches!(error, ContractError::Codec(CodecError::Borsh(_))));
+        assert!(viewer.seen.lock().unwrap().is_none(), "nothing was sent");
+    }
+
+    #[test]
+    fn last_argument_setter_wins() {
+        type MockView = View<Arc<MockViewer>, u64>;
+        let viewer = MockViewer::new(b"1");
+        let view =
+            |set: fn(MockView) -> MockView| set(View::json(viewer.clone(), contract(), "get")).args;
+
+        assert_eq!(
+            view(|v| v.args(FailingJson).args_raw([1, 2, 3])).unwrap(),
+            [1, 2, 3]
+        );
+        assert_eq!(
+            view(|v| v
+                .args_borsh(FailingBorsh)
+                .args(serde_json::json!({ "valid": true })))
+            .unwrap(),
+            br#"{"valid":true}"#
+        );
+        assert!(matches!(
+            view(|v| v.args_raw(vec![1]).args(FailingJson)),
+            Err(CodecError::Json(_))
+        ));
+        assert!(matches!(
+            view(|v| v.args_raw(vec![1]).args_borsh(FailingBorsh)),
+            Err(CodecError::Borsh(_))
+        ));
     }
 
     #[test]

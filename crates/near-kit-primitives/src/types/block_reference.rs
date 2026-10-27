@@ -35,65 +35,6 @@ impl Default for BlockReference {
     }
 }
 
-impl BlockReference {
-    /// Query at final block.
-    pub fn final_() -> Self {
-        Self::Finality(Finality::Final)
-    }
-
-    /// Query at optimistic (latest) block.
-    pub fn optimistic() -> Self {
-        Self::Finality(Finality::Optimistic)
-    }
-
-    /// Query at near-final block.
-    pub fn near_final() -> Self {
-        Self::Finality(Finality::NearFinal)
-    }
-
-    /// Query at specific height.
-    pub fn at_height(height: u64) -> Self {
-        Self::Height(height)
-    }
-
-    /// Query at specific hash.
-    pub fn at_hash(hash: CryptoHash) -> Self {
-        Self::Hash(hash)
-    }
-
-    /// Query at genesis block.
-    pub fn genesis() -> Self {
-        Self::SyncCheckpoint(SyncCheckpoint::Genesis)
-    }
-
-    /// Query at earliest available block.
-    pub fn earliest_available() -> Self {
-        Self::SyncCheckpoint(SyncCheckpoint::EarliestAvailable)
-    }
-
-    /// Convert to JSON for RPC requests.
-    pub fn to_rpc_params(&self) -> serde_json::Value {
-        match self {
-            BlockReference::Finality(f) => {
-                serde_json::json!({ "finality": f.as_str() })
-            }
-            BlockReference::Height(h) => {
-                serde_json::json!({ "block_id": *h })
-            }
-            BlockReference::Hash(h) => {
-                serde_json::json!({ "block_id": h.to_string() })
-            }
-            BlockReference::SyncCheckpoint(cp) => {
-                let cp_str = match cp {
-                    SyncCheckpoint::Genesis => "genesis",
-                    SyncCheckpoint::EarliestAvailable => "earliest_available",
-                };
-                serde_json::json!({ "sync_checkpoint": cp_str })
-            }
-        }
-    }
-}
-
 impl From<Finality> for BlockReference {
     fn from(f: Finality) -> Self {
         Self::Finality(f)
@@ -247,17 +188,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_block_reference_rpc_params() {
-        let final_ref = BlockReference::final_();
-        let params = final_ref.to_rpc_params();
-        assert_eq!(params["finality"], "final");
-
-        let height_ref = BlockReference::Height(12345);
-        let params = height_ref.to_rpc_params();
-        assert_eq!(params["block_id"], 12345);
-    }
-
-    #[test]
     fn test_finality_as_str() {
         assert_eq!(Finality::Final.as_str(), "final");
         assert_eq!(Finality::Optimistic.as_str(), "optimistic");
@@ -271,43 +201,6 @@ mod tests {
             TxExecutionStatus::ExecutedOptimistic.as_str(),
             "EXECUTED_OPTIMISTIC"
         );
-    }
-
-    #[test]
-    fn test_block_reference_hash_to_rpc_params() {
-        let hash = CryptoHash::hash(b"test block");
-        let block_ref = BlockReference::at_hash(hash);
-        let params = block_ref.to_rpc_params();
-        assert_eq!(params["block_id"], hash.to_string());
-    }
-
-    #[test]
-    fn test_block_reference_constructors() {
-        // Test all constructor methods
-        let final_ref = BlockReference::final_();
-        assert!(matches!(
-            final_ref,
-            BlockReference::Finality(Finality::Final)
-        ));
-
-        let optimistic_ref = BlockReference::optimistic();
-        assert!(matches!(
-            optimistic_ref,
-            BlockReference::Finality(Finality::Optimistic)
-        ));
-
-        let near_final_ref = BlockReference::near_final();
-        assert!(matches!(
-            near_final_ref,
-            BlockReference::Finality(Finality::NearFinal)
-        ));
-
-        let height_ref = BlockReference::at_height(12345);
-        assert!(matches!(height_ref, BlockReference::Height(12345)));
-
-        let hash = CryptoHash::hash(b"test");
-        let hash_ref = BlockReference::at_hash(hash);
-        assert!(matches!(hash_ref, BlockReference::Hash(_)));
     }
 
     #[test]
@@ -401,32 +294,6 @@ mod tests {
         let f3 = f1.clone(); // Clone (intentionally testing Clone impl)
         assert_eq!(f1, f2);
         assert_eq!(f1, f3);
-    }
-
-    #[test]
-    fn test_sync_checkpoint_constructors() {
-        let genesis = BlockReference::genesis();
-        assert!(matches!(
-            genesis,
-            BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis)
-        ));
-
-        let earliest = BlockReference::earliest_available();
-        assert!(matches!(
-            earliest,
-            BlockReference::SyncCheckpoint(SyncCheckpoint::EarliestAvailable)
-        ));
-    }
-
-    #[test]
-    fn test_sync_checkpoint_rpc_params() {
-        let genesis = BlockReference::genesis();
-        let params = genesis.to_rpc_params();
-        assert_eq!(params["sync_checkpoint"], "genesis");
-
-        let earliest = BlockReference::earliest_available();
-        let params = earliest.to_rpc_params();
-        assert_eq!(params["sync_checkpoint"], "earliest_available");
     }
 
     #[test]

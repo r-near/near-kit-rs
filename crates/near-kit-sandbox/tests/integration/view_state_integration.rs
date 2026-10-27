@@ -54,7 +54,7 @@ async fn test_view_state_pagination_reads_all_entries() {
     let first = near
         .near()
         .rpc()
-        .view_state(&contract, &[], None, Some(2), BlockReference::final_())
+        .view_state(&contract, &[], None, Some(2), BlockReference::default())
         .await
         .expect("view_state page");
     assert!(!first.values.is_empty());
@@ -73,7 +73,7 @@ async fn test_view_state_pagination_reads_all_entries() {
             &[],
             first.last_key.as_deref(),
             Some(2),
-            BlockReference::final_(),
+            BlockReference::default(),
         )
         .await
         .expect("view_state page 2");
@@ -88,13 +88,13 @@ async fn test_view_state_pagination_reads_all_entries() {
     let all_small_pages = near
         .near()
         .rpc()
-        .view_state_all(&contract, &[], 2, BlockReference::final_())
+        .view_state_all(&contract, &[], 2, BlockReference::default())
         .await
         .expect("view_state_all with small pages");
     let all_default_page = near
         .near()
         .rpc()
-        .view_state_all(&contract, &[], 0, BlockReference::final_())
+        .view_state_all(&contract, &[], 0, BlockReference::default())
         .await
         .expect("view_state_all with default page size");
 
@@ -114,7 +114,7 @@ async fn test_view_state_pagination_reads_all_entries() {
     let pinned = near
         .near()
         .rpc()
-        .block(BlockReference::at_hash(all_small_pages.block_hash))
+        .block(BlockReference::Hash(all_small_pages.block_hash))
         .await
         .expect("block view_state_all was pinned to");
     assert_eq!(pinned.header.height, all_small_pages.block_height);
@@ -124,7 +124,7 @@ async fn test_view_state_pagination_reads_all_entries() {
     let filtered = near
         .near()
         .rpc()
-        .view_state_all(&contract, prefix, 0, BlockReference::final_())
+        .view_state_all(&contract, prefix, 0, BlockReference::default())
         .await
         .expect("view_state_all prefix");
     assert!(!filtered.is_empty());

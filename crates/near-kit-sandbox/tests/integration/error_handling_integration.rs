@@ -2,7 +2,7 @@
 
 use near_kit::protocol::Action;
 use near_kit::rpc::{BlockReference, RpcError};
-use near_kit::transaction::Final;
+use near_kit::transaction::{ContractError, Final};
 use near_kit::{AccountId, CryptoHash, Error, NearToken};
 use near_kit_sandbox::SANDBOX_ROOT_ACCOUNT;
 
@@ -36,7 +36,8 @@ async fn missing_account_access_keys_are_empty() {
 
     let keys = near
         .near()
-        .access_keys(&account_id)
+        .rpc()
+        .view_access_key_list(&account_id, Default::default())
         .await
         .expect("the node represents missing-account keys as an empty list");
     assert!(keys.keys.is_empty());
@@ -55,13 +56,16 @@ async fn account_without_code_returns_contract_not_deployed() {
 
     let error = near
         .near()
-        .view::<serde_json::Value>(SANDBOX_ROOT_ACCOUNT, "get_greeting")
+        .view::<serde_json::Value>(
+            SANDBOX_ROOT_ACCOUNT.parse::<AccountId>().unwrap(),
+            "get_greeting",
+        )
         .args(())
         .await
         .expect_err("root account has no contract");
     assert!(matches!(
         error,
-        Error::Rpc(error) if matches!(error.as_ref(), RpcError::ContractNotDeployed { .. })
+        ContractError::Backend(RpcError::ContractNotDeployed { .. })
     ));
 }
 
@@ -85,12 +89,8 @@ async fn missing_contract_method_returns_typed_error() {
         .expect_err("missing method must fail");
     assert!(matches!(
         error,
-        Error::Rpc(error)
-            if matches!(
-                error.as_ref(),
-                RpcError::MethodNotFound { contract_id: actual, method_name, .. }
-                    if actual == &contract_id && method_name == "this_method_does_not_exist"
-            )
+        ContractError::Backend(RpcError::MethodNotFound { contract_id: actual, method_name, .. })
+            if actual == contract_id && method_name == "this_method_does_not_exist"
     ));
 }
 

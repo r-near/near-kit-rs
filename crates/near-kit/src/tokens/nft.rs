@@ -93,8 +93,9 @@ impl<W: WaitLevel> NonFungibleToken<W> {
                 self.client
                     .near()
                     .view(&self.contract_id, "nft_metadata")
-                    .finality(Finality::Optimistic)
+                    .at(Finality::Optimistic)
                     .await
+                    .map_err(Error::from)
             })
             .await
     }
@@ -133,8 +134,9 @@ impl<W: WaitLevel> NonFungibleToken<W> {
                 .near()
                 .view(&self.contract_id, "nft_token")
                 .args(Args { token_id })
-                .finality(Finality::Optimistic)
+                .at(Finality::Optimistic)
                 .await
+                .map_err(Error::from)
         }
         .instrument(span)
         .await
@@ -190,8 +192,9 @@ impl<W: WaitLevel> NonFungibleToken<W> {
                     from_index: from_index.map(|i| i.to_string()),
                     limit,
                 })
-                .finality(Finality::Optimistic)
+                .at(Finality::Optimistic)
                 .await
+                .map_err(Error::from)
         }
         .instrument(span)
         .await
@@ -203,7 +206,7 @@ impl<W: WaitLevel> NonFungibleToken<W> {
             .client
             .near()
             .view(&self.contract_id, "nft_total_supply")
-            .finality(Finality::Optimistic)
+            .at(Finality::Optimistic)
             .await?;
         supply_str.parse().map_err(|_| {
             Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
@@ -229,7 +232,7 @@ impl<W: WaitLevel> NonFungibleToken<W> {
             .args(Args {
                 account_id: account_id.as_str(),
             })
-            .finality(Finality::Optimistic)
+            .at(Finality::Optimistic)
             .await?;
         supply_str.parse().map_err(|_| {
             Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(

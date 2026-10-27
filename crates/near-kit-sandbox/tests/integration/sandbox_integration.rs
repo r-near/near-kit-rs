@@ -23,7 +23,8 @@ async fn set_balance_preserves_other_account_fields() {
 
     let original = root
         .near()
-        .account(&account_id)
+        .rpc()
+        .view_account(&account_id, Default::default())
         .await
         .expect("original account");
     let target_balance = NearToken::from_near(500_000);
@@ -34,7 +35,8 @@ async fn set_balance_preserves_other_account_fields() {
 
     let updated = root
         .near()
-        .account(&account_id)
+        .rpc()
+        .view_account(&account_id, Default::default())
         .await
         .expect("patched account");
     assert_eq!(updated.amount, target_balance);
@@ -121,7 +123,7 @@ async fn custom_chain_id_reaches_the_client() {
     assert_eq!(near.near().chain_id().as_str(), "pinet");
     assert!(
         near.near()
-            .balance("sandbox")
+            .balance(near_kit::account!("sandbox"))
             .await
             .expect("root balance")
             .total

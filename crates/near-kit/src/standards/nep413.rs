@@ -144,7 +144,7 @@ pub async fn verify(
             .view_access_key(
                 &signed.account_id,
                 &signed.public_key,
-                BlockReference::optimistic(),
+                BlockReference::Finality(crate::types::Finality::Optimistic),
             )
             .await;
 

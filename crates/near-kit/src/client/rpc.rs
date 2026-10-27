@@ -24,8 +24,8 @@ use crate::types::{
     BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
     FunctionCallError, GasKeyNoncesView, GasPrice, GlobalContractId, GlobalContractIdentifierView,
     HostError, MaintenanceWindow, MethodResolveError, PublicKey, PublicKeyHandle,
-    ReceiptToTxResponse, SignedTransaction, StatusResponse, TxExecutionStatus, ViewFunctionResult,
-    ViewStateAllResult, ViewStateResult,
+    ReceiptToTxResponse, SignedTransaction, StatusResponse, SyncCheckpoint, TxExecutionStatus,
+    ViewFunctionResult, ViewStateAllResult, ViewStateResult,
 };
 
 /// Platform-appropriate async sleep, used for retry backoff.
@@ -1043,7 +1043,7 @@ impl RpcClient {
         let mut list = self
             .view_access_key_list_page(account_id, None, Some(limit), block)
             .await?;
-        let pinned = BlockReference::at_hash(list.block_hash);
+        let pinned = BlockReference::Hash(list.block_hash);
         while let Some(cursor) = list.last_key.take() {
             let page = self
                 .view_access_key_list_page(account_id, Some(&cursor), Some(limit), pinned)
@@ -1088,10 +1088,10 @@ impl RpcClient {
     /// # async fn example(rpc: &RpcClient, account: &AccountId) -> Result<(), RpcError> {
     /// let page_size = NonZeroU32::new(50);
     /// let mut page = rpc
-    ///     .view_access_key_list_page(account, None, page_size, BlockReference::final_())
+    ///     .view_access_key_list_page(account, None, page_size, BlockReference::default())
     ///     .await?;
     /// // Later pages read the snapshot the first page was taken at.
-    /// let snapshot = BlockReference::at_hash(page.block_hash);
+    /// let snapshot = BlockReference::Hash(page.block_hash);
     /// let mut keys = page.keys;
     /// while let Some(cursor) = page.last_key {
     ///     page = rpc
@@ -1368,7 +1368,7 @@ impl RpcClient {
             .await?;
         let block_height = first.block_height;
         let block_hash = first.block_hash;
-        let pinned = BlockReference::at_hash(block_hash);
+        let pinned = BlockReference::Hash(block_hash);
         let mut values = first.values;
         let mut after_key = first.last_key;
         while let Some(cursor) = after_key {
@@ -1388,7 +1388,7 @@ impl RpcClient {
     /// Get block information.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block)))]
     pub async fn block(&self, block: BlockReference) -> Result<BlockView, RpcError> {
-        let params = block.to_rpc_params();
+        let params = block_params(&block);
         self.call("block", params).await
     }
 
@@ -1398,7 +1398,7 @@ impl RpcClient {
     /// for `EXPERIMENTAL_changes_in_block`.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block)))]
     pub async fn block_effects(&self, block: BlockReference) -> Result<BlockEffects, RpcError> {
-        let params = block.to_rpc_params();
+        let params = block_params(&block);
         self.call("block_effects", params).await
     }
 
@@ -1531,7 +1531,7 @@ impl RpcClient {
 
     /// Merge block reference parameters into a JSON object.
     fn merge_block_reference(&self, params: &mut serde_json::Value, block: &BlockReference) {
-        if let serde_json::Value::Object(block_params) = block.to_rpc_params()
+        if let serde_json::Value::Object(block_params) = block_params(block)
             && let serde_json::Value::Object(map) = params
         {
             map.extend(block_params);
@@ -1653,6 +1653,22 @@ impl std::fmt::Debug for RpcClient {
 ///
 /// Height and hash variants are forwarded as-is; finality and sync-checkpoint
 /// variants become `null` (latest).
+/// The JSON-RPC parameters that select `block`.
+fn block_params(block: &BlockReference) -> serde_json::Value {
+    match block {
+        BlockReference::Finality(finality) => serde_json::json!({ "finality": finality.as_str() }),
+        BlockReference::Height(height) => serde_json::json!({ "block_id": *height }),
+        BlockReference::Hash(hash) => serde_json::json!({ "block_id": hash.to_string() }),
+        BlockReference::SyncCheckpoint(checkpoint) => {
+            let checkpoint = match checkpoint {
+                SyncCheckpoint::Genesis => "genesis",
+                SyncCheckpoint::EarliestAvailable => "earliest_available",
+            };
+            serde_json::json!({ "sync_checkpoint": checkpoint })
+        }
+    }
+}
+
 fn block_id_or_null(block: Option<&BlockReference>) -> serde_json::Value {
     match block {
         Some(BlockReference::Height(h)) => serde_json::json!(*h),
@@ -1786,6 +1802,34 @@ mod tests {
 
     use super::*;
     use crate::client::{BoxFuture, TransportResponse};
+    use crate::types::Finality;
+
+    #[test]
+    fn block_params_select_each_kind_of_block() {
+        assert_eq!(
+            block_params(&Finality::Final.into()),
+            serde_json::json!({ "finality": "final" })
+        );
+        assert_eq!(
+            block_params(&12345_u64.into()),
+            serde_json::json!({ "block_id": 12345 })
+        );
+        let hash = CryptoHash::hash(b"test block");
+        assert_eq!(
+            block_params(&hash.into()),
+            serde_json::json!({ "block_id": hash.to_string() })
+        );
+        assert_eq!(
+            block_params(&BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis)),
+            serde_json::json!({ "sync_checkpoint": "genesis" })
+        );
+        assert_eq!(
+            block_params(&BlockReference::SyncCheckpoint(
+                SyncCheckpoint::EarliestAvailable
+            )),
+            serde_json::json!({ "sync_checkpoint": "earliest_available" })
+        );
+    }
 
     struct StaticResponseTransport {
         body: Vec<u8>,
@@ -2147,7 +2191,7 @@ mod tests {
             &missing_account,
             "nep413_get_message",
             &[],
-            BlockReference::final_(),
+            BlockReference::Finality(Finality::Final),
         )
         .await
         .unwrap_err();
@@ -2181,7 +2225,7 @@ mod tests {
             &account_without_code,
             "nep413_get_message",
             &[],
-            BlockReference::final_(),
+            BlockReference::Finality(Finality::Final),
         )
         .await
         .unwrap_err();
@@ -2208,7 +2252,12 @@ mod tests {
                 "block_hash": block_hash,
             }),
         )
-        .view_function(&contract_id, missing_method, &[], BlockReference::final_())
+        .view_function(
+            &contract_id,
+            missing_method,
+            &[],
+            BlockReference::Finality(Finality::Final),
+        )
         .await
         .unwrap_err();
         match error {
@@ -2236,7 +2285,12 @@ mod tests {
                 "block_hash": block_hash,
             }),
         )
-        .view_function(&contract_id, "verify_nep413", &[], BlockReference::final_())
+        .view_function(
+            &contract_id,
+            "verify_nep413",
+            &[],
+            BlockReference::Finality(Finality::Final),
+        )
         .await
         .unwrap_err();
         match error {
@@ -2564,7 +2618,7 @@ mod tests {
 
         let all = transport
             .client()
-            .view_state_all(&account, b"se", 0, BlockReference::at_height(1))
+            .view_state_all(&account, b"se", 0, BlockReference::Height(1))
             .await
             .unwrap();
         let keys: Vec<&[u8]> = all.iter().map(|item| item.key.as_slice()).collect();
@@ -2611,7 +2665,7 @@ mod tests {
 
         let all = transport
             .client()
-            .view_state_all(&account, b"", 1, BlockReference::final_())
+            .view_state_all(&account, b"", 1, BlockReference::Finality(Finality::Final))
             .await
             .unwrap();
         assert_eq!(all.len(), 2);
@@ -2636,7 +2690,7 @@ mod tests {
 
         let all = transport
             .client()
-            .view_state_all(&account, b"", 25, BlockReference::at_height(1))
+            .view_state_all(&account, b"", 25, BlockReference::Height(1))
             .await
             .unwrap();
         assert_eq!(all.len(), 1);
@@ -2659,7 +2713,7 @@ mod tests {
 
         let all = transport
             .client()
-            .view_state_all(&account, b"", 1, BlockReference::at_height(1))
+            .view_state_all(&account, b"", 1, BlockReference::Height(1))
             .await
             .unwrap();
         assert_eq!(all.len(), 2);
@@ -2717,7 +2771,7 @@ mod tests {
 
         let list = transport
             .client()
-            .view_access_key_list(&account, BlockReference::final_())
+            .view_access_key_list(&account, BlockReference::Finality(Finality::Final))
             .await
             .unwrap();
         assert_eq!(list.keys.len(), 1);
@@ -2754,7 +2808,7 @@ mod tests {
 
         let list = transport
             .client()
-            .view_access_key_list(&account, BlockReference::final_())
+            .view_access_key_list(&account, BlockReference::Finality(Finality::Final))
             .await
             .unwrap();
         let keys: Vec<String> = list.keys.iter().map(|k| k.public_key.to_string()).collect();
@@ -2794,7 +2848,7 @@ mod tests {
                 &account,
                 Some(&after),
                 NonZeroU32::new(2),
-                BlockReference::at_height(1),
+                BlockReference::Height(1),
             )
             .await
             .unwrap();
@@ -2819,7 +2873,12 @@ mod tests {
 
         let page = transport
             .client()
-            .view_access_key_list_page(&account, None, None, BlockReference::final_())
+            .view_access_key_list_page(
+                &account,
+                None,
+                None,
+                BlockReference::Finality(Finality::Final),
+            )
             .await
             .unwrap();
         assert!(page.keys.is_empty());
@@ -3193,7 +3252,11 @@ mod tests {
                 "block_hash": "11111111111111111111111111111111",
             }),
         )
-        .view_gas_key_nonces(&account_id, &public_key, BlockReference::final_())
+        .view_gas_key_nonces(
+            &account_id,
+            &public_key,
+            BlockReference::Finality(Finality::Final),
+        )
         .await
         .unwrap_err();
         assert!(
@@ -4883,7 +4946,7 @@ mod tests {
 
     #[test]
     fn test_block_id_or_null_with_height() {
-        let block = BlockReference::at_height(12345);
+        let block = BlockReference::Height(12345);
         let result = block_id_or_null(Some(&block));
         assert_eq!(result, serde_json::json!(12345));
     }
@@ -4891,25 +4954,25 @@ mod tests {
     #[test]
     fn test_block_id_or_null_with_hash() {
         let hash = CryptoHash::hash(b"test block");
-        let block = BlockReference::at_hash(hash);
+        let block = BlockReference::Hash(hash);
         let result = block_id_or_null(Some(&block));
         assert_eq!(result, serde_json::json!(hash.to_string()));
     }
 
     #[test]
     fn test_block_id_or_null_with_finality_falls_back_to_null() {
-        let block = BlockReference::final_();
+        let block = BlockReference::Finality(Finality::Final);
         let result = block_id_or_null(Some(&block));
         assert!(result.is_null(), "finality variants should map to null");
 
-        let block = BlockReference::optimistic();
+        let block = BlockReference::Finality(Finality::Optimistic);
         let result = block_id_or_null(Some(&block));
         assert!(result.is_null(), "optimistic should map to null");
     }
 
     #[test]
     fn test_block_id_or_null_with_sync_checkpoint_falls_back_to_null() {
-        let block = BlockReference::genesis();
+        let block = BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis);
         let result = block_id_or_null(Some(&block));
         assert!(result.is_null(), "sync checkpoint should map to null");
     }
@@ -5090,7 +5153,7 @@ mod tests {
                 &contract_id,
                 "no_such_method",
                 &[],
-                BlockReference::final_(),
+                BlockReference::Finality(Finality::Final),
             )
             .await
             .unwrap_err();
@@ -5191,7 +5254,7 @@ mod tests {
         let account: AccountId = "app.near".parse().unwrap();
 
         let view = rpc
-            .view_code(&account, BlockReference::final_())
+            .view_code(&account, BlockReference::Finality(Finality::Final))
             .await
             .unwrap();
         assert_eq!(view.code, b"\0asm");
@@ -5202,7 +5265,7 @@ mod tests {
         // Same wire shape for the global-contract lookups.
         let id = GlobalContractId::CodeHash(*code_hash.as_bytes());
         let global = rpc
-            .view_global_contract_code(&id, BlockReference::final_())
+            .view_global_contract_code(&id, BlockReference::Finality(Finality::Final))
             .await
             .unwrap();
         assert_eq!(global, view);
@@ -5218,7 +5281,13 @@ mod tests {
         let account: AccountId = "app.near".parse().unwrap();
 
         let page = rpc
-            .view_state(&account, b"", None, None, BlockReference::final_())
+            .view_state(
+                &account,
+                b"",
+                None,
+                None,
+                BlockReference::Finality(Finality::Final),
+            )
             .await
             .unwrap();
         assert_eq!(page.values.len(), 1);

@@ -52,7 +52,12 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
         .expect("create_account with ML-DSA-65 key must be accepted");
 
     // The view RPC returns the key as an `ml-dsa-65-hash:` handle.
-    let keys = near.near().access_keys(&account_id).await.unwrap();
+    let keys = near
+        .near()
+        .rpc()
+        .view_access_key_list(&account_id, Default::default())
+        .await
+        .unwrap();
     assert_eq!(keys.keys.len(), 1);
     let listed = &keys.keys[0].public_key;
     assert_eq!(listed.key_type(), KeyType::MlDsa65);

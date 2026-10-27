@@ -92,8 +92,9 @@ impl<W: WaitLevel> FungibleToken<W> {
                 self.client
                     .near()
                     .view(&self.contract_id, "ft_metadata")
-                    .finality(Finality::Optimistic)
+                    .at(Finality::Optimistic)
                     .await
+                    .map_err(Error::from)
             })
             .await
     }
@@ -134,7 +135,7 @@ impl<W: WaitLevel> FungibleToken<W> {
                 .args(Args {
                     account_id: account_id.as_str(),
                 })
-                .finality(Finality::Optimistic)
+                .at(Finality::Optimistic)
                 .await?;
             let raw: u128 = balance_str.parse().map_err(|_| {
                 Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
@@ -159,7 +160,7 @@ impl<W: WaitLevel> FungibleToken<W> {
             .client
             .near()
             .view(&self.contract_id, "ft_total_supply")
-            .finality(Finality::Optimistic)
+            .at(Finality::Optimistic)
             .await?;
         let raw: u128 = supply_str.parse().map_err(|_| {
             Error::Rpc(Box::new(crate::error::RpcError::InvalidResponse(format!(
@@ -204,8 +205,9 @@ impl<W: WaitLevel> FungibleToken<W> {
             .args(Args {
                 account_id: account_id.as_str(),
             })
-            .finality(Finality::Optimistic)
+            .at(Finality::Optimistic)
             .await
+            .map_err(Error::from)
     }
 
     /// Get storage balance bounds for this token contract.
@@ -218,8 +220,9 @@ impl<W: WaitLevel> FungibleToken<W> {
                 self.client
                     .near()
                     .view(&self.contract_id, "storage_balance_bounds")
-                    .finality(Finality::Optimistic)
+                    .at(Finality::Optimistic)
                     .await
+                    .map_err(Error::from)
             })
             .await
     }

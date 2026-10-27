@@ -501,7 +501,7 @@ mod tests {
         let alice_included: SigningNear<Included> = alice_fast.wait_until();
         assert_eq!(alice_included.account_id(), alice.account_id());
         assert!(Arc::ptr_eq(alice_included.signer(), alice.signer()));
-        assert_eq!(alice_included.near().rpc_url(), alice.near().rpc_url());
+        assert_eq!(alice_included.near().rpc().url(), alice.near().rpc().url());
     }
 
     #[test]
@@ -582,10 +582,10 @@ mod tests {
             assert_eq!(near.account_id().as_str(), "alice.testnet");
             assert!(near.near().chain_id().is_testnet());
             assert!(
-                near.near().rpc_url().contains("test")
-                    || near.near().rpc_url().contains("fastnear"),
+                near.near().rpc().url().contains("test")
+                    || near.near().rpc().url().contains("fastnear"),
                 "Expected testnet URL, got: {}",
-                near.near().rpc_url()
+                near.near().rpc().url()
             );
             assert_eq!(near.near().max_nonce_retries, 3);
         }
@@ -609,7 +609,7 @@ mod tests {
         }
         {
             let near = SigningNear::from_env().unwrap();
-            assert_eq!(near.near().rpc_url(), "https://custom-rpc.example.com");
+            assert_eq!(near.near().rpc().url(), "https://custom-rpc.example.com");
             assert_eq!(near.near().chain_id().as_str(), "custom");
         }
 
@@ -663,7 +663,7 @@ mod tests {
         }
         {
             let near = SigningNear::from_env().unwrap();
-            assert_eq!(near.near().rpc_url(), "https://rpc.pinet.near.org");
+            assert_eq!(near.near().rpc().url(), "https://rpc.pinet.near.org");
             assert_eq!(near.near().chain_id().as_str(), "pinet");
         }
 
@@ -676,10 +676,10 @@ mod tests {
         {
             let near = SigningNear::from_env().unwrap();
             assert!(
-                near.near().rpc_url().contains("test")
-                    || near.near().rpc_url().contains("fastnear"),
+                near.near().rpc().url().contains("test")
+                    || near.near().rpc().url().contains("fastnear"),
                 "Expected testnet URL, got: {}",
-                near.near().rpc_url()
+                near.near().rpc().url()
             );
             assert_eq!(near.near().chain_id().as_str(), "my-chain");
         }

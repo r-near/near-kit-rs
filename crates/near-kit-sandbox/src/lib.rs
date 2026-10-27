@@ -522,10 +522,14 @@ impl Sandbox {
         const OBSERVATION_ATTEMPTS: u32 = 50;
         let mut last_error = None;
         for _ in 0..OBSERVATION_ATTEMPTS {
-            match near.account(&account_id).await {
+            match near
+                .rpc()
+                .view_account(&account_id, Default::default())
+                .await
+            {
                 Ok(account) if account.amount == balance => return Ok(()),
                 Ok(_) => {}
-                Err(error) => last_error = Some(Box::new(error)),
+                Err(error) => last_error = Some(Box::new(error.into())),
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }

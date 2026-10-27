@@ -831,7 +831,8 @@ impl Error {
     #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
     /// # use near_kit::Near;
     /// # async fn example(near: &Near) -> Result<(), near_kit::Error> {
-    /// match near.view::<u64>("counter.testnet", "get_count").await {
+    /// # use near_kit::account;
+    /// match near.view::<u64>(account!("counter.testnet"), "get_count").await.map_err(near_kit::Error::from) {
     ///     Ok(count) => println!("{count}"),
     ///     Err(e) if e.as_rpc().is_some_and(|e| e.is_contract_not_deployed()) => {
     ///         println!("no contract");
@@ -854,11 +855,11 @@ impl Error {
     ///
     #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
     #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-    /// # use near_kit::{Error, Near};
+    /// # use near_kit::{Error, Near, account};
     /// # use near_kit::rpc::RpcError;
     /// # async fn example(near: &Near) -> Result<(), Error> {
-    /// let result = near.view::<String>("resolver.testnet", "resolve").await;
-    /// match result.map_err(Error::into_rpc) {
+    /// let result = near.view::<String>(account!("resolver.testnet"), "resolve").await;
+    /// match result.map_err(Error::from).map_err(Error::into_rpc) {
     ///     Ok(value) => println!("{value}"),
     ///     Err(Ok(RpcError::ContractPanic { message, .. })) => println!("panicked: {message}"),
     ///     Err(Ok(other)) => return Err(other.into()),

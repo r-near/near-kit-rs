@@ -1602,7 +1602,7 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 /// With a live `near-kit` client:
 ///
 /// ```rust,ignore
-/// let outcome = near.tx_status(&tx_hash, "alice.near").wait_until::<Final>().await?;
+/// let outcome = near.tx_status(&tx_hash, account!("alice.near")).wait_until::<Final>().await?;
 /// let actions = outcome
 ///     .transaction
 ///     .actions
