@@ -220,6 +220,29 @@ impl<W: WaitLevel> SigningNear<W> {
         SigningNear::new(self.near.clone(), self.signer.clone())
     }
 
+    /// Set how many times a transaction is re-signed and re-sent after an
+    /// `InvalidNonce` error. `0` sends once.
+    ///
+    /// Like the wait level, this is sender policy: it applies to every
+    /// transaction this client sends, and doesn't change the [`Near`] it was
+    /// created from. The default is that `Near`'s setting (`3` unless
+    /// configured).
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # use near_kit::transaction::Included;
+    /// # fn example(alice: SigningNear) {
+    /// // A relayer that keeps retrying and returns once included.
+    /// let relayer = alice.clone().max_nonce_retries(u32::MAX).wait_until::<Included>();
+    /// # }
+    /// ```
+    pub fn max_nonce_retries(mut self, retries: u32) -> Self {
+        self.near.max_nonce_retries = retries;
+        self
+    }
+
     /// Start a transaction to `receiver_id`.
     ///
     /// Add actions with [`Tx::add_action`] and `.await` the result. See
@@ -407,6 +430,16 @@ mod tests {
         assert_eq!(alice_included.account_id(), alice.account_id());
         assert!(Arc::ptr_eq(alice_included.signer(), alice.signer()));
         assert_eq!(alice_included.near().rpc().url(), alice.near().rpc().url());
+    }
+
+    #[test]
+    fn max_nonce_retries_is_per_sender() {
+        let alice = alice();
+        let relayer = alice.clone().max_nonce_retries(u32::MAX);
+        assert_eq!(relayer.near().max_nonce_retries, u32::MAX);
+        assert_eq!(alice.near().max_nonce_retries, 3);
+        let included = relayer.wait_until::<Included>();
+        assert_eq!(included.near().max_nonce_retries, u32::MAX);
     }
 
     #[test]

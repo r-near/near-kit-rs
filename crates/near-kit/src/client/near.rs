@@ -99,21 +99,15 @@ impl Near {
     ///
     /// `0` means no retries (send once), `1` means one retry, etc. Defaults to `3`.
     ///
-    /// Useful when you need to adjust retries after construction,
-    /// for example when using a client obtained from a sandbox. A
-    /// [`SigningNear`] takes the setting of the `Near` it was created from.
+    /// A [`SigningNear`] takes the setting of the `Near` it was created
+    /// from; use [`SigningNear::max_nonce_retries`] to change it for one
+    /// sender.
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # fn example(sandbox: SigningNear) {
-    /// let relayer = sandbox
-    ///     .near()
-    ///     .clone()
-    ///     .max_nonce_retries(u32::MAX)
-    ///     .with_signer(sandbox.signer().clone());
-    /// # }
+    /// let near = Near::testnet().build().max_nonce_retries(10);
     /// ```
     pub fn max_nonce_retries(mut self, retries: u32) -> Near {
         self.max_nonce_retries = retries;
