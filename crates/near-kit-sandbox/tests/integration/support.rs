@@ -5,10 +5,8 @@ use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::transaction::Final;
 use near_kit::{AccountId, NearToken, SigningNear};
 use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, Sandbox};
-use tokio::sync::OnceCell;
 
 static ACCOUNT_COUNTER: AtomicUsize = AtomicUsize::new(0);
-static SANDBOX_2_13: OnceCell<Sandbox> = OnceCell::const_new();
 
 pub(crate) fn unique_account(prefix: &str) -> AccountId {
     let n = ACCOUNT_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -25,9 +23,16 @@ pub(crate) async fn shared_client() -> (&'static Sandbox, SigningNear) {
     (sandbox, sandbox.root_account())
 }
 
-pub(crate) async fn sandbox_2_13() -> &'static Sandbox {
-    SANDBOX_2_13
-        .get_or_try_init(|| async { Sandbox::builder().version("2.13.4").fresh().await })
+/// A fresh sandbox pinned to nearcore 2.13.4, owned by the calling test.
+///
+/// Not a shared `static`: statics are never dropped, so a shared fresh
+/// sandbox would leave its container behind after every run. The library's
+/// `.shared()` sandbox has its own exit-time cleanup; this one is removed when
+/// the test drops it, including on panic.
+pub(crate) async fn sandbox_2_13() -> Sandbox {
+    Sandbox::builder()
+        .version("2.13.4")
+        .fresh()
         .await
         .expect("2.13 sandbox must start")
 }

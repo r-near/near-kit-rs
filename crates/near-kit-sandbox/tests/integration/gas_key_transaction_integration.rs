@@ -9,7 +9,7 @@
 //!    sign it with the gas key, and submit it with `send_tx`.
 //! 5. Assert the transfer landed and the gas key's nonce advanced.
 //!
-//! Pins the sandbox to stable `2.13.4`, shared with the other protocol tests.
+//! Pins the sandbox to stable `2.13.4`, in a fresh container of its own.
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
