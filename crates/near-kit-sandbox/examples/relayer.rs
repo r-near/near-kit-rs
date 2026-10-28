@@ -11,7 +11,8 @@
 //! - Relayer side: `SignedDelegateAction::from_base64`, then the checks a
 //!   relayer makes before paying: the signature, the sender, the receiver, which
 //!   actions are allowed, gas, deposits, expiry, and the user's key and nonce
-//!   (so a replayed request is turned down). Then it sends
+//!   (so a replayed request is turned down), and that the same request isn't
+//!   already in flight. Then it sends
 //!   `Action::delegate(signed)` in a transaction to `signed.sender_id()` (the
 //!   user's account, not the contract).
 //! - Reading the result: the relayer's transaction succeeds even when the
@@ -27,9 +28,12 @@
 //! cargo run -p near-kit-sandbox --example relayer --features integration-tests
 //! ```
 
+use std::collections::HashSet;
+use std::sync::Mutex;
+
 use near_kit::protocol::{Action, SignedDelegateAction};
 use near_kit::rpc::{FinalExecutionOutcome, Finality, OutcomeError, RpcError};
-use near_kit::signer::{InMemorySigner, SecretKey};
+use near_kit::signer::{InMemorySigner, PublicKey, SecretKey};
 use near_kit::transaction::{DelegateOptions, FunctionCall};
 use near_kit::{AccountId, Error, Gas, NearToken, SigningNear, account};
 use near_kit_sandbox::Sandbox;
@@ -50,6 +54,35 @@ struct Policy {
     /// ...and expire within this many, so an old signature can't be
     /// replayed into the relayer much later.
     max_blocks_left: u64,
+}
+
+/// Delegate actions being relayed, by sender, key and nonce.
+///
+/// Two copies of one request that arrive together both pass the nonce check:
+/// the key's nonce doesn't move until one of them lands. The second would
+/// then fail on chain, at the relayer's expense. So a request is reserved
+/// before it is sent, and a copy that finds it reserved is turned down.
+#[derive(Default)]
+struct InFlight(Mutex<HashSet<(AccountId, PublicKey, u64)>>);
+
+impl InFlight {
+    /// Reserve `signed`, or `false` if it already is.
+    fn reserve(&self, signed: &SignedDelegateAction) -> bool {
+        self.0.lock().unwrap().insert(Self::key(signed))
+    }
+
+    fn release(&self, signed: &SignedDelegateAction) {
+        self.0.lock().unwrap().remove(&Self::key(signed));
+    }
+
+    fn key(signed: &SignedDelegateAction) -> (AccountId, PublicKey, u64) {
+        let delegate = &signed.delegate_action;
+        (
+            delegate.sender_id.clone(),
+            delegate.public_key.clone(),
+            delegate.nonce,
+        )
+    }
 }
 
 /// Why a relay request did not go through.
@@ -146,6 +179,7 @@ fn check(
 async fn relay(
     relayer: &SigningNear,
     policy: &Policy,
+    in_flight: &InFlight,
     payload: &str,
 ) -> Result<FinalExecutionOutcome, RelayError> {
     let signed = SignedDelegateAction::from_base64(payload)
@@ -180,14 +214,24 @@ async fn relay(
         Err(error) => return Err(Error::from(error).into()),
     };
     check(policy, &signed, height, key_nonce).map_err(RelayError::Rejected)?;
+    if !in_flight.reserve(&signed) {
+        return Err(RelayError::Rejected(
+            "this request is already being relayed".into(),
+        ));
+    }
 
     // The transaction goes to the delegate's sender: the user's account
     // unpacks the delegate action and forwards its actions to the receiver.
     // near-kit rejects any other receiver before signing (`Error::Validation`).
-    let outcome = relayer
+    let sent = relayer
         .transaction(signed.sender_id())
-        .add_action(Action::delegate(signed))
-        .await?;
+        .add_action(Action::delegate(signed.clone()))
+        .await;
+    // Once the transaction ran, the key's final nonce covers the request, so
+    // the nonce check turns copies down. After an error the outcome may be
+    // unknown: the reservation stays until the relayer has looked it up.
+    let outcome = sent?;
+    in_flight.release(&signed);
 
     // The final status follows the receipt that unpacks the delegate action on
     // the user's account, which succeeds once it has forwarded the actions.
@@ -293,7 +337,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     println!("payload: {} bytes of base64", payload.len());
 
-    let outcome = relay(&relayer, &policy, &payload).await?;
+    let in_flight = InFlight::default();
+    let outcome = relay(&relayer, &policy, &in_flight, &payload).await?;
     println!("relayed: {}", outcome.transaction_hash());
 
     let messages: Vec<serde_json::Value> = near
@@ -311,6 +356,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         relayer_before.saturating_sub(relayer_after)
     );
     assert_eq!(alice_before, alice_after);
+
+    // --- Two copies of one request at once: one is relayed ---
+    let twice = add_message_request(
+        &alice,
+        account!("guestbook.sandbox"),
+        FunctionCall::new("add_message")
+            .args(serde_json::json!({ "text": "Sent twice, relayed once" }))
+            .gas(Gas::from_tgas(30)),
+    )
+    .await?;
+    let (first, second) = tokio::join!(
+        relay(&relayer, &policy, &in_flight, &twice),
+        relay(&relayer, &policy, &in_flight, &twice),
+    );
+    match (first, second) {
+        (Ok(_), Err(error @ RelayError::Rejected(_)))
+        | (Err(error @ RelayError::Rejected(_)), Ok(_)) => println!("copy: {error}"),
+        other => return Err(format!("copies: expected one relayed, got {other:?}").into()),
+    }
 
     // --- Requests the relayer turns down before sending anything ---
     let with_deposit = add_message_request(
@@ -378,7 +442,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("replay", payload.clone()),
         ("garbage", not_a_payload),
     ] {
-        match relay(&relayer, &policy, &request).await {
+        match relay(&relayer, &policy, &in_flight, &request).await {
             Err(error @ RelayError::Rejected(_)) => println!("{name}: {error}"),
             other => return Err(format!("{name}: expected a rejection, got {other:?}").into()),
         }
@@ -395,7 +459,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .gas(Gas::from_tgas(30)),
     )
     .await?;
-    match relay(&relayer, &policy, &bad_args).await {
+    match relay(&relayer, &policy, &in_flight, &bad_args).await {
         Err(RelayError::UserActionFailed(error)) => {
             println!("bad args: user action failed: {error}")
         }
