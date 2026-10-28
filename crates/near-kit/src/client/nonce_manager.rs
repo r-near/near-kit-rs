@@ -19,13 +19,17 @@ const NONCE_RANGE_MULTIPLIER: u64 = 1_000_000;
 /// shares one sequence however its endpoint is spelled.
 type Key = (ChainId, AccountId, PublicKey);
 
+/// Most reservations kept per key; past this the smallest is dropped.
+const MAX_SEQUENCES: usize = 8;
+
 /// Manages nonces for concurrent transactions.
 ///
 /// Prevents nonce collisions when sending multiple transactions in parallel
 /// by caching nonces in memory and incrementing them under a lock.
 pub struct NonceManager {
-    /// Cached nonces: value = last nonce handed out for this key.
-    nonces: Mutex<HashMap<Key, u64>>,
+    /// Per key, the last nonce handed out by each live sequence (see
+    /// [`next`](Self::next)).
+    nonces: Mutex<HashMap<Key, Vec<u64>>>,
 }
 
 impl Default for NonceManager {
@@ -42,7 +46,7 @@ impl NonceManager {
         }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<Key, u64>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Vec<u64>>> {
         // The map only holds integers, each written in one step, so a panic
         // elsewhere while the lock was held can't leave it half-updated.
         self.nonces.lock().unwrap_or_else(PoisonError::into_inner)
@@ -55,11 +59,15 @@ impl NonceManager {
     /// and concurrent increments: when multiple transactions race, the cached
     /// value stays ahead of the (stale) chain nonce.
     ///
-    /// A cached nonce whose successor is at or above `block_height * 1e6`
-    /// can't come from this chain (every nonce in the view is below that
-    /// bound, and only about a million sends in flight could reach it), so
-    /// the view wins: the entry came from another chain with the same id or
-    /// the same endpoint.
+    /// A key can hold several sequences. One whose successor is at or above
+    /// the view's bound (`block_height * 1e6`, or higher when `chain_nonce`
+    /// shows the chain is past `block_height`) can't land at this view, so
+    /// it is skipped, and a new sequence starts from the view when no other
+    /// fits. It isn't dropped: it may come from another chain with the same
+    /// id (two sandboxes), or from a newer view of this one than the caller
+    /// read (a delegate's optimistic view ahead of a send's final view, after
+    /// the key was re-added). Dropping it in the second case would hand its
+    /// nonces out again.
     ///
     /// Fails, leaving the entry as it was, when no nonce follows: the node
     /// reported a nonce of `u64::MAX`.
@@ -71,17 +79,43 @@ impl NonceManager {
         chain_nonce: u64,
         block_height: u64,
     ) -> Result<u64, Error> {
-        let bound = block_height.saturating_mul(NONCE_RANGE_MULTIPLIER);
+        // The chain is at least at the height its nonce implies: a nonce
+        // from a rejection can be ahead of a trailing view.
+        let implied_height = (chain_nonce / NONCE_RANGE_MULTIPLIER).saturating_add(1);
+        let bound = block_height
+            .max(implied_height)
+            .saturating_mul(NONCE_RANGE_MULTIPLIER);
         let mut nonces = self.lock();
         let key = (chain_id.clone(), account_id.clone(), public_key.clone());
-        let current = match nonces.get(&key) {
-            Some(&cached) if cached.saturating_add(1) < bound => cached.max(chain_nonce),
-            _ => chain_nonce,
+        let sequences = nonces.entry(key.clone()).or_default();
+        let fitting = sequences
+            .iter()
+            .enumerate()
+            .filter(|&(_, &cached)| cached.saturating_add(1) < bound)
+            .max_by_key(|&(_, &cached)| cached)
+            .map(|(index, &cached)| (index, cached));
+        let current = fitting.map_or(chain_nonce, |(_, cached)| cached.max(chain_nonce));
+        let Some(next) = current.checked_add(1) else {
+            if sequences.is_empty() {
+                nonces.remove(&key);
+            }
+            return Err(no_next_nonce(current));
         };
-        let next = current
-            .checked_add(1)
-            .ok_or_else(|| no_next_nonce(current))?;
-        nonces.insert(key, next);
+        match fitting {
+            Some((index, _)) => sequences[index] = next,
+            None => {
+                if sequences.len() >= MAX_SEQUENCES
+                    && let Some(smallest) = sequences
+                        .iter()
+                        .enumerate()
+                        .min_by_key(|&(_, &cached)| cached)
+                        .map(|(index, _)| index)
+                {
+                    sequences.swap_remove(smallest);
+                }
+                sequences.push(next);
+            }
+        }
         Ok(next)
     }
 
@@ -89,10 +123,11 @@ impl NonceManager {
     /// `tx_nonce` as too large, so the next call starts from the chain's view
     /// again.
     ///
-    /// Only an entry at or above `tx_nonce` is dropped. A lower entry means
-    /// another send's rejection already reset it and nonces were handed out
-    /// from the view since (all of them below the rejected one); dropping it
-    /// would let the next send draw one of those again.
+    /// Only the sequence that handed `tx_nonce` out is dropped: the lowest one
+    /// at or above it. When every sequence is lower, another send's rejection
+    /// already reset it and nonces were handed out from the view since (all
+    /// of them below the rejected one); dropping one would let the next send
+    /// draw one of those again.
     pub fn forget_rejected(
         &self,
         chain_id: &ChainId,
@@ -102,7 +137,19 @@ impl NonceManager {
     ) {
         let key = (chain_id.clone(), account_id.clone(), public_key.clone());
         let mut nonces = self.lock();
-        if nonces.get(&key).is_some_and(|&cached| cached >= tx_nonce) {
+        let Some(sequences) = nonces.get_mut(&key) else {
+            return;
+        };
+        if let Some(index) = sequences
+            .iter()
+            .enumerate()
+            .filter(|&(_, &cached)| cached >= tx_nonce)
+            .min_by_key(|&(_, &cached)| cached)
+            .map(|(index, _)| index)
+        {
+            sequences.swap_remove(index);
+        }
+        if sequences.is_empty() {
             nonces.remove(&key);
         }
     }
@@ -262,6 +309,85 @@ mod tests {
             .next(&chain, &alice(), &alice_key(), 121_000_000, 122)
             .unwrap();
         assert_eq!(again, 121_000_002);
+    }
+
+    #[test]
+    fn an_older_view_keeps_a_newer_reservation() {
+        let manager = NonceManager::new();
+        let chain = ChainId::new("older-view");
+        // A delegate drew from an optimistic view at 103, after the key was
+        // re-added at 102.
+        let delegate = manager
+            .next(&chain, &alice(), &alice_key(), 102_000_000, 103)
+            .unwrap();
+        assert_eq!(delegate, 102_000_001);
+        // A send reads a final view at 100, which still shows the old key.
+        let send = manager
+            .next(&chain, &alice(), &alice_key(), 50, 100)
+            .unwrap();
+        assert_eq!(send, 51);
+        // The next delegate continues past the first one.
+        let again = manager
+            .next(&chain, &alice(), &alice_key(), 102_000_000, 103)
+            .unwrap();
+        assert_eq!(again, 102_000_002);
+        // And the send's retry, with the rejection's nonce against the same
+        // trailing view, continues past both.
+        let retry = manager
+            .next(&chain, &alice(), &alice_key(), 102_000_000, 100)
+            .unwrap();
+        assert_eq!(retry, 102_000_003);
+    }
+
+    #[test]
+    fn two_chains_with_one_id_keep_separate_sequences() {
+        let manager = NonceManager::new();
+        let chain = ChainId::new("two-sandboxes");
+        let next_at = |nonce, height| {
+            manager
+                .next(&chain, &alice(), &alice_key(), nonce, height)
+                .unwrap()
+        };
+        assert_eq!(next_at(1_086_000_000, 1095), 1_086_000_001);
+        assert_eq!(next_at(121_000_000, 122), 121_000_001);
+        assert_eq!(next_at(1_086_000_000, 1095), 1_086_000_002);
+        assert_eq!(next_at(121_000_000, 122), 121_000_002);
+    }
+
+    #[test]
+    fn rejection_drops_only_the_sequence_it_came_from() {
+        let manager = NonceManager::new();
+        let chain = ChainId::new("two-rejections");
+        let next_at = |nonce, height| {
+            manager
+                .next(&chain, &alice(), &alice_key(), nonce, height)
+                .unwrap()
+        };
+        assert_eq!(next_at(1_086_000_000, 1095), 1_086_000_001);
+        assert_eq!(next_at(121_000_000, 122), 121_000_001);
+        // 121_000_001 was rejected: only the short chain's sequence goes.
+        manager.forget_rejected(&chain, &alice(), &alice_key(), 121_000_001);
+        assert_eq!(next_at(121_000_000, 122), 121_000_001);
+        assert_eq!(next_at(1_086_000_000, 1095), 1_086_000_002);
+    }
+
+    #[test]
+    fn sequences_per_key_are_capped() {
+        let manager = NonceManager::new();
+        let chain = ChainId::new("many-chains");
+        // Each view is too short for every earlier sequence.
+        for height in (1..=20u64).rev() {
+            let nonce = (height - 1) * NONCE_RANGE_MULTIPLIER;
+            assert_eq!(
+                manager
+                    .next(&chain, &alice(), &alice_key(), nonce, height)
+                    .unwrap(),
+                nonce + 1
+            );
+        }
+        let nonces = manager.lock();
+        let key = (chain.clone(), alice(), alice_key());
+        assert_eq!(nonces[&key].len(), MAX_SEQUENCES);
     }
 
     #[test]

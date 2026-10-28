@@ -1782,6 +1782,51 @@ mod tests {
         );
     }
 
+    /// A send's final view can trail the optimistic view a delegate action
+    /// drew its nonce from. Here the key was re-added at height 102, so the
+    /// optimistic view (height 103) shows nonce 102_000_000 while the final
+    /// one (height 100) still shows the old key's 50. The send's older view
+    /// must not erase the delegate's reservation, or the next delegate action
+    /// gets the same nonce and only one of the two can run.
+    #[tokio::test]
+    async fn an_older_view_keeps_a_delegate_reservation() {
+        let transport = ScriptedNonceTransport::new(
+            vec![(102_000_000, 103), (50, 100), (102_000_000, 103)],
+            vec![],
+        );
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        let near = signing_via(
+            "http://older-view.invalid",
+            "older-view",
+            transport.clone(),
+            signer,
+        );
+
+        let first = near
+            .sign_delegate(account!("bob.testnet"), transfer(), delegate_options())
+            .await
+            .unwrap();
+        let pending = near
+            .sign(account!("bob.testnet"), transfer())
+            .await
+            .unwrap();
+        let second = near
+            .sign_delegate(account!("bob.testnet"), transfer(), delegate_options())
+            .await
+            .unwrap();
+        assert_eq!(
+            *transport.view_finalities.lock().unwrap(),
+            vec![
+                serde_json::json!("optimistic"),
+                serde_json::json!("final"),
+                serde_json::json!("optimistic"),
+            ]
+        );
+        assert_eq!(first.delegate_action.nonce, 102_000_001);
+        assert_ne!(pending.transaction.nonce, first.delegate_action.nonce);
+        assert_eq!(second.delegate_action.nonce, 102_000_002);
+    }
+
     #[tokio::test]
     async fn sign_delegate_after_pending_sign_takes_the_next_nonce() {
         let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
