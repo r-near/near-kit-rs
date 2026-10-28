@@ -78,7 +78,9 @@ impl CheckOutput for FinalExecutionOutcome {
 ///
 /// Generic over the backend: in production `C` is a `SigningNear`. The
 /// `'static` bounds are there because awaiting a `View` or `Call` boxes a
-/// `'static` future that owns a clone of the backend.
+/// `'static` future that owns a clone of the backend. Code that only borrows
+/// its backend can drop them by finishing views with `.with_metadata()` and
+/// calls with `.send()`.
 async fn tip<C>(
     token: &FungibleTokenClient<C>,
     receiver: AccountId,
