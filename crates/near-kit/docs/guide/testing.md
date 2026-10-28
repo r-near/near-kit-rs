@@ -66,7 +66,10 @@ let count = premium_count(&guestbook).await?;
 The bounds come from the generated client: view methods need
 `C: Viewer + Clone`, and awaiting the returned `View` needs the backend and
 its error to be `'static`, because the future owns a clone of the backend.
-`#[call]` methods need `C: TxSender + Clone` in the same way.
+`#[call]` methods need `C: TxSender + Clone` in the same way. Code that
+only borrows its backend can drop the `'static` bounds: finish views with
+[`View::with_metadata`](crate::View::with_metadata) and calls with
+[`Call::send`](crate::Call::send), which don't box the future.
 
 Code that sends transactions without a contract client can still be
 generic: [`TxSender::send`](crate::TxSender::send) takes a receiver and a
@@ -315,9 +318,10 @@ implements them, including unsized `T`. Two consequences:
 
 - A backend that isn't `Clone` can back a generated client through
   `Arc<T>`, or through `&T` for views read with
-  [`View::with_metadata`](crate::View::with_metadata). Awaiting a `View` or
-  `Call` directly needs a `'static` backend, so a borrowed one only works
-  there if it is `&'static`.
+  [`View::with_metadata`](crate::View::with_metadata) and calls sent with
+  [`Call::send`](crate::Call::send). Awaiting a `View` or `Call` directly
+  needs a `'static` backend, so a borrowed one only works there if it is
+  `&'static`.
 - `Viewer` and `TxSender` have `async` methods, so `dyn TxSender` isn't a
   type. To choose a backend at run time, put a small object-safe trait in
   front of it and implement `TxSender` for that trait object. `Arc<dyn _>`
