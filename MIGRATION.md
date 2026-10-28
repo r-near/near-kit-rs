@@ -452,7 +452,7 @@ The macro now rejects declarations it used to compile into something wrong:
 | Methods named `contract_id`, `client` or `clone`, including as raw identifiers | A compile error; rename them |
 | An argument bound to `_` or a pattern (dropped: the method sent `{}`) | A compile error; name the argument (`args: Args`) |
 | Generic methods, lifetime parameters, `async fn` | A compile error; use `impl Trait` or a concrete type, drop `async` |
-| `#[cfg]` / `#[cfg_attr]` on a method (ignored) | Applied to the generated client method and `FunctionCall` constructor |
+| `#[cfg]` / `#[cfg_attr]` on a method (ignored) | Applied to the generated client method and `FunctionCall` constructor; `#[call]`, `#[json]` or `#[borsh]` behind `#[cfg_attr]` is a compile error (declare the method twice, each under `#[cfg]`) |
 | `fn r#type(&self)` sent the method name `r#type` | It sends `type` |
 
 To batch a typed call with other actions, convert it: `FunctionCall::from(call)`
