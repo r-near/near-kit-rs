@@ -41,9 +41,9 @@ after the table cover each one.
 | `Near` (reads and, with a signer, sends) | `Near` reads; `SigningNear` reads and sends |
 | `Near::with_signer(s) -> Near` | `near.with_signer(s) -> SigningNear` |
 | `NearBuilder::credentials(key, id)`, `NearBuilder::signer(s)` | `near.with_signer(InMemorySigner::new(id, key.parse()?))` after `build()` |
-| `Near::from_env()` | `SigningNear::from_env()` |
+| `Near::from_env()` | `SigningNear::from_env()`; with a URL in `NEAR_NETWORK` it also needs `NEAR_CHAIN_ID` |
 | `Near::from_rpc(rpc, chain_id)` | `Near::custom(url, chain_id).transport(t).retry_config(c).build()` |
-| `NearBuilder::http_client(client)` | `.transport(ReqwestTransport::with_client(client))` |
+| `NearBuilder::http_client(client)` | `.transport(ReqwestTransport::with_client(client))`, with `client` built from `near_kit::reqwest` |
 | `Near::sandbox(&sandbox)`, `rpc::SandboxNetwork` | `sandbox.root_account()` |
 | `Near::account_id()`, `Near::try_account_id()` | `alice.account_id()`; a `Near` has no account |
 | `Near::signer()`, `Near::public_key()` | `alice.signer()`, `alice.signer().public_key()` |
@@ -180,7 +180,8 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 |---|---|
 | `Error::NoSigner` | Removed: sending from a `Near` is a compile error |
 | `Error::InvalidTransaction(String)` | `Error::Validation(String)` for local checks before sending; `Error::Outcome(OutcomeError)` for an outcome with no usable result; `Error::Decode(DecodeTransactionError)` for a signed transaction that fails to decode |
-| `Error::DelegateDecode` | Removed: nothing returned it. `SignedDelegateAction::from_base64` returns `DecodeDelegateError`, which doesn't convert into `Error` |
+| `Error::DelegateDecode` | `Error::DecodeDelegate`; `?` on `SignedDelegateAction::from_base64` converts into it |
+| `KeyStoreError::Io`, `Json`, `PathError` | Removed: nothing returned them |
 | `Error::is_invalid_tx()` | `matches!(e, Error::InvalidTx(_))` |
 | `From<Infallible> for Error` | Removed |
 | `RpcError::UnknownBlock`, `UnknownChunk`, `UnknownEpoch`, `UnknownReceipt` | `RpcError::BlockNotFound`, `ChunkNotFound`, `EpochNotFound`, `ReceiptNotFound` |
@@ -276,7 +277,9 @@ impl From<ContractError<RpcError>> for MyError {
 `Near`: read through `alice.near()`. Typed contract views and token views
 work on a `SigningNear` directly. `SigningNear::from_env()` replaces
 `Near::from_env()` and fails unless both `NEAR_ACCOUNT_ID` and
-`NEAR_PRIVATE_KEY` are set; build a `Near` for read-only use.
+`NEAR_PRIVATE_KEY` are set; build a `Near` for read-only use. When
+`NEAR_NETWORK` is an RPC URL it also fails without `NEAR_CHAIN_ID` (0.20.1 used
+the chain ID `"custom"`).
 
 ```rust
 // 0.20.1
@@ -318,11 +321,14 @@ alice
     .add_action(Action::add_full_access_key(key))
     .add_action(Action::deploy_contract(wasm))
     .add_action(FunctionCall::new("new").args(serde_json::json!({ "owner_id": "alice.testnet" })))
-    .await?;
+    .await?
+    .result()?;
 ```
 
 A failed action is still `Ok(outcome)` with `outcome.is_failure()`; `Err`
-means the transaction didn't execute.
+means the transaction didn't execute. `FinalExecutionOutcome` is now
+`#[must_use]`, so a send whose outcome is dropped (`.await?;`) warns: check
+`is_failure()`, or call `.result()?` to turn a failed action into an `Err`.
 
 ### Wait levels: `Final` by default
 
@@ -532,8 +538,7 @@ let signed = alice
     .await?;
 let payload = signed.to_base64();
 
-// The relayer decodes and sends. DecodeDelegateError doesn't convert into
-// near_kit::Error, so this `?` needs a wider error type such as Box<dyn Error>.
+// The relayer decodes and sends. A bad payload is `Error::DecodeDelegate`.
 let signed = SignedDelegateAction::from_base64(&payload)?;
 let outcome = relayer
     .transaction(signed.sender_id())
@@ -623,11 +628,12 @@ Key parsing and printing changed too, mostly without a compile error:
 ## Errors
 
 Each layer returns its own error, and each converts into `near_kit::Error`
-with `?` (except `DecodeDelegateError`, as before). See [errors](https://docs.rs/near-kit/latest/near_kit/guide/errors/index.html).
+with `?`. See [errors](https://docs.rs/near-kit/latest/near_kit/guide/errors/index.html).
 
 | API | Now returns |
 |---|---|
 | `SignedTransaction(V1)::from_bytes` / `from_base64` | `DecodeTransactionError` (becomes `Error::Decode`) |
+| `SignedDelegateAction::from_base64`, `VersionedSignedDelegateAction::from_base64` | `DecodeDelegateError` (becomes `Error::DecodeDelegate`) |
 | `FinalExecutionOutcome::result` / `json` | `OutcomeError` (becomes `Error::InvalidTx`, `Error::Json` or `Error::Outcome`) |
 | `FunctionCall::into_action`, `TryFrom<FunctionCall> for Action` | `CodecError` |
 | `InMemorySigner::implicit`, `SecretKey::from_seed_phrase` / `generate_with_seed_phrase`, `RotatingSigner::new` / `from_signers` | `SignerError` |

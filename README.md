@@ -118,8 +118,8 @@ start a local node in Docker.
 (`https://free.rpc.fastnear.com` and `https://test.rpc.fastnear.com`), which is
 rate-limited. For production traffic, point the client at your own endpoint
 with `Near::custom`. To send an API key or other headers, build a
-`reqwest::Client` with them and pass `ReqwestTransport::with_client(client)` to
-`NearBuilder::transport`.
+`near_kit::reqwest::Client` with them and pass
+`ReqwestTransport::with_client(client)` to `NearBuilder::transport`.
 
 ```rust
 use near_kit::Near;
