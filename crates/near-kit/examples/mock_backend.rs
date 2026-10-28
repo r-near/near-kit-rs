@@ -12,8 +12,10 @@
 //!   that records each transaction (receiver and actions) instead of sending.
 //! - A `#[contract]` client and a `FungibleTokenClient` built on it with
 //!   `Contract::client(backend, contract_id)`.
-//! - App code (`tip`) generic over the backend, and assertions on exactly what
-//!   it would have sent: method, JSON arguments, deposit and gas.
+//! - App code (`tip`) generic over the backend, which checks each call's
+//!   output (a send returns `Ok` even when an action failed), and assertions
+//!   on exactly what it would have sent: method, JSON arguments, deposit and
+//!   gas. The mock can fail a method, to cover the failure path.
 //!
 //! In a real crate the checks in `main` would be `#[tokio::test]`s. For
 //! canned JSON-RPC responses one layer lower, implement `RpcTransport` and
@@ -25,12 +27,13 @@
 //! cargo run -p near-kit --example mock_backend --features contracts
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use near_kit::protocol::{Action, FunctionCallAction};
-use near_kit::rpc::{BlockReference, ViewFunctionResult};
+use near_kit::rpc::{BlockReference, FinalExecutionOutcome, ViewFunctionResult};
 use near_kit::standards::{FungibleToken, FungibleTokenClient};
 use near_kit::{
     AccountId, Contract, ContractError, CryptoHash, Gas, NearToken, TxSender, Viewer, account,
@@ -52,6 +55,24 @@ pub struct AddMessageArgs {
     pub text: String,
 }
 
+/// What app code reads from a sent call's output: whether its actions
+/// succeeded.
+///
+/// A send's `Ok` only means the transaction ran: with `SigningNear`, a
+/// transfer that fails for lack of tokens is `Ok(outcome)` with a failed
+/// action. Each backend's output says so in its own way.
+trait CheckOutput {
+    fn check(&self) -> Result<(), Box<dyn Error>>;
+}
+
+/// `SigningNear`'s output.
+impl CheckOutput for FinalExecutionOutcome {
+    fn check(&self) -> Result<(), Box<dyn Error>> {
+        self.result()?;
+        Ok(())
+    }
+}
+
 /// Send `whole_tokens` of `token` to `receiver`, registering the receiver
 /// first if it can't hold the token yet.
 ///
@@ -62,19 +83,26 @@ async fn tip<C>(
     token: &FungibleTokenClient<C>,
     receiver: AccountId,
     whole_tokens: u128,
-) -> Result<(), Box<dyn std::error::Error>>
+) -> Result<(), Box<dyn Error>>
 where
     C: Viewer + TxSender + Clone + 'static,
+    C::Output: CheckOutput,
     C::ViewError: fmt::Debug + fmt::Display + 'static,
     C::SendError: fmt::Debug + fmt::Display + 'static,
 {
     let decimals = token.metadata().await?.decimals;
     if !token.is_registered(receiver.clone()).await? {
         let bounds = token.storage_balance_bounds().await?;
-        token.storage_deposit(receiver.clone(), bounds.min).await?;
+        token
+            .storage_deposit(receiver.clone(), bounds.min)
+            .await?
+            .check()?;
     }
     let amount = whole_tokens * 10u128.pow(decimals.into());
-    token.transfer(receiver, amount, Some("tip".into())).await?;
+    token
+        .transfer(receiver, amount, Some("tip".into()))
+        .await?
+        .check()?;
     Ok(())
 }
 
@@ -86,6 +114,22 @@ type ViewTable = HashMap<(AccountId, String), serde_json::Value>;
 /// Transactions "sent" so far: receiver and actions.
 type SentLog = Vec<(AccountId, Vec<Action>)>;
 
+/// What the mock's sends return: the failure, if the transaction called a
+/// method the mock was told to fail.
+#[derive(Debug)]
+struct MockOutcome {
+    failure: Option<String>,
+}
+
+impl CheckOutput for MockOutcome {
+    fn check(&self) -> Result<(), Box<dyn Error>> {
+        match &self.failure {
+            Some(failure) => Err(failure.clone().into()),
+            None => Ok(()),
+        }
+    }
+}
+
 /// A fake chain: views come from a table, transactions are recorded.
 ///
 /// Clones share the table and the record, so a test keeps one clone to
@@ -95,6 +139,7 @@ struct MockChain {
     account_id: AccountId,
     views: Arc<Mutex<ViewTable>>,
     sent: Arc<Mutex<SentLog>>,
+    failing: Arc<Mutex<HashSet<String>>>,
 }
 
 impl MockChain {
@@ -103,7 +148,14 @@ impl MockChain {
             account_id,
             views: Arc::default(),
             sent: Arc::default(),
+            failing: Arc::default(),
         }
+    }
+
+    /// Make every call of `method` fail on chain: the send still succeeds,
+    /// as a real one does, and its output reports the failed action.
+    fn fail(&self, method: &str) {
+        self.failing.lock().unwrap().insert(method.to_owned());
     }
 
     /// Answer every call of `method` on `contract` with `value`.
@@ -150,17 +202,28 @@ impl Viewer for MockChain {
 }
 
 impl TxSender for MockChain {
-    // A real backend returns an outcome; the mock has nothing to report.
-    type Output = ();
+    // A real backend returns an outcome; the mock reports only a failure.
+    type Output = MockOutcome;
     type SendError = String;
 
     fn account_id(&self) -> &AccountId {
         &self.account_id
     }
 
-    async fn send(&self, receiver_id: AccountId, actions: Vec<Action>) -> Result<(), String> {
+    async fn send(
+        &self,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> Result<MockOutcome, String> {
+        let failing = self.failing.lock().unwrap();
+        let failure = actions.iter().find_map(|action| match action {
+            Action::FunctionCall(call) if failing.contains(&call.method_name) => {
+                Some(format!("{receiver_id}.{} failed", call.method_name))
+            }
+            _ => None,
+        });
         self.sent.lock().unwrap().push((receiver_id, actions));
-        Ok(())
+        Ok(MockOutcome { failure })
     }
 }
 
@@ -194,7 +257,7 @@ fn json_args(call: &FunctionCallAction) -> serde_json::Value {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn Error>> {
     // --- A #[contract] client on the mock ---
     let chain = MockChain::new(account!("alice.near"));
     chain.answer(
@@ -209,7 +272,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     guestbook
         .add_message(AddMessageArgs { text: "hi".into() })
         .gas(Gas::from_tgas(10))
-        .await?;
+        .await?
+        .check()?;
 
     let calls = chain.calls();
     assert_eq!(calls.len(), 1);
@@ -272,6 +336,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     assert_eq!(methods, ["ft_transfer"]);
     println!("tip to a registered account: {methods:?}");
+
+    // A transfer that fails on chain (too few tokens, say) is an error from
+    // `tip`, not a silent success.
+    let chain = usdc_chain(&usdc, true);
+    chain.fail("ft_transfer");
+    let token = FungibleToken::client(chain.clone(), usdc.clone());
+    match tip(&token, account!("bob.near"), 5).await {
+        Err(error) => println!("failed transfer: {error}"),
+        Ok(()) => return Err("a failed transfer must not look successful".into()),
+    }
 
     println!("done");
     Ok(())
