@@ -30,10 +30,12 @@ nonce it draws, and keeps it. That means:
   same genesis hash.
 - Two networks never share it, even with one chain ID (two local sandboxes,
   say).
-- While a node doesn't answer `status` (a canned test transport, say), its
-  nonces are cached by chain ID instead, and the client asks again on its
-  next draw. So with [`Near::custom`](crate::Near::custom), still pass the
-  network's real chain ID, not a label per endpoint.
+- A backend that can't report its genesis hash (it answers `status` with
+  "method not found", as a canned test transport might) shares nonces by
+  chain ID instead. So with [`Near::custom`](crate::Near::custom), still
+  pass the network's real chain ID, not a label per endpoint.
+- Any other `status` failure fails that send or signature before a nonce
+  is drawn, and the next one asks again.
 - Two processes never share it. Each starts from the chain's view.
 
 ```rust
@@ -57,7 +59,7 @@ and sends again:
 | Rejection | Cause | What the retry does |
 |---|---|---|
 | `InvalidNonce` | Another transaction with this key landed first (another task, process, or a stale view) | Takes the nonce the node reported as a floor, fetches a fresh view, signs with the next nonce |
-| `NonceTooLarge` | The cached nonce is past what this chain accepts (cached by chain ID while the node reported no genesis hash, so possibly from another chain with that ID) | Drops the cached nonce and starts again from the chain's view |
+| `NonceTooLarge` | The cached nonce is past what this chain accepts (cached by chain ID, for a backend that can't report its genesis hash, so possibly from another chain with that ID) | Drops the cached nonce and starts again from the chain's view |
 | `Expired` | The block hash the transaction referenced is too old | Fetches a fresh block hash and nonce |
 
 The number of retries is `max_nonce_retries`, 3 by default (so up to four

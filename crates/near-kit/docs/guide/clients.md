@@ -93,8 +93,8 @@ assert_eq!(near.rpc().url(), "https://rpc.mainnet.example.com");
 ```
 
 Use the network's real chain ID (`mainnet`, `testnet`, or your network's).
-Cached nonces don't depend on it while the node reports its genesis hash,
-which keys them; they fall back to the chain ID when it doesn't. The
+Cached nonces don't depend on it when the node reports its genesis hash,
+which keys them; only a backend that can't report one keys them by chain ID. The
 [nonces chapter](crate::guide::nonces) explains.
 
 ### Headers, API keys, proxies and timeouts
@@ -150,7 +150,7 @@ every call through a client:
 | [`transport`](crate::NearBuilder::transport) | reqwest (`wasi:http` on WASI with `wasi-http`) | How HTTP requests are made |
 | [`retry_config`](crate::NearBuilder::retry_config) | 3 retries, 500 ms doubling | Re-sending a request after a transient failure |
 | [`max_nonce_retries`](crate::NearBuilder::max_nonce_retries) | 3 | Re-signing a send after a nonce or expiry rejection |
-| [`chain_id`](crate::NearBuilder::chain_id) | From the preset or `Near::custom` | `Near::chain_id`; the nonce cache key while the node reports no genesis hash |
+| [`chain_id`](crate::NearBuilder::chain_id) | From the preset or `Near::custom` | `Near::chain_id`; the nonce cache key for a backend that can't report its genesis hash |
 
 ```rust
 use near_kit::Near;

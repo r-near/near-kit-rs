@@ -498,14 +498,15 @@ Some details that matter when writing replies:
   requests.
 - **Nonces.** A `SigningNear` over a canned transport uses the
   process-wide nonce cache like any other, keyed by the genesis hash its
-  `status` reply reports, or by chain ID when `status` gets an error. Give
+  `status` reply reports, or by chain ID when `status` gets "method not
+  found" (code -32601). Give
   each test its own genesis hash (or chain ID), or its own account or key,
   so tests running in parallel don't share nonce sequences.
 
 A send through a canned transport needs replies for
 `EXPERIMENTAL_view_access_key` (the nonce and a recent block hash),
-`send_tx` and `status` (asked for the genesis hash until it answers; an
-error reply will do). For testing what is sent, a recording
+`send_tx` and `status`: a genesis hash, or a "method not found" error
+(code -32601). Any other error fails the send. For testing what is sent, a recording
 `TxSender` is less work. For testing how a send behaves on chain, use the
 sandbox.
 
