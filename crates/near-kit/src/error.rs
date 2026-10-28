@@ -876,20 +876,26 @@ impl RpcError {
 
 /// The error type of near-kit's client operations.
 ///
-/// `Err` means the transaction did not execute, or the read failed. A
-/// transaction whose actions ran and failed (a contract panic, a receiver
+/// A transaction whose actions ran and failed (a contract panic, a receiver
 /// account that doesn't exist) is **not** an `Err`: the
 /// network accepted and executed it, so it returns `Ok(outcome)` with
 /// `outcome.is_failure()` set. Read the failure from the outcome.
 ///
-/// The `Err` cases worth telling apart:
+/// An `Err` from a send means the transaction didn't run, or that near-kit
+/// couldn't find out whether it did. The cases worth telling apart:
 ///
 /// - [`InvalidTx`](Self::InvalidTx): the network rejected the transaction
-///   before execution (bad nonce, not enough balance, expired).
+///   before execution (bad nonce, not enough balance, expired). It didn't
+///   run.
 /// - [`Validation`](Self::Validation): a local check failed before anything
-///   was signed or sent.
+///   was signed or sent. So did [`Signing`](Self::Signing) and
+///   [`Config`](Self::Config): nothing was sent.
 /// - [`Rpc`](Self::Rpc): the request failed; see [`RpcError`] and
-///   [`RpcError::is_retryable`].
+///   [`RpcError::is_retryable`]. Once the transaction was sent, the outcome
+///   is unknown: after an [`RpcError::Timeout`] or a dropped connection it
+///   may still run, or already have. Look it up by hash with
+///   `Near::tx_status` before signing a replacement. near-kit's own retries
+///   re-send the same signed transaction, so they can't run it twice.
 ///
 #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
