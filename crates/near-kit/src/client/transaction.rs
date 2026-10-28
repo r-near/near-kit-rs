@@ -215,6 +215,9 @@ impl PreparedTransaction {
     }
 
     /// Resolve the next nonce and block hash for one online attempt.
+    ///
+    /// `nonce_floor` is the access key nonce a rejected attempt reported; the
+    /// fresh view counts too when it is already higher.
     async fn online_context(
         &self,
         signer_id: &AccountId,
@@ -263,7 +266,7 @@ impl PreparedTransaction {
             &self.chain_id,
             signer_id,
             public_key,
-            nonce_floor.unwrap_or(chain_nonce),
+            nonce_floor.map_or(chain_nonce, |floor| floor.max(chain_nonce)),
             block_height,
         )?;
         Ok((nonce, block_hash))
@@ -432,7 +435,9 @@ impl PreparedTransaction {
                             attempt = attempt + 1,
                             "Invalid nonce, retrying"
                         );
-                        // Store ak_nonce for next iteration to avoid refetching
+                        // The next attempt still fetches the access key (for a
+                        // fresh block hash); the reported nonce is a floor in
+                        // case that view lags behind the node that rejected us.
                         last_ak_nonce = Some(ak_nonce);
                         attempt += 1;
                         continue;
@@ -1564,6 +1569,29 @@ mod tests {
             .await
             .expect("the retry from the view is accepted");
         assert_eq!(transport.sent_nonces(), vec![9, 6]);
+    }
+
+    #[tokio::test]
+    async fn invalid_nonce_retry_uses_a_fresher_view() {
+        // The error reports 20, but by the retry the view already shows 30
+        // (other senders landed meanwhile): 21 is certain to fail again.
+        let transport = ScriptedNonceTransport::new(
+            vec![(5, 100), (30, 101)],
+            vec![invalid_nonce_body(6, 20), accepted_body()],
+        );
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        signing_via(
+            "http://fresher.invalid",
+            "fresher-view",
+            transport.clone(),
+            signer,
+        )
+        .wait_until::<Submitted>()
+        .transaction(account!("bob.testnet"))
+        .add_action(Action::transfer(NearToken::from_yoctonear(1)))
+        .await
+        .expect("second attempt is accepted");
+        assert_eq!(transport.sent_nonces(), vec![6, 31]);
     }
 
     #[tokio::test]
