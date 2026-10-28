@@ -6,7 +6,7 @@
 #   scripts/public-api.sh --pins    # print the pinned versions (used by CI)
 #
 # Each snapshot is the `cargo public-api` listing of one crate under one
-# feature set. Blanket and auto-trait impls are omitted: they churn with the
+# feature set, for the host or a named target. Blanket and auto-trait impls are omitted: they churn with the
 # nightly and the host, and release-plz's cargo-semver-checks run covers
 # auto-trait (Send/Sync) regressions.
 set -euo pipefail
@@ -17,11 +17,17 @@ set -euo pipefail
 NIGHTLY=nightly-2026-09-17
 CARGO_PUBLIC_API=0.52.0
 
-# snapshot name | package | feature flags
+# snapshot name | package | feature flags | target (empty for the host)
+#
+# The wasm entries use the feature sets the WASM CI job builds; some items
+# exist only on those targets (or only off them), so the host listing alone
+# can't show them.
 SNAPSHOTS=(
-  "near-kit|near-kit|--all-features"
-  "near-kit-no-default-features|near-kit|--no-default-features"
-  "near-kit-sandbox|near-kit-sandbox|--all-features"
+  "near-kit|near-kit|--all-features|"
+  "near-kit-no-default-features|near-kit|--no-default-features|"
+  "near-kit-sandbox|near-kit-sandbox|--all-features|"
+  "near-kit-wasm32-wasip2|near-kit|--no-default-features --features wasi-http,contracts,mnemonic|wasm32-wasip2"
+  "near-kit-wasm32-unknown-unknown|near-kit|--no-default-features --features js,rpc,contracts,mnemonic|wasm32-unknown-unknown"
 )
 
 BLESS_CMD="scripts/public-api.sh --bless"
@@ -47,6 +53,14 @@ esac
 if [[ $(rustup toolchain list) != *"$NIGHTLY"* ]]; then
   rustup toolchain install "$NIGHTLY" --profile minimal
 fi
+targets=()
+for entry in "${SNAPSHOTS[@]}"; do
+  target=${entry##*|}
+  [[ -n "$target" ]] && targets+=("$target")
+done
+if ((${#targets[@]})); then
+  rustup target add --toolchain "$NIGHTLY" "${targets[@]}" >&2
+fi
 
 installed=$(cargo "+$NIGHTLY" public-api --version 2>/dev/null || true)
 if [[ "$installed" != "cargo-public-api $CARGO_PUBLIC_API" ]]; then
@@ -59,10 +73,11 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
 for entry in "${SNAPSHOTS[@]}"; do
-  IFS='|' read -r name package features <<<"$entry"
-  echo "==> $name (-p $package $features)" >&2
+  IFS='|' read -r name package features target <<<"$entry"
+  echo "==> $name (-p $package $features${target:+ --target $target})" >&2
   # shellcheck disable=SC2086 # $features is a flag list
   (cd "$root" && cargo "+$NIGHTLY" public-api -p "$package" $features \
+    ${target:+--target "$target"} \
     --omit blanket-impls,auto-trait-impls --color never) >"$out/$name.txt"
 done
 
