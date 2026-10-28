@@ -181,3 +181,32 @@ jobs:
       - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js,contracts --test contract_macro
       - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js
       - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js,mnemonic
+
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: stable
+          save-if: false
+          cache-on-failure: "true"
+      # Every example must build; `quickstart` reads from testnet, so it is
+      # only built.
+      - run: cargo build -p near-kit --examples --all-features
+      - run: cargo build -p near-kit-sandbox --examples --features integration-tests
+      # No network: offline signing builds with no features at all.
+      - run: cargo run -p near-kit --example offline_signing --no-default-features
+      - run: cargo run -p near-kit --example mock_backend --features contracts
+      # Each of these starts its own sandbox in Docker and stops it on exit.
+      - name: Run sandbox examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          for example in typed_contract tokens relayer rotating_signer sequential_sends global_contracts; do
+            echo "::group::$example"
+            cargo run -p near-kit-sandbox --example "$example" --features integration-tests
+            echo "::endgroup::"
+          done
