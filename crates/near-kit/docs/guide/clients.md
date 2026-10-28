@@ -60,9 +60,11 @@ let alice = near.with_signer(InMemorySigner::new(account!("alice.near"), alice_k
 let bob = near.with_signer(InMemorySigner::new(account!("bob.near"), bob_key));
 
 // Hand a clone to each task.
-let worker = alice.clone();
-tokio::spawn(async move {
-    let _ = worker.near().balance(worker.account_id()).await;
+tokio::spawn({
+    let alice = alice.clone();
+    async move {
+        let _ = alice.near().balance(alice.account_id()).await;
+    }
 });
 # }
 ```
@@ -177,10 +179,10 @@ on a `SigningNear`, returning a new one for the same account:
 use near_kit::transaction::Included;
 use near_kit::*;
 
-# fn example(alice: SigningNear) {
+# fn example(relayer: SigningNear) {
 // The same account and connection: returns once a send is in a block,
 // and retries nonce conflicts without limit.
-let relayer = alice.clone().max_nonce_retries(u32::MAX).wait_until::<Included>();
+let relayer = relayer.max_nonce_retries(u32::MAX).wait_until::<Included>();
 # }
 ```
 

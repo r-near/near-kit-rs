@@ -261,16 +261,17 @@ use near_kit::signer::{InMemorySigner, SecretKey, Signer};
 use near_kit::*;
 
 # async fn example(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
+// Carol's account is implicit: its ID is the key's hex.
 let key = SecretKey::generate_ed25519();
-let fresh = InMemorySigner::implicit(key)?;
+let carol = InMemorySigner::implicit(key)?;
 
 // Funding the ID creates the account, with the key as its full-access key.
 alice
-    .transaction(fresh.account_id())
+    .transaction(carol.account_id())
     .add_action(Action::transfer(NearToken::from_near(1)))
     .await?.result()?;
 
-let fresh = alice.near().with_signer(fresh);
+let carol = alice.near().with_signer(carol);
 # Ok(())
 # }
 ```

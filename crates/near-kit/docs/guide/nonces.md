@@ -75,8 +75,8 @@ use near_kit::*;
 let near = Near::testnet().max_nonce_retries(10).build();
 let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), key));
 
-// One sender with its own policy; `alice` keeps 10.
-let stubborn = alice.clone().max_nonce_retries(50);
+// The same account with its own policy; `alice` keeps 10.
+let alice_retrying = alice.clone().max_nonce_retries(50);
 # }
 ```
 
@@ -159,10 +159,9 @@ for key in &keys {
 add_keys.await?.result()?;
 
 // A client for the same account that rotates through them.
-let rotating = bot.near().with_signer(RotatingSigner::new(bot.account_id(), keys)?);
+let bot = bot.near().with_signer(RotatingSigner::new(bot.account_id(), keys)?);
 let sends = (0..30).map(|_| {
-    rotating
-        .transaction(account!("bob.testnet"))
+    bot.transaction(account!("bob.testnet"))
         .add_action(Action::transfer(NearToken::from_millinear(1)))
         .into_future()
 });
@@ -173,7 +172,7 @@ for outcome in try_join_all(sends).await? {
 # }
 ```
 
-`rotating.signer().public_key()` shows the key the next send will claim,
+`bot.signer().public_key()` shows the key the next send will claim,
 without claiming it. For keys stored elsewhere,
 [`RotatingSigner::from_signers`](crate::signer::RotatingSigner::from_signers)
 combines `InMemorySigner`s loaded with `signer::from_credentials_file` or
@@ -191,15 +190,15 @@ use near_kit::signer::RotatingSigner;
 use near_kit::transaction::Included;
 use near_kit::*;
 
-# async fn example(near: &Near, rotating: RotatingSigner) -> Result<(), Box<dyn std::error::Error>> {
+# async fn example(near: &Near, bot_keys: RotatingSigner) -> Result<(), Box<dyn std::error::Error>> {
 let mut workers = Vec::new();
-for signer in rotating.into_per_key_signers() {
-    // Waiting for `Included` is enough to keep one key's nonces in order.
-    let queue = near.with_signer(signer).wait_until::<Included>();
+for signer in bot_keys.into_per_key_signers() {
+    // The bot's account, one key per task. Waiting for `Included` is
+    // enough to keep one key's nonces in order.
+    let bot = near.with_signer(signer).wait_until::<Included>();
     workers.push(tokio::spawn(async move {
         for _ in 0..10 {
-            queue
-                .transaction(account!("bob.testnet"))
+            bot.transaction(account!("bob.testnet"))
                 .add_action(Action::transfer(NearToken::from_millinear(1)))
                 .await?;
         }
@@ -241,9 +240,9 @@ use near_kit::transaction::Included;
 use near_kit::*;
 
 # async fn example(relayer: &SigningNear, signed: SignedDelegateAction) -> Result<(), Box<dyn std::error::Error>> {
-let sender = relayer.clone().max_nonce_retries(u32::MAX).wait_until::<Included>();
+let relayer = relayer.clone().max_nonce_retries(u32::MAX).wait_until::<Included>();
 
-let send = sender
+let send = relayer
     .transaction(signed.sender_id())
     .add_action(Action::delegate(signed));
 let response = tokio::time::timeout(Duration::from_secs(60), send).await??;
