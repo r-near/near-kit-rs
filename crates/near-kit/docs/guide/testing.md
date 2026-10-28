@@ -519,10 +519,20 @@ Docker must be running. If Docker listens on a non-default socket, set
 ```rust,ignore
 // `ignore`: near-kit-sandbox depends on near-kit, so near-kit's own
 // doctests can't use it. The same code compiles in a crate that has both.
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use near_kit::protocol::Action;
 use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::*;
 use near_kit_sandbox::Sandbox;
+
+/// A new account name under `root` for every call, so tests sharing the
+/// sandbox never create the same account.
+fn unique_account(prefix: &str, root: &AccountId) -> AccountId {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    format!("{prefix}{n}.{root}").parse().expect("a valid account ID")
+}
 
 #[tokio::test]
 async fn alice_can_send() -> Result<(), Box<dyn std::error::Error>> {
@@ -530,7 +540,7 @@ async fn alice_can_send() -> Result<(), Box<dyn std::error::Error>> {
     let root = sandbox.root_account();
 
     // The root account is funded at genesis; create a test account under it.
-    let alice_id: AccountId = format!("alice-{}.{}", std::process::id(), root.account_id()).parse()?;
+    let alice_id = unique_account("alice", root.account_id());
     let alice_key = SecretKey::generate_ed25519();
     root.transaction(&alice_id)
         .add_action(Action::create_account())
@@ -560,7 +570,7 @@ names another. Accounts it creates are sub-accounts of it. Reads go through
 - `Sandbox::builder().shared()` starts one sandbox for the whole test
   process on first use and returns the same `&'static Sandbox` afterwards.
   Startup is paid once, but state is shared: give each test its own
-  accounts, as the example does with the process ID in the name.
+  accounts, as the example does with a counter in the name.
 - `Sandbox::builder().fresh()` starts a new sandbox with clean state, which
   is stopped when the last clone of the returned `Sandbox` drops. Use it for
   tests that need a known starting state or change global things.
