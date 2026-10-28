@@ -265,7 +265,28 @@ pub enum RpcError {
     #[error("Receipt not found: {0}")]
     ReceiptNotFound(String),
 
+    /// `EXPERIMENTAL_receipt_to_tx` could not resolve the receipt for a reason
+    /// other than the node not knowing it (that is
+    /// [`ReceiptNotFound`](Self::ReceiptNotFound)). Asking the same node again
+    /// gives the same answer.
+    #[error("Receipt-to-transaction lookup failed: {0}")]
+    ReceiptToTx(ReceiptToTxError),
+
     // ─── Transaction Errors ───
+    /// The node has no record of the transaction (`UNKNOWN_TRANSACTION`).
+    ///
+    /// nearcore answers this way only to a status request that does not wait
+    /// (`wait_until: NONE`, near-kit's `Submitted`, the default for
+    /// `Near::tx_status`). The transaction may not have reached the node yet:
+    /// poll again later, or wait at a later level.
+    #[error("Transaction not found: {0}")]
+    TransactionNotFound(CryptoHash),
+
+    /// The node does not track the transaction's shard, so it cannot answer
+    /// (`DOES_NOT_TRACK_SHARD`). Use an RPC node that tracks every shard.
+    #[error("Node does not track the transaction's shard")]
+    ShardNotTracked,
+
     /// Structured transaction validation error, parsed from nearcore's
     /// `TxExecutionError::InvalidTxError`. Prefer matching on
     /// [`Error::InvalidTx`] instead — this variant only appears when using
@@ -392,6 +413,58 @@ pub enum TimeoutCause {
     /// A cause near-kit does not recognise, or one whose payload failed to
     /// decode. Holds the raw `error.cause.info` JSON.
     Unknown(serde_json::Value),
+}
+
+/// Why `EXPERIMENTAL_receipt_to_tx` could not resolve a receipt.
+///
+/// Carried by [`RpcError::ReceiptToTx`]. Mirrors nearcore's
+/// `RpcReceiptToTxError` causes other than `UNKNOWN_RECEIPT` and
+/// `INTERNAL_ERROR`.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum ReceiptToTxError {
+    /// The receipt's chain back to its transaction is longer than the node
+    /// follows (`DEPTH_EXCEEDED`).
+    #[error("depth limit {limit} exceeded when resolving receipt {receipt_id}")]
+    DepthExceeded {
+        /// The receipt being resolved.
+        receipt_id: CryptoHash,
+        /// The node's depth limit.
+        limit: u32,
+    },
+    /// The node does not support the lookup (`UNSUPPORTED`).
+    #[error("node does not support receipt-to-transaction lookup: {message}")]
+    Unsupported {
+        /// The node's explanation.
+        message: String,
+    },
+    /// The node does not store execution outcomes (`OUTCOMES_NOT_STORED`).
+    #[error("node does not store execution outcomes")]
+    OutcomesNotStored,
+    /// The requested search window is larger than the node allows
+    /// (`WINDOW_TOO_LARGE`).
+    #[error("requested window {requested} exceeds maximum {maximum}")]
+    WindowTooLarge {
+        /// The requested window, in blocks.
+        requested: u64,
+        /// The node's maximum, in blocks.
+        maximum: u64,
+    },
+    /// The lookup hint is malformed (`MALFORMED_HINT`).
+    #[error("malformed hint: {message}")]
+    MalformedHint {
+        /// The node's explanation.
+        message: String,
+    },
+    /// The node scanned more outcomes than its budget allows
+    /// (`BUDGET_EXCEEDED`).
+    #[error("hint scan budget exceeded: {scanned} outcomes scanned, limit {limit}")]
+    BudgetExceeded {
+        /// Outcomes scanned.
+        scanned: u64,
+        /// The node's limit.
+        limit: u64,
+    },
 }
 
 impl std::fmt::Display for TimeoutCause {
@@ -639,6 +712,9 @@ impl RpcError {
             RpcError::EpochNotFound(_) => "EpochNotFound",
             RpcError::InvalidShardId(_) => "InvalidShardId",
             RpcError::ReceiptNotFound(_) => "ReceiptNotFound",
+            RpcError::ReceiptToTx(_) => "ReceiptToTx",
+            RpcError::TransactionNotFound(_) => "TransactionNotFound",
+            RpcError::ShardNotTracked => "ShardNotTracked",
             RpcError::InvalidTx(_) => "InvalidTx",
             RpcError::InvalidTxUnparsed { .. } => "InvalidTxUnparsed",
             RpcError::ShardUnavailable(_) => "ShardUnavailable",

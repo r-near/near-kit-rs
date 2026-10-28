@@ -536,6 +536,14 @@ These had no producer or only an internal use, and are gone:
   `OutcomeError::InvalidTx`). Exhaustive matches on `ExecutionStatus` need an
   arm for it. `is_failure()` is true for it; `failure()` still returns only an
   `ActionError`.
+- **Unknown transactions and receipt lookups have typed errors.**
+  `RpcError::TransactionNotFound(hash)` (`UNKNOWN_TRANSACTION`, from
+  `tx_status` at the default `Submitted` level), `RpcError::ShardNotTracked`
+  (`DOES_NOT_TRACK_SHARD`) and `RpcError::ReceiptToTx(ReceiptToTxError)` (the
+  other `receipt_to_tx` causes) used to be a generic `RpcError::Rpc` with code
+  `-32000` that was retried (about 3.5 s with the default `RetryConfig`) and
+  reported `is_retryable() == true`. They are returned after one attempt and
+  are not retryable.
 
 ## Sandbox
 

@@ -37,7 +37,7 @@
 //! # }
 //! ```
 
-pub use crate::error::{RpcError, TimeoutCause};
+pub use crate::error::{ReceiptToTxError, RpcError, TimeoutCause};
 #[doc(inline)]
 pub use near_kit_primitives::rpc::OutcomeError;
 #[doc(inline)]

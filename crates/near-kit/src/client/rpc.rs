@@ -16,7 +16,7 @@ use super::transport::RpcTransport;
     all(feature = "wasi-http", target_env = "p2")
 ))]
 use super::transport;
-use crate::error::{RpcError, TimeoutCause};
+use crate::error::{ReceiptToTxError, RpcError, TimeoutCause};
 use crate::trace;
 use crate::types::RpcTransactionResponse;
 use crate::types::{
@@ -575,7 +575,7 @@ impl RpcClient {
             if let Ok(parsed) = serde_json::from_str::<JsonRpcResponse>(&body)
                 && let Some(error) = parsed.error
             {
-                let parsed_err = self.parse_rpc_error(&error);
+                let parsed_err = self.parse_method_rpc_error(request.method, &error);
                 return Err(preserve_http_retry_classification(
                     parsed_err, status, &body,
                 ));
@@ -591,7 +591,7 @@ impl RpcClient {
         let rpc_response: JsonRpcResponse = serde_json::from_str(&body).map_err(RpcError::Json)?;
 
         if let Some(error) = rpc_response.error {
-            return Err(self.parse_rpc_error(&error));
+            return Err(self.parse_method_rpc_error(request.method, &error));
         }
 
         let result_value = rpc_response
@@ -618,6 +618,20 @@ impl RpcClient {
         }
 
         serde_json::from_value(result_value).map_err(RpcError::Json)
+    }
+
+    /// Parse an RPC error returned by `method`. Causes whose meaning depends
+    /// on the method are mapped here; the rest by [`parse_rpc_error`](Self::parse_rpc_error).
+    fn parse_method_rpc_error(&self, method: &str, error: &JsonRpcError) -> RpcError {
+        // `UNSUPPORTED` is also an indexer cause, so only read these causes
+        // as `RpcReceiptToTxError` on `EXPERIMENTAL_receipt_to_tx`.
+        if method == "EXPERIMENTAL_receipt_to_tx"
+            && let Some(cause) = &error.cause
+            && let Some(receipt_to_tx) = parse_receipt_to_tx_error(&cause.name, cause.info.as_ref())
+        {
+            return RpcError::ReceiptToTx(receipt_to_tx);
+        }
+        self.parse_rpc_error(error)
     }
 
     /// Parse an RPC error into a specific error type.
@@ -726,6 +740,21 @@ impl RpcClient {
                         .and_then(|d| d.as_str())
                         .unwrap_or(&error.message);
                     return RpcError::EpochNotFound(block_ref.to_string());
+                }
+                "UNKNOWN_TRANSACTION" => {
+                    // `RpcTransactionError::UnknownTransaction`. Without a
+                    // hash, fall through to the generic error rather than
+                    // inventing one.
+                    if let Some(hash) = info
+                        .and_then(|i| i.get("requested_transaction_hash"))
+                        .and_then(|h| h.as_str())
+                        .and_then(|h| h.parse().ok())
+                    {
+                        return RpcError::TransactionNotFound(hash);
+                    }
+                }
+                "DOES_NOT_TRACK_SHARD" => {
+                    return RpcError::ShardNotTracked;
                 }
                 "UNKNOWN_RECEIPT" => {
                     let receipt_id = info
@@ -1477,6 +1506,11 @@ impl RpcClient {
     /// Uses `EXPERIMENTAL_tx_status` which returns complete receipt information.
     /// When the transaction has been executed, the outcome's `receipts` field
     /// will be populated (unlike `send_tx` which leaves it empty).
+    ///
+    /// With `wait_until: None` the node answers at once, with
+    /// [`RpcError::TransactionNotFound`] if it has no record of the
+    /// transaction yet; neither that nor [`RpcError::ShardNotTracked`] is
+    /// retried.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%tx_hash, sender = %sender_id, ?wait_until)))]
     pub async fn tx_status(
         &self,
@@ -1505,7 +1539,8 @@ impl RpcClient {
     ///
     /// Uses `EXPERIMENTAL_receipt_to_tx`, available on nodes running
     /// nearcore 2.12 or later. Returns [`RpcError::ReceiptNotFound`] if the
-    /// node does not know the receipt.
+    /// node does not know the receipt, and [`RpcError::ReceiptToTx`] if it
+    /// cannot resolve it for another reason (neither is retried).
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%receipt_id)))]
     pub async fn receipt_to_tx(
         &self,
@@ -1658,6 +1693,61 @@ fn parse_timeout_cause(info: &serde_json::Value) -> Option<TimeoutCause> {
         _ => unknown(),
     };
     Some(cause)
+}
+
+/// Read one of nearcore's `RpcReceiptToTxError` causes (other than
+/// `UNKNOWN_RECEIPT` and `INTERNAL_ERROR`, which have their own variants).
+/// `None` for any other cause, or when the payload doesn't match.
+fn parse_receipt_to_tx_error(
+    cause: &str,
+    info: Option<&serde_json::Value>,
+) -> Option<ReceiptToTxError> {
+    #[derive(serde::Deserialize)]
+    struct DepthExceeded {
+        receipt_id: CryptoHash,
+        limit: u32,
+    }
+    #[derive(serde::Deserialize)]
+    struct Message {
+        error_message: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct WindowTooLarge {
+        requested: u64,
+        maximum: u64,
+    }
+    #[derive(serde::Deserialize)]
+    struct BudgetExceeded {
+        scanned: u64,
+        limit: u64,
+    }
+
+    fn info_as<T: serde::de::DeserializeOwned>(info: Option<&serde_json::Value>) -> Option<T> {
+        T::deserialize(info?).ok()
+    }
+
+    Some(match cause {
+        "DEPTH_EXCEEDED" => {
+            let DepthExceeded { receipt_id, limit } = info_as(info)?;
+            ReceiptToTxError::DepthExceeded { receipt_id, limit }
+        }
+        "UNSUPPORTED" => ReceiptToTxError::Unsupported {
+            message: info_as::<Message>(info)?.error_message,
+        },
+        "OUTCOMES_NOT_STORED" => ReceiptToTxError::OutcomesNotStored,
+        "WINDOW_TOO_LARGE" => {
+            let WindowTooLarge { requested, maximum } = info_as(info)?;
+            ReceiptToTxError::WindowTooLarge { requested, maximum }
+        }
+        "MALFORMED_HINT" => ReceiptToTxError::MalformedHint {
+            message: info_as::<Message>(info)?.error_message,
+        },
+        "BUDGET_EXCEEDED" => {
+            let BudgetExceeded { scanned, limit } = info_as(info)?;
+            ReceiptToTxError::BudgetExceeded { scanned, limit }
+        }
+        _ => return None,
+    })
 }
 
 /// Fill in the caller-known transaction hash on a timeout.
@@ -3450,6 +3540,204 @@ mod tests {
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::ReceiptNotFound(_)));
+    }
+
+    /// nearcore's `send_tx`/`tx_status`/`receipt_to_tx` handler errors that
+    /// re-sending the same request can't change, as (cause, info, data).
+    fn deterministic_lookup_errors() -> Vec<(&'static str, Option<serde_json::Value>, &'static str)>
+    {
+        let hash = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj";
+        vec![
+            (
+                "UNKNOWN_TRANSACTION",
+                Some(serde_json::json!({ "requested_transaction_hash": hash })),
+                "Transaction H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj doesn't exist",
+            ),
+            (
+                "DOES_NOT_TRACK_SHARD",
+                None,
+                "Node doesn't track this shard. Cannot determine whether the transaction is valid",
+            ),
+            (
+                "DEPTH_EXCEEDED",
+                Some(serde_json::json!({ "receipt_id": hash, "limit": 32 })),
+                "depth limit 32 exceeded",
+            ),
+            (
+                "UNSUPPORTED",
+                Some(serde_json::json!({ "error_message": "archival only" })),
+                "this node does not support receipt-to-tx lookup: archival only",
+            ),
+            (
+                "OUTCOMES_NOT_STORED",
+                None,
+                "execution outcomes are not stored on this node (save_tx_outcomes=false)",
+            ),
+            (
+                "WINDOW_TOO_LARGE",
+                Some(serde_json::json!({ "requested": 5000, "maximum": 1000 })),
+                "requested window 5000 exceeds maximum 1000",
+            ),
+            (
+                "MALFORMED_HINT",
+                Some(serde_json::json!({ "error_message": "bad hint" })),
+                "malformed hint: bad hint",
+            ),
+            (
+                "BUDGET_EXCEEDED",
+                Some(serde_json::json!({ "scanned": 10, "limit": 5 })),
+                "hint-scan budget exceeded: 10 outcomes scanned, limit 5",
+            ),
+        ]
+    }
+
+    fn handler_error_body(
+        cause: &str,
+        info: Option<serde_json::Value>,
+        data: &str,
+    ) -> serde_json::Value {
+        let mut cause = serde_json::json!({ "name": cause });
+        if let Some(info) = info {
+            cause["info"] = info;
+        }
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": {
+                "name": "HANDLER_ERROR",
+                "cause": cause,
+                "code": -32000,
+                "message": "Server error",
+                "data": data,
+            },
+        })
+    }
+
+    #[tokio::test]
+    async fn test_deterministic_lookup_errors_are_not_retried() {
+        for (cause, info, data) in deterministic_lookup_errors() {
+            let err = lookup_error(cause, info, data, 1).await;
+            assert!(!err.is_retryable(), "{cause}: {err:?}");
+        }
+    }
+
+    /// The error a `tx_status` (or, for receipt-to-tx causes,
+    /// `receipt_to_tx`) call returns for this handler error, asserting the
+    /// number of attempts it took.
+    async fn lookup_error(
+        cause: &str,
+        info: Option<serde_json::Value>,
+        data: &str,
+        expected_calls: usize,
+    ) -> RpcError {
+        let body = handler_error_body(cause, info, data);
+        let transport = CountingTransport::new(200, serde_json::to_vec(&body).unwrap());
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(3),
+        );
+        let hash: CryptoHash = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+            .parse()
+            .unwrap();
+        let err = if matches!(cause, "UNKNOWN_TRANSACTION" | "DOES_NOT_TRACK_SHARD") {
+            let sender: AccountId = "alice.near".parse().unwrap();
+            client
+                .tx_status(&hash, &sender, TxExecutionStatus::None)
+                .await
+                .unwrap_err()
+        } else {
+            client.receipt_to_tx(&hash).await.unwrap_err()
+        };
+        assert_eq!(transport.calls(), expected_calls, "{cause}: {err:?}");
+        err
+    }
+
+    #[tokio::test]
+    async fn test_deterministic_lookup_errors_are_typed() {
+        let hash: CryptoHash = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+            .parse()
+            .unwrap();
+        let errors = deterministic_lookup_errors();
+        let mut typed = Vec::new();
+        for (cause, info, data) in errors {
+            typed.push(lookup_error(cause, info, data, 1).await);
+        }
+        let [
+            unknown_tx,
+            not_tracked,
+            depth,
+            unsupported,
+            not_stored,
+            window,
+            hint,
+            budget,
+        ] = &typed[..]
+        else {
+            panic!("{typed:?}");
+        };
+        assert!(matches!(unknown_tx, RpcError::TransactionNotFound(h) if *h == hash));
+        assert!(matches!(not_tracked, RpcError::ShardNotTracked));
+        assert!(matches!(
+            depth,
+            RpcError::ReceiptToTx(ReceiptToTxError::DepthExceeded { receipt_id, limit: 32 })
+                if *receipt_id == hash
+        ));
+        assert!(matches!(
+            unsupported,
+            RpcError::ReceiptToTx(ReceiptToTxError::Unsupported { message })
+                if message == "archival only"
+        ));
+        assert!(matches!(
+            not_stored,
+            RpcError::ReceiptToTx(ReceiptToTxError::OutcomesNotStored)
+        ));
+        assert!(matches!(
+            window,
+            RpcError::ReceiptToTx(ReceiptToTxError::WindowTooLarge {
+                requested: 5000,
+                maximum: 1000
+            })
+        ));
+        assert!(matches!(
+            hint,
+            RpcError::ReceiptToTx(ReceiptToTxError::MalformedHint { message })
+                if message == "bad hint"
+        ));
+        assert!(matches!(
+            budget,
+            RpcError::ReceiptToTx(ReceiptToTxError::BudgetExceeded {
+                scanned: 10,
+                limit: 5
+            })
+        ));
+        assert_eq!(
+            unknown_tx.to_string(),
+            "Transaction not found: H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+        );
+    }
+
+    #[test]
+    fn test_receipt_to_tx_causes_are_specific_to_that_method() {
+        // The indexer also sends `UNSUPPORTED`; it is not a receipt-to-tx error.
+        let client = RpcClient::new("https://example.com");
+        let error: JsonRpcError = serde_json::from_value(
+            handler_error_body(
+                "UNSUPPORTED",
+                Some(serde_json::json!({ "error_message": "no indexer" })),
+                "unsupported indexer request: no indexer",
+            )["error"]
+                .clone(),
+        )
+        .unwrap();
+        assert!(matches!(
+            client.parse_method_rpc_error("EXPERIMENTAL_indexer_block", &error),
+            RpcError::Rpc { .. }
+        ));
+        assert!(matches!(
+            client.parse_method_rpc_error("EXPERIMENTAL_receipt_to_tx", &error),
+            RpcError::ReceiptToTx(ReceiptToTxError::Unsupported { .. })
+        ));
     }
 
     // ========================================================================
