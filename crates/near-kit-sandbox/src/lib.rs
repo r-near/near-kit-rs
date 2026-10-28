@@ -501,18 +501,7 @@ impl Sandbox {
             }
         ]);
 
-        // Patching account state sometimes only takes effect reliably when sent
-        // twice. See
-        // https://github.com/near/near-workspaces-rs/commit/2b72b9b8491c3140ff2d30b0c45d09b200cb027b
-        for _ in 0..2 {
-            let _: serde_json::Value = near
-                .rpc()
-                .call(
-                    "sandbox_patch_state",
-                    serde_json::json!({ "records": records }),
-                )
-                .await?;
-        }
+        self.patch_state(records).await?;
 
         // The patch applies asynchronously and is racy. Rather than trust a
         // fixed delay, poll until the new balance is observable so callers can
@@ -538,6 +527,42 @@ impl Sandbox {
             attempts: OBSERVATION_ATTEMPTS,
             last_error,
         })
+    }
+
+    /// Write raw state records (accounts, access keys, contract code or data)
+    /// straight into the sandbox with `sandbox_patch_state`.
+    ///
+    /// `records` is the JSON array the RPC method takes. The patch is sent
+    /// twice, because patching account state sometimes only takes effect
+    /// reliably on the second send (see
+    /// <https://github.com/near/near-workspaces-rs/commit/2b72b9b8491c3140ff2d30b0c45d09b200cb027b>).
+    /// It applies asynchronously: poll for the state you wrote before relying
+    /// on it, as [`set_balance`](Self::set_balance) does.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use near_kit_sandbox::Sandbox;
+    ///
+    /// let sandbox = Sandbox::builder().shared().await?;
+    /// sandbox
+    ///     .patch_state(serde_json::json!([
+    ///         { "Data": { "account_id": "counter.sandbox", "data_key": "U1RBVEU=", "value": "AQAAAA==" } }
+    ///     ]))
+    ///     .await?;
+    /// ```
+    pub async fn patch_state(&self, records: serde_json::Value) -> Result<(), SandboxError> {
+        let near = self.near();
+        for _ in 0..2 {
+            let _: serde_json::Value = near
+                .rpc()
+                .call(
+                    "sandbox_patch_state",
+                    serde_json::json!({ "records": records }),
+                )
+                .await?;
+        }
+        Ok(())
     }
 
     /// Fast-forward the sandbox by `delta_height` blocks.

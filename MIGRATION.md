@@ -235,8 +235,8 @@ impl<S: TxSender> WrapAny for S {}
 | 0.20 | 0.21 |
 |---|---|
 | `.at_block(h)`, `.at_block_hash(hash)`, `.finality(f)`, `.block_reference(r)` | `.at(h)`, `.at(hash)`, `.at(f)`, `.at(r)` |
-| `BlockReference::at_height(h)`, `at_hash`, `final_()`, `near_final()`, `optimistic()` | `h.into()`, `hash.into()`, `Finality::Final.into()`, or the enum variant |
-| `BlockReference::genesis()` / `earliest_available()` | `SyncCheckpoint::Genesis.into()` / `SyncCheckpoint::EarliestAvailable.into()`; `RpcClient` reads and `.at(..)` take the `SyncCheckpoint` directly |
+| `BlockReference::at_height(h)`, `at_hash`, `final_()`, `near_final()`, `optimistic()` | Pass `h`, `hash` or `Finality::Final` straight to `.at(..)` or an `RpcClient` read (they take `impl Into<BlockReference>`). Don't write `.into()` there: with a generic parameter rustc can't infer the target and reports "type annotations needed". Where a `BlockReference` value is required, use `BlockReference::from(h)` or the enum variant. |
+| `BlockReference::genesis()` / `earliest_available()` | Pass `SyncCheckpoint::Genesis` / `SyncCheckpoint::EarliestAvailable` directly; `BlockReference::from(..)` where a value is required |
 | `BlockReference::to_rpc_params()` | Removed. `RpcClient` builds the params. |
 | `near.view::<T>(id, m)` (a `ViewCall<T>`) | `near.view::<T>(id, m)` (a `transaction::View<Near, T>`) |
 | `near.view::<T>(id, m).borsh()` | `View::<_, T>::borsh(near.clone(), id, m)` |
@@ -465,7 +465,7 @@ These had no producer or only an internal use, and are gone:
 | `sandbox.root_account_id()` | `sandbox.client().account_id()` |
 | `sandbox.chain_id()` | `sandbox.client().near().chain_id()` |
 | `sandbox.root_signer()` | `sandbox.client().signer().clone()` |
-| `rpc.sandbox_fast_forward(n)` / `rpc.sandbox_patch_state(records)` | `sandbox.fast_forward(n)` / `sandbox.set_balance(..)`, or `rpc.call("sandbox_patch_state", json!({ "records": records }))` |
+| `rpc.sandbox_fast_forward(n)` / `rpc.sandbox_patch_state(records)` | `sandbox.fast_forward(n)` / `sandbox.patch_state(records)` (still sends the patch twice; it no longer sleeps 100 ms afterwards, so poll for the state you wrote, or use `sandbox.set_balance(..)`, which does) |
 
 ```rust
 // 0.20
