@@ -234,6 +234,9 @@ Code that matched on `Error` should match `ContractError::Backend(rpc_error)`
 and `ContractError::Codec(codec_error)`, or call `.map_err(Error::from)` first.
 
 ```rust
+// `height` is a recent block height: the default endpoints aren't archival.
+let height = near.rpc().block(Finality::Final).await?.header.height;
+
 // 0.20.1
 let count: u64 = near.view("counter.testnet", "get_count").at_block(height).await?;
 let read = near.view::<u64>("counter.testnet", "get_count").with_metadata().await?;
@@ -437,7 +440,7 @@ counter.add(AddArgs { value: 1 }).await?;
 // This release
 let counter = alice.contract::<Counter>(account!("counter.testnet"));
 counter.add(AddArgs { value: 1 }).gas(Gas::from_tgas(10)).await?.result()?;
-let count = counter.get_count().at(height).await?;
+let count = counter.get_count().at(Finality::Optimistic).await?;
 ```
 
 The macro now rejects declarations it used to compile into something wrong:
