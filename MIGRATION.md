@@ -544,6 +544,12 @@ These had no producer or only an internal use, and are gone:
   `-32000` that was retried (about 3.5 s with the default `RetryConfig`) and
   reported `is_retryable() == true`. They are returned after one attempt and
   are not retryable.
+- **`RpcError::Rpc` has a `cause` field.** It holds the node's error cause
+  name (`error.cause.name`) when the response has one. A `-32000` server
+  error is now retried (and `is_retryable()`) only when it has no cause or a
+  cause that clears with time, such as `NODE_IS_SYNCING` or `BUSY`; 0.20
+  retried every `-32000` error, including deterministic ones near-kit has no
+  variant for. Struct patterns and literals without `..` need the new field.
 
 ## Sandbox
 

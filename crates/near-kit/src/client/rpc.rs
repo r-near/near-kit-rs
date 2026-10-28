@@ -971,6 +971,7 @@ impl RpcClient {
             code: error.code,
             message: error.message.clone(),
             data: error.data.clone(),
+            cause: error.cause.as_ref().map(|cause| cause.name.clone()),
         }
     }
 
@@ -1775,15 +1776,15 @@ fn with_timeout_tx_hash(err: RpcError, tx_hash: CryptoHash) -> RpcError {
 ///      NodeNotSynced/…). These have well-understood retry semantics already
 ///      encoded in `RpcError::is_retryable` and should pass through unchanged.
 ///   2. The catch-all `RpcError::Rpc { code, .. }` (unrecognized or missing
-///      `cause.name`). For code `-32000`, `is_retryable` returns `true`, which
-///      is appropriate for 5xx (server-side) but *wrong* for 4xx — retrying a
-///      deterministic client error wastes time and hides the original failure.
+///      `cause.name`). For code `-32000` with no cause or a transient one,
+///      `is_retryable` returns `true`, which is appropriate for 5xx
+///      (server-side) but *wrong* for 4xx — retrying a deterministic client
+///      error wastes time and hides the original failure.
 ///
 /// For case (2) on a 4xx status, downgrade to `RpcError::Network` with
 /// `retryable: false` so unrecognized handler causes on 4xx preserve the
-/// pre-decode behavior (matches the HTML-body fallback path). 5xx with
-/// unknown cause is left as-is — a server-side issue with an unmapped name is
-/// plausibly transient and the existing retry semantics are reasonable.
+/// pre-decode behavior (matches the HTML-body fallback path). On 5xx the
+/// error is left as-is, and `is_retryable` decides from its cause.
 fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) -> RpcError {
     match err {
         RpcError::Rpc { .. } if (400..500).contains(&status) => {
@@ -2097,6 +2098,53 @@ mod tests {
             "expected InvalidTx(ShardCongested), got {err:?}"
         );
         assert_eq!(transport.calls(), 3, "1 attempt + 2 retries");
+    }
+
+    /// A `-32000` handler error with `cause` (`None` omits the field).
+    fn server_error_body(cause: Option<&str>) -> Vec<u8> {
+        let mut error = serde_json::json!({
+            "name": "HANDLER_ERROR",
+            "code": -32000,
+            "message": "Server error",
+            "data": "details",
+        });
+        if let Some(cause) = cause {
+            error["cause"] = serde_json::json!({ "name": cause, "info": {} });
+        }
+        serde_json::to_vec(&serde_json::json!({ "jsonrpc": "2.0", "id": 0, "error": error }))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_call_retries_server_error_only_without_cause_or_with_a_transient_one() {
+        // `(cause, expected attempts)` with 2 retries allowed.
+        let cases = [
+            // A named cause near-kit doesn't know may well be deterministic.
+            (Some("FUTURE_HANDLER_ERROR"), 1),
+            (Some("REQUEST_ROUTED"), 1),
+            // Older nodes and proxies send no cause.
+            (None, 3),
+            // Known-transient causes nearcore names.
+            (Some("NODE_IS_SYNCING"), 3),
+            (Some("BUSY"), 3),
+        ];
+        for (cause, attempts) in cases {
+            let transport = CountingTransport::new(200, server_error_body(cause));
+            let client = RpcClient::with_transport_and_retry_config(
+                "https://example.com",
+                transport.clone(),
+                fast_retries(2),
+            );
+            let err = client
+                .request::<_, serde_json::Value>("status", serde_json::json!([]))
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(err, RpcError::Rpc { code: -32000, .. }),
+                "{cause:?}: {err:?}"
+            );
+            assert_eq!(transport.calls(), attempts, "{cause:?}");
+        }
     }
 
     #[tokio::test]

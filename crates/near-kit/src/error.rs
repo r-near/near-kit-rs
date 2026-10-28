@@ -128,6 +128,9 @@ pub enum RpcError {
         code: i64,
         message: String,
         data: Option<serde_json::Value>,
+        /// The name of the node's error cause (`error.cause.name`, such as
+        /// `NODE_IS_SYNCING`), when the response has one.
+        cause: Option<String>,
     },
 
     // ─── Account Errors ───
@@ -488,6 +491,39 @@ impl std::fmt::Display for TimeoutCause {
     }
 }
 
+/// Whether a `-32000` error cause names a condition that clears with time, so
+/// that re-sending the same request to the same node can succeed.
+///
+/// From nearcore 2.14's `chain/jsonrpc-primitives/src/types/`:
+///
+/// - `NODE_IS_SYNCING`, `NO_NEW_BLOCKS` (`status.rs`): the node is catching up
+///   or briefly stalled.
+/// - `BUSY` (`indexer.rs`): the indexer endpoints' concurrency limit.
+/// - `NOT_CONFIRMED`, `CHUNK_NOT_CERTIFIED` (`light_client.rs`): the outcome
+///   or chunk isn't final yet; a later block confirms or certifies it.
+///
+/// `INTERNAL_ERROR`, `TIMEOUT_ERROR`, `UNAVAILABLE_SHARD`, `NOT_SYNCED_YET`
+/// and `NO_SYNCED_BLOCKS` are transient too, but `RpcClient` maps them to
+/// their own variants, so they never reach [`RpcError::Rpc`]; they are listed
+/// for errors built by hand. Every other cause depends on the request, the
+/// node's configuration or data it doesn't have (`REQUEST_ROUTED`, for
+/// instance, routes the same transaction again), and is not retried.
+fn is_transient_cause(cause: &str) -> bool {
+    matches!(
+        cause,
+        "NODE_IS_SYNCING"
+            | "NO_NEW_BLOCKS"
+            | "BUSY"
+            | "NOT_CONFIRMED"
+            | "CHUNK_NOT_CERTIFIED"
+            | "INTERNAL_ERROR"
+            | "TIMEOUT_ERROR"
+            | "UNAVAILABLE_SHARD"
+            | "NOT_SYNCED_YET"
+            | "NO_SYNCED_BLOCKS"
+    )
+}
+
 impl RpcError {
     /// Check if this error is retryable.
     ///
@@ -495,6 +531,11 @@ impl RpcError {
     /// transport failures, timeouts, and server-side conditions like an
     /// unsynced node or a 5xx. This is what `RpcClient::request` consults
     /// between attempts.
+    ///
+    /// A generic [`RpcError::Rpc`] server error (code `-32000`) is retryable
+    /// when it has no `cause` or a cause that clears with time, such as
+    /// `NODE_IS_SYNCING` or `BUSY`; a cause near-kit doesn't recognise is not
+    /// retried. Code `-32603` (internal error) is always retryable.
     ///
     /// For [`RpcError::InvalidTx`] the signed payload is fixed at this layer,
     /// so only rejections that can clear while the *same* bytes are re-sent
@@ -540,10 +581,15 @@ impl RpcError {
             // congestion/stalls can clear on their own. See the doc comment.
             RpcError::InvalidTx(InvalidTxError::InvalidNonce { .. }) => false,
             RpcError::InvalidTx(e) => e.is_retryable(),
-            RpcError::Rpc { code, .. } => {
-                // Retry on server errors
-                *code == -32000 || *code == -32603
-            }
+            // A server error is retried when the node names no cause (older
+            // nodes and proxies) or a cause that clears with time; a cause
+            // near-kit doesn't know may be deterministic.
+            RpcError::Rpc {
+                code: -32000,
+                cause,
+                ..
+            } => cause.as_deref().is_none_or(is_transient_cause),
+            RpcError::Rpc { code: -32603, .. } => true,
             _ => false,
         }
     }
@@ -1101,14 +1147,18 @@ mod tests {
             }
             .is_retryable()
         );
-        assert!(
-            RpcError::Rpc {
-                code: -32000,
-                message: "server error".to_string(),
-                data: None,
-            }
-            .is_retryable()
-        );
+        let server_error = |cause: Option<&str>| RpcError::Rpc {
+            code: -32000,
+            message: "server error".to_string(),
+            data: None,
+            cause: cause.map(str::to_string),
+        };
+        assert!(server_error(None).is_retryable());
+        assert!(server_error(Some("NODE_IS_SYNCING")).is_retryable());
+        assert!(server_error(Some("NOT_CONFIRMED")).is_retryable());
+        // A cause near-kit doesn't know isn't retried.
+        assert!(!server_error(Some("FUTURE_HANDLER_ERROR")).is_retryable());
+        assert!(!server_error(Some("SHARD_NOT_TRACKED")).is_retryable());
 
         // Non-retryable errors
         let account_id: AccountId = "alice.near".parse().unwrap();
