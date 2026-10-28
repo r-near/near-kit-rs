@@ -614,9 +614,11 @@ impl PreparedTransaction {
 /// error is kept and returned from `.await`, so building never fails.
 ///
 /// Before signing, `.await` checks the transaction: an empty action list,
-/// or a state init (`Action::state_init`, `Action::universal_state_init`)
-/// whose derived account isn't the receiver, is an
-/// [`Error::Validation`] and nothing is sent.
+/// a state init (`Action::state_init`, `Action::universal_state_init`)
+/// whose derived account isn't the receiver, or a delegate action
+/// (`Action::delegate`, `Action::delegate_v2`) sent to anyone but its
+/// sender, is an [`Error::Validation`] and nothing is sent. A relayer sends
+/// a delegate action to `signed.sender_id()`.
 ///
 /// To sign without sending, or to build a meta-transaction, pass the same
 /// actions to [`SigningNear::sign`] or [`SigningNear::sign_delegate`].

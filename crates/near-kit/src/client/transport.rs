@@ -230,7 +230,9 @@ pub(crate) fn default_transport() -> Arc<dyn RpcTransport> {
 ///
 /// Wrap a preconfigured client (default headers, proxies, TLS, timeouts, ...)
 /// with [`ReqwestTransport::with_client`] and pass it to
-/// [`NearBuilder::transport`](super::NearBuilder::transport).
+/// [`NearBuilder::transport`](super::NearBuilder::transport). Build it with
+/// [`near_kit::reqwest`](crate::reqwest), the reqwest near-kit is built
+/// with, so the versions match.
 #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
 #[derive(Clone, Default)]
 pub struct ReqwestTransport {
