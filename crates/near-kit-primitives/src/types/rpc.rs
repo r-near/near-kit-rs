@@ -874,10 +874,11 @@ pub struct RpcTransactionResponse {
 /// comes from `send_tx` (i.e. `near.send()`), this field is an empty `Vec`.
 ///
 /// A failed action still arrives as `Ok(outcome)`, so the type is
-/// `#[must_use]`: check [`is_failure`](Self::is_failure), or call
+/// `#[must_use]`: check [`is_failure`](Self::is_failure) or
+/// [`receipt_failures`](Self::receipt_failures), or call
 /// [`result`](Self::result) to turn the failure into an `Err`.
 #[derive(Debug, Clone, Deserialize)]
-#[must_use = "a failed action is still Ok(outcome): check is_failure() or call result()"]
+#[must_use = "a failed action is still Ok(outcome): check is_failure(), receipt_failures() or call result()"]
 pub struct FinalExecutionOutcome {
     /// Overall transaction execution result.
     pub status: FinalExecutionStatus,
@@ -943,6 +944,35 @@ impl FinalExecutionOutcome {
             FinalExecutionStatus::Failure(err) => Some(err),
             _ => None,
         }
+    }
+
+    /// Every failed receipt's action error, in the order the RPC lists the
+    /// receipt outcomes.
+    ///
+    /// [`is_failure`](Self::is_failure) and [`result`](Self::result) only
+    /// see [`status`](Self::status), the result of the transaction's main
+    /// chain of receipts. A receipt that fails off that chain doesn't change
+    /// it. For a relayed transaction (an `Action::delegate`), `is_failure()`
+    /// is `false` and `result()` is `Ok` even when the user's inner actions
+    /// failed, while `receipt_failures()` is not empty. The same goes for a
+    /// detached promise or a cross-contract call whose callback handled the
+    /// failure.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use near_kit_primitives::rpc::FinalExecutionOutcome;
+    /// fn check_relayed(outcome: &FinalExecutionOutcome) -> Result<(), String> {
+    ///     if let Some(error) = outcome.receipt_failures().next() {
+    ///         return Err(format!("an inner action failed: {error}"));
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn receipt_failures(&self) -> impl Iterator<Item = &ActionError> {
+        self.receipts_outcome
+            .iter()
+            .filter_map(|receipt| receipt.outcome.status.failure())
     }
 
     /// Get the transaction hash.
@@ -2124,6 +2154,7 @@ pub struct NodeVersion {
 mod tests {
     use super::*;
     use crate::protocol::AccessKeyPermission;
+    use crate::protocol::ActionErrorKind;
     use crate::signer::KeyType;
 
     #[test]
@@ -2910,6 +2941,127 @@ mod tests {
         assert!(!outcome.is_success());
         assert!(outcome.failure_message().is_some());
         assert!(outcome.failure_error().is_some());
+    }
+
+    /// An outcome whose top-level status is `status`, with one receipt
+    /// outcome per entry of `receipts` (each a receipt status).
+    fn outcome_with_receipts(
+        status: serde_json::Value,
+        receipts: &[serde_json::Value],
+    ) -> FinalExecutionOutcome {
+        let outcome = |id: &str, status: &serde_json::Value| {
+            serde_json::json!({
+                "id": id,
+                "outcome": {
+                    "executor_id": "alice.near",
+                    "gas_burnt": 1,
+                    "tokens_burnt": "0",
+                    "logs": [],
+                    "receipt_ids": [],
+                    "status": status
+                },
+                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
+                "proof": []
+            })
+        };
+        let tx_status =
+            serde_json::json!({"SuccessReceiptId": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"});
+        let json = serde_json::json!({
+            "status": status,
+            "transaction": {
+                "signer_id": "relayer.near",
+                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "nonce": 1,
+                "receiver_id": "alice.near",
+                "actions": [],
+                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
+                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+            },
+            "transaction_outcome": outcome("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U", &tx_status),
+            "receipts_outcome": receipts
+                .iter()
+                .map(|status| outcome("3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK", status))
+                .collect::<Vec<_>>(),
+        });
+        serde_json::from_value(json).unwrap()
+    }
+
+    fn panicked(message: &str) -> serde_json::Value {
+        serde_json::json!({"Failure": {"ActionError": {
+            "index": 0,
+            "kind": {"FunctionCallError": {"ExecutionError": message}}
+        }}})
+    }
+
+    /// A relayed transaction whose inner call panicked: the delegate receipt
+    /// succeeded, so the top-level status is a success, but the inner
+    /// receipt's failure shows in `receipt_failures`.
+    #[test]
+    fn test_receipt_failures_relayed_inner_failure() {
+        let ok = serde_json::json!({"SuccessValue": ""});
+        let outcome = outcome_with_receipts(
+            ok.clone(),
+            &[
+                serde_json::json!({"SuccessReceiptId": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo"}),
+                panicked("inner call panicked"),
+                ok,
+            ],
+        );
+        assert!(!outcome.is_failure());
+        assert!(outcome.is_success());
+        assert!(outcome.result().is_ok());
+
+        let failures: Vec<_> = outcome.receipt_failures().collect();
+        assert_eq!(failures.len(), 1);
+        assert!(
+            matches!(
+                &failures[0].kind,
+                ActionErrorKind::FunctionCallError(e) if format!("{e:?}").contains("inner call panicked")
+            ),
+            "{failures:?}"
+        );
+    }
+
+    /// A cross-contract call whose receipts failed: every failure is listed,
+    /// in the order the RPC gives the receipt outcomes.
+    #[test]
+    fn test_receipt_failures_cross_contract_in_rpc_order() {
+        let missing = serde_json::json!({"Failure": {"ActionError": {
+            "index": 1,
+            "kind": {"AccountDoesNotExist": {"account_id": "nobody.near"}}
+        }}});
+        let outcome = outcome_with_receipts(
+            panicked("first"),
+            &[
+                serde_json::json!({"SuccessValue": ""}),
+                panicked("first"),
+                missing,
+            ],
+        );
+        assert!(outcome.is_failure());
+
+        let failures: Vec<_> = outcome.receipt_failures().collect();
+        assert_eq!(failures.len(), 2);
+        assert!(matches!(
+            failures[0].kind,
+            ActionErrorKind::FunctionCallError(_)
+        ));
+        assert_eq!(failures[1].index, Some(1));
+        assert!(matches!(
+            &failures[1].kind,
+            ActionErrorKind::AccountDoesNotExist { account_id } if account_id.as_str() == "nobody.near"
+        ));
+    }
+
+    #[test]
+    fn test_receipt_failures_none() {
+        let ok = serde_json::json!({"SuccessValue": ""});
+        let outcome = outcome_with_receipts(ok.clone(), &[ok.clone(), ok]);
+        assert!(outcome.is_success());
+        assert_eq!(outcome.receipt_failures().count(), 0);
+
+        // An outcome from `send_tx` with no receipt outcomes has none either.
+        assert_eq!(make_success_outcome("").receipt_failures().count(), 0);
     }
 
     // ========================================================================
