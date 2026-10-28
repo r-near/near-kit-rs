@@ -65,6 +65,8 @@ pub fn from_env_vars(account_var: &str, key_var: &str) -> Result<InMemorySigner,
 struct CredentialFile {
     #[serde(alias = "secret_key")]
     private_key: String,
+    #[serde(default)]
+    public_key: Option<String>,
 }
 
 /// Load the key for `account_id` from
@@ -121,7 +123,8 @@ pub fn from_credentials(
 ///
 /// # Errors
 ///
-/// [`Error::Config`] if the file can't be read or parsed, and a parse error
+/// [`Error::Config`] if the file can't be read or parsed, or its
+/// `public_key` names a different key than `private_key`, and a parse error
 /// for an invalid key.
 #[cfg(feature = "file-signer")]
 pub fn from_credentials_file(
@@ -143,10 +146,24 @@ pub fn from_credentials_file(
             e
         ))
     })?;
-    Ok(InMemorySigner::new(
-        account_id,
-        credentials.private_key.parse()?,
-    ))
+    let secret_key: crate::types::SecretKey = credentials.private_key.parse()?;
+    // The file's `public_key` (a full key, or an ML-DSA-65 hash handle) must
+    // name the key `private_key` derives. A value near-kit can't parse is
+    // left unchecked.
+    if let Some(stored) = credentials
+        .public_key
+        .as_deref()
+        .and_then(|s| s.parse::<crate::types::PublicKeyHandle>().ok())
+        && !stored.refers_to(&secret_key.public_key())
+    {
+        return Err(Error::Config(format!(
+            "Credentials file {}: public_key {} does not match the private key's {}",
+            path.display(),
+            stored,
+            secret_key.public_key()
+        )));
+    }
+    Ok(InMemorySigner::new(account_id, secret_key))
 }
 
 #[cfg(test)]
@@ -235,5 +252,32 @@ mod tests {
 
         let signer = load_credentials("secp256k1", &contents.to_string()).unwrap();
         assert_eq!(signer.public_key(), key.public_key());
+    }
+
+    #[cfg(feature = "file-signer")]
+    #[test]
+    fn credentials_file_whose_public_key_does_not_match_is_rejected() {
+        use crate::signer::SecretKey;
+
+        let key = SecretKey::ed25519_from_bytes([23; 32]);
+        let other = SecretKey::ed25519_from_bytes([24; 32]);
+        let contents = serde_json::json!({
+            "account_id": "alice.testnet",
+            "public_key": other.public_key().to_string(),
+            "private_key": key.to_string(),
+        });
+        let error = load_credentials("mismatch", &contents.to_string()).unwrap_err();
+        assert!(
+            error.to_string().contains("does not match"),
+            "unexpected error: {error}"
+        );
+
+        // The ML-DSA-65 hash handle of the right key is accepted.
+        let key = SecretKey::ml_dsa65_from_seed([25; 32]);
+        let contents = serde_json::json!({
+            "public_key": key.public_key().to_ml_dsa65_hash().unwrap().to_string(),
+            "private_key": key.to_string(),
+        });
+        assert!(load_credentials("handle", &contents.to_string()).is_ok());
     }
 }

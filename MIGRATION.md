@@ -139,6 +139,9 @@ Secp256k1 `SecretKey` parsing also accepts near-api-js's 96-byte
 `ParseKeyError::InvalidFormat` if the public half doesn't match the secret.
 The key still prints as the 32-byte secret.
 
+`from_credentials` and `from_credentials_file` now return `Error::Config` for
+a file whose `public_key` names a different key than its `private_key`.
+
 ## Transactions
 
 | 0.20 | 0.21 |
