@@ -4,9 +4,11 @@
 //! nearcore renders a delegate's inner actions in the raw protocol `Action`
 //! JSON, not the `ActionView` shape used for top-level actions.
 
+use near_kit_primitives::protocol::InvalidTxError;
 use near_kit_primitives::protocol::{Action, DelegateAction, GlobalContractId, StateInit};
 use near_kit_primitives::rpc::{
-    ActionView, FinalExecutionOutcome, ReceiptContent, RpcTransactionResponse,
+    ActionView, ExecutionStatus, FinalExecutionOutcome, OutcomeError, ReceiptContent,
+    RpcTransactionResponse,
 };
 use near_kit_primitives::signer::PublicKey;
 use near_kit_primitives::transaction::{Final, WaitLevel};
@@ -210,4 +212,48 @@ fn response_without_outcome_has_none() {
 
     let response = decode_response(serde_json::from_str(TRANSFER).unwrap()).unwrap();
     assert!(response.outcome.is_some());
+}
+
+/// A transaction rejected at apply time: nearcore stores an outcome whose
+/// status is `Failure(InvalidTxError)` and derives the top-level status from
+/// it, with no receipts.
+fn apply_time_rejection() -> serde_json::Value {
+    let invalid = serde_json::json!({"Failure": {"InvalidTxError": {
+        "InvalidNonce": {"ak_nonce": 28_000_000u64, "tx_nonce": 28_000_000u64}
+    }}});
+    let mut body: serde_json::Value = serde_json::from_str(TRANSFER).unwrap();
+    body["status"] = invalid.clone();
+    body["transaction_outcome"]["outcome"]["status"] = invalid;
+    body["transaction_outcome"]["outcome"]["receipt_ids"] = serde_json::json!([]);
+    body["receipts_outcome"] = serde_json::json!([]);
+    body
+}
+
+#[test]
+fn apply_time_rejection_resolves_to_invalid_tx() {
+    let response = decode_response(apply_time_rejection()).unwrap();
+    match Final::convert(response, &sender()) {
+        Err(OutcomeError::InvalidTx(e)) => assert!(
+            matches!(
+                *e,
+                InvalidTxError::InvalidNonce {
+                    ak_nonce: 28_000_000,
+                    tx_nonce: 28_000_000
+                }
+            ),
+            "{e:?}"
+        ),
+        other => panic!("expected OutcomeError::InvalidTx, got {other:?}"),
+    }
+}
+
+#[test]
+fn apply_time_rejection_outcome_status() {
+    let response = decode_response(apply_time_rejection()).unwrap();
+    let outcome = response.outcome.unwrap();
+    assert!(matches!(
+        outcome.transaction_outcome.outcome.status,
+        ExecutionStatus::InvalidTx(InvalidTxError::InvalidNonce { .. })
+    ));
+    assert!(outcome.transaction_outcome.outcome.status.is_failure());
 }

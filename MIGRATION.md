@@ -529,6 +529,13 @@ These had no producer or only an internal use, and are gone:
   the response now fails instead: `RpcClient::send_tx`/`tx_status`, sends and
   `Near::tx_status` return `RpcError::Json`. `outcome` is `None` only when the
   node sent no outcome.
+- **`ExecutionStatus::InvalidTx(InvalidTxError)` is new.** A transaction that
+  was included in a chunk but rejected when the chunk was applied has an
+  outcome with this status. It used to fail to decode and be reported as "no
+  execution outcome"; it now resolves to `Error::InvalidTx` (or
+  `OutcomeError::InvalidTx`). Exhaustive matches on `ExecutionStatus` need an
+  arm for it. `is_failure()` is true for it; `failure()` still returns only an
+  `ActionError`.
 
 ## Sandbox
 

@@ -160,11 +160,12 @@ fn extract_outcome(
     })?;
 
     use super::error::TxExecutionError;
-    use super::rpc::FinalExecutionStatus;
-    match outcome.status {
-        FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
-            Err(OutcomeError::InvalidTx(Box::new(e)))
-        }
+    use super::rpc::{ExecutionStatus, FinalExecutionStatus};
+    // nearcore derives the top-level status from the transaction outcome's,
+    // so a rejection shows in both; check both.
+    match (&outcome.status, &outcome.transaction_outcome.outcome.status) {
+        (FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)), _)
+        | (_, ExecutionStatus::InvalidTx(e)) => Err(OutcomeError::InvalidTx(Box::new(e.clone()))),
         _ => Ok(outcome),
     }
 }

@@ -18,7 +18,7 @@ use super::action::{
     VersionedDelegateActionPayload, VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
 };
 use super::block_reference::TxExecutionStatus;
-use super::error::{ActionError, TxExecutionError};
+use super::error::{ActionError, InvalidTxError, TxExecutionError};
 use super::transaction::{NonceMode, TransactionNonce};
 use super::{AccountId, CryptoHash, Gas, NearToken, Nonce, PublicKey, PublicKeyHandle, Signature};
 use crate::error::ActionViewConversionError;
@@ -1113,19 +1113,23 @@ impl FinalExecutionOutcome {
 ///
 /// Matches nearcore's `ExecutionStatusView`. Used in [`ExecutionOutcome`].
 ///
-/// The `Failure` variant contains an [`ActionError`] rather than
-/// [`TxExecutionError`] because receipt execution outcomes can only fail with
-/// action errors. Transaction-validation errors (`InvalidTxError`) are caught
-/// earlier in the send path and surfaced as `near_kit::Error::InvalidTx`.
+/// A receipt fails with an action error ([`Failure`](Self::Failure)). A
+/// transaction outcome can also fail with an [`InvalidTxError`]
+/// ([`InvalidTx`](Self::InvalidTx)) when the transaction was included in a
+/// chunk but rejected when the chunk was applied; such a transaction resolves
+/// to `OutcomeError::InvalidTx` (`near_kit::Error::InvalidTx`).
 ///
-/// The NEAR RPC serialises the failure as `{"Failure": {"ActionError": {…}}}`.
-/// A custom [`Deserialize`] impl unwraps the outer `TxExecutionError` envelope.
+/// The NEAR RPC serialises a failure as `{"Failure": {"ActionError": {…}}}` or
+/// `{"Failure": {"InvalidTxError": {…}}}`. A custom [`Deserialize`] impl
+/// unwraps the outer `TxExecutionError` envelope.
 #[derive(Debug, Clone)]
 pub enum ExecutionStatus {
     /// The execution is pending or unknown.
     Unknown,
     /// Execution failed with an action error.
     Failure(ActionError),
+    /// The transaction was rejected when its chunk was applied.
+    InvalidTx(InvalidTxError),
     /// Execution succeeded with a return value.
     SuccessValue(Vec<u8>),
     /// Execution succeeded, producing a receipt.
@@ -1138,9 +1142,10 @@ impl ExecutionStatus {
         matches!(self, Self::SuccessValue(_) | Self::SuccessReceiptId(_))
     }
 
-    /// Whether the receipt failed.
+    /// Whether the execution failed, with an action error or an
+    /// [`InvalidTx`](Self::InvalidTx) rejection.
     pub fn is_failure(&self) -> bool {
-        matches!(self, Self::Failure(_))
+        matches!(self, Self::Failure(_) | Self::InvalidTx(_))
     }
 
     /// The receipt's return value, if it returned one.
@@ -1195,9 +1200,7 @@ impl<'de> serde::Deserialize<'de> for ExecutionStatus {
         match Raw::deserialize(deserializer)? {
             Raw::Unknown => Ok(Self::Unknown),
             Raw::Failure(TxExecutionError::ActionError(e)) => Ok(Self::Failure(e)),
-            Raw::Failure(TxExecutionError::InvalidTxError(e)) => Err(serde::de::Error::custom(
-                format!("unexpected InvalidTxError in receipt execution status: {e}"),
-            )),
+            Raw::Failure(TxExecutionError::InvalidTxError(e)) => Ok(Self::InvalidTx(e)),
             Raw::SuccessValue(v) => Ok(Self::SuccessValue(v)),
             Raw::SuccessReceiptId(h) => Ok(Self::SuccessReceiptId(h)),
         }
@@ -3347,19 +3350,19 @@ mod tests {
     }
 
     #[test]
-    fn test_execution_status_failure_invalid_tx_error_rejected() {
+    fn test_execution_status_failure_invalid_tx_error() {
         let json = serde_json::json!({
             "Failure": {
                 "InvalidTxError": "InvalidSignature"
             }
         });
-        let err = serde_json::from_value::<ExecutionStatus>(json)
-            .expect_err("InvalidTxError should be rejected in receipt execution status");
-        let msg = err.to_string();
-        assert!(
-            msg.contains("unexpected InvalidTxError"),
-            "Expected descriptive error containing \"unexpected InvalidTxError\", got: {msg}"
-        );
+        let status = serde_json::from_value::<ExecutionStatus>(json).unwrap();
+        assert!(matches!(
+            status,
+            ExecutionStatus::InvalidTx(InvalidTxError::InvalidSignature)
+        ));
+        assert!(status.is_failure() && !status.is_success());
+        assert!(status.failure().is_none());
     }
 
     // ========================================================================
