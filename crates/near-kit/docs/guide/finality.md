@@ -34,7 +34,10 @@ let counter = account!("counter.testnet");
 
 let now: u64 = near.view(&counter, "get_count").await?; // final
 let newest: u64 = near.view(&counter, "get_count").at(Finality::Optimistic).await?;
-let then: u64 = near.view(&counter, "get_count").at(180_000_000).await?;
+
+// A height: here a recent one, since the default endpoints aren't archival.
+let height = near.rpc().block(Finality::Final).await?.header.height;
+let then: u64 = near.view(&counter, "get_count").at(height).await?;
 
 // `with_metadata` also returns the block the value was read at.
 let read = near.view::<u64>(&counter, "get_count").with_metadata().await?;
@@ -60,10 +63,14 @@ println!("{} yocto at height {}", account.amount.as_yoctonear(), block.header.he
 # }
 ```
 
-Non-archival RPC nodes drop old blocks; they keep about five epochs. A read
-at an older height or hash fails with
-`RpcError::BlockNotFound`; use an archival endpoint with
-[`Near::custom`](crate::Near::custom) for those.
+Non-archival RPC nodes, the default FastNEAR endpoints included, drop old
+blocks; they keep about five epochs. A read at
+an older height or hash fails. near-kit maps the node's `UNKNOWN_BLOCK` and
+`GARBAGE_COLLECTED_BLOCK` errors to `RpcError::BlockNotFound`; a node or proxy
+that reports it another way gives the catch-all `RpcError::Rpc` (often code
+`-32000`, "Server error") or, for a non-JSON HTTP error, `RpcError::Network`.
+Use an archival endpoint with [`Near::custom`](crate::Near::custom) for old
+blocks.
 
 The FT and NFT clients in [`standards`](crate::standards) are the
 exception: their views read at `Finality::Optimistic` and have no `.at(..)`.
@@ -72,12 +79,12 @@ For a token balance at a specific block, call the view yourself:
 ```rust,no_run
 use near_kit::*;
 
-# async fn example(near: &Near) -> Result<(), Box<dyn std::error::Error>> {
+# async fn example(near: &Near, block_hash: CryptoHash) -> Result<(), Box<dyn std::error::Error>> {
 // NEP-141 returns the balance as a JSON string.
 let raw: String = near
     .view(account!("wrap.near"), "ft_balance_of")
     .args(serde_json::json!({ "account_id": "alice.near" }))
-    .at(180_000_000)
+    .at(block_hash)
     .await?;
 let balance: u128 = raw.parse()?;
 # Ok(())
