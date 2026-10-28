@@ -460,19 +460,25 @@ impl PreparedTransaction {
                         continue;
                     }
                     Err(RpcError::InvalidTx(crate::types::InvalidTxError::NonceTooLarge {
-                        tx_nonce: _tx_nonce,
+                        tx_nonce,
                         upper_bound: _upper_bound,
                     })) if attempt < max_nonce_retries => {
                         trace::debug!(
-                            tx_nonce = _tx_nonce,
+                            tx_nonce = tx_nonce,
                             upper_bound = _upper_bound,
                             attempt = attempt + 1,
                             "Nonce too large, retrying from the access key's nonce"
                         );
                         // The cached nonce is past what this chain accepts (it
                         // came from another chain with this id), and the
-                        // rejection consumed nothing: start again from the view.
-                        nonce_manager().forget(&prepared.chain_id, &signer_id, &public_key);
+                        // rejection consumed nothing: start again from the view,
+                        // unless a concurrent send's rejection already did.
+                        nonce_manager().forget_rejected(
+                            &prepared.chain_id,
+                            &signer_id,
+                            &public_key,
+                            tx_nonce,
+                        );
                         attempt += 1;
                         continue;
                     }

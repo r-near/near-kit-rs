@@ -85,12 +85,26 @@ impl NonceManager {
         Ok(next)
     }
 
-    /// Drop the cached nonce for an access key, so the next call starts from
-    /// the chain's view again. Used once the node rejects a cached nonce as
-    /// too large.
-    pub fn forget(&self, chain_id: &ChainId, account_id: &AccountId, public_key: &PublicKey) {
-        self.lock()
-            .remove(&(chain_id.clone(), account_id.clone(), public_key.clone()));
+    /// Drop the cached nonce for an access key once the node rejected
+    /// `tx_nonce` as too large, so the next call starts from the chain's view
+    /// again.
+    ///
+    /// Only an entry at or above `tx_nonce` is dropped. A lower entry means
+    /// another send's rejection already reset it and nonces were handed out
+    /// from the view since (all of them below the rejected one); dropping it
+    /// would let the next send draw one of those again.
+    pub fn forget_rejected(
+        &self,
+        chain_id: &ChainId,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+        tx_nonce: u64,
+    ) {
+        let key = (chain_id.clone(), account_id.clone(), public_key.clone());
+        let mut nonces = self.lock();
+        if nonces.get(&key).is_some_and(|&cached| cached >= tx_nonce) {
+            nonces.remove(&key);
+        }
     }
 }
 
@@ -189,6 +203,35 @@ mod tests {
         assert_eq!(next(&manager, 100), 102);
     }
 
+    fn forget_rejected(manager: &NonceManager, tx_nonce: u64) {
+        manager.forget_rejected(&ChainId::testnet(), &alice(), &alice_key(), tx_nonce);
+    }
+
+    #[test]
+    fn test_rejection_resets_the_entry() {
+        let manager = NonceManager::new();
+        assert_eq!(next(&manager, 500), 501);
+        assert_eq!(next(&manager, 500), 502);
+        // 502 was rejected as too large: start again from the view.
+        forget_rejected(&manager, 502);
+        assert_eq!(next(&manager, 10), 11);
+    }
+
+    #[test]
+    fn test_stale_rejection_keeps_newer_reservations() {
+        let manager = NonceManager::new();
+        // Two sends drew 501 and 502 from a cache the chain can't accept.
+        assert_eq!(next(&manager, 500), 501);
+        assert_eq!(next(&manager, 500), 502);
+        // The first rejection resets the entry and its retry takes 11.
+        forget_rejected(&manager, 501);
+        assert_eq!(next(&manager, 10), 11);
+        // The second rejection arrives late. Dropping the entry now would
+        // hand 11 out again; it stays, so the second retry takes 12.
+        forget_rejected(&manager, 502);
+        assert_eq!(next(&manager, 10), 12);
+    }
+
     #[test]
     fn test_lower_ak_nonce_uses_cache() {
         let manager = NonceManager::new();
@@ -239,15 +282,6 @@ mod tests {
             .next(&chain, &alice(), &alice_key(), 5, HEIGHT)
             .unwrap();
         assert_eq!(third, 6);
-    }
-
-    #[test]
-    fn forget_starts_again_from_the_view() {
-        let manager = NonceManager::new();
-        assert_eq!(next(&manager, 10), 11);
-        assert_eq!(next(&manager, 10), 12);
-        manager.forget(&ChainId::testnet(), &alice(), &alice_key());
-        assert_eq!(next(&manager, 10), 11);
     }
 
     #[test]
