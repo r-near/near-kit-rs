@@ -8,6 +8,7 @@ use near_kit::signer::{InMemorySigner, RotatingSigner, SecretKey};
 use near_kit::transaction::Final;
 use near_kit::{AccountId, Error};
 use near_kit::{Near, NearToken};
+use near_kit_sandbox::Sandbox;
 
 use super::support::{client_for, funded_account, shared_client, unique_account};
 
@@ -215,4 +216,102 @@ async fn clients_on_two_url_spellings_share_one_nonce_sequence() {
         2,
         "both transfers ran"
     );
+}
+
+/// Two sandboxes share the chain id `sandbox` and the root key, but not a
+/// genesis, so their nonces stay apart: sends alternate between them, the
+/// shorter chain first, and every one lands on its first attempt.
+///
+/// The same account and key exist on both, added on the second chain at a
+/// height hundreds of blocks below the first's, so a nonce the first chain
+/// hands out is past what the second accepts.
+#[tokio::test]
+async fn two_sandboxes_with_one_chain_id_keep_separate_nonces() {
+    let (tall, short) = tokio::join!(Sandbox::builder().fresh(), Sandbox::builder().fresh());
+    let (tall, short) = (tall.expect("first sandbox"), short.expect("second sandbox"));
+    let (tall_root, short_root) = (tall.root_account(), short.root_account());
+    assert_eq!(tall_root.near().chain_id(), short_root.near().chain_id());
+    let (tall_status, short_status) = tokio::join!(
+        tall_root.near().rpc().status(),
+        short_root.near().rpc().status()
+    );
+    assert_ne!(
+        tall_status.expect("first status").genesis_hash,
+        short_status.expect("second status").genesis_hash,
+        "two fresh sandboxes are two chains"
+    );
+    tall.fast_forward(500).await.expect("fast-forward");
+
+    // One account and key on both, created on the short chain first.
+    let account_id = unique_account("twochains");
+    let key = SecretKey::generate_ed25519();
+    for root in [&short_root, &tall_root] {
+        root.transaction(&account_id)
+            .add_action(Action::create_account())
+            .add_action(Action::transfer(NearToken::from_near(5)))
+            .add_action(Action::add_full_access_key(key.public_key()))
+            .await
+            .expect("create the shared account")
+            .result()
+            .expect("account created");
+    }
+
+    // No nonce retries: a nonce from the wrong chain fails the send.
+    let strict = |root: &near_kit::SigningNear, signer: InMemorySigner| {
+        Near::custom(root.near().rpc().url(), root.near().chain_id().clone())
+            .max_nonce_retries(0)
+            .build()
+            .with_signer(signer)
+    };
+    let short_account = strict(
+        &short_root,
+        InMemorySigner::new(account_id.clone(), key.clone()),
+    );
+    let tall_account = strict(&tall_root, InMemorySigner::new(account_id.clone(), key));
+    let root_signer = |root: &near_kit::SigningNear| {
+        InMemorySigner::new(
+            root.account_id().clone(),
+            near_kit_sandbox::SANDBOX_ROOT_SECRET_KEY.parse().unwrap(),
+        )
+    };
+    let short_rooted = strict(&short_root, root_signer(&short_root));
+    let tall_rooted = strict(&tall_root, root_signer(&tall_root));
+
+    let transfer = |yocto| vec![Action::transfer(NearToken::from_yoctonear(yocto))];
+    let send = |near: &near_kit::SigningNear, what: &'static str| {
+        let near = near.clone();
+        async move {
+            near.transaction(near.account_id())
+                .add_action(Action::transfer(NearToken::from_yoctonear(1)))
+                .await
+                .unwrap_or_else(|e| panic!("{what}: {e}"))
+                .result()
+                .unwrap_or_else(|e| panic!("{what}: {e:?}"));
+        }
+    };
+    for _ in 0..3 {
+        // Held on the short chain while the tall one draws: the second
+        // signature reads the same view as the first.
+        let held = short_account
+            .sign(&account_id, transfer(1))
+            .await
+            .expect("sign on the short chain");
+        send(&tall_account, "tall chain").await;
+        let next = short_account
+            .sign(&account_id, transfer(2))
+            .await
+            .expect("sign on the short chain again");
+        assert_eq!(next.transaction.nonce, held.transaction.nonce + 1);
+        send(&short_rooted, "short root").await;
+        send(&tall_rooted, "tall root").await;
+        for signed in [&held, &next] {
+            short_account
+                .near()
+                .send_signed(signed)
+                .await
+                .expect("held transaction lands")
+                .result()
+                .expect("held transaction runs");
+        }
+    }
 }

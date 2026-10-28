@@ -10,6 +10,7 @@ use serde::de::DeserializeOwned;
 use crate::View;
 use crate::types::{AccountId, BlockReference, ChainId, ViewFunctionResult};
 
+use super::nonce_manager::GenesisHash;
 use super::query::{AccountExistsQuery, BalanceQuery, TransactionStatusQuery};
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
 use super::signing::SigningNear;
@@ -55,6 +56,9 @@ pub struct Near {
     pub(super) rpc: Arc<RpcClient>,
     chain_id: ChainId,
     pub(super) max_nonce_retries: u32,
+    /// The node's genesis hash, which keys cached nonces; fetched on the first
+    /// nonce draw and shared by clones.
+    pub(super) genesis: Arc<GenesisHash>,
 }
 
 impl Near {
@@ -486,6 +490,7 @@ impl NearBuilder {
             )),
             chain_id: self.chain_id,
             max_nonce_retries: self.max_nonce_retries,
+            genesis: Arc::default(),
         }
     }
 }

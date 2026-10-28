@@ -40,14 +40,15 @@ use crate::types::{
 };
 
 use super::near::Near;
-use super::nonce_manager::{NonceManager, no_next_nonce};
+use super::nonce_manager::{Chain, GenesisHash, NonceManager, no_next_nonce};
 use super::rpc::RpcClient;
 use super::signing::SigningNear;
 use crate::types::{Signer, SigningKey};
 
-/// Global nonce manager shared across all signing clients, keyed by chain
-/// id, account and public key, so clients for one network share a sequence
-/// whatever their RPC URLs. An implementation detail, not exposed to users.
+/// Global nonce manager shared across all signing clients, keyed by the
+/// chain's genesis hash, account and public key, so clients for one chain
+/// share a sequence whatever their RPC URLs or chain ids, and chains that
+/// share a chain id don't. An implementation detail, not exposed to users.
 fn nonce_manager() -> &'static NonceManager {
     static NONCE_MANAGER: OnceLock<NonceManager> = OnceLock::new();
     NONCE_MANAGER.get_or_init(NonceManager::new)
@@ -158,6 +159,7 @@ pub struct DelegateOptions {
 pub(crate) struct PreparedTransaction {
     rpc: Arc<RpcClient>,
     chain_id: ChainId,
+    genesis: Arc<GenesisHash>,
     signer: Arc<dyn Signer>,
     receiver_id: AccountId,
     actions: Vec<Action>,
@@ -205,6 +207,7 @@ impl PreparedTransaction {
         Ok(Self {
             rpc: near.rpc.clone(),
             chain_id: near.chain_id().clone(),
+            genesis: near.genesis.clone(),
             signer,
             receiver_id,
             actions,
@@ -217,7 +220,14 @@ impl PreparedTransaction {
         (self.signer.account_id().clone(), self.signer.key())
     }
 
-    /// Resolve the next nonce and block hash for one online attempt.
+    /// The chain this client's nonces are cached for.
+    async fn chain(&self) -> Chain {
+        self.genesis.chain(&self.rpc, &self.chain_id).await
+    }
+
+    /// Resolve the next nonce and block hash for one online attempt, and the
+    /// chain the nonce was cached for (`None` for a bootstrap, which skips
+    /// the cache).
     ///
     /// `nonce_floor` is the access key nonce a rejected attempt reported; the
     /// fresh view counts too when it is already higher.
@@ -226,8 +236,8 @@ impl PreparedTransaction {
         signer_id: &AccountId,
         public_key: &PublicKey,
         nonce_floor: Option<u64>,
-    ) -> Result<(u64, CryptoHash), Error> {
-        let (chain_nonce, block_height, block_hash) = match self
+    ) -> Result<(u64, CryptoHash, Option<Chain>), Error> {
+        let (chain_nonce, block_hash) = match self
             .rpc
             .view_access_key(
                 signer_id,
@@ -236,11 +246,7 @@ impl PreparedTransaction {
             )
             .await
         {
-            Ok(access_key) => (
-                access_key.nonce,
-                access_key.block_height,
-                access_key.block_hash,
-            ),
+            Ok(access_key) => (access_key.nonce, access_key.block_hash),
             // A self-signed universal state init installs its own signing key,
             // so the key isn't on chain yet: the nonce comes from the
             // uninitialized account's `bootstrap_nonce` instead.
@@ -261,18 +267,18 @@ impl PreparedTransaction {
                 let nonce = bootstrap_nonce
                     .checked_add(1)
                     .ok_or_else(|| no_next_nonce(bootstrap_nonce))?;
-                return Ok((nonce, account.block_hash));
+                return Ok((nonce, account.block_hash, None));
             }
             Err(error) => return Err(error.into()),
         };
+        let chain = self.chain().await;
         let nonce = nonce_manager().next(
-            &self.chain_id,
+            &chain,
             signer_id,
             public_key,
             nonce_floor.map_or(chain_nonce, |floor| floor.max(chain_nonce)),
-            block_height,
         )?;
-        Ok((nonce, block_hash))
+        Ok((nonce, block_hash, Some(chain)))
     }
 
     /// Whether this transaction bootstraps `signer_id`: it carries the state
@@ -360,7 +366,7 @@ impl PreparedTransaction {
             #[cfg(feature = "tracing")]
             record_function_call_fields(&prepared.actions);
 
-            let (nonce, block_hash) = prepared
+            let (nonce, block_hash, _) = prepared
                 .online_context(&signer_id, &public_key, None)
                 .await?;
             let tx = prepared.into_transaction(signer_id, public_key, nonce, block_hash);
@@ -409,7 +415,7 @@ impl PreparedTransaction {
             // returns its own error.
             let mut attempt: u32 = 0;
             loop {
-                let (nonce, block_hash) = prepared
+                let (nonce, block_hash, chain) = prepared
                     .online_context(&signer_id, &public_key, last_ak_nonce.take())
                     .await?;
 
@@ -470,15 +476,20 @@ impl PreparedTransaction {
                             "Nonce too large, retrying from the access key's nonce"
                         );
                         // The cached nonce is past what this chain accepts (it
-                        // came from another chain with this id), and the
-                        // rejection consumed nothing: start again from the view,
-                        // unless a concurrent send's rejection already did.
-                        nonce_manager().forget_rejected(
-                            &prepared.chain_id,
-                            &signer_id,
-                            &public_key,
-                            tx_nonce,
-                        );
+                        // was cached by chain id while the node reported no
+                        // genesis hash, so it may come from another chain with
+                        // this id), and the rejection consumed nothing: start
+                        // again from the view, unless a concurrent send's
+                        // rejection already did. Reset the entry the nonce was
+                        // drawn from.
+                        if let Some(chain) = &chain {
+                            nonce_manager().forget_rejected(
+                                chain,
+                                &signer_id,
+                                &public_key,
+                                tx_nonce,
+                            );
+                        }
                         attempt += 1;
                         continue;
                     }
@@ -534,11 +545,10 @@ impl PreparedTransaction {
                     )
                     .await?;
                 nonce_manager().next(
-                    &prepared.chain_id,
+                    &prepared.chain().await,
                     &sender_id,
                     &public_key,
                     access_key.nonce,
-                    access_key.block_height,
                 )?
             }
         };
@@ -1105,6 +1115,8 @@ mod tests {
                         .pop_front()
                         .expect("unexpected extra send_tx")
                 }
+                // No `status`: nonces are cached by chain id.
+                "status" => method_not_found_body(),
                 other => panic!("unexpected RPC method {other}"),
             };
             Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
@@ -1231,6 +1243,43 @@ mod tests {
             matches!(&error, Error::Rpc(e) if matches!(**e, RpcError::AccessKeyNotFound { .. })),
             "{error:?}"
         );
+    }
+
+    /// A node's answer to a method it doesn't serve.
+    fn method_not_found_body() -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": { "code": -32601, "message": "Method not found" },
+        }))
+        .unwrap()
+    }
+
+    fn status_body(genesis_hash: CryptoHash) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "result": {
+                "protocol_version": 83,
+                "latest_protocol_version": 83,
+                "chain_id": "mock",
+                "genesis_hash": genesis_hash,
+                "sync_info": {
+                    "latest_block_hash": "11111111111111111111111111111111",
+                    "latest_block_height": 100,
+                    "latest_block_time": "2026-01-01T00:00:00Z",
+                    "syncing": false,
+                },
+                "version": { "version": "2.13.0", "build": "mock" },
+            },
+        }))
+        .unwrap()
+    }
+
+    /// A genesis hash no other test's chain has: the nonce cache is global.
+    fn unique_genesis() -> CryptoHash {
+        static CHAINS: AtomicUsize = AtomicUsize::new(0);
+        CryptoHash::hash(&CHAINS.fetch_add(1, Ordering::Relaxed).to_le_bytes())
     }
 
     fn invalid_nonce_body(tx_nonce: u64, ak_nonce: u64) -> Vec<u8> {
@@ -1396,24 +1445,41 @@ mod tests {
 
     /// Transport for nonce tests: answers `EXPERIMENTAL_view_access_key` from a
     /// script of `(nonce, block_height)` views (the last one repeats), answers
-    /// `send_tx` from a script of responses (accepting once it runs out), and
-    /// records every signed payload.
+    /// `send_tx` from a script of responses (accepting once it runs out),
+    /// reports a genesis hash from `status`, and records every signed payload.
     struct ScriptedNonceTransport {
         views: Mutex<VecDeque<(u64, u64)>>,
         send_tx_responses: Mutex<VecDeque<Vec<u8>>>,
         sent: Mutex<Vec<String>>,
         /// The `finality` of each access key view, in order.
         view_finalities: Mutex<Vec<serde_json::Value>>,
+        genesis_hash: CryptoHash,
+        /// `status` calls left to fail with "method not found".
+        status_failures: Mutex<usize>,
+        status_calls: AtomicUsize,
     }
 
     impl ScriptedNonceTransport {
+        /// A node of a chain no other test uses.
         fn new(views: Vec<(u64, u64)>, send_tx_responses: Vec<Vec<u8>>) -> Arc<Self> {
+            Self::on_chain(unique_genesis(), views, send_tx_responses)
+        }
+
+        /// A node of the chain with `genesis_hash`.
+        fn on_chain(
+            genesis_hash: CryptoHash,
+            views: Vec<(u64, u64)>,
+            send_tx_responses: Vec<Vec<u8>>,
+        ) -> Arc<Self> {
             assert!(!views.is_empty());
             Arc::new(Self {
                 views: Mutex::new(views.into()),
                 send_tx_responses: Mutex::new(send_tx_responses.into()),
                 sent: Mutex::new(Vec::new()),
                 view_finalities: Mutex::new(Vec::new()),
+                genesis_hash,
+                status_failures: Mutex::new(0),
+                status_calls: AtomicUsize::new(0),
             })
         }
 
@@ -1477,6 +1543,16 @@ mod tests {
                         .pop_front()
                         .unwrap_or_else(accepted_body)
                 }
+                "status" => {
+                    self.status_calls.fetch_add(1, Ordering::SeqCst);
+                    let mut failures = self.status_failures.lock().unwrap();
+                    if *failures > 0 {
+                        *failures -= 1;
+                        method_not_found_body()
+                    } else {
+                        status_body(self.genesis_hash)
+                    }
+                }
                 other => panic!("unexpected RPC method {other}"),
             };
             Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
@@ -1524,16 +1600,23 @@ mod tests {
     async fn clients_for_one_chain_share_nonces_across_url_spellings() {
         // Two spellings of one endpoint used to get separate cache entries,
         // so both clients signed nonce 6: byte-identical transactions for
-        // identical actions, of which the node runs one.
-        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+        // identical actions, of which the node runs one. Both nodes report
+        // one genesis, so both clients draw from one sequence, even under
+        // different chain ids.
+        let genesis = unique_genesis();
         let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
         let via_ip = signing_via(
             "http://127.0.0.1:3030",
             "url-spellings",
-            transport.clone(),
+            ScriptedNonceTransport::on_chain(genesis, vec![(5, 100)], vec![]),
             signer.clone(),
         );
-        let via_name = signing_via("http://localhost:3030", "url-spellings", transport, signer);
+        let via_name = signing_via(
+            "http://localhost:3030",
+            "url-spellings-too",
+            ScriptedNonceTransport::on_chain(genesis, vec![(5, 100)], vec![]),
+            signer,
+        );
 
         let first = via_ip
             .sign(account!("bob.testnet"), transfer())
@@ -1548,11 +1631,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cached_nonce_above_the_chain_bound_resets_to_the_view() {
+    async fn a_restarted_node_on_a_reused_url_is_another_chain() {
         // One endpoint first serves a chain at height 1000, then another at
-        // height 122 (a restarted node on a reused port). A nonce cached from
-        // the first is at or above the second's `height * 1e6` bound, so it
-        // can never land there; the entry has to fall back to the view.
+        // height 122 (a restarted node on a reused port, same chain id). The
+        // second has another genesis, so the first's nonces don't carry over.
         let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
         let tall = ScriptedNonceTransport::new(vec![(999_000_000, 1000)], vec![]);
         let short = ScriptedNonceTransport::new(vec![(121_000_000, 122)], vec![]);
@@ -1569,6 +1651,41 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(second.transaction.nonce, 121_000_001);
+    }
+
+    #[tokio::test]
+    async fn genesis_hash_is_fetched_until_status_answers_then_kept() {
+        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+        *transport.status_failures.lock().unwrap() = 1;
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        let near = signing_via(
+            "http://status-recovers.invalid",
+            "status-recovers",
+            transport.clone(),
+            signer,
+        );
+        // The first draw is cached by chain id (status failed), the rest by
+        // genesis, continuing from it rather than from the view.
+        let mut drawn = Vec::new();
+        for _ in 0..3 {
+            drawn.push(
+                near.sign(account!("bob.testnet"), transfer())
+                    .await
+                    .unwrap()
+                    .transaction
+                    .nonce,
+            );
+        }
+        assert_eq!(drawn, vec![6, 7, 8]);
+        // Asked again after the failure, then never: clones share the hash.
+        assert_eq!(transport.status_calls.load(Ordering::SeqCst), 2);
+        let clone = near.clone();
+        let fourth = clone
+            .sign(account!("bob.testnet"), transfer())
+            .await
+            .unwrap();
+        assert_eq!(fourth.transaction.nonce, 9);
+        assert_eq!(transport.status_calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
@@ -1823,8 +1940,8 @@ mod tests {
             ]
         );
         assert_eq!(first.delegate_action.nonce, 102_000_001);
-        assert_ne!(pending.transaction.nonce, first.delegate_action.nonce);
-        assert_eq!(second.delegate_action.nonce, 102_000_002);
+        assert_eq!(pending.transaction.nonce, 102_000_002);
+        assert_eq!(second.delegate_action.nonce, 102_000_003);
     }
 
     #[tokio::test]
