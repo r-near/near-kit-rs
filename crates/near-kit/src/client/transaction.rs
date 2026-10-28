@@ -517,6 +517,11 @@ impl PreparedTransaction {
         // Draw from the same sequence as transactions, so delegate actions
         // signed before relaying, or while a transaction is pending, don't
         // share a nonce.
+        //
+        // Unlike a send, which retries an `InvalidNonce` rejection with a
+        // fresh nonce, a delegate action's nonce is fixed once the user signs
+        // it. So read the key at `Optimistic`: a final view can trail a nonce
+        // another process already used, and the user would have to sign again.
         let nonce = match options.nonce {
             Some(nonce) => nonce,
             None => {
@@ -525,7 +530,7 @@ impl PreparedTransaction {
                     .view_access_key(
                         &sender_id,
                         &public_key,
-                        BlockReference::Finality(Finality::Final),
+                        BlockReference::Finality(Finality::Optimistic),
                     )
                     .await?;
                 nonce_manager().next(
@@ -1397,6 +1402,8 @@ mod tests {
         views: Mutex<VecDeque<(u64, u64)>>,
         send_tx_responses: Mutex<VecDeque<Vec<u8>>>,
         sent: Mutex<Vec<String>>,
+        /// The `finality` of each access key view, in order.
+        view_finalities: Mutex<Vec<serde_json::Value>>,
     }
 
     impl ScriptedNonceTransport {
@@ -1406,6 +1413,7 @@ mod tests {
                 views: Mutex::new(views.into()),
                 send_tx_responses: Mutex::new(send_tx_responses.into()),
                 sent: Mutex::new(Vec::new()),
+                view_finalities: Mutex::new(Vec::new()),
             })
         }
 
@@ -1433,6 +1441,10 @@ mod tests {
             let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
             let body = match request["method"].as_str().unwrap() {
                 "EXPERIMENTAL_view_access_key" => {
+                    self.view_finalities
+                        .lock()
+                        .unwrap()
+                        .push(request["params"]["finality"].clone());
                     let (nonce, block_height) = {
                         let mut views = self.views.lock().unwrap();
                         if views.len() > 1 {
@@ -1747,6 +1759,27 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(explicit.delegate_action.nonce, 42);
+    }
+
+    #[tokio::test]
+    async fn sign_delegate_reads_the_key_optimistically() {
+        // A signed delegate action can't be retried with another nonce, so
+        // its view must not trail nonces already used, as a final one can.
+        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        let near = signing_via(
+            "http://optimistic-delegate.invalid",
+            "optimistic-delegate",
+            transport.clone(),
+            signer,
+        );
+        near.sign_delegate(account!("bob.testnet"), transfer(), delegate_options())
+            .await
+            .unwrap();
+        assert_eq!(
+            *transport.view_finalities.lock().unwrap(),
+            vec![serde_json::json!("optimistic")]
+        );
     }
 
     #[tokio::test]
