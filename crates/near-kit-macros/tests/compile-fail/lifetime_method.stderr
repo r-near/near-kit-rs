@@ -1,0 +1,13 @@
+error: #[near_kit::contract] does not support generic methods or lifetime parameters (use `impl Trait` or a concrete argument type)
+ --> tests/compile-fail/lifetime_method.rs:7:11
+  |
+7 |     fn get<'a>(&self, key: &'a str) -> u64;
+  |           ^^^^
+
+warning: unused import: `near_kit::*`
+ --> tests/compile-fail/lifetime_method.rs:3:5
+  |
+3 | use near_kit::*;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

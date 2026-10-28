@@ -1,0 +1,13 @@
+error: contract methods can't be `async`; the generated method returns a `View` or `Call` to `.await`, so remove `async`
+ --> tests/compile-fail/async_method.rs:7:5
+  |
+7 |     async fn get(&self) -> u64;
+  |     ^^^^^
+
+warning: unused import: `near_kit::*`
+ --> tests/compile-fail/async_method.rs:3:5
+  |
+3 | use near_kit::*;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

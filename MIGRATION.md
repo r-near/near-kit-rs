@@ -373,7 +373,9 @@ helpers, and `near-kit-sandbox`.
 | `near.contract::<Counter>(id).increment()` | `signing.contract::<Counter>(id).increment()`. `near.contract` gives a view-only client. |
 | A call method resolves to `FinalExecutionOutcome` | It resolves to the backend's output: `W::Response` for `SigningNear<W>` (`FinalExecutionOutcome` for the default `Final`) |
 | `#[call] fn m(&mut self) -> T` (return type ignored) | A compile error. Decode the outcome yourself. |
-| Contract methods named `contract_id` or `client` | A compile error. Rename them. |
+| Contract methods named `contract_id`, `client` or `clone` | A compile error. Rename them. |
+| An argument bound to `_` or a destructuring pattern (dropped: the method took no argument and sent `{}`), generic methods and lifetime parameters, `async fn` | A compile error. Name the argument (`args: Args`); use `impl Trait` or a concrete type; drop `async`. |
+| `#[cfg]` / `#[cfg_attr]` on a contract method (ignored) | Applied to the generated client method and `FunctionCall` constructor. |
 | `fn r#type(&self)` called the contract method `r#type` | It calls `type`: a raw identifier names the method without its `r#` prefix. |
 | `near_kit::{call, json, borsh}` attribute re-exports and the standalone `near_kit_macros::{call, json, borsh}` | Removed. `#[contract]` reads the markers itself and they need no import. |
 
