@@ -3,7 +3,7 @@
 //! Note: We use types that implement BorshSerialize/BorshDeserialize from near_kit's
 //! re-exports to avoid needing a direct borsh dependency in the test.
 
-use near_kit::transaction::{Call, View};
+use near_kit::{Call, View};
 use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::*;
 

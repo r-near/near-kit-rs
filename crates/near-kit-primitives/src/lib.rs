@@ -22,7 +22,7 @@
 //! | crate root | [`AccountId`], [`NearToken`], [`Gas`], [`CryptoHash`], the chain verbs [`Viewer`] and [`TxSender`], [`account!`], the platform bounds [`MaybeSend`] / [`MaybeSync`] |
 //! | [`protocol`] | Actions, transactions, delegate actions, execution errors |
 //! | [`signer`] | Keys, signatures, [`signer::Signer`], [`signer::InMemorySigner`], [`signer::RotatingSigner`] |
-//! | [`transaction`] | [`transaction::FunctionCall`], the awaitable [`transaction::View`] / [`transaction::Call`], and the typed wait levels |
+//! | [`transaction`] | [`transaction::FunctionCall`], the awaitable [`View`] / [`Call`], and the typed wait levels |
 //! | [`rpc`] | JSON-RPC response views, [`rpc::BlockReference`], [`rpc::Finality`] |
 //! | [`standards`] | NEP-413 message signing and verification |
 //!
@@ -76,9 +76,9 @@ pub mod signer;
 pub mod standards;
 pub mod transaction;
 
-pub use backend::{Contract, TxSender, Viewer};
+pub use backend::{Call, Contract, ContractError, TxSender, View, Viewer};
 pub use platform::{MaybeSend, MaybeSync};
-pub use types::{AccountId, CryptoHash, Gas, NearToken};
+pub use types::{AccountId, AccountIdRef, CryptoHash, Gas, NearToken};
 
 /// An [`AccountId`] from a string literal, checked at compile time.
 ///
@@ -101,7 +101,7 @@ pub use types::{AccountId, CryptoHash, Gas, NearToken};
 #[macro_export]
 macro_rules! account {
     ($account_id:literal) => {
-        $crate::AccountId::from(const { $crate::protocol::AccountIdRef::new_or_panic($account_id) })
+        $crate::AccountId::from(const { $crate::AccountIdRef::new_or_panic($account_id) })
     };
 }
 

@@ -1,8 +1,9 @@
 //! RPC error shapes that are observable only against a real node.
 
+use near_kit::ContractError;
 use near_kit::protocol::Action;
 use near_kit::rpc::{BlockReference, RpcError};
-use near_kit::transaction::{ContractError, Final};
+use near_kit::transaction::Final;
 use near_kit::{AccountId, CryptoHash, Error, NearToken};
 use near_kit_sandbox::SANDBOX_ROOT_ACCOUNT;
 

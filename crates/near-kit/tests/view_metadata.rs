@@ -3,7 +3,8 @@
 use std::sync::{Arc, Mutex};
 
 use near_kit::rpc::{BoxFuture, RpcError, RpcTransport, TransportResponse, ViewFunctionResult};
-use near_kit::transaction::{CodecError, ContractError, View};
+use near_kit::transaction::CodecError;
+use near_kit::{ContractError, View};
 use near_kit::{CryptoHash, Error, Near, account};
 use serde_json::{Value, json};
 

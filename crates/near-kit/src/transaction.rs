@@ -1,9 +1,10 @@
-//! Transactions, contract calls and views, and typed execution wait levels.
+//! Transactions, function calls, and typed execution wait levels.
 //!
-//! The standalone items ([`FunctionCall`], the awaitable [`View`] and
-//! [`Call`] returned by `#[contract]` clients, and the wait levels) are
+//! The standalone items ([`FunctionCall`] and the wait levels) are
 //! re-exported from `near-kit-primitives`; [`Tx`] and the pre-signed
-//! submission need the `rpc` feature.
+//! submission need the `rpc` feature. The awaitable [`View`](crate::View)
+//! and [`Call`](crate::Call) returned by `#[contract]` clients are at the
+//! crate root.
 //!
 //! # Wait levels
 //!
@@ -41,7 +42,7 @@
 //! ```
 
 #[doc(inline)]
-pub use near_kit_primitives::transaction::{Call, CodecError, ContractError, FunctionCall, View};
+pub use near_kit_primitives::transaction::{CodecError, FunctionCall};
 
 #[doc(inline)]
 pub use near_kit_primitives::transaction::{

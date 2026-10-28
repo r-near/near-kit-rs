@@ -65,10 +65,11 @@ use crate::types::{
 // The client-free error types live in near-kit-primitives (each is public in
 // near-kit through the facade modules). They are imported here so the
 // `From` impls below, and `crate::error::*` paths elsewhere, keep working.
+pub(crate) use near_kit_primitives::ContractError;
 pub(crate) use near_kit_primitives::protocol::{DecodeTransactionError, ParseAccountIdError};
 pub(crate) use near_kit_primitives::rpc::OutcomeError;
 pub(crate) use near_kit_primitives::signer::{ParseKeyError, SignerError};
-pub(crate) use near_kit_primitives::transaction::{CodecError, ContractError};
+pub(crate) use near_kit_primitives::transaction::CodecError;
 
 /// Error during keystore operations.
 #[derive(Debug, Error)]

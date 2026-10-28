@@ -7,7 +7,7 @@ use crate::error::RpcError;
 use crate::platform::MaybeSend;
 use serde::de::DeserializeOwned;
 
-use crate::transaction::View;
+use crate::View;
 use crate::types::{AccountId, BlockReference, ChainId, ViewFunctionResult};
 
 use super::query::{AccountExistsQuery, BalanceQuery, TransactionStatusQuery};
@@ -192,7 +192,7 @@ impl Near {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # use near_kit::transaction::View;
+    /// # use near_kit::View;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
     ///
@@ -308,8 +308,8 @@ impl Near {
     ///
     /// `T` is the marker type `#[near_kit::contract]` generates for a trait;
     /// the result is its generated `<Name>Client<Near>`. View methods return
-    /// a [`View`](crate::transaction::View) and `#[call]` methods a
-    /// [`Call`](crate::transaction::Call); both are `.await`ed directly.
+    /// a [`View`](crate::View) and `#[call]` methods a
+    /// [`Call`](crate::Call); both are `.await`ed directly.
     ///
     /// A `Near`-backed client can only view; for `#[call]` methods, use
     /// [`SigningNear::contract`](crate::SigningNear::contract).

@@ -1,7 +1,7 @@
 //! Test that a contract's own types can use names a generated generic might,
 //! such as `C`.
 
-use near_kit::transaction::{Call, View};
+use near_kit::{Call, View};
 use near_kit::*;
 
 #[derive(serde::Serialize, serde::Deserialize)]

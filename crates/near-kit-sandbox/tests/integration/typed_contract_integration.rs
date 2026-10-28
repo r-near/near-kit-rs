@@ -1,7 +1,8 @@
 //! Typed-contract macro behavior that crosses the RPC and runtime boundary.
 
+use near_kit::ContractError;
 use near_kit::protocol::Action;
-use near_kit::transaction::{CodecError, ContractError, Final};
+use near_kit::transaction::{CodecError, Final};
 use near_kit::{AccountId, Gas, Near, NearToken, SigningNear};
 use near_kit_sandbox::Sandbox;
 use serde::{Deserialize, Serialize};

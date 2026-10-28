@@ -64,7 +64,8 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 
-use near_kit::protocol::{AccountIdRef, ChainId};
+use near_kit::AccountIdRef;
+use near_kit::protocol::ChainId;
 use near_kit::rpc::RpcError;
 use near_kit::signer::{InMemorySigner, ParseKeyError, Signer};
 use near_kit::{AccountId, Error, Near, NearToken, SigningNear};

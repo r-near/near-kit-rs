@@ -158,7 +158,7 @@ pub enum SignerError {
 /// [`FunctionCall`](crate::transaction::FunctionCall) keeps the first
 /// argument-encoding failure and returns it when the call is converted into
 /// an action. Contract clients also return it, inside
-/// [`ContractError::Codec`](crate::transaction::ContractError::Codec), when
+/// [`ContractError::Codec`](crate::ContractError::Codec), when
 /// a view result fails to decode. Converts into `near_kit::Error` with `?`
 /// (`Error::Json` / `Error::Borsh`).
 #[derive(Debug, Error)]
