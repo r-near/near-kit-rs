@@ -460,6 +460,7 @@ These had no producer or only an internal use, and are gone:
 | `Error::DelegateDecode` | Removed: nothing returned it. `SignedDelegateAction::from_base64` returns `DecodeDelegateError` itself. |
 | `Error::is_invalid_tx()` | `matches!(e, Error::InvalidTx(_))` |
 | `From<Infallible> for Error` | Removed |
+| `KeyStoreError::{Io, Json, PathError}` | Removed: nothing returned them |
 | `RpcError::network(..)`, `RpcError::invalid_transaction(..)` | Crate-private. Build the variant (`RpcError::Network { .. }`) in a custom transport. |
 | `RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`, `DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE` | Crate-private (10,000 and 100) |
 

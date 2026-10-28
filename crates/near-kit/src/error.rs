@@ -77,20 +77,11 @@ pub enum KeyStoreError {
     #[error("Key not found for account: {0}")]
     KeyNotFound(AccountId),
 
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
-
     #[error("Invalid credential format: {0}")]
     InvalidFormat(String),
 
     #[error("Invalid key: {0}")]
     InvalidKey(#[from] ParseKeyError),
-
-    #[error("Path error: {0}")]
-    PathError(String),
 
     #[error("Platform keyring error: {0}")]
     Platform(String),
@@ -895,10 +886,6 @@ mod tests {
         assert_eq!(
             KeyStoreError::InvalidFormat("missing field".to_string()).to_string(),
             "Invalid credential format: missing field"
-        );
-        assert_eq!(
-            KeyStoreError::PathError("bad path".to_string()).to_string(),
-            "Path error: bad path"
         );
         assert_eq!(
             KeyStoreError::Platform("keyring locked".to_string()).to_string(),
