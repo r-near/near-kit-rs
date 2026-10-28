@@ -45,7 +45,8 @@ async fn main() -> Result<(), Error> {
         .add_action(Action::transfer(NearToken::from_millinear(100)))
         .await?;
 
-    // `Err` means the transaction didn't run. A failed action is `Ok(outcome)`.
+    // A failed action is `Ok(outcome)`; `Err` means it didn't run, or that
+    // near-kit couldn't tell whether it did (a timeout).
     if outcome.is_failure() {
         println!("transfer failed: {:?}", outcome.failure_message());
     }

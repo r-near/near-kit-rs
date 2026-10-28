@@ -52,7 +52,8 @@
 //!         .add_action(Action::transfer(NearToken::from_millinear(100)))
 //!         .await?;
 //!
-//!     // `Err` means the transaction didn't run. A failed action is `Ok(outcome)`.
+//!     // A failed action is `Ok(outcome)`; `Err` means it didn't run, or that
+//!     // near-kit couldn't tell whether it did (a timeout).
 //!     if outcome.is_failure() {
 //!         println!("transfer failed: {:?}", outcome.failure_message());
 //!     }
@@ -119,9 +120,13 @@
 //! - `Ok(outcome)`: it executed. An action can still have failed (a contract
 //!   panic, a missing account): check [`outcome.is_failure()`](rpc::FinalExecutionOutcome::is_failure),
 //!   and read the return value with `outcome.result()` or `outcome.json()`.
-//! - `Err(..)`: it didn't execute. [`Error::InvalidTx`] is a rejection by the
-//!   node (bad nonce, not enough balance), [`Error::Validation`] a local check
-//!   that failed before signing, and [`Error::Rpc`] a transport or RPC failure.
+//! - `Err(..)`: it didn't run, or near-kit couldn't find out whether it did.
+//!   [`Error::InvalidTx`] is a rejection by the node (bad nonce, not enough
+//!   balance) and [`Error::Validation`] a local check that failed before
+//!   signing: nothing ran. [`Error::Rpc`] is a transport or RPC failure;
+//!   after a timeout or a dropped connection the transaction may still run,
+//!   so look it up by hash with `Near::tx_status` before signing a
+//!   replacement.
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]

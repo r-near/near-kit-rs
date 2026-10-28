@@ -329,7 +329,8 @@ alice
 ```
 
 A failed action is still `Ok(outcome)` with `outcome.is_failure()`; `Err`
-means the transaction didn't execute. `FinalExecutionOutcome` is now
+means the transaction didn't run, or (after a timeout or a dropped
+connection) that near-kit couldn't find out whether it did. `FinalExecutionOutcome` is now
 `#[must_use]`, so a send whose outcome is dropped (`.await?;`) warns: check
 `is_failure()` or `receipt_failures()`, or call `.result()?` to turn a failed
 action into an `Err`.
