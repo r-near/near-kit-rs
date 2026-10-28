@@ -74,9 +74,13 @@ impl Near {
 
     /// Create a builder with a custom RPC URL and chain ID.
     ///
-    /// Signing clients share cached nonces per chain ID, account and key,
-    /// whatever their RPC URLs, so give every client for one network the same
-    /// chain ID, and distinct networks distinct ones.
+    /// Signing clients cache nonces per chain, account and key, and tell
+    /// chains apart by the genesis hash their node reports: each client asks
+    /// for it (`status`) before the first nonce it draws, and keeps it. So
+    /// clients for one network share a sequence whatever their RPC URLs or
+    /// chain IDs, and two networks with one chain ID (two local sandboxes)
+    /// don't. While a node doesn't answer `status`, its nonces are cached by
+    /// chain ID instead, so still pass the network's real chain ID.
     ///
     /// # Example
     ///
