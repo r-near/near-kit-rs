@@ -1,7 +1,8 @@
 //! `0u` universal accounts (nearcore 2.14). If the node enables
-//! `universal_accounts`, a transfer creates an uninitialized account and a
-//! state init sets it up; otherwise (protocol 87+) the transfer is rejected
-//! with `TransferToUniversalAccountNotAllowed`.
+//! `universal_accounts` (protocol 88+), a transfer creates an uninitialized
+//! account and a state init sets it up; at protocol 87, before universal
+//! accounts, the transfer is rejected with
+//! `TransferToUniversalAccountNotAllowed`.
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
@@ -16,9 +17,13 @@ use super::support::shared_client;
 /// A valid `0u` universal account id (its state init is never applied here).
 const UNIVERSAL_ACCOUNT_ID: &str = "0u000g40r40m30e209185gr38e1w8124gk2gahc5rr34d1p70x3rfg";
 
-/// Protocol version that introduced universal accounts and the transfer ban
-/// (nearcore 2.14).
-const UNIVERSAL_ACCOUNTS_PROTOCOL_VERSION: u32 = 87;
+/// Protocol version that rejects transfers to `0u` accounts until universal
+/// accounts arrive (nearcore 2.14).
+const TRANSFER_BAN_PROTOCOL_VERSION: u32 = 87;
+
+/// Protocol version that enables universal accounts and lifts the transfer
+/// ban (nearcore 2.14).
+const UNIVERSAL_ACCOUNTS_PROTOCOL_VERSION: u32 = 88;
 
 /// nearcore's `AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER`: a bootstrap nonce
 /// is `(block_height - 1) * 1_000_000`, like a new access key's nonce.
@@ -190,6 +195,13 @@ async fn test_transfer_to_universal_account() {
     let amount = NearToken::from_near(1);
 
     if universal_accounts_enabled(&root_near).await {
+        assert!(
+            status.protocol_version >= UNIVERSAL_ACCOUNTS_PROTOCOL_VERSION,
+            "universal accounts are enabled at protocol v{}, before \
+             v{UNIVERSAL_ACCOUNTS_PROTOCOL_VERSION}",
+            status.protocol_version,
+        );
+
         // The id doesn't exist until the transfer funds it.
         let missing = root_near
             .near()
@@ -239,9 +251,11 @@ async fn test_transfer_to_universal_account() {
         );
     } else {
         assert!(
-            status.protocol_version >= UNIVERSAL_ACCOUNTS_PROTOCOL_VERSION,
+            (TRANSFER_BAN_PROTOCOL_VERSION..UNIVERSAL_ACCOUNTS_PROTOCOL_VERSION)
+                .contains(&status.protocol_version),
             "sandbox runs protocol v{} without universal accounts; a 0u transfer is only \
-             meaningful from v{UNIVERSAL_ACCOUNTS_PROTOCOL_VERSION} (nearcore 2.14)",
+             rejected at v{TRANSFER_BAN_PROTOCOL_VERSION}, before universal accounts \
+             arrive at v{UNIVERSAL_ACCOUNTS_PROTOCOL_VERSION} (nearcore 2.14)",
             status.protocol_version,
         );
 
