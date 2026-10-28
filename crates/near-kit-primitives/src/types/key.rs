@@ -1035,20 +1035,29 @@ impl TryFrom<&str> for SecretKey {
     }
 }
 
-/// Formats the key as `<key-type>:<base58 payload>`, where the payload is
-/// [`SecretKey::as_bytes`].
+/// Formats the key as `<key-type>:<base58 payload>`.
 ///
-/// For ML-DSA-65 the payload is always the 32-byte seed. nearcore's
-/// `near-crypto` expects the 4032-byte expanded encoding instead; obtain those
-/// raw bytes with [`SecretKey::to_ml_dsa65_expanded_bytes`] when exporting.
+/// - Ed25519: the 64-byte `seed || public key` keypair, the form nearcore's
+///   `near-crypto`, near-cli-rs and neard key files read. (Parsing also
+///   accepts the bare 32-byte seed; [`SecretKey::as_bytes`] returns the seed.)
+/// - Secp256k1: the 32-byte secret scalar.
+/// - ML-DSA-65: [`SecretKey::as_bytes`], the 32-byte seed. nearcore's
+///   `near-crypto` expects the 4032-byte expanded encoding instead; obtain those
+///   raw bytes with [`SecretKey::to_ml_dsa65_expanded_bytes`] when exporting.
 impl Display for SecretKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}:{}",
-            self.key_type().as_str(),
-            bs58::encode(self.as_bytes()).into_string()
-        )
+        let payload = match &self.0 {
+            SecretKeyRepr::Ed25519(seed) => {
+                let mut keypair = [0u8; 64];
+                keypair[..32].copy_from_slice(seed);
+                keypair[32..].copy_from_slice(self.public_key().as_bytes());
+                bs58::encode(keypair).into_string()
+            }
+            SecretKeyRepr::Secp256k1(_) | SecretKeyRepr::MlDsa65(_) => {
+                bs58::encode(self.as_bytes()).into_string()
+            }
+        };
+        write!(f, "{}:{}", self.key_type().as_str(), payload)
     }
 }
 
@@ -1434,9 +1443,48 @@ mod tests {
         let parsed: SecretKey = expanded_str.parse().unwrap();
         assert_eq!(parsed.public_key(), public);
 
-        // Re-serializing yields the 32-byte seed form
+        // Re-serializing yields the same 64-byte form
         let reserialized = parsed.to_string();
-        assert_eq!(reserialized, secret.to_string());
+        assert_eq!(reserialized, expanded_str);
+        assert_eq!(secret.to_string(), expanded_str);
+    }
+
+    /// nearcore's `near-crypto` (and so near-cli-rs and neard key files) only
+    /// reads the 64-byte `seed || public key` form. The expected strings are
+    /// `near_crypto::SecretKey::ED25519(..).to_string()` (near-crypto 0.38.0)
+    /// for the same seeds.
+    #[test]
+    fn test_ed25519_secret_key_display_matches_near_crypto() {
+        let vectors = [
+            (
+                [7u8; 32],
+                "ed25519:99eUso3aSbE9tqGSTXzo3TLfKb9RkMTURrHKQ1K7Zh3StnzFNUx8FKCPPPPpR479qsw5zv2WNBKmgiz7WqgAJfM",
+                "ed25519:GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB",
+            ),
+            (
+                [1u8; 32],
+                "ed25519:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6iuCXagjUCKEQF21awZnUGxmwD4m9vGXuC3qieHXJQHAcT",
+                "ed25519:AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+            ),
+        ];
+        for (seed, expected, public) in vectors {
+            let secret = SecretKey::ed25519_from_bytes(seed);
+            assert_eq!(secret.public_key().to_string(), public);
+            assert_eq!(secret.to_string(), expected);
+            assert_eq!(
+                serde_json::to_value(&secret).unwrap(),
+                serde_json::Value::String(expected.to_string())
+            );
+            // `as_bytes` stays the 32-byte seed.
+            assert_eq!(secret.as_bytes(), seed.as_slice());
+
+            // Both forms still parse to the same key.
+            let from_64: SecretKey = expected.parse().unwrap();
+            let seed_only = format!("ed25519:{}", bs58::encode(seed).into_string());
+            let from_32: SecretKey = seed_only.parse().unwrap();
+            assert_eq!(from_64.as_bytes(), seed.as_slice());
+            assert_eq!(from_32.to_string(), expected);
+        }
     }
 
     // ========================================================================

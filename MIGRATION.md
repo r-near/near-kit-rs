@@ -115,6 +115,15 @@ let me = Near::testnet()
 let balance = me.near().balance(me.account_id()).await?;
 ```
 
+### Secret key strings
+
+An Ed25519 `SecretKey` now prints (`to_string()`, `Display`, serde) as the
+64-byte `ed25519:<base58(seed ‖ public key)>` form that nearcore,
+near-cli-rs and neard key files read; 0.20 printed the 32-byte seed, which
+they reject. Both forms still parse, and `as_bytes()` still returns the
+32-byte seed. Code that compares a key's string or JSON against a stored
+32-byte form needs updating. Secp256k1 and ML-DSA-65 output is unchanged.
+
 ## Transactions
 
 | 0.20 | 0.21 |
