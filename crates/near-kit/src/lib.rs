@@ -290,7 +290,7 @@
 
 // Compiles the README's code blocks as doctests.
 #[cfg(all(doctest, feature = "rpc"))]
-#[doc = include_str!("../../../README.md")]
+#[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
 
 // Lets `#[near_kit::contract]` expansions name `::near_kit` even inside this
