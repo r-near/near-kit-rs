@@ -498,9 +498,10 @@ impl RpcClient {
         method: &str,
         params: P,
     ) -> Result<R, RpcError> {
-        let total_attempts = self.retry_config.max_retries + 1;
+        let max_retries = self.retry_config.max_retries;
+        let mut retry: u32 = 0;
 
-        for attempt in 0..total_attempts {
+        loop {
             let request_id = self.request_id.fetch_add(1, Ordering::Relaxed);
 
             let request = JsonRpcRequest {
@@ -512,26 +513,20 @@ impl RpcClient {
 
             match self.try_request::<R>(&request).await {
                 Ok(result) => return Ok(result),
-                Err(e)
-                    if is_idempotent(method)
-                        && e.is_retryable()
-                        && attempt < total_attempts - 1 =>
-                {
-                    let delay = std::cmp::min(
-                        self.retry_config.initial_delay_ms * 2u64.pow(attempt),
-                        self.retry_config.max_delay_ms,
-                    );
+                Err(e) if is_idempotent(method) && e.is_retryable() && retry < max_retries => {
+                    let delay = retry_delay_ms(&self.retry_config, retry);
                     // DEBUG, not WARN: the retry is routine and the caller
                     // sees the final outcome either way. Retryable variants
                     // are never enriched downstream, so `Display` is accurate.
                     trace::debug!(
-                        attempt = attempt + 1,
-                        max_attempts = total_attempts,
+                        attempt = u64::from(retry) + 1,
+                        max_attempts = u64::from(max_retries) + 1,
                         delay_ms = delay,
                         error = %e,
                         "RPC request failed, retrying"
                     );
                     async_sleep(Duration::from_millis(delay)).await;
+                    retry += 1;
                     continue;
                 }
                 Err(e) => {
@@ -545,8 +540,6 @@ impl RpcClient {
                 }
             }
         }
-
-        unreachable!("all loop iterations return")
     }
 
     /// Single attempt to make an RPC call.
@@ -1598,6 +1591,17 @@ fn sanitize_url(url: &str) -> &str {
     &url[..end]
 }
 
+/// Delay before retry number `retry` (0-based): `initial_delay_ms` doubled
+/// `retry` times, capped at `max_delay_ms`. Saturates instead of overflowing,
+/// so any `RetryConfig` is safe.
+fn retry_delay_ms(config: &RetryConfig, retry: u32) -> u64 {
+    let factor = 1u64.checked_shl(retry).unwrap_or(u64::MAX);
+    config
+        .initial_delay_ms
+        .saturating_mul(factor)
+        .min(config.max_delay_ms)
+}
+
 /// Whether `method` is safe to send again when the node may already have
 /// handled the first attempt (a dropped connection, a timeout, a 5xx).
 ///
@@ -2052,6 +2056,91 @@ mod tests {
 
         assert!(err.is_retryable(), "503 is retryable in principle: {err:?}");
         assert_eq!(transport.calls(), 1);
+    }
+
+    #[test]
+    fn test_retry_delay_saturates_at_the_cap() {
+        let config = RetryConfig::default(); // 500 ms doubling, 5 s cap
+        let delays: Vec<u64> = [0, 1, 2, 3, 4, 55, 56, 57, 62, 63, 64, 65, u32::MAX - 1]
+            .into_iter()
+            .map(|retry| retry_delay_ms(&config, retry))
+            .collect();
+        assert_eq!(
+            delays,
+            [
+                500, 1000, 2000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000
+            ]
+        );
+
+        let uncapped = RetryConfig {
+            max_retries: u32::MAX,
+            initial_delay_ms: 3,
+            max_delay_ms: u64::MAX,
+        };
+        assert_eq!(retry_delay_ms(&uncapped, 62), 3 << 62);
+        assert_eq!(retry_delay_ms(&uncapped, 63), u64::MAX);
+        assert_eq!(retry_delay_ms(&uncapped, u32::MAX - 1), u64::MAX);
+        let zero = RetryConfig {
+            initial_delay_ms: 0,
+            ..uncapped
+        };
+        assert_eq!(retry_delay_ms(&zero, 100), 0);
+    }
+
+    #[tokio::test]
+    async fn test_retry_forever_config_succeeds() {
+        // `u32::MAX` ("retry forever") on a call that succeeds at once.
+        let transport =
+            CountingTransport::new(200, r#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#);
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            RetryConfig {
+                max_retries: u32::MAX,
+                ..RetryConfig::default()
+            },
+        );
+
+        let result = client
+            .request::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
+            .await
+            .unwrap();
+
+        assert_eq!(result, serde_json::json!({ "ok": true }));
+        assert_eq!(transport.calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_long_retry_runs_return_the_last_error() {
+        // Past 64 retries the doubling factor no longer fits in a u64; the
+        // backoff must stay at the cap and the last error must come back.
+        let transport = CountingTransport::new(503, "service unavailable");
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            RetryConfig {
+                max_retries: 66,
+                initial_delay_ms: 1,
+                max_delay_ms: 1,
+            },
+        );
+
+        let err = client
+            .request::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                RpcError::Network {
+                    status_code: Some(503),
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+        assert_eq!(transport.calls(), 67, "1 attempt + 66 retries");
     }
 
     // ========================================================================
