@@ -26,7 +26,9 @@ async fn test_secp256k1_signed_transfer_and_delegate_accepted_on_chain() {
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(secp_key.public_key()))
         .await
-        .expect("create account with secp256k1 key");
+        .expect("create account with secp256k1 key")
+        .result()
+        .unwrap();
 
     let recipient_id = unique_account("secprecv");
     root_near
@@ -38,6 +40,8 @@ async fn test_secp256k1_signed_transfer_and_delegate_accepted_on_chain() {
             SecretKey::generate_ed25519().public_key(),
         ))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     let sender_near = sandbox
@@ -52,7 +56,9 @@ async fn test_secp256k1_signed_transfer_and_delegate_accepted_on_chain() {
         .transaction(&recipient_id)
         .add_action(Action::transfer(NearToken::from_near(2)))
         .await
-        .expect("secp256k1-signed transfer must be accepted on-chain");
+        .expect("secp256k1-signed transfer must be accepted on-chain")
+        .result()
+        .unwrap();
     let after = root_near.near().balance(&recipient_id).await.unwrap().total;
     assert_eq!(after, before.saturating_add(NearToken::from_near(2)));
 

@@ -107,7 +107,9 @@ async fn test_universal_account_bootstraps_itself() {
         .transaction(&account_id)
         .add_action(Action::transfer(NearToken::from_near(1)))
         .await
-        .expect("fund the 0u id");
+        .expect("fund the 0u id")
+        .result()
+        .unwrap();
 
     // Plain `send`: the nonce comes from `bootstrap_nonce`, since the key is
     // not on chain until the state init applies.

@@ -40,6 +40,8 @@ async fn test_delegate_action_transfer() {
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(sender_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Create relayer account (who will submit the transaction and pay gas)
@@ -53,6 +55,8 @@ async fn test_delegate_action_transfer() {
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(relayer_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Create recipient account
@@ -66,6 +70,8 @@ async fn test_delegate_action_transfer() {
         .add_action(Action::transfer(NearToken::from_near(1)))
         .add_action(Action::add_full_access_key(recipient_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     println!(
@@ -160,6 +166,8 @@ async fn test_delegate_action_function_call() {
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(sender_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Create relayer account
@@ -173,6 +181,8 @@ async fn test_delegate_action_function_call() {
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(relayer_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Create contract account and deploy a simple contract
@@ -190,6 +200,8 @@ async fn test_delegate_action_function_call() {
         .add_action(Action::add_full_access_key(contract_key.public_key()))
         .add_action(Action::deploy_contract(wasm_code))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     println!(

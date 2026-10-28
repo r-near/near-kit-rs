@@ -49,7 +49,9 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
         .add_action(Action::transfer(NearToken::from_near(20)))
         .add_action(Action::add_full_access_key(public_key.clone()))
         .await
-        .expect("create_account with ML-DSA-65 key must be accepted");
+        .expect("create_account with ML-DSA-65 key must be accepted")
+        .result()
+        .unwrap();
 
     // The view RPC returns the key as an `ml-dsa-65-hash:` handle.
     let keys = near
@@ -83,6 +85,8 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
         .add_action(Action::transfer(NearToken::from_near(1)))
         .add_action(Action::add_full_access_key(recipient_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     let signed = sandbox
@@ -97,7 +101,9 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
         .transaction(&recipient)
         .add_action(Action::transfer(NearToken::from_near(5)))
         .await
-        .expect("ML-DSA-65-signed transfer must be accepted on-chain");
+        .expect("ML-DSA-65-signed transfer must be accepted on-chain")
+        .result()
+        .unwrap();
 
     let after = near.near().balance(&recipient).await.unwrap().total;
     assert_eq!(

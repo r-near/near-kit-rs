@@ -19,7 +19,9 @@ async fn set_balance_preserves_other_account_fields() {
         .transaction(account.account_id())
         .add_action(Action::deploy_contract(guestbook_wasm()))
         .await
-        .expect("guestbook deployment");
+        .expect("guestbook deployment")
+        .result()
+        .unwrap();
 
     let original = root
         .near()

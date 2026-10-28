@@ -186,6 +186,8 @@ async fn test_send_transaction_span_hierarchy() {
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(account_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Verify send_transaction span was created
@@ -305,6 +307,8 @@ async fn test_function_call_span_fields() {
         .add_action(Action::add_full_access_key(ft_key.public_key()))
         .add_action(Action::deploy_contract(fungible_token_wasm()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Clear setup spans — we only care about the function call
@@ -329,6 +333,8 @@ async fn test_function_call_span_fields() {
             }
         })))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Verify send_transaction span has function call fields
@@ -384,6 +390,8 @@ async fn test_ft_balance_of_span_hierarchy() {
         .add_action(Action::transfer(NearToken::from_near(50)))
         .add_action(Action::add_full_access_key(owner_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Deploy FT contract
@@ -397,6 +405,8 @@ async fn test_ft_balance_of_span_hierarchy() {
         .add_action(Action::add_full_access_key(ft_key.public_key()))
         .add_action(Action::deploy_contract(wasm))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     let ft_near = sandbox
@@ -418,6 +428,8 @@ async fn test_ft_balance_of_span_hierarchy() {
             }
         })))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Clear spans from setup, we only care about balance_of

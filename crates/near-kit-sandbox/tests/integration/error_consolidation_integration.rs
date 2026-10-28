@@ -56,7 +56,9 @@ async fn failed_contract_call_preserves_receipts() {
         .transaction(contract.account_id())
         .add_action(Action::deploy_contract(guestbook_wasm()))
         .await
-        .expect("guestbook deployment");
+        .expect("guestbook deployment")
+        .result()
+        .unwrap();
 
     let outcome = contract
         .transaction(&contract_id)

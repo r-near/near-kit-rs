@@ -77,7 +77,9 @@ async fn missing_contract_method_returns_typed_error() {
         .transaction(contract.account_id())
         .add_action(Action::deploy_contract(guestbook_wasm()))
         .await
-        .expect("guestbook deployment");
+        .expect("guestbook deployment")
+        .result()
+        .unwrap();
 
     let error = root
         .near()

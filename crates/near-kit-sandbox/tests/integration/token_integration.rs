@@ -29,7 +29,8 @@ async fn deploy_ft_contract(
         .add_action(Action::transfer(NearToken::from_near(50)))
         .add_action(Action::add_full_access_key(ft_key.public_key()))
         .add_action(Action::deploy_contract(fungible_token_wasm()))
-        .await?;
+        .await?
+        .result()?;
 
     // Initialize the FT contract
     // The near-sdk-rs example FT uses "new" with owner_id, total_supply, metadata
@@ -53,7 +54,8 @@ async fn deploy_ft_contract(
                 }))
                 .gas(Gas::from_tgas(50)),
         )
-        .await?;
+        .await?
+        .result()?;
 
     Ok((ft_id, ft_key))
 }
@@ -73,6 +75,8 @@ async fn test_ft_metadata_and_cache() {
         .add_action(Action::transfer(NearToken::from_near(100)))
         .add_action(Action::add_full_access_key(owner_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Deploy FT contract
@@ -113,6 +117,8 @@ async fn test_ft_balance_and_supply() {
         .add_action(Action::transfer(NearToken::from_near(100)))
         .add_action(Action::add_full_access_key(owner_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Deploy FT contract
@@ -150,6 +156,8 @@ async fn test_ft_transfer() {
         .add_action(Action::transfer(NearToken::from_near(100)))
         .add_action(Action::add_full_access_key(owner_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Create receiver account - must be created by owner, not root
@@ -168,6 +176,8 @@ async fn test_ft_transfer() {
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(receiver_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Deploy FT contract
@@ -182,7 +192,11 @@ async fn test_ft_transfer() {
 
     // First, register receiver for storage
     let bounds = ft.storage_balance_bounds().await.unwrap();
-    ft.storage_deposit(&receiver_id, bounds.min).await.unwrap();
+    ft.storage_deposit(&receiver_id, bounds.min)
+        .await
+        .unwrap()
+        .result()
+        .unwrap();
 
     // Check receiver is registered
     assert!(ft.is_registered(&receiver_id).await.unwrap());
@@ -197,6 +211,8 @@ async fn test_ft_transfer() {
 
     ft.transfer(&receiver_id, transfer_amount, Some("Test transfer".into()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Check balances after
@@ -230,7 +246,8 @@ async fn deploy_nft_contract(
         .add_action(Action::transfer(NearToken::from_near(50)))
         .add_action(Action::add_full_access_key(nft_key.public_key()))
         .add_action(Action::deploy_contract(nft_wasm()))
-        .await?;
+        .await?
+        .result()?;
 
     // Initialize the NFT contract
     let nft_near = near
@@ -251,7 +268,8 @@ async fn deploy_nft_contract(
                 }))
                 .gas(Gas::from_tgas(50)),
         )
-        .await?;
+        .await?
+        .result()?;
 
     Ok((nft_id, nft_key))
 }
@@ -284,7 +302,8 @@ async fn mint_nft(
                 .gas(Gas::from_tgas(50))
                 .deposit(NearToken::from_millinear(10)),
         ) // Storage deposit for minting
-        .await?;
+        .await?
+        .result()?;
 
     Ok(())
 }
@@ -304,6 +323,8 @@ async fn test_nft_metadata() {
         .add_action(Action::transfer(NearToken::from_near(100)))
         .add_action(Action::add_full_access_key(owner_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Deploy NFT contract
@@ -335,6 +356,8 @@ async fn test_nft_token_query() {
         .add_action(Action::transfer(NearToken::from_near(100)))
         .add_action(Action::add_full_access_key(owner_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Deploy NFT contract
@@ -380,6 +403,8 @@ async fn test_nft_tokens_for_owner() {
         .add_action(Action::transfer(NearToken::from_near(100)))
         .add_action(Action::add_full_access_key(owner_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Deploy NFT contract
@@ -438,6 +463,8 @@ async fn test_nft_transfer() {
         .add_action(Action::transfer(NearToken::from_near(100)))
         .add_action(Action::add_full_access_key(owner_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Create owner's client for signing
@@ -457,6 +484,8 @@ async fn test_nft_transfer() {
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(receiver_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Deploy NFT contract
@@ -479,6 +508,8 @@ async fn test_nft_transfer() {
     nft_with_signer
         .transfer(&receiver_id, "transfer-test", Some("Gift for you!".into()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Verify receiver now owns the token
@@ -503,6 +534,8 @@ async fn test_nft_total_supply() {
         .add_action(Action::transfer(NearToken::from_near(100)))
         .add_action(Action::add_full_access_key(owner_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Deploy NFT contract
@@ -549,6 +582,8 @@ async fn test_nft_supply_for_owner() {
         .add_action(Action::transfer(NearToken::from_near(100)))
         .add_action(Action::add_full_access_key(owner1_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Create owner1's client for signing
@@ -568,6 +603,8 @@ async fn test_nft_supply_for_owner() {
         .add_action(Action::transfer(NearToken::from_near(50)))
         .add_action(Action::add_full_access_key(owner2_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Deploy NFT contract

@@ -189,6 +189,8 @@ async fn test_call_nonexistent_method_deserializes_as_typed_error() {
     near.transaction(near.account_id())
         .add_action(Action::deploy_contract(wasm))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Call a method that doesn't exist

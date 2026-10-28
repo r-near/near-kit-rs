@@ -61,7 +61,9 @@ pub(crate) async fn funded_account(
         .add_action(Action::transfer(balance))
         .add_action(Action::add_full_access_key(secret_key.public_key()))
         .await
-        .expect("funded sandbox account must be created");
+        .expect("funded sandbox account must be created")
+        .result()
+        .unwrap();
 
     let client = client_for(sandbox, &account_id, &secret_key);
     (client, account_id, secret_key)
