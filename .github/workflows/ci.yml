@@ -145,5 +145,9 @@ jobs:
       - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features
       - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features --features mnemonic
       - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features --features contracts
+      # `#[contract]` expanded for wasm: the macro's test target, where the
+      # library checks above never invoke it
+      - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features --features contracts --test contract_macro
+      - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js,contracts --test contract_macro
       - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js
       - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js,mnemonic
