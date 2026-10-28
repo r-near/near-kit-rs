@@ -1005,7 +1005,8 @@ impl FinalExecutionOutcome {
     }
 
     /// Whether the transaction's top-level [`status`](Self::status) is a
-    /// failure: an action on the main chain of receipts failed.
+    /// failure: an action on the main chain of receipts failed, or the
+    /// transaction was rejected when its chunk was applied.
     ///
     /// Like [`is_success`](Self::is_success), this doesn't see receipts that
     /// fail off the main chain; see [`receipt_failures`](Self::receipt_failures).
