@@ -67,11 +67,11 @@ pub trait WaitLevel: sealed::Sealed + Send + Sync + 'static {
 
 /// Build a [`SendTxResponse`], carrying through any partial execution outcome.
 ///
-/// The outcome is present when the response comes from `EXPERIMENTAL_tx_status`
-/// (which returns `receipts_outcome`/`receipts` even at early wait levels) and
-/// absent when it comes from `send_tx` (which returns no outcome at these
-/// levels). The outcome is passed through as-is — not validated — so callers can
-/// inspect partial progress; final-status validation happens at executed levels.
+/// The outcome is present once the node has one (from `IncludedFinal`, and
+/// possibly at `Submitted` or `Included`; never when sending at `Submitted`),
+/// whether the response comes from `send_tx` or `EXPERIMENTAL_tx_status`. It is passed through as-is — not validated — so
+/// callers can inspect partial progress; final-status validation happens at
+/// executed levels.
 fn send_tx_response(response: RpcTransactionResponse, sender_id: &AccountId) -> SendTxResponse {
     SendTxResponse {
         transaction_hash: response.transaction_hash,

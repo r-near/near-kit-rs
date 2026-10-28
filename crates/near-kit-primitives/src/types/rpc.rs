@@ -793,20 +793,29 @@ pub enum FinalExecutionStatus {
 ///
 /// # The `outcome` field
 ///
-/// Whether a (partial) execution outcome is available depends on which RPC
-/// produced the response, not on the wait level alone:
+/// The node returns the transaction's execution outcome as soon as it has
+/// one, on both paths. By wait level:
+///
+/// - [`Submitted`](crate::transaction::Submitted): the node doesn't wait for
+///   the transaction, so a sent transaction gets no outcome; `tx_status`
+///   returns whatever outcome the node already has.
+/// - [`Included`](crate::transaction::Included): the node answers once the
+///   transaction is in a block, often before it has stored the outcome, so
+///   `outcome` may be [`None`].
+/// - [`IncludedFinal`](crate::transaction::IncludedFinal): the node reports
+///   this level from the outcome, so `outcome` is present.
+///
+/// What it carries depends on the RPC:
 ///
 /// - Via a sent transaction or `Near::send_signed` (the `send_tx` RPC): the
-///   node returns no execution outcome at these early levels, so `outcome` is
-///   [`None`].
-/// - Via `Near::tx_status` (the `EXPERIMENTAL_tx_status`
-///   RPC): the node returns the execution outcome as soon as it has one — its
-///   `receipts_outcome` (per-receipt status) and `receipts` (so a receiver_id
-///   can be mapped to a UI stage) — even at `Submitted`/`Included`. `outcome` is
-///   [`Some`] once that data exists. It is *partial* while the transaction is
-///   still running and *complete* once it has finished (e.g. when polling a tx
-///   that already settled). This is what lets a frontend poll `tx_status` at an
-///   early wait level to drive a progressive UI without blocking for finality.
+///   outcome has `receipts_outcome` (per-receipt status) but no `receipts`.
+/// - Via `Near::tx_status` (the `EXPERIMENTAL_tx_status` RPC): it also has
+///   `receipts`, so a receiver_id can be mapped to a UI stage.
+///
+/// The outcome is *partial* while the transaction is still running and
+/// *complete* once it has finished (e.g. when polling a tx that already
+/// settled). This is what lets a frontend poll `tx_status` at an early wait
+/// level to drive a progressive UI without blocking for finality.
 ///
 /// The outcome is exposed as-is (not validated); inspect
 /// [`FinalExecutionOutcome::status`] to see how far execution has progressed.
@@ -821,11 +830,13 @@ pub struct SendTxResponse {
     /// Execution outcome, when the RPC returned one.
     ///
     /// May be partial (while the transaction is still executing) or complete
-    /// (when polling a tx that has already finished). Populated (with
-    /// `receipts_outcome`/`receipts`) when this response comes from
-    /// `Near::tx_status` and the node already has
-    /// outcome data; [`None`] for the `send_tx` path at these early wait levels.
-    /// See the [type-level docs](SendTxResponse) for details.
+    /// (when polling a tx that has already finished). [`None`] for a
+    /// transaction sent at [`Submitted`](crate::transaction::Submitted), and
+    /// while the node has no outcome yet, which can happen at `Submitted` or
+    /// [`Included`](crate::transaction::Included); the node returns one from
+    /// [`IncludedFinal`](crate::transaction::IncludedFinal). `receipts` is
+    /// only filled in when this response comes from `Near::tx_status`. See the
+    /// [type-level docs](SendTxResponse) for details.
     pub outcome: Option<FinalExecutionOutcome>,
 }
 
@@ -846,8 +857,11 @@ pub struct ReceiptToTxResponse {
 /// response of its [`WaitLevel`](crate::transaction::WaitLevel)
 /// ([`FinalExecutionOutcome`] or [`SendTxResponse`]), built from this.
 ///
-/// `outcome` is `None` from `send_tx` until the transaction has executed.
-/// `EXPERIMENTAL_tx_status` can return a partial outcome at earlier levels.
+/// `outcome` is `None` until the node has the transaction's outcome: always
+/// when sending at `wait_until: NONE`, and possibly at `NONE` or `INCLUDED`
+/// otherwise; from `INCLUDED_FINAL` it is present, and partial until the
+/// transaction has executed. Only
+/// `EXPERIMENTAL_tx_status` fills in its `receipts`.
 ///
 /// Deserializing fails if the JSON carries an outcome that does not decode
 /// (or only some of its fields); `outcome` is `None` only when the JSON has
