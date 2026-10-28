@@ -187,8 +187,11 @@ fn views_and_calls_own_their_backend() {
     let backend = Backend::default();
     assert_eq!(run(backend.count().at(Finality::Optimistic)).unwrap(), 7);
 
-    // The futures are 'static, so they can be spawned.
-    fn assert_spawnable<F: std::future::Future + Send + 'static>(future: F) -> F {
+    // The futures are 'static, so they can be spawned (and `Send` wherever
+    // the platform's executor needs it).
+    fn assert_spawnable<F: std::future::Future + near_kit_primitives::MaybeSend + 'static>(
+        future: F,
+    ) -> F {
         future
     }
     let counter = Counter::client(backend.clone(), account!("c.near"));
