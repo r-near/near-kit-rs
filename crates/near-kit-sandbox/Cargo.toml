@@ -10,6 +10,11 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+# `integration-tests` only builds the Docker-backed test suite.
+[package.metadata.docs.rs]
+features = ["tracing"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 libc = "0.2"
 near-kit = { workspace = true, features = ["rpc"] }

@@ -10,6 +10,12 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+# An explicit list rather than all-features: `wasi-http` and `js` only do
+# anything on wasm targets, and `rpc` is already a default.
+[package.metadata.docs.rs]
+features = ["contracts", "file-signer", "keyring", "mnemonic", "tracing"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 # Protocol types, keys, signing, and offline transaction building. near-kit
 # re-exports all of it at the original `near_kit::` paths.
