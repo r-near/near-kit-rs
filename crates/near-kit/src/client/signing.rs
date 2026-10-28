@@ -92,9 +92,9 @@ impl SigningNear {
     ///   its private key (e.g. `"ed25519:..."`).
     /// - `NEAR_NETWORK` (optional): `"mainnet"`, `"testnet"`, or a custom RPC
     ///   URL. Defaults to `"testnet"`.
-    /// - `NEAR_CHAIN_ID` (optional): overrides the chain ID inferred from
-    ///   `NEAR_NETWORK`, including the `"mainnet"` and `"testnet"` presets.
-    ///   Typically only needed for custom networks.
+    /// - `NEAR_CHAIN_ID`: the chain ID. Required when `NEAR_NETWORK` is a
+    ///   URL; optional for `"mainnet"` and `"testnet"`, where it overrides the
+    ///   preset's chain ID.
     /// - `NEAR_MAX_NONCE_RETRIES` (optional): number of retries on
     ///   `InvalidNonce` errors. `0` means no retries. Defaults to `3`.
     ///
@@ -129,6 +129,8 @@ impl SigningNear {
     /// Returns an error if:
     /// - `NEAR_ACCOUNT_ID` or `NEAR_PRIVATE_KEY` is missing
     /// - `NEAR_ACCOUNT_ID` or `NEAR_PRIVATE_KEY` is invalid
+    /// - `NEAR_NETWORK` is a URL and `NEAR_CHAIN_ID` is not set
+    ///   ([`Error::Config`])
     /// - `NEAR_MAX_NONCE_RETRIES` is set but not a valid integer
     pub fn from_env() -> Result<SigningNear, Error> {
         let network = std::env::var("NEAR_NETWORK").ok();
@@ -139,9 +141,11 @@ impl SigningNear {
             Some("mainnet") => Near::mainnet(),
             Some("testnet") | None => Near::testnet(),
             Some(url) => {
-                let chain_id = chain_id_override
-                    .take()
-                    .unwrap_or_else(|| "custom".to_string());
+                let chain_id = chain_id_override.take().ok_or_else(|| {
+                    Error::Config(format!(
+                        "NEAR_NETWORK is the URL {url}, so NEAR_CHAIN_ID must be set"
+                    ))
+                })?;
                 Near::custom(url, chain_id)
             }
         };
@@ -560,16 +564,18 @@ mod tests {
             assert!(near.near().chain_id().is_mainnet());
         }
 
-        // Custom URL
+        // Custom URL without NEAR_CHAIN_ID: a config error, no "custom" default
         clear_env();
         set_credentials();
         unsafe {
             std::env::set_var("NEAR_NETWORK", "https://custom-rpc.example.com");
         }
         {
-            let near = SigningNear::from_env().unwrap();
-            assert_eq!(near.near().rpc().url(), "https://custom-rpc.example.com");
-            assert_eq!(near.near().chain_id().as_str(), "custom");
+            let err = SigningNear::from_env().expect_err("expected an error");
+            assert!(
+                matches!(&err, Error::Config(msg) if msg.contains("NEAR_CHAIN_ID")),
+                "{err:?}"
+            );
         }
 
         // Account without key

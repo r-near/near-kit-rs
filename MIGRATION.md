@@ -72,7 +72,7 @@ and `block` anything that converts into a `BlockReference`, like
 |---|---|
 | `Near::testnet().credentials(key, id)?.build()` | `Near::testnet().build().with_signer(InMemorySigner::new(id, key.parse()?))` |
 | `NearBuilder::signer(s)` | `near.with_signer(s)` after `build()` |
-| `Near::from_env()` | `SigningNear::from_env()`. It now fails unless both `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` are set; build a `Near` for read-only use. |
+| `Near::from_env()` | `SigningNear::from_env()`. It now fails unless both `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` are set; build a `Near` for read-only use. When `NEAR_NETWORK` is a URL it also needs `NEAR_CHAIN_ID` (the chain ID no longer defaults to `"custom"`). |
 | `near.with_signer(s) -> Near` | `near.with_signer(s) -> SigningNear` |
 | `near.account_id()` / `try_account_id()` | `signing.account_id()`. A `Near` has no account. |
 | `near.signer()` / `public_key()` | `signing.signer()` (an `&Arc<dyn Signer>`), `signing.signer().public_key()` |
