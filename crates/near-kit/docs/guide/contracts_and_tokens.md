@@ -135,7 +135,7 @@ alice
     .transaction(account!("guestbook.testnet"))
     .add_action(Guestbook::add_message(AddMessage { text: "one".into() }).gas(Gas::from_tgas(10)))
     .add_action(Guestbook::add_message(AddMessage { text: "two".into() }).gas(Gas::from_tgas(10)))
-    .await?;
+    .await?.result()?;
 # Ok(())
 # }
 ```
@@ -260,11 +260,11 @@ println!("{}.{:0width$} {}", raw / scale, raw % scale, meta.symbol, width = meta
 let bob = account!("bob.testnet");
 if !usdc.is_registered(&bob).await? {
     let bounds = usdc.storage_balance_bounds().await?;
-    usdc.storage_deposit(&bob, bounds.min).await?;
+    usdc.storage_deposit(&bob, bounds.min).await?.result()?;
 }
 
 // 2.5 tokens, with a memo.
-usdc.transfer(&bob, 25 * scale / 10, Some("invoice 42".into())).await?;
+usdc.transfer(&bob, 25 * scale / 10, Some("invoice 42".into())).await?.result()?;
 # Ok(())
 # }
 ```
@@ -304,7 +304,7 @@ for token in &owned {
 }
 
 if let Some(token) = nft.token("token-1").await? {
-    nft.transfer(account!("bob.testnet"), &token.token_id, None).await?;
+    nft.transfer(account!("bob.testnet"), &token.token_id, None).await?.result()?;
 }
 # Ok(())
 # }

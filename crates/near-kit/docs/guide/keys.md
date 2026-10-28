@@ -268,7 +268,7 @@ let fresh = InMemorySigner::implicit(key)?;
 alice
     .transaction(fresh.account_id())
     .add_action(Action::transfer(NearToken::from_near(1)))
-    .await?;
+    .await?.result()?;
 
 let fresh = alice.near().with_signer(fresh);
 # Ok(())

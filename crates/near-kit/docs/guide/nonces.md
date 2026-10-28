@@ -154,7 +154,7 @@ let mut add_keys = bot.transaction(bot.account_id());
 for key in &keys {
     add_keys = add_keys.add_action(Action::add_full_access_key(key.public_key()));
 }
-add_keys.await?;
+add_keys.await?.result()?;
 
 // A client for the same account that rotates through them.
 let rotating = bot.near().with_signer(RotatingSigner::new(bot.account_id(), keys)?);

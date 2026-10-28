@@ -154,7 +154,7 @@ let counter = account!("counter.testnet");
 alice
     .transaction(&counter)
     .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
-    .await?;
+    .await?.result()?;
 let count: u64 = alice.near().view(&counter, "get_count").await?; // includes the increment
 # Ok(())
 # }
@@ -176,7 +176,7 @@ alice
     .wait_until::<ExecutedOptimistic>()
     .transaction(&counter)
     .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
-    .await?;
+    .await?.result()?;
 let count: u64 = alice.near().view(&counter, "get_count").at(Finality::Optimistic).await?;
 # Ok(())
 # }

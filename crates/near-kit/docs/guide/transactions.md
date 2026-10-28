@@ -66,7 +66,7 @@ for text in &messages {
             .gas(Gas::from_tgas(10)),
     );
 }
-tx.await?;
+tx.await?.result()?;
 # Ok(())
 # }
 ```
@@ -116,7 +116,7 @@ alice
             .gas(Gas::from_tgas(100))
             .deposit(NearToken::from_near(2)),
     )
-    .await?;
+    .await?.result()?;
 # Ok(())
 # }
 ```
@@ -140,7 +140,7 @@ alice
     .transaction(&wrap)
     .add_action(FunctionCall::new("near_deposit").deposit(NearToken::from_near(1)))
     .add_action(FunctionCall::from(token.transfer(account!("bob.testnet"), 10_u128.pow(24), None)))
-    .await?;
+    .await?.result()?;
 # Ok(())
 # }
 ```
@@ -171,13 +171,13 @@ alice
         vec!["add_message".to_string()],
         Some(NearToken::from_millinear(250)),
     ))
-    .await?;
+    .await?.result()?;
 
 // Later: revoke it.
 alice
     .transaction(alice.account_id())
     .add_action(Action::delete_key(app_key.public_key()))
-    .await?;
+    .await?.result()?;
 # Ok(())
 # }
 ```
@@ -216,13 +216,13 @@ publisher
     .transaction(publisher.account_id())
     .add_action(Action::publish(wasm.clone(), PublishMode::Updatable))
     .add_action(Action::publish(wasm, PublishMode::Immutable))
-    .await?;
+    .await?.result()?;
 
 // Follows the publisher's updates:
 alice
     .transaction(alice.account_id())
     .add_action(Action::deploy_from(publisher.account_id().clone()))
-    .await?;
+    .await?.result()?;
 
 // Pinned to this exact code:
 alice
@@ -230,7 +230,7 @@ alice
     .add_action(Action::create_account())
     .add_action(Action::transfer(NearToken::from_near(1)))
     .add_action(Action::deploy_from(code_hash))
-    .await?;
+    .await?.result()?;
 
 // Read published code back.
 let code = alice.near().rpc().view_global_contract_code(code_hash, rpc::Finality::Final).await?;
@@ -259,7 +259,7 @@ let account_id = state_init.derive_account_id(); // "0s..."
 alice
     .transaction(&account_id)
     .add_action(Action::state_init(state_init, NearToken::from_millinear(100)))
-    .await?;
+    .await?.result()?;
 # Ok(())
 # }
 ```
@@ -286,7 +286,7 @@ let account_id = state_init.derive_account_id(); // "0u..."
 alice
     .transaction(&account_id)
     .add_action(Action::universal_state_init(state_init, NearToken::from_millinear(100)))
-    .await?;
+    .await?.result()?;
 # Ok(())
 # }
 ```
@@ -310,13 +310,13 @@ let account_id = state_init.derive_account_id();
 alice
     .transaction(&account_id)
     .add_action(Action::transfer(NearToken::from_near(1)))
-    .await?;
+    .await?.result()?;
 
 let universal = alice.near().with_signer(InMemorySigner::new(&account_id, key));
 universal
     .transaction(&account_id)
     .add_action(Action::universal_state_init(state_init, NearToken::ZERO))
-    .await?;
+    .await?.result()?;
 # Ok(())
 # }
 ```

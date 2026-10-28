@@ -31,7 +31,7 @@ let alice = near.with_signer(InMemorySigner::new(
 alice
     .transaction(account!("bob.testnet"))
     .add_action(Action::transfer(NearToken::from_near(1)))
-    .await?;
+    .await?.result()?;
 
 // A SigningNear reads through the Near it was made from.
 let balance = alice.near().balance(alice.account_id()).await?;
