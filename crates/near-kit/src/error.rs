@@ -720,10 +720,21 @@ pub enum Error {
     #[error("Invalid transaction: {0}")]
     InvalidTx(Box<InvalidTxError>),
 
-    /// Local pre-send validation failure (e.g. empty actions, bad
-    /// deserialization). Not a nearcore error.
+    /// Local pre-send validation failure (e.g. empty actions). Not a
+    /// nearcore error.
     #[error("Invalid transaction: {0}")]
     InvalidTransaction(String),
+
+    /// A transaction's outcome had no usable result: an action failed, it
+    /// hasn't finished with a return value, or the RPC response carried no
+    /// outcome. An outcome's `InvalidTx` and `Json` errors convert into
+    /// [`Error::InvalidTx`] and [`Error::Json`] instead.
+    #[error(transparent)]
+    Outcome(OutcomeError),
+
+    /// A signed transaction failed to decode from base64 or Borsh.
+    #[error(transparent)]
+    Decode(DecodeTransactionError),
 
     // ─── Signing ───
     #[error("Signing failed: {0}")]
@@ -788,7 +799,7 @@ impl<E: Into<Error> + std::fmt::Display> From<ContractError<E>> for Error {
 
 impl From<DecodeTransactionError> for Error {
     fn from(err: DecodeTransactionError) -> Self {
-        Error::InvalidTransaction(err.to_string())
+        Error::Decode(err)
     }
 }
 
@@ -797,7 +808,7 @@ impl From<OutcomeError> for Error {
         match err {
             OutcomeError::InvalidTx(e) => Error::InvalidTx(e),
             OutcomeError::Json(e) => Error::Json(e),
-            other => Error::InvalidTransaction(other.to_string()),
+            other => Error::Outcome(other),
         }
     }
 }
@@ -1457,8 +1468,7 @@ mod tests {
         assert!(matches!(err, Error::Signing(_)));
     }
 
-    // The layer errors convert into the variant (and message) the same
-    // failure produced before they existed, so `?` into `Error` is unchanged.
+    // How each layer error converts into `Error` with `?`.
 
     #[test]
     fn test_error_from_signer_construction_errors() {
@@ -1491,7 +1501,8 @@ mod tests {
             .unwrap_err()
             .into();
         assert!(
-            matches!(&err, Error::InvalidTransaction(m) if m.starts_with("Invalid base64: ")),
+            matches!(&err, Error::Decode(DecodeTransactionError::Base64(_)))
+                && err.to_string().starts_with("Invalid base64: "),
             "{err:?}"
         );
 
@@ -1499,7 +1510,10 @@ mod tests {
             .unwrap_err()
             .into();
         assert!(
-            matches!(&err, Error::InvalidTransaction(m) if m.starts_with("Failed to deserialize signed transaction: ")),
+            matches!(&err, Error::Decode(DecodeTransactionError::Borsh(_)))
+                && err
+                    .to_string()
+                    .starts_with("Failed to deserialize signed transaction: "),
             "{err:?}"
         );
     }
@@ -1515,7 +1529,8 @@ mod tests {
 
         let err: Error = OutcomeError::NotSuccess(Box::new(FinalExecutionStatus::Started)).into();
         assert!(
-            matches!(&err, Error::InvalidTransaction(m) if m == "Transaction status is Started, expected SuccessValue"),
+            matches!(&err, Error::Outcome(OutcomeError::NotSuccess(_)))
+                && err.to_string() == "Transaction status is Started, expected SuccessValue",
             "{err:?}"
         );
 
@@ -1525,7 +1540,8 @@ mod tests {
         }
         .into();
         assert!(
-            matches!(&err, Error::InvalidTransaction(m) if m.starts_with("RPC returned no execution outcome for transaction ") && m.ends_with(" at wait level Final")),
+            matches!(&err, Error::Outcome(OutcomeError::MissingOutcome { .. }))
+                && err.to_string().ends_with(" at wait level Final"),
             "{err:?}"
         );
     }

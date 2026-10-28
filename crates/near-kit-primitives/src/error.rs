@@ -184,7 +184,7 @@ impl From<std::convert::Infallible> for CodecError {
 /// Error decoding a [`SignedTransaction`](crate::protocol::SignedTransaction)
 /// or [`SignedTransactionV1`](crate::protocol::SignedTransactionV1).
 ///
-/// Converts into `near_kit::Error::InvalidTransaction` with `?`.
+/// Converts into `near_kit::Error::Decode` with `?`.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum DecodeTransactionError {
@@ -205,7 +205,7 @@ pub enum DecodeTransactionError {
 /// and by the wait levels when the RPC response has no usable outcome.
 /// Converts into `near_kit::Error` with `?`: [`InvalidTx`](Self::InvalidTx) and
 /// [`Json`](Self::Json) keep their variants and the rest become
-/// `Error::InvalidTransaction`.
+/// `Error::Outcome`.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum OutcomeError {
