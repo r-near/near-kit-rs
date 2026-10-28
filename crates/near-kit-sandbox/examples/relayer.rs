@@ -27,8 +27,6 @@
 //! cargo run -p near-kit-sandbox --example relayer --features integration-tests
 //! ```
 
-use std::fmt;
-
 use near_kit::protocol::{Action, ActionError, SignedDelegateAction};
 use near_kit::rpc::{FinalExecutionOutcome, Finality, RpcError};
 use near_kit::signer::{InMemorySigner, SecretKey};
@@ -55,33 +53,18 @@ struct Policy {
 }
 
 /// Why a relay request did not go through.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 enum RelayError {
     /// The request broke the policy. Nothing was sent and nothing was paid.
+    #[error("rejected: {0}")]
     Rejected(String),
     /// The transaction did not execute (RPC error, invalid transaction).
-    Near(Error),
+    #[error("not executed: {0}")]
+    Near(#[from] Error),
     /// The transaction executed but the user's action failed. The relayer
     /// still paid for the gas.
+    #[error("user action failed: {0}")]
     UserActionFailed(Box<ActionError>),
-}
-
-impl fmt::Display for RelayError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Rejected(reason) => write!(f, "rejected: {reason}"),
-            Self::Near(error) => write!(f, "not executed: {error}"),
-            Self::UserActionFailed(error) => write!(f, "user action failed: {error}"),
-        }
-    }
-}
-
-impl std::error::Error for RelayError {}
-
-impl From<Error> for RelayError {
-    fn from(error: Error) -> Self {
-        Self::Near(error)
-    }
 }
 
 /// Check a decoded request against the policy at block height `height`,
