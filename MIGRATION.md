@@ -79,7 +79,7 @@ and `block` anything that converts into a `BlockReference`, like
 | `near.sign_message(params)` | `signing.signer().key().sign_nep413(signing.account_id(), &params).await?` (or the same on any `Signer`; import `near_kit::signer::Signer`). There is no `SigningNear::sign_message`. |
 | `near.rpc_url()` | `near.rpc().url()` |
 | `Near::from_rpc(rpc, chain_id)` | `Near::custom(url, chain_id).transport(t).retry_config(c).build()` |
-| `NearBuilder::http_client(client)` | `.transport(ReqwestTransport::with_client(client))` |
+| `NearBuilder::http_client(client)` | `.transport(ReqwestTransport::with_client(client))`; build `client` with `near_kit::reqwest` so its version matches |
 | `RpcClient::with_retry_config(url, c)` | `RpcClient::with_transport_and_retry_config(url, Arc::new(ReqwestTransport::default()), c)`, or `Near::custom(url, id).retry_config(c)` |
 | `rpc.genesis_config()` | `rpc.request::<_, serde_json::Value>("genesis_config", json!([]))` |
 | `rpc.call(method, params)` | `rpc.request(method, params)` |

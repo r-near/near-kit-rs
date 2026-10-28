@@ -470,6 +470,11 @@ pub use near_kit_primitives::{
 #[cfg(feature = "rpc")]
 pub use client::{Near, NearBuilder, SigningNear};
 
+/// The `reqwest` near-kit is built with, for the `reqwest::Client` that
+/// [`ReqwestTransport::with_client`](crate::rpc::ReqwestTransport::with_client) takes.
+#[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
+pub use reqwest;
+
 // The typed-contract macro. Its `#[call]` / `#[json]` / `#[borsh]` markers are
 // read by the macro itself and need no import.
 #[cfg(feature = "contracts")]
