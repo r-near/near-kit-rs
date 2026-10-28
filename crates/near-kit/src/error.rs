@@ -66,7 +66,9 @@ use crate::types::{
 // near-kit through the facade modules). They are imported here so the
 // `From` impls below, and `crate::error::*` paths elsewhere, keep working.
 pub(crate) use near_kit_primitives::ContractError;
-pub(crate) use near_kit_primitives::protocol::{DecodeTransactionError, ParseAccountIdError};
+pub(crate) use near_kit_primitives::protocol::{
+    DecodeDelegateError, DecodeTransactionError, ParseAccountIdError,
+};
 pub(crate) use near_kit_primitives::rpc::OutcomeError;
 pub(crate) use near_kit_primitives::signer::{ParseKeyError, SignerError};
 pub(crate) use near_kit_primitives::transaction::CodecError;
@@ -728,6 +730,11 @@ pub enum Error {
     /// A signed transaction failed to decode from base64 or Borsh.
     #[error(transparent)]
     Decode(DecodeTransactionError),
+
+    /// A signed delegate action failed to decode from base64 or Borsh
+    /// (`SignedDelegateAction::from_base64` and the V2 equivalent).
+    #[error(transparent)]
+    DecodeDelegate(#[from] DecodeDelegateError),
 
     // ─── Signing ───
     #[error("Signing failed: {0}")]
@@ -1482,6 +1489,34 @@ mod tests {
             err.to_string(),
             "Invalid configuration: All signers must share the same account ID, got a.near and b.near"
         );
+    }
+
+    #[test]
+    fn test_error_from_decode_delegate_error() {
+        fn decode(s: &str) -> Result<crate::protocol::SignedDelegateAction, Error> {
+            Ok(crate::protocol::SignedDelegateAction::from_base64(s)?)
+        }
+        let err = decode("!!").unwrap_err();
+        assert!(
+            matches!(&err, Error::DecodeDelegate(DecodeDelegateError::Base64(_))),
+            "{err:?}"
+        );
+        assert!(
+            err.to_string().starts_with("base64 decode error: "),
+            "{err}"
+        );
+
+        // Valid base64, not a borsh-encoded signed delegate action.
+        let err = decode("AQID").unwrap_err();
+        assert!(
+            matches!(&err, Error::DecodeDelegate(DecodeDelegateError::Borsh(_))),
+            "{err:?}"
+        );
+
+        let err: Error = crate::protocol::VersionedSignedDelegateAction::from_base64("!!")
+            .unwrap_err()
+            .into();
+        assert!(matches!(err, Error::DecodeDelegate(_)), "{err:?}");
     }
 
     #[test]
