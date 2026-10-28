@@ -523,6 +523,12 @@ These had no producer or only an internal use, and are gone:
   `Action` and its payload types implement `Serialize`/`Deserialize` in
   nearcore's JSON shape; byte fields such as `DeployGlobalContractAction::code`
   are base64 strings in JSON (were arrays of numbers).
+- **An outcome that fails to decode is an error.** `RpcTransactionResponse`
+  used to read such an outcome as `outcome: None`, which surfaced as "no
+  execution outcome" or as a `SendTxResponse` without an outcome. Decoding
+  the response now fails instead: `RpcClient::send_tx`/`tx_status`, sends and
+  `Near::tx_status` return `RpcError::Json`. `outcome` is `None` only when the
+  node sent no outcome.
 
 ## Sandbox
 

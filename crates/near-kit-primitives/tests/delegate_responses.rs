@@ -174,3 +174,40 @@ fn tx_status_receipt_delegate_inner_actions() {
     assert_eq!(action.receiver_id.as_str(), "sub2.alice.sandbox");
     assert_eq!(action.actions.len(), 2);
 }
+
+fn decode_response(body: serde_json::Value) -> Result<RpcTransactionResponse, serde_json::Error> {
+    serde_json::from_value(body)
+}
+
+/// An outcome that is present but does not decode is an error, never a
+/// response without an outcome.
+#[test]
+fn undecodable_outcome_is_an_error() {
+    let mut body: serde_json::Value = serde_json::from_str(TRANSFER).unwrap();
+    body["transaction"]["actions"][0]["Delegate"]["delegate_action"]["actions"][0] =
+        serde_json::json!({"NotAnAction": {}});
+    let err = decode_response(body).unwrap_err();
+    assert!(err.to_string().contains("NotAnAction"), "{err}");
+
+    let mut body: serde_json::Value = serde_json::from_str(TRANSFER).unwrap();
+    body["status"] = serde_json::json!({"Bogus": null});
+    assert!(decode_response(body).is_err());
+}
+
+#[test]
+fn partial_outcome_is_an_error() {
+    let mut body: serde_json::Value = serde_json::from_str(TRANSFER).unwrap();
+    body.as_object_mut().unwrap().remove("transaction");
+    let err = decode_response(body).unwrap_err();
+    assert!(err.to_string().contains("transaction"), "{err}");
+}
+
+#[test]
+fn response_without_outcome_has_none() {
+    let response =
+        decode_response(serde_json::json!({"final_execution_status": "INCLUDED"})).unwrap();
+    assert!(response.outcome.is_none());
+
+    let response = decode_response(serde_json::from_str(TRANSFER).unwrap()).unwrap();
+    assert!(response.outcome.is_some());
+}

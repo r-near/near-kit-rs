@@ -848,19 +848,78 @@ pub struct ReceiptToTxResponse {
 ///
 /// `outcome` is `None` from `send_tx` until the transaction has executed.
 /// `EXPERIMENTAL_tx_status` can return a partial outcome at earlier levels.
-#[derive(Debug, Clone, Deserialize)]
+///
+/// Deserializing fails if the JSON carries an outcome that does not decode
+/// (or only some of its fields); `outcome` is `None` only when the JSON has
+/// no outcome fields at all.
+#[derive(Debug, Clone)]
 pub struct RpcTransactionResponse {
     /// Hash of the transaction. Not part of the JSON: `send_tx` fills it in
     /// from the signed transaction and `tx_status` from the outcome or the
     /// requested hash, so it is all zeros when you deserialize the JSON
     /// yourself.
-    #[serde(skip)]
     pub transaction_hash: CryptoHash,
     /// The wait level that was reached.
     pub final_execution_status: TxExecutionStatus,
     /// The execution outcome, present when the transaction has been executed.
-    #[serde(flatten)]
     pub outcome: Option<FinalExecutionOutcome>,
+}
+
+// nearcore flattens an `Option<FinalExecutionOutcomeViewEnum>` into the
+// response. A derived `#[serde(flatten)] Option<_>` would turn any decode
+// error inside the outcome into `None`, so decode the outcome fields
+// individually and require all or none of them.
+impl<'de> Deserialize<'de> for RpcTransactionResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Wire {
+            final_execution_status: TxExecutionStatus,
+            status: Option<FinalExecutionStatus>,
+            transaction: Option<TransactionView>,
+            transaction_outcome: Option<ExecutionOutcomeWithId>,
+            receipts_outcome: Option<Vec<ExecutionOutcomeWithId>>,
+            receipts: Option<Vec<Receipt>>,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        let outcome = match (
+            wire.status,
+            wire.transaction,
+            wire.transaction_outcome,
+            wire.receipts_outcome,
+        ) {
+            (
+                Some(status),
+                Some(transaction),
+                Some(transaction_outcome),
+                Some(receipts_outcome),
+            ) => Some(FinalExecutionOutcome {
+                status,
+                transaction,
+                transaction_outcome,
+                receipts_outcome,
+                receipts: wire.receipts.unwrap_or_default(),
+            }),
+            (None, None, None, None) if wire.receipts.is_none() => None,
+            (status, transaction, transaction_outcome, receipts_outcome) => {
+                let missing = [
+                    ("status", status.is_none()),
+                    ("transaction", transaction.is_none()),
+                    ("transaction_outcome", transaction_outcome.is_none()),
+                    ("receipts_outcome", receipts_outcome.is_none()),
+                ]
+                .into_iter()
+                .find_map(|(field, missing)| missing.then_some(field))
+                .unwrap_or("status");
+                return Err(serde::de::Error::missing_field(missing));
+            }
+        };
+        Ok(Self {
+            transaction_hash: CryptoHash::default(),
+            final_execution_status: wire.final_execution_status,
+            outcome,
+        })
+    }
 }
 
 /// Final execution outcome from a NEAR transaction.
