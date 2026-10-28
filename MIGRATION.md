@@ -22,8 +22,9 @@ mechanical:
   `near_kit::Error`. They all convert into `Error` with `?`.
 
 The protocol types also moved into the new `near-kit-primitives` crate.
-near-kit re-exports every item at its old `near_kit::` path, so imports keep
-working. Depend on `near-kit-primitives` directly only if you want the types
+near-kit re-exports them at their old `near_kit::` paths, so imports keep
+working, except for the moves and renames listed under
+[Renamed items](#renamed-items). Depend on `near-kit-primitives` directly only if you want the types
 without the RPC client.
 
 ## Where did this method go?
@@ -45,16 +46,16 @@ and `block` anything that converts into a `BlockReference`, like
 | `contract::<T>(id)` | Unchanged on both `Near` and `SigningNear` |
 | `contract_code(id)` | `near.rpc().view_code(&id, block)` |
 | `credentials(key, id)` (builder), `signer(s)` (builder) | `Near::testnet().build().with_signer(InMemorySigner::new(id, key.parse()?))` |
-| `delegate(..)`, `sign()` (on a transaction builder) | `signing.delegate(rx, actions, opts)`, `signing.sign(rx, actions)` |
+| `delegate(..)`, `sign()` (on a transaction builder) | `signing.sign_delegate(rx, actions, opts)`, `signing.sign(rx, actions)` |
 | `from_env()` | `SigningNear::from_env()` |
 | `ft(id)`, `nft(id)` | `near.contract::<FungibleToken>(id)`, `near.contract::<NonFungibleToken>(id)` (`near_kit::standards`) |
 | `global_contract(id)` | `near.rpc().view_global_contract_code(id, block)` |
 | `into_action()` (on a call) | `FunctionCall::from(call).into_action()?` |
-| `max_nonce_retries(n)` | `signing.clone().max_nonce_retries(n)` or `near.max_nonce_retries(n)` |
+| `max_nonce_retries(n)` | `signing.clone().max_nonce_retries(n)`, or `NearBuilder::max_nonce_retries(n)` before `build()` |
 | `public_key()` | `signing.signer().public_key()` |
 | `rpc()` | `near.rpc()`, or `signing.near().rpc()` |
 | `rpc_url()` | `near.rpc().url()` |
-| `sandbox(&sandbox)` | `sandbox.client()` |
+| `sandbox(&sandbox)` | `sandbox.root_account()` |
 | `send(&signed)` | `near.send_signed(&signed)` |
 | `sign_message(params)` | `signing.signer().key().sign_nep413(signing.account_id(), &params)` |
 | `state_init(si, deposit)` | `signing.transaction(si.derive_account_id()).add_action(Action::state_init(si, deposit))` |
@@ -80,9 +81,10 @@ and `block` anything that converts into a `BlockReference`, like
 | `Near::from_rpc(rpc, chain_id)` | `Near::custom(url, chain_id).transport(t).retry_config(c).build()` |
 | `NearBuilder::http_client(client)` | `.transport(ReqwestTransport::with_client(client))` |
 | `RpcClient::with_retry_config(url, c)` | `RpcClient::with_transport_and_retry_config(url, Arc::new(ReqwestTransport::default()), c)`, or `Near::custom(url, id).retry_config(c)` |
-| `rpc.genesis_config()` | `rpc.call::<_, serde_json::Value>("genesis_config", json!([]))` |
+| `rpc.genesis_config()` | `rpc.request::<_, serde_json::Value>("genesis_config", json!([]))` |
+| `rpc.call(method, params)` | `rpc.request(method, params)` |
 | `Error::NoSigner` | Removed: a send without a signer is a compile error. |
-| `Near::sandbox(&sandbox)`, `rpc::SandboxNetwork` | `sandbox.client()` |
+| `Near::sandbox(&sandbox)`, `rpc::SandboxNetwork` | `sandbox.root_account()` |
 | `InMemorySigner::new(id, "ed25519:...")?` | `InMemorySigner::new(id, "ed25519:...".parse()?)`. `new` takes a `SecretKey` and can't fail. |
 | `InMemorySigner::from_secret_key(id, sk)?`, `InMemorySigner::from_parts(id, sk)` | `InMemorySigner::new(id, sk)` |
 | `InMemorySigner::generate_implicit()` | `InMemorySigner::implicit(SecretKey::generate_ed25519())?` |
@@ -118,7 +120,7 @@ let balance = me.near().balance(me.account_id()).await?;
 | 0.20 | 0.21 |
 |---|---|
 | `near.transaction(rx)` (a `TransactionBuilder`) | `signing.transaction(rx)` (a `Tx`) |
-| `.transfer(amount)`, `.create_account()`, `.deploy(wasm)`, `.add_full_access_key(pk)`, `.add_function_call_key(..)`, `.delete_key(pk)`, `.delete_account(b)`, `.stake(..)`, `.publish(..)`, `.deploy_from(..)`, `.state_init(..)`, `.universal_state_init(..)` | `.add_action(Action::transfer(amount))` and so on: one `Action::*` constructor per helper. `deploy_from` becomes `Action::deploy_from_account(id)` or `Action::deploy_from_hash(hash)`. |
+| `.transfer(amount)`, `.create_account()`, `.deploy(wasm)`, `.add_full_access_key(pk)`, `.add_function_call_key(..)`, `.delete_key(pk)`, `.delete_account(b)`, `.stake(..)`, `.publish(..)`, `.deploy_from(..)`, `.state_init(..)`, `.universal_state_init(..)` | `.add_action(Action::transfer(amount))` and so on: one `Action::*` constructor per helper. `deploy_from` becomes `Action::deploy_from(id)` (a publisher `AccountId`) or `Action::deploy_from(hash)` (a code `CryptoHash`). |
 | `.call("m").args(a).gas(g).deposit(d)` … `.finish()` | `.add_action(FunctionCall::new("m").args(a).gas(g).deposit(d))` |
 | `near.call(id, "m")` | `signing.transaction(id).add_action(FunctionCall::new("m"))` |
 | `near.transfer(id, amount)` | `signing.transaction(id).add_action(Action::transfer(amount))` |
@@ -127,12 +129,15 @@ let balance = me.near().balance(me.account_id()).await?;
 | `.add_actions(vec)` | Call `add_action` in a loop. |
 | `.send()`, `.send().wait_until::<W>()` | `.await` sends; set the wait level on the client (see below). |
 | `.signed_delegate_action(signed)` (relayer) | `relayer.transaction(signed.sender_id()).add_action(Action::delegate(signed))`. The receiver must be the delegate's sender; any other receiver fails at `.await` with `Error::InvalidTransaction`, before signing. |
-| `.sign()` / `.delegate(opts)` | `signing.sign(rx, actions)` / `signing.delegate(rx, actions, opts)` |
-| `DelegateResult` (`.signed_delegate_action`, `.payload`, `.sender_id()`) | `delegate` returns the `SignedDelegateAction` itself: use it directly, `.to_base64()` for the payload |
+| `.sign()` / `.delegate(opts)` | `signing.sign(rx, actions)` / `signing.sign_delegate(rx, actions, opts)` |
+| `DelegateResult` (`.signed_delegate_action`, `.payload`, `.sender_id()`) | `sign_delegate` returns the `SignedDelegateAction` itself: use it directly, `.to_base64()` for the payload |
 | `DelegateOptions::with_offset(n)` / `with_max_height(h)` | `DelegateOptions { block_height_offset: Some(n), ..Default::default() }` / `max_block_height: Some(h)` |
 | `.sign_with(other)` | `signing.near().with_signer(other).transaction(..)` |
-| `.max_nonce_retries(n)` | `signing.clone().max_nonce_retries(n)` for one sender, or `NearBuilder::max_nonce_retries(n)` / `near.max_nonce_retries(n)` for every `SigningNear` made from that `Near` |
+| `.max_nonce_retries(n)` | `signing.clone().max_nonce_retries(n)` for one sender, or `NearBuilder::max_nonce_retries(n)` for every `SigningNear` made from that `Near` |
+| `near.max_nonce_retries(n)` | `NearBuilder::max_nonce_retries(n)` before `build()` |
 | `.build()`, `.build_offline(..)`, `.sign_offline(..)`, `.into_parts()` | `protocol::Transaction::new(..).sign(&key)` |
+| `Action::deploy_from_hash(hash)` / `Action::deploy_from_account(id)` | `Action::deploy_from(hash)` / `Action::deploy_from(id)` |
+| `Transaction::complete(sig)`, `TransactionV1::complete(sig)`, `DelegateAction::sign(sig)`, `VersionedDelegateActionPayload::sign(sig)` | `into_signed(sig)` |
 | `near.send(&signed)` | `near.send_signed(&signed)` |
 | `CallBuilder`, `TransactionBuilder`, `TransactionSend` | `Tx` |
 
@@ -238,7 +243,7 @@ impl<S: TxSender> WrapAny for S {}
 | `BlockReference::at_height(h)`, `at_hash`, `final_()`, `near_final()`, `optimistic()` | Pass `h`, `hash` or `Finality::Final` straight to `.at(..)` or an `RpcClient` read (they take `impl Into<BlockReference>`). Don't write `.into()` there: with a generic parameter rustc can't infer the target and reports "type annotations needed". Where a `BlockReference` value is required, use `BlockReference::from(h)` or the enum variant. |
 | `BlockReference::genesis()` / `earliest_available()` | Pass `SyncCheckpoint::Genesis` / `SyncCheckpoint::EarliestAvailable` directly; `BlockReference::from(..)` where a value is required |
 | `BlockReference::to_rpc_params()` | Removed. `RpcClient` builds the params. |
-| `near.view::<T>(id, m)` (a `ViewCall<T>`) | `near.view::<T>(id, m)` (a `transaction::View<Near, T>`) |
+| `near.view::<T>(id, m)` (a `ViewCall<T>`) | `near.view::<T>(id, m)` (a `View<Near, T>`) |
 | `near.view::<T>(id, m).borsh()` | `View::<_, T>::borsh(near.clone(), id, m)` |
 | `near.account(id)` | `near.rpc().view_account(&id, block)` |
 | `near.access_keys(id)` / `.page(..)` | `near.rpc().view_access_key_list(&id, block)` / `view_access_key_list_page(..)` |
@@ -246,7 +251,9 @@ impl<S: TxSender> WrapAny for S {}
 | `near.global_contract(id)` / `.exists()` | `near.rpc().view_global_contract_code(id, block)` with a `CryptoHash`, `AccountId` or `GlobalContractId`; match `is_global_contract_not_found()` |
 | `near.validators()` | `near.rpc().validators(None)` |
 | `AccountQuery`, `AccessKeysQuery`, `ContractCodeQuery`, `GlobalContractQuery`, `ViewCall`, `ViewCallBorsh` | Removed (see above) |
-| `rpc::{LightClientBlockView, LightClientBlockLiteView, BlockHeaderInnerLiteView}`, `rpc::{StateChangeWithCauseView, StateChangeCauseView, StateChangeValueView}` | Removed: no `RpcClient` method returned them. For `EXPERIMENTAL_changes` or light-client proofs, use `near.rpc().call::<_, serde_json::Value>(method, params)` or your own serde type. |
+| `rpc::{LightClientBlockView, LightClientBlockLiteView, BlockHeaderInnerLiteView}`, `rpc::{StateChangeWithCauseView, StateChangeCauseView, StateChangeValueView}` | Removed: no `RpcClient` method returned them. For `EXPERIMENTAL_changes` or light-client proofs, use `near.rpc().request::<_, serde_json::Value>(method, params)` or your own serde type. |
+| `view_result.as_string()` | `view_result.text()` |
+| `gas_price.as_u128()` | `gas_price.gas_price.as_yoctonear()` |
 
 `balance`, `account_exists`, `tx_status` and `view` stay on `Near`. `block` is
 anything that converts into a `BlockReference`, like `.at(..)`: a `Finality`, a
@@ -303,7 +310,7 @@ let account = near
 | `impl TryIntoAccountId` (`"alice.near"`, `String`) | `impl Into<AccountId>` (`AccountId`, `&AccountId`, `&AccountIdRef`). Use `account!("alice.near")` for a literal (checked at compile time) or `"alice.near".parse::<AccountId>()?` for runtime input. |
 | `impl IntoNearToken` (`"5 NEAR"`) | `NearToken` (`NearToken::from_near(5)`, or `"5 NEAR".parse()?`) |
 | `impl IntoGas` (`"30 Tgas"`) | `Gas` (`Gas::from_tgas(30)`, or `"30 Tgas".parse()?`) |
-| `impl TryIntoGlobalContractId` | `Action::deploy_from_account(id)` / `Action::deploy_from_hash(hash)`, or a `GlobalContractId` |
+| `impl TryIntoGlobalContractId` | `Action::deploy_from(code)`, with an `AccountId`, a `CryptoHash` or a `GlobalContractId` |
 | `protocol::{TryIntoAccountId, IntoNearToken, IntoGas, TryIntoGlobalContractId, ParseGasError}` | Removed |
 | `Error::ParseAmount`, `Error::ParseGas`, `ParseAmountError::AmbiguousAmount` | Removed. So is the rest of `ParseAmountError`, with `FtAmount` (see tokens). |
 
@@ -323,7 +330,7 @@ helpers, and `near-kit-sandbox`.
 | Contract methods named `contract_id` or `client` | A compile error. Rename them. |
 | `near_kit::{call, json, borsh}` attribute re-exports and the standalone `near_kit_macros::{call, json, borsh}` | Removed. `#[contract]` reads the markers itself and they need no import. |
 
-Views return `transaction::View` and calls return `transaction::Call`, so
+Views return `View` and calls return `Call` (both at the crate root), so
 they take `.at(..)` and `.gas(..)`/`.deposit(..)` before `.await`, the same as
 `Near::view`. Their error is `ContractError<C::ViewError>` /
 `ContractError<C::SendError>`. To use a different wait level, build the client
@@ -422,8 +429,12 @@ Code that runs without an RPC client returns its own error type instead of
 | `FunctionCall::into_action`, `TryFrom<FunctionCall>` | `CodecError` |
 | `InMemorySigner::implicit`, `SecretKey::from_seed_phrase` / `generate_with_seed_phrase`, `RotatingSigner::new` / `from_signers` | `SignerError` |
 
-Each converts into `near_kit::Error` with `?` and lands in the same variant,
-with the same message, as before. Two patterns need a change:
+Each converts into `near_kit::Error` with `?`. `DecodeTransactionError` now
+becomes `Error::Decode`, and an `OutcomeError` other than `InvalidTx` or `Json`
+becomes `Error::Outcome`; both used to be an `Error::InvalidTransaction`
+string, which is now only for local checks before sending (no actions, the
+wrong receiver, a nested delegate). The rest land in the same variant, with
+the same message, as before. Two patterns need a change:
 
 - **Passing a variant constructor to `map_err`.** Convert first:
   `.map_err(|e| MyError::Signer(e.into()))?`.
@@ -432,8 +443,8 @@ with the same message, as before. Two patterns need a change:
   `.map_err(near_kit::Error::from)` first.
 
 `SignerError` is `#[non_exhaustive]` and gained `InvalidKey`, `NoKeys` and
-`MixedAccounts`. `WaitLevel::convert` is `#[doc(hidden)]` and returns
-`OutcomeError`.
+`MixedAccounts`. `WaitLevel::convert` is `#[doc(hidden)]`, takes an
+`RpcTransactionResponse` and returns `OutcomeError`.
 
 The new view and call values have one error type, `ContractError<E>`:
 `Codec(CodecError)` for argument or result encoding, or `Backend(E)` for the
@@ -445,7 +456,7 @@ These had no producer or only an internal use, and are gone:
 
 | 0.20 | 0.21 |
 |---|---|
-| `Error::DelegateDecode` | Removed: nothing returned it. `SignedDelegateAction::from_base64` returns `DelegateDecodeError` itself. |
+| `Error::DelegateDecode` | Removed: nothing returned it. `SignedDelegateAction::from_base64` returns `DecodeDelegateError` itself. |
 | `Error::is_invalid_tx()` | `matches!(e, Error::InvalidTx(_))` |
 | `From<Infallible> for Error` | Removed |
 | `RpcError::network(..)`, `RpcError::invalid_transaction(..)` | Crate-private. Build the variant (`RpcError::Network { .. }`) in a custom transport. |
@@ -455,16 +466,16 @@ These had no producer or only an internal use, and are gone:
 
 | 0.20 | 0.21 |
 |---|---|
-| `sandbox.client() -> Near` | `sandbox.client() -> SigningNear` for the root account |
-| `Near::sandbox(&sandbox)` | `sandbox.client()` |
+| `sandbox.client() -> Near` | `sandbox.root_account() -> SigningNear` for the root account |
+| `Near::sandbox(&sandbox)` | `sandbox.root_account()` |
 | `SandboxBuilder::root_account("x")`, `set_balance("x", ..)` | Take `impl Into<AccountId>`: `account!("x")` |
 | `SANDBOX_ROOT_ACCOUNT: &str` | `&AccountIdRef` |
 | `SandboxError::{InvalidRootAccount, InvalidAccount}` | Removed (account IDs are typed) |
 | `SandboxConfig::shared()` / `fresh()` / `builder()` | `Sandbox::builder().shared()` / `.fresh()` / `Sandbox::builder()` |
-| `sandbox.rpc_url()` | `sandbox.client().near().rpc().url()` |
-| `sandbox.root_account_id()` | `sandbox.client().account_id()` |
-| `sandbox.chain_id()` | `sandbox.client().near().chain_id()` |
-| `sandbox.root_signer()` | `sandbox.client().signer().clone()` |
+| `sandbox.rpc_url()` | `sandbox.root_account().near().rpc().url()` |
+| `sandbox.root_account_id()` | `sandbox.root_account().account_id()` |
+| `sandbox.chain_id()` | `sandbox.root_account().near().chain_id()` |
+| `sandbox.root_signer()` | `sandbox.root_account().signer().clone()` |
 | `rpc.sandbox_fast_forward(n)` / `rpc.sandbox_patch_state(records)` | `sandbox.fast_forward(n)` / `sandbox.patch_state(records)` (still sends the patch twice; it no longer sleeps 100 ms afterwards, so poll for the state you wrote, or use `sandbox.set_balance(..)`, which does) |
 
 ```rust
@@ -477,13 +488,31 @@ root.transaction("alice.sandbox")
     .await?;
 
 // 0.21
-let root = Sandbox::builder().shared().await?.client();
+let root = Sandbox::builder().shared().await?.root_account();
 root.transaction(account!("alice.sandbox"))
     .add_action(Action::create_account())
     .add_action(Action::transfer(NearToken::from_near(10)))
     .add_action(Action::add_full_access_key(key))
     .await?;
 ```
+
+## Renamed items
+
+Items that keep their role under a new name or path:
+
+| 0.20 | 0.21 |
+|---|---|
+| `protocol::AccountIdRef` | `AccountIdRef` (crate root) |
+| `RpcError::UnknownBlock`, `UnknownChunk`, `UnknownEpoch`, `UnknownReceipt` | `RpcError::BlockNotFound`, `ChunkNotFound`, `EpochNotFound`, `ReceiptNotFound` |
+| `RpcError::RequestTimeout { .. }` | `RpcError::Timeout { .. }` |
+| `RpcError::Timeout(u32)` | Removed: nothing returned it |
+| `RpcError::InvalidTransaction { message, details }` | `RpcError::InvalidTxUnparsed { message, details }` |
+| `protocol::DelegateDecodeError` | `protocol::DecodeDelegateError` |
+| `rpc::RawTransactionResponse` (hidden) | `rpc::RpcTransactionResponse`, documented: what `RpcClient::send_tx` and `tx_status` return |
+| `standards::nep413::serialize_message(params)` | `nep413::hash_message(params)` |
+| `PublicKeyHandle::full_pubkey()` | `PublicKeyHandle::as_full()` |
+| `protocol::MAX_NONCES_FOR_GAS_KEY` | `AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY` |
+| `StateInitExt` (`StateInit::by_hash(hash, data)`, `StateInit::by_publisher(id, data)`) | Removed. `StateInitV1::code(hash_or_id).with_data_entry(k, v).into()`, or `StateInit::V1(StateInitV1 { code: hash_or_id.into(), data })` |
 
 ## Macros crate
 

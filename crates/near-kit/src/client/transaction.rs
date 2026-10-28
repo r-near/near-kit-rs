@@ -148,7 +148,7 @@ pub struct DelegateOptions {
 /// connection that will sign and send it.
 ///
 /// Keeping this stage private lets every terminal path ([`Tx`],
-/// [`SigningNear::sign`], [`SigningNear::delegate`]) share validation,
+/// [`SigningNear::sign`], [`SigningNear::sign_delegate`]) share validation,
 /// online nonce resolution, and signing without exposing partially prepared
 /// state in the public API.
 pub(crate) struct PreparedTransaction {
@@ -551,7 +551,7 @@ impl PreparedTransaction {
 /// [`Error::InvalidTransaction`] and nothing is sent.
 ///
 /// To sign without sending, or to build a meta-transaction, pass the same
-/// actions to [`SigningNear::sign`] or [`SigningNear::delegate`].
+/// actions to [`SigningNear::sign`] or [`SigningNear::sign_delegate`].
 ///
 /// # Example
 ///

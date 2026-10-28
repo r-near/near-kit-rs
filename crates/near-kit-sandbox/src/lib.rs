@@ -10,7 +10,7 @@
 //! # Design Principles
 //!
 //! 1. **Consistent with production**: Test code looks like production code.
-//!    [`Sandbox::client`] is an ordinary `SigningNear` for the root account,
+//!    [`Sandbox::root_account`] is an ordinary `SigningNear` for the root account,
 //!    pointed at the sandbox network.
 //!
 //! 2. **Sandbox lifecycle management**: The library handles starting/stopping
