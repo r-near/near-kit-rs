@@ -337,9 +337,10 @@ connection) that near-kit couldn't find out whether it did. `FinalExecutionOutco
 `is_failure()` or `receipt_failures()`, or call `.result()?` to turn a failed
 action into an `Err`. For an FT or NFT `transfer_call`, `.result()?` isn't
 enough: when the receiver's `ft_on_transfer` or `nft_on_transfer` fails, the
-token's resolve callback handles it and refunds the sender, so the
-transaction succeeds. Check `receipt_failures()` or the returned amount (or
-`bool` for NFTs).
+token's resolve callback handles it and tries to refund the sender, so the
+transaction succeeds. The refund can fall short (the receiver may have moved
+the tokens already), so check the returned amount (or `bool` for NFTs), and
+`receipt_failures()` for why the receiver failed.
 
 ### Wait levels: `Final` by default
 
