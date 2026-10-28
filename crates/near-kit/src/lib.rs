@@ -72,7 +72,7 @@
 //! Without `.at(..)` a read uses [`BlockReference::default()`](rpc::BlockReference),
 //! the latest final block. `.with_metadata()` also returns the height and hash
 //! the value was read at. `balance` and `account_exists` take the same
-//! `.at(..)`, and every other RPC method is on [`near.rpc()`](rpc::RpcClient).
+//! `.at(..)`, and every other RPC method is on [`near.rpc()`][rpc-client].
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
@@ -104,7 +104,7 @@
 //!
 //! ## Sending transactions
 //!
-//! `alice.transaction(receiver)` starts a [`Tx`](transaction::Tx). Add
+//! `alice.transaction(receiver)` starts a [`Tx`][tx]. Add
 //! [`Action`](protocol::Action)s and [`FunctionCall`](transaction::FunctionCall)s
 //! (30 Tgas and no deposit unless set) with `.add_action(..)`; `.await` signs,
 //! sends and waits. The actions run in order, all or nothing. near-kit
@@ -242,7 +242,9 @@
 //!
 #![cfg_attr(
     feature = "rpc",
-    doc = "[guide-clients]: crate::guide::clients
+    doc = "[rpc-client]: rpc::RpcClient
+[tx]: transaction::Tx
+[guide-clients]: crate::guide::clients
 [guide-transactions]: crate::guide::transactions
 [guide-finality]: crate::guide::finality
 [guide-nonces]: crate::guide::nonces
@@ -255,7 +257,9 @@
 )]
 #![cfg_attr(
     not(feature = "rpc"),
-    doc = "[guide-clients]: https://docs.rs/near-kit/latest/near_kit/guide/clients/index.html
+    doc = "[rpc-client]: https://docs.rs/near-kit/latest/near_kit/rpc/struct.RpcClient.html
+[tx]: https://docs.rs/near-kit/latest/near_kit/transaction/struct.Tx.html
+[guide-clients]: https://docs.rs/near-kit/latest/near_kit/guide/clients/index.html
 [guide-transactions]: https://docs.rs/near-kit/latest/near_kit/guide/transactions/index.html
 [guide-finality]: https://docs.rs/near-kit/latest/near_kit/guide/finality/index.html
 [guide-nonces]: https://docs.rs/near-kit/latest/near_kit/guide/nonces/index.html
