@@ -198,8 +198,11 @@ let signed = alice.key().sign_nep413(alice.account_id(), &params).await?;
 // The JSON a frontend posts to its backend, with camelCase field names.
 let body = serde_json::to_string(&AuthPayload::from_signed(signed, &params))?;
 
-// The backend checks the signature and that the nonce is under 5 minutes old.
+// The backend checks that the payload was signed for this app, then the
+// signature and that the nonce is under 5 minutes old.
 let payload: AuthPayload = serde_json::from_str(&body)?;
+assert_eq!(payload.recipient, "example.app");
+assert_eq!(payload.message, "Log in to example.app");
 assert!(nep413::verify_signature(
     &payload.signed_message,
     &payload.to_params(),
@@ -218,19 +221,40 @@ key belongs to the account the message names: anyone can sign a message
 claiming to be `alice.near` with a key of their own. To prove the account,
 use [`nep413::verify`](crate::standards::nep413::verify). With the default
 [`VerifyOptions`](crate::standards::nep413::VerifyOptions) it also looks the
-key up on chain and requires it to be a full-access key of that account:
+key up on chain and requires it to be a full-access key of that account.
+
+Neither function checks what the message was signed for. The payload's
+recipient, message and nonce come from the request, so a login handler has
+to compare them with what the app asked for: otherwise a signature the user
+made for another app, or a replay of an earlier login, gets in. Here the
+server generated each nonce with
+[`generate_nonce`](crate::standards::nep413::generate_nonce), kept it in
+`issued` and handed it to the frontend; each is accepted once:
 
 ```rust,no_run
+use std::collections::HashSet;
+
 use near_kit::standards::nep413::{self, AuthPayload};
 use near_kit::*;
 
-# async fn example(near: &Near, payload: AuthPayload) -> Result<(), Error> {
+# async fn example(
+#     near: &Near,
+#     payload: AuthPayload,
+#     issued: &mut HashSet<[u8; 32]>,
+# ) -> Result<AccountId, Error> {
+let rejected = || Error::Config("login rejected".into());
+if payload.recipient != "example.app"
+    || payload.message != "Log in to example.app"
+    || !issued.contains(&payload.nonce)
+{
+    return Err(rejected());
+}
 let params = payload.to_params();
 if !nep413::verify(&payload.signed_message, &params, near, Default::default()).await? {
-    return Err(Error::Config("login rejected".into()));
+    return Err(rejected());
 }
-let user = &payload.signed_message.account_id;
-# Ok(())
+issued.remove(&payload.nonce);
+Ok(payload.signed_message.account_id.clone())
 # }
 ```
 
