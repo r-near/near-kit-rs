@@ -116,16 +116,19 @@ mnemonic = ["near-kit-primitives/mnemonic"]
 # `getrandom` backend) and on WASI targets (which `getrandom` supports natively).
 js = ["near-kit-primitives/js"]
 
-# These examples drive a live `Near` client end to end. Quickstart also
-# demonstrates the opt-in typed-contract macros. Docker-backed examples live
-# in the `near-kit-sandbox` package.
+# `quickstart` reads from testnet. `offline_signing` needs no client and builds
+# with no features. Docker-backed examples live in the `near-kit-sandbox`
+# package.
 [[example]]
 name = "quickstart"
-required-features = ["rpc", "contracts"]
+required-features = ["rpc"]
 
 [[example]]
-name = "meta_transactions"
-required-features = ["rpc"]
+name = "offline_signing"
+
+[[example]]
+name = "mock_backend"
+required-features = ["rpc", "contracts"]
 
 [dev-dependencies]
 bs58.workspace = true
