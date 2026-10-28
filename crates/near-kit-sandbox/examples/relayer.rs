@@ -27,8 +27,8 @@
 //! cargo run -p near-kit-sandbox --example relayer --features integration-tests
 //! ```
 
-use near_kit::protocol::{Action, ActionError, SignedDelegateAction};
-use near_kit::rpc::{FinalExecutionOutcome, Finality, RpcError};
+use near_kit::protocol::{Action, SignedDelegateAction};
+use near_kit::rpc::{FinalExecutionOutcome, Finality, OutcomeError, RpcError};
 use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::transaction::{DelegateOptions, FunctionCall};
 use near_kit::{AccountId, Error, Gas, NearToken, SigningNear, account};
@@ -64,9 +64,10 @@ enum RelayError {
     #[error("send failed: {0}")]
     Near(#[from] Error),
     /// The transaction executed but the user's action failed. The relayer
-    /// still paid for the gas.
-    #[error("user action failed: {0}")]
-    UserActionFailed(Box<ActionError>),
+    /// still paid for the gas. (`ActionError` is not a `std::error::Error`;
+    /// `OutcomeError::ActionFailed` wraps it as one.)
+    #[error("user action failed")]
+    UserActionFailed(#[source] OutcomeError),
 }
 
 /// Check a decoded request against the policy at block height `height`,
@@ -193,7 +194,9 @@ async fn relay(
     // The user's call runs in a later receipt, so `outcome.is_failure()`
     // doesn't see it: `receipt_failures()` does.
     if let Some(error) = outcome.receipt_failures().next() {
-        return Err(RelayError::UserActionFailed(Box::new(error.clone())));
+        return Err(RelayError::UserActionFailed(OutcomeError::ActionFailed(
+            Box::new(error.clone()),
+        )));
     }
     Ok(outcome)
 }
@@ -393,7 +396,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
     match relay(&relayer, &policy, &bad_args).await {
-        Err(error @ RelayError::UserActionFailed(_)) => println!("bad args: {error}"),
+        Err(RelayError::UserActionFailed(error)) => {
+            println!("bad args: user action failed: {error}")
+        }
         other => return Err(format!("bad args: expected a failed action, got {other:?}").into()),
     }
 
