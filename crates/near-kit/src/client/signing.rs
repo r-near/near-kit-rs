@@ -237,9 +237,9 @@ impl<W: WaitLevel> SigningNear<W> {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # use near_kit::transaction::Included;
-    /// # fn example(alice: SigningNear) {
+    /// # fn example(relayer: SigningNear) {
     /// // A relayer that keeps retrying and returns once included.
-    /// let relayer = alice.clone().max_nonce_retries(u32::MAX).wait_until::<Included>();
+    /// let relayer = relayer.max_nonce_retries(u32::MAX).wait_until::<Included>();
     /// # }
     /// ```
     pub fn max_nonce_retries(mut self, retries: u32) -> Self {
