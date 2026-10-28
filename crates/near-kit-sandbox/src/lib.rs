@@ -119,13 +119,13 @@
 //! - `integration-tests`: this repository's own Docker-backed tests and
 //!   examples. Applications don't need it.
 
+#![warn(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 // Compiles the README's code blocks as doctests.
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
-
-#![warn(missing_docs)]
-#![cfg_attr(docsrs, feature(doc_cfg))]
 
 use std::borrow::Cow;
 use std::sync::Arc;

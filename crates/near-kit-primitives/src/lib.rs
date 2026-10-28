@@ -131,13 +131,13 @@
 //! [platforms guide](https://docs.rs/near-kit/latest/near_kit/guide/platforms/index.html)
 //! has the details.
 
+#![warn(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 // Compiles the README's code blocks as doctests.
 #[cfg(all(doctest, feature = "contracts"))]
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
-
-#![warn(missing_docs)]
-#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod backend;
 mod error;

@@ -278,14 +278,13 @@
     not(all(feature = "rpc", feature = "contracts")),
     doc = "[guide-contracts]: https://docs.rs/near-kit/latest/near_kit/guide/contracts_and_tokens/index.html"
 )]
+#![warn(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 // Compiles the README's code blocks as doctests.
 #[cfg(all(doctest, feature = "rpc"))]
 #[doc = include_str!("../../../README.md")]
 struct ReadmeDoctests;
-
-#![warn(missing_docs)]
-#![cfg_attr(docsrs, feature(doc_cfg))]
 
 // Lets `#[near_kit::contract]` expansions name `::near_kit` even inside this
 // crate.
