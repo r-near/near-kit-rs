@@ -18,7 +18,7 @@ use super::transport::RpcTransport;
 use super::transport;
 use crate::error::{RpcError, TimeoutCause};
 use crate::trace;
-use crate::types::RawTransactionResponse;
+use crate::types::RpcTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountIdRef, AccountView, BlockEffects,
     BlockReference, BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
@@ -697,7 +697,7 @@ impl RpcClient {
                         .as_ref()
                         .and_then(|d| d.as_str())
                         .unwrap_or(&error.message);
-                    return RpcError::UnknownBlock(block_ref.to_string());
+                    return RpcError::BlockNotFound(block_ref.to_string());
                 }
                 "GARBAGE_COLLECTED_BLOCK" => {
                     // A height-based `query` past the node's GC horizon
@@ -718,28 +718,28 @@ impl RpcClient {
                             .unwrap_or(&error.message)
                             .to_string(),
                     };
-                    return RpcError::UnknownBlock(block_ref);
+                    return RpcError::BlockNotFound(block_ref);
                 }
                 "UNKNOWN_CHUNK" => {
                     let chunk_ref = info
                         .and_then(|i| i.get("chunk_hash"))
                         .and_then(|c| c.as_str())
                         .unwrap_or(&error.message);
-                    return RpcError::UnknownChunk(chunk_ref.to_string());
+                    return RpcError::ChunkNotFound(chunk_ref.to_string());
                 }
                 "UNKNOWN_EPOCH" => {
                     let block_ref = data
                         .as_ref()
                         .and_then(|d| d.as_str())
                         .unwrap_or(&error.message);
-                    return RpcError::UnknownEpoch(block_ref.to_string());
+                    return RpcError::EpochNotFound(block_ref.to_string());
                 }
                 "UNKNOWN_RECEIPT" => {
                     let receipt_id = info
                         .and_then(|i| i.get("receipt_id"))
                         .and_then(|r| r.as_str())
                         .unwrap_or("unknown");
-                    return RpcError::UnknownReceipt(receipt_id.to_string());
+                    return RpcError::ReceiptNotFound(receipt_id.to_string());
                 }
                 "NO_CONTRACT_CODE" => {
                     let account_id = info
@@ -880,14 +880,14 @@ impl RpcClient {
                     return RpcError::InvalidShardId(shard_id);
                 }
                 "INVALID_TRANSACTION" => {
-                    return RpcError::invalid_transaction(&error.message, data.clone());
+                    return RpcError::invalid_tx(&error.message, data.clone());
                 }
                 "TIMEOUT_ERROR" => {
                     let transaction_hash = info
                         .and_then(|i| i.get("transaction_hash"))
                         .and_then(|h| h.as_str())
                         .and_then(|h| h.parse().ok());
-                    return RpcError::RequestTimeout {
+                    return RpcError::Timeout {
                         message: error.message.clone(),
                         transaction_hash,
                         cause: info.and_then(parse_timeout_cause),
@@ -1464,14 +1464,14 @@ impl RpcClient {
         &self,
         signed_tx: &SignedTransaction,
         wait_until: TxExecutionStatus,
-    ) -> Result<RawTransactionResponse, RpcError> {
+    ) -> Result<RpcTransactionResponse, RpcError> {
         let tx_hash = signed_tx.get_hash();
         trace::Span::current().record("tx_hash", trace::field::display(&tx_hash));
         let params = serde_json::json!({
             "signed_tx_base64": signed_tx.to_base64(),
             "wait_until": wait_until.as_str(),
         });
-        let mut response: RawTransactionResponse = self
+        let mut response: RpcTransactionResponse = self
             .request("send_tx", params)
             .await
             .map_err(|e| with_timeout_tx_hash(e, tx_hash))?;
@@ -1490,13 +1490,13 @@ impl RpcClient {
         tx_hash: &CryptoHash,
         sender_id: &AccountIdRef,
         wait_until: TxExecutionStatus,
-    ) -> Result<RawTransactionResponse, RpcError> {
+    ) -> Result<RpcTransactionResponse, RpcError> {
         let params = serde_json::json!({
             "tx_hash": tx_hash.to_string(),
             "sender_account_id": sender_id.to_string(),
             "wait_until": wait_until.as_str(),
         });
-        let mut response: RawTransactionResponse = self
+        let mut response: RpcTransactionResponse = self
             .request("EXPERIMENTAL_tx_status", params)
             .await
             .map_err(|e| with_timeout_tx_hash(e, *tx_hash))?;
@@ -1511,7 +1511,7 @@ impl RpcClient {
     /// Look up the transaction that produced a receipt.
     ///
     /// Uses `EXPERIMENTAL_receipt_to_tx`, available on nodes running
-    /// nearcore 2.12 or later. Returns [`RpcError::UnknownReceipt`] if the
+    /// nearcore 2.12 or later. Returns [`RpcError::ReceiptNotFound`] if the
     /// node does not know the receipt.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%receipt_id)))]
     pub async fn receipt_to_tx(
@@ -1633,7 +1633,7 @@ fn parse_timeout_cause(info: &serde_json::Value) -> Option<TimeoutCause> {
         // `send_tx` / `tx_status` return on success, so decode it the same way.
         Some("PENDING") => info
             .get("status")
-            .and_then(|status| RawTransactionResponse::deserialize(status).ok())
+            .and_then(|status| RpcTransactionResponse::deserialize(status).ok())
             .map(|status| TimeoutCause::Pending {
                 final_execution_status: status.final_execution_status,
                 outcome: status.outcome.map(Box::new),
@@ -1663,7 +1663,7 @@ fn parse_timeout_cause(info: &serde_json::Value) -> Option<TimeoutCause> {
 fn with_timeout_tx_hash(err: RpcError, tx_hash: CryptoHash) -> RpcError {
     match err {
         // The sent tx's hash is authoritative.
-        RpcError::RequestTimeout { message, cause, .. } => RpcError::RequestTimeout {
+        RpcError::Timeout { message, cause, .. } => RpcError::Timeout {
             message,
             transaction_hash: Some(tx_hash),
             cause,
@@ -1677,7 +1677,7 @@ fn with_timeout_tx_hash(err: RpcError, tx_hash: CryptoHash) -> RpcError {
 /// failure and must not retry, regardless of what the JSON-RPC body claims.
 ///
 /// `parse_rpc_error` returns one of two shapes:
-///   1. A typed handler variant (UnknownBlock/Chunk/Epoch/RequestTimeout/
+///   1. A typed handler variant (Block/Chunk/EpochNotFound, Timeout,
 ///      NodeNotSynced/…). These have well-understood retry semantics already
 ///      encoded in `RpcError::is_retryable` and should pass through unchanged.
 ///   2. The catch-all `RpcError::Rpc { code, .. }` (unrecognized or missing
@@ -2946,7 +2946,7 @@ mod tests {
                 }
             }
         });
-        let err = RpcError::invalid_transaction("invalid nonce", Some(data));
+        let err = RpcError::invalid_tx("invalid nonce", Some(data));
         match err {
             RpcError::InvalidTx(InvalidTxError::InvalidNonce { tx_nonce, ak_nonce }) => {
                 assert_eq!(tx_nonce, 5);
@@ -2969,7 +2969,7 @@ mod tests {
                 }
             }
         });
-        let err = RpcError::invalid_transaction("insufficient balance", Some(data));
+        let err = RpcError::invalid_tx("insufficient balance", Some(data));
         assert!(
             matches!(
                 err,
@@ -2983,8 +2983,8 @@ mod tests {
     fn test_invalid_transaction_falls_back_on_unparseable() {
         // When data doesn't contain a parseable InvalidTxError, falls back
         let data = serde_json::json!({ "SomeOtherError": {} });
-        let err = RpcError::invalid_transaction("some error", Some(data));
-        assert!(matches!(err, RpcError::InvalidTransaction { .. }));
+        let err = RpcError::invalid_tx("some error", Some(data));
+        assert!(matches!(err, RpcError::InvalidTxUnparsed { .. }));
     }
 
     // ========================================================================
@@ -3231,7 +3231,7 @@ mod tests {
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::UnknownBlock(_)));
+        assert!(matches!(result, RpcError::BlockNotFound(_)));
     }
 
     #[test]
@@ -3255,13 +3255,13 @@ mod tests {
         .unwrap();
         let result = client.parse_rpc_error(&error);
         match &result {
-            RpcError::UnknownBlock(block_ref) => {
+            RpcError::BlockNotFound(block_ref) => {
                 assert_eq!(
                     block_ref,
                     "#100000000 (GLCuCE2yNJWH2EfWJu7pSM8swd5qd1RG71pwV4YFbUz7)"
                 );
             }
-            other => panic!("expected UnknownBlock, got {other:?}"),
+            other => panic!("expected BlockNotFound, got {other:?}"),
         }
         // Deterministic: must not inherit the catch-all's -32000 retry.
         assert!(!result.is_retryable());
@@ -3283,8 +3283,8 @@ mod tests {
         }))
         .unwrap();
         match client.parse_rpc_error(&error) {
-            RpcError::UnknownBlock(block_ref) => assert_eq!(block_ref, "#100000000"),
-            other => panic!("expected UnknownBlock, got {other:?}"),
+            RpcError::BlockNotFound(block_ref) => assert_eq!(block_ref, "#100000000"),
+            other => panic!("expected BlockNotFound, got {other:?}"),
         }
 
         // No usable info: fall back to the descriptive `data` string.
@@ -3301,10 +3301,10 @@ mod tests {
             name: None,
         };
         match client.parse_rpc_error(&error) {
-            RpcError::UnknownBlock(block_ref) => {
+            RpcError::BlockNotFound(block_ref) => {
                 assert_eq!(block_ref, "The data for block #5 is garbage collected");
             }
-            other => panic!("expected UnknownBlock, got {other:?}"),
+            other => panic!("expected BlockNotFound, got {other:?}"),
         }
     }
 
@@ -3324,7 +3324,7 @@ mod tests {
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::UnknownChunk(_)));
+        assert!(matches!(result, RpcError::ChunkNotFound(_)));
     }
 
     #[test]
@@ -3341,7 +3341,7 @@ mod tests {
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::UnknownEpoch(_)));
+        assert!(matches!(result, RpcError::EpochNotFound(_)));
     }
 
     #[test]
@@ -3360,7 +3360,7 @@ mod tests {
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::UnknownReceipt(_)));
+        assert!(matches!(result, RpcError::ReceiptNotFound(_)));
     }
 
     // ========================================================================
@@ -3418,8 +3418,8 @@ mod tests {
         let client = RpcClient::new("https://example.com");
         let result = client.parse_rpc_error(&error);
         assert!(
-            matches!(result, RpcError::UnknownReceipt(_)),
-            "expected UnknownReceipt, got {:?}",
+            matches!(result, RpcError::ReceiptNotFound(_)),
+            "expected ReceiptNotFound, got {:?}",
             result
         );
     }
@@ -3732,7 +3732,7 @@ mod tests {
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::InvalidTransaction { .. }));
+        assert!(matches!(result, RpcError::InvalidTxUnparsed { .. }));
     }
 
     #[test]
@@ -3764,12 +3764,12 @@ mod tests {
     ) -> (Option<CryptoHash>, Option<TimeoutCause>) {
         let client = RpcClient::new("https://example.com");
         match client.parse_rpc_error(&timeout_error(info)) {
-            RpcError::RequestTimeout {
+            RpcError::Timeout {
                 transaction_hash,
                 cause,
                 ..
             } => (transaction_hash, cause),
-            other => panic!("expected RequestTimeout, got {other:?}"),
+            other => panic!("expected Timeout, got {other:?}"),
         }
     }
 
@@ -4531,8 +4531,8 @@ mod tests {
         let client = RpcClient::new("https://example.com");
         let result = client.parse_rpc_error(&error);
         assert!(
-            matches!(result, RpcError::UnknownBlock(_)),
-            "expected UnknownBlock, got {:?}",
+            matches!(result, RpcError::BlockNotFound(_)),
+            "expected BlockNotFound, got {:?}",
             result
         );
     }
@@ -4560,8 +4560,8 @@ mod tests {
         let client = RpcClient::new("https://example.com");
         let result = client.parse_rpc_error(&error);
         assert!(
-            matches!(result, RpcError::UnknownChunk(_)),
-            "expected UnknownChunk, got {:?}",
+            matches!(result, RpcError::ChunkNotFound(_)),
+            "expected ChunkNotFound, got {:?}",
             result
         );
     }
@@ -4589,7 +4589,7 @@ mod tests {
         let client = RpcClient::new("https://example.com");
         let result = client.parse_rpc_error(&error);
         match result {
-            RpcError::RequestTimeout {
+            RpcError::Timeout {
                 ref message,
                 transaction_hash,
                 ref cause,
@@ -4599,7 +4599,7 @@ mod tests {
                 assert!(matches!(cause, Some(TimeoutCause::NotObserved)));
                 assert!(result.is_retryable());
             }
-            _ => panic!("expected RequestTimeout, got {:?}", result),
+            _ => panic!("expected Timeout, got {:?}", result),
         }
     }
 
@@ -4656,7 +4656,7 @@ mod tests {
             "every retry must re-send the original signed bytes"
         );
         match err {
-            RpcError::RequestTimeout {
+            RpcError::Timeout {
                 transaction_hash,
                 cause,
                 ..
@@ -4664,7 +4664,7 @@ mod tests {
                 assert_eq!(transaction_hash, Some(signed_tx.get_hash()));
                 assert!(matches!(cause, Some(TimeoutCause::Pending { .. })));
             }
-            other => panic!("expected RequestTimeout, got {other:?}"),
+            other => panic!("expected Timeout, got {other:?}"),
         }
     }
 
@@ -4790,7 +4790,7 @@ mod tests {
 
     #[test]
     fn test_non_2xx_typed_variant_passes_through_unchanged() {
-        // Typed variants (UnknownBlock, RequestTimeout, etc.) have well-known
+        // Typed variants (BlockNotFound, Timeout, etc.) have well-known
         // retry semantics and must not be downgraded — even on a 4xx status.
         let body = r#"{
             "jsonrpc": "2.0",
@@ -4812,8 +4812,8 @@ mod tests {
         let parsed_err = client.parse_rpc_error(&error);
         let result = preserve_http_retry_classification(parsed_err, 422, body);
         assert!(
-            matches!(result, RpcError::UnknownBlock(_)),
-            "typed UnknownBlock must pass through, got {:?}",
+            matches!(result, RpcError::BlockNotFound(_)),
+            "typed BlockNotFound must pass through, got {:?}",
             result
         );
     }

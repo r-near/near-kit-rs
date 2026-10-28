@@ -152,7 +152,7 @@ async fn test_gas_key_signed_transaction() {
         "signed_tx_base64": signed.to_base64(),
         "wait_until": "FINAL",
     });
-    let resp: RawTransactionResponse = root_near
+    let resp: RpcTransactionResponse = root_near
         .near()
         .rpc()
         .request("send_tx", send_params)

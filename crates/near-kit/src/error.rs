@@ -123,9 +123,6 @@ pub enum RpcError {
         retryable: bool,
     },
 
-    #[error("Timeout after {0} retries")]
-    Timeout(u32),
-
     #[error("JSON parse error: {0}")]
     Json(#[from] serde_json::Error),
 
@@ -258,22 +255,22 @@ pub enum RpcError {
     #[error(
         "Block not found: {0}. It may have been garbage-collected. Try an archival node for blocks older than 5 epochs."
     )]
-    UnknownBlock(String),
+    BlockNotFound(String),
 
     #[error("Chunk not found: {0}. It may have been garbage-collected. Try an archival node.")]
-    UnknownChunk(String),
+    ChunkNotFound(String),
 
     #[error(
         "Epoch not found for block: {0}. The block may be invalid or too old. Try an archival node."
     )]
-    UnknownEpoch(String),
+    EpochNotFound(String),
 
     #[error("Invalid shard ID: {0}")]
     InvalidShardId(String),
 
     // ─── Receipt Errors ───
     #[error("Receipt not found: {0}")]
-    UnknownReceipt(String),
+    ReceiptNotFound(String),
 
     // ─── Transaction Errors ───
     /// Structured transaction validation error, parsed from nearcore's
@@ -286,7 +283,7 @@ pub enum RpcError {
     /// Fallback when the RPC returns `INVALID_TRANSACTION` but the structured
     /// error could not be deserialized into [`InvalidTxError`][crate::protocol::InvalidTxError].
     #[error("Invalid transaction: {message}")]
-    InvalidTransaction {
+    InvalidTxUnparsed {
         message: String,
         details: Option<serde_json::Value>,
     },
@@ -316,7 +313,7 @@ pub enum RpcError {
         "Request timeout: {message}{}",
         .cause.as_ref().map(|c| format!(" ({c})")).unwrap_or_default()
     )]
-    RequestTimeout {
+    Timeout {
         /// The JSON-RPC error message.
         message: String,
         /// Hash of the transaction waited on. Filled in by `send_tx`/`tx_status`;
@@ -350,7 +347,7 @@ pub enum RpcError {
 
 /// Why a node returned `TIMEOUT_ERROR` for a transaction (nearcore 2.14+).
 ///
-/// Carried by [`RpcError::RequestTimeout`]. Mirrors nearcore's
+/// Carried by [`RpcError::Timeout`]. Mirrors nearcore's
 /// `TimeoutErrorCause`, which arrives on the wire as
 /// `error.cause.info = {"cause": "<TAG>", ...}`.
 ///
@@ -361,13 +358,13 @@ pub enum RpcError {
 ///
 /// fn describe(err: &RpcError) -> &'static str {
 ///     match err {
-///         RpcError::RequestTimeout { cause: Some(TimeoutCause::Pending { .. }), .. } => {
+///         RpcError::Timeout { cause: Some(TimeoutCause::Pending { .. }), .. } => {
 ///             "accepted, still waiting for finality: poll tx_status by hash"
 ///         }
-///         RpcError::RequestTimeout { cause: Some(TimeoutCause::NotObserved), .. } => {
+///         RpcError::Timeout { cause: Some(TimeoutCause::NotObserved), .. } => {
 ///             "not on chain yet: re-sending the same signed transaction is safe"
 ///         }
-///         RpcError::RequestTimeout { .. } => "timed out",
+///         RpcError::Timeout { .. } => "timed out",
 ///         _ => "other error",
 ///     }
 /// }
@@ -467,12 +464,11 @@ impl RpcError {
                     }
                 }
             }
-            RpcError::Timeout(_) => true,
             RpcError::Network { retryable, .. } => *retryable,
             RpcError::ShardUnavailable(_) => true,
             RpcError::NodeNotSynced(_) => true,
             RpcError::InternalError(_) => true,
-            RpcError::RequestTimeout { .. } => true,
+            RpcError::Timeout { .. } => true,
             // The payload is fixed here, so `InvalidNonce` can't be fixed by
             // re-sending it (the transaction layer re-signs instead); shard
             // congestion/stalls can clear on their own. See the doc comment.
@@ -503,7 +499,7 @@ impl RpcError {
 
     #[cfg_attr(not(feature = "rpc"), allow(dead_code))]
     /// Create an invalid transaction error, attempting to parse structured data first.
-    pub(crate) fn invalid_transaction(
+    pub(crate) fn invalid_tx(
         message: impl Into<String>,
         details: Option<serde_json::Value>,
     ) -> Self {
@@ -514,7 +510,7 @@ impl RpcError {
             return RpcError::InvalidTx(invalid_tx);
         }
 
-        RpcError::InvalidTransaction {
+        RpcError::InvalidTxUnparsed {
             message: message.into(),
             details,
         }
@@ -632,7 +628,6 @@ impl RpcError {
             #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
             RpcError::Http(_) => "Http",
             RpcError::Network { .. } => "Network",
-            RpcError::Timeout(_) => "Timeout",
             RpcError::Json(_) => "Json",
             RpcError::InvalidResponse(_) => "InvalidResponse",
             RpcError::Rpc { .. } => "Rpc",
@@ -646,18 +641,18 @@ impl RpcError {
             RpcError::ContractExecution { .. } => "ContractExecution",
             RpcError::MethodNotFound { .. } => "MethodNotFound",
             RpcError::ContractPanic { .. } => "ContractPanic",
-            RpcError::UnknownBlock(_) => "UnknownBlock",
-            RpcError::UnknownChunk(_) => "UnknownChunk",
-            RpcError::UnknownEpoch(_) => "UnknownEpoch",
+            RpcError::BlockNotFound(_) => "BlockNotFound",
+            RpcError::ChunkNotFound(_) => "ChunkNotFound",
+            RpcError::EpochNotFound(_) => "EpochNotFound",
             RpcError::InvalidShardId(_) => "InvalidShardId",
-            RpcError::UnknownReceipt(_) => "UnknownReceipt",
+            RpcError::ReceiptNotFound(_) => "ReceiptNotFound",
             RpcError::InvalidTx(_) => "InvalidTx",
-            RpcError::InvalidTransaction { .. } => "InvalidTransaction",
+            RpcError::InvalidTxUnparsed { .. } => "InvalidTxUnparsed",
             RpcError::ShardUnavailable(_) => "ShardUnavailable",
             RpcError::NodeNotSynced(_) => "NodeNotSynced",
             RpcError::InternalError(_) => "InternalError",
             RpcError::ParseError(_) => "ParseError",
-            RpcError::RequestTimeout { .. } => "RequestTimeout",
+            RpcError::Timeout { .. } => "Timeout",
             RpcError::TooManyAccessKeys { .. } => "TooManyAccessKeys",
         }
     }
@@ -906,7 +901,6 @@ mod tests {
     fn test_rpc_error_display() {
         let account_id: AccountId = "alice.near".parse().unwrap();
 
-        assert_eq!(RpcError::Timeout(3).to_string(), "Timeout after 3 retries");
         assert_eq!(
             RpcError::InvalidResponse("missing result".to_string()).to_string(),
             "Invalid response: missing result"
@@ -948,19 +942,19 @@ mod tests {
             "Contract state too large for account: alice.near"
         );
         assert_eq!(
-            RpcError::UnknownBlock("12345".to_string()).to_string(),
+            RpcError::BlockNotFound("12345".to_string()).to_string(),
             "Block not found: 12345. It may have been garbage-collected. Try an archival node for blocks older than 5 epochs."
         );
         assert_eq!(
-            RpcError::UnknownChunk("abc123".to_string()).to_string(),
+            RpcError::ChunkNotFound("abc123".to_string()).to_string(),
             "Chunk not found: abc123. It may have been garbage-collected. Try an archival node."
         );
         assert_eq!(
-            RpcError::UnknownEpoch("epoch1".to_string()).to_string(),
+            RpcError::EpochNotFound("epoch1".to_string()).to_string(),
             "Epoch not found for block: epoch1. The block may be invalid or too old. Try an archival node."
         );
         assert_eq!(
-            RpcError::UnknownReceipt("receipt123".to_string()).to_string(),
+            RpcError::ReceiptNotFound("receipt123".to_string()).to_string(),
             "Receipt not found: receipt123"
         );
         assert_eq!(
@@ -990,12 +984,11 @@ mod tests {
         use crate::types::InvalidTxError;
 
         // Retryable errors
-        assert!(RpcError::Timeout(3).is_retryable());
         assert!(RpcError::ShardUnavailable("shard 0".to_string()).is_retryable());
         assert!(RpcError::NodeNotSynced("syncing".to_string()).is_retryable());
         assert!(RpcError::InternalError("db error".to_string()).is_retryable());
         assert!(
-            RpcError::RequestTimeout {
+            RpcError::Timeout {
                 message: "timeout".to_string(),
                 transaction_hash: None,
                 cause: None,
@@ -1060,7 +1053,7 @@ mod tests {
             }
             .is_retryable()
         );
-        assert!(!RpcError::UnknownBlock("12345".to_string()).is_retryable());
+        assert!(!RpcError::BlockNotFound("12345".to_string()).is_retryable());
         assert!(!RpcError::ParseError("bad json".to_string()).is_retryable());
         // InvalidNonce is transient at the transaction layer (re-sign with a
         // fresh nonce) but terminal here: the signed payload can't change
@@ -1081,7 +1074,7 @@ mod tests {
             .is_retryable()
         );
         assert!(
-            !RpcError::InvalidTransaction {
+            !RpcError::InvalidTxUnparsed {
                 message: "invalid".to_string(),
                 details: None,
             }
@@ -1108,13 +1101,13 @@ mod tests {
 
     #[test]
     fn test_rpc_error_invalid_transaction_constructor_unstructured() {
-        let err = RpcError::invalid_transaction("invalid nonce", None);
+        let err = RpcError::invalid_tx("invalid nonce", None);
         match err {
-            RpcError::InvalidTransaction { message, details } => {
+            RpcError::InvalidTxUnparsed { message, details } => {
                 assert_eq!(message, "invalid nonce");
                 assert!(details.is_none());
             }
-            _ => panic!("Expected InvalidTransaction error"),
+            _ => panic!("Expected InvalidTxUnparsed error"),
         }
     }
 
@@ -1131,7 +1124,7 @@ mod tests {
                 }
             }
         });
-        let err = RpcError::invalid_transaction("invalid nonce", Some(data));
+        let err = RpcError::invalid_tx("invalid nonce", Some(data));
         match err {
             RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {
                 tx_nonce,
@@ -1155,7 +1148,7 @@ mod tests {
             }
             .is_account_not_found()
         );
-        assert!(!RpcError::Timeout(3).is_account_not_found());
+        assert!(!RpcError::InvalidResponse("missing result".to_string()).is_account_not_found());
     }
 
     #[test]
@@ -1169,7 +1162,9 @@ mod tests {
             }
             .is_contract_not_deployed()
         );
-        assert!(!RpcError::Timeout(3).is_contract_not_deployed());
+        assert!(
+            !RpcError::InvalidResponse("missing result".to_string()).is_contract_not_deployed()
+        );
     }
 
     #[test]
@@ -1196,8 +1191,14 @@ mod tests {
         assert!(!panic.is_method_not_found());
         assert_eq!(panic.block_height(), None);
         assert_eq!(panic.block_hash(), None);
-        assert_eq!(RpcError::Timeout(3).block_height(), None);
-        assert_eq!(RpcError::Timeout(3).block_hash(), None);
+        assert_eq!(
+            RpcError::InvalidResponse("missing result".to_string()).block_height(),
+            None
+        );
+        assert_eq!(
+            RpcError::InvalidResponse("missing result".to_string()).block_hash(),
+            None
+        );
     }
 
     #[test]
@@ -1365,15 +1366,15 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_error_request_timeout_display() {
-        let err = RpcError::RequestTimeout {
+    fn test_rpc_error_timeout_display() {
+        let err = RpcError::Timeout {
             message: "request timed out".to_string(),
             transaction_hash: Some(CryptoHash::ZERO),
             cause: None,
         };
         assert_eq!(err.to_string(), "Request timeout: request timed out");
 
-        let err = RpcError::RequestTimeout {
+        let err = RpcError::Timeout {
             message: "Server error".to_string(),
             transaction_hash: None,
             cause: Some(TimeoutCause::Pending {
@@ -1444,7 +1445,7 @@ mod tests {
 
     #[test]
     fn test_error_from_rpc_error() {
-        let rpc_err = RpcError::Timeout(3);
+        let rpc_err = RpcError::InvalidResponse("missing result".to_string());
         let err: Error = rpc_err.into();
         assert!(matches!(err, Error::Rpc(_)));
     }

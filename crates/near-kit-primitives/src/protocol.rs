@@ -12,7 +12,7 @@ pub use crate::error::{
 pub use crate::types::{
     AccessKey, AccessKeyPermission, Action, ActionError, ActionErrorKind, ActionsValidationError,
     AddKeyAction, CompilationError, CreateAccountAction, DELEGATE_ACTION_PREFIX,
-    DELEGATE_V2_ACTION_PREFIX, DelegateAction, DelegateActionV2, DelegateDecodeError,
+    DELEGATE_V2_ACTION_PREFIX, DecodeDelegateError, DelegateAction, DelegateActionV2,
     DeleteAccountAction, DeleteKeyAction, DeployContractAction, DeployGlobalContractAction,
     DepositCostFailureReason, DeterministicStateInitAction, FunctionCallAction, FunctionCallError,
     FunctionCallPermission, GasKeyInfo, GlobalContractId, HostError, InvalidAccessKeyError,

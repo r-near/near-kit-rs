@@ -838,16 +838,22 @@ pub struct ReceiptToTxResponse {
     pub sender_account_id: AccountId,
 }
 
-/// Raw RPC response for transaction submission/status (internal).
+/// A `send_tx` or `EXPERIMENTAL_tx_status` response: the wait level the
+/// transaction reached and, once it has executed, its outcome.
 ///
-/// Used internally to deserialize responses from `send_tx` and
-/// `EXPERIMENTAL_tx_status` before converting to user-facing types
-/// via [`WaitLevel::convert`](crate::transaction::WaitLevel::convert).
-#[doc(hidden)]
+/// near-kit's low-level `RpcClient::send_tx` and `RpcClient::tx_status`
+/// return it. Sending through a client instead resolves to the typed
+/// response of its [`WaitLevel`](crate::transaction::WaitLevel)
+/// ([`FinalExecutionOutcome`] or [`SendTxResponse`]), built from this.
+///
+/// `outcome` is `None` from `send_tx` until the transaction has executed.
+/// `EXPERIMENTAL_tx_status` can return a partial outcome at earlier levels.
 #[derive(Debug, Clone, Deserialize)]
-pub struct RawTransactionResponse {
-    /// Transaction hash — populated after deserialization from the signed tx
-    /// (for `send_tx`) or from the outcome (for `tx_status`).
+pub struct RpcTransactionResponse {
+    /// Hash of the transaction. Not part of the JSON: `send_tx` fills it in
+    /// from the signed transaction and `tx_status` from the outcome or the
+    /// requested hash, so it is all zeros when you deserialize the JSON
+    /// yourself.
     #[serde(skip)]
     pub transaction_hash: CryptoHash,
     /// The wait level that was reached.
@@ -2808,7 +2814,7 @@ mod tests {
             },
             "receipts_outcome": []
         });
-        let response: RawTransactionResponse = serde_json::from_value(json).unwrap();
+        let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
         assert_eq!(response.final_execution_status, TxExecutionStatus::Final);
         let outcome = response.outcome.unwrap();
         assert!(outcome.is_success());
@@ -2820,7 +2826,7 @@ mod tests {
         let json = serde_json::json!({
             "final_execution_status": "NONE"
         });
-        let response: RawTransactionResponse = serde_json::from_value(json).unwrap();
+        let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
         assert_eq!(response.final_execution_status, TxExecutionStatus::None);
         assert!(response.outcome.is_none());
         // transaction_hash is serde(skip) — populated by rpc methods, not deserialization
@@ -2867,7 +2873,7 @@ mod tests {
             },
             "receipts_outcome": []
         });
-        let response: RawTransactionResponse = serde_json::from_value(json).unwrap();
+        let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
         let outcome = response.outcome.unwrap();
         assert!(outcome.is_failure());
         assert!(!outcome.is_success());
@@ -2907,7 +2913,7 @@ mod tests {
             },
             "receipts_outcome": []
         });
-        let response: RawTransactionResponse = serde_json::from_value(json).unwrap();
+        let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
         response.outcome.unwrap()
     }
 

@@ -102,5 +102,5 @@ async fn invalid_block_hash_returns_unknown_block() {
         .block(BlockReference::from(CryptoHash::default()))
         .await
         .expect_err("zero block hash must not exist");
-    assert!(matches!(error, RpcError::UnknownBlock(_)));
+    assert!(matches!(error, RpcError::BlockNotFound(_)));
 }
