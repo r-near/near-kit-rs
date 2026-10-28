@@ -70,7 +70,8 @@ tokio::spawn(async move {
 For CI and scripts, [`SigningNear::from_env`](crate::SigningNear::from_env)
 builds the whole thing from environment variables: `NEAR_ACCOUNT_ID` and
 `NEAR_PRIVATE_KEY` (required), `NEAR_NETWORK` (`mainnet`, `testnet` or an
-RPC URL; `testnet` if unset), `NEAR_CHAIN_ID` and `NEAR_MAX_NONCE_RETRIES`.
+RPC URL; `testnet` if unset), `NEAR_CHAIN_ID` (required with an RPC URL,
+an override for `mainnet` and `testnet`) and `NEAR_MAX_NONCE_RETRIES`.
 
 ## Endpoints
 
@@ -99,14 +100,17 @@ why.
 
 Providers that want an API key in a header, a proxy, or a request timeout
 are configured on the HTTP client. Build a `reqwest::Client` and wrap it
-with [`ReqwestTransport::with_client`](crate::rpc::ReqwestTransport::with_client):
+with [`ReqwestTransport::with_client`](crate::rpc::ReqwestTransport::with_client).
+[`near_kit::reqwest`](crate::reqwest) is the reqwest near-kit is built
+with, so the client's version always matches:
 
 ```rust
 use std::time::Duration;
 
 use near_kit::Near;
+use near_kit::reqwest;
+use near_kit::reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use near_kit::rpc::ReqwestTransport;
-use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 let mut headers = HeaderMap::new();

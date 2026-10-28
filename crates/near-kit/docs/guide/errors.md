@@ -132,10 +132,12 @@ fn failed_receipts(outcome: &FinalExecutionOutcome) -> Vec<String> {
 | `Near::view`, and the views of typed contract and token clients | [`ContractError<RpcError>`](crate::ContractError) |
 | `#[call]` methods and token calls through a `SigningNear` | [`ContractError<Error>`](crate::ContractError) |
 | `FinalExecutionOutcome::result` / `json` | [`OutcomeError`](crate::rpc::OutcomeError) |
-| Client-free code: `FunctionCall::into_action`, key parsing, `RotatingSigner::new`, `SignedTransaction::from_base64` | [`CodecError`](crate::transaction::CodecError), [`ParseKeyError`](crate::signer::ParseKeyError), [`SignerError`](crate::signer::SignerError), [`DecodeTransactionError`](crate::protocol::DecodeTransactionError) |
+| Client-free code: `FunctionCall::into_action`, key parsing, `RotatingSigner::new`, `SignedTransaction::from_base64`, `SignedDelegateAction::from_base64` | [`CodecError`](crate::transaction::CodecError), [`ParseKeyError`](crate::signer::ParseKeyError), [`SignerError`](crate::signer::SignerError), [`DecodeTransactionError`](crate::protocol::DecodeTransactionError), [`DecodeDelegateError`](crate::protocol::DecodeDelegateError) |
 
 Each of these converts into [`Error`](crate::Error) with `?`, so a function
-returning `Result<_, near_kit::Error>` can mix them freely.
+returning `Result<_, near_kit::Error>` can mix them freely. A
+`DecodeTransactionError` becomes [`Error::Decode`](crate::Error::Decode) and a
+`DecodeDelegateError` [`Error::DecodeDelegate`](crate::Error::DecodeDelegate).
 
 [`ContractError<E>`](crate::ContractError) has two cases: `Codec` (the
 arguments didn't encode or the result didn't decode as the type you asked

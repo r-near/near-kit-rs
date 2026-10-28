@@ -103,7 +103,8 @@ and sends a transaction **to the delegate's sender** with one
 use near_kit::protocol::{Action, SignedDelegateAction};
 use near_kit::*;
 
-# async fn example(relayer: &SigningNear, payload: &str) -> Result<(), Box<dyn std::error::Error>> {
+# async fn example(relayer: &SigningNear, payload: &str) -> Result<(), Error> {
+// A bad payload converts into `Error::DecodeDelegate`.
 let signed = SignedDelegateAction::from_base64(payload)?;
 let outcome = relayer
     .transaction(signed.sender_id())
@@ -130,8 +131,8 @@ not to the relayer. Checks the chain makes (signature, expiry, nonce) fail
 as an action error after the relayer has paid for the attempt. So check, in
 roughly this order:
 
-1. **The signature.** `signed.signature.verify(..)` over the delegate
-   action's hash, with its public key.
+1. **The signature.** [`signed.verify()`](crate::protocol::SignedDelegateAction::verify)
+   checks it against the delegate action's public key.
 2. **The expiry.** `max_block_height` above the current height, and not so
    far above that you'd hold a stale request.
 3. **The receiver.** Only contracts you relay for.
@@ -159,8 +160,7 @@ const MAX_GAS_PER_CALL: Gas = Gas::from_tgas(50);
 async fn check(near: &Near, signed: &SignedDelegateAction) -> Result<(), String> {
     let delegate = &signed.delegate_action;
 
-    let hash = delegate.get_hash();
-    if !signed.signature.verify(hash.as_bytes(), &delegate.public_key) {
+    if !signed.verify() {
         return Err("bad signature".into());
     }
 
@@ -262,6 +262,6 @@ before signing.
 - [`SignedDelegateAction`](crate::protocol::SignedDelegateAction),
   [`DelegateAction`](crate::protocol::DelegateAction),
   [`Action::delegate`](crate::protocol::Action::delegate)
-- [`Signature::verify`](crate::signer::Signature::verify)
+- [`SignedDelegateAction::verify`](crate::protocol::SignedDelegateAction::verify)
 - [`ActionErrorKind`](crate::protocol::ActionErrorKind) for the delegate
   failure kinds
