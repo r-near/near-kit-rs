@@ -126,6 +126,61 @@ async fn test_universal_account_bootstraps_itself() {
     assert_initialized_with(&root_near, &account_id, &key).await;
 }
 
+/// A bootstrap only accepts `bootstrap_nonce + 1`, so one signed and dropped
+/// (or lost to a transport error) must not move the next one past it.
+#[tokio::test]
+async fn test_universal_account_bootstraps_after_a_dropped_signature() {
+    let (_sandbox, root_near) = shared_client().await;
+    if !universal_accounts_enabled(&root_near).await {
+        eprintln!("skipping: the sandbox does not enable universal_accounts");
+        return;
+    }
+    let (state_init, account_id, key) = key_only_state_init();
+
+    root_near
+        .wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::transfer(NearToken::from_near(1)))
+        .await
+        .expect("fund the 0u id")
+        .result()
+        .unwrap();
+    let bootstrap_nonce = root_near
+        .near()
+        .rpc()
+        .view_account(&account_id, BlockReference::Finality(Finality::Final))
+        .await
+        .expect("view the funded 0u account")
+        .bootstrap_nonce
+        .expect("an uninitialized 0u account has a bootstrap nonce");
+
+    let account = root_near
+        .near()
+        .with_signer(InMemorySigner::new(account_id.clone(), key.clone()));
+    let dropped = account
+        .sign(
+            &account_id,
+            vec![Action::universal_state_init(
+                state_init.clone(),
+                NearToken::ZERO,
+            )],
+        )
+        .await
+        .expect("sign the bootstrap");
+    assert_eq!(dropped.transaction.nonce, bootstrap_nonce + 1);
+    drop(dropped);
+
+    let outcome = account
+        .wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::universal_state_init(state_init, NearToken::ZERO))
+        .await
+        .expect("the bootstrap after a dropped one is sent");
+    assert!(outcome.is_success(), "{outcome:?}");
+    assert_eq!(outcome.transaction.nonce, bootstrap_nonce + 1);
+    assert_initialized_with(&root_near, &account_id, &key).await;
+}
+
 #[tokio::test]
 async fn test_transfer_to_universal_account() {
     let (_sandbox, root_near) = shared_client().await;

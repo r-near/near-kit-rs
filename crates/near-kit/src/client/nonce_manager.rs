@@ -78,11 +78,9 @@ impl NonceManager {
             Some(&cached) if cached.saturating_add(1) < bound => cached.max(chain_nonce),
             _ => chain_nonce,
         };
-        let next = current.checked_add(1).ok_or_else(|| {
-            Error::from(RpcError::InvalidResponse(format!(
-                "access key nonce {current} has no next nonce"
-            )))
-        })?;
+        let next = current
+            .checked_add(1)
+            .ok_or_else(|| no_next_nonce(current))?;
         nonces.insert(key, next);
         Ok(next)
     }
@@ -94,6 +92,11 @@ impl NonceManager {
         self.lock()
             .remove(&(chain_id.clone(), account_id.clone(), public_key.clone()));
     }
+}
+
+/// The error for a node-reported nonce of `u64::MAX`, which no nonce follows.
+pub(super) fn no_next_nonce(nonce: u64) -> Error {
+    RpcError::InvalidResponse(format!("access key nonce {nonce} has no next nonce")).into()
 }
 
 #[cfg(test)]

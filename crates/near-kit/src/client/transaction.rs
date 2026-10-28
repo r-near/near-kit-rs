@@ -40,7 +40,7 @@ use crate::types::{
 };
 
 use super::near::Near;
-use super::nonce_manager::NonceManager;
+use super::nonce_manager::{NonceManager, no_next_nonce};
 use super::rpc::RpcClient;
 use super::signing::SigningNear;
 use crate::types::{Signer, SigningKey};
@@ -246,7 +246,16 @@ impl PreparedTransaction {
                     .view_account(signer_id, BlockReference::Finality(Finality::Final))
                     .await?;
                 let bootstrap_nonce = account.bootstrap_nonce.ok_or(error)?;
-                (bootstrap_nonce, account.block_height, account.block_hash)
+                // nearcore checks a self-signed bootstrap strictly: only
+                // `bootstrap_nonce + 1` is accepted. So neither the cache (a
+                // nonce handed out earlier and never sent would push past it)
+                // nor a rejection's floor applies; this view is the authority.
+                // Once the state init lands, the installed key starts from a
+                // higher nonce, so later sends need no cache entry from here.
+                let nonce = bootstrap_nonce
+                    .checked_add(1)
+                    .ok_or_else(|| no_next_nonce(bootstrap_nonce))?;
+                return Ok((nonce, account.block_hash));
             }
             Err(error) => return Err(error.into()),
         };
@@ -1079,6 +1088,8 @@ mod tests {
     #[derive(Default)]
     struct UninitializedUniversalTransport {
         sent: Mutex<Vec<String>>,
+        /// Scripted `send_tx` responses; accepted once these run out.
+        send_tx_responses: Mutex<VecDeque<Vec<u8>>>,
     }
 
     impl RpcTransport for UninitializedUniversalTransport {
@@ -1119,6 +1130,11 @@ mod tests {
                 "send_tx" => {
                     let signed = request["params"]["signed_tx_base64"].as_str().unwrap();
                     self.sent.lock().unwrap().push(signed.to_string());
+                    if let Some(body) = self.send_tx_responses.lock().unwrap().pop_front() {
+                        return Box::pin(
+                            async move { Ok(TransportResponse { status: 200, body }) },
+                        );
+                    }
                     serde_json::json!({ "result": { "final_execution_status": "NONE" } })
                 }
                 other => panic!("unexpected RPC method {other}"),
@@ -1575,5 +1591,76 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(signed.transaction.nonce, 6);
+    }
+
+    fn bootstrap_signer() -> (
+        SigningNear,
+        Arc<UninitializedUniversalTransport>,
+        Vec<Action>,
+    ) {
+        let key = SecretKey::generate_ed25519();
+        let state_init =
+            crate::protocol::UniversalStateInitV1::new().with_access_key(key.public_key());
+        let account_id =
+            crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
+        let transport = Arc::new(UninitializedUniversalTransport::default());
+        let near = crate::Near::custom("http://bootstrap-again.invalid", "bootstrap-again")
+            .transport(transport.clone())
+            .build()
+            .with_signer(InMemorySigner::new(account_id, key));
+        let actions = vec![Action::universal_state_init(state_init, NearToken::ZERO)];
+        (near, transport, actions)
+    }
+
+    #[tokio::test]
+    async fn dropped_bootstrap_signature_does_not_shift_the_bootstrap_nonce() {
+        // A self-signed bootstrap is checked in strict mode: only
+        // bootstrap_nonce + 1 is accepted, however many were handed out.
+        let (near, transport, actions) = bootstrap_signer();
+        let account_id = near.account_id().clone();
+
+        let dropped = near.sign(&account_id, actions.clone()).await.unwrap();
+        assert_eq!(dropped.transaction.nonce, 100_000_001);
+
+        let mut tx = near.wait_until::<Submitted>().transaction(&account_id);
+        for action in actions {
+            tx = tx.add_action(action);
+        }
+        tx.await.expect("bootstrap is sent");
+        let sent = transport.sent.lock().unwrap();
+        let tx = SignedTransaction::from_base64(&sent[0])
+            .unwrap()
+            .transaction;
+        assert_eq!(tx.nonce, 100_000_001);
+    }
+
+    #[tokio::test]
+    async fn bootstrap_retry_keeps_the_bootstrap_nonce() {
+        // An InvalidNonce reporting the bootstrap nonce itself (another
+        // bootstrap pending, say) must not push the retry to floor + 2.
+        let (near, transport, actions) = bootstrap_signer();
+        transport
+            .send_tx_responses
+            .lock()
+            .unwrap()
+            .push_back(invalid_nonce_body(100_000_001, 100_000_000));
+        let account_id = near.account_id().clone();
+
+        let mut tx = near.wait_until::<Submitted>().transaction(&account_id);
+        for action in actions {
+            tx = tx.add_action(action);
+        }
+        tx.await.expect("retry is sent");
+        let sent = transport.sent.lock().unwrap();
+        let nonces: Vec<u64> = sent
+            .iter()
+            .map(|tx| {
+                SignedTransaction::from_base64(tx)
+                    .unwrap()
+                    .transaction
+                    .nonce
+            })
+            .collect();
+        assert_eq!(nonces, vec![100_000_001, 100_000_001]);
     }
 }
