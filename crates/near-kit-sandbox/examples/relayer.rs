@@ -10,7 +10,8 @@
 //!   `SignedDelegateAction::to_base64` as the payload to send over HTTP.
 //! - Relayer side: `SignedDelegateAction::from_base64`, then the checks a
 //!   relayer makes before paying: the signature, the sender, the receiver, which
-//!   actions are allowed, gas, deposits and expiry. Then it sends
+//!   actions are allowed, gas, deposits, expiry, and the user's key and nonce
+//!   (so a replayed request is turned down). Then it sends
 //!   `Action::delegate(signed)` in a transaction to `signed.sender_id()` (the
 //!   user's account, not the contract).
 //! - Reading the result: the relayer's transaction succeeds even when the
@@ -29,7 +30,7 @@
 use std::fmt;
 
 use near_kit::protocol::{Action, ActionError, SignedDelegateAction};
-use near_kit::rpc::{FinalExecutionOutcome, Finality};
+use near_kit::rpc::{FinalExecutionOutcome, Finality, RpcError};
 use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::transaction::{DelegateOptions, FunctionCall};
 use near_kit::{AccountId, Error, Gas, NearToken, SigningNear, account};
@@ -83,9 +84,14 @@ impl From<Error> for RelayError {
     }
 }
 
-/// Check a decoded request against the policy at block height `height`.
-/// Runs before anything is sent.
-fn check(policy: &Policy, signed: &SignedDelegateAction, height: u64) -> Result<(), String> {
+/// Check a decoded request against the policy at block height `height`,
+/// where the user's key is at nonce `key_nonce`. Runs before anything is sent.
+fn check(
+    policy: &Policy,
+    signed: &SignedDelegateAction,
+    height: u64,
+    key_nonce: u64,
+) -> Result<(), String> {
     let delegate = &signed.delegate_action;
 
     // The signature covers every field below, so check it first: a request
@@ -94,10 +100,6 @@ fn check(policy: &Policy, signed: &SignedDelegateAction, height: u64) -> Result<
     if !signed.verify() {
         return Err("signature doesn't match the delegate action".into());
     }
-    // The chain checks that the key belongs to the sender and may call this
-    // receiver; a relayer can check it up front with
-    // `near.rpc().view_access_key(..)`.
-
     if !policy.users.contains(&delegate.sender_id) {
         return Err(format!(
             "{} is not a user of this relayer",
@@ -142,6 +144,15 @@ fn check(policy: &Policy, signed: &SignedDelegateAction, height: u64) -> Result<
         ));
     }
 
+    // A nonce the key has already used fails on chain, at the relayer's
+    // expense. This is also what turns down a replayed request.
+    if delegate.nonce <= key_nonce {
+        return Err(format!(
+            "nonce {} is already used (the key is at {key_nonce})",
+            delegate.nonce
+        ));
+    }
+
     Ok(())
 }
 
@@ -162,7 +173,27 @@ async fn relay(
         .map_err(Error::from)?
         .header
         .height;
-    check(policy, &signed, height).map_err(RelayError::Rejected)?;
+    // The key must be on the sender's account. Whether it may call the
+    // receiver is checked on chain.
+    let key_nonce = match relayer
+        .near()
+        .rpc()
+        .view_access_key(
+            signed.sender_id(),
+            &signed.delegate_action.public_key,
+            Finality::Final,
+        )
+        .await
+    {
+        Ok(key) => key.nonce,
+        Err(RpcError::AccessKeyNotFound { .. } | RpcError::AccountNotFound { .. }) => {
+            return Err(RelayError::Rejected(
+                "the key is not on the sender's account".into(),
+            ));
+        }
+        Err(error) => return Err(Error::from(error).into()),
+    };
+    check(policy, &signed, height, key_nonce).map_err(RelayError::Rejected)?;
 
     // The transaction goes to the delegate's sender: the user's account
     // unpacks the delegate action and forwards its actions to the receiver.
@@ -355,6 +386,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("receiver", other_receiver),
         ("lifetime", long_lived),
         ("signature", tampered),
+        ("replay", payload.clone()),
         ("garbage", not_a_payload),
     ] {
         match relay(&relayer, &policy, &request).await {
