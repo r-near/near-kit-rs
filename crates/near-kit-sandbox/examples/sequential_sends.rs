@@ -22,7 +22,7 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting local sandbox...\n");
     let sandbox: Sandbox = Sandbox::builder().fresh().await?;
 
-    let root_near = sandbox.client();
+    let root_near = sandbox.root_account();
     let root_account = root_near.account_id().to_string();
 
     // Generate 3 keys for the bot account
@@ -44,7 +44,7 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add remaining keys
     let bot_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&bot_account, secret_keys[0].clone()));
 

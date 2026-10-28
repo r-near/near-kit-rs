@@ -29,7 +29,7 @@ async fn universal_accounts_enabled(near: &SigningNear) -> bool {
     let protocol_config: serde_json::Value = near
         .near()
         .rpc()
-        .call(
+        .request(
             "EXPERIMENTAL_protocol_config",
             serde_json::json!({ "finality": "final" }),
         )

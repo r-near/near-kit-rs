@@ -24,7 +24,7 @@ const REJECT_DELEGATE_V2_PROTOCOL_VERSION: u32 = 87;
 #[tokio::test]
 async fn test_delegate_v2_relay() {
     let sandbox = sandbox_2_13().await;
-    let root_near = sandbox.client();
+    let root_near = sandbox.root_account();
 
     // --- Accounts: sender (signs the meta-tx), relayer (pays gas), recipient.
     let sender_key = SecretKey::generate_ed25519();
@@ -96,7 +96,7 @@ async fn test_delegate_v2_relay() {
     };
     let payload: VersionedDelegateActionPayload = delegate_v2.into();
     let signature = sender_key.sign(payload.get_hash().as_bytes());
-    let signed = payload.sign(signature);
+    let signed = payload.into_signed(signature);
 
     // The signature verifies under the V2 domain before we even send it.
     assert!(signed.verify(), "V2 delegate signature must verify locally");
@@ -124,7 +124,7 @@ async fn test_delegate_v2_relay() {
     let raw: serde_json::Value = root_near
         .near()
         .rpc()
-        .call(
+        .request(
             "send_tx",
             serde_json::json!({
                 "signed_tx_base64": signed_outer.to_base64(),
@@ -213,7 +213,7 @@ async fn test_delegate_v2_rejected_as_removed_protocol_feature() {
     };
     let payload: VersionedDelegateActionPayload = delegate_v2.into();
     let signature = sender_key.sign(payload.get_hash().as_bytes());
-    let signed = payload.sign(signature);
+    let signed = payload.into_signed(signature);
 
     let error = relayer_near
         .wait_until::<Final>()

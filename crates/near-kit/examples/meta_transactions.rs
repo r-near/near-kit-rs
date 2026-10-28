@@ -23,13 +23,13 @@ use near_kit::*;
 async fn user_creates_delegate(user: &SigningNear) -> Result<SignedDelegateAction, Error> {
     println!("=== User Side ===\n");
 
-    // Sign the actions off-chain with .delegate()
+    // Sign the actions off-chain with .sign_delegate()
     // The user pays NO gas - they're just signing the intent
     let call = FunctionCall::new("add_message")
         .args(serde_json::json!({ "text": "Gasless transaction from near-kit-rs!" }))
         .gas(Gas::from_tgas(30));
     let delegate_result = user
-        .delegate(
+        .sign_delegate(
             account!("guestbook.near-examples.testnet"),
             vec![call.try_into()?],
             DelegateOptions::default(),

@@ -1,7 +1,5 @@
 //! Transaction action types.
 
-use std::collections::BTreeMap;
-
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use borsh::de::EnumExt as _;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -22,8 +20,8 @@ use super::{
 /// - [`GlobalContractId`] — references a global contract by code hash or publisher account.
 /// - [`StateInit`] / [`StateInitV1`] — state initialization for a deterministic account.
 ///
-/// Construct a [`StateInit`] ergonomically via the [`StateInitExt`] extension trait
-/// (`StateInit::by_hash(...)` / `StateInit::by_publisher(...)`).
+/// Build a [`StateInit`] from a [`StateInitV1`]:
+/// `StateInitV1::code(code_hash_or_publisher).with_data_entry(key, value).into()`.
 pub use near_global_contracts::{GlobalContractId, StateInit, StateInitV1};
 
 /// Publish mode for global contracts.
@@ -63,9 +61,6 @@ pub const DELEGATE_ACTION_PREFIX: u32 = 1_073_742_190;
 /// `DelegateActionV2`) when serializing for signing.
 pub const DELEGATE_V2_ACTION_PREFIX: u32 = 1_073_742_435;
 
-/// Maximum number of parallel nonces that a gas key may allocate.
-pub const MAX_NONCES_FOR_GAS_KEY: u16 = 1024;
-
 /// Gas key information.
 ///
 /// Gas keys are access keys with a prepaid balance to pay for gas costs.
@@ -98,7 +93,7 @@ pub enum AccessKeyPermission {
 
 impl AccessKeyPermission {
     /// Maximum number of parallel nonces that a gas key may allocate.
-    pub const MAX_NONCES_FOR_GAS_KEY: u16 = MAX_NONCES_FOR_GAS_KEY;
+    pub const MAX_NONCES_FOR_GAS_KEY: u16 = 1024;
 
     /// Create a function call permission.
     pub fn function_call(
@@ -310,8 +305,8 @@ pub struct UseGlobalContractAction {
 // ============================================================================
 //
 // The NEP-616 wire types ([`StateInit`], [`StateInitV1`], [`GlobalContractId`]) live in the
-// upstream `near-global-contracts` crate and are re-exported above. The action wrapper and the
-// `by_hash`/`by_publisher` construction ergonomics stay in near-kit.
+// upstream `near-global-contracts` crate and are re-exported above. The action wrapper stays in
+// near-kit.
 
 // Allowed by the orphan rule because `CryptoHash` is local. Upstream already
 // converts from `[u8; 32]` and `AccountId`.
@@ -331,35 +326,6 @@ pub struct DeterministicStateInitAction {
     pub state_init: StateInit,
     /// Amount to attach for storage costs.
     pub deposit: NearToken,
-}
-
-/// Ergonomic constructors for the upstream [`StateInit`] type.
-///
-/// `near-global-contracts` exposes [`StateInitV1::code`] / [`StateInitV1::with_data_entry`], but
-/// near-kit prefers the `by_hash`/`by_publisher` shape. This extension trait restores those
-/// constructors so call sites can write `StateInit::by_hash(...)`.
-pub trait StateInitExt {
-    /// Create a state init referencing a global contract by its code hash (immutable).
-    fn by_hash(code_hash: CryptoHash, data: BTreeMap<Vec<u8>, Vec<u8>>) -> StateInit;
-
-    /// Create a state init referencing a global contract by its publisher account (updatable).
-    fn by_publisher(publisher_id: AccountId, data: BTreeMap<Vec<u8>, Vec<u8>>) -> StateInit;
-}
-
-impl StateInitExt for StateInit {
-    fn by_hash(code_hash: CryptoHash, data: BTreeMap<Vec<u8>, Vec<u8>>) -> StateInit {
-        StateInit::V1(StateInitV1 {
-            code: GlobalContractId::CodeHash(*code_hash.as_bytes()),
-            data,
-        })
-    }
-
-    fn by_publisher(publisher_id: AccountId, data: BTreeMap<Vec<u8>, Vec<u8>>) -> StateInit {
-        StateInit::V1(StateInitV1 {
-            code: GlobalContractId::AccountId(publisher_id),
-            data,
-        })
-    }
 }
 
 impl DeterministicStateInitAction {
@@ -541,8 +507,9 @@ impl VersionedDelegateActionPayload {
         CryptoHash::hash(&self.serialize_for_signing())
     }
 
-    /// Sign this payload, producing a [`VersionedSignedDelegateAction`].
-    pub fn sign(self, signature: Signature) -> VersionedSignedDelegateAction {
+    /// Attach a signature made over [`get_hash`](Self::get_hash), producing a
+    /// [`VersionedSignedDelegateAction`].
+    pub fn into_signed(self, signature: Signature) -> VersionedSignedDelegateAction {
         VersionedSignedDelegateAction {
             delegate_action: self,
             signature,
@@ -745,22 +712,25 @@ impl Action {
         })
     }
 
-    /// Deploy a contract from the global registry by code hash.
+    /// Deploy a contract from the global registry.
     ///
-    /// References a previously published immutable contract.
-    pub fn deploy_from_hash(code_hash: CryptoHash) -> Self {
-        Self::UseGlobalContract(UseGlobalContractAction {
-            contract_identifier: GlobalContractId::CodeHash(*code_hash.as_bytes()),
-        })
-    }
-
-    /// Deploy a contract from the global registry by account ID.
+    /// Pass a [`CryptoHash`] to use a contract published with
+    /// [`PublishMode::Immutable`] (pinned to that code), or an [`AccountId`]
+    /// to use the contract that account published with
+    /// [`PublishMode::Updatable`] (it follows the publisher's updates).
     ///
-    /// References a contract published by the given account.
-    /// The contract can be updated by the publisher.
-    pub fn deploy_from_account(account_id: AccountId) -> Self {
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit_primitives::protocol::Action;
+    /// use near_kit_primitives::{CryptoHash, account};
+    ///
+    /// let by_publisher = Action::deploy_from(account!("publisher.near"));
+    /// let by_hash = Action::deploy_from(CryptoHash::hash(b"wasm"));
+    /// ```
+    pub fn deploy_from(code: impl Into<GlobalContractId>) -> Self {
         Self::UseGlobalContract(UseGlobalContractAction {
-            contract_identifier: GlobalContractId::AccountId(account_id),
+            contract_identifier: code.into(),
         })
     }
 
@@ -849,8 +819,9 @@ impl DelegateAction {
         CryptoHash::hash(&bytes)
     }
 
-    /// Sign this delegate action and return a SignedDelegateAction.
-    pub fn sign(self, signature: Signature) -> SignedDelegateAction {
+    /// Attach a signature made over [`get_hash`](Self::get_hash), producing a
+    /// [`SignedDelegateAction`].
+    pub fn into_signed(self, signature: Signature) -> SignedDelegateAction {
         SignedDelegateAction {
             delegate_action: self,
             signature,
@@ -944,6 +915,7 @@ impl TryFrom<Action> for NonDelegateAction {
 mod tests {
     use super::*;
     use crate::types::{Gas, NearToken, SecretKey};
+    use std::collections::BTreeMap;
 
     #[test]
     fn global_contract_id_from_crypto_hash_is_the_code_hash() {
@@ -1016,7 +988,7 @@ mod tests {
         let secret_key = SecretKey::generate_ed25519();
         let hash = delegate_action.get_hash();
         let signature = secret_key.sign(hash.as_bytes());
-        let signed = delegate_action.sign(signature);
+        let signed = delegate_action.into_signed(signature);
 
         // Roundtrip through bytes
         let bytes = signed.to_bytes();
@@ -1040,7 +1012,7 @@ mod tests {
         let secret_key = SecretKey::generate_ed25519();
         let hash = delegate_action.get_hash();
         let signature = secret_key.sign(hash.as_bytes());
-        let signed = delegate_action.sign(signature);
+        let signed = delegate_action.into_signed(signature);
 
         // Roundtrip through base64
         let base64 = signed.to_base64();
@@ -1059,7 +1031,7 @@ mod tests {
         let secret_key = SecretKey::generate_ed25519();
         let hash = delegate_action.get_hash();
         let signature = secret_key.sign(hash.as_bytes());
-        let signed = delegate_action.sign(signature);
+        let signed = delegate_action.into_signed(signature);
 
         assert_eq!(signed.sender_id().as_str(), "alice.testnet");
         assert_eq!(signed.receiver_id().as_str(), "bob.testnet");
@@ -1087,7 +1059,7 @@ mod tests {
         let secret_key = SecretKey::generate_ed25519();
         let hash = delegate_action.get_hash();
         let signature = secret_key.sign(hash.as_bytes());
-        let signed = delegate_action.sign(signature);
+        let signed = delegate_action.into_signed(signature);
         let delegate = Action::delegate(signed);
         assert!(NonDelegateAction::from_action(delegate).is_none());
     }
@@ -1135,7 +1107,7 @@ mod tests {
 
         // UseGlobalContract (discriminant = 10)
         let code_hash = CryptoHash::hash(&[1, 2, 3]);
-        let use_global = Action::deploy_from_hash(code_hash);
+        let use_global = Action::deploy_from(code_hash);
         let bytes = borsh::to_vec(&use_global).unwrap();
         assert_eq!(
             bytes[0], 10,
@@ -1143,10 +1115,8 @@ mod tests {
         );
 
         // DeterministicStateInit (discriminant = 11)
-        let state_init = Action::state_init(
-            StateInit::by_hash(code_hash, BTreeMap::new()),
-            NearToken::from_near(1),
-        );
+        let state_init =
+            Action::state_init(StateInitV1::code(code_hash).into(), NearToken::from_near(1));
         let bytes = borsh::to_vec(&state_init).unwrap();
         assert_eq!(
             bytes[0], 11,
@@ -1350,9 +1320,9 @@ mod tests {
             panic!("Expected DeployGlobalContract");
         }
 
-        // Test deploy_from_hash
+        // Test deploy_from with a code hash
         let hash = CryptoHash::hash(&code);
-        let action = Action::deploy_from_hash(hash);
+        let action = Action::deploy_from(hash);
         if let Action::UseGlobalContract(inner) = action {
             assert_eq!(
                 inner.contract_identifier,
@@ -1362,9 +1332,9 @@ mod tests {
             panic!("Expected UseGlobalContract");
         }
 
-        // Test deploy_from_account
+        // Test deploy_from with a publisher account
         let account_id: AccountId = "publisher.near".parse().unwrap();
-        let action = Action::deploy_from_account(account_id.clone());
+        let action = Action::deploy_from(account_id.clone());
         if let Action::UseGlobalContract(inner) = action {
             assert_eq!(
                 inner.contract_identifier,
@@ -1626,7 +1596,7 @@ mod tests {
         let payload: VersionedDelegateActionPayload =
             sample_delegate_v2(secret.public_key()).into();
         let sig = secret.sign(payload.get_hash().as_bytes());
-        let action = Action::delegate_v2(payload.sign(sig));
+        let action = Action::delegate_v2(payload.into_signed(sig));
 
         let bytes = borsh::to_vec(&action).unwrap();
         assert_eq!(bytes[0], 14, "DelegateV2 must have discriminant 14");
@@ -1666,7 +1636,7 @@ mod tests {
         let payload: VersionedDelegateActionPayload =
             sample_delegate_v2(secret.public_key()).into();
         let sig = secret.sign(payload.get_hash().as_bytes());
-        let signed = payload.sign(sig);
+        let signed = payload.into_signed(sig);
         assert!(signed.verify());
 
         // Round-trips through bytes and base64.
@@ -1685,7 +1655,7 @@ mod tests {
         let payload: VersionedDelegateActionPayload = v2.clone().into();
         let signed = payload
             .clone()
-            .sign(secret.sign(payload.get_hash().as_bytes()));
+            .into_signed(secret.sign(payload.get_hash().as_bytes()));
 
         let mut tampered_v2 = v2;
         tampered_v2.nonce = TransactionNonce::from_nonce_and_index(7, 4); // different index
@@ -1738,14 +1708,14 @@ mod tests {
         let secret = SecretKey::generate_ed25519();
         let v1 = Action::delegate(
             create_test_delegate_action()
-                .sign(secret.sign(create_test_delegate_action().get_hash().as_bytes())),
+                .into_signed(secret.sign(create_test_delegate_action().get_hash().as_bytes())),
         );
         let payload: VersionedDelegateActionPayload =
             sample_delegate_v2(secret.public_key()).into();
         let v2 = Action::delegate_v2(
             payload
                 .clone()
-                .sign(secret.sign(payload.get_hash().as_bytes())),
+                .into_signed(secret.sign(payload.get_hash().as_bytes())),
         );
 
         assert!(v1.is_delegate());
@@ -1770,7 +1740,7 @@ mod tests {
         let secret = SecretKey::generate_ed25519();
 
         let v1_signed = create_test_delegate_action()
-            .sign(secret.sign(create_test_delegate_action().get_hash().as_bytes()));
+            .into_signed(secret.sign(create_test_delegate_action().get_hash().as_bytes()));
         let v1 = Action::delegate(v1_signed);
 
         let payload: VersionedDelegateActionPayload =
@@ -1778,7 +1748,7 @@ mod tests {
         let v2 = Action::delegate_v2(
             payload
                 .clone()
-                .sign(secret.sign(payload.get_hash().as_bytes())),
+                .into_signed(secret.sign(payload.get_hash().as_bytes())),
         );
 
         for action in [v1, v2] {

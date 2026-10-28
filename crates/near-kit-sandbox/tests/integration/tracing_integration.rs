@@ -223,7 +223,7 @@ async fn test_send_transaction_span_hierarchy() {
 
     // Verify RPC spans have rpc.url field
     let rpc_fields = captured
-        .find_span_fields("call")
+        .find_span_fields("request")
         .expect("RPC call span should exist");
     assert!(
         rpc_fields.contains_key("rpc.url"),
@@ -311,7 +311,7 @@ async fn test_function_call_span_fields() {
     captured.spans.lock().unwrap().clear();
 
     let ft_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&ft_id, ft_key.clone()));
 
@@ -400,7 +400,7 @@ async fn test_ft_balance_of_span_hierarchy() {
         .unwrap();
 
     let ft_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&ft_id, ft_key.clone()));
 

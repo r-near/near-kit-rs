@@ -2,7 +2,7 @@
 //!
 //! Demonstrates the global contract workflow:
 //! 1. Publish a contract to the global registry
-//! 2. Deploy it to another account with `Action::deploy_from_account`/`deploy_from_hash`
+//! 2. Deploy it to another account with `Action::deploy_from`, by publisher account or by code hash
 //! 3. Call methods on the deployed contract
 //!
 //! Run: cargo run -p near-kit-sandbox --example global_contracts --features integration-tests
@@ -23,7 +23,7 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting local sandbox...\n");
     let sandbox: Sandbox = Sandbox::builder().fresh().await?;
 
-    let root_near = sandbox.client();
+    let root_near = sandbox.root_account();
     let root_account = root_near.account_id().to_string();
 
     // --- Create a publisher account ---
@@ -38,7 +38,7 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let publisher_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&publisher_account, publisher_key));
 
@@ -71,7 +71,7 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let user_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&user_account, user_key));
 
@@ -79,7 +79,7 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
     user_near
         .wait_until::<Final>()
         .transaction(user_near.account_id())
-        .add_action(Action::deploy_from_account(publisher_account.clone()))
+        .add_action(Action::deploy_from(publisher_account.clone()))
         .await?;
 
     println!("Deployed to {user_account} from publisher\n");
@@ -107,7 +107,7 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         println!("  - {}", msg["text"]);
     }
 
-    // --- Also deploy from a code hash (Action::deploy_from_hash) ---
+    // --- Also deploy from a code hash (Action::deploy_from with a CryptoHash) ---
     let code_hash = CryptoHash::hash(&wasm_code);
     println!("\nContract code hash: {code_hash}");
 
@@ -132,7 +132,7 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let user2_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&user2_account, user2_key));
 
@@ -140,7 +140,7 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
     user2_near
         .wait_until::<Final>()
         .transaction(user2_near.account_id())
-        .add_action(Action::deploy_from_hash(code_hash))
+        .add_action(Action::deploy_from(code_hash))
         .await?;
 
     println!("Deployed to {user2_account} from code hash");

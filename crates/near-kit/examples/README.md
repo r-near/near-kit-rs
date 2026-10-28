@@ -52,7 +52,7 @@ cargo run -p near-kit-sandbox --example sequential_sends --features integration-
 
 ### [`global_contracts.rs`](../../near-kit-sandbox/examples/global_contracts.rs)
 
-Publish contracts to the global registry with `Action::publish` and deploy them to other accounts with `Action::deploy_from_account` / `Action::deploy_from_hash`. Demonstrates both `PublishMode::Updatable` (by publisher) and `PublishMode::Immutable` (by hash).
+Publish contracts to the global registry with `Action::publish` and deploy them to other accounts with `Action::deploy_from` (a publisher `AccountId` or a code `CryptoHash`). Demonstrates both `PublishMode::Updatable` (by publisher) and `PublishMode::Immutable` (by hash).
 
 ```bash
 cargo run -p near-kit-sandbox --example global_contracts --features integration-tests

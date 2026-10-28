@@ -70,11 +70,10 @@ pub use action::{
     DELEGATE_ACTION_PREFIX, DELEGATE_V2_ACTION_PREFIX, DecodeError as DelegateDecodeError,
     DelegateAction, DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     DeployGlobalContractAction, DeterministicStateInitAction, FunctionCallAction,
-    FunctionCallPermission, GasKeyInfo, GlobalContractId, MAX_NONCES_FOR_GAS_KEY,
-    NonDelegateAction, PublishMode, SignedDelegateAction, StakeAction, StateInit, StateInitExt,
-    StateInitV1, TransferAction, TransferToGasKeyAction, UniversalStateInitAction,
-    UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
-    WithdrawFromGasKeyAction,
+    FunctionCallPermission, GasKeyInfo, GlobalContractId, NonDelegateAction, PublishMode,
+    SignedDelegateAction, StakeAction, StateInit, StateInitV1, TransferAction,
+    TransferToGasKeyAction, UniversalStateInitAction, UseGlobalContractAction,
+    VersionedDelegateActionPayload, VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
 };
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{

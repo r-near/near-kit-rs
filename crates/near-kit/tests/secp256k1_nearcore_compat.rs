@@ -145,7 +145,7 @@ fn signed_delegate_action_verifies_like_nearcore() {
     let hash = delegate.get_hash();
     assert_eq!(hash_hex(&hash), DELEGATE_HASH);
 
-    let signed = delegate.sign(key.sign(hash.as_bytes()));
+    let signed = delegate.into_signed(key.sign(hash.as_bytes()));
     assert_eq!(signed.signature.to_string(), DELEGATE_SIGNATURE);
 
     let decoded = SignedDelegateAction::from_bytes(&signed.to_bytes()).unwrap();
@@ -174,7 +174,7 @@ async fn signing_key_paths_verify_like_nearcore() {
         .sign_nep413(&near_kit::account!("alice.near"), &params)
         .await
         .unwrap();
-    let hash = nep413::serialize_message(&params);
+    let hash = nep413::hash_message(&params);
     assert!(nearcore_verify(
         &signed.signature,
         hash.as_bytes(),

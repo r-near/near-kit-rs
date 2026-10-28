@@ -34,7 +34,7 @@ use near_kit_sandbox::Sandbox;
 #[tokio::test]
 async fn creates_an_account() -> Result<(), Box<dyn std::error::Error>> {
     let sandbox = Sandbox::builder().fresh().await?;
-    let root = sandbox.client();
+    let root = sandbox.root_account();
     let alice_key = SecretKey::generate_ed25519();
 
     root.transaction(account!("alice.sandbox"))
@@ -52,8 +52,8 @@ Use `Sandbox::builder().fresh()` when a test needs isolated chain state. Use
 cost. The shared instance persists until process exit; tests sharing it must use
 unique accounts or otherwise coordinate state.
 
-`sandbox.client()` returns a `SigningNear` for the sandbox root account. Sign
-as another account with `sandbox.client().near().with_signer(signer)`. `Sandbox::set_balance` and
+`sandbox.root_account()` returns a `SigningNear` for the sandbox root account. Sign
+as another account with `sandbox.root_account().near().with_signer(signer)`. `Sandbox::set_balance` and
 `Sandbox::fast_forward` expose sandbox-owned test controls.
 
 For custom configuration:

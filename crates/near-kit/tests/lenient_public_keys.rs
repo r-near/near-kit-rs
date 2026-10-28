@@ -39,7 +39,7 @@ fn off_curve_ed25519_key_round_trips_through_string_borsh_and_json() {
 
     // Wrappers decode it too.
     let handle: PublicKeyHandle = s.parse().unwrap();
-    assert_eq!(handle.full_pubkey(), Some(&key));
+    assert_eq!(handle.as_full(), Some(&key));
     let handle: PublicKeyHandle = serde_json::from_str(&json).unwrap();
     assert_eq!(handle.into_full(), Some(key));
 }
@@ -124,8 +124,8 @@ mod rpc {
             .await
             .unwrap();
         assert_eq!(list.keys.len(), 2);
-        assert_eq!(list.keys[0].public_key.full_pubkey(), Some(&key));
+        assert_eq!(list.keys[0].public_key.as_full(), Some(&key));
         assert!(list.keys[0].public_key.refers_to(&key));
-        assert!(list.keys[1].public_key.full_pubkey().is_some());
+        assert!(list.keys[1].public_key.as_full().is_some());
     }
 }

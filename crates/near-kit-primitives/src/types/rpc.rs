@@ -261,7 +261,7 @@ pub struct AccessKeyInfoView {
     /// How the chain identifies the key: the full public key for
     /// ed25519/secp256k1, or the `ml-dsa-65-hash:` digest for ML-DSA-65 (the
     /// full key is not stored on-chain). Use
-    /// [`full_pubkey()`](PublicKeyHandle::full_pubkey) to get a usable
+    /// [`as_full()`](PublicKeyHandle::as_full) to get a usable
     /// [`PublicKey`], or [`refers_to()`](PublicKeyHandle::refers_to) to check
     /// it against one.
     pub public_key: PublicKeyHandle,
@@ -760,13 +760,6 @@ fn gas_dec_format<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<G
 pub struct GasPrice {
     /// Gas price in yoctoNEAR.
     pub gas_price: NearToken,
-}
-
-impl GasPrice {
-    /// Get gas price as u128.
-    pub fn as_u128(&self) -> u128 {
-        self.gas_price.as_yoctonear()
-    }
 }
 
 // ============================================================================
@@ -1871,8 +1864,8 @@ impl ViewFunctionResult {
         &self.result
     }
 
-    /// Get the result as a string.
-    pub fn as_string(&self) -> Result<String, std::string::FromUtf8Error> {
+    /// The result as UTF-8 text.
+    pub fn text(&self) -> Result<String, std::string::FromUtf8Error> {
         String::from_utf8(self.result.clone())
     }
 
@@ -2093,7 +2086,7 @@ pub struct NodeVersion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{AccessKeyPermission, MAX_NONCES_FOR_GAS_KEY};
+    use crate::protocol::AccessKeyPermission;
     use crate::signer::KeyType;
 
     #[test]
@@ -2122,11 +2115,11 @@ mod tests {
         let list: AccessKeyListView = serde_json::from_value(json).unwrap();
         assert_eq!(list.keys.len(), 2);
         assert!(list.keys[0].public_key.is_ml_dsa65_hash());
-        assert!(list.keys[0].public_key.full_pubkey().is_none());
+        assert!(list.keys[0].public_key.as_full().is_none());
         assert_eq!(list.keys[0].public_key.key_type(), KeyType::MlDsa65);
         assert_eq!(list.keys[0].public_key.to_string(), handle);
         // The ed25519 entry is a full, usable key.
-        let ed = list.keys[1].public_key.full_pubkey().unwrap();
+        let ed = list.keys[1].public_key.as_full().unwrap();
         assert_eq!(ed.key_type(), KeyType::Ed25519);
         assert_eq!(
             ed.to_string(),
@@ -2411,9 +2404,9 @@ mod tests {
     }
 
     #[test]
-    fn test_view_function_result_as_string() {
+    fn test_view_function_result_text() {
         let result = make_view_result(b"hello world".to_vec());
-        assert_eq!(result.as_string().unwrap(), "hello world");
+        assert_eq!(result.text().unwrap(), "hello world");
     }
 
     #[test]
@@ -2522,11 +2515,7 @@ mod tests {
 
     #[test]
     fn test_max_nonces_for_gas_key() {
-        assert_eq!(MAX_NONCES_FOR_GAS_KEY, 1024);
-        assert_eq!(
-            AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY,
-            MAX_NONCES_FOR_GAS_KEY
-        );
+        assert_eq!(AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY, 1024);
     }
 
     #[test]
@@ -3312,7 +3301,6 @@ mod tests {
 #[cfg(test)]
 mod action_view_conversion_tests {
     use super::*;
-    use crate::types::StateInitExt as _;
 
     const PK: &str = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";
     const SIG: &str = "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5";
@@ -3584,14 +3572,14 @@ mod action_view_conversion_tests {
                 "UseGlobalContract": { "code_hash": hash.to_string() }
             }))
             .unwrap(),
-            Action::deploy_from_hash(hash)
+            Action::deploy_from(hash)
         );
         assert_eq!(
             convert(serde_json::json!({
                 "UseGlobalContractByAccountId": { "account_id": "publisher.near" }
             }))
             .unwrap(),
-            Action::deploy_from_account("publisher.near".parse().unwrap())
+            Action::deploy_from("publisher.near".parse::<AccountId>().unwrap())
         );
     }
 
@@ -3606,7 +3594,9 @@ mod action_view_conversion_tests {
             }
         });
         let expected = Action::state_init(
-            StateInit::by_hash(hash, BTreeMap::from([(b"key".to_vec(), b"value".to_vec())])),
+            StateInitV1::code(hash)
+                .with_data_entry(b"key", b"value")
+                .into(),
             NearToken::from_yoctonear(1),
         );
         assert_eq!(convert(json).unwrap(), expected);

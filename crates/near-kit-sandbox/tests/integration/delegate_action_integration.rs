@@ -79,13 +79,13 @@ async fn test_delegate_action_transfer() {
 
     // --- SENDER: Create and sign a delegate action ---
     let sender_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&sender_id, sender_key.clone()));
 
     // Build a delegate action for transferring 2 NEAR to recipient
     let delegate_result = sender_near
-        .delegate(
+        .sign_delegate(
             &recipient_id,
             vec![Action::transfer(NearToken::from_near(2))],
             DelegateOptions {
@@ -103,7 +103,7 @@ async fn test_delegate_action_transfer() {
 
     // --- RELAYER: Submit the delegate action ---
     let relayer_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&relayer_id, relayer_key.clone()));
 
@@ -199,12 +199,12 @@ async fn test_delegate_action_function_call() {
 
     // --- SENDER: Create delegate action for function call ---
     let sender_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&sender_id, sender_key.clone()));
 
     let delegate_result = sender_near
-        .delegate(
+        .sign_delegate(
             &contract_id,
             vec![
                 FunctionCall::new("add_message")
@@ -225,7 +225,7 @@ async fn test_delegate_action_function_call() {
 
     // --- RELAYER: Submit the delegate action ---
     let relayer_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&relayer_id, relayer_key.clone()));
 

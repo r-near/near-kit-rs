@@ -227,7 +227,7 @@ impl SigningKey {
         account_id: &AccountId,
         params: &SignMessageParams,
     ) -> Result<SignedMessage, SignerError> {
-        let hash = nep413::serialize_message(params);
+        let hash = nep413::hash_message(params);
         let signature = self.sign(hash.as_bytes()).await?;
 
         Ok(SignedMessage {

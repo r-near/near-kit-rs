@@ -1,6 +1,6 @@
 //! Low-level RPC access, transports, query builders, and response types.
 //!
-//! `RpcClient` includes the generic `RpcClient::call` escape hatch in
+//! `RpcClient` includes the generic `RpcClient::request` escape hatch in
 //! addition to typed NEAR RPC methods. The response and view types are
 //! re-exported from `near-kit-primitives`.
 //!

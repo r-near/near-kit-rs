@@ -30,7 +30,7 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // One process-wide sandbox; use `.fresh()` for isolated state.
 //! let sandbox = Sandbox::builder().shared().await?;
-//! let root = sandbox.client(); // a `SigningNear` for the root account
+//! let root = sandbox.root_account(); // a `SigningNear` for the root account
 //!
 //! // Create an account the normal way.
 //! let alice_key = SecretKey::generate_ed25519();
@@ -55,7 +55,7 @@
 //!     .root_account(account!("sb"))
 //!     .fresh()
 //!     .await?;
-//! assert_eq!(sandbox.client().account_id(), "sb");
+//! assert_eq!(sandbox.root_account().account_id(), "sb");
 //! # Ok(())
 //! # }
 //! ```
@@ -418,7 +418,7 @@ impl Sandbox {
     /// use near_kit_sandbox::Sandbox;
     ///
     /// # async fn example() -> Result<(), near_kit_sandbox::SandboxError> {
-    /// let root = Sandbox::builder().shared().await?.client();
+    /// let root = Sandbox::builder().shared().await?.root_account();
     ///
     /// let sandbox = Sandbox::builder()
     ///     .version("2.13.4")
@@ -435,9 +435,9 @@ impl Sandbox {
     /// Get a signing client for this sandbox's root account.
     ///
     /// The root account is funded at genesis, so it can create and fund
-    /// test accounts. For reads use `client().near()`; for another account,
-    /// `client().near().with_signer(signer)`.
-    pub fn client(&self) -> SigningNear {
+    /// test accounts. For reads use `root_account().near()`; for another account,
+    /// `root_account().near().with_signer(signer)`.
+    pub fn root_account(&self) -> SigningNear {
         self.near().with_signer(self.root_signer.clone())
     }
 
@@ -474,7 +474,7 @@ impl Sandbox {
         // Fetch raw account data from RPC - this includes all fields the sandbox expects
         let mut account_response: serde_json::Value = near
             .rpc()
-            .call(
+            .request(
                 "query",
                 serde_json::json!({
                     "finality": "optimistic",
@@ -556,7 +556,7 @@ impl Sandbox {
         for _ in 0..2 {
             let _: serde_json::Value = near
                 .rpc()
-                .call(
+                .request(
                     "sandbox_patch_state",
                     serde_json::json!({ "records": records }),
                 )
@@ -579,12 +579,12 @@ impl Sandbox {
     /// sandbox.fast_forward(1000).await?;
     /// ```
     pub async fn fast_forward(&self, delta_height: u64) -> Result<(), SandboxError> {
-        // Sent once: `RpcClient::call` never retries this method, because a
+        // Sent once: `RpcClient::request` never retries this method, because a
         // retry after a lost response could advance the chain twice.
         let _: serde_json::Value = self
             .near()
             .rpc()
-            .call(
+            .request(
                 "sandbox_fast_forward",
                 serde_json::json!({ "delta_height": delta_height }),
             )

@@ -137,7 +137,7 @@
 //! ```
 //!
 //! `SigningNear::sign` signs without sending (submit later with
-//! `Near::send_signed`) and `SigningNear::delegate` builds NEP-366
+//! `Near::send_signed`) and `SigningNear::sign_delegate` builds NEP-366
 //! meta-transactions.
 //!
 //! ## Typed contracts
@@ -289,7 +289,7 @@
 //! ## Sandbox testing
 //!
 //! The companion [`near-kit-sandbox`](https://docs.rs/near-kit-sandbox) crate
-//! starts a Docker-backed local node; `sandbox.client()` is a `SigningNear` for
+//! starts a Docker-backed local node; `sandbox.root_account()` is a `SigningNear` for
 //! its root account.
 //!
 //! ## WebAssembly support
@@ -427,7 +427,7 @@
 //!
 //! ### Tracing
 //!
-//! With `tracing` on, RPC calls and transactions run inside spans (`call`,
+//! With `tracing` on, RPC calls and transactions run inside spans (`request`,
 //! `view_function`, `send_transaction`, ...) and emit events at DEBUG (retries,
 //! failed requests, transaction lifecycle) and TRACE (raw request/response
 //! payloads). near-kit never logs at WARN or ERROR for an error it returns to you —

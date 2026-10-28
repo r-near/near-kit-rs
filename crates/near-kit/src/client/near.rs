@@ -95,25 +95,6 @@ impl Near {
         &self.chain_id
     }
 
-    /// Set the number of nonce retries on `InvalidNonce` errors.
-    ///
-    /// `0` means no retries (send once), `1` means one retry, etc. Defaults to `3`.
-    ///
-    /// A [`SigningNear`] takes the setting of the `Near` it was created
-    /// from; use [`SigningNear::max_nonce_retries`] to change it for one
-    /// sender.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// let near = Near::testnet().build().max_nonce_retries(10);
-    /// ```
-    pub fn max_nonce_retries(mut self, retries: u32) -> Near {
-        self.max_nonce_retries = retries;
-        self
-    }
-
     /// Attach a signer, giving a [`SigningNear`] that sends transactions as
     /// the signer's account.
     ///
@@ -637,11 +618,11 @@ mod tests {
         let near = Near::testnet().build();
         assert_eq!(near.max_nonce_retries, 3);
 
-        let near = near.max_nonce_retries(10);
+        let near = Near::testnet().max_nonce_retries(10).build();
         assert_eq!(near.max_nonce_retries, 10);
 
         // 0 means no retries (send once)
-        let near = near.max_nonce_retries(0);
+        let near = Near::testnet().max_nonce_retries(0).build();
         assert_eq!(near.max_nonce_retries, 0);
 
         // A signing client takes the setting of the Near it came from.

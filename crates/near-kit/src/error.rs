@@ -429,7 +429,7 @@ impl RpcError {
     ///
     /// "Retryable" means re-sending the *same* request may succeed: transient
     /// transport failures, timeouts, and server-side conditions like an
-    /// unsynced node or a 5xx. This is what `RpcClient::call` consults
+    /// unsynced node or a 5xx. This is what `RpcClient::request` consults
     /// between attempts.
     ///
     /// For [`RpcError::InvalidTx`] the signed payload is fixed at this layer,
@@ -443,7 +443,7 @@ impl RpcError {
     ///
     /// A connection the server reset, aborted, or closed mid-exchange counts
     /// as transient; overloaded nodes commonly shed load this way. The node
-    /// may already have handled such a request, so `RpcClient::call` never
+    /// may already have handled such a request, so `RpcClient::request` never
     /// retries `sandbox_fast_forward`, the one method that is not idempotent.
     ///
     /// [`InvalidTxError::is_retryable`]: crate::protocol::InvalidTxError::is_retryable

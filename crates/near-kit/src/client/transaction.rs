@@ -436,7 +436,7 @@ impl PreparedTransaction {
                     }
                     Err(e) => {
                         // DEBUG, not ERROR: the error is returned to the
-                        // caller (see `RpcClient::call`).
+                        // caller (see `RpcClient::request`).
                         trace::debug!(error = %e, "Transaction send failed");
                         return Err(e.into());
                     }
@@ -520,7 +520,7 @@ impl PreparedTransaction {
         let hash = delegate_action.get_hash();
         let signature = key.sign(hash.as_bytes()).await?;
 
-        Ok(delegate_action.sign(signature))
+        Ok(delegate_action.into_signed(signature))
     }
 }
 
@@ -855,7 +855,7 @@ mod tests {
         let error = signing.sign(&receiver, Vec::new()).await.unwrap_err();
         assert!(matches!(error, Error::InvalidTransaction(_)), "{error:?}");
         let error = signing
-            .delegate(&receiver, Vec::new(), Default::default())
+            .sign_delegate(&receiver, Vec::new(), Default::default())
             .await
             .unwrap_err();
         assert!(matches!(error, Error::InvalidTransaction(_)), "{error:?}");
@@ -878,7 +878,7 @@ mod tests {
             public_key: key.public_key(),
         };
         let signature = key.sign(delegate.get_hash().as_bytes());
-        let signed_delegate = delegate.sign(signature);
+        let signed_delegate = delegate.into_signed(signature);
 
         let error = test_signing()
             .transaction(crate::account!("guestbook.testnet"))
@@ -915,10 +915,10 @@ mod tests {
             public_key: key.public_key(),
         };
         let signature = key.sign(delegate.get_hash().as_bytes());
-        let signed_delegate = delegate.sign(signature);
+        let signed_delegate = delegate.into_signed(signature);
 
         let error = test_signing()
-            .delegate(
+            .sign_delegate(
                 signed_delegate.sender_id(),
                 vec![Action::delegate(signed_delegate.clone())],
                 Default::default(),
@@ -930,10 +930,7 @@ mod tests {
 
     #[tokio::test]
     async fn state_init_to_another_receiver_is_rejected_before_any_rpc() {
-        let state_init = <StateInit as crate::types::StateInitExt>::by_hash(
-            CryptoHash::ZERO,
-            Default::default(),
-        );
+        let state_init = StateInit::from(crate::protocol::StateInitV1::code(CryptoHash::ZERO));
         let derived = state_init.derive_account_id();
         let signing = test_signing();
         let wrong = crate::account!("contract.testnet");
@@ -961,7 +958,7 @@ mod tests {
         assert!(matches!(error, Error::InvalidTransaction(_)), "{error:?}");
 
         let error = signing
-            .delegate(
+            .sign_delegate(
                 &wrong,
                 vec![Action::state_init(state_init, NearToken::ZERO)],
                 Default::default(),
@@ -975,10 +972,7 @@ mod tests {
     fn state_init_actions_name_their_receiver() {
         // The receiver of a state init is the account it derives; the old
         // builder rewrote the receiver, now the caller passes it.
-        let state_init = <StateInit as crate::types::StateInitExt>::by_hash(
-            CryptoHash::ZERO,
-            Default::default(),
-        );
+        let state_init = StateInit::from(crate::protocol::StateInitV1::code(CryptoHash::ZERO));
         let tx = test_signing()
             .transaction(state_init.derive_account_id())
             .add_action(Action::state_init(state_init.clone(), NearToken::ZERO));

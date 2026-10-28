@@ -89,7 +89,7 @@ impl Transaction {
         }
     }
 
-    /// Complete this transaction with an externally-produced signature.
+    /// Attach an externally produced signature, giving the signed transaction.
     ///
     /// Use this for hardware wallet, MPC, or HSM signing workflows where you
     /// sign the transaction hash externally and then reconstruct the signed transaction.
@@ -103,10 +103,10 @@ impl Transaction {
     /// let hash = tx.get_hash();
     /// // sign hash externally...
     /// let signature = Signature::ed25519_from_bytes(sig_bytes);
-    /// let signed = tx.complete(signature);
+    /// let signed = tx.into_signed(signature);
     /// # }
     /// ```
-    pub fn complete(self, signature: Signature) -> SignedTransaction {
+    pub fn into_signed(self, signature: Signature) -> SignedTransaction {
         SignedTransaction {
             transaction: self,
             signature,
@@ -314,11 +314,11 @@ impl TransactionV1 {
         }
     }
 
-    /// Complete this transaction with an externally-produced signature.
+    /// Attach an externally produced signature, giving the signed transaction.
     ///
     /// Use this for hardware wallet, MPC, or HSM signing workflows where you sign
     /// the transaction hash externally and then reconstruct the signed transaction.
-    pub fn complete(self, signature: Signature) -> SignedTransactionV1 {
+    pub fn into_signed(self, signature: Signature) -> SignedTransactionV1 {
         SignedTransactionV1 {
             transaction: VersionedTransaction::V1(self),
             signature,
@@ -606,7 +606,7 @@ mod tests {
     }
 
     #[test]
-    fn test_complete_matches_sign() {
+    fn test_into_signed_matches_sign() {
         let secret = SecretKey::generate_ed25519();
         let public = secret.public_key();
 
@@ -624,14 +624,14 @@ mod tests {
         // Sign via the normal path
         let signed_normal = tx1.sign(&secret);
 
-        // Sign manually via complete()
+        // Sign manually via into_signed()
         let hash = tx2.get_hash();
         let signature = secret.sign(hash.as_bytes());
-        let signed_complete = tx2.complete(signature);
+        let signed_detached = tx2.into_signed(signature);
 
-        assert_eq!(signed_normal.get_hash(), signed_complete.get_hash());
-        assert_eq!(signed_normal.signature, signed_complete.signature);
-        assert_eq!(signed_normal.to_bytes(), signed_complete.to_bytes());
+        assert_eq!(signed_normal.get_hash(), signed_detached.get_hash());
+        assert_eq!(signed_normal.signature, signed_detached.signature);
+        assert_eq!(signed_normal.to_bytes(), signed_detached.to_bytes());
     }
 
     // ========================================================================
@@ -742,9 +742,9 @@ mod tests {
         assert_eq!(signed.get_hash(), hash);
         assert!(signed.signature.verify(hash.as_bytes(), &public));
 
-        // complete() with a detached signature matches sign().
+        // into_signed() with a detached signature matches sign().
         let detached = secret.sign(hash.as_bytes());
-        let completed = v1.complete(detached);
+        let completed = v1.into_signed(detached);
         assert_eq!(signed.to_bytes(), completed.to_bytes());
 
         // Round-trips through bytes.

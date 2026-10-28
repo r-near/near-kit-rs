@@ -1,6 +1,6 @@
 //! Integration tests for the stabilized 2.13 RPC methods: the
 //! `block_effects` and `maintenance_windows` wrappers, and `genesis_config`
-//! through the raw `RpcClient::call`.
+//! through the raw `RpcClient::request`.
 
 use near_kit::protocol::Action;
 use near_kit::*;
@@ -16,7 +16,7 @@ async fn test_genesis_config_returns_chain_config() {
     let config: serde_json::Value = near
         .near()
         .rpc()
-        .call("genesis_config", serde_json::json!([]))
+        .request("genesis_config", serde_json::json!([]))
         .await
         .expect("genesis_config");
     // The genesis document always carries a chain id and a protocol version.

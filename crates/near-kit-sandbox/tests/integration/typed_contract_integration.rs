@@ -98,7 +98,7 @@ async fn typed_call_configuration_reaches_the_contract() {
 #[tokio::test]
 async fn typed_views_work_without_a_signer() {
     let (sandbox, _, contract_id) = deploy_guestbook("typednosigner").await;
-    let no_signer: Near = sandbox.client().near().clone();
+    let no_signer: Near = sandbox.root_account().near().clone();
     let guestbook = no_signer.contract::<Guestbook>(&contract_id);
 
     assert_eq!(guestbook.total_messages().await.expect("unsigned view"), 0);
