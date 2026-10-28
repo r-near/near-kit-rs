@@ -1,9 +1,17 @@
-//! Proc macros for near-kit typed contract interfaces.
+//! The `#[contract]` macro, which turns a trait describing a NEAR contract
+//! into a typed client.
 //!
-//! Use the macro through near-kit's `contracts` feature (`#[near_kit::contract]`)
-//! or near-kit-primitives' `contracts` feature, not by depending on this crate
-//! directly. The `#[call]`, `#[json]` and `#[borsh]` markers inside the trait
-//! are read by `#[contract]` itself and need no import.
+//! Don't depend on this crate directly. Enable near-kit's `contracts`
+//! feature and write `#[near_kit::contract]`, or near-kit-primitives'
+//! `contracts` feature (`#[near_kit_primitives::contract]`) where the RPC
+//! client can't go, such as inside a contract. The `#[call]`, `#[json]` and
+//! `#[borsh]` markers inside the trait are read by `#[contract]` itself and
+//! need no import.
+//!
+//! [`contract`] lists what the macro generates and the rules for methods.
+//! near-kit's
+//! [contracts and tokens guide](https://docs.rs/near-kit/latest/near_kit/guide/contracts_and_tokens/index.html)
+//! shows it in use with every kind of backend.
 //!
 //! # Example
 //!
