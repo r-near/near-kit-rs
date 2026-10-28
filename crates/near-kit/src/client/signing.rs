@@ -349,7 +349,8 @@ impl<W: WaitLevel> SigningNear<W> {
     /// call fails, that deposit is refunded to the user, not the relayer. The
     /// relayer's `outcome.is_failure()` is false even then: the inner call
     /// runs in a later receipt, so its failure shows only in
-    /// `outcome.receipts_outcome`. See the
+    /// [`outcome.receipt_failures()`](crate::rpc::FinalExecutionOutcome::receipt_failures).
+    /// See the
     /// [meta-transactions guide](crate::guide::meta_transactions).
     ///
     /// # Example

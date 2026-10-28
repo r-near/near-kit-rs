@@ -222,21 +222,19 @@ result isn't part of that status. So:
   run the actions. `outcome.failure_error()` has the reason, an
   `ActionErrorKind::DelegateAction*` kind.
 - `outcome.is_success()` true says only that the inner actions were
-  scheduled. Whether they succeeded shows up only in
-  `outcome.receipts_outcome`, so a relayer that reports results has to
-  inspect the receipts:
+  scheduled. Whether they succeeded shows up only in the receipt outcomes.
+
+So for a relayed transaction, `outcome.is_failure()` and `outcome.result()`
+can both look successful while
+[`outcome.receipt_failures()`](crate::rpc::FinalExecutionOutcome::receipt_failures)
+is not empty. A relayer that reports results checks it:
 
 ```rust,no_run
-use near_kit::rpc::{ExecutionStatus, FinalExecutionOutcome};
+use near_kit::rpc::FinalExecutionOutcome;
 
 /// The first failed receipt in a relayed transaction, if any.
 fn inner_failure(outcome: &FinalExecutionOutcome) -> Option<String> {
-    outcome.receipts_outcome.iter().find_map(|receipt| match &receipt.outcome.status {
-        ExecutionStatus::Failure(error) => {
-            Some(format!("{} failed: {error:?}", receipt.outcome.executor_id))
-        }
-        _ => None,
-    })
+    outcome.receipt_failures().next().map(|error| error.to_string())
 }
 ```
 

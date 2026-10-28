@@ -109,17 +109,14 @@ receipts. A receipt that fails off that chain, such as a detached promise,
 a callback that a contract handled, or the user's actions in a relayed
 meta-transaction (see the [meta-transactions
 chapter](crate::guide::meta_transactions#reading-the-result)), leaves
-`is_failure()` false. When that matters, look at each receipt:
+`is_failure()` false and `result()` `Ok`. When that matters,
+[`receipt_failures`](crate::rpc::FinalExecutionOutcome::receipt_failures)
+lists every failed receipt's action error, in RPC order:
 
 ```rust,no_run
 # use near_kit::rpc::FinalExecutionOutcome;
 fn failed_receipts(outcome: &FinalExecutionOutcome) -> Vec<String> {
-    outcome
-        .receipts_outcome
-        .iter()
-        .filter(|receipt| receipt.outcome.status.is_failure())
-        .map(|receipt| format!("{} on {}", receipt.id, receipt.outcome.executor_id))
-        .collect()
+    outcome.receipt_failures().map(|error| error.to_string()).collect()
 }
 ```
 
