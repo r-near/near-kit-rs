@@ -26,6 +26,9 @@ use crate::types::{AccountId, Action, BlockReference, Gas, NearToken, ViewFuncti
 /// Generated contract clients also need the backend to be `Clone`, because
 /// each `View` they return owns a copy of it. A backend that isn't `Clone`
 /// still works through `&T` or `Arc<T>`, which are `Viewer` whenever `T` is.
+/// Awaiting a `View` boxes a `'static` future, so it needs an owned, `Arc` or
+/// `'static` backend; through a shorter borrow, use
+/// [`View::with_metadata`], which has no such bound.
 ///
 /// ```rust
 /// use near_kit_primitives::rpc::{BlockReference, ViewFunctionResult};
@@ -77,7 +80,9 @@ pub trait Viewer: MaybeSend + MaybeSync {
 /// Generated contract clients also need the backend to be `Clone`, because
 /// each `Call` they return owns a copy of it. A backend that isn't `Clone`
 /// still works through `&T` or `Arc<T>`, which are `TxSender` whenever `T`
-/// is.
+/// is. Awaiting a `Call` boxes a `'static` future, so it needs an owned,
+/// `Arc` or `'static` backend; through a shorter borrow, use
+/// [`Call::send`], which has no such bound.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot send transactions",
     label = "needs a signer",
@@ -204,7 +209,7 @@ impl<E: fmt::Debug + fmt::Display> std::error::Error for ContractError<E> {
 /// is: it can be spawned. To share a backend that isn't `Clone`, hand the
 /// client an `Arc` of it. A borrowed backend (`&B`) works too, but then
 /// `.await` needs a `'static` borrow; [`with_metadata`](Self::with_metadata)
-/// has no such bound.
+/// has no such bound, and its `.result` is the value `.await` would give.
 #[must_use = "a view does nothing until it is awaited"]
 pub struct View<C, T> {
     backend: C,
@@ -350,7 +355,9 @@ where
 /// [`TxSender`] and resolves to the sender's [`Output`](TxSender::Output).
 ///
 /// Like [`View`], it owns its backend, so its future is `'static` whenever
-/// the backend is.
+/// the backend is: `.await` boxes it, which needs an owned, `Arc` or
+/// `'static` backend. With a shorter borrow (a local `&sender`), use
+/// [`send`](Self::send)`.await`, which has no such bound.
 #[must_use = "a call does nothing until it is awaited"]
 pub struct Call<C> {
     backend: C,
@@ -377,6 +384,25 @@ impl<C> Call<C> {
     pub fn deposit(mut self, deposit: NearToken) -> Self {
         self.call = self.call.deposit(deposit);
         self
+    }
+
+    /// Send the call: what `.await` does, without boxing a `'static`
+    /// future, so it also works through a borrowed backend (`&sender`).
+    pub async fn send(self) -> Result<C::Output, ContractError<C::SendError>>
+    where
+        C: TxSender,
+    {
+        let Self {
+            backend,
+            contract_id,
+            call,
+        } = self;
+        let action = Action::try_from(call).map_err(ContractError::Codec)?;
+        // Fully qualified, so an inherent `send` on the backend can't shadow
+        // the trait method.
+        TxSender::send(&backend, contract_id, vec![action])
+            .await
+            .map_err(ContractError::Backend)
     }
 }
 
@@ -420,24 +446,7 @@ where
     type IntoFuture = BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self {
-            backend,
-            contract_id,
-            call,
-        } = self;
-        let action = Action::try_from(call);
-        Box::pin(async move {
-            let action = match action {
-                Ok(action) => action,
-                Err(error) => return Err(ContractError::Codec(error)),
-            };
-            // Fully qualified, so an inherent `send` on the backend can't
-            // shadow the trait method.
-            match TxSender::send(&backend, contract_id, vec![action]).await {
-                Ok(output) => Ok(output),
-                Err(error) => Err(ContractError::Backend(error)),
-            }
-        })
+        Box::pin(self.send())
     }
 }
 
@@ -487,7 +496,8 @@ impl<T: Viewer + ?Sized> Viewer for Arc<T> {
     }
 }
 
-/// Forwards to `T`, so a borrowed sender can serve several clients.
+/// Forwards to `T`, so a borrowed sender can serve several clients. A
+/// `Call` on one is sent with [`Call::send`] unless the borrow is `'static`.
 impl<T: TxSender + ?Sized> TxSender for &T {
     type Output = T::Output;
     type SendError = T::SendError;
@@ -996,5 +1006,30 @@ mod tests {
         .unwrap();
         assert_eq!(sent, 1);
         assert_eq!(sender.sent.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn call_sends_through_a_local_borrow() {
+        // `.await` would need `&sender` to be `'static`; `send` doesn't.
+        let sender = MockSender::default();
+        let sent =
+            futures::executor::block_on(call(&sender, contract(), FunctionCall::new("add")).send())
+                .unwrap();
+        assert_eq!(sent, 1);
+        let recorded = sender.sent.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].0, contract());
+
+        // An argument encoding error still surfaces as `Codec`.
+        let failing = call(
+            &sender,
+            contract(),
+            FunctionCall::new("add").args(FailingJson),
+        );
+        drop(recorded);
+        assert!(matches!(
+            futures::executor::block_on(failing.send()),
+            Err(ContractError::Codec(_))
+        ));
     }
 }

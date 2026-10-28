@@ -467,7 +467,9 @@ fn generate_function_call_method(
 /// - a `CounterClient<C>` generic over its backend `C`: view methods need
 ///   `C: Viewer + Clone` and return a `View`, `#[call]` methods need
 ///   `C: TxSender + Clone` and return a `Call`; each owns a clone of the
-///   backend (`&T` and `Arc<T>` are `Clone` backends when `T` isn't). When
+///   backend (`&T` and `Arc<T>` are `Clone` backends when `T` isn't).
+///   `.await` needs a `'static` backend; through a shorter `&T` borrow,
+///   finish a view with `.with_metadata()` and a call with `.send()`. When
 ///   the expansion resolves to near-kit with its `rpc` feature, `C`
 ///   defaults to `near_kit::Near`;
 /// - `impl Contract for Counter`, which `Near::contract::<Counter>(id)` uses
@@ -572,7 +574,9 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
     let client_doc = format!(
         " Client for the [`{trait_name}`] contract, sending through a backend.\n\n \
          View methods need a `Viewer + Clone` backend; `#[call]` methods need `TxSender + Clone`. \
-         For a backend that isn't `Clone`, use `&T` or `Arc<T>`."
+         For a backend that isn't `Clone`, use `&T` or `Arc<T>`; through a borrow that isn't \
+         `'static`, finish a view with `.with_metadata()` and a call with `.send()` instead of \
+         `.await`."
     );
 
     let expanded = quote! {
