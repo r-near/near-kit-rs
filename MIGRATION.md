@@ -465,6 +465,8 @@ Implement `Viewer`, `TxSender` or both, and typed contract clients, `View`,
 `ViewFunctionResult::new(bytes, block_height, block_hash)`. Both traits are
 implemented for `&T`, `Box<T>` and `Arc<T>` (with `T: ?Sized`), so
 `Arc<dyn MySender>` works once you implement `TxSender for dyn MySender`.
+Awaiting a `View` or `Call` needs a `'static` backend; through a shorter
+`&T` borrow, use `.with_metadata()` on a view and `.send()` on a call.
 
 ```rust
 #[derive(Clone)]
