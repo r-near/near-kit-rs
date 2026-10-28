@@ -225,7 +225,7 @@ impl<W: WaitLevel> SigningNear<W> {
     }
 
     /// Set how many times a transaction is re-signed and re-sent after an
-    /// `InvalidNonce` error. `0` sends once.
+    /// `InvalidNonce`, `NonceTooLarge` or `Expired` error. `0` sends once.
     ///
     /// Like the wait level, this is sender policy: it applies to every
     /// transaction this client sends, and doesn't change the [`Near`] it was
