@@ -350,6 +350,7 @@ impl<W: WaitLevel> SigningNear<W> {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # use near_kit::protocol::Action;
+    /// # use near_kit::rpc::OutcomeError;
     /// # use near_kit::transaction::FunctionCall;
     /// # async fn example(alice: SigningNear, relayer: SigningNear) -> Result<(), Error> {
     /// // User signs the delegate action
@@ -361,10 +362,15 @@ impl<W: WaitLevel> SigningNear<W> {
     ///     .await?;
     ///
     /// // Relayer submits it and pays the gas
-    /// relayer
+    /// let outcome = relayer
     ///     .transaction(signed.sender_id())
     ///     .add_action(Action::delegate(signed))
-    ///     .await?.result()?;
+    ///     .await?;
+    /// // `result()` doesn't see the inner call; `receipt_failures()` does.
+    /// outcome.result()?;
+    /// if let Some(error) = outcome.receipt_failures().next() {
+    ///     return Err(OutcomeError::ActionFailed(Box::new(error.clone())).into());
+    /// }
     /// # Ok(())
     /// # }
     /// ```
