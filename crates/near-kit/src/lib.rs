@@ -457,6 +457,7 @@ mod tokens;
 mod trace;
 mod types;
 
+pub mod guide;
 pub mod protocol;
 pub mod rpc;
 pub mod signer;
