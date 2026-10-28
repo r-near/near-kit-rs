@@ -214,7 +214,7 @@ let FunctionCallAction { method_name, args, gas, deposit } = FunctionCallAction:
 # Ok::<(), near_kit_primitives::transaction::CodecError>(())
 ```
 
-A `#[contract]` trait's constructors (`Counter::increment()`) return the
+A `#[contract]` trait's constructors (`Counter::add(args)`) return the
 same `FunctionCall`. Inside the contract the parts become a promise:
 
 ```rust,ignore

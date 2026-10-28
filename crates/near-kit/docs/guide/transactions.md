@@ -93,6 +93,10 @@ transactions.
 | [`delegate(signed)`](crate::protocol::Action::delegate), [`delegate_v2(..)`](crate::protocol::Action::delegate_v2) | Relays a meta-transaction | The delegate's sender ([meta-transactions chapter](crate::guide::meta_transactions)) |
 | [`transfer_to_gas_key(pk, amount)`](crate::protocol::Action::transfer_to_gas_key), [`withdraw_from_gas_key(pk, amount)`](crate::protocol::Action::withdraw_from_gas_key) | Funds or drains a gas key | The key's account |
 
+A gas key (NEP-611) is an access key with a NEAR balance of its own that
+pays for the gas of the transactions it signs, and several nonces so it can
+sign in parallel. The last row funds that balance and takes it back.
+
 An account can create only its own sub-accounts: `alice.testnet` can
 create `app.alice.testnet`, not `app.testnet`. Top-level names are created
 by calling the `testnet` or `near` account's `create_account` method.
@@ -146,7 +150,7 @@ alice
 ```
 
 A `#[near_kit::contract]` trait also generates a `FunctionCall`
-constructor for each `#[call]` method, such as `Counter::increment()`; see
+constructor for each `#[call]` method, such as `Counter::add(args)`; see
 the [contracts chapter](crate::guide::contracts_and_tokens).
 
 ### Access keys

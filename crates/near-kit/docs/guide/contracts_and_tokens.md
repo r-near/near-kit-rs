@@ -4,8 +4,9 @@ Read this when you call the same contract from many places and want the
 compiler to check method names and argument types, or when you work with
 fungible (NEP-141) or non-fungible (NEP-171) tokens. `#[near_kit::contract]`
 turns a Rust trait that describes a contract's interface into a client, and
-near-kit ships two such clients for the token standards. Both need the
-`contracts` feature for the macro; the token clients need only `rpc`.
+near-kit ships two such clients for the token standards. The macro needs
+the `contracts` feature; the token clients need only `rpc`, which is on by
+default.
 
 ## Declaring a contract
 
@@ -23,10 +24,11 @@ pub trait Guestbook {
     fn add_message(&mut self, args: AddMessage);
 }
 
+/// The contract takes `U64` numbers, which are strings in JSON.
 #[derive(Serialize)]
 pub struct GetMessages {
-    pub from_index: Option<u64>,
-    pub limit: Option<u64>,
+    pub from_index: String,
+    pub limit: String,
 }
 
 #[derive(Serialize)]
@@ -66,7 +68,7 @@ generates:
 #     fn add_message(&mut self, args: AddMessage);
 # }
 # #[derive(Serialize)]
-# pub struct GetMessages { pub from_index: Option<u64>, pub limit: Option<u64> }
+# pub struct GetMessages { pub from_index: String, pub limit: String }
 # #[derive(Serialize)]
 # pub struct AddMessage { pub text: String }
 # #[derive(Debug, Deserialize)]
@@ -81,7 +83,7 @@ let id = account!("guestbook.testnet");
 let guestbook = near.contract::<Guestbook>(&id);
 let total = guestbook.total_messages().await?;
 let latest = guestbook
-    .get_messages(GetMessages { from_index: None, limit: Some(10) })
+    .get_messages(GetMessages { from_index: "0".into(), limit: "10".into() })
     .at(Finality::Optimistic)
     .await?;
 

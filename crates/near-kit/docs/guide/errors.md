@@ -10,11 +10,11 @@ couldn't find out whether it did.
 ## What a send returns
 
 Awaiting a [`Tx`](crate::transaction::Tx) (or a typed contract call) has
-four kinds of result:
+five kinds of result:
 
 | Result | Meaning | On chain |
 |---|---|---|
-| `Ok(outcome)`, `outcome.is_success()` | Every action ran | Executed; gas spent, nonce used |
+| `Ok(outcome)`, `outcome.is_success()` | Every action ran (receipts off the main chain can still fail; see [below](#failures-that-is_failure-doesnt-see)) | Executed; gas spent, nonce used |
 | `Ok(outcome)`, `outcome.is_failure()` | The transaction ran and an action failed: a contract panicked, an account already existed, a deposit was too small | Executed; gas spent, nonce used, the failed receipt's changes rolled back |
 | `Err(Error::InvalidTx(e))` | The node rejected the transaction before running it: bad nonce, not enough balance, expired block hash | Nothing ran |
 | `Err(Error::Validation(msg))` | near-kit refused to sign it: no actions, or a receiver that can't be right | Nothing was sent |

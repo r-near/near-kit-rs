@@ -36,7 +36,7 @@ client over a mock:
 #     fn add_message(&mut self, args: AddMessage);
 # }
 # #[derive(Serialize)]
-# pub struct GetMessages { pub from_index: Option<u64>, pub limit: Option<u64> }
+# pub struct GetMessages { pub from_index: String, pub limit: String }
 # #[derive(Serialize)]
 # pub struct AddMessage { pub text: String }
 # #[derive(Debug, Deserialize)]
@@ -50,7 +50,7 @@ where
     C::ViewError: 'static,
 {
     let messages = guestbook
-        .get_messages(GetMessages { from_index: None, limit: Some(100) })
+        .get_messages(GetMessages { from_index: "0".into(), limit: "100".into() })
         .await?;
     Ok(messages.iter().filter(|m| m.premium).count())
 }
@@ -106,14 +106,14 @@ generated client, and the clones share the record:
 #     fn add_message(&mut self, args: AddMessage);
 # }
 # #[derive(Serialize)]
-# pub struct GetMessages { pub from_index: Option<u64>, pub limit: Option<u64> }
+# pub struct GetMessages { pub from_index: String, pub limit: String }
 # #[derive(Serialize)]
 # pub struct AddMessage { pub text: String }
 # #[derive(Debug, Deserialize)]
 # pub struct Message { pub premium: bool, pub sender: String, pub text: String }
 # async fn premium_count<C>(guestbook: &GuestbookClient<C>) -> Result<usize, ContractError<C::ViewError>>
 # where C: Viewer + Clone + 'static, C::ViewError: 'static {
-#     let messages = guestbook.get_messages(GetMessages { from_index: None, limit: Some(100) }).await?;
+#     let messages = guestbook.get_messages(GetMessages { from_index: "0".into(), limit: "100".into() }).await?;
 #     Ok(messages.iter().filter(|m| m.premium).count())
 # }
 use std::collections::HashMap;
@@ -171,7 +171,7 @@ let guestbook = Guestbook::client(mock.clone(), account!("guestbook.testnet"));
 assert_eq!(premium_count(&guestbook).await?, 1);
 assert_eq!(
     mock.calls(),
-    [("get_messages".to_string(), json!({ "from_index": null, "limit": 100 }))],
+    [("get_messages".to_string(), json!({ "from_index": "0", "limit": "100" }))],
 );
 
 // A method without a reply fails as the backend's error.
@@ -226,7 +226,7 @@ the receiver and actions of each transaction for the test to inspect:
 #     fn add_message(&mut self, args: AddMessage);
 # }
 # #[derive(Serialize)]
-# pub struct GetMessages { pub from_index: Option<u64>, pub limit: Option<u64> }
+# pub struct GetMessages { pub from_index: String, pub limit: String }
 # #[derive(Serialize)]
 # pub struct AddMessage { pub text: String }
 # #[derive(Debug, Deserialize)]

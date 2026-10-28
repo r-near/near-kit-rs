@@ -6,6 +6,7 @@
 //! | Chapter | Covers |
 //! |---------|--------|
 //! | [`clients`] | `Near` and `SigningNear`, networks and RPC endpoints, client settings |
+//! | [`keys`] | Key types and string forms, loading keys, seed phrases, external signers |
 //! | [`transactions`] | Building transactions from actions, batching calls, global contracts, state init |
 //! | [`finality`] | Read finality, wait levels and their responses, reading your own writes |
 //! | [`nonces`] | The nonce cache, nonce retries, concurrent senders, rotating keys |
@@ -14,7 +15,6 @@
 //! | [`offline_signing`] | Signing without sending, fully offline transactions, NEP-413 messages |
 //! | [`contracts_and_tokens`] | `#[contract]` clients, FT and NFT helpers |
 //! | [`testing`] | Mock backends, canned RPC responses, the Docker sandbox |
-//! | [`keys`] | Key types and string forms, loading keys, seed phrases, external signers |
 //! | [`platforms`] | Browsers, WASI, offline builds, near-kit-primitives in contracts, tracing |
 //!
 //! The chapters render on docs.rs with every documented feature enabled. A
@@ -38,6 +38,17 @@ macro_rules! needs_features {
 
 #[doc = include_str!("../docs/guide/clients.md")]
 pub mod clients {}
+
+#[cfg_attr(
+    all(feature = "mnemonic", feature = "file-signer", feature = "keyring"),
+    doc = include_str!("../docs/guide/keys.md")
+)]
+#[cfg_attr(
+    not(all(feature = "mnemonic", feature = "file-signer", feature = "keyring")),
+    doc = "# Keys and signers\n\n",
+    doc = needs_features!("`mnemonic`, `file-signer` and `keyring`")
+)]
+pub mod keys {}
 
 #[doc = include_str!("../docs/guide/transactions.md")]
 pub mod transactions {}
@@ -75,17 +86,6 @@ pub mod contracts_and_tokens {}
     doc = needs_features!("`contracts`")
 )]
 pub mod testing {}
-
-#[cfg_attr(
-    all(feature = "mnemonic", feature = "file-signer", feature = "keyring"),
-    doc = include_str!("../docs/guide/keys.md")
-)]
-#[cfg_attr(
-    not(all(feature = "mnemonic", feature = "file-signer", feature = "keyring")),
-    doc = "# Keys and signers\n\n",
-    doc = needs_features!("`mnemonic`, `file-signer` and `keyring`")
-)]
-pub mod keys {}
 
 #[doc = include_str!("../docs/guide/platforms.md")]
 pub mod platforms {}
