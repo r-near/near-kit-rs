@@ -365,10 +365,31 @@ impl StateInitExt for StateInit {
 impl DeterministicStateInitAction {
     /// Derive the deterministic account ID for this action.
     ///
-    /// Convenience method that delegates to [`StateInit::derive_account_id`].
+    /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`, the same id as
+    /// [`StateInit::derive_account_id`] and nearcore's
+    /// `derive_near_deterministic_account_id`. Hashed in pure Rust, so it
+    /// never calls a NEAR host function, whatever features are unified on
+    /// near-global-contracts.
     pub fn derive_account_id(&self) -> AccountId {
-        self.state_init.derive_account_id()
+        derive_deterministic_account_id(&self.state_init)
     }
+}
+
+/// The `0s` account id of a NEP-616 state init, computed with pure-Rust
+/// Keccak-256.
+///
+/// near-global-contracts' `StateInit::derive_account_id` switches to the
+/// `keccak256` host function under its `__near-sdk-unit-testing` feature,
+/// which `near-sdk/unit-testing` anywhere in a workspace turns on. A test
+/// binary that links near-kit but not near-sdk then fails to link.
+pub(crate) fn derive_deterministic_account_id(state_init: &StateInit) -> AccountId {
+    use sha3::{Digest as _, Keccak256};
+
+    let bytes = borsh::to_vec(state_init).expect("borsh into a Vec never fails");
+    let hash: [u8; 32] = Keccak256::digest(&bytes).into();
+    format!("0s{}", hex::encode(&hash[12..32]))
+        .parse()
+        .expect("a 0s id is always a valid account id: 42 lowercase hex characters")
 }
 
 /// Transfer NEAR to a gas key.
@@ -747,7 +768,7 @@ impl Action {
     ///
     /// The account ID is derived from the state init data:
     /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`. Send the
-    /// transaction to that account ([`StateInit::derive_account_id`]);
+    /// transaction to that account ([`DeterministicStateInitAction::derive_account_id`]);
     /// near-kit's `Tx` rejects any other receiver before signing.
     pub fn state_init(state_init: StateInit, deposit: NearToken) -> Self {
         Self::DeterministicStateInit(DeterministicStateInitAction {
@@ -1362,7 +1383,7 @@ mod tests {
             data: BTreeMap::new(),
         });
 
-        let account_id = state_init.derive_account_id();
+        let account_id = derive_deterministic_account_id(&state_init);
         let account_str = account_id.as_str();
 
         // Should start with "0s"
@@ -1405,8 +1426,8 @@ mod tests {
         });
 
         assert_eq!(
-            state_init1.derive_account_id(),
-            state_init2.derive_account_id(),
+            derive_deterministic_account_id(&state_init1),
+            derive_deterministic_account_id(&state_init2),
             "Same input should produce same account ID"
         );
     }
@@ -1425,8 +1446,8 @@ mod tests {
         });
 
         assert_ne!(
-            state_init1.derive_account_id(),
-            state_init2.derive_account_id(),
+            derive_deterministic_account_id(&state_init1),
+            derive_deterministic_account_id(&state_init2),
             "Different code references should produce different account IDs"
         );
     }
@@ -1484,8 +1505,8 @@ mod tests {
         });
 
         assert_ne!(
-            state_init1.derive_account_id(),
-            state_init2.derive_account_id(),
+            derive_deterministic_account_id(&state_init1),
+            derive_deterministic_account_id(&state_init2),
             "Different data should produce different account IDs"
         );
     }
