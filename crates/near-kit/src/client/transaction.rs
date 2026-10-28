@@ -221,7 +221,7 @@ impl PreparedTransaction {
     }
 
     /// The chain this client's nonces are cached for.
-    async fn chain(&self) -> Chain {
+    async fn chain(&self) -> Result<Chain, Error> {
         self.genesis.chain(&self.rpc, &self.chain_id).await
     }
 
@@ -271,7 +271,7 @@ impl PreparedTransaction {
             }
             Err(error) => return Err(error.into()),
         };
-        let chain = self.chain().await;
+        let chain = self.chain().await?;
         let nonce = nonce_manager().next(
             &chain,
             signer_id,
@@ -476,12 +476,12 @@ impl PreparedTransaction {
                             "Nonce too large, retrying from the access key's nonce"
                         );
                         // The cached nonce is past what this chain accepts (it
-                        // was cached by chain id while the node reported no
-                        // genesis hash, so it may come from another chain with
-                        // this id), and the rejection consumed nothing: start
-                        // again from the view, unless a concurrent send's
-                        // rejection already did. Reset the entry the nonce was
-                        // drawn from.
+                        // was cached by chain id, for a backend that can't
+                        // report its genesis hash, so it may come from another
+                        // chain with this id), and the rejection consumed
+                        // nothing: start again from the view, unless a
+                        // concurrent send's rejection already did. Reset the
+                        // entry the nonce was drawn from.
                         if let Some(chain) = &chain {
                             nonce_manager().forget_rejected(
                                 chain,
@@ -545,7 +545,7 @@ impl PreparedTransaction {
                     )
                     .await?;
                 nonce_manager().next(
-                    &prepared.chain().await,
+                    &prepared.chain().await?,
                     &sender_id,
                     &public_key,
                     access_key.nonce,
@@ -1454,8 +1454,8 @@ mod tests {
         /// The `finality` of each access key view, in order.
         view_finalities: Mutex<Vec<serde_json::Value>>,
         genesis_hash: CryptoHash,
-        /// `status` calls left to fail with "method not found".
-        status_failures: Mutex<usize>,
+        /// Replies to the first `status` calls; then the genesis hash.
+        status_replies: Mutex<VecDeque<Vec<u8>>>,
         status_calls: AtomicUsize,
     }
 
@@ -1478,7 +1478,7 @@ mod tests {
                 sent: Mutex::new(Vec::new()),
                 view_finalities: Mutex::new(Vec::new()),
                 genesis_hash,
-                status_failures: Mutex::new(0),
+                status_replies: Mutex::new(VecDeque::new()),
                 status_calls: AtomicUsize::new(0),
             })
         }
@@ -1545,13 +1545,8 @@ mod tests {
                 }
                 "status" => {
                     self.status_calls.fetch_add(1, Ordering::SeqCst);
-                    let mut failures = self.status_failures.lock().unwrap();
-                    if *failures > 0 {
-                        *failures -= 1;
-                        method_not_found_body()
-                    } else {
-                        status_body(self.genesis_hash)
-                    }
+                    let reply = self.status_replies.lock().unwrap().pop_front();
+                    reply.unwrap_or_else(|| status_body(self.genesis_hash))
                 }
                 other => panic!("unexpected RPC method {other}"),
             };
@@ -1653,22 +1648,82 @@ mod tests {
         assert_eq!(second.transaction.nonce, 121_000_001);
     }
 
+    /// A node error, which a client with retries off doesn't retry.
+    fn internal_error_body() -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": { "code": -32603, "message": "Internal error" },
+        }))
+        .unwrap()
+    }
+
     #[tokio::test]
-    async fn genesis_hash_is_fetched_until_status_answers_then_kept() {
+    async fn a_failed_status_fails_the_draw_and_is_asked_again() {
+        // Drawing by chain id while another client on this chain draws by
+        // genesis hash could hand a nonce out twice, so there is no draw.
         let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
-        *transport.status_failures.lock().unwrap() = 1;
-        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
-        let near = signing_via(
-            "http://status-recovers.invalid",
-            "status-recovers",
-            transport.clone(),
-            signer,
+        transport
+            .status_replies
+            .lock()
+            .unwrap()
+            .push_back(internal_error_body());
+        let near = crate::Near::custom("http://status-fails.invalid", "status-fails")
+            .transport(transport.clone())
+            .retry_config(crate::rpc::RetryConfig::none())
+            .build()
+            .with_signer(InMemorySigner::new(
+                account!("alice.testnet"),
+                SecretKey::generate_ed25519(),
+            ));
+
+        let error = near
+            .sign(account!("bob.testnet"), transfer())
+            .await
+            .expect_err("no genesis hash, no nonce");
+        assert!(
+            matches!(&error, Error::Rpc(e) if matches!(**e, RpcError::Rpc { code: -32603, .. })),
+            "{error:?}"
         );
-        // The first draw is cached by chain id (status failed), the rest by
-        // genesis, continuing from it rather than from the view.
-        let mut drawn = Vec::new();
-        for _ in 0..3 {
-            drawn.push(
+        // Asked again: the failed draw handed out no nonce.
+        let delegate = near
+            .sign_delegate(account!("bob.testnet"), transfer(), delegate_options())
+            .await
+            .unwrap();
+        assert_eq!(transport.status_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(delegate.delegate_action.nonce, 6);
+
+        // Kept from then on, by clones too.
+        let signed = near
+            .clone()
+            .sign(account!("bob.testnet"), transfer())
+            .await
+            .unwrap();
+        assert_eq!(signed.transaction.nonce, 7);
+        assert_eq!(transport.status_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_backend_without_status_shares_nonces_by_chain_id() {
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        let without_status = |url| {
+            let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+            transport
+                .status_replies
+                .lock()
+                .unwrap()
+                .push_back(method_not_found_body());
+            (
+                signing_via(url, "no-status", transport.clone(), signer.clone()),
+                transport,
+            )
+        };
+        let (first, first_transport) = without_status("http://no-status-a.invalid");
+        let (second, _) = without_status("http://no-status-b.invalid");
+
+        let mut nonces = Vec::new();
+        for near in [&first, &second, &first] {
+            nonces.push(
                 near.sign(account!("bob.testnet"), transfer())
                     .await
                     .unwrap()
@@ -1676,16 +1731,10 @@ mod tests {
                     .nonce,
             );
         }
-        assert_eq!(drawn, vec![6, 7, 8]);
-        // Asked again after the failure, then never: clones share the hash.
-        assert_eq!(transport.status_calls.load(Ordering::SeqCst), 2);
-        let clone = near.clone();
-        let fourth = clone
-            .sign(account!("bob.testnet"), transfer())
-            .await
-            .unwrap();
-        assert_eq!(fourth.transaction.nonce, 9);
-        assert_eq!(transport.status_calls.load(Ordering::SeqCst), 2);
+        // One sequence by chain id, and the answer is kept: `status` isn't
+        // asked again, though the transport would now report a genesis hash.
+        assert_eq!(nonces, vec![6, 7, 8]);
+        assert_eq!(first_transport.status_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

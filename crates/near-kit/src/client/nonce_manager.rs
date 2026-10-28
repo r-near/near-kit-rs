@@ -13,7 +13,7 @@ use crate::types::{AccountId, ChainId, CryptoHash, PublicKey};
 use super::rpc::RpcClient;
 
 /// The chain a client draws nonces for: its configured chain id, and the
-/// genesis hash its node reported, when it has.
+/// genesis hash its node reported, if it can report one.
 #[derive(Clone, Debug)]
 pub(super) struct Chain {
     id: ChainId,
@@ -28,56 +28,66 @@ impl Chain {
         };
         (chain, account_id.clone(), public_key.clone())
     }
+}
 
-    /// The chain-id key a draw made before the genesis hash was known used.
-    fn fallback_key(&self, account_id: &AccountId, public_key: &PublicKey) -> Option<Key> {
-        self.genesis.is_some().then(|| {
-            (
-                ChainKey::Id(self.id.clone()),
-                account_id.clone(),
-                public_key.clone(),
-            )
-        })
-    }
+/// What a client's node said about its genesis hash.
+#[derive(Clone, Copy, Debug)]
+enum Genesis {
+    Hash(CryptoHash),
+    /// The backend doesn't serve `status`: nonces are cached by chain id.
+    Unsupported,
 }
 
 /// A client's genesis hash, fetched on its first nonce draw and kept for the
 /// client and its clones.
 #[derive(Debug, Default)]
-pub(super) struct GenesisHash(Mutex<Option<CryptoHash>>);
+pub(super) struct GenesisHash(Mutex<Option<Genesis>>);
 
 impl GenesisHash {
-    fn lock(&self) -> MutexGuard<'_, Option<CryptoHash>> {
+    fn lock(&self) -> MutexGuard<'_, Option<Genesis>> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The chain `rpc` serves. Asks the node for its genesis hash until it
-    /// answers once; until then, and whenever `status` fails, the chain is
-    /// known only by `chain_id`.
-    pub(super) async fn chain(&self, rpc: &RpcClient, chain_id: &ChainId) -> Chain {
-        let cached = *self.lock();
-        let genesis = match cached {
-            Some(hash) => Some(hash),
-            None => match rpc.status().await {
-                Ok(status) => {
-                    *self.lock() = Some(status.genesis_hash);
-                    Some(status.genesis_hash)
-                }
-                Err(_error) => {
-                    trace::debug!(
-                        error = %_error,
-                        "No genesis hash from status; caching nonces by chain id"
-                    );
-                    None
-                }
-            },
+    /// The chain `rpc` serves, asking the node for its genesis hash until it
+    /// answers.
+    ///
+    /// A backend that can't report its genesis hash (it answers `status` with
+    /// JSON-RPC "method not found") shares nonces by chain id, for good. Any
+    /// other failure is returned, and nothing is cached: a draw by chain id
+    /// next to another client's draw by genesis hash, for one chain, could
+    /// hand out a nonce twice.
+    pub(super) async fn chain(&self, rpc: &RpcClient, chain_id: &ChainId) -> Result<Chain, Error> {
+        let known = *self.lock();
+        let genesis = match known {
+            Some(genesis) => genesis,
+            None => {
+                let genesis = match rpc.status().await {
+                    Ok(status) => Genesis::Hash(status.genesis_hash),
+                    Err(RpcError::Rpc {
+                        code: METHOD_NOT_FOUND,
+                        ..
+                    }) => {
+                        trace::debug!("No status method; caching nonces by chain id");
+                        Genesis::Unsupported
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                *self.lock() = Some(genesis);
+                genesis
+            }
         };
-        Chain {
+        Ok(Chain {
             id: chain_id.clone(),
-            genesis,
-        }
+            genesis: match genesis {
+                Genesis::Hash(hash) => Some(hash),
+                Genesis::Unsupported => None,
+            },
+        })
     }
 }
+
+/// JSON-RPC's "method not found" error code.
+const METHOD_NOT_FOUND: i64 = -32601;
 
 /// Which chain an entry belongs to.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -86,7 +96,7 @@ enum ChainKey {
     /// id is spelled, and distinct for two chains that share a chain id (two
     /// local sandboxes, say).
     Genesis(CryptoHash),
-    /// The configured chain id, for a node that hasn't reported its genesis.
+    /// The configured chain id, for a backend that can't report its genesis.
     Id(ChainId),
 }
 
@@ -131,9 +141,6 @@ impl NonceManager {
     /// an earlier one (a final view after an optimistic one) never takes the
     /// sequence back.
     ///
-    /// A key's first draw once the genesis hash is known continues from what
-    /// draws made by chain id handed out, while `status` was failing.
-    ///
     /// Fails, leaving the entry as it was, when no nonce follows: the node
     /// reported a nonce of `u64::MAX`.
     pub(super) fn next(
@@ -145,11 +152,7 @@ impl NonceManager {
     ) -> Result<u64, Error> {
         let key = chain.key(account_id, public_key);
         let mut nonces = self.lock();
-        let cached = nonces.get(&key).copied().or_else(|| {
-            chain
-                .fallback_key(account_id, public_key)
-                .and_then(|fallback| nonces.get(&fallback).copied())
-        });
+        let cached = nonces.get(&key).copied();
         let current = cached.map_or(chain_nonce, |cached| cached.max(chain_nonce));
         let next = current
             .checked_add(1)
@@ -160,8 +163,7 @@ impl NonceManager {
 
     /// Drop the cached nonce for an access key once the node rejected
     /// `tx_nonce` as too large, so the next call starts from the chain's view
-    /// again. Only this chain's entry goes, and the chain-id entry a first
-    /// draw would continue from, if it is as high.
+    /// again. Only this chain's entry goes.
     ///
     /// Nothing is dropped when the entry is already below `tx_nonce`: another
     /// send's rejection reset it and nonces were handed out from the view
@@ -174,15 +176,10 @@ impl NonceManager {
         public_key: &PublicKey,
         tx_nonce: u64,
     ) {
+        let key = chain.key(account_id, public_key);
         let mut nonces = self.lock();
-        let keys = [
-            Some(chain.key(account_id, public_key)),
-            chain.fallback_key(account_id, public_key),
-        ];
-        for key in keys.into_iter().flatten() {
-            if nonces.get(&key).is_some_and(|&cached| cached >= tx_nonce) {
-                nonces.remove(&key);
-            }
+        if nonces.get(&key).is_some_and(|&cached| cached >= tx_nonce) {
+            nonces.remove(&key);
         }
     }
 }
@@ -214,7 +211,7 @@ mod tests {
         }
     }
 
-    /// A chain known only by its id: its node didn't answer `status`.
+    /// A chain known only by its id: its backend has no `status`.
     fn by_id(id: &str) -> Chain {
         Chain {
             id: ChainId::new(id),
@@ -385,21 +382,6 @@ mod tests {
         assert_eq!(draw(&manager, &chain, 50), 102_000_002);
         // The next delegate continues past both.
         assert_eq!(draw(&manager, &chain, 102_000_000), 102_000_003);
-    }
-
-    #[test]
-    fn draws_by_chain_id_carry_over_once_the_genesis_is_known() {
-        let manager = NonceManager::new();
-        // `status` failed: the draw is cached by chain id.
-        assert_eq!(draw(&manager, &by_id("recovers"), 10), 11);
-        // It answered: the same view doesn't hand 11 out again.
-        let known = genesis("recovers", 7);
-        assert_eq!(draw(&manager, &known, 10), 12);
-        assert_eq!(draw(&manager, &known, 10), 13);
-        // A rejection as high as the chain-id entry drops it too, so the next
-        // draw starts from the view rather than from that entry.
-        manager.forget_rejected(&known, &alice(), &alice_key(), 11);
-        assert_eq!(draw(&manager, &known, 10), 11);
     }
 
     #[test]
