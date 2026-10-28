@@ -208,6 +208,30 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         ));
     }
 
+    // `#[call]`, `#[json]` and `#[borsh]` are read here, before any `cfg` is
+    // evaluated, so one behind `#[cfg_attr]` would be ignored for the method
+    // and then copied onto the generated items, where it is no attribute at
+    // all. Reject it instead.
+    for attr in &method.attrs {
+        if let syn::Meta::List(list) = &attr.meta
+            && list.path.is_ident("cfg_attr")
+            && let Some(marker) = conditional_marker(list)
+        {
+            let name = marker
+                .get_ident()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            return Err(syn::Error::new_spanned(
+                marker,
+                format!(
+                    "#[{name}] can't be applied through #[cfg_attr]: #[near_kit::contract] reads \
+                     it before `cfg` is evaluated. Declare the method twice instead, each copy \
+                     under its own #[cfg]"
+                ),
+            ));
+        }
+    }
+
     // Check receiver type
     let receiver = method.sig.receiver();
     let (is_view, is_mut) = match receiver {
@@ -373,6 +397,26 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         arg_name,
         arg_type,
         return_type,
+    })
+}
+
+/// The first `#[contract]` marker (`call`, `json`, `borsh`) that a
+/// `cfg_attr(predicate, attrs..)` would apply, looking inside nested
+/// `cfg_attr`s too. Contents that don't parse are left for rustc to report.
+fn conditional_marker(cfg_attr: &syn::MetaList) -> Option<syn::Path> {
+    let metas = cfg_attr
+        .parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+        .ok()?;
+    // The first entry is the predicate.
+    metas.into_iter().skip(1).find_map(|meta| match meta {
+        syn::Meta::List(nested) if nested.path.is_ident("cfg_attr") => conditional_marker(&nested),
+        meta if ["call", "json", "borsh"]
+            .iter()
+            .any(|marker| meta.path().is_ident(marker)) =>
+        {
+            Some(meta.path().clone())
+        }
+        _ => None,
     })
 }
 
@@ -550,8 +594,11 @@ fn generate_function_call_method(
 /// most one argument bound to a plain name (`args: Args`). Generic, `async`
 /// and default methods are rejected, as are the names `client`,
 /// `contract_id` and `clone`. A method's `#[cfg]` and `#[cfg_attr]`
-/// attributes apply to everything generated for it. A raw identifier
-/// (`fn r#type`) calls the contract method without the `r#` (`type`).
+/// attributes apply to everything generated for it, but `#[call]`,
+/// `#[json]` and `#[borsh]` can't go behind `#[cfg_attr]`; for a format that
+/// depends on a `cfg`, declare the method twice, each under its own
+/// `#[cfg]`. A raw identifier (`fn r#type`) calls the contract method
+/// without the `r#` (`type`).
 ///
 /// Everything it names is in near-kit-primitives, so it works without the
 /// RPC client (e.g. in contracts built for wasm).

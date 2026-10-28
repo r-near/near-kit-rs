@@ -1,0 +1,5 @@
+error: #[call] can't be applied through #[cfg_attr]: #[near_kit::contract] reads it before `cfg` is evaluated. Declare the method twice instead, each copy under its own #[cfg]
+ --> tests/compile-fail/cfg_attr_nested_call.rs:5:39
+  |
+5 |     #[cfg_attr(all(), cfg_attr(all(), call))]
+  |                                       ^^^^
