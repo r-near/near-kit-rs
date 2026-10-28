@@ -7,7 +7,7 @@
 
 pub use crate::error::{
     ActionViewConversionError, DecodeTransactionError, ParseAccountIdError, ParseHashError,
-    UniversalStateInitError,
+    StateInitError,
 };
 pub use crate::types::{
     AccessKey, AccessKeyPermission, Action, ActionError, ActionErrorKind, ActionsValidationError,

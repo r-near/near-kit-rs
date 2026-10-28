@@ -5,7 +5,7 @@ use borsh::de::EnumExt as _;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use crate::error::UniversalStateInitError;
+use crate::error::StateInitError;
 
 use super::{
     AccountId, CryptoHash, Gas, NearToken, PublicKey, RawStateInit, Signature, TransactionNonce,
@@ -394,12 +394,18 @@ pub struct UniversalStateInitAction {
 impl UniversalStateInitAction {
     /// The `0u` universal account id this action creates: SHA3-256 over the
     /// carried `state_init` bytes, exactly as given.
+    ///
+    /// Does not validate the bytes, like nearcore's
+    /// `derive_universal_account_id`: a malformed or non-canonical payload
+    /// still derives an id, but the chain will never create that account.
+    /// To check first, use `RawStateInit::try_derive_account_id` or
+    /// [`UniversalStateInit::from_raw`].
     pub fn derive_account_id(&self) -> AccountId {
         super::universal_state_init::derive_universal_account_id(&self.state_init)
     }
 
     /// Decode the carried bytes leniently; see [`UniversalStateInit::from_raw_lenient`].
-    pub fn decode_state_init(&self) -> Result<UniversalStateInit, UniversalStateInitError> {
+    pub fn decode_state_init(&self) -> Result<UniversalStateInit, StateInitError> {
         super::universal_state_init::decode_lenient(&self.state_init)
     }
 }
@@ -751,8 +757,9 @@ impl Action {
     ///
     /// Accepts a typed [`UniversalStateInit`] /
     /// [`UniversalStateInitV1`](super::UniversalStateInitV1) (encoded
-    /// canonically), or a [`RawStateInit`] / `Vec<u8>` carried verbatim. The
-    /// transaction's receiver must be the derived account id; see
+    /// canonically), the same from near-global-contracts or near-sdk, or a
+    /// [`RawStateInit`] / `Vec<u8>` carried verbatim. The transaction's
+    /// receiver must be the derived account id; see
     /// [`UniversalStateInitAction::derive_account_id`].
     ///
     /// # Example
@@ -770,7 +777,7 @@ impl Action {
     /// ```
     pub fn universal_state_init(state_init: impl Into<RawStateInit>, deposit: NearToken) -> Self {
         Self::UniversalStateInit(UniversalStateInitAction {
-            state_init: state_init.into().into_bytes(),
+            state_init: state_init.into().0,
             deposit,
         })
     }
@@ -1192,7 +1199,7 @@ mod tests {
         assert_eq!(action.state_init, unsorted);
         assert_eq!(
             action.derive_account_id(),
-            RawStateInit(unsorted).derive_account_id()
+            crate::types::universal_state_init::derive_universal_account_id(&unsorted)
         );
     }
 

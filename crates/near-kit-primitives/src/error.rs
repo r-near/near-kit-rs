@@ -101,22 +101,14 @@ pub enum ActionViewConversionError {
     NestedDelegate,
 }
 
-/// Why bytes are not a valid universal account state init.
+/// Why bytes are not a valid universal account state init, re-exported from
+/// [`near-global-contracts`](https://crates.io/crates/near-global-contracts).
 ///
-/// Mirrors nearcore's `StateInitError`. Returned by
-/// [`UniversalStateInit::from_raw`](crate::protocol::UniversalStateInit::from_raw).
-#[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
-pub enum UniversalStateInitError {
-    /// The bytes do not decode into a `UniversalStateInit` (including
-    /// trailing bytes, an unknown version, or an invalid key tag).
-    #[error("Bytes do not decode into a universal state init")]
-    Malformed,
-    /// The bytes decode, but are not the canonical borsh encoding of the
-    /// result (unsorted or duplicate data keys or access keys). nearcore
-    /// rejects these, since each value must have exactly one account id.
-    #[error("Universal state init is not in canonical borsh form")]
-    NonCanonical,
-}
+/// About `0u` universal state init ([`RawStateInit`](crate::protocol::RawStateInit)),
+/// not the NEP-616 [`StateInit`](crate::protocol::StateInit). Returned by
+/// [`UniversalStateInit::from_raw`](crate::protocol::UniversalStateInit::from_raw)
+/// and `RawStateInit::try_derive_account_id`.
+pub use near_global_contracts::StateInitError;
 
 /// Error building a signer or signing with it.
 ///

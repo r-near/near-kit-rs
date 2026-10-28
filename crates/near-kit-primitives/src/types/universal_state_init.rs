@@ -7,7 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use sha3::{Digest as _, Sha3_256};
 
 use super::{AccountId, GlobalContractId, PublicKey, PublicKeyHandle};
-use crate::error::UniversalStateInitError;
+use crate::error::StateInitError;
 
 /// Prefix of every universal account id.
 const UAID_PREFIX: &str = "0u";
@@ -22,44 +22,21 @@ const HANDLE_TAG_ED25519: u8 = 0;
 const HANDLE_TAG_SECP256K1: u8 = 1;
 const HANDLE_TAG_ML_DSA_65_HASH: u8 = 3;
 
-/// The raw borsh bytes of a [`UniversalStateInit`], as carried by the
-/// `UniversalStateInit` action.
+/// near-kit re-exports this from
+/// [`near-global-contracts`](https://crates.io/crates/near-global-contracts):
+/// it is the type near-sdk uses too, so pass state inits between crates as
+/// `RawStateInit`. Build one from near-kit's typed [`UniversalStateInit`] with
+/// `From` or [`UniversalStateInit::to_raw`], and decode one with
+/// [`UniversalStateInit::from_raw`]. The `UniversalStateInit` in the upstream
+/// text below is near-global-contracts' own typed value, a different type,
+/// whose `TryFrom` is lenient: never derive an account id from a value decoded
+/// that way. For the unvalidated id of the bytes an action carries, as the
+/// chain computes it, use
+/// [`UniversalStateInitAction::derive_account_id`](crate::protocol::UniversalStateInitAction::derive_account_id).
 ///
-/// This is the protocol's view of a state init: the `0u` account id is
-/// SHA3-256 over exactly these bytes (not over a re-encoding of their decoded
-/// value, and not over `borsh(RawStateInit)`, which adds a length prefix).
-/// Build one from a typed value with [`UniversalStateInit::to_raw`], or wrap
-/// bytes you received with `From<Vec<u8>>`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
-pub struct RawStateInit(pub Vec<u8>);
-
-impl RawStateInit {
-    /// The raw bytes.
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-
-    /// The raw bytes, owned.
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.0
-    }
-
-    /// The `0u` universal account id these bytes define.
-    ///
-    /// Hashes the bytes as given and does not validate them: a non-canonical
-    /// or malformed payload still derives an id, but the chain will never
-    /// create that account. Use [`UniversalStateInit::from_raw`] to check
-    /// first.
-    pub fn derive_account_id(&self) -> AccountId {
-        derive_universal_account_id(&self.0)
-    }
-}
-
-impl From<Vec<u8>> for RawStateInit {
-    fn from(bytes: Vec<u8>) -> Self {
-        Self(bytes)
-    }
-}
+/// ---
+///
+pub use near_global_contracts::RawStateInit;
 
 impl From<UniversalStateInit> for RawStateInit {
     fn from(state_init: UniversalStateInit) -> Self {
@@ -88,16 +65,26 @@ impl From<UniversalStateInitV1> for RawStateInit {
 /// account exists.
 ///
 /// The id commits to the *exact* bytes, which is why the wire form is the raw
-/// [`RawStateInit`] and the typed value is only a view of it. From protocol 88
-/// nearcore accepts only the canonical encoding (sorted maps and sets without
-/// duplicates, one struct per version); protocol 87 accepts any well-formed
-/// borsh. [`UniversalStateInit::from_raw`] enforces the strict rule, so each
-/// logical value built here has exactly one id, while
-/// [`UniversalStateInit::from_raw_lenient`] decodes what the chain may hold.
+/// [`RawStateInit`] and the typed value is only a view of it. nearcore accepts
+/// only the canonical encoding (sorted maps and sets without duplicates, one
+/// struct per version): universal accounts and the canonical-encoding rule
+/// both arrive at protocol 88 (nearcore 2.14), so no stable protocol has
+/// accepted any other encoding. [`UniversalStateInit::from_raw`] enforces that
+/// rule, so each logical value built here has exactly one id, while
+/// [`UniversalStateInit::from_raw_lenient`] decodes any well-formed borsh, for
+/// inspecting bytes without judging them.
+///
+/// near-kit's typed state init is borsh-only; convert through
+/// [`RawStateInit`], which is the type near-sdk and near-global-contracts use.
+/// near-global-contracts has its own `UniversalStateInit`,
+/// `UniversalStateInitV1` and `PublicKeyHandle` under the same names; they
+/// encode to the same bytes but are different types (theirs also derive
+/// serde). `Action::universal_state_init` accepts either crate's typed value.
 ///
 /// Mirrors nearcore's `UniversalStateInit`. New fields or semantics arrive as
 /// a new variant; the borsh discriminant is the only version marker. Create
-/// the account with `near-kit`'s `Near::universal_state_init`.
+/// the account with [`Action::universal_state_init`](crate::protocol::Action::universal_state_init),
+/// sent to [`derive_account_id`](Self::derive_account_id).
 ///
 /// Its [`BorshSerialize`] output is always the canonical encoding, so
 /// `borsh::to_vec(&state_init)` equals [`to_raw`](Self::to_raw). Its
@@ -119,7 +106,7 @@ impl From<UniversalStateInitV1> for RawStateInit {
 /// // Round-trips through the canonical wire bytes.
 /// let raw = state_init.to_raw();
 /// assert_eq!(UniversalStateInit::from_raw(&raw)?, state_init);
-/// assert_eq!(raw.derive_account_id(), account_id);
+/// assert_eq!(raw.try_derive_account_id()?, account_id);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -218,24 +205,27 @@ impl UniversalStateInit {
         RawStateInit(borsh::to_vec(self).expect("writing to a Vec cannot fail"))
     }
 
-    /// Decode `raw`, rejecting non-canonical encodings (as nearcore does from protocol 88).
-    pub fn from_raw(raw: &RawStateInit) -> Result<Self, UniversalStateInitError> {
+    /// Decode `raw`, rejecting non-canonical encodings, as nearcore does.
+    pub fn from_raw(raw: &RawStateInit) -> Result<Self, StateInitError> {
         let decoded = Self::from_raw_lenient(raw)?;
         if decoded.to_raw() != *raw {
-            return Err(UniversalStateInitError::NonCanonical);
+            return Err(StateInitError::NonCanonical);
         }
         Ok(decoded)
     }
 
-    /// Decode `raw`, accepting any well-formed encoding (what protocol 87 executed).
-    pub fn from_raw_lenient(raw: &RawStateInit) -> Result<Self, UniversalStateInitError> {
+    /// Decode `raw`, accepting any well-formed encoding, canonical or not.
+    ///
+    /// For inspecting bytes only: no stable protocol accepts a non-canonical
+    /// state init, and re-encoding the result can change its account id.
+    pub fn from_raw_lenient(raw: &RawStateInit) -> Result<Self, StateInitError> {
         decode_lenient(&raw.0)
     }
 
     /// The `0u` universal account id of this state init: the id of its
     /// canonical encoding.
     pub fn derive_account_id(&self) -> AccountId {
-        self.to_raw().derive_account_id()
+        derive_universal_account_id(&self.to_raw().0)
     }
 }
 
@@ -306,8 +296,8 @@ impl BorshDeserialize for UniversalStateInit {
 
 /// Lenient decode of state init bytes; shared by
 /// [`UniversalStateInit::from_raw_lenient`] and the `UniversalStateInit` action.
-pub(crate) fn decode_lenient(bytes: &[u8]) -> Result<UniversalStateInit, UniversalStateInitError> {
-    borsh::from_slice(bytes).map_err(|_| UniversalStateInitError::Malformed)
+pub(crate) fn decode_lenient(bytes: &[u8]) -> Result<UniversalStateInit, StateInitError> {
+    borsh::from_slice(bytes).map_err(|_| StateInitError::Malformed)
 }
 
 /// The `0u` account id of state init bytes: SHA3-256 over them, as given.
@@ -436,7 +426,7 @@ mod tests {
         ] {
             let raw = state_init.to_raw();
             assert_eq!(raw.0, bytes);
-            assert_eq!(raw.derive_account_id().as_str(), expected);
+            assert_eq!(raw.try_derive_account_id().unwrap().as_str(), expected);
             assert_eq!(state_init.derive_account_id().as_str(), expected);
             assert_eq!(UniversalStateInit::from_raw(&raw).unwrap(), *state_init);
         }
@@ -587,19 +577,29 @@ mod tests {
         for raw in non_canonical_encodings() {
             assert_eq!(
                 UniversalStateInit::from_raw(&raw),
-                Err(UniversalStateInitError::NonCanonical),
+                Err(StateInitError::NonCanonical),
                 "{raw:?}"
             );
             let lenient = UniversalStateInit::from_raw_lenient(&raw).unwrap();
             assert_ne!(lenient.to_raw(), raw);
             let action = crate::types::UniversalStateInitAction {
-                state_init: raw.as_bytes().to_vec(),
+                state_init: raw.0.clone(),
                 deposit: crate::types::NearToken::from_yoctonear(0),
             };
             assert_eq!(action.decode_state_init().unwrap(), lenient);
             // The id is over the raw bytes, not their canonical re-encoding.
-            assert_eq!(action.derive_account_id(), raw.derive_account_id());
-            assert_ne!(raw.derive_account_id(), lenient.derive_account_id());
+            assert_eq!(
+                action.derive_account_id(),
+                derive_universal_account_id(&raw.0)
+            );
+            assert_ne!(
+                derive_universal_account_id(&raw.0),
+                lenient.derive_account_id()
+            );
+            assert_eq!(
+                raw.try_derive_account_id(),
+                Err(StateInitError::NonCanonical)
+            );
         }
     }
 
@@ -615,12 +615,12 @@ mod tests {
             let raw = RawStateInit(bytes);
             assert_eq!(
                 UniversalStateInit::from_raw(&raw),
-                Err(UniversalStateInitError::Malformed),
+                Err(StateInitError::Malformed),
                 "{raw:?}"
             );
             assert_eq!(
                 UniversalStateInit::from_raw_lenient(&raw),
-                Err(UniversalStateInitError::Malformed)
+                Err(StateInitError::Malformed)
             );
         }
     }

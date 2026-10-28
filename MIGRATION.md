@@ -510,6 +510,8 @@ Items that keep their role under a new name or path:
 | `RpcError::Timeout(u32)` | Removed: nothing returned it |
 | `RpcError::InvalidTransaction { message, details }` | `RpcError::InvalidTxUnparsed { message, details }` |
 | `protocol::DelegateDecodeError` | `protocol::DecodeDelegateError` |
+| `protocol::UniversalStateInitError` | `protocol::StateInitError`, re-exported from near-global-contracts: same `Malformed` / `NonCanonical` variants, different `Display` text |
+| `protocol::RawStateInit` (near-kit's own) | Same path, now near-global-contracts' `RawStateInit` (the type near-sdk uses; base64 in JSON). `raw.as_bytes()` → `raw.as_ref()` or `&raw.0`; `raw.into_bytes()` → `raw.0` or `Vec::from(raw)`; `raw.derive_account_id()` → `raw.try_derive_account_id()?`, which rejects malformed and non-canonical bytes, or `UniversalStateInitAction::derive_account_id()` for the unvalidated id of the bytes an action carries |
 | `rpc::RawTransactionResponse` (hidden) | `rpc::RpcTransactionResponse`, documented: what `RpcClient::send_tx` and `tx_status` return |
 | `standards::nep413::serialize_message(params)` | `nep413::hash_message(params)` |
 | `PublicKeyHandle::full_pubkey()` | `PublicKeyHandle::as_full()` |
