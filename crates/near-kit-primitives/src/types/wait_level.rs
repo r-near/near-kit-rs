@@ -3,7 +3,7 @@
 //! Instead of using a runtime enum, each wait level is its own type with an
 //! associated `Response` type. In near-kit the level is a type parameter of the
 //! signing client, `SigningNear<W>`, so the compiler knows what
-//! `signing.wait_until::<W>().transaction(..).await` returns:
+//! `alice.wait_until::<W>().transaction(..).await` returns:
 //!
 //! ```rust
 //! use near_kit_primitives::rpc::TxExecutionStatus;
@@ -39,7 +39,7 @@ mod sealed {
 /// Each wait level is a zero-sized marker type that defines:
 /// - The [`TxExecutionStatus`] to send to the RPC
 /// - An associated [`Response`](WaitLevel::Response) type that determines
-///   what a transaction sent at this level (`signing.wait_until::<W>()`)
+///   what a transaction sent at this level (`alice.wait_until::<W>()`)
 ///   returns
 ///
 /// This trait is sealed and cannot be implemented outside this crate.

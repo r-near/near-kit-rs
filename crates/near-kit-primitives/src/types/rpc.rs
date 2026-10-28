@@ -944,7 +944,7 @@ impl<'de> Deserialize<'de> for RpcTransactionResponse {
 ///
 /// The `receipts` field contains full receipt details when the outcome comes
 /// from `EXPERIMENTAL_tx_status` (i.e. `near.tx_status()`). When the outcome
-/// comes from `send_tx` (every send: `signing.transaction(..)` and
+/// comes from `send_tx` (every send: `alice.transaction(..)` and
 /// `Near::send_signed`), this field is an empty `Vec`.
 ///
 /// A failed action still arrives as `Ok(outcome)`, so the type is

@@ -59,7 +59,7 @@ pub struct NonFungibleToken;
 /// Views need `C: Viewer` and read at optimistic finality; calls need
 /// `C: TxSender + Clone` and return a [`Call`] that sends one transaction
 /// when awaited. `near.contract::<NonFungibleToken>(id)` gives a read-only
-/// client and `signing.contract::<NonFungibleToken>(id)` one that can also
+/// client and `alice.contract::<NonFungibleToken>(id)` one that can also
 /// send.
 ///
 /// # Caching
