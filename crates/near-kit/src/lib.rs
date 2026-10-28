@@ -215,6 +215,7 @@
 //! | Chapter | Covers |
 //! |---------|--------|
 //! | [clients][guide-clients] | `Near` and `SigningNear`, networks and endpoints, `Near::custom`, the builder, one client per account |
+//! | [keys][guide-keys] | Key types and formats, loading keys, seed phrases, implicit accounts, remote signers |
 //! | [transactions][guide-transactions] | `Tx` and every `Action`, batching typed calls, global contracts, state init, local checks |
 //! | [finality][guide-finality] | Read finality, wait levels and what each returns, read-after-write, polling `tx_status` |
 //! | [nonces][guide-nonces] | The nonce cache, `max_nonce_retries`, `RotatingSigner`, ordered queues, relayer settings |
@@ -223,7 +224,6 @@
 //! | [offline_signing][guide-offline] | `sign` and `send_signed`, client-free transactions, base64, NEP-413 messages |
 //! | [contracts_and_tokens][guide-contracts] | `#[contract]` in full, the FT and NFT clients |
 //! | [testing][guide-testing] | Mock `Viewer` and `TxSender` backends, canned RPC transports, the sandbox |
-//! | [keys][guide-keys] | Key types and formats, loading keys, seed phrases, implicit accounts, remote signers |
 //! | [platforms][guide-platforms] | Browser and WASI builds, entropy backends, offline builds, contracts, tracing |
 //!
 //! ## Feature flags

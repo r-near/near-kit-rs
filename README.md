@@ -13,11 +13,15 @@ contracts through typed clients.
 
 ## Install
 
+Add near-kit and an async runtime:
+
 ```sh
 cargo add near-kit
-cargo add near-kit --features contracts   # typed contract clients
 cargo add tokio --features macros,rt-multi-thread
 ```
+
+For typed contract clients (`#[near_kit::contract]`), add near-kit with the
+`contracts` feature instead: `cargo add near-kit --features contracts`.
 
 ## Quick start
 
@@ -62,6 +66,7 @@ async fn main() -> Result<(), Error> {
 ## Guides
 
 - [Clients and networks](https://docs.rs/near-kit/latest/near_kit/guide/clients/index.html)
+- [Keys and signers](https://docs.rs/near-kit/latest/near_kit/guide/keys/index.html)
 - [Transactions and actions](https://docs.rs/near-kit/latest/near_kit/guide/transactions/index.html)
 - [Finality and wait levels](https://docs.rs/near-kit/latest/near_kit/guide/finality/index.html)
 - [Nonces and concurrent sends](https://docs.rs/near-kit/latest/near_kit/guide/nonces/index.html)
@@ -70,7 +75,6 @@ async fn main() -> Result<(), Error> {
 - [Offline signing](https://docs.rs/near-kit/latest/near_kit/guide/offline_signing/index.html)
 - [Typed contracts and tokens](https://docs.rs/near-kit/latest/near_kit/guide/contracts_and_tokens/index.html)
 - [Testing: mocks and the sandbox](https://docs.rs/near-kit/latest/near_kit/guide/testing/index.html)
-- [Keys and signers](https://docs.rs/near-kit/latest/near_kit/guide/keys/index.html)
 - [Platforms: browser, WASI, contracts, tracing](https://docs.rs/near-kit/latest/near_kit/guide/platforms/index.html)
 
 ## Examples

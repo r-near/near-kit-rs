@@ -587,7 +587,7 @@ fn generate_function_call_method(
 /// For `trait Counter`, this generates:
 ///
 /// - a unit struct `Counter` with a static `FunctionCall` constructor for each
-///   `#[call]` method (e.g. `Counter::increment()`), for composing typed calls
+///   `#[call]` method (e.g. `Counter::add(args)`), for composing typed calls
 ///   into transactions;
 /// - a `CounterClient<C>` generic over its backend `C`: view methods need
 ///   `C: Viewer + Clone` and return a `View`, `#[call]` methods need

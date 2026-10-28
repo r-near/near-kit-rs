@@ -432,12 +432,12 @@ another wait level, build the client from a re-levelled sender:
 ```rust
 // 0.20.1
 let counter = near.contract::<Counter>("counter.testnet".parse::<AccountId>()?);
-counter.increment().await?;
+counter.add(AddArgs { value: 1 }).await?;
 
 // This release
 let counter = alice.contract::<Counter>(account!("counter.testnet"));
-counter.increment().gas(Gas::from_tgas(10)).await?;
-let count = counter.get_count().at(180_000_000).await?;
+counter.add(AddArgs { value: 1 }).gas(Gas::from_tgas(10)).await?.result()?;
+let count = counter.get_count().at(height).await?;
 ```
 
 The macro now rejects declarations it used to compile into something wrong:

@@ -97,8 +97,14 @@
 //! ```
 //!
 //! A contract built for `wasm32-unknown-unknown` also needs a `getrandom`
-//! backend, even though it never generates keys: build with
-//! `RUSTFLAGS='--cfg getrandom_backend="unsupported"'`.
+//! backend, even though it never generates keys. Set it for that target in
+//! `.cargo/config.toml` (a `RUSTFLAGS` environment variable replaces this
+//! setting, so don't set both):
+//!
+//! ```toml
+//! [target.wasm32-unknown-unknown]
+//! rustflags = ['--cfg', 'getrandom_backend="unsupported"']
+//! ```
 //!
 //! ## Your own backend
 //!
