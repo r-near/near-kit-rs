@@ -300,20 +300,34 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
     ///
     /// This calls `nft_on_transfer` on the receiver contract.
     ///
+    /// `.result()?` doesn't tell you the receiver kept the token: if
+    /// `nft_on_transfer` fails, the contract's `nft_resolve_transfer`
+    /// callback handles the failure and returns the token to the sender, so
+    /// the transaction still succeeds. Check
+    /// [`receipt_failures`](crate::rpc::FinalExecutionOutcome::receipt_failures)
+    /// for the receiver's failure, or the `bool` the call returns.
+    ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # use near_kit::standards::NonFungibleToken;
-    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+    /// # async fn example(alice: SigningNear) -> Result<(), Box<dyn std::error::Error>> {
     /// let nft = alice.contract::<NonFungibleToken>(account!("nft-contract.near"));
     ///
-    /// nft.transfer_call(
-    ///     account!("marketplace.near"),
-    ///     "token-123",
-    ///     r#"{"action":"list","price":"10"}"#,
-    /// )
-    /// .await?.result()?;
+    /// let outcome = nft
+    ///     .transfer_call(
+    ///         account!("marketplace.near"),
+    ///         "token-123",
+    ///         r#"{"action":"list","price":"10"}"#,
+    ///     )
+    ///     .await?;
+    /// if let Some(error) = outcome.receipt_failures().next() {
+    ///     return Err(format!("the listing failed and the token came back: {error}").into());
+    /// }
+    /// // `true` if the receiver kept the token, `false` if it was returned.
+    /// let transferred: bool = outcome.json()?;
+    /// # let _ = transferred;
     /// # Ok(())
     /// # }
     /// ```

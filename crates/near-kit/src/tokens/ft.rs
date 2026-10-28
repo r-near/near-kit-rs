@@ -307,17 +307,30 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     ///
     /// The receiver can return unused tokens, which will be refunded to the sender.
     ///
+    /// `.result()?` doesn't tell you the receiver took the tokens: if
+    /// `ft_on_transfer` fails, the token's `ft_resolve_transfer` callback
+    /// handles the failure and refunds the sender, so the transaction still
+    /// succeeds. Check
+    /// [`receipt_failures`](crate::rpc::FinalExecutionOutcome::receipt_failures)
+    /// for the receiver's failure, or the amount the call returns.
+    ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # use near_kit::standards::FungibleToken;
-    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+    /// # async fn example(alice: SigningNear) -> Result<(), Box<dyn std::error::Error>> {
     /// let token = alice.contract::<FungibleToken>(account!("wrap.near"));
     ///
-    /// token
+    /// let outcome = token
     ///     .transfer_call(account!("defi.near"), 1_000_000_u128, r#"{"action":"deposit"}"#)
-    ///     .await?.result()?;
+    ///     .await?;
+    /// if let Some(error) = outcome.receipt_failures().next() {
+    ///     return Err(format!("the deposit failed and was refunded: {error}").into());
+    /// }
+    /// // The amount the receiver kept, as a JSON string; the rest was refunded.
+    /// let used: u128 = outcome.json::<String>()?.parse()?;
+    /// # let _ = used;
     /// # Ok(())
     /// # }
     /// ```

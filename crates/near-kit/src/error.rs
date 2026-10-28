@@ -81,6 +81,9 @@ pub enum RpcError {
     /// Retryable when the request timed out, the connection could not be
     /// made, or the server dropped it. Not present on WASI, where transport
     /// failures are [`Network`](Self::Network).
+    ///
+    /// near-kit drops the request URL from the reqwest error, so an API key
+    /// in the URL doesn't show up in its `Display` or `Debug`.
     #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
     #[error("HTTP error: {0}")]
     Http(#[source] reqwest::Error),
