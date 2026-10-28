@@ -13,7 +13,8 @@
 //!   signed transaction between machines, and how the receiving side checks
 //!   it before submitting.
 //! - NEP-413: signing an off-chain message (a login challenge) and verifying
-//!   it with `nep413::verify_signature`, including the JSON a frontend sends.
+//!   it with `nep413::verify_signature`, including the JSON a frontend sends
+//!   and the server's check that it answers its own, unused challenge.
 //!
 //! To submit the transaction from an online machine, decode it there and use
 //! `Near::send_signed(&signed)`. To sign with a nonce and block hash fetched
@@ -24,6 +25,8 @@
 //! ```text
 //! cargo run -p near-kit --example offline_signing
 //! ```
+
+use std::collections::HashSet;
 
 use near_kit::protocol::{Action, SignedTransaction, Transaction};
 use near_kit::signer::{InMemorySigner, SecretKey, Signer};
@@ -99,15 +102,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- NEP-413: sign a message, not a transaction ---
 
-    // The server issues a challenge; the user's wallet signs it. A NEP-413
-    // signature can't be replayed as a transaction.
+    // The server issues a challenge and remembers its nonce; the user's
+    // wallet signs it. A NEP-413 signature can't be replayed as a transaction.
+    const APP: &str = "example.com";
+    const LOGIN_MESSAGE: &str = "Sign in to example.com";
+    // 32 bytes; near-kit's nonces start with a timestamp so verification can
+    // reject old signatures.
+    let challenge = nep413::generate_nonce();
+    let mut issued = HashSet::from([challenge]);
+
     let alice = InMemorySigner::new(account!("alice.testnet"), secret_key);
     let params = nep413::SignMessageParams {
-        message: "Sign in to example.com".into(),
-        recipient: "example.com".into(),
-        // 32 bytes; near-kit's nonces start with a timestamp so verification
-        // can reject old signatures.
-        nonce: nep413::generate_nonce(),
+        message: LOGIN_MESSAGE.into(),
+        recipient: APP.into(),
+        nonce: challenge,
         callback_url: None,
         state: None,
     };
@@ -117,9 +125,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let body = serde_json::to_string(&nep413::AuthPayload::from_signed(signed_message, &params))?;
     println!("auth payload: {body}");
 
-    // The server parses it and verifies offline: the signature, and that the
-    // nonce is under 5 minutes old (`NonceValidation::default()`).
+    // The server parses it. The recipient, message and nonce come from the
+    // request, so it first checks they are its own challenge: otherwise a
+    // signature the user made for another app, or a replayed login, passes.
+    // Then it verifies offline: the signature, and that the nonce is under 5
+    // minutes old (`NonceValidation::default()`).
     let payload: nep413::AuthPayload = serde_json::from_str(&body)?;
+    let is_our_challenge = |payload: &nep413::AuthPayload, issued: &HashSet<[u8; 32]>| {
+        payload.recipient == APP
+            && payload.message == LOGIN_MESSAGE
+            && issued.contains(&payload.nonce)
+    };
+    assert!(is_our_challenge(&payload, &issued));
     let params = payload.to_params();
     let valid = nep413::verify_signature(
         &payload.signed_message,
@@ -128,6 +145,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("NEP-413 signature valid: {valid}");
     assert!(valid);
+    // Accepted: the nonce is used up, so the same payload can't log in again.
+    issued.remove(&payload.nonce);
+    assert!(!is_our_challenge(&payload, &issued));
+    println!("same payload again: rejected (nonce already used)");
 
     // A signature for one recipient doesn't verify for another.
     let other_site = nep413::SignMessageParams {
