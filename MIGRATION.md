@@ -394,7 +394,8 @@ impl Wrap for SigningNear {
     async fn wrap(&self, amount: NearToken) -> Result<(), Error> {
         self.transaction(account!("wrap.testnet"))
             .add_action(FunctionCall::new("near_deposit").deposit(amount))
-            .await?;
+            .await?
+            .result()?;
         Ok(())
     }
 }
@@ -506,7 +507,8 @@ use near_kit::standards::FungibleToken;
 alice
     .contract::<FungibleToken>(account!("wrap.near"))
     .transfer(account!("bob.near"), 1_000_u128, Some("rent".to_owned()))
-    .await?;
+    .await?
+    .result()?;
 ```
 
 ## Relayers and meta-transactions
@@ -545,6 +547,10 @@ let outcome = relayer
     .transaction(signed.sender_id())
     .add_action(Action::delegate(signed))
     .await?;
+// The relayer's transaction succeeds even when the user's call fails.
+if let Some(error) = outcome.receipt_failures().next() {
+    println!("inner action failed: {error}");
+}
 ```
 
 Behaviour changes:
@@ -731,7 +737,8 @@ root.transaction(account!("alice.sandbox"))
     .add_action(Action::create_account())
     .add_action(Action::transfer(NearToken::from_near(10)))
     .add_action(Action::add_full_access_key(key))
-    .await?;
+    .await?
+    .result()?;
 ```
 
 ## Platforms and features
