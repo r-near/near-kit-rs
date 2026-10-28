@@ -872,7 +872,12 @@ pub struct RpcTransactionResponse {
 /// The `receipts` field contains full receipt details when the outcome comes
 /// from `EXPERIMENTAL_tx_status` (i.e. `near.tx_status()`). When the outcome
 /// comes from `send_tx` (i.e. `near.send()`), this field is an empty `Vec`.
+///
+/// A failed action still arrives as `Ok(outcome)`, so the type is
+/// `#[must_use]`: check [`is_failure`](Self::is_failure), or call
+/// [`result`](Self::result) to turn the failure into an `Err`.
 #[derive(Debug, Clone, Deserialize)]
+#[must_use = "a failed action is still Ok(outcome): check is_failure() or call result()"]
 pub struct FinalExecutionOutcome {
     /// Overall transaction execution result.
     pub status: FinalExecutionStatus,
@@ -886,6 +891,32 @@ pub struct FinalExecutionOutcome {
     #[serde(default)]
     pub receipts: Vec<Receipt>,
 }
+
+/// Dropping a [`FinalExecutionOutcome`] is a `unused_must_use` warning:
+///
+/// ```compile_fail
+/// #![deny(unused_must_use)]
+/// fn send() -> near_kit_primitives::rpc::FinalExecutionOutcome {
+///     unimplemented!()
+/// }
+/// fn main() {
+///     send();
+/// }
+/// ```
+///
+/// Binding it compiles:
+///
+/// ```no_run
+/// #![deny(unused_must_use)]
+/// fn send() -> near_kit_primitives::rpc::FinalExecutionOutcome {
+///     unimplemented!()
+/// }
+/// fn main() {
+///     let _outcome = send();
+/// }
+/// ```
+#[cfg(doctest)]
+struct FinalExecutionOutcomeMustUse;
 
 impl FinalExecutionOutcome {
     /// Check if the transaction succeeded.
