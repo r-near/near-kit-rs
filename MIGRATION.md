@@ -328,7 +328,8 @@ alice
 A failed action is still `Ok(outcome)` with `outcome.is_failure()`; `Err`
 means the transaction didn't execute. `FinalExecutionOutcome` is now
 `#[must_use]`, so a send whose outcome is dropped (`.await?;`) warns: check
-`is_failure()`, or call `.result()?` to turn a failed action into an `Err`.
+`is_failure()` or `receipt_failures()`, or call `.result()?` to turn a failed
+action into an `Err`.
 
 ### Wait levels: `Final` by default
 
@@ -556,6 +557,12 @@ Behaviour changes:
   still wins.
 - **Retry policy belongs to the sender.** A relayer sets
   `relayer.clone().max_nonce_retries(n)` once instead of per transaction.
+- **New relayer helpers.** `SignedDelegateAction::verify()` checks the
+  signature against the delegate action's public key.
+  `FinalExecutionOutcome::receipt_failures()` yields every failed receipt's
+  `ActionError` in RPC order: for a relayed transaction `is_failure()` and
+  `result()` can both look successful while the user's inner actions failed,
+  and only `receipt_failures()` shows it.
 - **A delegate's inner actions are `Action`s.** `DelegateActionView::actions`
   and `DelegateActionV2View::actions` are `Vec<Action>` (were
   `Vec<ActionView>`), because the node sends them in the protocol `Action`
