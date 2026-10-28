@@ -107,7 +107,7 @@ pub enum RpcError {
     // variant (and its `is_retryable` arm below) exists only there.
     #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
     #[error("HTTP error: {0}")]
-    Http(#[from] reqwest::Error),
+    Http(#[source] reqwest::Error),
 
     #[error("Network error: {message}")]
     Network {
@@ -650,6 +650,15 @@ impl RpcError {
         }
 
         None
+    }
+}
+
+/// Drops the request URL from the error: RPC providers often put an API key
+/// in it (`?apikey=...`), and reqwest would print it in `Display` and `Debug`.
+#[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
+impl From<reqwest::Error> for RpcError {
+    fn from(error: reqwest::Error) -> Self {
+        RpcError::Http(error.without_url())
     }
 }
 

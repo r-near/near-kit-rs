@@ -265,7 +265,8 @@ impl RpcTransport for ReqwestTransport {
         Box::pin(async move {
             // Failures pass through as `RpcError::Http`, keeping reqwest's
             // retryability classification (`is_timeout`/`is_connect`) exactly
-            // as it was before the transport seam existed.
+            // as it was before the transport seam existed. The `From` impl
+            // drops the URL, which may carry an API key.
             let response = request.send().await?;
             let status = response.status().as_u16();
             let body = response.bytes().await?.to_vec();
@@ -641,9 +642,11 @@ mod wasi_http {
         out
     }
 
-    /// A malformed URL is deterministic — never retryable.
+    /// A malformed URL is deterministic — never retryable. The message leaves
+    /// out the query and fragment, which may carry an API key.
     fn invalid_url(url: &str, reason: &str) -> RpcError {
-        RpcError::network(format!("invalid RPC URL `{url}`: {reason}"), None, false)
+        let shown = &url[..url.find(['?', '#']).unwrap_or(url.len())];
+        RpcError::network(format!("invalid RPC URL `{shown}`: {reason}"), None, false)
     }
 
     fn stream_err(e: StreamError) -> String {

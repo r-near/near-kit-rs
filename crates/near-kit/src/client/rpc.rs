@@ -2584,6 +2584,36 @@ mod tests {
         false
     }
 
+    /// A transport failure doesn't print the request URL, which may carry an
+    /// API key, in `Display`, `Debug` or any source; it stays retryable.
+    #[tokio::test]
+    async fn test_http_error_omits_url_with_api_key() {
+        let port = {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        let url = format!("http://127.0.0.1:{port}/?apikey=SECRET");
+
+        let error = test_client(&url, RetryConfig::none())
+            .request::<_, serde_json::Value>("status", ())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, RpcError::Http(_)), "{error:?}");
+        assert!(error.is_retryable(), "{error:?}");
+
+        let error = crate::Error::from(error);
+        let mut shown = vec![error.to_string(), format!("{error:?}")];
+        let mut source = std::error::Error::source(&error);
+        while let Some(err) = source {
+            shown.push(err.to_string());
+            shown.push(format!("{err:?}"));
+            source = err.source();
+        }
+        for text in shown {
+            assert!(!text.contains("SECRET"), "{text}");
+        }
+    }
+
     /// A node that resets the connection under load: the error is retryable,
     /// and a retrying client gets through.
     #[tokio::test]
