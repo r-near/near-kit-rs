@@ -67,8 +67,9 @@ For CI, `SigningNear::from_env()` reads `NEAR_NETWORK`, `NEAR_ACCOUNT_ID` and
 
 `near.view(..)` returns a `View`: add `.args(..)`, pick a block with `.at(..)`
 (a height, a hash or a `Finality`; the default is `Final`), and `.await`.
-`.with_metadata()` also gives the block height and hash. `balance`,
-`account_exists` and `tx_status` take the same `.at(..)`. Every other RPC method
+`.with_metadata()` also gives the block height and hash. `balance` and
+`account_exists` take the same `.at(..)`; `tx_status` picks how far the
+transaction must have run with `.wait_until::<W>()`. Every other RPC method
 is on `near.rpc()`.
 
 ```rust

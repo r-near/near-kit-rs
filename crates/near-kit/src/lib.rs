@@ -65,7 +65,9 @@
 //! `.args(..)`, pick a block with `.at(..)` (a height, a hash, or a
 //! [`Finality`](rpc::Finality); the default is `Final`), then `.await`.
 //! `.with_metadata()` also returns the block height and hash the value was
-//! read at. `balance`, `account_exists` and `tx_status` take the same `.at(..)`.
+//! read at. `balance` and `account_exists` take the same `.at(..)`;
+//! `tx_status` picks how far the transaction must have run with
+//! `.wait_until::<W>()`.
 //! Every other RPC method is on [`near.rpc()`](rpc::RpcClient).
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]

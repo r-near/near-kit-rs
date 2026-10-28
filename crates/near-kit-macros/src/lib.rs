@@ -81,6 +81,12 @@ enum SerializationFormat {
     Borsh,
 }
 
+/// The generated client's backend type parameter. Spelled so it can't
+/// shadow a type the contract's methods name (a user type `C`, say).
+fn backend_param() -> Ident {
+    format_ident!("__NearKitBackend")
+}
+
 /// The crate the expansion names for its runtime support.
 ///
 /// near-kit when the caller depends on it, so the generated client can
@@ -314,7 +320,7 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
 
 /// Generate the client method for a view function.
 ///
-/// The `where C: Viewer + Clone` bound sits on the method, not the impl
+/// The `Viewer + Clone` bound on the backend sits on the method, not the impl
 /// block, so calling it on a client whose backend can't view reports the
 /// trait's `on_unimplemented` text (E0277) instead of "method not found"
 /// (E0599). `Clone` comes after the trait so that error is reported first.
@@ -324,6 +330,7 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
     let method_name = &method.name;
     let method_name_str = method_name.to_string();
     let docs = &method.docs;
+    let backend = backend_param();
 
     let format = method.format_override.unwrap_or(contract_format);
 
@@ -355,9 +362,9 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
 
     quote! {
         #(#docs)*
-        pub fn #method_name(&self, #params) -> #near_kit::transaction::View<C, #return_type>
+        pub fn #method_name(&self, #params) -> #near_kit::transaction::View<#backend, #return_type>
         where
-            C: #near_kit::Viewer + ::core::clone::Clone,
+            #backend: #near_kit::Viewer + ::core::clone::Clone,
         {
             #constructor(
                 ::core::clone::Clone::clone(&self.backend),
@@ -376,6 +383,7 @@ fn generate_call_method(method: &MethodInfo, trait_name: &Ident) -> TokenStream2
     let near_kit = near_kit_path();
     let method_name = &method.name;
     let docs = &method.docs;
+    let backend = backend_param();
 
     let (params, args) = match (&method.arg_name, &method.arg_type) {
         (Some(arg_name), Some(arg_type)) => (quote! { #arg_name: #arg_type }, quote! { #arg_name }),
@@ -384,9 +392,9 @@ fn generate_call_method(method: &MethodInfo, trait_name: &Ident) -> TokenStream2
 
     quote! {
         #(#docs)*
-        pub fn #method_name(&self, #params) -> #near_kit::transaction::Call<C>
+        pub fn #method_name(&self, #params) -> #near_kit::transaction::Call<#backend>
         where
-            C: #near_kit::TxSender + ::core::clone::Clone,
+            #backend: #near_kit::TxSender + ::core::clone::Clone,
         {
             #near_kit::__private::call(
                 ::core::clone::Clone::clone(&self.backend),
@@ -559,10 +567,11 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
 
     // Propagate trait-level attributes (doc comments, #[cfg], etc.) to the struct
     let trait_attrs = &input.attrs;
+    let backend = backend_param();
 
     let client_doc = format!(
-        " Client for the [`{trait_name}`] contract, sending through the backend `C`.\n\n \
-         View methods need `C: Viewer + Clone`; `#[call]` methods need `C: TxSender + Clone`. \
+        " Client for the [`{trait_name}`] contract, sending through a backend.\n\n \
+         View methods need a `Viewer + Clone` backend; `#[call]` methods need `TxSender + Clone`. \
          For a backend that isn't `Clone`, use `&T` or `Arc<T>`."
     );
 
@@ -575,18 +584,18 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
             #(#function_call_methods)*
         }
 
-        // `client_struct!` adds the `= Near` default for `C` when near-kit
+        // `client_struct!` adds the `= Near` default for the backend when near-kit
         // has its client; a `cfg` here would test the caller's features.
         #near_kit::__private::client_struct! {
             #[doc = #client_doc]
             #[derive(Debug, Clone)]
-            #vis struct #client_name<C> {
-                backend: C,
+            #vis struct #client_name<#backend> {
+                backend: #backend,
                 contract_id: #near_kit::AccountId,
             }
         }
 
-        impl<C> #client_name<C> {
+        impl<#backend> #client_name<#backend> {
             /// The contract account this client talks to.
             pub fn contract_id(&self) -> &#near_kit::AccountId {
                 &self.contract_id
@@ -596,9 +605,9 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         }
 
         impl #near_kit::Contract for #trait_name {
-            type Client<C> = #client_name<C>;
+            type Client<#backend> = #client_name<#backend>;
 
-            fn client<C>(backend: C, contract_id: #near_kit::AccountId) -> #client_name<C> {
+            fn client<#backend>(backend: #backend, contract_id: #near_kit::AccountId) -> #client_name<#backend> {
                 #client_name {
                     backend,
                     contract_id,

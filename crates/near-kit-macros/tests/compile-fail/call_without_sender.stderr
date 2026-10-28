@@ -26,11 +26,11 @@ help: the following other types implement trait `TxSender`
    |
    | impl<W: WaitLevel> crate::TxSender for SigningNear<W> {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `SigningNear<W>`
-note: required by a bound in `CounterClient::<C>::increment`
+note: required by a bound in `CounterClient::<__NearKitBackend>::increment`
   --> tests/compile-fail/call_without_sender.rs:7:1
    |
  7 | #[near_kit::contract]
-   | ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `CounterClient::<C>::increment`
+   | ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `CounterClient::<__NearKitBackend>::increment`
 ...
 12 |     fn increment(&mut self);
    |        --------- required by a bound in this associated function
