@@ -29,8 +29,9 @@ The cache is keyed by **chain ID, account and public key**. That means:
   [`Near::custom`](crate::Near::custom), pass the network's real chain ID,
   not a label per endpoint.
 - Two networks that share a chain ID (two local sandboxes, say) share a
-  sequence. That is harmless: nonces may skip ahead, and a cached nonce the
-  chain can't accept is dropped (see below). A distinct chain ID per network
+  sequence. That is harmless: nonces may skip ahead, and a cached nonce too
+  large for the chain's height isn't used there (the cache starts another
+  sequence from the chain's view instead). A distinct chain ID per network
   keeps them apart.
 - Two processes never share it. Each starts from the chain's view.
 
@@ -55,7 +56,7 @@ and sends again:
 | Rejection | Cause | What the retry does |
 |---|---|---|
 | `InvalidNonce` | Another transaction with this key landed first (another task, process, or a stale view) | Takes the nonce the node reported as a floor, fetches a fresh view, signs with the next nonce |
-| `NonceTooLarge` | The cached nonce is past what this chain accepts (it came from another chain with the same ID) | Drops the cached entry and starts again from the chain's view |
+| `NonceTooLarge` | The cached nonce is past what this chain accepts (it came from another chain with the same ID) | Drops the cached sequence it came from and starts again from the chain's view |
 | `Expired` | The block hash the transaction referenced is too old | Fetches a fresh block hash and nonce |
 
 The number of retries is `max_nonce_retries`, 3 by default (so up to four
