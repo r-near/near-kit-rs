@@ -296,15 +296,17 @@ impl<W: WaitLevel> SigningNear<W> {
     /// # use near_kit::signer::Signer;
     /// # async fn example(alice: SigningNear, nonce: u64, block_hash: CryptoHash) -> Result<(), Error> {
     /// let signer = alice.signer();
+    /// // Claim the key once: a rotating signer hands out a different key per call.
+    /// let key = signer.key();
     /// let tx = Transaction::new(
     ///     signer.account_id().clone(),
-    ///     signer.public_key(),
+    ///     key.public_key().clone(),
     ///     nonce,
     ///     account!("bob.testnet"),
     ///     block_hash,
     ///     vec![Action::transfer(NearToken::from_near(1))],
     /// );
-    /// let signature = signer.key().sign(tx.get_hash().as_bytes()).await?;
+    /// let signature = key.sign(tx.get_hash().as_bytes()).await?;
     /// let signed = tx.complete(signature);
     /// # Ok(())
     /// # }

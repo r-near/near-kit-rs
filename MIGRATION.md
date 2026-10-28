@@ -118,7 +118,7 @@ let balance = me.near().balance(me.account_id()).await?;
 | 0.20 | 0.21 |
 |---|---|
 | `near.transaction(rx)` (a `TransactionBuilder`) | `signing.transaction(rx)` (a `Tx`) |
-| `.transfer(amount)`, `.create_account()`, `.deploy(wasm)`, `.add_full_access_key(pk)`, `.add_function_call_key(..)`, `.delete_key(pk)`, `.delete_account(b)`, `.stake(..)`, `.publish(..)`, `.deploy_from(..)`, `.state_init(..)`, `.universal_state_init(..)`, `.signed_delegate_action(..)` | `.add_action(Action::transfer(amount))` and so on: one `Action::*` constructor per helper. `deploy_from` becomes `Action::deploy_from_account(id)` or `Action::deploy_from_hash(hash)`. |
+| `.transfer(amount)`, `.create_account()`, `.deploy(wasm)`, `.add_full_access_key(pk)`, `.add_function_call_key(..)`, `.delete_key(pk)`, `.delete_account(b)`, `.stake(..)`, `.publish(..)`, `.deploy_from(..)`, `.state_init(..)`, `.universal_state_init(..)` | `.add_action(Action::transfer(amount))` and so on: one `Action::*` constructor per helper. `deploy_from` becomes `Action::deploy_from_account(id)` or `Action::deploy_from_hash(hash)`. |
 | `.call("m").args(a).gas(g).deposit(d)` … `.finish()` | `.add_action(FunctionCall::new("m").args(a).gas(g).deposit(d))` |
 | `near.call(id, "m")` | `signing.transaction(id).add_action(FunctionCall::new("m"))` |
 | `near.transfer(id, amount)` | `signing.transaction(id).add_action(Action::transfer(amount))` |
@@ -126,6 +126,7 @@ let balance = me.near().balance(me.account_id()).await?;
 | `near.state_init(si, deposit)` / `universal_state_init(..)` | `signing.transaction(si.derive_account_id()).add_action(Action::state_init(si, deposit))`. The receiver is no longer filled in for you; a state init sent to any other receiver fails at `.await` with `Error::InvalidTransaction`, before signing. |
 | `.add_actions(vec)` | Call `add_action` in a loop. |
 | `.send()`, `.send().wait_until::<W>()` | `.await` sends; set the wait level on the client (see below). |
+| `.signed_delegate_action(signed)` (relayer) | `relayer.transaction(signed.sender_id()).add_action(Action::delegate(signed))`. The receiver must be the delegate's sender; any other receiver fails at `.await` with `Error::InvalidTransaction`, before signing. |
 | `.sign()` / `.delegate(opts)` | `signing.sign(rx, actions)` / `signing.delegate(rx, actions, opts)` |
 | `DelegateResult` (`.signed_delegate_action`, `.payload`, `.sender_id()`) | `delegate` returns the `SignedDelegateAction` itself: use it directly, `.to_base64()` for the payload |
 | `DelegateOptions::with_offset(n)` / `with_max_height(h)` | `DelegateOptions { block_height_offset: Some(n), ..Default::default() }` / `max_block_height: Some(h)` |

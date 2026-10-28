@@ -35,7 +35,8 @@ use crate::error::{Error, RpcError};
 use crate::transaction::CodecError;
 use crate::types::{
     AccountId, Action, BlockReference, CryptoHash, DelegateAction, Finality, NonDelegateAction,
-    PublicKey, SignedDelegateAction, SignedTransaction, Transaction, WaitLevel,
+    PublicKey, SignedDelegateAction, SignedTransaction, Transaction,
+    VersionedDelegateActionPayload, WaitLevel,
 };
 
 use super::near::Near;
@@ -170,18 +171,29 @@ impl PreparedTransaction {
         if actions.is_empty() {
             return Err(Error::InvalidTransaction(empty_error.to_string()));
         }
-        // A state init only applies to the account it derives, so the
-        // receiver has to be that account. Catch it here rather than on chain.
+        // A state init only applies to the account it derives, and a delegate
+        // action only to its sender, so the receiver has to be that account.
+        // Catch it here rather than on chain, where the relayer pays for it.
         for action in &actions {
-            let derived = match action {
-                Action::DeterministicStateInit(action) => action.derive_account_id(),
-                Action::UniversalStateInit(action) => action.derive_account_id(),
+            let (what, required) = match action {
+                Action::DeterministicStateInit(action) => {
+                    ("state init creates", action.derive_account_id())
+                }
+                Action::UniversalStateInit(action) => {
+                    ("state init creates", action.derive_account_id())
+                }
+                Action::Delegate(action) => ("delegate action is from", action.sender_id().clone()),
+                Action::DelegateV2(action) => match &action.delegate_action {
+                    VersionedDelegateActionPayload::V2(payload) => {
+                        ("delegate action is from", payload.sender_id.clone())
+                    }
+                },
                 _ => continue,
             };
-            if derived != receiver_id {
+            if required != receiver_id {
                 return Err(Error::InvalidTransaction(format!(
-                    "state init creates {derived}, but the receiver is {receiver_id}; \
-                     send the transaction to {derived}"
+                    "{what} {required}, but the receiver is {receiver_id}; \
+                     send the transaction to {required}"
                 )));
             }
         }
@@ -844,6 +856,46 @@ mod tests {
         assert!(matches!(error, Error::InvalidTransaction(_)), "{error:?}");
         let error = signing
             .delegate(&receiver, Vec::new(), Default::default())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, Error::InvalidTransaction(_)), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn relayed_delegate_to_another_receiver_is_rejected_before_any_rpc() {
+        // nearcore fails a delegate whose sender isn't the transaction's
+        // receiver (DelegateActionSenderDoesNotMatchTxReceiver), after the
+        // relayer has paid for it. The old builder set the receiver itself.
+        let key = SecretKey::generate_ed25519();
+        let delegate = DelegateAction {
+            sender_id: "sender.testnet".parse().unwrap(),
+            receiver_id: "guestbook.testnet".parse().unwrap(),
+            actions: vec![
+                NonDelegateAction::from_action(Action::transfer(NearToken::ZERO)).unwrap(),
+            ],
+            nonce: 1,
+            max_block_height: 100,
+            public_key: key.public_key(),
+        };
+        let signature = key.sign(delegate.get_hash().as_bytes());
+        let signed_delegate = delegate.sign(signature);
+
+        let error = test_signing()
+            .transaction(crate::account!("guestbook.testnet"))
+            .add_action(Action::delegate(signed_delegate.clone()))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&error, Error::InvalidTransaction(message)
+                if message.contains("sender.testnet") && message.contains("guestbook.testnet")),
+            "{error:?}"
+        );
+
+        let error = test_signing()
+            .sign(
+                &crate::account!("guestbook.testnet"),
+                vec![Action::delegate(signed_delegate)],
+            )
             .await
             .unwrap_err();
         assert!(matches!(error, Error::InvalidTransaction(_)), "{error:?}");
