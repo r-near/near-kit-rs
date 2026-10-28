@@ -416,8 +416,8 @@ impl NearBuilder {
 
     /// Set the chain ID.
     ///
-    /// This is useful for custom networks where the default chain ID
-    /// (e.g., `"custom"`) should be overridden. Cached nonces are shared per
+    /// Overrides the chain ID the builder was created with, such as a
+    /// `mainnet()` or `testnet()` preset's. Cached nonces are shared per
     /// chain ID (see [`Near::custom`]).
     pub fn chain_id(mut self, chain_id: impl Into<String>) -> Self {
         self.chain_id = ChainId::new(chain_id);
