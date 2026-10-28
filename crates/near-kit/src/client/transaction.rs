@@ -140,8 +140,11 @@ pub struct DelegateOptions {
     /// Defaults to 200 blocks if neither this nor `max_block_height` is provided.
     pub block_height_offset: Option<u64>,
 
-    /// Override nonce to use for the delegate action. If omitted, fetches
-    /// from the access key and uses nonce + 1.
+    /// Override nonce to use for the delegate action. If omitted, the next
+    /// nonce for the signing key comes from the same in-process sequence as
+    /// [`SigningNear::sign`] and sent transactions: the access key's nonce + 1,
+    /// or higher while transactions or delegate actions this process signed
+    /// with that key haven't landed yet.
     pub nonce: Option<u64>,
 }
 
@@ -505,19 +508,28 @@ impl PreparedTransaction {
         let (sender_id, key) = prepared.claim_signer();
         let public_key = key.public_key().clone();
 
-        // Get nonce
-        let nonce = if let Some(n) = options.nonce {
-            n
-        } else {
-            let access_key = prepared
-                .rpc
-                .view_access_key(
+        // Draw from the same sequence as transactions, so delegate actions
+        // signed before relaying, or while a transaction is pending, don't
+        // share a nonce.
+        let nonce = match options.nonce {
+            Some(nonce) => nonce,
+            None => {
+                let access_key = prepared
+                    .rpc
+                    .view_access_key(
+                        &sender_id,
+                        &public_key,
+                        BlockReference::Finality(Finality::Final),
+                    )
+                    .await?;
+                nonce_manager().next(
+                    &prepared.chain_id,
                     &sender_id,
                     &public_key,
-                    BlockReference::Finality(Finality::Optimistic),
-                )
-                .await?;
-            access_key.nonce + 1
+                    access_key.nonce,
+                    access_key.block_height,
+                )?
+            }
         };
 
         // Get max block height
@@ -1690,5 +1702,67 @@ mod tests {
             })
             .collect();
         assert_eq!(nonces, vec![100_000_001, 100_000_001]);
+    }
+
+    fn delegate_options() -> DelegateOptions {
+        DelegateOptions {
+            max_block_height: Some(1000),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn sign_delegate_draws_consecutive_nonces() {
+        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        let near = signing_via("http://delegates.invalid", "delegates", transport, signer);
+
+        let first = near
+            .sign_delegate(account!("bob.testnet"), transfer(), delegate_options())
+            .await
+            .unwrap();
+        let second = near
+            .sign_delegate(account!("bob.testnet"), transfer(), delegate_options())
+            .await
+            .unwrap();
+        assert_eq!(first.delegate_action.nonce, 6);
+        assert_eq!(second.delegate_action.nonce, 7);
+
+        // An explicit nonce still wins.
+        let explicit = near
+            .sign_delegate(
+                account!("bob.testnet"),
+                transfer(),
+                DelegateOptions {
+                    nonce: Some(42),
+                    ..delegate_options()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(explicit.delegate_action.nonce, 42);
+    }
+
+    #[tokio::test]
+    async fn sign_delegate_after_pending_sign_takes_the_next_nonce() {
+        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        let near = signing_via(
+            "http://sign-then-delegate.invalid",
+            "sign-then-delegate",
+            transport,
+            signer,
+        );
+
+        let pending = near
+            .sign(account!("bob.testnet"), transfer())
+            .await
+            .unwrap();
+        let delegate = near
+            .sign_delegate(account!("bob.testnet"), transfer(), delegate_options())
+            .await
+            .unwrap();
+        assert_eq!(pending.transaction.nonce, 6);
+        assert_eq!(delegate.delegate_action.nonce, 7);
     }
 }
