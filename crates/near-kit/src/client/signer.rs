@@ -185,4 +185,36 @@ mod tests {
             .unwrap();
         assert_eq!(signer.public_key(), key.public_key());
     }
+
+    /// Write `contents` to a fresh temp file, load it for `alice.testnet`,
+    /// and remove the file.
+    #[cfg(feature = "file-signer")]
+    fn load_credentials(name: &str, contents: &str) -> Result<InMemorySigner, Error> {
+        let path = std::env::temp_dir().join(format!(
+            "near-kit-credentials-{name}-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&path, contents).unwrap();
+        let result = from_credentials_file(&path, crate::account!("alice.testnet"));
+        std::fs::remove_file(&path).unwrap();
+        result
+    }
+
+    /// near-cli-rs writes ML-DSA-65 keys in nearcore's 4032-byte expanded form.
+    #[cfg(feature = "file-signer")]
+    #[test]
+    fn credentials_file_with_expanded_ml_dsa65_key_loads() {
+        use crate::signer::{SecretKey, Signer};
+
+        let key = SecretKey::ml_dsa65_from_seed([21; 32]);
+        let expanded = key.to_ml_dsa65_expanded_bytes().unwrap();
+        let contents = serde_json::json!({
+            "account_id": "alice.testnet",
+            "public_key": key.public_key().to_string(),
+            "private_key": format!("ml-dsa-65:{}", bs58::encode(expanded.as_slice()).into_string()),
+        });
+
+        let signer = load_credentials("ml-dsa-65", &contents.to_string()).unwrap();
+        assert_eq!(signer.public_key(), key.public_key());
+    }
 }
