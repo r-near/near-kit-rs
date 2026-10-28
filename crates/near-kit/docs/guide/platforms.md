@@ -20,9 +20,8 @@ leave them off in the browser and in WASI.
 
 ## Browsers and other JS hosts
 
-```toml
-[dependencies]
-near-kit = { version = "0.21", default-features = false, features = ["js", "rpc"] }
+```sh
+cargo add near-kit --no-default-features --features js,rpc
 ```
 
 On `wasm32-unknown-unknown`, `rpc` sends requests with the host's `fetch`
@@ -88,9 +87,8 @@ needs a transport from somewhere else.
 
 ### With `wasi:http`
 
-```toml
-[dependencies]
-near-kit = { version = "0.21", default-features = false, features = ["wasi-http"] }
+```sh
+cargo add near-kit --no-default-features --features wasi-http
 ```
 
 `wasi-http` implies `rpc` and adds
@@ -117,9 +115,8 @@ that imports it. Compiling the built-in transport adds that import, so use
 `rpc` without `wasi-http`, and give the client whatever HTTP the host does
 offer through [`NearBuilder::transport`](crate::NearBuilder::transport):
 
-```toml
-[dependencies]
-near-kit = { version = "0.21", default-features = false, features = ["rpc"] }
+```sh
+cargo add near-kit --no-default-features --features rpc
 ```
 
 ```rust
@@ -179,9 +176,8 @@ node:
 - [`Viewer`](crate::Viewer) and [`TxSender`](crate::TxSender), for a
   backend of your own.
 
-```toml
-[dependencies]
-near-kit = { version = "0.21", default-features = false }
+```sh
+cargo add near-kit --no-default-features
 ```
 
 The same offline core is published as
@@ -199,9 +195,8 @@ describe the contracts it calls, and get the same typed calls as client
 code. The contract builds the call, converts it to its parts, and passes
 them to near-sdk's promise API:
 
-```toml
-[dependencies]
-near-kit-primitives = { version = "0.21", features = ["contracts"] }
+```sh
+cargo add near-kit-primitives --features contracts
 ```
 
 ```rust

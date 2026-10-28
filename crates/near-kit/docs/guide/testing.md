@@ -508,10 +508,9 @@ sandbox.
 `near-kit-sandbox` runs `nearprotocol/sandbox` in Docker through
 testcontainers. Add it as a development dependency:
 
-```toml
-[dev-dependencies]
-near-kit-sandbox = "0.21"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```sh
+cargo add --dev near-kit-sandbox
+cargo add --dev tokio --features macros,rt-multi-thread
 ```
 
 Docker must be running. If Docker listens on a non-default socket, set
