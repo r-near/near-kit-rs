@@ -134,6 +134,11 @@ can't be recovered from an expanded key, so such a key's `as_bytes()` and
 `from_keyring` also finds ML-DSA-65 entries near-cli-rs 0.31 stores under the
 key's `ml-dsa-65-hash:` handle.
 
+Secp256k1 `SecretKey` parsing also accepts near-api-js's 96-byte
+`secp256k1:<base58(secret ‖ public key)>` form, and returns
+`ParseKeyError::InvalidFormat` if the public half doesn't match the secret.
+The key still prints as the 32-byte secret.
+
 ## Transactions
 
 | 0.20 | 0.21 |

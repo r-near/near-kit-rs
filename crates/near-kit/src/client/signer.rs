@@ -217,4 +217,23 @@ mod tests {
         let signer = load_credentials("ml-dsa-65", &contents.to_string()).unwrap();
         assert_eq!(signer.public_key(), key.public_key());
     }
+
+    /// near-api-js writes secp256k1 keys as `secret (32) || public key (64)`.
+    #[cfg(feature = "file-signer")]
+    #[test]
+    fn credentials_file_with_near_api_js_secp256k1_key_loads() {
+        use crate::signer::{SecretKey, Signer};
+
+        let key = SecretKey::secp256k1_from_bytes([22; 32]).unwrap();
+        let mut keypair = key.as_bytes().to_vec();
+        keypair.extend_from_slice(key.public_key().as_bytes());
+        let contents = serde_json::json!({
+            "account_id": "alice.testnet",
+            "public_key": key.public_key().to_string(),
+            "private_key": format!("secp256k1:{}", bs58::encode(&keypair).into_string()),
+        });
+
+        let signer = load_credentials("secp256k1", &contents.to_string()).unwrap();
+        assert_eq!(signer.public_key(), key.public_key());
+    }
 }

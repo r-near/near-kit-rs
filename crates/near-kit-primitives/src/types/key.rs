@@ -1071,11 +1071,12 @@ impl FromStr for SecretKey {
             return Ok(Self::ml_dsa65_from_seed(seed));
         }
 
-        // For ed25519, the secret key might be 32 bytes (seed) or 64 bytes (expanded)
-        // For secp256k1, it must be 32 bytes
+        // Ed25519: the 32-byte seed, or seed || public key (64 bytes).
+        // Secp256k1: the 32-byte secret, or secret || public key (96 bytes) as
+        // near-api-js writes it.
         let valid_len = match key_type {
             KeyType::Ed25519 => data.len() == 32 || data.len() == 64,
-            KeyType::Secp256k1 => data.len() == 32,
+            KeyType::Secp256k1 => data.len() == 32 || data.len() == 96,
             KeyType::MlDsa65 => unreachable!("handled above"),
         };
         if !valid_len {
@@ -1085,14 +1086,21 @@ impl FromStr for SecretKey {
             });
         }
 
-        // Take first 32 bytes if 64-byte expanded key
+        // The secret is the first 32 bytes.
         let bytes: [u8; 32] = data[..32]
             .try_into()
             .map_err(|_| ParseKeyError::InvalidFormat)?;
 
         match key_type {
             KeyType::Ed25519 => Ok(Self::ed25519_from_bytes(bytes)),
-            KeyType::Secp256k1 => Self::secp256k1_from_bytes(bytes),
+            KeyType::Secp256k1 => {
+                let key = Self::secp256k1_from_bytes(bytes)?;
+                // The appended public key must be the one the secret derives.
+                if data.len() == 96 && key.public_key().as_bytes() != &data[32..] {
+                    return Err(ParseKeyError::InvalidFormat);
+                }
+                Ok(key)
+            }
             KeyType::MlDsa65 => unreachable!("handled above"),
         }
     }
@@ -1864,6 +1872,43 @@ mod tests {
         assert!(s.starts_with("secp256k1:"));
         let parsed: SecretKey = s.parse().unwrap();
         assert_eq!(secret.public_key(), parsed.public_key());
+    }
+
+    /// near-api-js writes secp256k1 secret keys as `secret (32) || public key (64)`.
+    #[test]
+    fn test_secp256k1_secret_key_96_byte_near_api_js_form() {
+        let secret = SecretKey::secp256k1_from_bytes([2u8; 32]).unwrap();
+        let mut keypair = [0u8; 96];
+        keypair[..32].copy_from_slice(secret.as_bytes());
+        keypair[32..].copy_from_slice(secret.public_key().as_bytes());
+        let near_api_js = format!("secp256k1:{}", bs58::encode(keypair).into_string());
+
+        let parsed: SecretKey = near_api_js.parse().unwrap();
+        assert_eq!(parsed.key_type(), KeyType::Secp256k1);
+        assert_eq!(parsed.public_key(), secret.public_key());
+        // Still written as the 32-byte secret.
+        assert_eq!(parsed.as_bytes(), secret.as_bytes());
+        assert_eq!(parsed.to_string(), secret.to_string());
+
+        // A public half that doesn't belong to the secret is rejected.
+        let mut mismatched = keypair;
+        mismatched[95] ^= 1;
+        let mismatched = format!("secp256k1:{}", bs58::encode(mismatched).into_string());
+        assert_eq!(
+            mismatched.parse::<SecretKey>().err(),
+            Some(ParseKeyError::InvalidFormat)
+        );
+        let other = SecretKey::secp256k1_from_bytes([3u8; 32]).unwrap();
+        keypair[32..].copy_from_slice(other.public_key().as_bytes());
+        let other_half = format!("secp256k1:{}", bs58::encode(keypair).into_string());
+        assert_eq!(
+            other_half.parse::<SecretKey>().err(),
+            Some(ParseKeyError::InvalidFormat)
+        );
+
+        // Other lengths are still rejected.
+        let short = format!("secp256k1:{}", bs58::encode([2u8; 64]).into_string());
+        assert!(short.parse::<SecretKey>().is_err());
     }
 
     #[test]
