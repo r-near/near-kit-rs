@@ -199,7 +199,7 @@
 //! let count = near.contract::<Counter>(account!("counter.testnet")).get_count().await?;
 //!
 //! let counter = alice.contract::<Counter>(account!("counter.testnet"));
-//! counter.add(AddArgs { value: 5 }).gas(Gas::from_tgas(10)).await?;
+//! counter.add(AddArgs { value: 5 }).gas(Gas::from_tgas(10)).await?.result()?;
 //! # Ok(())
 //! # }
 //! ```
