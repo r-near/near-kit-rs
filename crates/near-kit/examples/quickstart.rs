@@ -127,8 +127,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let near = Near::testnet().build();
     reads(&near).await?;
 
-    // `from_env` reads NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY (and optionally
-    // NEAR_NETWORK, NEAR_CHAIN_ID).
+    // `from_env` reads NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY, and optionally
+    // NEAR_NETWORK and NEAR_CHAIN_ID (required when NEAR_NETWORK is a URL).
     match SigningNear::from_env() {
         Ok(alice) => writes(&alice).await?,
         Err(error) => println!("\nskipping writes: {error}"),

@@ -91,11 +91,7 @@ fn check(policy: &Policy, signed: &SignedDelegateAction, height: u64) -> Result<
     // The signature covers every field below, so check it first: a request
     // edited after signing would otherwise pass the policy and fail on chain,
     // at the relayer's expense.
-    let hash = delegate.get_hash();
-    if !signed
-        .signature
-        .verify(hash.as_bytes(), &delegate.public_key)
-    {
+    if !signed.verify() {
         return Err("signature doesn't match the delegate action".into());
     }
     // The chain checks that the key belongs to the sender and may call this
