@@ -86,9 +86,11 @@
 //!     .at(Finality::Optimistic)
 //!     .await?;
 //!
+//! // A recent height: the default endpoints aren't archival.
+//! let height = near.rpc().block(Finality::Final).await?.header.height;
 //! let read = near
 //!     .view::<u64>(account!("guestbook.near-examples.testnet"), "total_messages")
-//!     .at(180_000_000)
+//!     .at(height)
 //!     .with_metadata()
 //!     .await?;
 //! println!("{} at block {}", read.result, read.block_height);

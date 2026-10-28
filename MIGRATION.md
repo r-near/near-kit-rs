@@ -235,12 +235,12 @@ and `ContractError::Codec(codec_error)`, or call `.map_err(Error::from)` first.
 
 ```rust
 // 0.20.1
-let count: u64 = near.view("counter.testnet", "get_count").at_block(180_000_000).await?;
+let count: u64 = near.view("counter.testnet", "get_count").at_block(height).await?;
 let read = near.view::<u64>("counter.testnet", "get_count").with_metadata().await?;
 let account = near.account("alice.testnet").finality(Finality::Optimistic).await?;
 
 // This release
-let count: u64 = near.view(account!("counter.testnet"), "get_count").at(180_000_000).await?;
+let count: u64 = near.view(account!("counter.testnet"), "get_count").at(height).await?;
 let read = near.view::<u64>(account!("counter.testnet"), "get_count").with_metadata().await?;
 println!("{} at block {}", read.result, read.block_height);
 let account = near
