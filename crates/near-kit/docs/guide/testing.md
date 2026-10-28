@@ -477,9 +477,10 @@ assert_eq!(requests.last().unwrap()["params"]["finality"], "final");
 Some details that matter when writing replies:
 
 - **Which method.** near-kit calls `EXPERIMENTAL_view_account` for account
-  reads and `EXPERIMENTAL_call_function` for views; other reads use
-  `query` with a `request_type`. Record the requests, as above, to see
-  what a code path sends.
+  reads, `EXPERIMENTAL_view_access_key` for a single key and
+  `EXPERIMENTAL_call_function` for views; reads such as code, state and key
+  lists use `query` with a `request_type`. Record the requests, as above,
+  to see what a code path sends.
 - **Errors.** A reply with an `error` object whose `cause.name` nearcore
   uses (`UNKNOWN_ACCOUNT`, `UNKNOWN_ACCESS_KEY`, `INVALID_TRANSACTION`, ...)
   becomes the matching typed [`RpcError`](crate::rpc::RpcError), as it
@@ -496,8 +497,9 @@ Some details that matter when writing replies:
   in `Near::custom`, or its own account or key, so tests running in
   parallel don't share nonce sequences.
 
-Sends through a canned transport need replies for the access-key read,
-the block read and `send_tx`. For testing what is sent, a recording
+A send through a canned transport needs replies for
+`EXPERIMENTAL_view_access_key` (the nonce and a recent block hash) and
+`send_tx`. For testing what is sent, a recording
 `TxSender` is less work. For testing how a send behaves on chain, use the
 sandbox.
 

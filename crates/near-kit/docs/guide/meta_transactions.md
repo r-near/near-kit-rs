@@ -229,7 +229,7 @@ result isn't part of that status. So:
 ```rust,no_run
 use near_kit::rpc::{ExecutionStatus, FinalExecutionOutcome};
 
-/// The first failed receipt after the delegate receipt, if any.
+/// The first failed receipt in a relayed transaction, if any.
 fn inner_failure(outcome: &FinalExecutionOutcome) -> Option<String> {
     outcome.receipts_outcome.iter().find_map(|receipt| match &receipt.outcome.status {
         ExecutionStatus::Failure(error) => {
