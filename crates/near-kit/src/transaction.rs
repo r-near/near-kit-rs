@@ -24,10 +24,10 @@
 //! let bob = account!("bob.testnet");
 //!
 //! // Default (Final) — returns FinalExecutionOutcome
-//! alice.transaction(&bob).add_action(transfer()).await?;
+//! alice.transaction(&bob).add_action(transfer()).await?.result()?;
 //!
 //! // Other executed levels — also return FinalExecutionOutcome
-//! alice.wait_until::<ExecutedOptimistic>().transaction(&bob).add_action(transfer()).await?;
+//! alice.wait_until::<ExecutedOptimistic>().transaction(&bob).add_action(transfer()).await?.result()?;
 //!
 //! // Non-executed levels — returns SendTxResponse (hash + sender, plus any
 //! // partial outcome the RPC has already produced)

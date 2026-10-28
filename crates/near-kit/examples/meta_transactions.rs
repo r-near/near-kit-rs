@@ -116,7 +116,9 @@ async fn main() -> Result<(), Error> {
             let delegate_result = user_creates_delegate(&user).await?;
 
             // Step 2: Relayer submits it on-chain (pays gas)
-            relayer_submits_delegate(&relayer, delegate_result).await?;
+            relayer_submits_delegate(&relayer, delegate_result)
+                .await?
+                .result()?;
 
             println!("\n=== Result ===");
             println!("User's action executed without paying gas!");

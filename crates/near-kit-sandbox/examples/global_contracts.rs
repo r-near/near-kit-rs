@@ -35,7 +35,8 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         .add_action(Action::create_account())
         .add_action(Action::transfer(NearToken::from_near(50)))
         .add_action(Action::add_full_access_key(publisher_key.public_key()))
-        .await?;
+        .await?
+        .result()?;
 
     let publisher_near = sandbox
         .root_account()
@@ -55,7 +56,8 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         .wait_until::<Final>()
         .transaction(publisher_near.account_id())
         .add_action(Action::publish(wasm_code.clone(), PublishMode::Updatable))
-        .await?;
+        .await?
+        .result()?;
 
     println!("Published guestbook contract (updatable)\n");
 
@@ -68,7 +70,8 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         .add_action(Action::create_account())
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(user_key.public_key()))
-        .await?;
+        .await?
+        .result()?;
 
     let user_near = sandbox
         .root_account()
@@ -80,7 +83,8 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         .wait_until::<Final>()
         .transaction(user_near.account_id())
         .add_action(Action::deploy_from(publisher_account.clone()))
-        .await?;
+        .await?
+        .result()?;
 
     println!("Deployed to {user_account} from publisher\n");
 
@@ -94,7 +98,8 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
                 .gas(Gas::from_tgas(30))
                 .deposit(NearToken::ZERO),
         )
-        .await?;
+        .await?
+        .result()?;
 
     let messages: Vec<serde_json::Value> = root_near
         .near()
@@ -116,7 +121,8 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         .wait_until::<Final>()
         .transaction(publisher_near.account_id())
         .add_action(Action::publish(wasm_code, PublishMode::Immutable))
-        .await?;
+        .await?
+        .result()?;
 
     println!("Published same contract (immutable)\n");
 
@@ -129,7 +135,8 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         .add_action(Action::create_account())
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(user2_key.public_key()))
-        .await?;
+        .await?
+        .result()?;
 
     let user2_near = sandbox
         .root_account()
@@ -141,7 +148,8 @@ async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
         .wait_until::<Final>()
         .transaction(user2_near.account_id())
         .add_action(Action::deploy_from(code_hash))
-        .await?;
+        .await?
+        .result()?;
 
     println!("Deployed to {user2_account} from code hash");
 

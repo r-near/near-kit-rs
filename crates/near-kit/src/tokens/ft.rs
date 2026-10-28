@@ -229,12 +229,12 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     ///
     /// // Register bob with the contract's minimum deposit
     /// let bounds = token.storage_balance_bounds().await?;
-    /// token.storage_deposit(account!("bob.near"), bounds.min).await?;
+    /// token.storage_deposit(account!("bob.near"), bounds.min).await?.result()?;
     ///
     /// // Or with a known amount
     /// token
     ///     .storage_deposit(account!("bob.near"), NearToken::from_millinear(50))
-    ///     .await?;
+    ///     .await?.result()?;
     /// # Ok(())
     /// # }
     /// ```
@@ -266,13 +266,13 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
     /// let token = near.contract::<FungibleToken>(account!("wrap.near"));
     ///
-    /// token.transfer(account!("bob.near"), 1_500_000_u128, None).await?;
+    /// token.transfer(account!("bob.near"), 1_500_000_u128, None).await?.result()?;
     ///
     /// // Or send a whole balance, with a memo
     /// let balance = token.balance_of(account!("alice.near")).await?;
     /// token
     ///     .transfer(account!("bob.near"), balance, Some("rent".into()))
-    ///     .await?;
+    ///     .await?.result()?;
     /// # Ok(())
     /// # }
     /// ```
@@ -317,7 +317,7 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     ///
     /// token
     ///     .transfer_call(account!("defi.near"), 1_000_000_u128, r#"{"action":"deposit"}"#)
-    ///     .await?;
+    ///     .await?.result()?;
     /// # Ok(())
     /// # }
     /// ```

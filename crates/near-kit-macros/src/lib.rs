@@ -31,14 +31,16 @@
 //!     .contract::<Counter>(account!("counter.near"))
 //!     .add(AddArgs { value: 5 })
 //!     .gas(Gas::from_tgas(10))
-//!     .await?;
+//!     .await?
+//!     .result()?;
 //!
 //! // An offline `FunctionCall`, to batch with other actions.
 //! alice
 //!     .transaction(account!("counter.near"))
 //!     .add_action(Action::transfer(NearToken::from_millinear(1)))
 //!     .add_action(Counter::add(AddArgs { value: 1 }))
-//!     .await?;
+//!     .await?
+//!     .result()?;
 //! # Ok(())
 //! # }
 //! ```

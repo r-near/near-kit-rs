@@ -19,7 +19,7 @@
 //!     .add_action(Action::add_full_access_key(new_public_key))
 //!     .add_action(Action::deploy_contract(wasm_code))
 //!     .add_action(FunctionCall::new("init").args(serde_json::json!({ "owner": "alice.testnet" })))
-//!     .await?;
+//!     .await?.result()?;
 //! # Ok(())
 //! # }
 //! ```
@@ -558,7 +558,7 @@ impl PreparedTransaction {
 /// alice
 ///     .transaction(account!("bob.testnet"))
 ///     .add_action(Action::transfer(NearToken::from_near(1)))
-///     .await?;
+///     .await?.result()?;
 ///
 /// // Several actions in one atomic transaction, returning as soon as it
 /// // executes rather than waiting for finality.
@@ -567,7 +567,7 @@ impl PreparedTransaction {
 ///     .transaction(account!("counter.testnet"))
 ///     .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
 ///     .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
-///     .await?;
+///     .await?.result()?;
 /// # Ok(())
 /// # }
 /// ```

@@ -26,10 +26,10 @@
 //! println!("Balance: {balance}");
 //!
 //! // Transfer tokens as alice, with or without a memo
-//! token.transfer(account!("bob.near"), 1_500_000_u128, None).await?;
+//! token.transfer(account!("bob.near"), 1_500_000_u128, None).await?.result()?;
 //! token
 //!     .transfer(account!("bob.near"), 1_500_000_u128, Some("Payment".into()))
-//!     .await?;
+//!     .await?.result()?;
 //! # Ok(())
 //! # }
 //! ```
@@ -55,8 +55,8 @@
 //! }
 //!
 //! // Transfer an NFT as alice, with or without a memo
-//! nft.transfer(account!("bob.near"), "token-123", None).await?;
-//! nft.transfer(account!("bob.near"), "token-456", Some("Gift".into())).await?;
+//! nft.transfer(account!("bob.near"), "token-123", None).await?.result()?;
+//! nft.transfer(account!("bob.near"), "token-456", Some("Gift".into())).await?.result()?;
 //! # Ok(())
 //! # }
 //! ```

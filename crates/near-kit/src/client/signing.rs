@@ -48,7 +48,7 @@ use super::transaction::{DelegateOptions, PreparedTransaction, Tx};
 /// alice
 ///     .transaction(account!("bob.testnet"))
 ///     .add_action(Action::transfer(NearToken::from_near(1)))
-///     .await?;
+///     .await?.result()?;
 ///
 /// // The same account, returning once each transaction is in a block.
 /// let alice_fast = alice.wait_until::<Included>();
@@ -119,7 +119,7 @@ impl SigningNear {
     /// alice
     ///     .transaction(account!("bob.testnet"))
     ///     .add_action(Action::transfer(NearToken::from_near(1)))
-    ///     .await?;
+    ///     .await?.result()?;
     /// # Ok(())
     /// # }
     /// ```
@@ -364,7 +364,7 @@ impl<W: WaitLevel> SigningNear<W> {
     /// relayer
     ///     .transaction(signed.sender_id())
     ///     .add_action(Action::delegate(signed))
-    ///     .await?;
+    ///     .await?.result()?;
     /// # Ok(())
     /// # }
     /// ```

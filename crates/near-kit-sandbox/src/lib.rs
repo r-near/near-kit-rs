@@ -38,7 +38,8 @@
 //!     .add_action(Action::create_account())
 //!     .add_action(Action::transfer(NearToken::from_near(100)))
 //!     .add_action(Action::add_full_access_key(alice_key.public_key()))
-//!     .await?;
+//!     .await?
+//!     .result()?;
 //!
 //! // Sign as the new account over the same connection.
 //! let alice = root
