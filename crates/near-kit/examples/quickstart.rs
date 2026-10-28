@@ -32,7 +32,8 @@
 //! <you>.testnet using-private-key network-config testnet`).
 //!
 //! `Near::testnet()` uses FastNEAR's free, rate-limited RPC endpoint. Set
-//! `NEAR_NETWORK` to `mainnet` or an RPC URL to point the writes elsewhere.
+//! `NEAR_NETWORK` to `mainnet`, or to an RPC URL together with `NEAR_CHAIN_ID`
+//! (required with a URL), to point the writes elsewhere.
 
 use near_kit::protocol::Action;
 use near_kit::rpc::Finality;
