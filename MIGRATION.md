@@ -25,7 +25,7 @@ and [transactions](https://docs.rs/near-kit/latest/near_kit/guide/transactions/i
 
 The compiler reports a removed method as ``no method named `x` found`` with no
 hint where it went. Look it up here; the sections below have the details. In
-the right-hand column `near` is a `Near`, `signing` a `SigningNear`, and
+the right-hand column `near` is a `Near`, `alice` a `SigningNear`, and
 `block` anything that converts into a `BlockReference` (a `Finality`, a block
 height, a block hash or a `SyncCheckpoint`).
 
@@ -45,36 +45,36 @@ after the table cover each one.
 | `Near::from_rpc(rpc, chain_id)` | `Near::custom(url, chain_id).transport(t).retry_config(c).build()` |
 | `NearBuilder::http_client(client)` | `.transport(ReqwestTransport::with_client(client))` |
 | `Near::sandbox(&sandbox)`, `rpc::SandboxNetwork` | `sandbox.root_account()` |
-| `Near::account_id()`, `Near::try_account_id()` | `signing.account_id()`; a `Near` has no account |
-| `Near::signer()`, `Near::public_key()` | `signing.signer()`, `signing.signer().public_key()` |
+| `Near::account_id()`, `Near::try_account_id()` | `alice.account_id()`; a `Near` has no account |
+| `Near::signer()`, `Near::public_key()` | `alice.signer()`, `alice.signer().public_key()` |
 | `Near::rpc_url()` | `near.rpc().url()` |
-| `Near::max_nonce_retries(n)` | `NearBuilder::max_nonce_retries(n)` before `build()`, or `signing.clone().max_nonce_retries(n)` |
-| `Near::sign_message(params)` | `signing.signer().key().sign_nep413(signing.account_id(), &params).await?` |
+| `Near::max_nonce_retries(n)` | `NearBuilder::max_nonce_retries(n)` before `build()`, or `alice.clone().max_nonce_retries(n)` |
+| `Near::sign_message(params)` | `alice.signer().key().sign_nep413(alice.account_id(), &params).await?` |
 | `Near::send(&signed)` | `near.send_signed(&signed)` |
-| `Near::balance`, `account_exists`, `view`, `tx_status`, `contract`, `chain_id`, `rpc` called on a signing client | Still on `Near`; from a `SigningNear`, `signing.near().balance(id)` and so on. `signing.contract::<T>(id)` stays. |
-| `Near::with_signer(s)` on a client that already had a signer | `signing.near().with_signer(s)` |
+| `Near::balance`, `account_exists`, `view`, `tx_status`, `contract`, `chain_id`, `rpc` called on a signing client | Still on `Near`; from a `SigningNear`, `alice.near().balance(id)` and so on. `alice.contract::<T>(id)` stays. |
+| `Near::with_signer(s)` on a client that already had a signer | `alice.near().with_signer(s)` |
 
 ### Sending transactions
 
 | 0.20.1 | This release |
 |---|---|
-| `Near::transaction(rx)`, `TransactionBuilder` | `signing.transaction(rx)`, a `Tx` |
-| `Near::transfer(id, amount)` | `signing.transaction(id).add_action(Action::transfer(amount))` |
-| `Near::call(id, m)` | `signing.transaction(id).add_action(FunctionCall::new(m))`, or a typed contract client |
-| `Near::deploy(wasm)`, `Near::publish(code, mode)`, `Near::deploy_from(id)`, `Near::add_full_access_key(pk)`, `Near::delete_key(pk)` | `signing.transaction(signing.account_id()).add_action(Action::deploy_contract(wasm))`, and `Action::publish`, `Action::deploy_from`, `Action::add_full_access_key`, `Action::delete_key` |
-| `Near::state_init(si, deposit)` | `signing.transaction(si.derive_account_id()).add_action(Action::state_init(si, deposit))` |
-| `Near::universal_state_init(usi, deposit)` | `signing.transaction(usi.derive_account_id()).add_action(Action::universal_state_init(usi, deposit))` for a typed `UniversalStateInit`; for a `RawStateInit`, `raw.try_derive_account_id()` returns a `StateInitError`, which doesn't convert into `Error` |
+| `Near::transaction(rx)`, `TransactionBuilder` | `alice.transaction(rx)`, a `Tx` |
+| `Near::transfer(id, amount)` | `alice.transaction(id).add_action(Action::transfer(amount))` |
+| `Near::call(id, m)` | `alice.transaction(id).add_action(FunctionCall::new(m))`, or a typed contract client |
+| `Near::deploy(wasm)`, `Near::publish(code, mode)`, `Near::deploy_from(id)`, `Near::add_full_access_key(pk)`, `Near::delete_key(pk)` | `alice.transaction(alice.account_id()).add_action(Action::deploy_contract(wasm))`, and `Action::publish`, `Action::deploy_from`, `Action::add_full_access_key`, `Action::delete_key` |
+| `Near::state_init(si, deposit)` | `alice.transaction(si.derive_account_id()).add_action(Action::state_init(si, deposit))` |
+| `Near::universal_state_init(usi, deposit)` | `alice.transaction(usi.derive_account_id()).add_action(Action::universal_state_init(usi, deposit))` for a typed `UniversalStateInit`; for a `RawStateInit`, `raw.try_derive_account_id()` returns a `StateInitError`, which doesn't convert into `Error` |
 | `TransactionBuilder::create_account()`, `transfer`, `deploy`, `add_full_access_key`, `add_function_call_key`, `delete_key`, `delete_account`, `stake`, `publish`, `deploy_from`, `state_init`, `universal_state_init` | `Tx::add_action(Action::create_account())` and so on: one `Action::*` constructor per helper (`deploy` is `Action::deploy_contract`) |
 | `TransactionBuilder::call(m)`, `CallBuilder` (`args`, `args_borsh`, `args_raw`, `gas`, `deposit`) | `add_action(FunctionCall::new(m).args(a).gas(g).deposit(d))` |
 | `CallBuilder::finish()` | Not needed: `add_action` returns the `Tx` |
 | `CallBuilder::into_call()` | Build the `FunctionCall` directly; from a typed `Call`, `FunctionCall::from(call)` |
 | `CallBuilder::into_action()` | `function_call.into_action()?`, or `FunctionCall::from(call).into_action()?` |
-| `TransactionBuilder::add_actions(iter)` | `add_action` in a loop, or `TxSender::send(&signing, rx, actions)` |
+| `TransactionBuilder::add_actions(iter)` | `add_action` in a loop, or `TxSender::send(&alice, rx, actions)` |
 | `TransactionBuilder::send()`, `CallBuilder::send()`, `TransactionSend` | `.await` the `Tx` |
-| `TransactionBuilder::wait_until::<W>()`, `TransactionSend::wait_until::<W>()` | `signing.wait_until::<W>().transaction(rx)` |
-| `TransactionBuilder::max_nonce_retries(n)`, `TransactionSend::max_nonce_retries(n)` | `signing.clone().max_nonce_retries(n).transaction(rx)` |
-| `TransactionBuilder::sign_with(other)` | `signing.near().with_signer(other).transaction(rx)` |
-| `TransactionBuilder::sign()` | `signing.sign(rx, actions).await?` |
+| `TransactionBuilder::wait_until::<W>()`, `TransactionSend::wait_until::<W>()` | `alice.wait_until::<W>().transaction(rx)` |
+| `TransactionBuilder::max_nonce_retries(n)`, `TransactionSend::max_nonce_retries(n)` | `alice.clone().max_nonce_retries(n).transaction(rx)` |
+| `TransactionBuilder::sign_with(other)` | `alice.near().with_signer(other).transaction(rx)` |
+| `TransactionBuilder::sign()` | `alice.sign(rx, actions).await?` |
 | `TransactionBuilder::build()`, `build_offline(..)`, `sign_offline(..)`, `into_parts()` | Keep the receiver and `Vec<Action>` yourself; `Transaction::new(signer_id, public_key, nonce, receiver_id, block_hash, actions).sign(&secret_key)` |
 | `Action::deploy_from_hash(hash)`, `Action::deploy_from_account(id)` | `Action::deploy_from(hash)`, `Action::deploy_from(id)` |
 | `Transaction::complete(sig)`, `TransactionV1::complete(sig)` | `into_signed(sig)` |
@@ -83,7 +83,7 @@ after the table cover each one.
 
 | 0.20.1 | This release |
 |---|---|
-| `TransactionBuilder::delegate(opts)` | `signing.sign_delegate(rx, actions, opts).await?` |
+| `TransactionBuilder::delegate(opts)` | `alice.sign_delegate(rx, actions, opts).await?` |
 | `DelegateResult` (`signed_delegate_action`, `payload`, `sender_id()`, `receiver_id()`, `to_bytes()`) | `sign_delegate` returns the `SignedDelegateAction`, which has `sender_id()`, `receiver_id()`, `to_bytes()` and `to_base64()` (the old `payload`) |
 | `DelegateOptions::with_offset(n)`, `DelegateOptions::with_max_height(h)` | `DelegateOptions { block_height_offset: Some(n), ..Default::default() }`, `max_block_height: Some(h)` |
 | `TransactionBuilder::signed_delegate_action(signed)` | `relayer.transaction(signed.sender_id()).add_action(Action::delegate(signed))` |
@@ -746,6 +746,6 @@ The feature names are unchanged. See
 ## Upgrading from older versions
 
 To upgrade from a release before 0.20.1, start with the
-[MIGRATION.md at the `near-kit-v0.20.1` tag](../near-kit-v0.20.1/MIGRATION.md),
+[MIGRATION.md at the `near-kit-v0.20.1` tag](https://github.com/r-near/near-kit-rs/blob/near-kit-v0.20.1/MIGRATION.md),
 which covers the 0.18 and 0.19 upgrades, and the 0.20.0 entries in
 [near-kit's CHANGELOG](crates/near-kit/CHANGELOG.md). Then follow this guide.
