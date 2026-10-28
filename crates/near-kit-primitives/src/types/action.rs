@@ -4,6 +4,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use borsh::de::EnumExt as _;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
+use serde_with::{base64::Base64, serde_as};
 
 use crate::error::StateInitError;
 
@@ -165,7 +166,15 @@ impl AccessKey {
 /// 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit,
 /// 12 = TransferToGasKey, 13 = WithdrawFromGasKey, 14 = DelegateV2,
 /// 15 = UniversalStateInit
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+///
+/// The serde (JSON) form is nearcore's protocol `Action` JSON, externally
+/// tagged by variant name: `{"CreateAccount": {}}`,
+/// `{"Transfer": {"deposit": "1"}}`, `{"DeployContract": {"code": "<base64 WASM>"}}`.
+/// The node uses this form for the inner actions of a delegate action in RPC
+/// responses ([`DelegateActionView::actions`](crate::rpc::DelegateActionView::actions)).
+/// It is not the [`ActionView`](crate::rpc::ActionView) shape the node uses
+/// for a transaction's top-level actions.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum Action {
     /// Create a new account. (discriminant = 0)
     CreateAccount(CreateAccountAction),
@@ -211,38 +220,62 @@ impl Action {
 }
 
 /// Create a new account.
+///
+/// Its JSON form is an empty object (`{}`), as in nearcore.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct CreateAccountAction;
 
+impl Serialize for CreateAccountAction {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct as _;
+        serializer.serialize_struct("CreateAccountAction", 0)?.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for CreateAccountAction {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        /// nearcore's `CreateAccountAction {}`: an object with no fields.
+        #[derive(Deserialize)]
+        struct Empty {}
+
+        Empty::deserialize(deserializer).map(|Empty {}| CreateAccountAction)
+    }
+}
+
 /// Deploy contract code.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct DeployContractAction {
     /// WASM code to deploy.
+    #[serde_as(as = "Base64")]
     pub code: Vec<u8>,
 }
 
 /// Call a contract function.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct FunctionCallAction {
     /// Method name to call.
     pub method_name: String,
     /// Arguments (JSON or Borsh encoded).
+    #[serde_as(as = "Base64")]
     pub args: Vec<u8>,
     /// Gas to attach.
+    #[serde(with = "gas_as_number")]
     pub gas: Gas,
     /// NEAR tokens to attach.
     pub deposit: NearToken,
 }
 
 /// Transfer NEAR tokens.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct TransferAction {
     /// Amount to transfer.
     pub deposit: NearToken,
 }
 
 /// Stake NEAR for validation.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct StakeAction {
     /// Amount to stake.
     pub stake: NearToken,
@@ -251,7 +284,7 @@ pub struct StakeAction {
 }
 
 /// Add an access key.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct AddKeyAction {
     /// Public key to add.
     pub public_key: PublicKey,
@@ -260,14 +293,14 @@ pub struct AddKeyAction {
 }
 
 /// Delete an access key.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct DeleteKeyAction {
     /// Public key to delete.
     pub public_key: PublicKey,
 }
 
 /// Delete the account.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct DeleteAccountAction {
     /// Account to receive remaining balance.
     pub beneficiary_id: AccountId,
@@ -282,9 +315,11 @@ pub struct DeleteAccountAction {
 /// Global contracts are deployed once and can be referenced by multiple accounts,
 /// saving storage costs. The contract can be identified either by its code hash
 /// (immutable) or by the publishing account (updatable).
+#[serde_as]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct DeployGlobalContractAction {
     /// The WASM code to publish.
+    #[serde_as(as = "Base64")]
     pub code: Vec<u8>,
     /// How the contract will be identified.
     pub deploy_mode: PublishMode,
@@ -359,7 +394,7 @@ pub(crate) fn derive_deterministic_account_id(state_init: &StateInit) -> Account
 }
 
 /// Transfer NEAR to a gas key.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct TransferToGasKeyAction {
     /// Public key of the gas key to fund.
     pub public_key: PublicKey,
@@ -368,7 +403,7 @@ pub struct TransferToGasKeyAction {
 }
 
 /// Withdraw NEAR from a gas key.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct WithdrawFromGasKeyAction {
     /// Public key of the gas key to withdraw from.
     pub public_key: PublicKey,
@@ -383,9 +418,11 @@ pub struct WithdrawFromGasKeyAction {
 /// so they must not be re-encoded. Build one with
 /// [`Action::universal_state_init`]; decode one with
 /// [`decode_state_init`](Self::decode_state_init).
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct UniversalStateInitAction {
     /// Borsh-encoded `UniversalStateInit` bytes.
+    #[serde_as(as = "Base64")]
     pub state_init: Vec<u8>,
     /// Amount to attach for the new account's storage staking.
     pub deposit: NearToken,
@@ -411,7 +448,7 @@ impl UniversalStateInitAction {
 }
 
 /// Delegate action for meta-transactions.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct DelegateAction {
     /// Sender of the delegate action.
     pub sender_id: AccountId,
@@ -428,7 +465,7 @@ pub struct DelegateAction {
 }
 
 /// Signed delegate action.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct SignedDelegateAction {
     /// The delegate action.
     pub delegate_action: DelegateAction,
@@ -446,7 +483,7 @@ pub struct SignedDelegateAction {
 /// (so it can select one of a gas key's parallel nonces), mirroring
 /// [`TransactionV1`](crate::protocol::TransactionV1). Carried inside
 /// [`VersionedDelegateActionPayload`] and signed under the V2 domain tag.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct DelegateActionV2 {
     /// Sender of the delegated actions.
     pub sender_id: AccountId,
@@ -470,7 +507,7 @@ pub struct DelegateActionV2 {
 /// ambiguous across versions.
 ///
 /// Borsh discriminant is significant and must match nearcore: `V2 = 0`.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum VersionedDelegateActionPayload {
     /// The V2 (gas-key) delegate action. (discriminant = 0)
     V2(DelegateActionV2),
@@ -530,7 +567,7 @@ impl From<DelegateActionV2> for VersionedDelegateActionPayload {
 }
 
 /// A signed [`VersionedDelegateActionPayload`], carried by [`Action::DelegateV2`].
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct VersionedSignedDelegateAction {
     /// The versioned delegate action payload.
     pub delegate_action: VersionedDelegateActionPayload,
@@ -590,8 +627,20 @@ const DELEGATE_VARIANT_DISCRIMINANTS: [u8; 2] = [8, 14];
 /// compatibility with nearcore. Borsh **deserialization** is hand-rolled (rather
 /// than derived) so that nested delegate variants are rejected on the wire, not
 /// just through the typed constructors — matching nearcore's `NonDelegateAction`.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize)]
+///
+/// The JSON form is the inner [`Action`]'s; deserializing rejects delegate
+/// variants the same way.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, Serialize)]
+#[serde(transparent)]
 pub struct NonDelegateAction(Action);
+
+impl<'de> Deserialize<'de> for NonDelegateAction {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::from_action(<Action as Deserialize>::deserialize(deserializer)?).ok_or_else(|| {
+            serde::de::Error::custom("a delegate action must not contain a nested delegate action")
+        })
+    }
+}
 
 impl BorshDeserialize for NonDelegateAction {
     fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
@@ -923,6 +972,23 @@ impl TryFrom<Action> for NonDelegateAction {
 
     fn try_from(action: Action) -> Result<Self, Self::Error> {
         Self::from_action(action).ok_or(())
+    }
+}
+
+/// nearcore writes an action's gas as a JSON number (its `Gas` keeps the
+/// number form for RPC compatibility); `NearGas` alone would write a string.
+/// Reading accepts both, like `NearGas`.
+mod gas_as_number {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    use crate::types::Gas;
+
+    pub(super) fn serialize<S: Serializer>(gas: &Gas, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u64(gas.as_gas())
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Gas, D::Error> {
+        Gas::deserialize(deserializer)
     }
 }
 
@@ -1808,5 +1874,264 @@ mod tests {
         assert!(NonDelegateAction::from_action(transfer.clone()).is_some());
         let bytes = borsh::to_vec(&transfer).unwrap();
         assert!(NonDelegateAction::try_from_slice(&bytes).is_ok());
+    }
+
+    // ------------------------------------------------------------------------
+    // JSON: nearcore's protocol `Action` shape (core/primitives/src/action)
+    // ------------------------------------------------------------------------
+
+    const PK: &str = "ed25519:A435yoEuewCD9sg3rjdsUSmkcJkUaHvjEV5CHddog2NK";
+
+    fn pk() -> PublicKey {
+        PK.parse().unwrap()
+    }
+
+    fn sig() -> Signature {
+        Signature::ed25519_from_bytes([7; 64])
+    }
+
+    fn assert_json(action: Action, json: serde_json::Value) {
+        assert_eq!(serde_json::to_value(&action).unwrap(), json, "{action:?}");
+        assert_eq!(
+            serde_json::from_value::<Action>(json.clone()).unwrap(),
+            action,
+            "{json}"
+        );
+    }
+
+    #[test]
+    fn action_json_matches_nearcore() {
+        use serde_json::json;
+        let hash = CryptoHash::hash(b"code");
+        let fc_permission = FunctionCallPermission {
+            allowance: Some(NearToken::from_yoctonear(5)),
+            receiver_id: "c.near".parse().unwrap(),
+            method_names: vec!["m".to_string()],
+        };
+        let gas_key = GasKeyInfo {
+            balance: NearToken::from_yoctonear(9),
+            num_nonces: 4,
+        };
+        let state_init = StateInit::V1(StateInitV1 {
+            code: GlobalContractId::from(hash),
+            data: BTreeMap::from([(b"k".to_vec(), b"v".to_vec())]),
+        });
+        let universal = vec![1, 2, 3];
+
+        let cases = [
+            (Action::create_account(), json!({"CreateAccount": {}})),
+            (
+                Action::deploy_contract(b"\0asm".to_vec()),
+                json!({"DeployContract": {"code": "AGFzbQ=="}}),
+            ),
+            (
+                Action::FunctionCall(FunctionCallAction {
+                    method_name: "m".to_string(),
+                    args: b"{}".to_vec(),
+                    gas: Gas::from_tgas(30),
+                    deposit: NearToken::from_yoctonear(1),
+                }),
+                json!({"FunctionCall": {
+                    "method_name": "m", "args": "e30=", "gas": 30_000_000_000_000u64, "deposit": "1"
+                }}),
+            ),
+            (
+                Action::transfer(NearToken::from_yoctonear(2)),
+                json!({"Transfer": {"deposit": "2"}}),
+            ),
+            (
+                Action::Stake(StakeAction {
+                    stake: NearToken::from_yoctonear(3),
+                    public_key: pk(),
+                }),
+                json!({"Stake": {"stake": "3", "public_key": PK}}),
+            ),
+            (
+                Action::add_full_access_key(pk()),
+                json!({"AddKey": {"public_key": PK, "access_key": {"nonce": 0, "permission": "FullAccess"}}}),
+            ),
+            (
+                Action::AddKey(AddKeyAction {
+                    public_key: pk(),
+                    access_key: AccessKey {
+                        nonce: 0,
+                        permission: AccessKeyPermission::FunctionCall(fc_permission.clone()),
+                    },
+                }),
+                json!({"AddKey": {"public_key": PK, "access_key": {"nonce": 0, "permission": {
+                    "FunctionCall": {"allowance": "5", "receiver_id": "c.near", "method_names": ["m"]}
+                }}}}),
+            ),
+            (
+                Action::AddKey(AddKeyAction {
+                    public_key: pk(),
+                    access_key: AccessKey {
+                        nonce: 0,
+                        permission: AccessKeyPermission::GasKeyFunctionCall(
+                            gas_key.clone(),
+                            fc_permission.clone(),
+                        ),
+                    },
+                }),
+                json!({"AddKey": {"public_key": PK, "access_key": {"nonce": 0, "permission": {
+                    "GasKeyFunctionCall": [
+                        {"balance": "9", "num_nonces": 4},
+                        {"allowance": "5", "receiver_id": "c.near", "method_names": ["m"]}
+                    ]
+                }}}}),
+            ),
+            (
+                Action::AddKey(AddKeyAction {
+                    public_key: pk(),
+                    access_key: AccessKey {
+                        nonce: 0,
+                        permission: AccessKeyPermission::GasKeyFullAccess(gas_key),
+                    },
+                }),
+                json!({"AddKey": {"public_key": PK, "access_key": {"nonce": 0, "permission": {
+                    "GasKeyFullAccess": {"balance": "9", "num_nonces": 4}
+                }}}}),
+            ),
+            (
+                Action::delete_key(pk()),
+                json!({"DeleteKey": {"public_key": PK}}),
+            ),
+            (
+                Action::delete_account("b.near".parse().unwrap()),
+                json!({"DeleteAccount": {"beneficiary_id": "b.near"}}),
+            ),
+            (
+                Action::publish(b"\0asm".to_vec(), PublishMode::Updatable),
+                json!({"DeployGlobalContract": {"code": "AGFzbQ==", "deploy_mode": "AccountId"}}),
+            ),
+            (
+                Action::publish(b"\0asm".to_vec(), PublishMode::Immutable),
+                json!({"DeployGlobalContract": {"code": "AGFzbQ==", "deploy_mode": "CodeHash"}}),
+            ),
+            (
+                Action::UseGlobalContract(UseGlobalContractAction {
+                    contract_identifier: GlobalContractId::from(hash),
+                }),
+                json!({"UseGlobalContract": {"contract_identifier": {"hash": hash.to_string()}}}),
+            ),
+            (
+                Action::UseGlobalContract(UseGlobalContractAction {
+                    contract_identifier: GlobalContractId::AccountId("p.near".parse().unwrap()),
+                }),
+                json!({"UseGlobalContract": {"contract_identifier": {"account_id": "p.near"}}}),
+            ),
+            (
+                Action::DeterministicStateInit(DeterministicStateInitAction {
+                    state_init,
+                    deposit: NearToken::from_yoctonear(4),
+                }),
+                json!({"DeterministicStateInit": {
+                    "state_init": {"V1": {"code": {"hash": hash.to_string()}, "data": {"aw==": "dg=="}}},
+                    "deposit": "4"
+                }}),
+            ),
+            (
+                Action::transfer_to_gas_key(pk(), NearToken::from_yoctonear(6)),
+                json!({"TransferToGasKey": {"public_key": PK, "deposit": "6"}}),
+            ),
+            (
+                Action::withdraw_from_gas_key(pk(), NearToken::from_yoctonear(7)),
+                json!({"WithdrawFromGasKey": {"public_key": PK, "amount": "7"}}),
+            ),
+            (
+                Action::UniversalStateInit(UniversalStateInitAction {
+                    state_init: universal,
+                    deposit: NearToken::from_yoctonear(8),
+                }),
+                json!({"UniversalStateInit": {"state_init": "AQID", "deposit": "8"}}),
+            ),
+        ];
+        for (action, json) in cases {
+            assert_json(action, json);
+        }
+    }
+
+    #[test]
+    fn delegate_action_json_matches_nearcore() {
+        use serde_json::json;
+        let inner = vec![NonDelegateAction::from_action(Action::create_account()).unwrap()];
+        let v1 = SignedDelegateAction {
+            delegate_action: DelegateAction {
+                sender_id: "a.near".parse().unwrap(),
+                receiver_id: "b.near".parse().unwrap(),
+                actions: inner.clone(),
+                nonce: 1,
+                max_block_height: 2,
+                public_key: pk(),
+            },
+            signature: sig(),
+        };
+        assert_json(
+            Action::Delegate(Box::new(v1)),
+            json!({"Delegate": {
+                "delegate_action": {
+                    "sender_id": "a.near", "receiver_id": "b.near",
+                    "actions": [{"CreateAccount": {}}],
+                    "nonce": 1, "max_block_height": 2, "public_key": PK
+                },
+                "signature": sig().to_string()
+            }}),
+        );
+
+        let v2 = VersionedSignedDelegateAction {
+            delegate_action: VersionedDelegateActionPayload::V2(DelegateActionV2 {
+                sender_id: "a.near".parse().unwrap(),
+                receiver_id: "b.near".parse().unwrap(),
+                actions: inner,
+                nonce: TransactionNonce::from_nonce_and_index(3, 1),
+                max_block_height: 2,
+                public_key: pk(),
+            }),
+            signature: sig(),
+        };
+        assert_json(
+            Action::DelegateV2(Box::new(v2)),
+            json!({"DelegateV2": {
+                "delegate_action": {"V2": {
+                    "sender_id": "a.near", "receiver_id": "b.near",
+                    "actions": [{"CreateAccount": {}}],
+                    "nonce": {"GasKeyNonce": {"nonce": 3, "nonce_index": 1}},
+                    "max_block_height": 2, "public_key": PK
+                }},
+                "signature": sig().to_string()
+            }}),
+        );
+    }
+
+    #[test]
+    fn action_json_accepts_gas_as_string() {
+        let action: Action = serde_json::from_value(serde_json::json!({"FunctionCall": {
+            "method_name": "m", "args": "", "gas": "5", "deposit": "0"
+        }}))
+        .unwrap();
+        let Action::FunctionCall(call) = action else {
+            panic!("expected FunctionCall");
+        };
+        assert_eq!(call.gas, Gas::from_gas(5));
+    }
+
+    #[test]
+    fn non_delegate_action_json_rejects_nested_delegates() {
+        let nested = serde_json::json!({"Delegate": {
+            "delegate_action": {
+                "sender_id": "a.near", "receiver_id": "b.near", "actions": [],
+                "nonce": 1, "max_block_height": 2, "public_key": PK
+            },
+            "signature": sig().to_string()
+        }});
+        assert!(serde_json::from_value::<Action>(nested.clone()).is_ok());
+        let err = serde_json::from_value::<NonDelegateAction>(nested).unwrap_err();
+        assert!(err.to_string().contains("nested delegate"), "{err}");
+        assert_eq!(
+            serde_json::from_value::<NonDelegateAction>(serde_json::json!({"CreateAccount": {}}))
+                .unwrap()
+                .into_inner(),
+            Action::create_account()
+        );
     }
 }

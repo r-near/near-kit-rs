@@ -1,0 +1,168 @@
+{
+ "final_execution_status": "FINAL",
+ "receipts_outcome": [
+  {
+   "block_hash": "GRsCZzNKMquxMZXvrUMVgpjd5QqwYNefNvE31YFsn4Pn",
+   "id": "5aBZvK5E7SY8V4cgui68gmtzzmLstRCpFDHoU6hR3cS",
+   "outcome": {
+    "executor_id": "alice.sandbox",
+    "gas_burnt": 492872940993,
+    "logs": [],
+    "metadata": {
+     "contracts": [
+      {
+       "global_hash": "EmTQGUyEmTpd6BigmqBtYqZcX9ps8zJ48UPQHSc16vm9"
+      }
+     ],
+     "gas_profile": [],
+     "version": 4
+    },
+    "receipt_ids": [
+     "CBVBqB1MD8jzgTFqMZkNywc59gQLsVkEPZ8mxvJ7eZ7P",
+     "BsRaMa1sFnpN2sDxtwqD2r5XchYHhjqmsc57G3bZ31WG"
+    ],
+    "status": {
+     "SuccessValue": ""
+    },
+    "tokens_burnt": "49287294099300000000"
+   },
+   "proof": []
+  },
+  {
+   "block_hash": "7Gg22F2WSZG5QzasbsBqLSa8QWCvKvheDfdLeDXKzyXE",
+   "id": "CBVBqB1MD8jzgTFqMZkNywc59gQLsVkEPZ8mxvJ7eZ7P",
+   "outcome": {
+    "executor_id": "alice.sandbox",
+    "gas_burnt": 293277260608,
+    "logs": [],
+    "metadata": {
+     "contracts": [
+      {
+       "global_hash": "EmTQGUyEmTpd6BigmqBtYqZcX9ps8zJ48UPQHSc16vm9"
+      }
+     ],
+     "gas_profile": [],
+     "version": 4
+    },
+    "receipt_ids": [
+     "3NEHNPgExtzCfvGmoeq3p5q9i1A7DSWJqkdhmYvHCSrc"
+    ],
+    "status": {
+     "SuccessValue": ""
+    },
+    "tokens_burnt": "29327726060800000000"
+   },
+   "proof": [
+    {
+     "direction": "Right",
+     "hash": "6MraAVKbnNnvNgLAqtJePNEYNwXSskdWpY7vxMD4ZaS8"
+    }
+   ]
+  },
+  {
+   "block_hash": "GxHKZ67CkUBDDKfz6Yj9rxMWv4gBLJimxTzPDEHrVbtK",
+   "id": "3NEHNPgExtzCfvGmoeq3p5q9i1A7DSWJqkdhmYvHCSrc",
+   "outcome": {
+    "executor_id": "relayer.sandbox",
+    "gas_burnt": 223182562500,
+    "logs": [],
+    "metadata": {
+     "contracts": [
+      null
+     ],
+     "gas_profile": [],
+     "version": 4
+    },
+    "receipt_ids": [],
+    "status": {
+     "SuccessValue": ""
+    },
+    "tokens_burnt": "0"
+   },
+   "proof": []
+  },
+  {
+   "block_hash": "7Gg22F2WSZG5QzasbsBqLSa8QWCvKvheDfdLeDXKzyXE",
+   "id": "BsRaMa1sFnpN2sDxtwqD2r5XchYHhjqmsc57G3bZ31WG",
+   "outcome": {
+    "executor_id": "relayer.sandbox",
+    "gas_burnt": 223182562500,
+    "logs": [],
+    "metadata": {
+     "contracts": [
+      null
+     ],
+     "gas_profile": [],
+     "version": 4
+    },
+    "receipt_ids": [],
+    "status": {
+     "SuccessValue": ""
+    },
+    "tokens_burnt": "0"
+   },
+   "proof": [
+    {
+     "direction": "Left",
+     "hash": "4n3Eih5bjDxUcfe8MugqqSFBnhzqEMkjnaYsyt9Q2Ubk"
+    }
+   ]
+  }
+ ],
+ "status": {
+  "SuccessValue": ""
+ },
+ "transaction": {
+  "actions": [
+   {
+    "Delegate": {
+     "delegate_action": {
+      "actions": [
+       {
+        "UseGlobalContract": {
+         "contract_identifier": {
+          "account_id": "sandbox"
+         }
+        }
+       }
+      ],
+      "max_block_height": 264,
+      "nonce": 30000003,
+      "public_key": "ed25519:6EZJ5GLU1cStXYs363XAUVQ6Zue4YdGtBuvsDejTEDrr",
+      "receiver_id": "alice.sandbox",
+      "sender_id": "alice.sandbox"
+     },
+     "signature": "ed25519:2QGkSvMXmtLH9n8ZuhfSrm57CqonhsYqZFniJcp3PG4MAGdiGSiAFkotSq49zEihNVK6SEnpTdXuyLAPjK967EBr"
+    }
+   }
+  ],
+  "hash": "7mWAZwTAa6djHBBerXZxXG57PNWvRK458RYoxtHUAu3c",
+  "nonce": 36000003,
+  "priority_fee": 0,
+  "public_key": "ed25519:BuFUn1zXsRHtYkrCnHFL2mpT9jbnLe5eGHFT9wSY2se4",
+  "receiver_id": "alice.sandbox",
+  "signature": "ed25519:3CaxmPA1x9ZA43pE4cjG7DuCMnpgundoDEmgNdiU5t58dCCy3CHKYBmXT4T6s2YqDtko3tSmJQ9k7bnaxmgbhF97",
+  "signer_id": "relayer.sandbox"
+ },
+ "transaction_outcome": {
+  "block_hash": "4nLKW13Lw8kFs6LMsfqxLBtMuesMoa68wmnhPMWvqd9o",
+  "id": "7mWAZwTAa6djHBBerXZxXG57PNWvRK458RYoxtHUAu3c",
+  "outcome": {
+   "executor_id": "relayer.sandbox",
+   "gas_burnt": 493159036005,
+   "logs": [],
+   "metadata": {
+    "gas_profile": null,
+    "version": 1
+   },
+   "receipt_ids": [
+    "5aBZvK5E7SY8V4cgui68gmtzzmLstRCpFDHoU6hR3cS"
+   ],
+   "status": {
+    "SuccessReceiptId": "5aBZvK5E7SY8V4cgui68gmtzzmLstRCpFDHoU6hR3cS"
+   },
+   "tokens_burnt": "49315903600500000000"
+  },
+  "proof": []
+ }
+}

@@ -512,6 +512,18 @@ These had no producer or only an internal use, and are gone:
 | `RpcError::network(..)`, `RpcError::invalid_transaction(..)` | Crate-private. Build the variant (`RpcError::Network { .. }`) in a custom transport. |
 | `RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`, `DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE` | Crate-private (10,000 and 100) |
 
+## Transaction responses and RPC errors
+
+- **A delegate's inner actions are `Action`s.** `DelegateActionView::actions`
+  and `DelegateActionV2View::actions` are `Vec<Action>` (were
+  `Vec<ActionView>`), because the node sends them in the protocol `Action`
+  JSON. A relayed state init or `UseGlobalContract` used to be reported as
+  "no execution outcome" although it ran; it now decodes. An inner
+  `DeployContract` or `DeployGlobalContract` carries the WASM, not a hash.
+  `Action` and its payload types implement `Serialize`/`Deserialize` in
+  nearcore's JSON shape; byte fields such as `DeployGlobalContractAction::code`
+  are base64 strings in JSON (were arrays of numbers).
+
 ## Sandbox
 
 | 0.20 | 0.21 |

@@ -194,7 +194,17 @@ const V1_TAG: u8 = 1;
 ///
 /// Borsh discriminants are significant and must match nearcore: `Nonce = 0`,
 /// `GasKeyNonce = 1`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    BorshSerialize,
+    BorshDeserialize,
+)]
 pub enum TransactionNonce {
     /// Simple nonce without index, used by ordinary access keys. (discriminant = 0)
     Nonce {

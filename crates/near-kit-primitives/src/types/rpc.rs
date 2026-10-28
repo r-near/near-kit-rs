@@ -1248,14 +1248,17 @@ impl std::fmt::Display for GlobalContractIdentifierView {
 // ============================================================================
 
 /// View of a delegate action in RPC responses.
+///
+/// The node renders the inner actions as protocol [`Action`]s, not as
+/// [`ActionView`]s: an inner deploy carries the full WASM, not its hash.
 #[derive(Debug, Clone, Deserialize)]
 pub struct DelegateActionView {
     /// The account that signed the delegate action.
     pub sender_id: AccountId,
     /// The intended receiver of the inner actions.
     pub receiver_id: AccountId,
-    /// The actions to execute.
-    pub actions: Vec<ActionView>,
+    /// The actions to execute, in the node's protocol [`Action`] JSON.
+    pub actions: Vec<Action>,
     /// Nonce for replay protection.
     pub nonce: u64,
     /// Maximum block height before this delegate action expires.
@@ -1295,8 +1298,8 @@ pub struct DelegateActionV2View {
     pub sender_id: AccountId,
     /// The intended receiver of the inner actions.
     pub receiver_id: AccountId,
-    /// The actions to execute.
-    pub actions: Vec<ActionView>,
+    /// The actions to execute, in the node's protocol [`Action`] JSON.
+    pub actions: Vec<Action>,
     /// Nonce for replay protection (gas-key capable).
     pub nonce: TransactionNonceView,
     /// Maximum block height before this delegate action expires.
@@ -1322,6 +1325,10 @@ pub enum VersionedDelegateActionPayloadView {
 /// Non-deploy variants can be turned back into an [`Action`] with
 /// [`TryFrom<ActionView>`](Action#impl-TryFrom<ActionView>-for-Action). Deploy
 /// variants are rejected because the view omits the contract code.
+///
+/// The inner actions of a [`Delegate`](Self::Delegate) or
+/// [`DelegateV2`](Self::DelegateV2) view are not `ActionView`s: the node sends
+/// them as protocol [`Action`]s (see [`DelegateActionView`]).
 ///
 /// # Deploy views carry the code *hash*, not the WASM
 ///
@@ -1559,11 +1566,16 @@ fn decode_code_hash(code: &str) -> Result<CryptoHash, ActionViewConversionError>
     })
 }
 
-/// Convert the inner actions of a delegate view, rejecting nested delegates.
+/// Wrap the inner actions of a delegate view, rejecting nested delegates.
 fn non_delegate_actions(
-    views: Vec<ActionView>,
+    actions: Vec<Action>,
 ) -> Result<Vec<NonDelegateAction>, ActionViewConversionError> {
-    views.into_iter().map(NonDelegateAction::try_from).collect()
+    actions
+        .into_iter()
+        .map(|action| {
+            NonDelegateAction::from_action(action).ok_or(ActionViewConversionError::NestedDelegate)
+        })
+        .collect()
 }
 
 impl TryFrom<DelegateActionView> for DelegateAction {
