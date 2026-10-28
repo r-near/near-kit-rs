@@ -302,10 +302,12 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
     ///
     /// `.result()?` doesn't tell you the receiver kept the token: if
     /// `nft_on_transfer` fails, the contract's `nft_resolve_transfer`
-    /// callback handles the failure and returns the token to the sender, so
-    /// the transaction still succeeds. Check
+    /// callback handles the failure and tries to return the token to the
+    /// sender, so the transaction still succeeds. It can't return a token the
+    /// receiver already moved, so check the `bool` the call returns: `false`
+    /// means the token went back to the sender;
     /// [`receipt_failures`](crate::rpc::FinalExecutionOutcome::receipt_failures)
-    /// for the receiver's failure, or the `bool` the call returns.
+    /// shows why `nft_on_transfer` failed.
     ///
     /// # Example
     ///
@@ -322,12 +324,12 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
     ///         r#"{"action":"list","price":"10"}"#,
     ///     )
     ///     .await?;
-    /// if let Some(error) = outcome.receipt_failures().next() {
-    ///     return Err(format!("the listing failed and the token came back: {error}").into());
-    /// }
-    /// // `true` if the receiver kept the token, `false` if it was returned.
+    /// // `false` if the token went back to the sender.
     /// let transferred: bool = outcome.json()?;
-    /// # let _ = transferred;
+    /// if !transferred {
+    ///     let reason = outcome.receipt_failures().next().map(|e| e.to_string());
+    ///     return Err(format!("the token came back ({reason:?})").into());
+    /// }
     /// # Ok(())
     /// # }
     /// ```

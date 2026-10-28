@@ -309,10 +309,11 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     ///
     /// `.result()?` doesn't tell you the receiver took the tokens: if
     /// `ft_on_transfer` fails, the token's `ft_resolve_transfer` callback
-    /// handles the failure and refunds the sender, so the transaction still
-    /// succeeds. Check
-    /// [`receipt_failures`](crate::rpc::FinalExecutionOutcome::receipt_failures)
-    /// for the receiver's failure, or the amount the call returns.
+    /// handles the failure and tries to refund the sender, so the transaction
+    /// still succeeds. The refund is capped at what the receiver still holds,
+    /// so check the amount the call returns, which is what the receiver
+    /// kept; [`receipt_failures`](crate::rpc::FinalExecutionOutcome::receipt_failures)
+    /// shows why `ft_on_transfer` failed.
     ///
     /// # Example
     ///
@@ -325,12 +326,12 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     /// let outcome = token
     ///     .transfer_call(account!("defi.near"), 1_000_000_u128, r#"{"action":"deposit"}"#)
     ///     .await?;
-    /// if let Some(error) = outcome.receipt_failures().next() {
-    ///     return Err(format!("the deposit failed and was refunded: {error}").into());
-    /// }
-    /// // The amount the receiver kept, as a JSON string; the rest was refunded.
+    /// // The amount the receiver kept, as a JSON string.
     /// let used: u128 = outcome.json::<String>()?.parse()?;
-    /// # let _ = used;
+    /// if used < 1_000_000 {
+    ///     let reason = outcome.receipt_failures().next().map(|e| e.to_string());
+    ///     return Err(format!("the receiver kept only {used} ({reason:?})").into());
+    /// }
     /// # Ok(())
     /// # }
     /// ```
