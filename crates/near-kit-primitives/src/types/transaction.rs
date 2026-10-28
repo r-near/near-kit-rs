@@ -146,10 +146,27 @@ impl SignedTransaction {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// use near_kit_primitives::protocol::SignedTransaction;
-    /// let bytes: Vec<u8> = /* received from offline signer */;
-    /// let signed_tx = SignedTransaction::from_bytes(&bytes)?;
+    /// ```rust
+    /// use near_kit_primitives::protocol::{Action, SignedTransaction, Transaction};
+    /// use near_kit_primitives::signer::SecretKey;
+    /// use near_kit_primitives::{CryptoHash, NearToken, account};
+    ///
+    /// let key = SecretKey::generate_ed25519();
+    /// let signed = Transaction::new(
+    ///     account!("alice.near"),
+    ///     key.public_key(),
+    ///     1,
+    ///     account!("bob.near"),
+    ///     CryptoHash::ZERO,
+    ///     vec![Action::transfer(NearToken::from_near(1))],
+    /// )
+    /// .sign(&key);
+    ///
+    /// // `bytes` is what an offline signer hands over.
+    /// let bytes = signed.to_bytes();
+    /// let decoded = SignedTransaction::from_bytes(&bytes)?;
+    /// assert_eq!(decoded, signed);
+    /// # Ok::<(), near_kit_primitives::protocol::DecodeTransactionError>(())
     /// ```
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeTransactionError> {
         borsh::from_slice(bytes).map_err(DecodeTransactionError::Borsh)

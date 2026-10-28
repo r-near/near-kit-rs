@@ -85,19 +85,28 @@ pub struct TransportResponse {
 /// `wasm32-unknown-unknown` those bounds disappear so browser APIs can be used
 /// directly.
 ///
-/// ```rust,ignore
-/// struct MyTransport;
+/// ```rust
+/// use near_kit::Near;
+/// use near_kit::rpc::{BoxFuture, RpcError, RpcTransport, TransportResponse};
 ///
-/// impl RpcTransport for MyTransport {
+/// /// Answers every request with the same JSON-RPC body.
+/// struct Canned(&'static str);
+///
+/// impl RpcTransport for Canned {
 ///     fn post_json(
 ///         &self,
-///         url: &str,
-///         body: Vec<u8>,
+///         _url: &str,
+///         _body: Vec<u8>,
 ///     ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-///         let url = url.to_string();
-///         Box::pin(async move { /* ... */ })
+///         // Copy what the future needs; it may borrow `self` only.
+///         let body = self.0.as_bytes().to_vec();
+///         Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
 ///     }
 /// }
+///
+/// let near = Near::custom("http://localhost:3030", "localnet")
+///     .transport(Canned(r#"{"jsonrpc":"2.0","id":0,"result":null}"#))
+///     .build();
 /// ```
 pub trait RpcTransport: MaybeSend + MaybeSync {
     /// POST `body` to `url` with `Content-Type: application/json`.

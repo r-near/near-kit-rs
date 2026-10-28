@@ -459,14 +459,17 @@ impl Sandbox {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
     /// use near_kit::{NearToken, account};
     /// use near_kit_sandbox::Sandbox;
     ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let sandbox = Sandbox::builder().shared().await?;
     ///
     /// // Set account balance to 1M NEAR for staking test
     /// sandbox.set_balance(account!("validator.sandbox"), NearToken::from_near(1_000_000)).await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn set_balance(
         &self,
@@ -546,15 +549,18 @@ impl Sandbox {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
     /// use near_kit_sandbox::Sandbox;
     ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let sandbox = Sandbox::builder().shared().await?;
     /// sandbox
     ///     .patch_state(serde_json::json!([
     ///         { "Data": { "account_id": "counter.sandbox", "data_key": "U1RBVEU=", "value": "AQAAAA==" } }
     ///     ]))
     ///     .await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn patch_state(&self, records: serde_json::Value) -> Result<(), SandboxError> {
         let near = self.near();
@@ -577,11 +583,14 @@ impl Sandbox {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
     /// use near_kit_sandbox::Sandbox;
     ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let sandbox = Sandbox::builder().shared().await?;
     /// sandbox.fast_forward(1000).await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn fast_forward(&self, delta_height: u64) -> Result<(), SandboxError> {
         // Sent once: `RpcClient::request` never retries this method, because a
@@ -651,11 +660,15 @@ impl SandboxBuilder {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// # use near_kit_sandbox::Sandbox;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let sandbox = Sandbox::builder()
-    ///     .version("2.10.5")
+    ///     .version("2.13.4")
     ///     .fresh()
     ///     .await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn version(mut self, version: impl Into<String>) -> Self {
         self.version = Some(version.into());
@@ -668,12 +681,17 @@ impl SandboxBuilder {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// # use near_kit::account;
+    /// # use near_kit_sandbox::Sandbox;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let sandbox = Sandbox::builder()
     ///     .root_account(account!("sb"))
     ///     .fresh()
     ///     .await?;
     /// // Sub-accounts will be "alice.sb" instead of "alice.sandbox"
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn root_account(mut self, name: impl Into<AccountId>) -> Self {
         self.root_account = Some(name.into());
@@ -700,11 +718,15 @@ impl SandboxBuilder {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust,no_run
+    /// # use near_kit_sandbox::Sandbox;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let sandbox = Sandbox::builder()
     ///     .chain_id("localnet")
     ///     .fresh()
     ///     .await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn chain_id(mut self, chain_id: impl Into<String>) -> Self {
         let chain_id = chain_id.into();

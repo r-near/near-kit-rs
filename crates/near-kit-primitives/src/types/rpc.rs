@@ -237,7 +237,7 @@ pub enum AccessKeyPermissionView {
 /// One page of an account's access keys. The node caps how many keys a single
 /// response carries (100 by default), so a listing can be truncated:
 /// [`last_key`](Self::last_key) is then the continuation cursor. The fetch-all
-/// helper (`RpcClient::view_access_key_list`, `Near::access_keys`) follows that
+/// helper (`RpcClient::view_access_key_list`) follows that
 /// cursor for you and always returns `last_key: None`; only
 /// `RpcClient::view_access_key_list_page` hands it back for manual paging.
 #[derive(Debug, Clone, Deserialize)]
@@ -944,7 +944,8 @@ impl<'de> Deserialize<'de> for RpcTransactionResponse {
 ///
 /// The `receipts` field contains full receipt details when the outcome comes
 /// from `EXPERIMENTAL_tx_status` (i.e. `near.tx_status()`). When the outcome
-/// comes from `send_tx` (i.e. `near.send()`), this field is an empty `Vec`.
+/// comes from `send_tx` (every send: `signing.transaction(..)` and
+/// `Near::send_signed`), this field is an empty `Vec`.
 ///
 /// A failed action still arrives as `Ok(outcome)`, so the type is
 /// `#[must_use]`: check [`is_failure`](Self::is_failure) or
@@ -1792,16 +1793,16 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
-/// With a live `near-kit` client:
+/// From a full outcome, such as the one near-kit's
+/// `near.tx_status(&tx_hash, sender).wait_until::<Final>().await?` returns:
 ///
-/// ```rust,ignore
-/// let outcome = near.tx_status(&tx_hash, account!("alice.near")).wait_until::<Final>().await?;
-/// let actions = outcome
-///     .transaction
-///     .actions
-///     .into_iter()
-///     .map(Action::try_from)
-///     .collect::<Result<Vec<_>, _>>()?;
+/// ```rust
+/// use near_kit_primitives::protocol::{Action, ActionViewConversionError};
+/// use near_kit_primitives::rpc::FinalExecutionOutcome;
+///
+/// fn actions_of(outcome: FinalExecutionOutcome) -> Result<Vec<Action>, ActionViewConversionError> {
+///     outcome.transaction.actions.into_iter().map(Action::try_from).collect()
+/// }
 /// ```
 impl TryFrom<ActionView> for Action {
     type Error = ActionViewConversionError;
@@ -2076,9 +2077,24 @@ impl ViewFunctionResult {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// let result = rpc.view_function(&contract, "get_data", &[], block).await?;
-    /// let data: MyData = result.json()?;
+    /// ```rust
+    /// use near_kit_primitives::CryptoHash;
+    /// use near_kit_primitives::rpc::ViewFunctionResult;
+    ///
+    /// #[derive(serde::Deserialize)]
+    /// struct Stats {
+    ///     count: u64,
+    /// }
+    ///
+    /// // A view's raw result, as a `Viewer` returns it.
+    /// let result = ViewFunctionResult::new(br#"{"count":3}"#.to_vec(), 1, CryptoHash::ZERO);
+    /// let stats: Stats = result.json()?;
+    /// assert_eq!(stats.count, 3);
+    ///
+    /// // A method that returns nothing decodes as `()`.
+    /// let empty = ViewFunctionResult::new(Vec::new(), 1, CryptoHash::ZERO);
+    /// let () = empty.json()?;
+    /// # Ok::<(), serde_json::Error>(())
     /// ```
     pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
         // NEAR returns zero bytes for `()`-returning (void) methods; map empty -> null so
@@ -2097,9 +2113,15 @@ impl ViewFunctionResult {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// let result = rpc.view_function(&contract, "get_state", &args, block).await?;
-    /// let state: ContractState = result.borsh()?;
+    /// ```rust
+    /// use near_kit_primitives::CryptoHash;
+    /// use near_kit_primitives::rpc::ViewFunctionResult;
+    ///
+    /// let bytes = borsh::to_vec(&(7u32, true))?;
+    /// let result = ViewFunctionResult::new(bytes, 1, CryptoHash::ZERO);
+    /// let state: (u32, bool) = result.borsh()?;
+    /// assert_eq!(state, (7, true));
+    /// # Ok::<(), borsh::io::Error>(())
     /// ```
     pub fn borsh<T: borsh::BorshDeserialize>(&self) -> Result<T, borsh::io::Error> {
         borsh::from_slice(&self.result)

@@ -86,7 +86,7 @@ impl Near {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// use near_kit::Near;
     ///
     /// // Private mainnet RPC
@@ -384,8 +384,8 @@ impl std::fmt::Debug for Near {
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use near_kit::*;
+/// ```rust
+/// use near_kit::Near;
 ///
 /// let near = Near::testnet()
 ///     .max_nonce_retries(10)

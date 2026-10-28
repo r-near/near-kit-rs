@@ -224,8 +224,8 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # use near_kit::standards::FungibleToken;
-    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let token = near.contract::<FungibleToken>(account!("wrap.near"));
+    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+    /// let token = alice.contract::<FungibleToken>(account!("wrap.near"));
     ///
     /// // Register bob with the contract's minimum deposit
     /// let bounds = token.storage_balance_bounds().await?;
@@ -263,8 +263,8 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # use near_kit::standards::FungibleToken;
-    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let token = near.contract::<FungibleToken>(account!("wrap.near"));
+    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+    /// let token = alice.contract::<FungibleToken>(account!("wrap.near"));
     ///
     /// token.transfer(account!("bob.near"), 1_500_000_u128, None).await?.result()?;
     ///
@@ -312,8 +312,8 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # use near_kit::standards::FungibleToken;
-    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let token = near.contract::<FungibleToken>(account!("wrap.near"));
+    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+    /// let token = alice.contract::<FungibleToken>(account!("wrap.near"));
     ///
     /// token
     ///     .transfer_call(account!("defi.near"), 1_000_000_u128, r#"{"action":"deposit"}"#)
