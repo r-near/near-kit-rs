@@ -175,12 +175,8 @@ async fn relay(
     // The final status follows the receipt that unpacks the delegate action on
     // the user's account, which succeeds once it has forwarded the actions.
     // The user's call runs in a later receipt, so `outcome.is_failure()`
-    // doesn't see it: look through the receipt outcomes.
-    if let Some(error) = outcome
-        .receipts_outcome
-        .iter()
-        .find_map(|receipt| receipt.outcome.status.failure())
-    {
+    // doesn't see it: `receipt_failures()` does.
+    if let Some(error) = outcome.receipt_failures().next() {
         return Err(RelayError::UserActionFailed(Box::new(error.clone())));
     }
     Ok(outcome)
