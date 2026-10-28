@@ -70,6 +70,10 @@ impl Near {
 
     /// Create a builder with a custom RPC URL and chain ID.
     ///
+    /// Signing clients share cached nonces per chain ID, account and key,
+    /// whatever their RPC URLs, so give every client for one network the same
+    /// chain ID, and distinct networks distinct ones.
+    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -404,7 +408,8 @@ impl NearBuilder {
     /// Set the chain ID.
     ///
     /// This is useful for custom networks where the default chain ID
-    /// (e.g., `"custom"`) should be overridden.
+    /// (e.g., `"custom"`) should be overridden. Cached nonces are shared per
+    /// chain ID (see [`Near::custom`]).
     pub fn chain_id(mut self, chain_id: impl Into<String>) -> Self {
         self.chain_id = ChainId::new(chain_id);
         self
@@ -453,7 +458,9 @@ impl NearBuilder {
     /// Set the maximum number of transaction send attempts on `InvalidNonce` errors.
     ///
     /// When a transaction fails with `InvalidNonce`, the client automatically
-    /// retries with the corrected nonce from the error response.
+    /// retries with the corrected nonce from the error response. `Expired` and
+    /// `NonceTooLarge` rejections are retried the same way, from a fresh view
+    /// of the access key.
     ///
     /// `0` means no retries (send once), `1` means one retry, etc. Defaults to `3`.
     /// For high-contention relayer scenarios, consider setting

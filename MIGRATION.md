@@ -145,6 +145,12 @@ let balance = me.near().balance(me.account_id()).await?;
 `FunctionCall`. An argument-encoding error is returned from `.await`, as
 before.
 
+Cached nonces are now shared per chain ID, account and key rather than per
+RPC URL, so every client for one network shares one sequence whatever its
+endpoint. Give clients for one network the same chain ID (`Near::custom`'s
+second argument), and distinct networks distinct ones. A `NonceTooLarge`
+rejection is now retried like `Expired`, from a fresh view.
+
 ```rust
 // 0.20
 near.transaction("sub.me.testnet")

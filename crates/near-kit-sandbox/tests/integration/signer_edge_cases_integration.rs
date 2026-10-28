@@ -1,11 +1,13 @@
 //! Signer behaviors that need real access-key and nonce state.
 
-use near_kit::NearToken;
+use std::future::IntoFuture;
+
 use near_kit::protocol::Action;
-use near_kit::rpc::RpcError;
+use near_kit::rpc::{BlockReference, Finality, RpcError};
 use near_kit::signer::{InMemorySigner, RotatingSigner, SecretKey};
 use near_kit::transaction::Final;
 use near_kit::{AccountId, Error};
+use near_kit::{Near, NearToken};
 
 use super::support::{client_for, funded_account, shared_client, unique_account};
 
@@ -139,4 +141,78 @@ async fn deleted_key_is_rejected() {
         },
         other => panic!("expected RPC access-key error, got {other:?}"),
     }
+}
+
+/// The same endpoint spelled two ways (`localhost` / `127.0.0.1`) is one
+/// chain: both clients draw from one nonce sequence, so identical concurrent
+/// transfers are two transactions, not one signed twice.
+#[tokio::test]
+async fn clients_on_two_url_spellings_share_one_nonce_sequence() {
+    let (sandbox, root) = shared_client().await;
+    let (via_name, account_id, key) =
+        funded_account(&root, sandbox, "urlspell", NearToken::from_near(5)).await;
+    let (_, receiver, _) = funded_account(&root, sandbox, "urlrecv", NearToken::from_near(1)).await;
+
+    let url = via_name.near().rpc().url().to_string();
+    let other_url = if url.contains("localhost") {
+        url.replacen("localhost", "127.0.0.1", 1)
+    } else if url.contains("127.0.0.1") {
+        url.replacen("127.0.0.1", "localhost", 1)
+    } else {
+        format!("{url}/")
+    };
+    assert_ne!(url, other_url);
+    let via_ip = Near::custom(other_url, via_name.near().chain_id().clone())
+        .build()
+        .with_signer(InMemorySigner::new(account_id.clone(), key));
+
+    // Signing alone already shows the shared sequence.
+    let first = via_name
+        .sign(
+            &receiver,
+            vec![Action::transfer(NearToken::from_yoctonear(1))],
+        )
+        .await
+        .expect("sign via the first spelling");
+    let second = via_ip
+        .sign(
+            &receiver,
+            vec![Action::transfer(NearToken::from_yoctonear(1))],
+        )
+        .await
+        .expect("sign via the second spelling");
+    assert_eq!(second.transaction.nonce, first.transaction.nonce + 1);
+
+    // Identical transfers through both at once both land.
+    let before = root
+        .near()
+        .rpc()
+        .view_account(&receiver, BlockReference::Finality(Finality::Final))
+        .await
+        .expect("receiver balance")
+        .amount;
+    let (a, b) = tokio::join!(
+        via_name
+            .transaction(&receiver)
+            .add_action(Action::transfer(NearToken::from_yoctonear(1)))
+            .into_future(),
+        via_ip
+            .transaction(&receiver)
+            .add_action(Action::transfer(NearToken::from_yoctonear(1)))
+            .into_future(),
+    );
+    let (a, b) = (a.expect("first transfer"), b.expect("second transfer"));
+    assert_ne!(a.transaction_hash(), b.transaction_hash());
+    let after = root
+        .near()
+        .rpc()
+        .view_account(&receiver, BlockReference::Finality(Finality::Final))
+        .await
+        .expect("receiver balance")
+        .amount;
+    assert_eq!(
+        after.as_yoctonear() - before.as_yoctonear(),
+        2,
+        "both transfers ran"
+    );
 }
