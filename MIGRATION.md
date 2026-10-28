@@ -380,11 +380,14 @@ and sending ones for `MyWrapper<SigningNear<W>>`.
 See [nonces](https://docs.rs/near-kit/latest/near_kit/guide/nonces/index.html)
 for the full picture. What changed:
 
-- **Cached nonces are shared per chain.** The cache is keyed by chain ID,
-  account and public key, not by RPC URL, so every client for one network
-  shares one sequence whatever its endpoint. Give clients for one network the
-  same chain ID (`Near::custom`'s second argument), and different networks
-  different ones.
+- **Cached nonces are shared per chain.** The cache is keyed by the chain's
+  genesis hash, account and public key, not by RPC URL: each client asks its
+  node for the genesis hash (`status`) before its first nonce. Every client
+  for one network shares one sequence whatever its endpoint or chain ID, and
+  two networks with one chain ID (two sandboxes) don't. While a node doesn't
+  answer `status`, nonces are cached by chain ID (`Near::custom`'s second
+  argument), so keep passing the network's real one. A test transport that
+  panics on methods it doesn't expect needs a `status` reply, or an error.
 - **More rejections are retried.** `max_nonce_retries` (on `NearBuilder` for
   every `SigningNear` made from that `Near`, or on one `SigningNear`) covers
   `InvalidNonce`, `NonceTooLarge` and `Expired`. A `NonceTooLarge` rejection
