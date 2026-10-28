@@ -1,4 +1,4 @@
-# Upgrading from near-kit 0.20.1 to 0.21
+# Upgrading from near-kit 0.20.1 to 0.30
 
 ## What changed and why
 
