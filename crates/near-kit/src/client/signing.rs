@@ -284,7 +284,7 @@ impl<W: WaitLevel> SigningNear<W> {
     ///     .await?;
     /// println!("Hash: {}", signed.get_hash());
     ///
-    /// let outcome = alice.near().send_signed(&signed).await?;
+    /// alice.near().send_signed(&signed).await?.result()?;
     /// # Ok(())
     /// # }
     /// ```

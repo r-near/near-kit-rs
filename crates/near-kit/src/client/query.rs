@@ -184,6 +184,7 @@ impl IntoFuture for AccountExistsQuery {
 ///     .tx_status(tx_hash, sender_id)
 ///     .wait_until::<Final>()
 ///     .await?;
+/// outcome.result()?;
 /// # Ok(())
 /// # }
 /// ```

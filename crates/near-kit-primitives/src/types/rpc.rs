@@ -994,12 +994,21 @@ pub struct FinalExecutionOutcome {
 struct FinalExecutionOutcomeMustUse;
 
 impl FinalExecutionOutcome {
-    /// Check if the transaction succeeded.
+    /// Whether the transaction's top-level [`status`](Self::status) is a
+    /// success.
+    ///
+    /// This reads the main chain of receipts only. A receipt that fails off
+    /// that chain, such as the user's inner call in a relayed transaction,
+    /// leaves it `true`: see [`receipt_failures`](Self::receipt_failures).
     pub fn is_success(&self) -> bool {
         matches!(&self.status, FinalExecutionStatus::SuccessValue(_))
     }
 
-    /// Check if the transaction failed.
+    /// Whether the transaction's top-level [`status`](Self::status) is a
+    /// failure: an action on the main chain of receipts failed.
+    ///
+    /// Like [`is_success`](Self::is_success), this doesn't see receipts that
+    /// fail off the main chain; see [`receipt_failures`](Self::receipt_failures).
     pub fn is_failure(&self) -> bool {
         matches!(&self.status, FinalExecutionStatus::Failure(_))
     }
@@ -1085,18 +1094,19 @@ impl FinalExecutionOutcome {
         Gas::from_gas(tx_gas + receipt_gas)
     }
 
-    /// Get the return value as raw bytes (base64-decoded).
+    /// The return value as raw bytes, or the failure as an `Err`.
     ///
-    /// Returns `Err` if the execution status is not `SuccessValue` (including
-    /// transaction validation or action failures), or if the value is not
-    /// valid base64.
+    /// A send returns `Ok(outcome)` even when an action failed, so
+    /// `.await?.result()?` is the usual way to make a failed action an error:
+    /// [`OutcomeError::ActionFailed`] (or `InvalidTx` for a transaction
+    /// rejected when its chunk was applied). It is also `Err` if the status
+    /// is not a finished `SuccessValue`, or the value is not valid base64. A
+    /// method that returns nothing gives an empty `Vec`.
     ///
-    /// Note: When using the high-level transaction API, only transaction
-    /// *validation* failures return `Err(Error::InvalidTx(..))` from the
-    /// send call. On-chain action failures are returned as `Ok(outcome)`
-    /// with `outcome.is_failure() == true`. This method is primarily useful
-    /// when working with the low-level `rpc().send_tx()` API or when you
-    /// already have an outcome and want to decode its return value.
+    /// Like [`is_failure`](Self::is_failure), it reads the top-level
+    /// [`status`](Self::status) only; check
+    /// [`receipt_failures`](Self::receipt_failures) for receipts that fail
+    /// off the main chain, such as a relayed inner call.
     pub fn result(&self) -> Result<Vec<u8>, OutcomeError> {
         match &self.status {
             FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {

@@ -253,6 +253,7 @@ impl Near {
     /// // Send later. Like a `Tx`, it waits for `Final` unless you pick
     /// // another level with `.wait_until::<W>()`.
     /// let outcome: FinalExecutionOutcome = alice.near().send_signed(&signed).await?;
+    /// outcome.result()?;
     /// # Ok(())
     /// # }
     /// ```
