@@ -440,6 +440,9 @@
 //! The one WARN is reserved for an anomaly that is *not* surfaced as an error:
 //! an RPC error variant this version couldn't parse and mapped to `Unknown`.
 
+#![warn(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 // Lets `#[near_kit::contract]` expansions name `::near_kit` even inside this
 // crate.
 #[cfg(feature = "contracts")]

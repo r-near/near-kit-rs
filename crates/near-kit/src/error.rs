@@ -1,59 +1,6 @@
-//! Error types for near-kit.
-//!
-//! This module provides comprehensive error types for all near-kit operations.
-//!
-//! # Error Hierarchy
-//!
-//! - [`Error`](enum@Error) — Main error type, returned by most operations
-//!   - [`RpcError`] — RPC/network errors (connectivity, account not found, etc.)
-//!   - [`InvalidTxError`][crate::protocol::InvalidTxError] — Transaction was rejected
-//!     before execution (bad nonce, insufficient balance, expired, etc.)
-//!
-//! Action errors (contract panics, missing keys, etc.) are **not** `Err` — the
-//! transaction was accepted and executed, so the outcome is returned as
-//! `Ok(outcome)` where `outcome.is_failure()` is `true`.
-//!
-//! # Error Handling Examples
-//!
-//! ## Handling Transaction Errors
-//!
-#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::*;
-//! use near_kit::protocol::Action;
-//!
-//! # async fn example(alice: SigningNear) -> Result<(), Error> {
-//! let transfer = alice
-//!     .transaction(account!("bob.testnet"))
-//!     .add_action(Action::transfer(NearToken::from_near(1)));
-//!
-//! match transfer.await {
-//!     Ok(outcome) if outcome.is_success() => {
-//!         println!("Success! Hash: {}", outcome.transaction_hash());
-//!     }
-//!     Ok(outcome) => {
-//!         // Transaction executed but an action failed — inspect the outcome
-//!         println!("Action failed: {:?}, gas used: {}", outcome.failure_message(), outcome.total_gas_used());
-//!     }
-//!     Err(Error::InvalidTx(e)) => {
-//!         // Transaction was rejected before execution (bad nonce, insufficient balance, etc.)
-//!         println!("Transaction rejected: {}", e);
-//!     }
-//!     Err(e) => return Err(e),
-//! }
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ## Checking Retryable Errors
-//!
-//! ```rust,no_run
-//! use near_kit::rpc::RpcError;
-//!
-//! fn should_retry(err: &RpcError) -> bool {
-//!     err.is_retryable()
-//! }
-//! ```
+//! Error types for near-kit: [`Error`](enum@Error), [`RpcError`] and
+//! [`KeyStoreError`]. The module is private; the types are public at the
+//! crate root, `near_kit::rpc` and `near_kit::signer`.
 
 use thiserror::Error;
 
@@ -73,18 +20,29 @@ pub(crate) use near_kit_primitives::rpc::OutcomeError;
 pub(crate) use near_kit_primitives::signer::{ParseKeyError, SignerError};
 pub(crate) use near_kit_primitives::transaction::CodecError;
 
-/// Error during keystore operations.
+/// Error loading a key from a key store.
+///
+/// Carried by [`Error::KeyStore`]. The system keyring loader
+/// (`signer::from_keyring`, `keyring` feature) returns these; the
+/// environment and credentials-file loaders report problems as
+/// [`Error::Config`] or a parse error instead.
 #[derive(Debug, Error)]
 pub enum KeyStoreError {
+    /// The store has no key for this account and public key.
     #[error("Key not found for account: {0}")]
     KeyNotFound(AccountId),
 
+    /// An entry exists but isn't a usable credential: it isn't JSON, has
+    /// no `private_key` field, or holds a key other than the one requested.
     #[error("Invalid credential format: {0}")]
     InvalidFormat(String),
 
+    /// The entry's `private_key` did not parse.
     #[error("Invalid key: {0}")]
     InvalidKey(#[from] ParseKeyError),
 
+    /// The platform key store (macOS Keychain, Windows Credential Manager, the
+    /// Linux Secret Service) could not be opened or read.
     #[error("Platform keyring error: {0}")]
     Platform(String),
 }
@@ -93,7 +51,20 @@ pub enum KeyStoreError {
 // RPC Errors
 // ============================================================================
 
-/// RPC-specific errors.
+/// An error from the JSON-RPC layer: the transport, the response, or an error
+/// the node returned.
+///
+/// Node errors are matched on their `cause.name` (`UNKNOWN_ACCOUNT`,
+/// `TIMEOUT_ERROR`, ...) and mapped to the variants below; a cause without a
+/// variant of its own becomes [`Rpc`](Self::Rpc). Variants that answer a
+/// view request carry the block the node evaluated it at, also available
+/// through [`block_height`](Self::block_height) and
+/// [`block_hash`](Self::block_hash).
+///
+/// [`is_retryable`](Self::is_retryable) says whether the same request can
+/// succeed if sent again. Most methods wrap this type in
+/// [`Error::Rpc`]; an `InvalidTx` from the node is promoted to
+/// [`Error::InvalidTx`] instead.
 // `non_exhaustive` keeps the `rpc` feature additive: the `Http` variant below
 // only exists with the feature on, so an exhaustive downstream match written
 // against the offline build would otherwise break when feature unification
@@ -105,28 +76,52 @@ pub enum RpcError {
     // reqwest only compiles with the `rpc` feature and never on WASI (the
     // wasi:http transport reports failures as `Network` instead), so this
     // variant (and its `is_retryable` arm below) exists only there.
+    /// The HTTP client failed: connecting, a timeout, or reading the response.
+    ///
+    /// Retryable when the request timed out, the connection could not be
+    /// made, or the server dropped it. Not present on WASI, where transport
+    /// failures are [`Network`](Self::Network).
     #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
     #[error("HTTP error: {0}")]
     Http(#[source] reqwest::Error),
 
+    /// The transport failed, or the node answered with a non-2xx HTTP status
+    /// whose body isn't a JSON-RPC error.
+    ///
+    /// A custom `RpcTransport` reports its own failures with this variant.
     #[error("Network error: {message}")]
     Network {
+        /// What went wrong. For an HTTP status, `HTTP <status>: <body>`.
         message: String,
+        /// The HTTP status, when the failure was a response.
         status_code: Option<u16>,
+        /// What [`is_retryable`](Self::is_retryable) returns for this error.
+        /// near-kit sets it for HTTP 408, 429 and 5xx, and for transient
+        /// transport failures.
         retryable: bool,
     },
 
+    /// The response body is not valid JSON, or doesn't have the expected shape.
     #[error("JSON parse error: {0}")]
     Json(#[from] serde_json::Error),
 
+    /// The response parsed but can't be used, for example a JSON-RPC
+    /// response with neither `result` nor `error`.
     #[error("Invalid response: {0}")]
     InvalidResponse(String),
 
     // ─── Generic RPC Error ───
+    /// A JSON-RPC error that no other variant covers.
+    ///
+    /// Retryable for code `-32603`, and for `-32000` when `cause` is absent or
+    /// names a transient condition.
     #[error("RPC error: {message} (code: {code})")]
     Rpc {
+        /// The JSON-RPC error code, such as `-32000` (server error).
         code: i64,
+        /// The error message.
         message: String,
+        /// The error's `data` field, if present.
         data: Option<serde_json::Value>,
         /// The name of the node's error cause (`error.cause.name`, such as
         /// `NODE_IS_SYNCING`), when the response has one.
@@ -134,10 +129,14 @@ pub enum RpcError {
     },
 
     // ─── Account Errors ───
+    /// The account does not exist at the queried block (`UNKNOWN_ACCOUNT`).
     #[error("Account not found: {account_id}")]
     AccountNotFound {
+        /// The account requested.
         account_id: AccountId,
+        /// Height of the block the node queried, if it reported one.
         block_height: Option<u64>,
+        /// Hash of the block the node queried, if it reported one.
         block_hash: Option<CryptoHash>,
     },
 
@@ -147,8 +146,11 @@ pub enum RpcError {
     /// [`AccountId`] because it failed validation.
     #[error("Invalid account ID: {account_id}")]
     InvalidAccount {
+        /// The account ID as the node received it.
         account_id: String,
+        /// Height of the block the node queried, if it reported one.
         block_height: Option<u64>,
+        /// Hash of the block the node queried, if it reported one.
         block_hash: Option<CryptoHash>,
     },
 
@@ -159,9 +161,13 @@ pub enum RpcError {
     /// when parsing a raw response directly.
     #[error("Access key not found: {account_id} / {public_key}")]
     AccessKeyNotFound {
+        /// The account queried.
         account_id: AccountId,
+        /// The public key looked up.
         public_key: PublicKey,
+        /// Height of the block the node queried, if it reported one.
         block_height: Option<u64>,
+        /// Hash of the block the node queried, if it reported one.
         block_hash: Option<CryptoHash>,
     },
 
@@ -173,17 +179,25 @@ pub enum RpcError {
     /// response directly.
     #[error("Gas key not found: {account_id} / {public_key}")]
     GasKeyNotFound {
+        /// The account queried.
         account_id: AccountId,
+        /// The gas key's public key.
         public_key: PublicKey,
+        /// Height of the block the node queried, if it reported one.
         block_height: Option<u64>,
+        /// Hash of the block the node queried, if it reported one.
         block_hash: Option<CryptoHash>,
     },
 
     // ─── Contract Errors ───
+    /// The account has no contract deployed (`NO_CONTRACT_CODE`).
     #[error("Contract not deployed on account: {account_id}")]
     ContractNotDeployed {
+        /// The account queried.
         account_id: AccountId,
+        /// Height of the block the node queried, if it reported one.
         block_height: Option<u64>,
+        /// Hash of the block the node queried, if it reported one.
         block_hash: Option<CryptoHash>,
     },
 
@@ -192,8 +206,11 @@ pub enum RpcError {
     /// form instead.
     #[error("Contract state too large for account: {account_id}")]
     ContractStateTooLarge {
+        /// The contract account.
         account_id: AccountId,
+        /// Height of the block the node queried, if it reported one.
         block_height: Option<u64>,
+        /// Hash of the block the node queried, if it reported one.
         block_hash: Option<CryptoHash>,
     },
 
@@ -201,8 +218,11 @@ pub enum RpcError {
     /// (`NO_GLOBAL_CONTRACT_CODE`).
     #[error("Global contract not found: {identifier}")]
     GlobalContractNotFound {
+        /// The global contract looked up, by code hash or publisher account.
         identifier: GlobalContractIdentifierView,
+        /// Height of the block the node queried, if it reported one.
         block_height: Option<u64>,
+        /// Hash of the block the node queried, if it reported one.
         block_hash: Option<CryptoHash>,
     },
 
@@ -220,19 +240,29 @@ pub enum RpcError {
     /// classifications, so matching on `message` for those cases is not needed.
     #[error("contract execution failed on {contract_id}: {message}")]
     ContractExecution {
+        /// The contract called. `unknown` only when parsing a raw response
+        /// that omits it; `RpcClient::view_function` fills it in.
         contract_id: AccountId,
+        /// The method called, when known.
         method_name: Option<String>,
+        /// The node's description of the failure.
         message: String,
+        /// Height of the block the node queried, if it reported one.
         block_height: Option<u64>,
+        /// Hash of the block the node queried, if it reported one.
         block_hash: Option<CryptoHash>,
     },
 
     /// The requested method is not exported by the deployed contract.
     #[error("contract method not found: `{contract_id}::{method_name}`")]
     MethodNotFound {
+        /// The contract called.
         contract_id: AccountId,
+        /// The method that does not exist.
         method_name: String,
+        /// Height of the block the node queried, if it reported one.
         block_height: Option<u64>,
+        /// Hash of the block the node queried, if it reported one.
         block_hash: Option<CryptoHash>,
     },
 
@@ -242,29 +272,43 @@ pub enum RpcError {
     /// outcome instead; see [`crate::protocol::FunctionCallError`].
     #[error("contract panic: {message}")]
     ContractPanic {
+        /// The panic message.
         message: String,
+        /// Height of the block the node queried, if it reported one.
         block_height: Option<u64>,
+        /// Hash of the block the node queried, if it reported one.
         block_hash: Option<CryptoHash>,
     },
 
     // ─── Block/Chunk Errors ───
+    /// The node doesn't have the block: it is unknown or was garbage-collected
+    /// (`UNKNOWN_BLOCK`, `GARBAGE_COLLECTED_BLOCK`). Holds the block reference.
+    ///
+    /// Regular nodes keep about five epochs; ask an archival node for older
+    /// blocks.
     #[error(
         "Block not found: {0}. It may have been garbage-collected. Try an archival node for blocks older than 5 epochs."
     )]
     BlockNotFound(String),
 
+    /// The node doesn't have the chunk (`UNKNOWN_CHUNK`). Holds the chunk hash.
     #[error("Chunk not found: {0}. It may have been garbage-collected. Try an archival node.")]
     ChunkNotFound(String),
 
+    /// The node can't find the epoch for the block (`UNKNOWN_EPOCH`). Holds
+    /// the block reference.
     #[error(
         "Epoch not found for block: {0}. The block may be invalid or too old. Try an archival node."
     )]
     EpochNotFound(String),
 
+    /// The shard ID doesn't exist (`INVALID_SHARD_ID`). Holds the shard ID.
     #[error("Invalid shard ID: {0}")]
     InvalidShardId(String),
 
     // ─── Receipt Errors ───
+    /// The node doesn't know the receipt (`UNKNOWN_RECEIPT`). Holds the
+    /// receipt ID.
     #[error("Receipt not found: {0}")]
     ReceiptNotFound(String),
 
@@ -301,21 +345,30 @@ pub enum RpcError {
     /// error could not be deserialized into [`InvalidTxError`][crate::protocol::InvalidTxError].
     #[error("Invalid transaction: {message}")]
     InvalidTxUnparsed {
+        /// The error message.
         message: String,
+        /// The error's `data` field, which didn't parse as an
+        /// `InvalidTxError`.
         details: Option<serde_json::Value>,
     },
 
     // ─── Node Errors ───
+    /// The node can't serve the shard right now (`UNAVAILABLE_SHARD`).
+    /// Retryable.
     #[error("Shard unavailable: {0}")]
     ShardUnavailable(String),
 
+    /// The node is still syncing (`NO_SYNCED_BLOCKS`, `NOT_SYNCED_YET`).
+    /// Retryable.
     #[error("Node not synced: {0}")]
     NodeNotSynced(String),
 
+    /// The node hit an internal error (`INTERNAL_ERROR`). Retryable.
     #[error("Internal server error: {0}")]
     InternalError(String),
 
     // ─── Request Errors ───
+    /// The node could not parse the request's parameters (`PARSE_ERROR`).
     #[error("Parse error: {0}")]
     ParseError(String),
 
@@ -348,16 +401,20 @@ pub enum RpcError {
     ///
     /// nearcore only returns an account's keys in one shot when there are at
     /// most `limit` of them (100 by default); anything larger has to be listed
-    /// with `limit`/`after_key`. `RpcClient::view_access_key_list` (and
-    /// `Near::access_keys`) always paginate, so this only surfaces from
+    /// with `limit`/`after_key`. `RpcClient::view_access_key_list` always
+    /// paginates, so this only surfaces from
     /// `RpcClient::view_access_key_list_page` called without a `limit`.
     #[error(
         "account {account_id} has more than {limit} access keys; use a paginated view_access_key_list request"
     )]
     TooManyAccessKeys {
+        /// The account queried.
         account_id: AccountId,
+        /// The most keys the node returns without pagination.
         limit: u32,
+        /// Height of the block the node queried, if it reported one.
         block_height: Option<u64>,
+        /// Hash of the block the node queried, if it reported one.
         block_hash: Option<CryptoHash>,
     },
 }
@@ -708,7 +765,6 @@ fn is_connection_dropped(error: &reqwest::Error) -> bool {
 // Main Error Type
 // ============================================================================
 
-/// Main error type for near-kit operations.
 impl RpcError {
     /// Returns true if this error indicates the account was not found.
     pub fn is_account_not_found(&self) -> bool {
@@ -818,20 +874,80 @@ impl RpcError {
     }
 }
 
+/// The error type of near-kit's client operations.
+///
+/// `Err` means the transaction did not execute, or the read failed. A
+/// transaction whose actions ran and failed (a contract panic, a receiver
+/// account that doesn't exist) is **not** an `Err`: the
+/// network accepted and executed it, so it returns `Ok(outcome)` with
+/// `outcome.is_failure()` set. Read the failure from the outcome.
+///
+/// The `Err` cases worth telling apart:
+///
+/// - [`InvalidTx`](Self::InvalidTx): the network rejected the transaction
+///   before execution (bad nonce, not enough balance, expired).
+/// - [`Validation`](Self::Validation): a local check failed before anything
+///   was signed or sent.
+/// - [`Rpc`](Self::Rpc): the request failed; see [`RpcError`] and
+///   [`RpcError::is_retryable`].
+///
+#[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
+/// use near_kit::*;
+/// use near_kit::protocol::Action;
+///
+/// # async fn example(alice: SigningNear) -> Result<(), Error> {
+/// let transfer = alice
+///     .transaction(account!("bob.testnet"))
+///     .add_action(Action::transfer(NearToken::from_near(1)));
+///
+/// match transfer.await {
+///     Ok(outcome) if outcome.is_success() => {
+///         println!("Success! Hash: {}", outcome.transaction_hash());
+///     }
+///     Ok(outcome) => {
+///         // Executed, but an action failed: inspect the outcome.
+///         println!(
+///             "Action failed: {:?}, gas used: {}",
+///             outcome.failure_message(),
+///             outcome.total_gas_used()
+///         );
+///     }
+///     Err(Error::InvalidTx(e)) => {
+///         // Rejected before execution: no receipt, no gas used.
+///         println!("Transaction rejected: {e}");
+///     }
+///     Err(e) => return Err(e),
+/// }
+/// # Ok(())
+/// # }
+/// ```
+///
+/// The client-free error types of near-kit-primitives
+/// ([`SignerError`](crate::signer::SignerError),
+/// [`CodecError`](crate::transaction::CodecError),
+/// [`OutcomeError`](crate::rpc::OutcomeError), and others) convert into this
+/// type with `?`.
 #[derive(Debug, Error)]
 pub enum Error {
     // ─── Configuration ───
+    /// The client or signer is misconfigured: a missing or malformed
+    /// environment variable, an unreadable credentials file, or an empty or
+    /// mixed-account `RotatingSigner` key set.
     #[error("Invalid configuration: {0}")]
     Config(String),
 
     // ─── Parsing ───
+    /// An account ID did not parse.
     #[error(transparent)]
     ParseAccountId(#[from] ParseAccountIdError),
 
+    /// A public or secret key did not parse.
     #[error(transparent)]
     ParseKey(#[from] ParseKeyError),
 
     // ─── RPC ───
+    /// The RPC request failed. Boxed to keep `Error` small.
     #[error(transparent)]
     Rpc(Box<RpcError>),
 
@@ -868,17 +984,24 @@ pub enum Error {
     DecodeDelegate(#[from] DecodeDelegateError),
 
     // ─── Signing ───
+    /// The signer could not sign, or could not be built (for example an
+    /// invalid seed phrase).
     #[error("Signing failed: {0}")]
     Signing(#[source] SignerError),
 
     // ─── KeyStore ───
+    /// Loading a key from a key store failed.
     #[error(transparent)]
     KeyStore(#[from] KeyStoreError),
 
     // ─── Serialization ───
+    /// JSON encoding or decoding failed: call arguments, a view's return
+    /// value, or a transaction's JSON result.
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    /// Borsh encoding or decoding of call arguments or a return value
+    /// failed. Holds the error message.
     #[error("Borsh error: {0}")]
     Borsh(String),
 }

@@ -3,6 +3,12 @@
 //! These types mirror the error hierarchy returned by NEAR RPC in
 //! `ExecutionStatus::Failure`, replacing opaque `serde_json::Value`.
 
+// These enums mirror nearcore's error types variant for variant and field for
+// field, and nearcore's docs describe each one. The doc comments here cover
+// what near-kit adds (the `Unknown` fallbacks, helper methods) and variants
+// whose meaning isn't obvious from the name.
+#![allow(missing_docs)]
+
 use serde::Deserialize;
 
 use super::rpc::GlobalContractIdentifierView;

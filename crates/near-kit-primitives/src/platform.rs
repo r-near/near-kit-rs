@@ -16,6 +16,7 @@ use std::pin::Pin;
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+/// A boxed future, not `Send`: `wasm32-unknown-unknown` has no threads.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 

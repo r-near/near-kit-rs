@@ -61,6 +61,9 @@
 //! # }
 //! ```
 
+#![warn(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;

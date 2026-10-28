@@ -1421,43 +1421,69 @@ pub enum VersionedDelegateActionPayloadView {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum ActionView {
+    /// Create the receiver account.
     CreateAccount,
     /// Deploy a contract to the account.
     ///
     /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
     /// See [`ActionView::deploy_code_hash`].
     DeployContract {
+        /// Base64 of the 32-byte code hash (not the WASM).
         code: String, // base64 of the 32-byte code hash (NOT the WASM)
     },
+    /// Call a contract method.
     FunctionCall {
+        /// The method called.
         method_name: String,
+        /// The call's arguments, base64-encoded.
         args: String, // base64
+        /// Gas attached to the call.
         gas: Gas,
+        /// NEAR attached to the call.
         deposit: NearToken,
     },
+    /// Transfer NEAR to the receiver.
     Transfer {
+        /// The amount transferred.
         deposit: NearToken,
     },
+    /// Stake NEAR as a validator.
     Stake {
+        /// The total amount to stake.
         stake: NearToken,
+        /// The validator key.
         public_key: PublicKey,
     },
+    /// Add an access key to the account.
     AddKey {
+        /// The key added.
         public_key: PublicKey,
+        /// Its nonce and permission.
         access_key: AccessKeyDetails,
     },
+    /// Delete an access key from the account.
     DeleteKey {
+        /// The key deleted.
         public_key: PublicKey,
     },
+    /// Delete the account and send its balance to `beneficiary_id`.
     DeleteAccount {
+        /// The account that receives the remaining balance.
         beneficiary_id: AccountId,
     },
+    /// A signed delegate action (NEP-366 meta-transaction) submitted by a
+    /// relayer.
     Delegate {
+        /// The delegate action.
         delegate_action: DelegateActionView,
+        /// The delegate's signature over it.
         signature: Signature,
     },
+    /// A versioned signed delegate action.
     DelegateV2 {
+        /// The versioned delegate action payload.
         delegate_action: VersionedDelegateActionPayloadView,
+        /// The delegate's signature over it.
         signature: Signature,
     },
     /// Publish a global contract, identified by its code hash.
@@ -1466,6 +1492,7 @@ pub enum ActionView {
     /// See [`ActionView::deploy_code_hash`].
     #[serde(rename = "DeployGlobalContract")]
     DeployGlobalContract {
+        /// Base64 of the 32-byte code hash (not the WASM).
         code: String, // base64 of the 32-byte code hash (NOT the WASM)
     },
     /// Publish a global contract, identified by the publisher's account ID.
@@ -1474,35 +1501,54 @@ pub enum ActionView {
     /// See [`ActionView::deploy_code_hash`].
     #[serde(rename = "DeployGlobalContractByAccountId")]
     DeployGlobalContractByAccountId {
+        /// Base64 of the 32-byte code hash (not the WASM).
         code: String, // base64 of the 32-byte code hash (NOT the WASM)
     },
+    /// Use a global contract published under a code hash as the account's
+    /// contract.
     #[serde(rename = "UseGlobalContract")]
     UseGlobalContract {
+        /// The global contract's code hash.
         code_hash: CryptoHash,
     },
+    /// Use the global contract published by an account as the account's
+    /// contract.
     #[serde(rename = "UseGlobalContractByAccountId")]
     UseGlobalContractByAccountId {
+        /// The publishing account.
         account_id: AccountId,
     },
+    /// Initialize an account whose ID is derived from its contract and
+    /// initial state (NEP-616).
     #[serde(rename = "DeterministicStateInit")]
     DeterministicStateInit {
+        /// The global contract the account uses.
         code: GlobalContractIdentifierView,
+        /// Initial storage entries, base64 key to base64 value.
         #[serde(default)]
         data: BTreeMap<String, String>,
+        /// NEAR attached to the account.
         deposit: NearToken,
     },
+    /// Transfer NEAR to a gas key.
     TransferToGasKey {
+        /// The gas key funded.
         public_key: PublicKey,
+        /// The amount transferred.
         deposit: NearToken,
     },
+    /// Withdraw NEAR from a gas key.
     WithdrawFromGasKey {
+        /// The gas key withdrawn from.
         public_key: PublicKey,
+        /// The amount withdrawn.
         amount: NearToken,
     },
     /// Create a `0u` universal account from its state init.
     UniversalStateInit {
         /// Base64 of the borsh-encoded `UniversalStateInit` bytes.
         state_init: String,
+        /// NEAR attached to the account.
         deposit: NearToken,
     },
 }
@@ -1886,7 +1932,9 @@ pub struct MerklePathItem {
 /// Direction in merkle path.
 #[derive(Debug, Clone, Deserialize)]
 pub enum MerkleDirection {
+    /// The sibling hash is on the left.
     Left,
+    /// The sibling hash is on the right.
     Right,
 }
 

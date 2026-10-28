@@ -16,21 +16,33 @@ pub type ParseAccountIdError = near_account_id::ParseAccountError;
 /// Error parsing a public or secret key.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ParseKeyError {
+    /// The string has no `<key type>:` prefix.
     #[error("Invalid key format: expected 'ed25519:...', 'secp256k1:...', or 'ml-dsa-65:...'")]
     InvalidFormat,
 
+    /// The key type prefix (or Borsh key type byte) isn't one near-kit knows.
+    /// Holds the prefix.
     #[error("Unknown key type: '{0}'")]
     UnknownKeyType(String),
 
+    /// The key data after the prefix is not valid base58.
     #[error("Invalid base58 encoding: {0}")]
     InvalidBase58(String),
 
+    /// The key data has the wrong length for its key type.
     #[error("Invalid key length: expected {expected} bytes, got {actual}")]
-    InvalidLength { expected: usize, actual: usize },
+    InvalidLength {
+        /// The length this key type requires, in bytes.
+        expected: usize,
+        /// The length found, in bytes.
+        actual: usize,
+    },
 
+    /// The public key bytes are not a point on the key type's curve.
     #[error("Invalid curve point: key bytes do not represent a valid point on the curve")]
     InvalidCurvePoint,
 
+    /// The secp256k1 secret key bytes are zero or not below the curve order.
     #[error("Invalid scalar: secret key bytes are not a valid scalar for this curve")]
     InvalidScalar,
 
@@ -55,9 +67,11 @@ pub enum ParseKeyError {
 /// Error parsing a crypto hash.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ParseHashError {
+    /// The string is not valid base58.
     #[error("Invalid base58 encoding: {0}")]
     InvalidBase58(String),
 
+    /// The decoded hash is not 32 bytes. Holds the length found.
     #[error("Invalid hash length: expected 32 bytes, got {0}")]
     InvalidLength(usize),
 }
@@ -123,15 +137,22 @@ pub use near_global_contracts::StateInitError;
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SignerError {
+    /// The seed phrase is not a valid BIP-39 mnemonic.
     #[error("Invalid seed phrase")]
     InvalidSeedPhrase,
 
+    /// The signing backend could not produce a signature. Holds its
+    /// explanation.
     #[error("Signing failed: {0}")]
     SigningFailed(String),
 
+    /// Deriving a key from a seed phrase failed: an invalid HD path, a key
+    /// type that can't be derived, or a failure generating the phrase.
     #[error("Key derivation failed: {0}")]
     KeyDerivationFailed(String),
 
+    /// An implicit account ID is derived from an Ed25519 public key, and the
+    /// key given was another type.
     #[error("Implicit accounts require an Ed25519 secret key")]
     ImplicitAccountRequiresEd25519,
 
@@ -146,7 +167,9 @@ pub enum SignerError {
     /// A rotating signer was given signers for different accounts.
     #[error("All signers must share the same account ID, got {expected} and {found}")]
     MixedAccounts {
+        /// The account of the first signer.
         expected: AccountId,
+        /// A different account found among the others.
         found: AccountId,
     },
 }
@@ -232,7 +255,9 @@ pub enum OutcomeError {
         "RPC returned no execution outcome for transaction {transaction_hash} at wait level {wait_level}"
     )]
     MissingOutcome {
+        /// The transaction whose outcome is missing.
         transaction_hash: CryptoHash,
+        /// The wait level requested, such as `Final`.
         wait_level: &'static str,
     },
 }
