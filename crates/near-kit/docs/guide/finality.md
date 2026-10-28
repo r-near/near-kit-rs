@@ -192,10 +192,12 @@ let count: u64 = alice.near().view(&counter, "get_count").at(Finality::Optimisti
 # }
 ```
 
-The same holds across processes and endpoints. Two RPC nodes can be a block
-or two apart, so a write confirmed by one node at `ExecutedOptimistic` may
-not be visible through another node's optimistic read yet. `Final` on both
-sides is the combination that doesn't depend on which node answers.
+Across processes and endpoints there is no such pairing. Two RPC nodes can
+be a block or two apart, final blocks included: a node that is behind
+answers a `Final` read from its own last final block, which can predate a
+write another node already confirmed. No finality makes a read wait for a
+height. To see a write through another endpoint, poll the read until it
+shows the new state, or read through the endpoint that confirmed it.
 
 Token views read at `Optimistic`, so on the node that ran the send they see
 a token transfer sent at any executed level.
