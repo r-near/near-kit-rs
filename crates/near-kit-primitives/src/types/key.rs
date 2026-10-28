@@ -832,7 +832,7 @@ impl SecretKey {
         // belong together.
         let probe = b"near-kit ml-dsa-65 expanded key check";
         if !key.sign(probe).verify(probe, &key.public_key()) {
-            return Err(ParseKeyError::InvalidFormat);
+            return Err(ParseKeyError::KeyPairMismatch);
         }
         Ok(key)
     }
@@ -1091,18 +1091,16 @@ impl FromStr for SecretKey {
             .try_into()
             .map_err(|_| ParseKeyError::InvalidFormat)?;
 
-        match key_type {
-            KeyType::Ed25519 => Ok(Self::ed25519_from_bytes(bytes)),
-            KeyType::Secp256k1 => {
-                let key = Self::secp256k1_from_bytes(bytes)?;
-                // The appended public key must be the one the secret derives.
-                if data.len() == 96 && key.public_key().as_bytes() != &data[32..] {
-                    return Err(ParseKeyError::InvalidFormat);
-                }
-                Ok(key)
-            }
+        let key = match key_type {
+            KeyType::Ed25519 => Self::ed25519_from_bytes(bytes),
+            KeyType::Secp256k1 => Self::secp256k1_from_bytes(bytes)?,
             KeyType::MlDsa65 => unreachable!("handled above"),
+        };
+        // An appended public key must be the one the secret derives.
+        if data.len() > 32 && key.public_key().as_bytes() != &data[32..] {
+            return Err(ParseKeyError::KeyPairMismatch);
         }
+        Ok(key)
     }
 }
 
@@ -1529,6 +1527,38 @@ mod tests {
         assert_eq!(secret.to_string(), expanded_str);
     }
 
+    /// The public half of a 64-byte ed25519 secret must be the one its seed
+    /// derives.
+    #[test]
+    fn test_ed25519_secret_key_64_byte_with_wrong_public_half_is_rejected() {
+        let secret = SecretKey::ed25519_from_bytes([4u8; 32]);
+        let other = SecretKey::ed25519_from_bytes([5u8; 32]);
+        let encode = |public: &[u8]| {
+            let mut keypair = [0u8; 64];
+            keypair[..32].copy_from_slice(secret.as_bytes());
+            keypair[32..].copy_from_slice(public);
+            format!("ed25519:{}", bs58::encode(keypair).into_string())
+        };
+
+        assert!(
+            encode(secret.public_key().as_bytes())
+                .parse::<SecretKey>()
+                .is_ok()
+        );
+        assert_eq!(
+            encode(other.public_key().as_bytes())
+                .parse::<SecretKey>()
+                .err(),
+            Some(ParseKeyError::KeyPairMismatch)
+        );
+        let mut flipped = secret.public_key().as_bytes().to_vec();
+        flipped[31] ^= 1;
+        assert_eq!(
+            encode(&flipped).parse::<SecretKey>().err(),
+            Some(ParseKeyError::KeyPairMismatch)
+        );
+    }
+
     /// nearcore's `near-crypto` (and so near-cli-rs and neard key files) only
     /// reads the 64-byte `seed || public key` form. The expected strings are
     /// `near_crypto::SecretKey::ED25519(..).to_string()` (near-crypto 0.38.0)
@@ -1896,14 +1926,14 @@ mod tests {
         let mismatched = format!("secp256k1:{}", bs58::encode(mismatched).into_string());
         assert_eq!(
             mismatched.parse::<SecretKey>().err(),
-            Some(ParseKeyError::InvalidFormat)
+            Some(ParseKeyError::KeyPairMismatch)
         );
         let other = SecretKey::secp256k1_from_bytes([3u8; 32]).unwrap();
         keypair[32..].copy_from_slice(other.public_key().as_bytes());
         let other_half = format!("secp256k1:{}", bs58::encode(keypair).into_string());
         assert_eq!(
             other_half.parse::<SecretKey>().err(),
-            Some(ParseKeyError::InvalidFormat)
+            Some(ParseKeyError::KeyPairMismatch)
         );
 
         // Other lengths are still rejected.
@@ -2262,21 +2292,33 @@ mod tests {
             .unwrap();
         assert!(parse(good.as_slice()).is_ok());
 
-        let mut cases: Vec<Vec<u8>> = vec![
-            // s1/s2 coefficients out of range: the upstream decoder asserts on these.
-            vec![0xFF; ML_DSA_65_SECRET_KEY_LENGTH],
+        // Well-formed encodings whose parts don't belong to one key.
+        let mut mismatched: Vec<Vec<u8>> = vec![
             // In range everywhere, but tr doesn't match the key.
             vec![0x00; ML_DSA_65_SECRET_KEY_LENGTH],
         ];
         // Corrupted tr.
         let mut bad_tr = good.to_vec();
         bad_tr[64] ^= 1;
-        cases.push(bad_tr);
+        mismatched.push(bad_tr);
         // One s1 coefficient changed, still in range.
         let mut bad_s1 = good.to_vec();
         let low = bad_s1[128] & 0x0F;
         bad_s1[128] = (bad_s1[128] & 0xF0) | ((low + 1) % 9);
-        cases.push(bad_s1);
+        mismatched.push(bad_s1);
+        for bytes in mismatched {
+            assert_eq!(
+                parse(&bytes).err(),
+                Some(ParseKeyError::KeyPairMismatch),
+                "inconsistent expanded key not reported as a mismatch"
+            );
+        }
+
+        // Malformed encodings.
+        let mut cases: Vec<Vec<u8>> = vec![
+            // s1/s2 coefficients out of range: the upstream decoder asserts on these.
+            vec![0xFF; ML_DSA_65_SECRET_KEY_LENGTH],
+        ];
         // One s1 coefficient out of range.
         let mut bad_range = good.to_vec();
         bad_range[200] |= 0x0F;

@@ -34,6 +34,12 @@ pub enum ParseKeyError {
     #[error("Invalid scalar: secret key bytes are not a valid scalar for this curve")]
     InvalidScalar,
 
+    /// A secret key that carries its public key (the 64-byte ed25519 and
+    /// 96-byte secp256k1 keypair forms) or derived values (the 4032-byte
+    /// expanded ML-DSA-65 form) whose parts don't belong to the same key.
+    #[error("secret key and public key don't match")]
+    KeyPairMismatch,
+
     /// The string is an `ml-dsa-65-hash:` handle — the on-chain identifier
     /// (SHA3-256 digest) of an ML-DSA-65 access key that view RPCs return —
     /// not a public key. Parse it as a
