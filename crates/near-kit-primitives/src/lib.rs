@@ -1,32 +1,37 @@
 //! # near-kit-primitives
 //!
-//! NEAR Protocol types, keys, signing, and transaction construction with no
-//! RPC client, no async runtime, and no HTTP stack.
+//! NEAR Protocol types, keys, signing and transaction building, with no RPC
+//! client, no async runtime and no HTTP stack.
 //!
-//! This is the offline core of [`near-kit`](https://docs.rs/near-kit). `near-kit`
-//! depends on this crate and re-exports every item here at the same path under
-//! `near_kit::` (for example `near_kit_primitives::protocol::Action` is
-//! `near_kit::protocol::Action`), so the two can be mixed freely. Depend on this
-//! crate directly when you only need the types: wasm contracts, signing services,
-//! indexers, or any target without a network stack.
+//! This is the offline core of [`near-kit`](https://docs.rs/near-kit).
+//! near-kit depends on it and re-exports every item at the same path under
+//! `near_kit::` (`near_kit_primitives::protocol::Action` is
+//! `near_kit::protocol::Action`), so code using both sees one set of types.
+//!
+//! Pick this crate over near-kit when you can't or don't want a network
+//! stack: a smart contract that builds calls to other contracts, a signing
+//! service that signs transactions built elsewhere, a tool that decodes RPC
+//! responses, or a backend of your own. Otherwise use near-kit.
 //!
 //! Chain work here is plain values ([`protocol::Action`],
 //! [`transaction::FunctionCall`], [`rpc::BlockReference`]) plus two verbs:
-//! [`Viewer`] runs a view function at a block and [`TxSender`] sends a receiver
-//! and its actions. This crate defines the verbs but implements neither;
-//! `near-kit`'s `Near` and `SigningNear` do, and so can your own backend. With
-//! the `contracts` feature, `#[contract]` clients run on any of them.
+//! [`Viewer`] runs a view function at a block and [`TxSender`] sends a
+//! receiver and its actions. This crate defines the verbs and implements
+//! neither; near-kit's `Near` and `SigningNear` do, and so can your own type.
 //!
 //! | Module | Contents |
 //! |--------|----------|
-//! | crate root | [`AccountId`], [`NearToken`], [`Gas`], [`CryptoHash`], the chain verbs [`Viewer`] and [`TxSender`], [`account!`], the platform bounds [`MaybeSend`] / [`MaybeSync`] |
-//! | [`protocol`] | Actions, transactions, delegate actions, execution errors |
+//! | crate root | [`AccountId`], [`AccountIdRef`], [`NearToken`], [`Gas`], [`CryptoHash`], [`account!`]; the verbs [`Viewer`] and [`TxSender`]; the awaitable [`View`] and [`Call`], [`ContractError`], [`Contract`]; the platform bounds [`MaybeSend`] and [`MaybeSync`] |
+//! | [`protocol`] | Actions, transactions, delegate actions, chain IDs, state init, execution errors |
 //! | [`signer`] | Keys, signatures, [`signer::Signer`], [`signer::InMemorySigner`], [`signer::RotatingSigner`] |
-//! | [`transaction`] | [`transaction::FunctionCall`], the awaitable [`View`] / [`Call`], and the typed wait levels |
+//! | [`transaction`] | [`transaction::FunctionCall`], [`transaction::CodecError`] and the typed wait levels |
 //! | [`rpc`] | JSON-RPC response views, [`rpc::BlockReference`], [`rpc::Finality`] |
 //! | [`standards`] | NEP-413 message signing and verification |
 //!
-//! ## Building and signing a transaction offline
+//! ## Signing a transaction offline
+//!
+//! The nonce and block hash come from the chain, so fetch them wherever you
+//! have network access and pass them in:
 //!
 //! ```rust
 //! use near_kit_primitives::protocol::{Action, Transaction};
@@ -45,24 +50,91 @@
 //!     vec![Action::transfer(NearToken::from_near(1))],
 //! );
 //! let signed = tx.sign(&secret);
-//! let bytes = signed.to_bytes(); // borsh, ready for `send_tx`
-//! assert!(!bytes.is_empty());
-//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! let base64 = signed.to_base64(); // what the `send_tx` RPC method takes
+//! assert!(!base64.is_empty());
 //! ```
 //!
-//! ## Feature Flags
+//! ## Calling other contracts from a near-sdk contract
 //!
-//! | Feature | Default | Description |
-//! |---------|---------|-------------|
-//! | `mnemonic` | No | BIP-39 seed phrases and SLIP-10 hierarchical key derivation |
-//! | `contracts` | No | The `#[contract]` macro: offline `FunctionCall` constructors plus a client generic over any [`Viewer`] / [`TxSender`] |
-//! | `js` | No | JS-host entropy backend (`getrandom`'s `wasm_js`) for `wasm32-unknown-unknown` |
-//! | `tracing` | No | [`tracing`](https://docs.rs/tracing) events (a WARN for unrecognized RPC error variants) |
+//! With the `contracts` feature, `#[contract]` turns a trait into offline
+//! constructors: `Counter::add(args)` returns a [`transaction::FunctionCall`]
+//! with the method name, encoded arguments, gas (30 Tgas unless set) and
+//! deposit. Inside a near-sdk contract, convert it with
+//! [`FunctionCallAction::try_from`](protocol::FunctionCallAction) and pass its
+//! public fields to `Promise::function_call`. The conversion fails only if the
+//! arguments didn't serialize.
 //!
-//! Key generation and NEP-413 nonces use `getrandom`. On `wasm32-unknown-unknown`
-//! enable `js` inside a JS host, or register a custom `getrandom` backend
-//! otherwise; WASI targets need neither. See the `near-kit` crate docs for the
-//! custom-backend setup.
+#![cfg_attr(feature = "contracts", doc = "```rust")]
+#![cfg_attr(not(feature = "contracts"), doc = "```rust,ignore")]
+//! use near_kit_primitives::protocol::FunctionCallAction;
+//! use near_kit_primitives::transaction::CodecError;
+//! use near_kit_primitives::{Gas, NearToken};
+//!
+//! #[near_kit_primitives::contract]
+//! pub trait Counter {
+//!     fn get_count(&self) -> u64;
+//!
+//!     #[call]
+//!     fn add(&mut self, args: AddArgs);
+//! }
+//!
+//! #[derive(serde::Serialize)]
+//! pub struct AddArgs {
+//!     pub value: u64,
+//! }
+//!
+//! let call = FunctionCallAction::try_from(
+//!     Counter::add(AddArgs { value: 5 })
+//!         .gas(Gas::from_tgas(10))
+//!         .deposit(NearToken::from_yoctonear(1)),
+//! )?;
+//! assert_eq!(call.method_name, "add");
+//! assert_eq!(call.args, br#"{"value":5}"#);
+//!
+//! // In the contract:
+//! // Promise::new(counter_id).function_call(call.method_name, call.args, call.deposit, call.gas)
+//! # Ok::<(), CodecError>(())
+//! ```
+//!
+//! A contract built for `wasm32-unknown-unknown` also needs a `getrandom`
+//! backend, even though it never generates keys: build with
+//! `RUSTFLAGS='--cfg getrandom_backend="unsupported"'`.
+//!
+//! ## Your own backend
+//!
+//! Implement [`Viewer`] (`view_function`) or [`TxSender`] (`account_id` and
+//! `send`) and [`View`], [`Call`] and `#[contract]` clients run on it:
+//! a test double, a gateway, or a sender that queues actions. Both traits are
+//! implemented for `&T`, `Box<T>` and `Arc<T>` too. The trait docs have
+//! examples; near-kit's
+//! [testing guide](https://docs.rs/near-kit/latest/near_kit/guide/testing/index.html)
+//! covers mocks in full.
+//!
+//! ## Feature flags
+//!
+//! | Feature | Default | Enables |
+//! |---------|---------|---------|
+//! | `contracts` | no | The `#[contract]` macro: offline `FunctionCall` constructors and a client generic over any [`Viewer`] / [`TxSender`] |
+//! | `mnemonic` | no | BIP-39 seed phrases and SLIP-10 key derivation |
+//! | `tracing` | no | [`tracing`](https://docs.rs/tracing) events (a WARN when an RPC error isn't recognized) |
+//! | `js` | no | Entropy from the JS host (browser, Node, Deno) on `wasm32-unknown-unknown` |
+//!
+//! near-kit's `mnemonic`, `js` and `tracing` features turn on the ones here.
+//!
+//! ## Entropy on WebAssembly
+//!
+//! Key generation and NEP-413 nonces use `getrandom`. On
+//! `wasm32-unknown-unknown`, enable `js` inside a JS host, or pick a backend
+//! with `--cfg getrandom_backend=".."` otherwise (`"custom"` for your own
+//! source, `"unsupported"` when nothing needs randomness). WASI targets need
+//! neither. near-kit's
+//! [platforms guide](https://docs.rs/near-kit/latest/near_kit/guide/platforms/index.html)
+//! has the details.
+
+// Compiles the README's code blocks as doctests.
+#[cfg(all(doctest, feature = "contracts"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
 
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
