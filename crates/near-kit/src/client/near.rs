@@ -162,8 +162,10 @@ impl Near {
     /// let balance = near.balance(account!("alice.testnet")).await?;
     /// println!("Available: {}", balance.available);
     ///
-    /// // At a specific block height, or with another finality
-    /// let balance = near.balance(account!("alice.testnet")).at(100_000_000).await?;
+    /// // At a block height (a recent one: the default endpoints aren't
+    /// // archival), or with another finality
+    /// let height = near.rpc().block(Finality::Final).await?.header.height;
+    /// let balance = near.balance(account!("alice.testnet")).at(height).await?;
     /// let balance = near.balance(account!("alice.testnet")).at(Finality::Optimistic).await?;
     /// # Ok(())
     /// # }
@@ -342,7 +344,8 @@ impl Near {
     /// async fn example(near: &Near) -> Result<(), near_kit::Error> {
     ///     let counter = near.contract::<Counter>(account!("counter.testnet"));
     ///     let count = counter.get_count().await?;
-    ///     let earlier = counter.get_count().at(180_000_000).await?;
+    ///     let block = near.rpc().block(near_kit::rpc::Finality::Final).await?;
+    ///     let earlier = counter.get_count().at(block.header.prev_hash).await?;
     ///     Ok(())
     /// }
     /// ```
