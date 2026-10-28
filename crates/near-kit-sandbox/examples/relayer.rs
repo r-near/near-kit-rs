@@ -58,8 +58,10 @@ enum RelayError {
     /// The request broke the policy. Nothing was sent and nothing was paid.
     #[error("rejected: {0}")]
     Rejected(String),
-    /// The transaction did not execute (RPC error, invalid transaction).
-    #[error("not executed: {0}")]
+    /// The send failed: the transaction was rejected (`InvalidTx`), or an
+    /// RPC error left its outcome unknown (look it up by hash before
+    /// relaying the request again).
+    #[error("send failed: {0}")]
     Near(#[from] Error),
     /// The transaction executed but the user's action failed. The relayer
     /// still paid for the gas.
@@ -209,8 +211,9 @@ async fn create_account(
         .add_action(Action::transfer(balance))
         .add_action(Action::add_full_access_key(key.public_key()))
         .await?
-        // `?` on the send fails only if the transaction didn't execute;
-        // `.result()?` also fails if an action did.
+        // `?` on the send fails if the transaction didn't run, or if its
+        // outcome is unknown (a timeout); `.result()?` also fails if an
+        // action did.
         .result()?;
     Ok(root
         .near()

@@ -39,8 +39,9 @@ async fn create_account(
         .add_action(Action::transfer(balance))
         .add_action(Action::add_full_access_key(key.public_key()))
         .await?
-        // `?` on the send fails only if the transaction didn't execute;
-        // `.result()?` also fails if an action did.
+        // `?` on the send fails if the transaction didn't run, or if its
+        // outcome is unknown (a timeout); `.result()?` also fails if an
+        // action did.
         .result()?;
     Ok(root
         .near()
@@ -108,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(error) => {
                 failed += 1;
-                println!("not executed: {error}");
+                println!("send failed: {error}");
             }
         }
     }

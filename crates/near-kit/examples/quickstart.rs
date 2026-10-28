@@ -10,7 +10,8 @@
 //!   gives it a key; a second transaction deletes it and returns what's left
 //!   to you. Nothing is sent to any other account.
 //! - A failed action is `Ok(outcome)` with `outcome.is_failure()`; `Err`
-//!   means the transaction didn't execute.
+//!   means the transaction didn't run, or (after a timeout) that near-kit
+//!   couldn't tell whether it did.
 //!
 //! Reads only (no account needed):
 //!
@@ -93,8 +94,8 @@ async fn writes(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
         .add_action(Action::transfer(NearToken::from_millinear(10)))
         .add_action(Action::add_full_access_key(sub_key.public_key()))
         .await?;
-    // `Err` above means it didn't execute. It did, but an action can still
-    // have failed (an existing account, too little balance): check.
+    // Past the `?`, the transaction ran, but an action can still have
+    // failed (an existing account, too little balance): check.
     if outcome.is_failure() {
         return Err(format!(
             "creating {sub_id} failed: {}",
