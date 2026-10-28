@@ -26,15 +26,15 @@ use near_kit::*;
 // contract: one transaction, so all of it happens or none of it does.
 let key = SecretKey::generate_ed25519();
 let wasm = std::fs::read("contract.wasm")?;
-let outcome = alice
+alice
     .transaction(account!("app.alice.testnet"))
     .add_action(Action::create_account())
     .add_action(Action::transfer(NearToken::from_near(5)))
     .add_action(Action::add_full_access_key(key.public_key()))
     .add_action(Action::deploy_contract(wasm))
     .add_action(FunctionCall::new("new").args(serde_json::json!({ "owner_id": alice.account_id() })))
-    .await?;
-assert!(outcome.is_success());
+    .await?
+    .result()?;
 # Ok(())
 # }
 ```

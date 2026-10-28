@@ -87,12 +87,12 @@ let latest = guestbook
 
 // Over a SigningNear it has the calls too, sent as alice.
 let guestbook = alice.contract::<Guestbook>(&id);
-let outcome = guestbook
+guestbook
     .add_message(AddMessage { text: "hello".into() })
     .gas(Gas::from_tgas(10))
     .deposit(NearToken::from_millinear(10))
-    .await?;
-assert!(outcome.is_success());
+    .await?
+    .result()?;
 # Ok(())
 # }
 ```

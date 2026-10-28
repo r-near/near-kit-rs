@@ -536,7 +536,8 @@ async fn alice_can_send() -> Result<(), Box<dyn std::error::Error>> {
         .add_action(Action::create_account())
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(alice_key.public_key()))
-        .await?;
+        .await?
+        .result()?;
 
     let alice = root.near().with_signer(InMemorySigner::new(&alice_id, alice_key));
     let outcome = alice

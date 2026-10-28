@@ -111,7 +111,7 @@ sent through it, typed contract calls included, waits for that level:
 
 ```rust,no_run
 use near_kit::protocol::Action;
-use near_kit::rpc::SendTxResponse;
+use near_kit::rpc::{FinalExecutionOutcome, SendTxResponse};
 use near_kit::transaction::{ExecutedOptimistic, Included};
 use near_kit::*;
 
@@ -119,11 +119,14 @@ use near_kit::*;
 let bob = account!("bob.testnet");
 
 // Final, the default: a FinalExecutionOutcome.
-let outcome = alice.transaction(&bob).add_action(Action::transfer(NearToken::from_near(1))).await?;
+let outcome: FinalExecutionOutcome =
+    alice.transaction(&bob).add_action(Action::transfer(NearToken::from_near(1))).await?;
+outcome.result()?;
 
 // Executed but maybe not final yet: faster, same response type.
-let quick = alice.wait_until::<ExecutedOptimistic>();
-let outcome = quick.transaction(&bob).add_action(Action::transfer(NearToken::from_near(1))).await?;
+let alice_fast = alice.wait_until::<ExecutedOptimistic>();
+let outcome = alice_fast.transaction(&bob).add_action(Action::transfer(NearToken::from_near(1))).await?;
+outcome.result()?;
 
 // In a block: the hash and sender only.
 let response: SendTxResponse = alice
@@ -214,6 +217,7 @@ let outcome = alice
     .tx_status(&response.transaction_hash, &response.sender_id)
     .wait_until::<Final>()
     .await?;
+outcome.result()?;
 println!("{} receipts", outcome.receipts.len());
 # Ok(())
 # }

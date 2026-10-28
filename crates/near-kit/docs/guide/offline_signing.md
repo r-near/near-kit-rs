@@ -32,7 +32,7 @@ let wire = signed.to_base64();
 
 // ...elsewhere...
 let signed = SignedTransaction::from_base64(&wire)?;
-let outcome = near.send_signed(&signed).await?;
+near.send_signed(&signed).await?.result()?;
 # Ok(())
 # }
 ```

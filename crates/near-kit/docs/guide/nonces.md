@@ -110,7 +110,9 @@ let sends = recipients.iter().map(|to| {
         .add_action(Action::transfer(NearToken::from_millinear(10)))
         .into_future()
 });
-let outcomes = try_join_all(sends).await?;
+for outcome in try_join_all(sends).await? {
+    outcome.result()?;
+}
 # Ok(())
 # }
 ```
@@ -164,7 +166,9 @@ let sends = (0..30).map(|_| {
         .add_action(Action::transfer(NearToken::from_millinear(1)))
         .into_future()
 });
-try_join_all(sends).await?;
+for outcome in try_join_all(sends).await? {
+    outcome.result()?;
+}
 # Ok(())
 # }
 ```

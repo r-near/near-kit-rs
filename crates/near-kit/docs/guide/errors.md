@@ -331,6 +331,7 @@ let outcome = match result.map_err(Error::into_rpc) {
     Err(Ok(other)) => return Err(other.into()),
     Err(Err(other)) => return Err(other),
 };
+outcome.result()?;
 # Ok(())
 # }
 ```
