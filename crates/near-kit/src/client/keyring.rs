@@ -31,7 +31,7 @@ use crate::types::{AccountId, InMemorySigner, PublicKey, SecretKey};
 /// The keyring is read once; the result is a plain [`InMemorySigner`].
 /// Keyring entries are keyed by `{account_id}:{public_key}` (for ML-DSA-65,
 /// near-cli-rs 0.31+ uses the key's `ml-dsa-65-hash:` handle instead; both
-/// are tried), so unlike
+/// are tried, the handle first), so unlike
 /// [`from_credentials`](crate::signer::from_credentials) this needs the
 /// public key. Requires the opt-in `keyring` feature.
 ///
@@ -70,12 +70,15 @@ pub fn from_keyring(
     // near-cli-rs entry format. Service: "near-{network}-{account_id}",
     // username: "{account_id}:{key id}". The key id is the full public key,
     // except that near-cli-rs 0.31+ names ML-DSA-65 entries after the
-    // `ml-dsa-65-hash:` handle, so try that next.
+    // `ml-dsa-65-hash:` handle. Try the handle first: Windows Credential
+    // Manager rejects the ~2,700-character full-key username with an error
+    // rather than "not found", which would end the search.
     let service_name = format!("near-{network}-{account_id}");
-    let mut usernames = vec![format!("{account_id}:{public_key}")];
+    let mut usernames = Vec::with_capacity(2);
     if let Some(handle) = public_key.to_ml_dsa65_hash() {
         usernames.push(format!("{account_id}:{handle}"));
     }
+    usernames.push(format!("{account_id}:{public_key}"));
 
     let mut password = None;
     for username in &usernames {
@@ -278,11 +281,20 @@ mod tests {
     mod memory_store {
         use std::any::Any;
         use std::collections::HashMap;
-        use std::sync::{Arc, Mutex, Once};
+        use std::sync::{Arc, Mutex, OnceLock};
 
         use keyring::credential::{Credential, CredentialApi, CredentialBuilderApi};
 
-        type Store = Arc<Mutex<HashMap<(String, String), Vec<u8>>>>;
+        type Store = Arc<Mutex<HashMap<(String, String), Slot>>>;
+
+        /// What an entry holds.
+        #[derive(Debug, Clone)]
+        enum Slot {
+            Secret(Vec<u8>),
+            /// Reading fails the way Windows Credential Manager rejects a
+            /// username over its 513-character limit.
+            UsernameTooLong,
+        }
 
         #[derive(Debug)]
         struct MemoryCredential {
@@ -295,17 +307,18 @@ mod tests {
                 self.store
                     .lock()
                     .unwrap()
-                    .insert(self.key.clone(), secret.to_vec());
+                    .insert(self.key.clone(), Slot::Secret(secret.to_vec()));
                 Ok(())
             }
 
             fn get_secret(&self) -> keyring::Result<Vec<u8>> {
-                self.store
-                    .lock()
-                    .unwrap()
-                    .get(&self.key)
-                    .cloned()
-                    .ok_or(keyring::Error::NoEntry)
+                match self.store.lock().unwrap().get(&self.key) {
+                    Some(Slot::Secret(secret)) => Ok(secret.clone()),
+                    Some(Slot::UsernameTooLong) => {
+                        Err(keyring::Error::TooLong("user".to_string(), 513))
+                    }
+                    None => Err(keyring::Error::NoEntry),
+                }
             }
 
             fn delete_credential(&self) -> keyring::Result<()> {
@@ -343,17 +356,34 @@ mod tests {
             }
         }
 
-        /// Store `password` under `service`/`user`, installing the in-memory
-        /// store first.
+        static STORE: OnceLock<Store> = OnceLock::new();
+
+        /// The shared store, installed as the default credential store on
+        /// first use.
+        fn store() -> &'static Store {
+            STORE.get_or_init(|| {
+                let store = Store::default();
+                keyring::set_default_credential_builder(Box::new(MemoryBuilder(store.clone())));
+                store
+            })
+        }
+
+        /// Store `password` under `service`/`user`.
         pub(super) fn put(service: &str, user: &str, password: &str) {
-            static INSTALL: Once = Once::new();
-            INSTALL.call_once(|| {
-                keyring::set_default_credential_builder(Box::new(MemoryBuilder(Store::default())))
-            });
+            store();
             keyring::Entry::new(service, user)
                 .unwrap()
                 .set_password(password)
                 .unwrap();
+        }
+
+        /// Make reading `service`/`user` fail as Windows does for a username
+        /// that is too long.
+        pub(super) fn fail_reads(service: &str, user: &str) {
+            store().lock().unwrap().insert(
+                (service.to_string(), user.to_string()),
+                Slot::UsernameTooLong,
+            );
         }
     }
 
@@ -388,6 +418,26 @@ mod tests {
         );
 
         let signer = from_keyring("kitnet-handle", account_id, &public_key).unwrap();
+        assert_eq!(signer.public_key(), public_key);
+    }
+
+    #[test]
+    fn ml_dsa65_hash_handle_is_tried_before_the_full_key() {
+        // Windows Credential Manager rejects the full-key username (about
+        // 2,700 characters) before near-kit could fall back to the handle.
+        let account_id: AccountId = "dave.testnet".parse().unwrap();
+        let secret_key = SecretKey::ml_dsa65_from_seed([17; 32]);
+        let public_key = secret_key.public_key();
+        let handle = public_key.to_ml_dsa65_hash().unwrap();
+        let service = "near-kitnet-order-dave.testnet";
+        memory_store::put(
+            service,
+            &format!("{account_id}:{handle}"),
+            &credential_json(&expanded_ml_dsa65_string(&secret_key), &public_key),
+        );
+        memory_store::fail_reads(service, &format!("{account_id}:{public_key}"));
+
+        let signer = from_keyring("kitnet-order", account_id, &public_key).unwrap();
         assert_eq!(signer.public_key(), public_key);
     }
 
