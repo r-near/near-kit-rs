@@ -131,6 +131,76 @@ async fn test_publish_deploy_from_call_end_to_end() {
     assert_eq!(messages[0]["text"], "Hello from global contract!");
 }
 
+/// A relayed `UseGlobalContract` resolves at `Final`, and `tx_status` reads
+/// the delegate's inner action back as the protocol action that was signed.
+#[tokio::test]
+async fn test_relayed_deploy_from_publisher() {
+    let (sandbox, root_near) = super::support::shared_client().await;
+
+    let (publisher_near, publisher_id, _) =
+        create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
+    publisher_near
+        .wait_until::<Final>()
+        .transaction(&publisher_id)
+        .add_action(Action::publish(
+            load_test_contract(),
+            PublishMode::Updatable,
+        ))
+        .await
+        .unwrap()
+        .result()
+        .unwrap();
+    wait_for_global_contract(&publisher_near, publisher_id.clone()).await;
+
+    let (user_near, user_id, _) =
+        create_funded_account(&root_near, sandbox, NearToken::from_near(10)).await;
+    let (relayer_near, relayer_id, _) =
+        create_funded_account(&root_near, sandbox, NearToken::from_near(10)).await;
+
+    let signed = user_near
+        .sign_delegate(
+            &user_id,
+            vec![Action::deploy_from(publisher_id.clone())],
+            transaction::DelegateOptions::default(),
+        )
+        .await
+        .unwrap();
+    let outcome = relayer_near
+        .wait_until::<Final>()
+        .transaction(&user_id)
+        .add_action(Action::delegate(signed))
+        .await
+        .expect("a relayed UseGlobalContract must resolve to its outcome");
+    assert!(outcome.is_success(), "{:?}", outcome.status);
+
+    let status: rpc::FinalExecutionOutcome = root_near
+        .near()
+        .tx_status(outcome.transaction_hash(), relayer_id)
+        .wait_until::<Final>()
+        .await
+        .unwrap();
+    let [
+        rpc::ActionView::Delegate {
+            delegate_action, ..
+        },
+    ] = &status.transaction.actions[..]
+    else {
+        panic!(
+            "expected one delegate action: {:?}",
+            status.transaction.actions
+        );
+    };
+    assert_eq!(delegate_action.actions, [Action::deploy_from(publisher_id)]);
+
+    let messages: Vec<serde_json::Value> = root_near
+        .near()
+        .view(&user_id, "get_messages")
+        .args(serde_json::json!({}))
+        .await
+        .unwrap();
+    assert!(messages.is_empty());
+}
+
 /// Test publishing a contract to the global registry by account ID (updatable).
 #[tokio::test]
 async fn test_publish_contract_by_account() {
