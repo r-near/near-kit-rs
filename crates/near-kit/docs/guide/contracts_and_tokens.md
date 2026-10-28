@@ -281,6 +281,32 @@ The 1 yoctoNEAR deposit is what NEP-141 requires, so that a function-call
 access key can't move tokens. Each method returns a `Call`, so `.gas(..)`
 overrides the default, and `FunctionCall::from(call)` batches it.
 
+`.result()?` on a `transfer_call` doesn't tell you the receiver took the
+tokens. If `ft_on_transfer` fails, the token's `ft_resolve_transfer`
+callback handles the failure and refunds the sender, so the transaction
+still succeeds. Check
+[`receipt_failures`](crate::rpc::FinalExecutionOutcome::receipt_failures)
+for the receiver's failure, or the amount the call returns (what the
+receiver kept, as a JSON string):
+
+```rust,no_run
+use near_kit::standards::FungibleToken;
+use near_kit::*;
+
+# async fn example(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
+let usdc = alice.contract::<FungibleToken>(account!("usdc.testnet"));
+let outcome = usdc
+    .transfer_call(account!("dex.testnet"), 1_000_000_u128, r#"{"action":"deposit"}"#)
+    .await?;
+if let Some(error) = outcome.receipt_failures().next() {
+    return Err(format!("the deposit failed and was refunded: {error}").into());
+}
+let used: u128 = outcome.json::<String>()?.parse()?;
+# let _ = used;
+# Ok(())
+# }
+```
+
 Token views read at `Finality::Optimistic` and have no `.at(..)`; for a
 balance at a given block, call `ft_balance_of` with `Near::view` (see the
 [finality chapter](crate::guide::finality#reading-at-a-block)). A
@@ -316,7 +342,10 @@ Views: `metadata` (cached), `token`, `tokens_for_owner(owner, from_index,
 limit)`, `total_supply`, `supply_for_owner`. Calls: `transfer`,
 `transfer_with_approval` (for an approved account sending someone else's
 token), and `transfer_call`, with the same gas and 1 yoctoNEAR deposit as
-the FT equivalents.
+the FT equivalents. The same caveat applies to `transfer_call`: a failed
+`nft_on_transfer` sends the token back and the transaction succeeds, so
+check `receipt_failures()` or the `bool` it returns (`true` if the receiver
+kept the token).
 
 ## See also
 
