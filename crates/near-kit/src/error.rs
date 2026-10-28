@@ -720,10 +720,12 @@ pub enum Error {
     #[error("Invalid transaction: {0}")]
     InvalidTx(Box<InvalidTxError>),
 
-    /// Local pre-send validation failure (e.g. empty actions). Not a
-    /// nearcore error.
+    /// A local check failed before anything was signed or sent: no
+    /// actions, a state init or delegate action whose required receiver
+    /// isn't the transaction's receiver, or a nested delegate action. Not a
+    /// nearcore error; nothing reached the network.
     #[error("Invalid transaction: {0}")]
-    InvalidTransaction(String),
+    Validation(String),
 
     /// A transaction's outcome had no usable result: an action failed, it
     /// hasn't finished with a return value, or the RPC response carried no
@@ -779,7 +781,7 @@ impl From<CodecError> for Error {
         match err {
             CodecError::Json(e) => Error::Json(e),
             CodecError::Borsh(e) => Error::Borsh(e.to_string()),
-            other => Error::InvalidTransaction(other.to_string()),
+            other => Error::Validation(other.to_string()),
         }
     }
 }
@@ -792,7 +794,7 @@ impl<E: Into<Error> + std::fmt::Display> From<ContractError<E>> for Error {
         match err {
             ContractError::Codec(e) => e.into(),
             ContractError::Backend(e) => e.into(),
-            other => Error::InvalidTransaction(other.to_string()),
+            other => Error::Validation(other.to_string()),
         }
     }
 }

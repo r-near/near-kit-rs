@@ -125,10 +125,10 @@ let balance = me.near().balance(me.account_id()).await?;
 | `near.call(id, "m")` | `signing.transaction(id).add_action(FunctionCall::new("m"))` |
 | `near.transfer(id, amount)` | `signing.transaction(id).add_action(Action::transfer(amount))` |
 | `near.deploy(wasm)`, `publish`, `deploy_from`, `add_full_access_key`, `delete_key` | `signing.transaction(signing.account_id()).add_action(Action::...)` |
-| `near.state_init(si, deposit)` / `universal_state_init(..)` | `signing.transaction(si.derive_account_id()).add_action(Action::state_init(si, deposit))`. The receiver is no longer filled in for you; a state init sent to any other receiver fails at `.await` with `Error::InvalidTransaction`, before signing. |
+| `near.state_init(si, deposit)` / `universal_state_init(..)` | `signing.transaction(si.derive_account_id()).add_action(Action::state_init(si, deposit))`. The receiver is no longer filled in for you; a state init sent to any other receiver fails at `.await` with `Error::Validation`, before signing. |
 | `.add_actions(vec)` | Call `add_action` in a loop. |
 | `.send()`, `.send().wait_until::<W>()` | `.await` sends; set the wait level on the client (see below). |
-| `.signed_delegate_action(signed)` (relayer) | `relayer.transaction(signed.sender_id()).add_action(Action::delegate(signed))`. The receiver must be the delegate's sender; any other receiver fails at `.await` with `Error::InvalidTransaction`, before signing. |
+| `.signed_delegate_action(signed)` (relayer) | `relayer.transaction(signed.sender_id()).add_action(Action::delegate(signed))`. The receiver must be the delegate's sender; any other receiver fails at `.await` with `Error::Validation`, before signing. |
 | `.sign()` / `.delegate(opts)` | `signing.sign(rx, actions)` / `signing.sign_delegate(rx, actions, opts)` |
 | `DelegateResult` (`.signed_delegate_action`, `.payload`, `.sender_id()`) | `sign_delegate` returns the `SignedDelegateAction` itself: use it directly, `.to_base64()` for the payload |
 | `DelegateOptions::with_offset(n)` / `with_max_height(h)` | `DelegateOptions { block_height_offset: Some(n), ..Default::default() }` / `max_block_height: Some(h)` |
@@ -432,9 +432,10 @@ Code that runs without an RPC client returns its own error type instead of
 Each converts into `near_kit::Error` with `?`. `DecodeTransactionError` now
 becomes `Error::Decode`, and an `OutcomeError` other than `InvalidTx` or `Json`
 becomes `Error::Outcome`; both used to be an `Error::InvalidTransaction`
-string, which is now only for local checks before sending (no actions, the
-wrong receiver, a nested delegate). The rest land in the same variant, with
-the same message, as before. Two patterns need a change:
+string. `Error::InvalidTransaction` is gone: local checks before sending (no
+actions, the wrong receiver, a nested delegate) are now `Error::Validation`,
+with the same message. The rest land in the same variant, with the same
+message, as before. Two patterns need a change:
 
 - **Passing a variant constructor to `map_err`.** Convert first:
   `.map_err(|e| MyError::Signer(e.into()))?`.
@@ -503,6 +504,7 @@ Items that keep their role under a new name or path:
 | 0.20 | 0.21 |
 |---|---|
 | `protocol::AccountIdRef` | `AccountIdRef` (crate root) |
+| `Error::InvalidTransaction(String)` | Split by source: `Error::Validation(String)` for local checks before sending (no actions, a state init or delegate sent to the wrong receiver, a nested delegate); `Error::Outcome(OutcomeError)` for an outcome with no usable result; `Error::Decode(DecodeTransactionError)` for a signed transaction that fails to decode |
 | `RpcError::UnknownBlock`, `UnknownChunk`, `UnknownEpoch`, `UnknownReceipt` | `RpcError::BlockNotFound`, `ChunkNotFound`, `EpochNotFound`, `ReceiptNotFound` |
 | `RpcError::RequestTimeout { .. }` | `RpcError::Timeout { .. }` |
 | `RpcError::Timeout(u32)` | Removed: nothing returned it |

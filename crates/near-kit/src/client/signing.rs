@@ -314,7 +314,7 @@ impl<W: WaitLevel> SigningNear<W> {
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidTransaction`] if `actions` is empty or a state init
+    /// [`Error::Validation`] if `actions` is empty or a state init
     /// targets another receiver, otherwise RPC and signing errors.
     pub async fn sign(
         &self,
@@ -367,7 +367,7 @@ impl<W: WaitLevel> SigningNear<W> {
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidTransaction`] if `actions` is empty or contains a
+    /// [`Error::Validation`] if `actions` is empty or contains a
     /// delegate action, otherwise RPC and signing errors.
     pub async fn sign_delegate(
         &self,
