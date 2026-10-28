@@ -837,6 +837,14 @@ impl DelegateAction {
 }
 
 impl SignedDelegateAction {
+    /// Verify the signature against the delegate action's public key under the
+    /// NEP-366 (V1) domain.
+    pub fn verify(&self) -> bool {
+        let hash = self.delegate_action.get_hash();
+        self.signature
+            .verify(hash.as_bytes(), &self.delegate_action.public_key)
+    }
+
     /// Encode the signed delegate action to bytes for transport.
     pub fn to_bytes(&self) -> Vec<u8> {
         borsh::to_vec(self).expect("signed delegate action serialization should never fail")
@@ -987,6 +995,31 @@ mod tests {
         let bytes = delegate_action.serialize_for_signing();
         let expected_hash = CryptoHash::hash(&bytes);
         assert_eq!(hash, expected_hash);
+    }
+
+    #[test]
+    fn test_signed_delegate_action_verify() {
+        let secret_key = SecretKey::generate_ed25519();
+        let mut delegate_action = create_test_delegate_action();
+        delegate_action.public_key = secret_key.public_key();
+        let signature = secret_key.sign(delegate_action.get_hash().as_bytes());
+        let signed = delegate_action.into_signed(signature);
+        assert!(signed.verify());
+
+        // Any change to the signed fields invalidates the signature.
+        let mut tampered = signed.clone();
+        tampered.delegate_action.nonce += 1;
+        assert!(!tampered.verify());
+
+        let mut tampered = signed.clone();
+        tampered.delegate_action.receiver_id = "mallory.testnet".parse().unwrap();
+        assert!(!tampered.verify());
+
+        // A signature from another key fails against the stated public key.
+        let mut wrong_key = signed;
+        wrong_key.signature =
+            SecretKey::generate_ed25519().sign(wrong_key.delegate_action.get_hash().as_bytes());
+        assert!(!wrong_key.verify());
     }
 
     #[test]
