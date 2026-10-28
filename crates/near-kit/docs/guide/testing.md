@@ -497,13 +497,15 @@ Some details that matter when writing replies:
   retries themselves, keep a retry config with short delays and count the
   requests.
 - **Nonces.** A `SigningNear` over a canned transport uses the
-  process-wide nonce cache like any other. Give each test its own chain ID
-  in `Near::custom`, or its own account or key, so tests running in
-  parallel don't share nonce sequences.
+  process-wide nonce cache like any other, keyed by the genesis hash its
+  `status` reply reports, or by chain ID when `status` gets an error. Give
+  each test its own genesis hash (or chain ID), or its own account or key,
+  so tests running in parallel don't share nonce sequences.
 
 A send through a canned transport needs replies for
-`EXPERIMENTAL_view_access_key` (the nonce and a recent block hash) and
-`send_tx`. For testing what is sent, a recording
+`EXPERIMENTAL_view_access_key` (the nonce and a recent block hash),
+`send_tx` and `status` (asked for the genesis hash until it answers; an
+error reply will do). For testing what is sent, a recording
 `TxSender` is less work. For testing how a send behaves on chain, use the
 sandbox.
 

@@ -19,20 +19,21 @@ cached value and the chain's. The cache is updated under a lock, so
 concurrent sends from one process get distinct nonces even though they all
 read the same, not yet updated, value from the chain.
 
-The cache is keyed by **chain ID, account and public key**. That means:
+The cache is keyed by **the chain's genesis hash, account and public key**.
+Each client asks its node for the genesis hash (`status`) before the first
+nonce it draws, and keeps it. That means:
 
 - Clones of a `SigningNear`, and separate `SigningNear`s built for the same
   key, share one sequence.
 - Clients pointed at different RPC URLs for the same network share it too,
-  as long as they use the same chain ID. The `Near::mainnet()` and
-  `Near::testnet()` presets set it; with
-  [`Near::custom`](crate::Near::custom), pass the network's real chain ID,
-  not a label per endpoint.
-- Two networks that share a chain ID (two local sandboxes, say) share a
-  sequence. That is harmless: nonces may skip ahead, and a cached nonce too
-  large for the chain's height isn't used there (the cache starts another
-  sequence from the chain's view instead). A distinct chain ID per network
-  keeps them apart.
+  whatever chain ID they were given: every node of a network reports the
+  same genesis hash.
+- Two networks never share it, even with one chain ID (two local sandboxes,
+  say).
+- While a node doesn't answer `status` (a canned test transport, say), its
+  nonces are cached by chain ID instead, and the client asks again on its
+  next draw. So with [`Near::custom`](crate::Near::custom), still pass the
+  network's real chain ID, not a label per endpoint.
 - Two processes never share it. Each starts from the chain's view.
 
 ```rust
@@ -56,7 +57,7 @@ and sends again:
 | Rejection | Cause | What the retry does |
 |---|---|---|
 | `InvalidNonce` | Another transaction with this key landed first (another task, process, or a stale view) | Takes the nonce the node reported as a floor, fetches a fresh view, signs with the next nonce |
-| `NonceTooLarge` | The cached nonce is past what this chain accepts (it came from another chain with the same ID) | Drops the cached sequence it came from and starts again from the chain's view |
+| `NonceTooLarge` | The cached nonce is past what this chain accepts (cached by chain ID while the node reported no genesis hash, so possibly from another chain with that ID) | Drops the cached nonce and starts again from the chain's view |
 | `Expired` | The block hash the transaction referenced is too old | Fetches a fresh block hash and nonce |
 
 The number of retries is `max_nonce_retries`, 3 by default (so up to four
