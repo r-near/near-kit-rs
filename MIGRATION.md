@@ -535,7 +535,7 @@ let call = FunctionCall::new("add_message").args(serde_json::json!({ "text": "hi
 let signed = alice
     .sign_delegate(
         account!("guestbook.testnet"),
-        vec![call.into_action()?],
+        vec![call.try_into()?],
         DelegateOptions { block_height_offset: Some(200), ..Default::default() },
     )
     .await?;
