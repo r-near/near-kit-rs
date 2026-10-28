@@ -70,6 +70,7 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
     FnArg, Ident, ItemTrait, Pat, ReceiverKind, ReturnType, TraitItem, TraitItemFn, Type,
+    ext::IdentExt,
     parse::{Parse, ParseStream},
     parse_macro_input,
     spanned::Spanned,
@@ -330,7 +331,8 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
 fn generate_view_method(method: &MethodInfo, contract_format: SerializationFormat) -> TokenStream2 {
     let near_kit = near_kit_path();
     let method_name = &method.name;
-    let method_name_str = method_name.to_string();
+    // `fn r#type` is the contract method `type`.
+    let method_name_str = method_name.unraw().to_string();
     let docs = &method.docs;
     let backend = backend_param();
 
@@ -417,7 +419,7 @@ fn generate_function_call_method(
 ) -> TokenStream2 {
     let near_kit = near_kit_path();
     let method_name = &method.name;
-    let method_name_str = method_name.to_string();
+    let method_name_str = method_name.unraw().to_string();
 
     let format = method.format_override.unwrap_or(contract_format);
     let docs = &method.docs;

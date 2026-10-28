@@ -374,6 +374,7 @@ helpers, and `near-kit-sandbox`.
 | A call method resolves to `FinalExecutionOutcome` | It resolves to the backend's output: `W::Response` for `SigningNear<W>` (`FinalExecutionOutcome` for the default `Final`) |
 | `#[call] fn m(&mut self) -> T` (return type ignored) | A compile error. Decode the outcome yourself. |
 | Contract methods named `contract_id` or `client` | A compile error. Rename them. |
+| `fn r#type(&self)` called the contract method `r#type` | It calls `type`: a raw identifier names the method without its `r#` prefix. |
 | `near_kit::{call, json, borsh}` attribute re-exports and the standalone `near_kit_macros::{call, json, borsh}` | Removed. `#[contract]` reads the markers itself and they need no import. |
 
 Views return `View` and calls return `Call` (both at the crate root), so
