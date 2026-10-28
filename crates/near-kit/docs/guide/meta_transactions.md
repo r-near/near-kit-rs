@@ -25,7 +25,7 @@ let call = FunctionCall::new("add_message")
     .gas(Gas::from_tgas(30));
 
 let signed = alice
-    .sign_delegate(account!("guestbook.testnet"), vec![call.into_action()?], DelegateOptions::default())
+    .sign_delegate(account!("guestbook.testnet"), vec![call.try_into()?], DelegateOptions::default())
     .await?;
 
 // POST this string to the relayer.
@@ -34,9 +34,11 @@ let payload: String = signed.to_base64();
 # }
 ```
 
-The actions are ordinary [`Action`](crate::protocol::Action)s; a typed
-call becomes one through [`FunctionCall::from`](crate::transaction::FunctionCall),
-the same way it is batched into a transaction:
+The actions are ordinary [`Action`](crate::protocol::Action)s. A
+[`FunctionCall`](crate::transaction::FunctionCall) becomes one with
+`try_into()` (`TryFrom<FunctionCall> for Action`; it fails only if the
+arguments don't encode), and a typed call becomes a `FunctionCall` through
+`FunctionCall::from`, the same way it is batched into a transaction:
 
 ```rust,no_run
 use near_kit::standards::FungibleToken;
@@ -46,8 +48,9 @@ use near_kit::*;
 # async fn example(alice: &SigningNear) -> Result<(), Error> {
 let wrap = account!("wrap.testnet");
 let transfer = alice.contract::<FungibleToken>(&wrap).transfer(account!("bob.testnet"), 1_000_u128, None);
-let action = FunctionCall::from(transfer).into_action()?;
-let signed = alice.sign_delegate(&wrap, vec![action], Default::default()).await?;
+let signed = alice
+    .sign_delegate(&wrap, vec![FunctionCall::from(transfer).try_into()?], Default::default())
+    .await?;
 # Ok(())
 # }
 ```
@@ -110,8 +113,12 @@ let outcome = relayer
     .transaction(signed.sender_id())
     .add_action(Action::delegate(signed))
     .await?;
-// `outcome.is_success()` says the delegate action was accepted, not that
-// the user's actions succeeded; see "Reading the result" below.
+// `result()` fails if the chain rejected the delegate action itself, but
+// not if the user's call failed; see "Reading the result" below.
+outcome.result()?;
+if let Some(error) = outcome.receipt_failures().next() {
+    println!("the user's call failed: {error}");
+}
 println!("relayed in {}", outcome.transaction_hash());
 # Ok(())
 # }
@@ -132,19 +139,20 @@ as an action error after the relayer has paid for the attempt. So check, in
 roughly this order:
 
 1. **The signature.** [`signed.verify()`](crate::protocol::SignedDelegateAction::verify)
-   checks it against the delegate action's public key.
-2. **The expiry.** `max_block_height` above the current height, and not so
-   far above that you'd hold a stale request.
+   checks it against the delegate action's public key. It covers every
+   field below, so check it first.
+2. **The expiry.** `max_block_height` far enough above the current height
+   that your transaction lands in time, and not so far above that an old
+   request can be replayed into you much later.
 3. **The receiver.** Only contracts you relay for.
 4. **The actions.** Only kinds you relay (often function calls only), only
-   methods you expect, a gas cap per call and in total, and no deposit
-   beyond what you're willing to give away (the 1 yoctoNEAR that FT and
-   NFT transfers attach, say).
+   methods you expect, a gas cap across the calls, and no deposit beyond
+   what you're willing to give away (none, or the 1 yoctoNEAR that FT and
+   NFT transfers attach).
 5. **The key and nonce.** The user's key exists on the sender account with a
-   nonce below the delegate's, and you haven't relayed this delegate action
-   before. A replay fails on chain with an invalid-nonce action error, at
-   your cost.
-6. **Your own policy.** Rate limits per sender, allow-lists of users.
+   nonce below the delegate's. A replay of a delegate action you already
+   relayed fails on chain with an invalid-nonce action error, at your cost.
+6. **Your own policy.** Allow-lists of users, rate limits per sender.
 
 The inner actions are [`NonDelegateAction`](crate::protocol::NonDelegateAction)s;
 [`inner`](crate::protocol::NonDelegateAction::inner) gives the `Action`:
@@ -154,7 +162,7 @@ use near_kit::protocol::{Action, SignedDelegateAction};
 use near_kit::rpc::Finality;
 use near_kit::*;
 
-const MAX_GAS_PER_CALL: Gas = Gas::from_tgas(50);
+const MAX_GAS: Gas = Gas::from_tgas(50);
 
 /// Why a delegate action is refused, or `Ok` to relay it.
 async fn check(near: &Near, signed: &SignedDelegateAction) -> Result<(), String> {
@@ -165,17 +173,19 @@ async fn check(near: &Near, signed: &SignedDelegateAction) -> Result<(), String>
     }
 
     let height = near.rpc().block(Finality::Final).await.map_err(|e| e.to_string())?.header.height;
-    if delegate.max_block_height <= height {
-        return Err("expired".into());
+    let blocks_left = delegate.max_block_height.saturating_sub(height);
+    if blocks_left < 5 {
+        return Err("expires too soon".into());
     }
-    if delegate.max_block_height > height + 2_000 {
-        return Err("expiry too far ahead".into());
+    if blocks_left > 300 {
+        return Err("valid for too long".into());
     }
 
     if delegate.receiver_id.as_str() != "guestbook.testnet" {
         return Err(format!("not relaying to {}", delegate.receiver_id));
     }
 
+    let mut gas = Gas::from_gas(0);
     for action in &delegate.actions {
         let Action::FunctionCall(call) = action.inner() else {
             return Err("only function calls are relayed".into());
@@ -183,12 +193,13 @@ async fn check(near: &Near, signed: &SignedDelegateAction) -> Result<(), String>
         if call.method_name != "add_message" {
             return Err(format!("not relaying {}", call.method_name));
         }
-        if call.gas > MAX_GAS_PER_CALL {
-            return Err("too much gas".into());
+        if !call.deposit.is_zero() {
+            return Err("deposits are not relayed".into());
         }
-        if call.deposit > NearToken::from_yoctonear(1) {
-            return Err("deposit too large".into());
-        }
+        gas = gas.saturating_add(call.gas);
+    }
+    if gas > MAX_GAS {
+        return Err("too much gas".into());
     }
 
     let key = near
@@ -202,6 +213,11 @@ async fn check(near: &Near, signed: &SignedDelegateAction) -> Result<(), String>
     Ok(())
 }
 ```
+
+The `relayer` example in near-kit-sandbox has the same checks plus an
+allow-list of users, as a `Policy` value, and runs each refusal against a
+local node (`cargo run -p near-kit-sandbox --example relayer --features
+integration-tests`).
 
 Then submit as above. For a relayer under load, sign with several keys and
 let sends retry nonce conflicts without limit; the
