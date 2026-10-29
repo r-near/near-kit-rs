@@ -205,6 +205,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `protocol::MAX_NONCES_FOR_GAS_KEY` | `AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY` |
 | `CryptoHash::to_vec()`, `From<&CryptoHash> for [u8; 32]` | `hash.as_bytes().to_vec()`; `<[u8; 32]>::from(hash)` (`CryptoHash` is `Copy`) |
 | `ChainId::from_str(s)` (`s.parse::<ChainId>()`), `AsRef<str> for ChainId` | `ChainId::from(s)` or `ChainId::new(s)`; `chain_id.as_str()` |
+| `AccessKeyPermission::function_call(rx, methods, allowance)`, `AccessKeyPermission::full_access()`, `AccessKey::function_call(..)` | `AccessKeyPermission::FunctionCall(FunctionCallPermission { allowance, receiver_id, method_names })`, `AccessKeyPermission::FullAccess`, `AccessKey { nonce: 0, permission }`; or `Action::add_function_call_key(..)` |
 
 ### Sandbox (near-kit-sandbox)
 

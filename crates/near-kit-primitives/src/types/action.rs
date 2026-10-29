@@ -93,24 +93,6 @@ pub enum AccessKeyPermission {
 impl AccessKeyPermission {
     /// Maximum number of parallel nonces that a gas key may allocate.
     pub const MAX_NONCES_FOR_GAS_KEY: u16 = 1024;
-
-    /// Create a function call permission.
-    pub fn function_call(
-        receiver_id: AccountId,
-        method_names: Vec<String>,
-        allowance: Option<NearToken>,
-    ) -> Self {
-        Self::FunctionCall(FunctionCallPermission {
-            allowance,
-            receiver_id,
-            method_names,
-        })
-    }
-
-    /// Create a full access permission.
-    pub fn full_access() -> Self {
-        Self::FullAccess
-    }
 }
 
 /// Function call access key permission details.
@@ -139,18 +121,6 @@ impl AccessKey {
         Self {
             nonce: 0,
             permission: AccessKeyPermission::FullAccess,
-        }
-    }
-
-    /// Create a function call access key.
-    pub fn function_call(
-        receiver_id: AccountId,
-        method_names: Vec<String>,
-        allowance: Option<NearToken>,
-    ) -> Self {
-        Self {
-            nonce: 0,
-            permission: AccessKeyPermission::function_call(receiver_id, method_names, allowance),
         }
     }
 }
@@ -661,7 +631,14 @@ impl Action {
     ) -> Self {
         Self::AddKey(AddKeyAction {
             public_key,
-            access_key: AccessKey::function_call(receiver_id, method_names, allowance),
+            access_key: AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance,
+                    receiver_id,
+                    method_names,
+                }),
+            },
         })
     }
 
