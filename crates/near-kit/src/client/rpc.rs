@@ -148,10 +148,6 @@ struct JsonRpcRequest<'a, P: Serialize> {
 /// failures when the RPC returns an error with a partial/unexpected `result`.
 #[derive(Deserialize)]
 struct JsonRpcResponse {
-    #[allow(dead_code)]
-    jsonrpc: String,
-    #[allow(dead_code)]
-    id: u64,
     result: Option<serde_json::Value>,
     error: Option<JsonRpcError>,
 }
@@ -166,9 +162,6 @@ struct JsonRpcError {
     data: Option<serde_json::Value>,
     #[serde(default)]
     cause: Option<ErrorCause>,
-    #[serde(default)]
-    #[allow(dead_code)]
-    name: Option<String>,
 }
 
 /// Structured error cause from NEAR RPC.
@@ -612,7 +605,6 @@ impl RpcClient {
                 message: error_str.to_string(),
                 data: Some(serde_json::Value::String(error_str.to_string())),
                 cause: None,
-                name: None,
             };
             return Err(self.parse_rpc_error(&synthetic));
         }
@@ -3116,7 +3108,6 @@ mod tests {
                 name: "TOO_MANY_ACCESS_KEYS".to_string(),
                 info: Some(serde_json::json!({ "requested_account_id": "relayer.near" })),
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(
@@ -3277,7 +3268,6 @@ mod tests {
                     "block_hash": "11111111111111111111111111111111"
                 })),
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(
@@ -3305,7 +3295,6 @@ mod tests {
                     "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
                 })),
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         match result {
@@ -3342,7 +3331,6 @@ mod tests {
                     "block_hash": "EC5A7qc6rixfN8T4T9Gkt78H5pAsvdcjAos8Z7kFLJgi"
                 })),
             }),
-            name: Some("HANDLER_ERROR".to_string()),
         };
         let result = client.parse_rpc_error(&error);
         match result {
@@ -3458,7 +3446,6 @@ mod tests {
                     "block_hash": "11111111111111111111111111111111"
                 })),
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(
@@ -3485,7 +3472,6 @@ mod tests {
                 name: "UNKNOWN_BLOCK".to_string(),
                 info: None,
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::BlockNotFound(_)));
@@ -3555,7 +3541,6 @@ mod tests {
                 name: "GARBAGE_COLLECTED_BLOCK".to_string(),
                 info: None,
             }),
-            name: None,
         };
         match client.parse_rpc_error(&error) {
             RpcError::BlockNotFound(block_ref) => {
@@ -3578,7 +3563,6 @@ mod tests {
                     "chunk_hash": "abc123"
                 })),
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::ChunkNotFound(_)));
@@ -3595,7 +3579,6 @@ mod tests {
                 name: "UNKNOWN_EPOCH".to_string(),
                 info: None,
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::EpochNotFound(_)));
@@ -3614,7 +3597,6 @@ mod tests {
                     "receipt_id": "receipt123"
                 })),
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::ReceiptNotFound(_)));
@@ -3894,7 +3876,6 @@ mod tests {
                     "block_hash": "11111111111111111111111111111111"
                 })),
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(
@@ -3920,7 +3901,6 @@ mod tests {
                     "block_hash": "11111111111111111111111111111111"
                 })),
             }),
-            name: None,
         }
     }
 
@@ -4010,7 +3990,6 @@ mod tests {
                 name: "NO_GLOBAL_CONTRACT_CODE".to_string(),
                 info: None,
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::GlobalContractNotFound { .. }));
@@ -4066,7 +4045,6 @@ mod tests {
                     "account_id": "large-state.near"
                 })),
             }),
-            name: None,
         };
         match client.parse_rpc_error(&error) {
             RpcError::ContractStateTooLarge {
@@ -4095,7 +4073,6 @@ mod tests {
                     "block_height": 211889547
                 })),
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(
@@ -4115,7 +4092,6 @@ mod tests {
                 name: "UNAVAILABLE_SHARD".to_string(),
                 info: None,
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::ShardUnavailable(_)));
@@ -4134,7 +4110,6 @@ mod tests {
                 name: "NO_SYNCED_BLOCKS".to_string(),
                 info: None,
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::NodeNotSynced(_)));
@@ -4148,7 +4123,6 @@ mod tests {
                 name: "NOT_SYNCED_YET".to_string(),
                 info: None,
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::NodeNotSynced(_)));
@@ -4167,7 +4141,6 @@ mod tests {
                     "shard_id": 99
                 })),
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::InvalidShardId(_)));
@@ -4184,7 +4157,6 @@ mod tests {
                 name: "INVALID_TRANSACTION".to_string(),
                 info: None,
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::InvalidTxUnparsed { .. }));
@@ -4210,7 +4182,6 @@ mod tests {
                 name: "TIMEOUT_ERROR".to_string(),
                 info,
             }),
-            name: Some("HANDLER_ERROR".to_string()),
         }
     }
 
@@ -4368,7 +4339,6 @@ mod tests {
                 name: "PARSE_ERROR".to_string(),
                 info: None,
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::ParseError(_)));
@@ -4385,7 +4355,6 @@ mod tests {
                 name: "INTERNAL_ERROR".to_string(),
                 info: None,
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::InternalError(_)));
@@ -4406,7 +4375,6 @@ mod tests {
                     "method_name": "my_method"
                 })),
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         match result {
@@ -4441,7 +4409,6 @@ mod tests {
                     "block_hash": "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
                 })),
             }),
-            name: Some("HANDLER_ERROR".to_string()),
         };
         let result = client.parse_rpc_error(&error);
         match result {
@@ -4483,7 +4450,6 @@ mod tests {
                     "error": { "MethodResolveError": "MethodNotFound" },
                 })),
             }),
-            name: Some("HANDLER_ERROR".to_string()),
         };
 
         assert!(matches!(
@@ -4509,7 +4475,6 @@ mod tests {
                     "block_hash": "11111111111111111111111111111111"
                 })),
             }),
-            name: Some("HANDLER_ERROR".to_string()),
         };
 
         match client.parse_rpc_error(&error) {
@@ -4545,7 +4510,6 @@ mod tests {
                     "block_hash": "B7UiEhkg1AeXvUoJUEaf8cqEc8Py7XhZ66vt7jJJUHw5",
                 })),
             }),
-            name: Some("HANDLER_ERROR".to_string()),
         };
 
         match client.parse_rpc_error(&error) {
@@ -4626,7 +4590,6 @@ mod tests {
                     "block_hash": "11111111111111111111111111111111"
                 })),
             }),
-            name: Some("HANDLER_ERROR".to_string()),
         };
 
         match client.parse_rpc_error(&error) {
@@ -4661,7 +4624,6 @@ mod tests {
                     },
                 })),
             }),
-            name: Some("HANDLER_ERROR".to_string()),
         };
 
         match client.parse_rpc_error(&error) {
@@ -4694,7 +4656,6 @@ mod tests {
                     "block_hash": "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
                 })),
             }),
-            name: Some("HANDLER_ERROR".to_string()),
         };
         let result = client.parse_rpc_error(&error);
         match result {
@@ -4729,7 +4690,6 @@ mod tests {
                 name: "CONTRACT_EXECUTION_ERROR".to_string(),
                 info,
             }),
-            name: Some("HANDLER_ERROR".to_string()),
         }
     }
 
@@ -4911,7 +4871,6 @@ mod tests {
                 "account missing.near does not exist while viewing"
             )),
             cause: None,
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::AccountNotFound { .. }));
@@ -4928,7 +4887,6 @@ mod tests {
                 name: "UNKNOWN_ERROR_TYPE".to_string(),
                 info: None,
             }),
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::Rpc { .. }));
@@ -4942,7 +4900,6 @@ mod tests {
             message: "Invalid request".to_string(),
             data: None,
             cause: None,
-            name: None,
         };
         let result = client.parse_rpc_error(&error);
         match result {
