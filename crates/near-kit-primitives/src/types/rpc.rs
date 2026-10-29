@@ -5,7 +5,7 @@ use std::ops::Deref;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
-use serde_with::{base64::Base64, serde_as};
+use serde_with::{DisplayFromStr, base64::Base64, serde_as};
 
 use crate::error::OutcomeError;
 
@@ -642,13 +642,16 @@ pub struct TrieSplit {
 }
 
 /// Congestion information for a shard.
+#[serde_as]
 #[derive(Debug, Clone, Deserialize)]
 pub struct CongestionInfoView {
     /// Gas used by delayed receipts.
-    #[serde(default, deserialize_with = "dec_format")]
+    #[serde_as(as = "DisplayFromStr")]
+    #[serde(default)]
     pub delayed_receipts_gas: u128,
     /// Gas used by buffered receipts.
-    #[serde(default, deserialize_with = "dec_format")]
+    #[serde_as(as = "DisplayFromStr")]
+    #[serde(default)]
     pub buffered_receipts_gas: u128,
     /// Bytes used by receipts.
     #[serde(default)]
@@ -656,35 +659,6 @@ pub struct CongestionInfoView {
     /// Allowed shard.
     #[serde(default)]
     pub allowed_shard: u16,
-}
-
-/// Deserialize a u128 from a decimal string (NEAR RPC sends u128 as strings).
-fn dec_format<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u128, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum StringOrNum {
-        String(String),
-        Num(u128),
-    }
-    match StringOrNum::deserialize(deserializer)? {
-        StringOrNum::String(s) => s.parse().map_err(serde::de::Error::custom),
-        StringOrNum::Num(n) => Ok(n),
-    }
-}
-
-/// Deserialize a Gas (u64) from a decimal string or number.
-fn gas_dec_format<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Gas, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum StringOrNum {
-        String(String),
-        Num(u64),
-    }
-    let raw = match StringOrNum::deserialize(deserializer)? {
-        StringOrNum::String(s) => s.parse::<u64>().map_err(serde::de::Error::custom)?,
-        StringOrNum::Num(n) => n,
-    };
-    Ok(Gas::from_gas(raw))
 }
 
 /// Gas price response.
@@ -1914,7 +1888,6 @@ pub struct GasProfileEntry {
     /// Cost name.
     pub cost: String,
     /// Gas used for this cost.
-    #[serde(deserialize_with = "gas_dec_format")]
     pub gas_used: Gas,
 }
 

@@ -17,7 +17,7 @@ rust-version = "1.95"
 # NEAR ecosystem types
 near-account-id = { version = "3", features = ["serde", "borsh"] }
 near-token = { version = "0.3", features = ["serde", "borsh"] }
-near-gas = { version = "0.3", features = ["serde", "borsh"] }
+near-gas = { version = "0.3.1", features = ["serde", "borsh"] }
 near-global-contracts = { version = "0.3", features = ["serde", "borsh"] }
 
 # Async runtime
