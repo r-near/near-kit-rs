@@ -3374,10 +3374,62 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_rpc_error_unknown_block() {
-        let error = handler_error("UNKNOWN_BLOCK", None, Some(serde_json::json!("12345")));
-        let result = parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::BlockNotFound(_)));
+    fn test_parse_rpc_error_maps_simple_causes() {
+        type Check = fn(&RpcError) -> bool;
+        let cases: [(&str, Option<Value>, Option<Value>, Check); 11] = [
+            (
+                "UNKNOWN_BLOCK",
+                None,
+                Some("12345".into()),
+                |e| matches!(e, RpcError::BlockNotFound(b) if b == "12345"),
+            ),
+            (
+                "UNKNOWN_CHUNK",
+                Some(serde_json::json!({ "chunk_hash": "abc123" })),
+                None,
+                |e| matches!(e, RpcError::ChunkNotFound(c) if c == "abc123"),
+            ),
+            (
+                "UNKNOWN_EPOCH",
+                None,
+                Some("epoch123".into()),
+                |e| matches!(e, RpcError::EpochNotFound(b) if b == "epoch123"),
+            ),
+            (
+                "UNKNOWN_RECEIPT",
+                Some(serde_json::json!({ "receipt_id": "receipt123" })),
+                None,
+                |e| matches!(e, RpcError::ReceiptNotFound(r) if r == "receipt123"),
+            ),
+            ("UNAVAILABLE_SHARD", None, None, |e| {
+                matches!(e, RpcError::ShardUnavailable(_))
+            }),
+            ("NO_SYNCED_BLOCKS", None, None, |e| {
+                matches!(e, RpcError::NodeNotSynced(_))
+            }),
+            ("NOT_SYNCED_YET", None, None, |e| {
+                matches!(e, RpcError::NodeNotSynced(_))
+            }),
+            (
+                "INVALID_SHARD_ID",
+                Some(serde_json::json!({ "shard_id": 99 })),
+                None,
+                |e| matches!(e, RpcError::InvalidShardId(id) if id == "99"),
+            ),
+            ("INVALID_TRANSACTION", None, None, |e| {
+                matches!(e, RpcError::InvalidTxUnparsed { .. })
+            }),
+            ("PARSE_ERROR", None, None, |e| {
+                matches!(e, RpcError::ParseError(_))
+            }),
+            ("INTERNAL_ERROR", None, None, |e| {
+                matches!(e, RpcError::InternalError(_))
+            }),
+        ];
+        for (cause, info, data, is_expected) in cases {
+            let error = parse_rpc_error(&handler_error(cause, info, data));
+            assert!(is_expected(&error), "{cause}: {error:?}");
+        }
     }
 
     #[test]
@@ -3446,39 +3498,6 @@ mod tests {
             }
             other => panic!("expected BlockNotFound, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn test_parse_rpc_error_unknown_chunk() {
-        let error = handler_error(
-            "UNKNOWN_CHUNK",
-            Some(serde_json::json!({
-                "chunk_hash": "abc123"
-            })),
-            None,
-        );
-        let result = parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::ChunkNotFound(_)));
-    }
-
-    #[test]
-    fn test_parse_rpc_error_unknown_epoch() {
-        let error = handler_error("UNKNOWN_EPOCH", None, Some(serde_json::json!("epoch123")));
-        let result = parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::EpochNotFound(_)));
-    }
-
-    #[test]
-    fn test_parse_rpc_error_unknown_receipt() {
-        let error = handler_error(
-            "UNKNOWN_RECEIPT",
-            Some(serde_json::json!({
-                "receipt_id": "receipt123"
-            })),
-            None,
-        );
-        let result = parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::ReceiptNotFound(_)));
     }
 
     /// nearcore's `send_tx`/`tx_status`/`receipt_to_tx` handler errors that
@@ -3922,46 +3941,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_rpc_error_unavailable_shard() {
-        let error = handler_error("UNAVAILABLE_SHARD", None, None);
-        let result = parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::ShardUnavailable(_)));
-    }
-
-    #[test]
-    fn test_parse_rpc_error_not_synced() {
-        // NO_SYNCED_BLOCKS
-        let error = handler_error("NO_SYNCED_BLOCKS", None, None);
-        let result = parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::NodeNotSynced(_)));
-
-        // NOT_SYNCED_YET
-        let error = handler_error("NOT_SYNCED_YET", None, None);
-        let result = parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::NodeNotSynced(_)));
-    }
-
-    #[test]
-    fn test_parse_rpc_error_invalid_shard_id() {
-        let error = handler_error(
-            "INVALID_SHARD_ID",
-            Some(serde_json::json!({
-                "shard_id": 99
-            })),
-            None,
-        );
-        let result = parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::InvalidShardId(_)));
-    }
-
-    #[test]
-    fn test_parse_rpc_error_invalid_transaction() {
-        let error = handler_error("INVALID_TRANSACTION", None, None);
-        let result = parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::InvalidTxUnparsed { .. }));
-    }
-
-    #[test]
     fn test_parse_rpc_error_timeout() {
         // Legacy-style payload with a hash but no `cause` tag.
         let hash = "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U";
@@ -4116,36 +4095,6 @@ mod tests {
             Some(TimeoutCause::Unknown(value)) => assert_eq!(value, raw),
             other => panic!("expected Unknown, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn test_parse_rpc_error_parse_error() {
-        let error = JsonRpcError {
-            code: -32700,
-            message: "Parse error".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "PARSE_ERROR".to_string(),
-                info: None,
-            }),
-        };
-        let result = parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::ParseError(_)));
-    }
-
-    #[test]
-    fn test_parse_rpc_error_internal_error() {
-        let error = JsonRpcError {
-            code: -32603,
-            message: "Internal error".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "INTERNAL_ERROR".to_string(),
-                info: None,
-            }),
-        };
-        let result = parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::InternalError(_)));
     }
 
     #[test]
