@@ -1,22 +1,16 @@
 //! Typed error types for NEAR transaction execution.
 //!
-//! These types mirror the error hierarchy returned by NEAR RPC in
-//! `ExecutionStatus::Failure`, replacing opaque `serde_json::Value`.
+//! These types mirror nearcore's error types, variant for variant and field
+//! for field, as returned by NEAR RPC in `ExecutionStatus::Failure`.
 
-// These enums mirror nearcore's error types variant for variant and field for
-// field, and nearcore's docs describe each one. The doc comments here cover
-// what near-kit adds (the `Unknown` fallbacks, helper methods) and variants
-// whose meaning isn't obvious from the name.
+// nearcore's docs describe each variant; the docs here cover what near-kit
+// adds and variants whose meaning isn't obvious from the name.
 #![allow(missing_docs)]
 
 use serde::Deserialize;
 
 use super::rpc::GlobalContractIdentifierView;
 use super::{AccountId, CryptoHash, Gas, NearToken, PublicKey};
-
-// ============================================================================
-// Unknown fallback
-// ============================================================================
 
 /// Raw JSON payload of an error this version of near-kit could not parse
 /// into a typed variant.
@@ -40,24 +34,14 @@ impl std::fmt::Display for UnknownError {
     }
 }
 
-// ============================================================================
-// Top-level error
-// ============================================================================
-
 /// Error returned by NEAR RPC when a transaction or receipt fails.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
 pub enum TxExecutionError {
-    /// An error happened during action execution.
     #[error("ActionError: {0}")]
     ActionError(ActionError),
-    /// An error happened during transaction validation.
     #[error("InvalidTxError: {0}")]
     InvalidTxError(InvalidTxError),
 }
-
-// ============================================================================
-// Action errors
-// ============================================================================
 
 /// An error that occurred during action execution.
 #[derive(Debug, Clone, Deserialize)]
@@ -66,7 +50,6 @@ pub struct ActionError {
     /// Not defined if kind is `ActionErrorKind::LackBalanceForState`.
     #[serde(default)]
     pub index: Option<u64>,
-    /// The kind of action error.
     pub kind: ActionErrorKind,
 }
 
@@ -208,31 +191,19 @@ pub enum ActionErrorKind {
         #[serde(default)]
         public_key: Option<PublicKey>,
     },
-    /// A delegate action's gas key nonce index is outside the gas key's
-    /// nonce range.
     #[error(
         "delegate action nonce index {nonce_index} must be smaller than the gas key nonce count {num_nonces}"
     )]
     DelegateActionInvalidNonceIndex { nonce_index: u16, num_nonces: u16 },
-    /// The combined size of the receipt's resolved promise inputs exceeded
-    /// the limit.
     #[error("combined size of the receipt's promise inputs ({size}) exceeded the limit ({limit})")]
     TotalPromiseInputSizeExceeded { size: u64, limit: u64 },
-    /// The receipt recorded more storage proof than the per-receipt limit
-    /// allows.
     #[error("receipt exceeded the storage proof size limit of {limit} bytes")]
     ReceiptStorageProofSizeExceeded { limit: u64 },
-    /// The bytes of a `UniversalStateInit` action are not the canonical encoding
-    /// of a state init.
     #[error("universal state init payload is not a canonical state init")]
     MalformedUniversalStateInit,
-    /// The action needs an initialized account, but the receiver is a
-    /// universal account whose state init hasn't been applied yet.
     #[error("account {account_id} has no state init applied yet")]
     AccountNotInitialized { account_id: AccountId },
-    /// Error variant that this version of near-kit does not recognize, or
-    /// whose field shape differs from what it expects. The raw JSON is
-    /// preserved.
+    /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown action error: {0}")]
     Unknown(UnknownError),
@@ -244,10 +215,6 @@ fn gas_key_label(public_key: Option<&PublicKey>) -> String {
         None => "gas keys".to_string(),
     }
 }
-
-// ============================================================================
-// Transaction validation errors
-// ============================================================================
 
 /// An error during transaction validation (before execution).
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
@@ -334,9 +301,7 @@ pub enum InvalidTxError {
         reason: DepositCostFailureReason,
         signer_id: AccountId,
     },
-    /// Error variant that this version of near-kit does not recognize, or
-    /// whose field shape differs from what it expects. The raw JSON is
-    /// preserved.
+    /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown transaction error: {0}")]
     Unknown(UnknownError),
@@ -361,10 +326,6 @@ impl InvalidTxError {
         )
     }
 }
-
-// ============================================================================
-// Access key errors
-// ============================================================================
 
 /// Error related to access key validation.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
@@ -396,24 +357,15 @@ pub enum InvalidAccessKeyError {
     },
     #[error("deposits are not allowed with function call access keys")]
     DepositWithFunctionCall,
-    /// A gas key signed a delegate action carrying a plain nonce. Gas keys
-    /// can't sign meta-transactions.
     #[error("gas keys can't sign a delegate action with a plain nonce")]
     DelegateActionRequiresNonGasKey,
-    /// A delegate action with a gas key nonce must be signed by a gas key.
     #[error("a delegate action with a gas key nonce must be signed by a gas key")]
     DelegateActionRequiresGasKey,
-    /// Error variant that this version of near-kit does not recognize, or
-    /// whose field shape differs from what it expects. The raw JSON is
-    /// preserved.
+    /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown access key error: {0}")]
     Unknown(UnknownError),
 }
-
-// ============================================================================
-// Function call errors (VM / contract)
-// ============================================================================
 
 /// An error during function call execution.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
@@ -435,9 +387,7 @@ pub enum FunctionCallError {
     HostError(HostError),
     #[error("execution error: {0}")]
     ExecutionError(String),
-    /// Error variant that this version of near-kit does not recognize, or
-    /// whose field shape differs from what it expects. The raw JSON is
-    /// preserved.
+    /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown function call error: {0}")]
     Unknown(UnknownError),
@@ -452,9 +402,7 @@ pub enum CompilationError {
     PrepareError(PrepareError),
     #[error("Wasmer compilation error: {msg}")]
     WasmerCompileError { msg: String },
-    /// Error variant that this version of near-kit does not recognize, or
-    /// whose field shape differs from what it expects. The raw JSON is
-    /// preserved.
+    /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown compilation error: {0}")]
     Unknown(UnknownError),
@@ -501,12 +449,9 @@ pub enum PrepareError {
     TooManyParamsPerContract,
     #[error("operand stack of a Wasm function is too large")]
     OperandStackTooLarge,
-    /// The contract declares too many entries in the Wasm global section.
     #[error("too many globals in Wasm module")]
     TooManyGlobals,
-    /// Error variant that this version of near-kit does not recognize, or
-    /// whose field shape differs from what it expects. The raw JSON is
-    /// preserved.
+    /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown prepare error: {0}")]
     Unknown(UnknownError),
@@ -521,9 +466,7 @@ pub enum MethodResolveError {
     MethodNotFound,
     #[error("method has an invalid signature")]
     MethodInvalidSignature,
-    /// Error variant that this version of near-kit does not recognize, or
-    /// whose field shape differs from what it expects. The raw JSON is
-    /// preserved.
+    /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown method resolve error: {0}")]
     Unknown(UnknownError),
@@ -551,9 +494,7 @@ pub enum WasmTrap {
     StackOverflow,
     #[error("generic trap")]
     GenericTrap,
-    /// Error variant that this version of near-kit does not recognize, or
-    /// whose field shape differs from what it expects. The raw JSON is
-    /// preserved.
+    /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown Wasm trap: {0}")]
     Unknown(UnknownError),
@@ -638,20 +579,13 @@ pub enum HostError {
     Ed25519VerifyInvalidInput { msg: String },
     #[error("P-256 verification invalid input: {msg}")]
     P256VerifyInvalidInput { msg: String },
-    /// Input length mismatch for ML-DSA-65 signature verification.
     #[error("ML-DSA verification invalid input: {msg}")]
     MlDsaVerifyInvalidInput { msg: String },
-    /// Error variant that this version of near-kit does not recognize, or
-    /// whose field shape differs from what it expects. The raw JSON is
-    /// preserved.
+    /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown host error: {0}")]
     Unknown(UnknownError),
 }
-
-// ============================================================================
-// Actions validation errors
-// ============================================================================
 
 /// Error validating actions in a transaction or receipt.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
@@ -720,27 +654,19 @@ pub enum ActionsValidationError {
         limit: u64,
         number_of_deploy_actions: u64,
     },
-    /// The method name in a function call action must not be empty.
     #[error("method name in a function call action must not be empty")]
     FunctionCallEmptyMethodName,
-    /// The receiver of a `UniversalStateInit` action doesn't match the `0u`
-    /// id derived from its state init.
     #[error("invalid receiver {receiver_id} for universal account {derived_id}")]
     InvalidUniversalStateInitReceiver {
         derived_id: AccountId,
         receiver_id: AccountId,
     },
-    /// A storage key in a `UniversalStateInit` exceeds the limit.
     #[error("universal state init key length ({length}) exceeded the limit ({limit})")]
     UniversalStateInitKeyLengthExceeded { length: u64, limit: u64 },
-    /// A storage value in a `UniversalStateInit` exceeds the limit.
     #[error("universal state init value length ({length}) exceeded the limit ({limit})")]
     UniversalStateInitValueLengthExceeded { length: u64, limit: u64 },
-    /// The bytes of a `UniversalStateInit` action don't decode into a state
-    /// init, or aren't its canonical encoding.
     #[error("universal state init bytes are not a canonical borsh encoding of a state init")]
     MalformedUniversalStateInit,
-    /// The transaction uses a protocol feature that has been removed.
     #[error(
         "protocol feature {protocol_feature} was removed and is not supported in version {version}"
     )]
@@ -748,36 +674,23 @@ pub enum ActionsValidationError {
         protocol_feature: String,
         version: u32,
     },
-    /// A `WithdrawFromGasKey` action must not be nested inside a delegate
-    /// action.
     #[error("withdraw from gas key actions are not allowed inside a delegate action")]
     WithdrawFromGasKeyNotAllowedInDelegate,
-    /// The state inits in one receipt commit to more access keys in total
-    /// than allowed.
     #[error(
         "state inits in this receipt commit to {number_of_keys} access keys, exceeding the limit ({limit})"
     )]
     TotalNumberOfStateInitKeysExceeded { limit: u64, number_of_keys: u64 },
-    /// The state inits in one receipt carry more storage entries in total
-    /// than allowed.
     #[error(
         "state inits in this receipt carry {number_of_entries} storage entries, exceeding the limit ({limit})"
     )]
     TotalNumberOfStateInitEntriesExceeded { limit: u64, number_of_entries: u64 },
-    /// Transfers to universal (`0u`) accounts aren't allowed yet.
     #[error("transfers to the universal account {account_id} are not allowed yet")]
     TransferToUniversalAccountNotAllowed { account_id: AccountId },
-    /// Error variant that this version of near-kit does not recognize, or
-    /// whose field shape differs from what it expects. The raw JSON is
-    /// preserved.
+    /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown actions validation error: {0}")]
     Unknown(UnknownError),
 }
-
-// ============================================================================
-// Receipt validation errors
-// ============================================================================
 
 /// Error validating a receipt.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
@@ -805,17 +718,11 @@ pub enum ReceiptValidationError {
     ReceiptSizeExceeded { limit: u64, size: u64 },
     #[error("invalid refund-to account ID {account_id}")]
     InvalidRefundTo { account_id: String },
-    /// Error variant that this version of near-kit does not recognize, or
-    /// whose field shape differs from what it expects. The raw JSON is
-    /// preserved.
+    /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown receipt validation error: {0}")]
     Unknown(UnknownError),
 }
-
-// ============================================================================
-// Storage errors
-// ============================================================================
 
 /// Internal storage error.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
@@ -832,9 +739,7 @@ pub enum StorageError {
     FlatStorageBlockNotSupported(String),
     #[error("trie is not loaded in memory: {0}")]
     MemTrieLoadingError(String),
-    /// Error variant that this version of near-kit does not recognize, or
-    /// whose field shape differs from what it expects. The raw JSON is
-    /// preserved.
+    /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown storage error: {0}")]
     Unknown(UnknownError),
@@ -861,10 +766,6 @@ pub enum MissingTrieValueContext {
     TrieStorage,
 }
 
-// ============================================================================
-// Misc
-// ============================================================================
-
 /// Reason a deposit cost check failed on a gas key transaction.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
 pub enum DepositCostFailureReason {
@@ -877,10 +778,6 @@ pub enum DepositCostFailureReason {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ------------------------------------------------------------------
-    // New error variants introduced in nearcore 2.12
-    // ------------------------------------------------------------------
 
     #[test]
     fn test_prepare_error_2_12_variants() {
@@ -1105,10 +1002,6 @@ mod tests {
             other => panic!("Expected InvalidTxError::ActionsValidation, got {other:?}"),
         }
     }
-
-    // ------------------------------------------------------------------
-    // Unknown-variant fallbacks (forward compatibility)
-    // ------------------------------------------------------------------
 
     #[test]
     fn test_unknown_struct_variant_falls_back() {
