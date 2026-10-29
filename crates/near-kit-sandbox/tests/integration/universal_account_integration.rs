@@ -3,8 +3,6 @@
 //! account and a state init sets it up; at protocol 87, before universal
 //! accounts, the transfer is rejected with
 //! `TransferToUniversalAccountNotAllowed`.
-//!
-//! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
 use near_kit::protocol::Action;
 use near_kit::*;
