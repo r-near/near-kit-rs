@@ -330,8 +330,7 @@ pub struct ViewStateResult {
 ///
 /// The type derefs to `[StateItem]` and iterates over its entries, so
 /// `result.len()`, `result.iter()`, `&result[0]` and `for item in result` all
-/// work directly; use [`ViewStateAllResult::into_values`] to take ownership of
-/// the entries alone.
+/// work directly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViewStateAllResult {
     /// Every contract state entry matching the prefix, in trie order.
@@ -341,13 +340,6 @@ pub struct ViewStateAllResult {
     /// Block hash the state was read at (taken from the first page); every
     /// page was read against this hash.
     pub block_hash: CryptoHash,
-}
-
-impl ViewStateAllResult {
-    /// Consume the result and return just the state entries.
-    pub fn into_values(self) -> Vec<StateItem> {
-        self.values
-    }
 }
 
 impl Deref for ViewStateAllResult {

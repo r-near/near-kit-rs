@@ -2533,8 +2533,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_view_state_all_result_is_ergonomic() {
-        // `ViewStateAllResult` derefs to `[StateItem]`, iterates by value and
-        // by reference, and `into_values` hands back the bare entries.
+        // `ViewStateAllResult` derefs to `[StateItem]` and iterates by value
+        // and by reference.
         let transport = CountingTransport::results([
             view_state_page(&[b"a"], Some(b"a")),
             view_state_page(&[b"b"], None),
@@ -2556,7 +2556,6 @@ mod tests {
             by_value.push(item.key);
         }
         assert_eq!(by_value, [b"a".to_vec(), b"b".to_vec()]);
-        assert_eq!(all.clone().into_values(), all.values);
     }
 
     const PAGE_ONE_HASH: &str = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj";

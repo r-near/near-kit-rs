@@ -105,6 +105,7 @@ after the table cover each one.
 | `rpc::TxExecutionStatus::is_executed()`, `is_block_final()`, `is_final()` | `matches!(s, ExecutedOptimistic \| Executed \| Final)`, `matches!(s, IncludedFinal \| Executed \| Final)`, `s == TxExecutionStatus::Final` |
 | `PartialOrd for rpc::TxExecutionStatus` (`<`, `partial_cmp`) | `matches!` on the levels you accept, as in the row above |
 | `ViewFunctionResult::bytes()` | The `result` field: `&view.result` |
+| `ViewStateAllResult::into_values()` | The `values` field: `all.values` |
 
 ### RPC client
 
