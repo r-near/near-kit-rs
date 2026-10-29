@@ -102,7 +102,7 @@ use std::time::Duration;
 
 use near_kit::AccountIdRef;
 use near_kit::protocol::ChainId;
-use near_kit::rpc::{RpcClient, RpcError};
+use near_kit::rpc::{ReqwestTransport, RpcClient, RpcError};
 use near_kit::signer::{InMemorySigner, SecretKey, Signer};
 use near_kit::{AccountId, Error, Near, NearToken, SigningNear};
 use testcontainers::{
@@ -288,8 +288,9 @@ pub struct Sandbox {
     /// Docker container id, captured at start so the `atexit` handler can remove
     /// the shared container synchronously without touching the async client.
     container_id: String,
-    rpc_url: String,
-    chain_id: ChainId,
+    /// The read-only client for this sandbox's RPC endpoint, built once at
+    /// start and shared by every method and every `root_account` client.
+    near: Near,
     root_signer: Arc<dyn Signer>,
 }
 
@@ -311,12 +312,7 @@ impl Sandbox {
     /// test accounts. For reads use `root_account().near()`; for another account,
     /// `root_account().near().with_signer(signer)`.
     pub fn root_account(&self) -> SigningNear {
-        self.near().with_signer(self.root_signer.clone())
-    }
-
-    /// A read-only client for this sandbox's RPC endpoint.
-    fn near(&self) -> Near {
-        Near::custom(&self.rpc_url, self.chain_id.clone()).build()
+        self.near.with_signer(self.root_signer.clone())
     }
 
     /// Set an account's balance in this sandbox, patching it directly via the
@@ -341,7 +337,7 @@ impl Sandbox {
         account_id: impl Into<AccountId>,
         balance: NearToken,
     ) -> Result<(), SandboxError> {
-        let near = self.near();
+        let near = &self.near;
         let account_id = account_id.into();
 
         // Fetch raw account data from RPC - this includes all fields the sandbox expects
@@ -418,7 +414,7 @@ impl Sandbox {
     /// # }
     /// ```
     pub async fn patch_state(&self, records: serde_json::Value) -> Result<(), SandboxError> {
-        crate::patch_state(self.near().rpc(), records).await
+        crate::patch_state(self.near.rpc(), records).await
     }
 
     /// Fast-forward the sandbox by `delta_height` blocks, without waiting for
@@ -439,7 +435,7 @@ impl Sandbox {
     /// # }
     /// ```
     pub async fn fast_forward(&self, delta_height: u64) -> Result<(), SandboxError> {
-        crate::fast_forward(self.near().rpc(), delta_height).await
+        crate::fast_forward(self.near.rpc(), delta_height).await
     }
 }
 
@@ -584,11 +580,23 @@ impl SandboxBuilder {
 
         info!(rpc_url = %rpc_url, "Sandbox container ready");
 
+        // No idle connections are kept, so each request opens its connection
+        // on the calling tokio runtime. A pooled connection is driven by a task
+        // on the runtime that opened it, and the shared sandbox serves tests
+        // that each run their own runtime: a request reusing another test's
+        // connection would fail once that test ends and its runtime drops.
+        let client = near_kit::reqwest::Client::builder()
+            .pool_max_idle_per_host(0)
+            .build()
+            .expect("the HTTP client's TLS backend initializes");
+        let near = Near::custom(rpc_url, chain_id.unwrap_or_else(|| ChainId::new("sandbox")))
+            .transport(ReqwestTransport::with_client(client))
+            .build();
+
         Ok(Sandbox {
             _container: Arc::new(container),
             container_id,
-            rpc_url,
-            chain_id: chain_id.unwrap_or_else(|| ChainId::new("sandbox")),
+            near,
             root_signer,
         })
     }
