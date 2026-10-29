@@ -134,7 +134,7 @@ use std::time::Duration;
 use near_kit::AccountIdRef;
 use near_kit::protocol::ChainId;
 use near_kit::rpc::RpcError;
-use near_kit::signer::{InMemorySigner, ParseKeyError, Signer};
+use near_kit::signer::{InMemorySigner, SecretKey, Signer};
 use near_kit::{AccountId, Error, Near, NearToken, SigningNear};
 use testcontainers::{
     ContainerAsync, CopyToContainer, Healthcheck, Image, ImageExt,
@@ -166,10 +166,6 @@ pub enum SandboxError {
     /// The requested chain ID is reserved for a public network.
     #[error("sandbox chain ID {0:?} is reserved by neard; use a custom ID such as \"localnet\"")]
     UnsupportedChainId(String),
-
-    /// The deterministic sandbox root signer could not be constructed.
-    #[error("failed to construct the sandbox root signer: {0}")]
-    RootSigner(#[source] Error),
 
     /// Docker or testcontainers failed while preparing the sandbox.
     #[error("sandbox container {operation} failed: {message}")]
@@ -421,9 +417,9 @@ impl Sandbox {
             "Starting sandbox container"
         );
 
-        let root_key = SANDBOX_ROOT_SECRET_KEY
+        let root_key: SecretKey = SANDBOX_ROOT_SECRET_KEY
             .parse()
-            .map_err(|e: ParseKeyError| SandboxError::RootSigner(e.into()))?;
+            .expect("SANDBOX_ROOT_SECRET_KEY is a valid ed25519 key");
         let root_signer = Arc::new(InMemorySigner::new(&root_account, root_key));
         let mut image = NearSandbox::new(version).with_account_id(root_account.to_string());
         if let Some(ref id) = chain_id {
@@ -837,6 +833,11 @@ struct ResolvedSandboxConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn root_secret_key_parses() {
+        SANDBOX_ROOT_SECRET_KEY.parse::<SecretKey>().unwrap();
+    }
 
     #[test]
     fn chain_id_mainnet_is_deferred_as_an_error() {

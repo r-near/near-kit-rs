@@ -203,6 +203,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `Sandbox::chain_id()` | `sandbox.root_account().near().chain_id()` |
 | `Sandbox::root_signer()` | `sandbox.root_account().signer().clone()` |
 | `SandboxError::InvalidRootAccount`, `SandboxError::InvalidAccount` | Removed: account IDs are typed |
+| `SandboxError::RootSigner` | Nothing; the root key is a valid constant |
 | `SandboxBuilder::root_account("x")`, `Sandbox::set_balance("x", amount)` | Take `impl Into<AccountId>`: `account!("x")` |
 | `SANDBOX_ROOT_ACCOUNT: &str` | `&AccountIdRef` |
 
