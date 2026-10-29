@@ -163,7 +163,7 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          cargo semver-checks -p near-kit -p near-kit-sandbox --color never 2>&1 | tee semver.txt
+          cargo semver-checks -p near-kit -p near-kit-primitives -p near-kit-sandbox --color never 2>&1 | tee semver.txt
       - name: Summarize
         if: always()
         run: |

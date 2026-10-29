@@ -25,6 +25,7 @@ CARGO_PUBLIC_API=0.52.0
 SNAPSHOTS=(
   "near-kit|near-kit|--all-features|"
   "near-kit-no-default-features|near-kit|--no-default-features|"
+  "near-kit-primitives|near-kit-primitives|--all-features|"
   "near-kit-sandbox|near-kit-sandbox|--all-features|"
   "near-kit-wasm32-wasip2|near-kit|--no-default-features --features wasi-http,contracts,mnemonic|wasm32-wasip2"
   "near-kit-wasm32-unknown-unknown|near-kit|--no-default-features --features js,rpc,contracts,mnemonic|wasm32-unknown-unknown"

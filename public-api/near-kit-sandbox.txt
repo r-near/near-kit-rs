@@ -1,19 +1,14 @@
 pub mod near_kit_sandbox
-pub enum near_kit_sandbox::SandboxError
+#[non_exhaustive] pub enum near_kit_sandbox::SandboxError
 pub near_kit_sandbox::SandboxError::Container
 pub near_kit_sandbox::SandboxError::Container::message: alloc::string::String
 pub near_kit_sandbox::SandboxError::Container::operation: &'static str
-pub near_kit_sandbox::SandboxError::InvalidAccount(near_kit::error::ParseAccountIdError)
-pub near_kit_sandbox::SandboxError::InvalidRootAccount(near_kit::error::ParseAccountIdError)
 pub near_kit_sandbox::SandboxError::PatchTimeout
 pub near_kit_sandbox::SandboxError::PatchTimeout::account_id: near_account_id::account_id::AccountId
 pub near_kit_sandbox::SandboxError::PatchTimeout::attempts: u32
 pub near_kit_sandbox::SandboxError::PatchTimeout::last_error: core::option::Option<alloc::boxed::Box<near_kit::error::Error>>
-pub near_kit_sandbox::SandboxError::RootSigner(near_kit::error::Error)
 pub near_kit_sandbox::SandboxError::Rpc(alloc::boxed::Box<near_kit::error::RpcError>)
 pub near_kit_sandbox::SandboxError::UnsupportedChainId(alloc::string::String)
-impl core::convert::From<near_account_id::errors::ParseAccountError> for near_kit_sandbox::SandboxError
-pub fn near_kit_sandbox::SandboxError::from(near_kit::error::ParseAccountIdError) -> Self
 impl core::convert::From<near_kit::error::RpcError> for near_kit_sandbox::SandboxError
 pub fn near_kit_sandbox::SandboxError::from(near_kit::error::RpcError) -> Self
 impl core::error::Error for near_kit_sandbox::SandboxError
@@ -24,30 +19,21 @@ impl core::fmt::Display for near_kit_sandbox::SandboxError
 pub fn near_kit_sandbox::SandboxError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct near_kit_sandbox::Sandbox
 impl near_kit_sandbox::Sandbox
-pub fn near_kit_sandbox::Sandbox::chain_id(&self) -> &near_kit::types::network::ChainId
-pub fn near_kit_sandbox::Sandbox::client(&self) -> near_kit::client::near::Near
+pub fn near_kit_sandbox::Sandbox::builder() -> near_kit_sandbox::SandboxBuilder
 pub async fn near_kit_sandbox::Sandbox::fast_forward(&self, u64) -> core::result::Result<(), near_kit_sandbox::SandboxError>
-pub fn near_kit_sandbox::Sandbox::root_account_id(&self) -> &near_account_id::account_id::AccountId
-pub fn near_kit_sandbox::Sandbox::root_signer(&self) -> alloc::sync::Arc<dyn near_kit::client::signer::Signer>
-pub fn near_kit_sandbox::Sandbox::rpc_url(&self) -> &str
-pub async fn near_kit_sandbox::Sandbox::set_balance(&self, impl near_account_id::into_account_id::TryIntoAccountId, near_token::NearToken) -> core::result::Result<(), near_kit_sandbox::SandboxError>
+pub async fn near_kit_sandbox::Sandbox::patch_state(&self, serde_json::value::Value) -> core::result::Result<(), near_kit_sandbox::SandboxError>
+pub fn near_kit_sandbox::Sandbox::root_account(&self) -> near_kit::client::signing::SigningNear
+pub async fn near_kit_sandbox::Sandbox::set_balance(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, near_token::NearToken) -> core::result::Result<(), near_kit_sandbox::SandboxError>
 impl core::clone::Clone for near_kit_sandbox::Sandbox
 pub fn near_kit_sandbox::Sandbox::clone(&self) -> near_kit_sandbox::Sandbox
-impl near_kit::client::near::SandboxNetwork for near_kit_sandbox::Sandbox
-pub fn near_kit_sandbox::Sandbox::chain_id(&self) -> &near_kit::types::network::ChainId
-pub fn near_kit_sandbox::Sandbox::root_signer(&self) -> alloc::sync::Arc<dyn near_kit::client::signer::Signer>
-pub fn near_kit_sandbox::Sandbox::rpc_url(&self) -> &str
 pub struct near_kit_sandbox::SandboxBuilder
 impl near_kit_sandbox::SandboxBuilder
 pub fn near_kit_sandbox::SandboxBuilder::chain_id(self, impl core::convert::Into<alloc::string::String>) -> Self
 pub async fn near_kit_sandbox::SandboxBuilder::fresh(self) -> core::result::Result<near_kit_sandbox::Sandbox, near_kit_sandbox::SandboxError>
-pub fn near_kit_sandbox::SandboxBuilder::root_account(self, impl near_account_id::into_account_id::TryIntoAccountId) -> Self
+pub fn near_kit_sandbox::SandboxBuilder::root_account(self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> Self
 pub async fn near_kit_sandbox::SandboxBuilder::shared(self) -> core::result::Result<&'static near_kit_sandbox::Sandbox, near_kit_sandbox::SandboxError>
 pub fn near_kit_sandbox::SandboxBuilder::version(self, impl core::convert::Into<alloc::string::String>) -> Self
-pub struct near_kit_sandbox::SandboxConfig
-impl near_kit_sandbox::SandboxConfig
-pub fn near_kit_sandbox::SandboxConfig::builder() -> near_kit_sandbox::SandboxBuilder
-pub async fn near_kit_sandbox::SandboxConfig::fresh() -> core::result::Result<near_kit_sandbox::Sandbox, near_kit_sandbox::SandboxError>
-pub async fn near_kit_sandbox::SandboxConfig::shared() -> core::result::Result<&'static near_kit_sandbox::Sandbox, near_kit_sandbox::SandboxError>
-pub const near_kit_sandbox::SANDBOX_ROOT_ACCOUNT: &str
+pub const near_kit_sandbox::SANDBOX_ROOT_ACCOUNT: &near_account_id::account_id_ref::AccountIdRef
 pub const near_kit_sandbox::SANDBOX_ROOT_SECRET_KEY: &str
+pub async fn near_kit_sandbox::fast_forward(&near_kit::client::rpc::RpcClient, u64) -> core::result::Result<(), near_kit_sandbox::SandboxError>
+pub async fn near_kit_sandbox::patch_state(&near_kit::client::rpc::RpcClient, serde_json::value::Value) -> core::result::Result<(), near_kit_sandbox::SandboxError>
