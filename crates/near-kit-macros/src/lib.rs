@@ -629,35 +629,29 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
     let client_name = format_ident!("{}Client", trait_name);
     let vis = &input.vis;
 
-    // Reject unsupported trait features
-    if let Some(unsafety) = input.unsafety {
+    let unsupported = [
+        (input.unsafety.map(|t| t.span()), "unsafe traits"),
+        (input.modifiers.auto_token.map(|t| t.span()), "auto traits"),
+        (
+            (!input.generics.params.is_empty()).then(|| input.generics.span()),
+            "generic parameters",
+        ),
+        (
+            input.generics.where_clause.as_ref().map(|w| w.span()),
+            "where clauses",
+        ),
+        (
+            (!input.supertraits.is_empty()).then(|| input.supertraits.span()),
+            "supertraits",
+        ),
+    ];
+    if let Some((span, what)) = unsupported
+        .into_iter()
+        .find_map(|(span, what)| Some((span?, what)))
+    {
         return Err(syn::Error::new(
-            unsafety.span(),
-            "#[near_kit::contract] does not support unsafe traits",
-        ));
-    }
-    if let Some(auto_token) = input.modifiers.auto_token {
-        return Err(syn::Error::new(
-            auto_token.span(),
-            "#[near_kit::contract] does not support auto traits",
-        ));
-    }
-    if !input.generics.params.is_empty() {
-        return Err(syn::Error::new(
-            input.generics.span(),
-            "#[near_kit::contract] does not support generic parameters",
-        ));
-    }
-    if let Some(where_clause) = &input.generics.where_clause {
-        return Err(syn::Error::new(
-            where_clause.span(),
-            "#[near_kit::contract] does not support where clauses",
-        ));
-    }
-    if !input.supertraits.is_empty() {
-        return Err(syn::Error::new(
-            input.supertraits.span(),
-            "#[near_kit::contract] does not support supertraits",
+            span,
+            format!("#[near_kit::contract] does not support {what}"),
         ));
     }
 
