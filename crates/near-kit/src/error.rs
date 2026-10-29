@@ -888,7 +888,7 @@ pub enum Error {
     /// actions, a state init or delegate action whose required receiver
     /// isn't the transaction's receiver, or a nested delegate action. Not a
     /// nearcore error; nothing reached the network.
-    #[error("Invalid transaction: {0}")]
+    #[error("Refused before signing: {0}")]
     Validation(String),
 
     /// A transaction's outcome had no usable result: an action failed, it
@@ -1517,5 +1517,18 @@ mod tests {
         // Structured tx validation errors are promoted out of `Error::Rpc`.
         let err: Error = RpcError::InvalidTx(InvalidTxError::Expired).into();
         assert!(err.as_rpc().is_none());
+    }
+
+    /// A local refusal and a node's rejection read differently in logs.
+    #[test]
+    fn validation_and_invalid_tx_display_apart() {
+        assert_eq!(
+            Error::Validation("transaction must have at least one action".to_string()).to_string(),
+            "Refused before signing: transaction must have at least one action"
+        );
+        assert_eq!(
+            Error::InvalidTx(Box::new(InvalidTxError::Expired)).to_string(),
+            "Invalid transaction: transaction has expired"
+        );
     }
 }

@@ -478,7 +478,7 @@ impl PreparedTransaction {
     ) -> Result<SignedDelegateAction, Error> {
         if self.actions.iter().any(Action::is_delegate) {
             return Err(Error::Validation(
-                "Delegate actions cannot contain nested signed delegate actions".to_string(),
+                "delegate actions cannot contain nested signed delegate actions".to_string(),
             ));
         }
 
@@ -673,7 +673,7 @@ impl<W: WaitLevel> IntoFuture for Tx<W> {
                 self.sender.signer().clone(),
                 self.receiver_id,
                 self.actions,
-                "Transaction must have at least one action",
+                "transaction must have at least one action",
             )?
             .send::<W>()
             .await
