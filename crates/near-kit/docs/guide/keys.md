@@ -354,19 +354,3 @@ key's public key for the nonce, the transaction and the signature, so a
 signer that rotates keys can return a different `SigningKey` from each
 call. `public_key` reports the key the next `key` call would return, and
 must have no side effects: no I/O, no prompt, no rotation.
-
-## See also
-
-- [`SecretKey`](crate::signer::SecretKey),
-  [`PublicKey`](crate::signer::PublicKey),
-  [`PublicKeyHandle`](crate::signer::PublicKeyHandle),
-  [`Signature`](crate::signer::Signature),
-  [`ParseKeyError`](crate::signer::ParseKeyError)
-- [`Signer`](crate::signer::Signer),
-  [`InMemorySigner`](crate::signer::InMemorySigner),
-  [`RotatingSigner`](crate::signer::RotatingSigner),
-  [`SigningKey`](crate::signer::SigningKey),
-  [`SigningBackend`](crate::signer::SigningBackend)
-- The loaders in [`signer`](crate::signer)
-- The [offline signing chapter](crate::guide::offline_signing) for signing
-  without a client, and NEP-413 messages

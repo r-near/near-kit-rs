@@ -268,14 +268,3 @@ payload yourself with
 [`VersionedDelegateActionPayload::get_hash`](crate::protocol::VersionedDelegateActionPayload::get_hash)
 and `into_signed`. The same receiver rule applies, and near-kit enforces it
 before signing.
-
-## See also
-
-- [`SigningNear::sign_delegate`](crate::SigningNear::sign_delegate),
-  [`DelegateOptions`](crate::transaction::DelegateOptions)
-- [`SignedDelegateAction`](crate::protocol::SignedDelegateAction),
-  [`DelegateAction`](crate::protocol::DelegateAction),
-  [`Action::delegate`](crate::protocol::Action::delegate)
-- [`SignedDelegateAction::verify`](crate::protocol::SignedDelegateAction::verify)
-- [`ActionErrorKind`](crate::protocol::ActionErrorKind) for the delegate
-  failure kinds

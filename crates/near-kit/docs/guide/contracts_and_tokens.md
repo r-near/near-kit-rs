@@ -348,14 +348,3 @@ failed `nft_on_transfer` the contract tries to return the token and the
 transaction succeeds. It can't return a token the receiver already moved,
 so check the `bool` the call returns: `false` means the token went back to
 the sender.
-
-## See also
-
-- [`contract`](crate::contract), [`Contract`](crate::Contract),
-  [`View`](crate::View), [`Call`](crate::Call),
-  [`ContractError`](crate::ContractError)
-- [`FungibleTokenClient`](crate::standards::FungibleTokenClient),
-  [`NonFungibleTokenClient`](crate::standards::NonFungibleTokenClient),
-  [`FtMetadata`](crate::standards::FtMetadata),
-  [`NftToken`](crate::standards::NftToken)
-- [`FunctionCall`](crate::transaction::FunctionCall)

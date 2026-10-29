@@ -272,16 +272,3 @@ near-kit always sends the level explicitly, and its defaults are:
 
 Each wait-level type maps to its status as the constant
 [`WaitLevel::STATUS`](crate::transaction::WaitLevel::STATUS).
-
-## See also
-
-- [`BlockReference`](crate::rpc::BlockReference),
-  [`Finality`](crate::rpc::Finality), [`View::at`](crate::View::at),
-  [`View::with_metadata`](crate::View::with_metadata)
-- [`WaitLevel`](crate::transaction::WaitLevel),
-  [`SigningNear::wait_until`](crate::SigningNear::wait_until),
-  [`SignedTransactionSend`](crate::transaction::SignedTransactionSend),
-  [`TransactionStatusQuery`](crate::rpc::TransactionStatusQuery)
-- [`SendTxResponse`](crate::rpc::SendTxResponse),
-  [`FinalExecutionOutcome`](crate::rpc::FinalExecutionOutcome)
-- [Timeouts](crate::guide::errors#timeouts) in the errors chapter

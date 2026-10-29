@@ -260,14 +260,3 @@ Track what you returned early on with
 [finality chapter](crate::guide::finality#fire-and-track)). The
 [meta-transactions chapter](crate::guide::meta_transactions) covers what a
 relayer should check before paying for a user's actions.
-
-## See also
-
-- [`SigningNear::max_nonce_retries`](crate::SigningNear::max_nonce_retries),
-  [`NearBuilder::max_nonce_retries`](crate::NearBuilder::max_nonce_retries)
-- [`RotatingSigner`](crate::signer::RotatingSigner),
-  [`Signer`](crate::signer::Signer)
-- [`Near::custom`](crate::Near::custom),
-  [`NearBuilder::chain_id`](crate::NearBuilder::chain_id)
-- [`InvalidTxError`](crate::protocol::InvalidTxError) for the rejection
-  variants

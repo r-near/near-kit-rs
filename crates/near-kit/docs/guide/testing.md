@@ -625,14 +625,3 @@ of the raw bytes the contract stores.
 
 The `near-kit-sandbox` [API documentation](https://docs.rs/near-kit-sandbox)
 covers the rest.
-
-## See also
-
-- [`Viewer`](crate::Viewer), [`TxSender`](crate::TxSender),
-  [`Contract`](crate::Contract), [`View`](crate::View),
-  [`Call`](crate::Call), [`ContractError`](crate::ContractError)
-- [`RpcTransport`](crate::rpc::RpcTransport),
-  [`TransportResponse`](crate::rpc::TransportResponse),
-  [`RetryConfig`](crate::rpc::RetryConfig)
-- The [contracts chapter](crate::guide::contracts_and_tokens) for the
-  `#[contract]` macro

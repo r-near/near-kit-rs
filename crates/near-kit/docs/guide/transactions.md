@@ -356,14 +356,3 @@ Each of these would otherwise reach the chain and fail there, after the
 signer had paid for it. Everything else is checked by the node: a rejected
 transaction is `Error::InvalidTx`, and an action that fails while running
 is a failed `Ok(outcome)`.
-
-## See also
-
-- [`Tx`](crate::transaction::Tx), [`SigningNear`](crate::SigningNear)
-- [`Action`](crate::protocol::Action),
-  [`FunctionCall`](crate::transaction::FunctionCall)
-- [`AccessKeyPermission`](crate::protocol::AccessKeyPermission),
-  [`PublishMode`](crate::protocol::PublishMode),
-  [`GlobalContractId`](crate::protocol::GlobalContractId)
-- [`StateInit`](crate::protocol::StateInit),
-  [`UniversalStateInit`](crate::protocol::UniversalStateInit)

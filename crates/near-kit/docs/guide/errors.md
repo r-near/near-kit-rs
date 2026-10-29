@@ -387,17 +387,3 @@ Without the second impl, write `.await.map_err(near_kit::Error::from)?`.
 Every near-kit error implements `std::error::Error`, including
 `ContractError<E>` whenever `E` is `Debug + Display`, so `?` into
 `Box<dyn std::error::Error>` or `anyhow::Error` works without either step.
-
-## See also
-
-- [`Error`](crate::Error), [`RpcError`](crate::rpc::RpcError),
-  [`ContractError`](crate::ContractError),
-  [`OutcomeError`](crate::rpc::OutcomeError)
-- [`InvalidTxError`](crate::protocol::InvalidTxError),
-  [`ActionError`](crate::protocol::ActionError),
-  [`TimeoutCause`](crate::rpc::TimeoutCause)
-- [`RetryConfig`](crate::rpc::RetryConfig),
-  [`NearBuilder::retry_config`](crate::NearBuilder::retry_config)
-- [`FinalExecutionOutcome`](crate::rpc::FinalExecutionOutcome)
-- The [nonces](crate::guide::nonces) and [finality](crate::guide::finality)
-  chapters

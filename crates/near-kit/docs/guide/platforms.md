@@ -265,13 +265,3 @@ tracing_subscriber::fmt()
 
 The feature works on every target; in the browser, use a subscriber that
 writes to the console.
-
-## See also
-
-- [`RpcTransport`](crate::rpc::RpcTransport),
-  [`TransportResponse`](crate::rpc::TransportResponse),
-  [`NearBuilder::transport`](crate::NearBuilder::transport)
-- [`MaybeSend`](crate::MaybeSend), [`MaybeSync`](crate::MaybeSync)
-- [`near-kit-primitives`](https://docs.rs/near-kit-primitives)
-- The [testing chapter](crate::guide::testing) for transports that answer
-  from a test

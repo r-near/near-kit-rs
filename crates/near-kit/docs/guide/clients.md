@@ -223,13 +223,3 @@ let genesis: serde_json::Value = near
 # Ok(())
 # }
 ```
-
-## See also
-
-- [`Near`](crate::Near), [`NearBuilder`](crate::NearBuilder),
-  [`SigningNear`](crate::SigningNear)
-- [`RpcClient`](crate::rpc::RpcClient),
-  [`RetryConfig`](crate::rpc::RetryConfig),
-  [`ReqwestTransport`](crate::rpc::ReqwestTransport),
-  [`RpcTransport`](crate::rpc::RpcTransport)
-- The [keys chapter](crate::guide::keys) for loading signers

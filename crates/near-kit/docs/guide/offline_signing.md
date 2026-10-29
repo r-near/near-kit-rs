@@ -265,13 +265,3 @@ signatures older than five minutes or from the future. That layout is a
 near-kit convention; NEP-413 itself treats the nonce as opaque. For apps
 with their own nonce scheme, pass `NonceValidation::None` and handle replay
 protection yourself, for example by remembering nonces you have accepted.
-
-## See also
-
-- [`SigningNear::sign`](crate::SigningNear::sign),
-  [`Near::send_signed`](crate::Near::send_signed)
-- [`Transaction`](crate::protocol::Transaction),
-  [`SignedTransaction`](crate::protocol::SignedTransaction)
-- [`SigningKey`](crate::signer::SigningKey),
-  [`Signer`](crate::signer::Signer)
-- [`standards::nep413`](crate::standards::nep413)
