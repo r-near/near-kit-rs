@@ -1634,10 +1634,11 @@ fn with_timeout_tx_hash(mut err: RpcError, tx_hash: CryptoHash) -> RpcError {
     err
 }
 
-/// A 4xx is a deterministic client error, so a catch-all [`RpcError::Rpc`]
-/// decoded from a 4xx body becomes a non-retryable `Network` error (as an
-/// undecodable 4xx body would). Typed variants and 5xx errors pass through
-/// for `is_retryable` to judge.
+/// A catch-all [`RpcError::Rpc`] decoded from a 4xx body becomes a `Network`
+/// error that keeps the status's own retry classification (as an undecodable
+/// 4xx body would): a 408 or 429 is retried, any other 4xx is a deterministic
+/// client error. Typed variants and 5xx errors pass through for
+/// `is_retryable` to judge.
 ///
 /// JSON-RPC "method not found" (`-32601`) stays an `Rpc` error at any status
 /// (nearcore sends it with HTTP 400, JSON-RPC-over-HTTP with 404), so a
@@ -1646,7 +1647,11 @@ fn with_timeout_tx_hash(mut err: RpcError, tx_hash: CryptoHash) -> RpcError {
 fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) -> RpcError {
     match err {
         RpcError::Rpc { code, .. } if code != METHOD_NOT_FOUND && (400..500).contains(&status) => {
-            RpcError::network(format!("HTTP {}: {}", status, body), Some(status), false)
+            RpcError::network(
+                format!("HTTP {}: {}", status, body),
+                Some(status),
+                is_retryable_status(status),
+            )
         }
         other => other,
     }
@@ -4327,10 +4332,10 @@ mod tests {
     }
 
     /// Non-2xx responses through the real `request` path: nearcore's typed
-    /// errors come through, a 4xx whose cause near-kit doesn't know stays a
-    /// non-retryable `Network` error (#189), a "method not found" stays an
-    /// `Rpc` error at any status, and a 5xx keeps the body's own retry
-    /// classification.
+    /// errors come through, a 4xx whose cause near-kit doesn't know becomes a
+    /// `Network` error with the status's retry classification (#189), a
+    /// "method not found" stays an `Rpc` error at any status, and a 5xx keeps
+    /// the body's own retry classification.
     #[tokio::test]
     async fn test_non_2xx_responses_decode_and_keep_http_retry_classification() {
         let handler = |cause, info, data: &str| rpc_error(Some(cause), info, data.into());
@@ -4352,7 +4357,7 @@ mod tests {
             },
         }))
         .unwrap();
-        let cases: [(u16, Vec<u8>, usize, Check); 12] = [
+        let cases: [(u16, Vec<u8>, usize, Check); 15] = [
             (
                 422,
                 handler(
@@ -4427,6 +4432,58 @@ mod tests {
                 rpc_error(None, serde_json::json!({}), "details".into()),
                 3,
                 |e| matches!(e, RpcError::Rpc { .. }),
+            ),
+            // A rate limiter or gateway timeout that speaks JSON-RPC keeps
+            // its status's retry classification.
+            (
+                429,
+                rpc_error(None, serde_json::json!({}), "Too many requests".into()),
+                3,
+                |e| {
+                    matches!(
+                        e,
+                        RpcError::Network {
+                            status_code: Some(429),
+                            retryable: true,
+                            ..
+                        }
+                    )
+                },
+            ),
+            (
+                429,
+                br#"{"jsonrpc":"2.0","id":0,"error":{"code":-32005,"message":"rate limited"}}"#
+                    .to_vec(),
+                3,
+                |e| {
+                    matches!(
+                        e,
+                        RpcError::Network {
+                            status_code: Some(429),
+                            retryable: true,
+                            ..
+                        }
+                    )
+                },
+            ),
+            (
+                408,
+                rpc_error(
+                    Some("SOME_UNMAPPED_CAUSE"),
+                    serde_json::json!({}),
+                    "details".into(),
+                ),
+                3,
+                |e| {
+                    matches!(
+                        e,
+                        RpcError::Network {
+                            status_code: Some(408),
+                            retryable: true,
+                            ..
+                        }
+                    )
+                },
             ),
             // "Method not found" stays itself, so the nonce cache can fall
             // back to the chain id; it is never retried.
