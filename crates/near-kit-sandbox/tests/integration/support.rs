@@ -2,8 +2,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use near_kit::protocol::Action;
 use near_kit::signer::{InMemorySigner, SecretKey};
-use near_kit::transaction::Final;
-use near_kit::{AccountId, NearToken, SigningNear};
+use near_kit::transaction::{Final, FunctionCall};
+use near_kit::{AccountId, Error, Gas, NearToken, SigningNear};
 use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, Sandbox};
 
 static ACCOUNT_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -67,6 +67,48 @@ pub(crate) async fn funded_account(
 
     let client = client_for(sandbox, &account_id, &secret_key);
     (client, account_id, secret_key)
+}
+
+/// Deploy and initialize a fungible token whose whole supply (1M tokens, 18
+/// decimals) belongs to `owner_id`; returns the contract account and its key.
+pub(crate) async fn deploy_ft_contract(
+    near: &SigningNear,
+    owner_id: &AccountId,
+) -> Result<(AccountId, SecretKey), Error> {
+    let ft_key = SecretKey::generate_ed25519();
+    let ft_id = unique_account("token");
+
+    near.wait_until::<Final>()
+        .transaction(&ft_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(50)))
+        .add_action(Action::add_full_access_key(ft_key.public_key()))
+        .add_action(Action::deploy_contract(fungible_token_wasm()))
+        .await?
+        .result()?;
+
+    near.near()
+        .with_signer(InMemorySigner::new(&ft_id, ft_key.clone()))
+        .wait_until::<Final>()
+        .transaction(&ft_id)
+        .add_action(
+            FunctionCall::new("new")
+                .args(serde_json::json!({
+                    "owner_id": owner_id.to_string(),
+                    "total_supply": "1000000000000000000000000",
+                    "metadata": {
+                        "spec": "ft-1.0.0",
+                        "name": "Test Token",
+                        "symbol": "TEST",
+                        "decimals": 18
+                    }
+                }))
+                .gas(Gas::from_tgas(50)),
+        )
+        .await?
+        .result()?;
+
+    Ok((ft_id, ft_key))
 }
 
 pub(crate) fn guestbook_wasm() -> Vec<u8> {
