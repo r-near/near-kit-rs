@@ -214,8 +214,10 @@ pub enum OutcomeError {
     #[error("Invalid transaction: {0}")]
     InvalidTx(Box<InvalidTxError>),
 
-    /// An action failed during execution.
-    #[error("Action error: {0}")]
+    /// An action failed during execution. Displays as the action error, the
+    /// same text as
+    /// [`FinalExecutionOutcome::failure_message`](crate::rpc::FinalExecutionOutcome::failure_message).
+    #[error("{0}")]
     ActionFailed(Box<ActionError>),
 
     /// The transaction has not finished with a return value.

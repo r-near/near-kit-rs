@@ -2712,6 +2712,16 @@ mod tests {
         assert_eq!(success.failure_message(), None);
     }
 
+    /// `failure_message()` and `result()` describe an action failure in the
+    /// same words, nearcore's: `Action #<index>: <kind>`.
+    #[test]
+    fn test_failure_message_and_result_agree() {
+        let outcome = outcome_with_receipts(panicked("boom"), &[]);
+        let message = outcome.failure_message().unwrap();
+        assert_eq!(message, "Action #0: execution error: boom");
+        assert_eq!(outcome.result().unwrap_err().to_string(), message);
+    }
+
     #[test]
     fn test_execution_status_unknown() {
         let json = serde_json::json!("Unknown");
