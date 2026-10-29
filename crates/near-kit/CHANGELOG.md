@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.20.1...near-kit-v0.21.0) - 2026-10-29
+
+### Added
+
+- [**breaking**] make outcomes must_use and add the helpers a relayer needs ([#372](https://github.com/r-near/near-kit-rs/pull/372))
+- [**breaking**] rebuild the 0.30 API on two traits, Viewer and TxSender ([#368](https://github.com/r-near/near-kit-rs/pull/368))
+- let #[contract] bindings build with near-kit-primitives alone ([#367](https://github.com/r-near/near-kit-rs/pull/367))
+
+### Fixed
+
+- show only the RPC URL's scheme and host in Debug and tracing, and don't block or panic on WASI and sandbox failures ([#385](https://github.com/r-near/near-kit-rs/pull/385))
+- classify 4xx JSON-RPC errors by code and status, keep URL secrets out of Debug, and publish only from the release PR ([#382](https://github.com/r-near/near-kit-rs/pull/382))
+- [**breaking**] decode RPC outcomes as nearcore sends them, and retry only transient errors ([#376](https://github.com/r-near/near-kit-rs/pull/376))
+- [**breaking**] read and write keys in the forms nearcore, near-cli-rs and near-api-js use ([#374](https://github.com/r-near/near-kit-rs/pull/374))
+- [**breaking**] share one nonce sequence per chain, account and key ([#373](https://github.com/r-near/near-kit-rs/pull/373))
+
+### Other
+
+- [**breaking**] trim the public API before 0.30.0-rc.1, and fix what new users trip on ([#383](https://github.com/r-near/near-kit-rs/pull/383))
+- [**breaking**] cut 10k lines of duplicated code, tests and docs ([#381](https://github.com/r-near/near-kit-rs/pull/381))
+- rewrite the READMEs, crate front pages and MIGRATION.md for 0.30 ([#380](https://github.com/r-near/near-kit-rs/pull/380))
+- rewrite the examples as runnable tasks and run them in CI ([#379](https://github.com/r-near/near-kit-rs/pull/379))
+- add a guide module with eleven task-oriented chapters ([#378](https://github.com/r-near/near-kit-rs/pull/378))
+- document every public item and build the docs with -D warnings ([#377](https://github.com/r-near/near-kit-rs/pull/377))
+- [**breaking**] settle the 0.30 names and error variants ([#371](https://github.com/r-near/near-kit-rs/pull/371))
+- move protocol types into near-kit-primitives, a client-free crate ([#366](https://github.com/r-near/near-kit-rs/pull/366))
+- [**breaking**] give client-free APIs their own error types ([#365](https://github.com/r-near/near-kit-rs/pull/365))
+
 ## [0.20.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.20.0...near-kit-v0.20.1) - 2026-10-27
 
 ### Other

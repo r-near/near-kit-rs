@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.20.1...near-kit-primitives-v0.21.0) - 2026-10-29
+
+### Fixed
+
+- classify 4xx JSON-RPC errors by code and status, keep URL secrets out of Debug, and publish only from the release PR ([#382](https://github.com/r-near/near-kit-rs/pull/382))
+- [**breaking**] decode RPC outcomes as nearcore sends them, and retry only transient errors ([#376](https://github.com/r-near/near-kit-rs/pull/376))
+- [**breaking**] read and write keys in the forms nearcore, near-cli-rs and near-api-js use ([#374](https://github.com/r-near/near-kit-rs/pull/374))
+
+### Other
+
+- [**breaking**] trim the public API before 0.30.0-rc.1, and fix what new users trip on ([#383](https://github.com/r-near/near-kit-rs/pull/383))
+- [**breaking**] cut 10k lines of duplicated code, tests and docs ([#381](https://github.com/r-near/near-kit-rs/pull/381))
+- rewrite the READMEs, crate front pages and MIGRATION.md for 0.30 ([#380](https://github.com/r-near/near-kit-rs/pull/380))
+- rewrite the examples as runnable tasks and run them in CI ([#379](https://github.com/r-near/near-kit-rs/pull/379))
+- document every public item and build the docs with -D warnings ([#377](https://github.com/r-near/near-kit-rs/pull/377))
+
 This is the first supported release of near-kit-primitives. It holds
 near-kit's protocol types, keys, signers, the `Viewer`/`TxSender` traits and
 (with `contracts`) `#[contract]`, with no RPC client, async runtime or HTTP
