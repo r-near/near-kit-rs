@@ -2240,6 +2240,8 @@ mod tests {
         Close,
         /// Read the whole request and answer `{"ok": true}`.
         Respond,
+        /// Read the whole request and answer with bytes that aren't HTTP.
+        Garbage,
     }
 
     /// Serve one connection per `script` entry, in order, then stop
@@ -2299,6 +2301,10 @@ mod tests {
                             body,
                         )
                         .unwrap();
+                    }
+                    Conn::Garbage => {
+                        let _ = heads_tx.send(read_request(&mut stream));
+                        stream.write_all(b"NOT HTTP AT ALL\r\n\r\n").unwrap();
                     }
                 }
             }
@@ -2392,6 +2398,84 @@ mod tests {
             .unwrap();
         assert_eq!(response, serde_json::json!({ "ok": true }));
         server.join().unwrap();
+    }
+
+    /// A transport failure that isn't a refused, dropped or timed-out
+    /// connection (here a reply that isn't HTTP) is deterministic: returned
+    /// after one attempt.
+    #[tokio::test]
+    async fn test_malformed_http_response_is_not_retried() {
+        // A retry would find the listener gone and fail to connect, which
+        // *is* retryable, so a wrong classification shows up either way.
+        let (url, server, heads) = scripted_server(vec![Conn::Garbage]);
+
+        let error = test_client(&url, fast_retries(2))
+            .request::<_, serde_json::Value>("status", ())
+            .await
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(
+            matches!(&error, RpcError::Http(e) if !e.is_connect()),
+            "{error:?}"
+        );
+        assert!(!error.is_retryable(), "{error:?}");
+        assert_eq!(heads.try_iter().count(), 1);
+    }
+
+    /// The testing guide promises that a `-32603` internal error is re-sent.
+    #[tokio::test]
+    async fn test_internal_error_code_is_retried() {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": { "code": -32603, "message": "Internal error" },
+        }))
+        .unwrap();
+        let transport = CountingTransport::new(200, body);
+        let error = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(2),
+        )
+        .request::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(error, RpcError::Rpc { code: -32603, .. }),
+            "{error:?}"
+        );
+        assert_eq!(transport.calls(), 3);
+    }
+
+    /// The `query` endpoint can report an error inside `result`; only a
+    /// `query` reads it as one, and it isn't retried.
+    #[tokio::test]
+    async fn test_query_error_inside_result_is_an_error_for_query_only() {
+        let body = rpc_result(serde_json::json!({
+            "error": "access key ed25519:11111111111111111111111111111111 does not exist while viewing",
+            "logs": [],
+            "block_height": 1,
+            "block_hash": "11111111111111111111111111111111",
+        }));
+        let transport = CountingTransport::new(200, body.clone());
+        let error = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(2),
+        )
+        .request::<_, serde_json::Value>("query", serde_json::json!({}))
+        .await
+        .unwrap_err();
+        assert!(!error.is_retryable(), "{error:?}");
+        assert!(error.to_string().contains("does not exist"), "{error}");
+        assert_eq!(transport.calls(), 1);
+
+        let result: serde_json::Value = CountingTransport::new(200, body)
+            .client()
+            .request("block", serde_json::json!({}))
+            .await
+            .unwrap();
+        assert!(result["error"].is_string());
     }
 
     /// `Debug` output (an app's `#[derive(Debug)]` state, `?client` in a log)

@@ -1783,6 +1783,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn max_nonce_retries_bounds_every_retried_rejection() {
+        // Each rejection the send loop retries is sent at most
+        // `max_nonce_retries + 1` times ("0 sends once"), then returned.
+        type Rejection = fn() -> Vec<u8>;
+        let rejections: [(&str, Rejection); 3] = [
+            ("InvalidNonce", || invalid_nonce_body(6, 5)),
+            ("Expired", expired_body),
+            ("NonceTooLarge", || nonce_too_large_body(6, 6)),
+        ];
+        for (name, rejection) in rejections {
+            for retries in [0, 1, 3] {
+                // More rejections than the budget allows, so an off-by-one
+                // or an unbounded loop shows up as an extra send.
+                let replies = (0..retries + 3).map(|_| rejection()).collect();
+                let transport = ScriptedNonceTransport::new(vec![(5, 100)], replies);
+                let near = crate::Near::custom("http://budget.invalid", "budget")
+                    .transport(transport.clone())
+                    .retry_config(crate::rpc::RetryConfig::none())
+                    .max_nonce_retries(retries)
+                    .build()
+                    .with_signer(InMemorySigner::new(
+                        account!("alice.testnet"),
+                        SecretKey::generate_ed25519(),
+                    ));
+
+                let error = near
+                    .wait_until::<Submitted>()
+                    .transaction(account!("bob.testnet"))
+                    .add_action(Action::transfer(NearToken::from_yoctonear(1)))
+                    .await
+                    .expect_err("every attempt is rejected");
+
+                let sends = transport.sent.lock().unwrap().len();
+                assert_eq!(sends, retries as usize + 1, "{name}, {retries} retries");
+                assert!(
+                    matches!(&error, Error::InvalidTx(e) if format!("{e:?}").starts_with(name)),
+                    "{name}, {retries} retries: {error:?}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn sign_delegate_expires_200_blocks_ahead_by_default() {
         // The mock node is at height 100.
         let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
@@ -1807,6 +1850,66 @@ mod tests {
         assert_eq!(expiry(offset(5)).await, 105);
         // "Never expire" saturates; it must not wrap below the current height.
         assert_eq!(expiry(offset(u64::MAX)).await, u64::MAX);
+    }
+
+    #[tokio::test]
+    async fn a_bootstrap_without_bootstrap_nonce_keeps_the_access_key_error() {
+        // The key view misses the key, but the account view shows an
+        // initialized account (no `bootstrap_nonce`): the state init was
+        // already applied, so the original error stands.
+        struct InitializedAccount;
+        impl RpcTransport for InitializedAccount {
+            fn post_json(
+                &self,
+                _url: &str,
+                body: Vec<u8>,
+            ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+                let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                let body = match request["method"].as_str().unwrap() {
+                    "EXPERIMENTAL_view_access_key" => rpc_error(
+                        Some("UNKNOWN_ACCESS_KEY"),
+                        serde_json::json!({
+                            "public_key": request["params"]["public_key"],
+                            "block_height": 100,
+                            "block_hash": "11111111111111111111111111111111",
+                        }),
+                        serde_json::Value::Null,
+                    ),
+                    "EXPERIMENTAL_view_account" => rpc_result(serde_json::json!({
+                        "amount": "1000000000000000000000000",
+                        "locked": "0",
+                        "code_hash": "11111111111111111111111111111111",
+                        "storage_usage": 100,
+                        "block_height": 100,
+                        "block_hash": CryptoHash::from_bytes([2; 32]),
+                    })),
+                    other => panic!("unexpected RPC method {other}"),
+                };
+                Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+            }
+        }
+
+        let key = SecretKey::generate_ed25519();
+        let state_init =
+            crate::protocol::UniversalStateInitV1::new().with_access_key(key.public_key());
+        let account_id =
+            crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
+        let near = crate::Near::custom("http://initialized.invalid", "test")
+            .transport(InitializedAccount)
+            .build()
+            .with_signer(InMemorySigner::new(account_id.clone(), key));
+
+        let error = near
+            .sign(
+                &account_id,
+                vec![Action::universal_state_init(state_init, NearToken::ZERO)],
+            )
+            .await
+            .expect_err("no bootstrap nonce, no nonce");
+        assert!(
+            matches!(&error, Error::Rpc(e) if matches!(**e, RpcError::AccessKeyNotFound { .. })),
+            "{error:?}"
+        );
     }
 
     #[tokio::test]
