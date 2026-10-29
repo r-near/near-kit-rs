@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.14.0...near-kit-macros-v0.15.0-rc.1) - 2026-10-29
+
+Use this crate through `near-kit` or `near-kit-primitives` with the `contracts`
+feature, not directly.
+
+- [**breaking**] Generates `<Name>Client<C>`, generic over any `Viewer`/`TxSender` backend (`C = Near` with near-kit's `rpc`) ([#368](https://github.com/r-near/near-kit-rs/pull/368)).
+- [**breaking**] Rejects forms it used to mis-generate: ignored `#[call]` return types, pattern arguments, generic, lifetime or `async` methods, and the reserved names `contract_id`, `client` and `clone`. `#[cfg]` on a method now applies to the generated items ([#375](https://github.com/r-near/near-kit-rs/pull/375)).
+- [**breaking**] Raw method names are sent without `r#` (`fn r#type` sends `type`) ([#375](https://github.com/r-near/near-kit-rs/pull/375)).
+- [**breaking**] Removed the standalone `call`/`json`/`borsh` markers.
+- Works with `near-kit-primitives` alone ([#367](https://github.com/r-near/near-kit-rs/pull/367)).
+
 ## [0.14.0](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.13.1...near-kit-macros-v0.14.0) - 2026-10-13
 
 ### Fixed

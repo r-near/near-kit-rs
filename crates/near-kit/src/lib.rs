@@ -20,14 +20,14 @@
 //! are written against the two traits, so they run on your own backend too.
 //!
 //! The offline core (types, keys, signing, transaction building) is also
-//! published alone as [`near-kit-primitives`](https://docs.rs/near-kit-primitives);
+//! published alone as [`near-kit-primitives`](https://docs.rs/near-kit-primitives/0.30.0-rc.1);
 //! near-kit re-exports it at the same paths. Tests against a local node use
-//! [`near-kit-sandbox`](https://docs.rs/near-kit-sandbox).
+//! [`near-kit-sandbox`](https://docs.rs/near-kit-sandbox/0.30.0-rc.1).
 //!
 //! ## Quick start
 //!
 //! ```sh
-//! cargo add near-kit
+//! cargo add near-kit@0.30.0-rc.1
 //! cargo add tokio --features macros,rt-multi-thread
 //! ```
 //!
@@ -89,7 +89,7 @@
 #![cfg_attr(feature = "rpc", doc = "[guide]: crate::guide")]
 #![cfg_attr(
     not(feature = "rpc"),
-    doc = "[guide]: https://docs.rs/near-kit/latest/near_kit/guide/index.html"
+    doc = "[guide]: https://docs.rs/near-kit/0.30.0-rc.1/near_kit/guide/index.html"
 )]
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
