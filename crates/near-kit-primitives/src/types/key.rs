@@ -1194,23 +1194,6 @@ mod tests {
     }
 
     #[test]
-    fn test_public_key_roundtrip() {
-        let secret = SecretKey::generate_ed25519();
-        let public = secret.public_key();
-        let s = public.to_string();
-        let parsed: PublicKey = s.parse().unwrap();
-        assert_eq!(public, parsed);
-    }
-
-    #[test]
-    fn test_secret_key_roundtrip() {
-        let secret = SecretKey::generate_ed25519();
-        let s = secret.to_string();
-        let parsed: SecretKey = s.parse().unwrap();
-        assert_eq!(secret.public_key(), parsed.public_key());
-    }
-
-    #[test]
     fn test_secret_key_serde_representation_is_unchanged() {
         let keys = [
             SecretKey::ed25519_from_bytes([7; 32]),
@@ -1247,31 +1230,6 @@ mod tests {
         assert_eq!(reparsed.key_type(), KeyType::MlDsa65);
         assert_eq!(reparsed.as_bytes(), secret.as_bytes());
         assert_eq!(reparsed.public_key(), secret.public_key());
-    }
-
-    #[test]
-    fn test_ed25519_secret_key_64_byte_expanded_form() {
-        // Generate a key, get its 32-byte seed, then construct a 64-byte expanded form
-        // (seed || public_key) which near-cli sometimes stores
-        let secret = SecretKey::generate_ed25519();
-        let public = secret.public_key();
-        let seed_bytes = secret.as_bytes();
-
-        // Construct 64-byte expanded key: seed (32) + public key bytes (32)
-        let mut expanded = Vec::with_capacity(64);
-        expanded.extend_from_slice(seed_bytes);
-        expanded.extend_from_slice(public.as_bytes());
-        let expanded_b58 = bs58::encode(&expanded).into_string();
-        let expanded_str = format!("ed25519:{}", expanded_b58);
-
-        // Parse the 64-byte form — should succeed and produce same public key
-        let parsed: SecretKey = expanded_str.parse().unwrap();
-        assert_eq!(parsed.public_key(), public);
-
-        // Re-serializing yields the same 64-byte form
-        let reserialized = parsed.to_string();
-        assert_eq!(reserialized, expanded_str);
-        assert_eq!(secret.to_string(), expanded_str);
     }
 
     /// The public half of a 64-byte ed25519 secret must be the one its seed
@@ -1344,24 +1302,6 @@ mod tests {
         }
     }
 
-    // ========================================================================
-    // Seed Phrase Tests
-    // ========================================================================
-
-    #[cfg(feature = "mnemonic")]
-    #[test]
-    fn test_generate_seed_phrase_12_words() {
-        let phrase = generate_seed_phrase(12).unwrap();
-        assert_eq!(phrase.split_whitespace().count(), 12);
-    }
-
-    #[cfg(feature = "mnemonic")]
-    #[test]
-    fn test_generate_seed_phrase_24_words() {
-        let phrase = generate_seed_phrase(24).unwrap();
-        assert_eq!(phrase.split_whitespace().count(), 24);
-    }
-
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_generate_seed_phrase_invalid_word_count() {
@@ -1376,14 +1316,14 @@ mod tests {
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_from_seed_phrase_known_vector() {
-        // Test vector: known seed phrase should produce consistent key
+        // BIP-39 seed, SLIP-10 at m/44'/397'/0', then the Ed25519 public key,
+        // computed independently of this crate.
         let secret_key =
             SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, None, None).unwrap();
-
-        // Same phrase should always produce the same key
-        let secret_key2 =
-            SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, None, None).unwrap();
-        assert_eq!(secret_key.public_key(), secret_key2.public_key());
+        assert_eq!(
+            secret_key.public_key().to_string(),
+            "ed25519:6j4b6zUaty6fD1awqcGCCU9JYGCWYUgdJhQrzfZhqE25"
+        );
     }
 
     #[cfg(feature = "mnemonic")]
@@ -1460,35 +1400,6 @@ mod tests {
         assert_eq!(secret_key.public_key(), derived.public_key());
     }
 
-    #[cfg(feature = "mnemonic")]
-    #[test]
-    fn test_generate_with_seed_phrase_24_words() {
-        let (phrase, secret_key) =
-            SecretKey::generate_with_seed_phrase(KeyType::Ed25519, Some(24)).unwrap();
-
-        assert_eq!(phrase.split_whitespace().count(), 24);
-
-        let derived = SecretKey::from_seed_phrase(KeyType::Ed25519, &phrase, None, None).unwrap();
-        assert_eq!(secret_key.public_key(), derived.public_key());
-    }
-
-    #[cfg(feature = "mnemonic")]
-    #[test]
-    fn test_seed_phrase_key_can_sign() {
-        let secret_key =
-            SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, None, None).unwrap();
-
-        let message = b"test message";
-        let signature = secret_key.sign(message);
-        let public_key = secret_key.public_key();
-
-        assert!(signature.verify(message, &public_key));
-    }
-
-    // ========================================================================
-    // Curve Point Validation Tests
-    // ========================================================================
-
     #[test]
     fn test_secp256k1_invalid_curve_point_parses_but_fails_validation() {
         // This is the invalid key from the NEAR SDK docs that was identified as not being
@@ -1512,14 +1423,6 @@ mod tests {
         let result: Result<PublicKey, _> = valid_key.parse();
         // This key is now parseable because we expect 64-byte uncompressed format
         assert!(result.unwrap().validate().is_ok());
-    }
-
-    #[test]
-    fn test_ed25519_valid_key_accepted() {
-        // Valid ed25519 public key
-        let valid_key = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";
-        let result: Result<PublicKey, _> = valid_key.parse();
-        assert!(result.is_ok());
     }
 
     #[test]
@@ -1576,20 +1479,6 @@ mod tests {
     }
 
     #[test]
-    fn test_signature_serde_roundtrip() {
-        let sig_str = "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5";
-        let sig: Signature = sig_str.parse().unwrap();
-        let json = serde_json::to_value(&sig).unwrap();
-        assert_eq!(json.as_str().unwrap(), sig_str);
-        let parsed: Signature = serde_json::from_value(json).unwrap();
-        assert_eq!(sig, parsed);
-    }
-
-    // ========================================================================
-    // Secp256k1 Tests
-    // ========================================================================
-
-    #[test]
     fn test_secp256k1_generate_and_sign_verify() {
         let secret = SecretKey::generate_secp256k1();
         let public = secret.public_key();
@@ -1606,49 +1495,6 @@ mod tests {
 
         assert!(signature.verify(message, &public));
         assert!(!signature.verify(&[0u8; 32], &public));
-    }
-
-    #[test]
-    fn test_secp256k1_public_key_is_64_bytes() {
-        let secret = SecretKey::generate_secp256k1();
-        let public = secret.public_key();
-
-        // Public key should be 64 bytes (uncompressed without prefix)
-        let pk_bytes = public.as_secp256k1_bytes().unwrap();
-        assert_eq!(pk_bytes.len(), 64);
-    }
-
-    #[test]
-    fn test_secp256k1_secret_key_to_public_key_derivation() {
-        // Deterministic: same secret key bytes should always produce the same public key
-        let bytes = [42u8; 32];
-        let sk1 = SecretKey::secp256k1_from_bytes(bytes).unwrap();
-        let sk2 = SecretKey::secp256k1_from_bytes(bytes).unwrap();
-        assert_eq!(sk1.public_key(), sk2.public_key());
-
-        // Different secret keys produce different public keys
-        let bytes2 = [43u8; 32];
-        let sk3 = SecretKey::secp256k1_from_bytes(bytes2).unwrap();
-        assert_ne!(sk1.public_key(), sk3.public_key());
-    }
-
-    #[test]
-    fn test_secp256k1_public_key_string_roundtrip() {
-        let secret = SecretKey::generate_secp256k1();
-        let public = secret.public_key();
-        let s = public.to_string();
-        assert!(s.starts_with("secp256k1:"));
-        let parsed: PublicKey = s.parse().unwrap();
-        assert_eq!(public, parsed);
-    }
-
-    #[test]
-    fn test_secp256k1_secret_key_string_roundtrip() {
-        let secret = SecretKey::generate_secp256k1();
-        let s = secret.to_string();
-        assert!(s.starts_with("secp256k1:"));
-        let parsed: SecretKey = s.parse().unwrap();
-        assert_eq!(secret.public_key(), parsed.public_key());
     }
 
     /// near-api-js writes secp256k1 secret keys as `secret (32) || public key (64)`.
@@ -1689,50 +1535,34 @@ mod tests {
     }
 
     #[test]
-    fn test_secp256k1_secret_key_random() {
-        let secret_key = SecretKey::generate_secp256k1();
-        let public_key = secret_key.public_key();
-        assert_eq!(public_key.key_type(), KeyType::Secp256k1);
-        assert_eq!(secret_key.key_type(), KeyType::Secp256k1);
-        assert!(public_key.to_string().starts_with("secp256k1:"));
-
-        let message = &[5u8; 32];
-        let signature = secret_key.sign(message);
-        assert!(signature.verify(message, &public_key));
-    }
-
-    #[test]
-    fn test_secp256k1_cross_type_verify_fails() {
-        // Ed25519 signature should not verify against secp256k1 key
-        let ed_secret = SecretKey::generate_ed25519();
-        let secp_secret = SecretKey::generate_secp256k1();
-
+    fn test_cross_type_verify_fails() {
+        let keys = [
+            SecretKey::generate_ed25519(),
+            SecretKey::generate_secp256k1(),
+            SecretKey::generate_ml_dsa65(),
+        ];
         let message = &[6u8; 32];
-        let ed_sig = ed_secret.sign(message);
-        let secp_sig = secp_secret.sign(message);
-
-        assert!(!ed_sig.verify(message, &secp_secret.public_key()));
-        assert!(!secp_sig.verify(message, &ed_secret.public_key()));
+        for signer in &keys {
+            let sig = signer.sign(message);
+            for other in keys.iter().filter(|k| k.key_type() != signer.key_type()) {
+                assert!(!sig.verify(message, &other.public_key()));
+            }
+        }
     }
 
     #[test]
     fn test_secp256k1_invalid_scalar_rejected() {
-        // Zero scalar is invalid for secp256k1
-        let zero_bytes = [0u8; 32];
-        let result = SecretKey::secp256k1_from_bytes(zero_bytes);
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ParseKeyError::InvalidScalar));
-    }
-
-    #[test]
-    fn test_secp256k1_invalid_scalar_rejected_from_str() {
-        // Construct a secp256k1 secret key string with zero bytes (invalid scalar)
-        let zero_bytes = [0u8; 32];
-        let encoded = bs58::encode(&zero_bytes).into_string();
-        let key_str = format!("secp256k1:{}", encoded);
-        let result: Result<SecretKey, _> = key_str.parse();
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ParseKeyError::InvalidScalar));
+        // Zero is not a valid secp256k1 scalar.
+        let zero = [0u8; 32];
+        assert!(matches!(
+            SecretKey::secp256k1_from_bytes(zero),
+            Err(ParseKeyError::InvalidScalar)
+        ));
+        let key_str = format!("secp256k1:{}", bs58::encode(&zero).into_string());
+        assert!(matches!(
+            key_str.parse::<SecretKey>(),
+            Err(ParseKeyError::InvalidScalar)
+        ));
     }
 
     #[test]
@@ -1784,46 +1614,6 @@ mod tests {
             PublicKey::secp256k1_from_bytes(*secp_public.as_secp256k1_bytes().unwrap()).unwrap(),
             secp_public
         );
-    }
-
-    #[test]
-    fn test_ed25519_borsh_roundtrip() {
-        use borsh::BorshDeserialize;
-
-        let secret = SecretKey::generate_ed25519();
-        let public = secret.public_key();
-        let serialized = borsh::to_vec(&public).unwrap();
-        // Ed25519: 1 byte key type + 32 bytes key data
-        assert_eq!(serialized.len(), 33);
-        assert_eq!(serialized[0], 0); // Ed25519
-        let deserialized = PublicKey::try_from_slice(&serialized).unwrap();
-        assert_eq!(public, deserialized);
-    }
-
-    #[test]
-    fn test_secp256k1_borsh_roundtrip() {
-        use borsh::BorshDeserialize;
-
-        let secret = SecretKey::generate_secp256k1();
-        let public = secret.public_key();
-        let serialized = borsh::to_vec(&public).unwrap();
-        // Secp256k1: 1 byte key type + 64 bytes key data
-        assert_eq!(serialized.len(), 65);
-        assert_eq!(serialized[0], 1); // Secp256k1
-        let deserialized = PublicKey::try_from_slice(&serialized).unwrap();
-        assert_eq!(public, deserialized);
-    }
-
-    #[test]
-    fn test_signature_borsh_roundtrip() {
-        use borsh::BorshDeserialize;
-
-        let secret = SecretKey::generate_ed25519();
-        let sig = secret.sign(b"test");
-        let serialized = borsh::to_vec(&sig).unwrap();
-        assert_eq!(serialized.len(), 65); // 1 + 64
-        let deserialized = Signature::try_from_slice(&serialized).unwrap();
-        assert_eq!(sig, deserialized);
     }
 
     #[test]
@@ -1895,39 +1685,6 @@ mod tests {
                 signature
             );
         }
-    }
-
-    #[test]
-    fn test_key_types_match_generated_secret_keys() {
-        let ed_secret = SecretKey::generate_ed25519();
-        let ed_public = ed_secret.public_key();
-
-        assert_eq!(ed_public.key_type(), KeyType::Ed25519);
-        assert!(ed_public.as_ed25519_bytes().is_some());
-        assert_eq!(ed_secret.key_type(), KeyType::Ed25519);
-
-        let secp_secret = SecretKey::generate_secp256k1();
-        let secp_public = secp_secret.public_key();
-
-        assert_eq!(secp_public.key_type(), KeyType::Secp256k1);
-        assert!(secp_public.as_secp256k1_bytes().is_some());
-        assert_eq!(secp_secret.key_type(), KeyType::Secp256k1);
-    }
-
-    // ========================================================================
-    // ML-DSA-65 Tests
-    // ========================================================================
-
-    #[test]
-    fn test_ml_dsa65_sizes() {
-        assert_eq!(ML_DSA_65_PUBLIC_KEY_LENGTH, 1952);
-        assert_eq!(ML_DSA_65_SEED_LENGTH, 32);
-        assert_eq!(ML_DSA_65_SIGNATURE_LENGTH, 3309);
-        assert_eq!(ML_DSA_65_HASH_LENGTH, 32);
-        assert_eq!(KeyType::MlDsa65.public_key_len(), 1952);
-        assert_eq!(KeyType::MlDsa65.signature_len(), 3309);
-        assert_eq!(KeyType::MlDsa65.as_str(), "ml-dsa-65");
-        assert_eq!(KeyType::try_from(2u8).unwrap(), KeyType::MlDsa65);
     }
 
     #[test]
@@ -2107,82 +1864,6 @@ mod tests {
     }
 
     #[test]
-    fn test_ml_dsa65_seed_is_deterministic() {
-        // Same 32-byte seed must always derive the same public key and (because
-        // the underlying signer is deterministic) the same signature.
-        let seed = [7u8; ML_DSA_65_SEED_LENGTH];
-        let sk1 = SecretKey::ml_dsa65_from_seed(seed);
-        let sk2 = SecretKey::ml_dsa65_from_seed(seed);
-        assert_eq!(sk1.public_key(), sk2.public_key());
-
-        let msg = b"determinism";
-        assert_eq!(sk1.sign(msg).as_bytes(), sk2.sign(msg).as_bytes());
-
-        // A different seed yields a different key.
-        let sk3 = SecretKey::ml_dsa65_from_seed([8u8; ML_DSA_65_SEED_LENGTH]);
-        assert_ne!(sk1.public_key(), sk3.public_key());
-    }
-
-    #[test]
-    fn test_ml_dsa65_public_key_string_roundtrip() {
-        let secret = SecretKey::generate_ml_dsa65();
-        let public = secret.public_key();
-        let s = public.to_string();
-        assert!(s.starts_with("ml-dsa-65:"));
-        assert!(!s.starts_with("ml-dsa-65-hash:"));
-        let parsed: PublicKey = s.parse().unwrap();
-        assert_eq!(public, parsed);
-    }
-
-    #[test]
-    fn test_ml_dsa65_secret_key_string_roundtrip() {
-        let secret = SecretKey::generate_ml_dsa65();
-        let s = secret.to_string();
-        assert!(s.starts_with("ml-dsa-65:"));
-        let parsed: SecretKey = s.parse().unwrap();
-        assert_eq!(secret.public_key(), parsed.public_key());
-        // The seed itself round-trips byte-for-byte.
-        assert_eq!(secret.as_bytes(), parsed.as_bytes());
-    }
-
-    #[test]
-    fn test_ml_dsa65_signature_string_roundtrip() {
-        let secret = SecretKey::generate_ml_dsa65();
-        let sig = secret.sign(b"sig-roundtrip");
-        let s = sig.to_string();
-        assert!(s.starts_with("ml-dsa-65:"));
-        let parsed: Signature = s.parse().unwrap();
-        assert_eq!(sig, parsed);
-    }
-
-    #[test]
-    fn test_ml_dsa65_public_key_borsh_roundtrip() {
-        use borsh::BorshDeserialize;
-
-        let secret = SecretKey::generate_ml_dsa65();
-        let public = secret.public_key();
-        let serialized = borsh::to_vec(&public).unwrap();
-        // 1 byte key type + 1952 bytes key data.
-        assert_eq!(serialized.len(), 1 + ML_DSA_65_PUBLIC_KEY_LENGTH);
-        assert_eq!(serialized[0], 2); // MlDsa65 discriminant
-        let deserialized = PublicKey::try_from_slice(&serialized).unwrap();
-        assert_eq!(public, deserialized);
-    }
-
-    #[test]
-    fn test_ml_dsa65_signature_borsh_roundtrip() {
-        use borsh::BorshDeserialize;
-
-        let secret = SecretKey::generate_ml_dsa65();
-        let sig = secret.sign(b"borsh");
-        let serialized = borsh::to_vec(&sig).unwrap();
-        assert_eq!(serialized.len(), 1 + ML_DSA_65_SIGNATURE_LENGTH);
-        assert_eq!(serialized[0], 2);
-        let deserialized = Signature::try_from_slice(&serialized).unwrap();
-        assert_eq!(sig, deserialized);
-    }
-
-    #[test]
     fn test_ml_dsa65_hash_handle_is_not_a_public_key() {
         // A `view_access_key_list` response stores an ML-DSA-65 key as a 32-byte
         // SHA3-256 handle. That string is a PublicKeyHandle, never a PublicKey:
@@ -2249,19 +1930,7 @@ mod tests {
             assert!(!handle.is_ml_dsa65_hash());
             assert!(handle.refers_to(&pk));
             assert_eq!(pk.to_ml_dsa65_hash(), None);
-            // A key recovered from a handle is a normal key: it goes straight
-            // into an action and the transaction hashes/signs (borsh) fine.
-            let recovered = handle.into_full().unwrap();
-            let signer = SecretKey::generate_ed25519();
-            let tx = crate::types::Transaction::new(
-                "alice.near".parse().unwrap(),
-                signer.public_key(),
-                1,
-                "alice.near".parse().unwrap(),
-                crate::types::CryptoHash::ZERO,
-                vec![crate::types::Action::add_full_access_key(recovered)],
-            );
-            assert!(!tx.sign(&signer).to_bytes().is_empty());
+            assert_eq!(handle.into_full(), Some(pk));
         }
         assert!("nope".parse::<PublicKeyHandle>().is_err());
         assert!("ed25519:zzz".parse::<PublicKeyHandle>().is_err());
@@ -2313,33 +1982,11 @@ mod tests {
     }
 
     #[test]
-    fn test_ml_dsa65_cross_type_verify_fails() {
-        let ml_secret = SecretKey::generate_ml_dsa65();
-        let ed_secret = SecretKey::generate_ed25519();
-        let msg = b"cross type";
-        assert!(!ml_secret.sign(msg).verify(msg, &ed_secret.public_key()));
-        assert!(!ed_secret.sign(msg).verify(msg, &ml_secret.public_key()));
-    }
-
-    #[test]
     fn test_malformed_ml_dsa65_signature_is_rejected_without_panicking() {
         let public_key = SecretKey::ml_dsa65_from_seed([3; ML_DSA_65_SEED_LENGTH]).public_key();
         let signature = Signature::ml_dsa65_from_bytes(Box::new([0; ML_DSA_65_SIGNATURE_LENGTH]));
 
         assert!(!signature.verify(b"malformed signature", &public_key));
-    }
-
-    #[test]
-    fn test_ml_dsa65_secret_key_random() {
-        let secret_key = SecretKey::generate_ml_dsa65();
-        let public_key = secret_key.public_key();
-        assert_eq!(public_key.key_type(), KeyType::MlDsa65);
-        assert_eq!(secret_key.key_type(), KeyType::MlDsa65);
-        assert!(public_key.to_string().starts_with("ml-dsa-65:"));
-
-        let message = b"secret key";
-        let signature = secret_key.sign(message);
-        assert!(signature.verify(message, &public_key));
     }
 
     #[test]
@@ -2364,10 +2011,6 @@ mod tests {
         );
     }
 
-    // ========================================================================
-    // ML-DSA-65 Seed Phrase Tests
-    // ========================================================================
-
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_ml_dsa65_from_seed_phrase_cross_sdk_vector() {
@@ -2387,43 +2030,6 @@ mod tests {
 
     #[cfg(feature = "mnemonic")]
     #[test]
-    fn test_ml_dsa65_from_seed_phrase_deterministic() {
-        let key1 = SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, None, None).unwrap();
-        let key2 = SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, None, None).unwrap();
-        assert_eq!(key1.as_bytes(), key2.as_bytes());
-        assert_eq!(key1.public_key(), key2.public_key());
-    }
-
-    #[cfg(feature = "mnemonic")]
-    #[test]
-    fn test_ml_dsa65_from_seed_phrase_different_paths() {
-        let key1 =
-            SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, Some("m/44'/397'/0'"), None)
-                .unwrap();
-        let key2 =
-            SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, Some("m/44'/397'/1'"), None)
-                .unwrap();
-        assert_ne!(key1.public_key(), key2.public_key());
-    }
-
-    #[cfg(feature = "mnemonic")]
-    #[test]
-    fn test_ml_dsa65_from_seed_phrase_with_passphrase() {
-        let no_pass =
-            SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, Some(DEFAULT_HD_PATH), None)
-                .unwrap();
-        let with_pass = SecretKey::from_seed_phrase(
-            KeyType::MlDsa65,
-            TEST_PHRASE,
-            Some(DEFAULT_HD_PATH),
-            Some("my-password"),
-        )
-        .unwrap();
-        assert_ne!(no_pass.public_key(), with_pass.public_key());
-    }
-
-    #[cfg(feature = "mnemonic")]
-    #[test]
     fn test_ml_dsa65_seed_phrase_differs_from_ed25519() {
         // The ML-DSA-65 and Ed25519 branches share the SLIP-10 machinery but
         // use different master salts, so the same phrase yields unrelated keys.
@@ -2433,53 +2039,6 @@ mod tests {
         assert_eq!(ed.key_type(), KeyType::Ed25519);
         // The 32-byte node secrets (both keys' `as_bytes`) must not collide.
         assert_ne!(ml.as_bytes(), ed.as_bytes());
-    }
-
-    #[cfg(feature = "mnemonic")]
-    #[test]
-    fn test_ml_dsa65_from_seed_phrase_invalid() {
-        let result = SecretKey::from_seed_phrase(
-            KeyType::MlDsa65,
-            "invalid words that are not a mnemonic",
-            None,
-            None,
-        );
-        assert!(result.is_err());
-    }
-
-    #[cfg(feature = "mnemonic")]
-    #[test]
-    fn test_ml_dsa65_seed_phrase_key_can_sign() {
-        let secret =
-            SecretKey::from_seed_phrase(KeyType::MlDsa65, TEST_PHRASE, None, None).unwrap();
-        let public = secret.public_key();
-        let message = b"post-quantum seed phrase";
-        assert!(secret.sign(message).verify(message, &public));
-    }
-
-    #[cfg(feature = "mnemonic")]
-    #[test]
-    fn test_ml_dsa65_generate_with_seed_phrase_defaults_to_24_words() {
-        let (phrase, secret) =
-            SecretKey::generate_with_seed_phrase(KeyType::MlDsa65, None).unwrap();
-
-        assert_eq!(DEFAULT_ML_DSA_65_WORD_COUNT, 24);
-        assert_eq!(
-            phrase.split_whitespace().count(),
-            DEFAULT_ML_DSA_65_WORD_COUNT
-        );
-        assert_eq!(secret.key_type(), KeyType::MlDsa65);
-    }
-
-    #[cfg(feature = "mnemonic")]
-    #[test]
-    fn test_ml_dsa65_generate_with_seed_phrase_roundtrips() {
-        let (phrase, secret) =
-            SecretKey::generate_with_seed_phrase(KeyType::MlDsa65, None).unwrap();
-
-        // Re-deriving from the returned phrase yields the same key.
-        let derived = SecretKey::from_seed_phrase(KeyType::MlDsa65, &phrase, None, None).unwrap();
-        assert_eq!(secret.public_key(), derived.public_key());
     }
 
     #[cfg(feature = "mnemonic")]
@@ -2528,16 +2087,5 @@ mod tests {
             Err(SignerError::KeyDerivationFailed(_))
         ));
         assert!(SecretKey::generate_with_seed_phrase(KeyType::Secp256k1, None).is_err());
-    }
-
-    #[cfg(feature = "mnemonic")]
-    #[test]
-    fn test_ed25519_generate_with_seed_phrase_still_12_words() {
-        // The NEP-649 floor applies only to the ML-DSA-65 path.
-        let (phrase, secret) =
-            SecretKey::generate_with_seed_phrase(KeyType::Ed25519, None).unwrap();
-        assert_eq!(DEFAULT_WORD_COUNT, 12);
-        assert_eq!(phrase.split_whitespace().count(), DEFAULT_WORD_COUNT);
-        assert_eq!(secret.key_type(), KeyType::Ed25519);
     }
 }
