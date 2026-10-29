@@ -1662,6 +1662,24 @@ mod tests {
         assert_eq!(nonces, vec![100_000_001, 100_000_001]);
     }
 
+    #[cfg(feature = "tracing")]
+    #[test]
+    fn actions_summary_names_each_action() {
+        let state_init = crate::protocol::UniversalStateInitV1::new()
+            .with_access_key(SecretKey::generate_ed25519().public_key());
+        let actions = [
+            Action::create_account(),
+            Action::transfer(NearToken::from_near(1)),
+            Action::function_call("init", Vec::new(), Gas::from_tgas(5), NearToken::ZERO),
+            Action::universal_state_init(state_init, NearToken::ZERO),
+        ];
+        assert_eq!(
+            actions_summary(&actions),
+            "create_account,transfer,function_call(init),universal_state_init"
+        );
+        assert_eq!(actions_summary(&[]), "");
+    }
+
     /// Span fields can't repeat, so each of several function calls gets its
     /// own debug event instead.
     #[cfg(feature = "tracing")]
