@@ -942,22 +942,13 @@ impl RpcClient {
         self.merge_block_reference(&mut params, &block);
         self.request("EXPERIMENTAL_view_access_key", params)
             .await
-            .map_err(|e| match e {
+            .map_err(|mut e| {
                 // The EXPERIMENTAL endpoint's UNKNOWN_ACCESS_KEY error omits
-                // the account_id from its info payload. Patch it in from the
-                // request params so callers get a complete error.
-                RpcError::AccessKeyNotFound {
-                    public_key,
-                    block_height,
-                    block_hash,
-                    ..
-                } => RpcError::AccessKeyNotFound {
-                    account_id: account_id.to_owned(),
-                    public_key,
-                    block_height,
-                    block_hash,
-                },
-                other => other,
+                // the account_id from its info payload.
+                if let RpcError::AccessKeyNotFound { account_id: id, .. } = &mut e {
+                    *id = account_id.to_owned();
+                }
+                e
             })
     }
 
@@ -1092,21 +1083,12 @@ impl RpcClient {
             "public_key": public_key.to_string(),
         });
         self.merge_block_reference(&mut params, &block);
-        self.request("query", params).await.map_err(|e| match e {
-            // UNKNOWN_GAS_KEY's payload omits the account; patch it in from
-            // the request params so callers get a complete error.
-            RpcError::GasKeyNotFound {
-                public_key,
-                block_height,
-                block_hash,
-                ..
-            } => RpcError::GasKeyNotFound {
-                account_id: account_id.to_owned(),
-                public_key,
-                block_height,
-                block_hash,
-            },
-            other => other,
+        self.request("query", params).await.map_err(|mut e| {
+            // UNKNOWN_GAS_KEY's payload omits the account.
+            if let RpcError::GasKeyNotFound { account_id: id, .. } = &mut e {
+                *id = account_id.to_owned();
+            }
+            e
         })
     }
 
@@ -1134,30 +1116,27 @@ impl RpcClient {
         let response: CallFunctionResponse = self
             .request("EXPERIMENTAL_call_function", params)
             .await
-            .map_err(|e| match e {
-                RpcError::ContractExecution {
-                    message,
-                    block_height,
-                    block_hash,
-                    ..
-                } => RpcError::ContractExecution {
-                    contract_id: account_id.to_owned(),
-                    method_name: Some(method_name.to_string()),
-                    message,
-                    block_height,
-                    block_hash,
-                },
-                RpcError::MethodNotFound {
-                    block_height,
-                    block_hash,
-                    ..
-                } => RpcError::MethodNotFound {
-                    contract_id: account_id.to_owned(),
-                    method_name: method_name.to_string(),
-                    block_height,
-                    block_hash,
-                },
-                other => other,
+            .map_err(|mut e| {
+                match &mut e {
+                    RpcError::ContractExecution {
+                        contract_id,
+                        method_name: method,
+                        ..
+                    } => {
+                        *contract_id = account_id.to_owned();
+                        *method = Some(method_name.to_string());
+                    }
+                    RpcError::MethodNotFound {
+                        contract_id,
+                        method_name: method,
+                        ..
+                    } => {
+                        *contract_id = account_id.to_owned();
+                        *method = method_name.to_string();
+                    }
+                    _ => {}
+                }
+                e
             })?;
 
         Ok(
@@ -1209,27 +1188,21 @@ impl RpcClient {
             }),
         };
         self.merge_block_reference(&mut params, &block);
-        self.request("query", params).await.map_err(|e| match e {
+        self.request("query", params).await.map_err(|mut e| {
             // Replace the error's best-effort identifier with the one the
             // caller asked for, so it stays accurate whatever the node's
             // serialization shape.
-            RpcError::GlobalContractNotFound {
-                block_height,
-                block_hash,
-                ..
-            } => RpcError::GlobalContractNotFound {
-                identifier: match &id {
+            if let RpcError::GlobalContractNotFound { identifier, .. } = &mut e {
+                *identifier = match &id {
                     GlobalContractId::CodeHash(hash) => {
                         GlobalContractIdentifierView::CodeHash(CryptoHash::from_bytes(*hash))
                     }
                     GlobalContractId::AccountId(account_id) => {
                         GlobalContractIdentifierView::AccountId(account_id.clone())
                     }
-                },
-                block_height,
-                block_hash,
-            },
-            other => other,
+                };
+            }
+            e
         })
     }
 
@@ -1683,16 +1656,15 @@ fn parse_receipt_to_tx_error(
 ///
 /// nearcore's `TIMEOUT_ERROR` payload never carries the hash, but the caller
 /// needs it to poll `tx_status` instead of signing a new transaction.
-fn with_timeout_tx_hash(err: RpcError, tx_hash: CryptoHash) -> RpcError {
-    match err {
-        // The sent tx's hash is authoritative.
-        RpcError::Timeout { message, cause, .. } => RpcError::Timeout {
-            message,
-            transaction_hash: Some(tx_hash),
-            cause,
-        },
-        other => other,
+fn with_timeout_tx_hash(mut err: RpcError, tx_hash: CryptoHash) -> RpcError {
+    // The sent tx's hash is authoritative.
+    if let RpcError::Timeout {
+        transaction_hash, ..
+    } = &mut err
+    {
+        *transaction_hash = Some(tx_hash);
     }
+    err
 }
 
 /// When a non-2xx response is decoded via `parse_rpc_error`, HTTP status is
