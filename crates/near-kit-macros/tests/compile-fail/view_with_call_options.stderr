@@ -1,0 +1,5 @@
+error: `gas` and `deposit` apply only to calls: a view method (&self) sends no transaction. To make it a call, take `&mut self`
+ --> tests/compile-fail/view_with_call_options.rs:5:7
+  |
+5 |     #[call(deposit = near_kit::NearToken::from_yoctonear(1))]
+  |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

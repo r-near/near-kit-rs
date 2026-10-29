@@ -1,0 +1,5 @@
+error: #[call] may only be specified once
+ --> tests/compile-fail/duplicate_call.rs:6:7
+  |
+6 |     #[call(gas = near_kit::Gas::from_tgas(100))]
+  |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

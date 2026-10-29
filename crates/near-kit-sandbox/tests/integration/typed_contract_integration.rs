@@ -2,6 +2,7 @@
 
 use near_kit::ContractError;
 use near_kit::protocol::Action;
+use near_kit::rpc::{ActionView, FinalExecutionOutcome};
 use near_kit::transaction::{CodecError, Final, FunctionCall};
 use near_kit::{AccountId, Gas, Near, NearToken, SigningNear};
 use near_kit_sandbox::Sandbox;
@@ -177,5 +178,81 @@ async fn no_argument_views_and_calls_send_an_empty_json_object() {
     assert!(
         format!("{failed:?}").contains("Failed to deserialize input from JSON"),
         "{failed:?}"
+    );
+}
+
+/// NEP-145's `storage_withdraw`, which (like most token methods) requires
+/// exactly 1 yoctoNEAR.
+#[near_kit::contract]
+pub trait StorageWithdraw {
+    #[call(gas = Gas::from_tgas(40), deposit = NearToken::from_yoctonear(1))]
+    fn storage_withdraw(&mut self);
+}
+
+/// The gas and deposit of the transaction's only action, as signed.
+fn sent_gas_and_deposit(outcome: &FinalExecutionOutcome) -> (Gas, NearToken) {
+    match &outcome.transaction.actions[..] {
+        [ActionView::FunctionCall { gas, deposit, .. }] => (*gas, *deposit),
+        other => panic!("expected one function call, got {other:?}"),
+    }
+}
+
+/// `#[call(gas = .., deposit = ..)]` reaches the chain without `.gas()` or
+/// `.deposit()` at the call site, through the client and through a batched
+/// constructor, and the call site still overrides it.
+#[tokio::test]
+async fn call_defaults_reach_the_chain_and_the_call_site_overrides_them() {
+    let (_, root) = shared_client().await;
+    let root = root.wait_until::<Final>();
+    // The token registers its owner, so the owner can withdraw (nothing).
+    let (ft_id, _) = deploy_ft_contract(&root, root.account_id())
+        .await
+        .expect("token deployment");
+    let token = root.contract::<StorageWithdraw>(&ft_id);
+
+    let outcome = token.storage_withdraw().await.expect("sent");
+    outcome.result().expect("1 yoctoNEAR attached by default");
+    assert_eq!(
+        sent_gas_and_deposit(&outcome),
+        (Gas::from_tgas(40), NearToken::from_yoctonear(1))
+    );
+
+    let outcome = token
+        .storage_withdraw()
+        .gas(Gas::from_tgas(50))
+        .await
+        .expect("sent");
+    outcome.result().expect("overridden gas");
+    assert_eq!(
+        sent_gas_and_deposit(&outcome),
+        (Gas::from_tgas(50), NearToken::from_yoctonear(1))
+    );
+
+    let outcome = token
+        .storage_withdraw()
+        .deposit(NearToken::from_yoctonear(2))
+        .await
+        .expect("sent");
+    assert_eq!(
+        sent_gas_and_deposit(&outcome),
+        (Gas::from_tgas(40), NearToken::from_yoctonear(2))
+    );
+    let failed = outcome
+        .result()
+        .expect_err("the contract takes exactly 1 yoctoNEAR");
+    assert!(
+        format!("{failed:?}").contains("Requires attached deposit of exactly 1 yoctoNEAR"),
+        "{failed:?}"
+    );
+
+    let outcome = root
+        .transaction(&ft_id)
+        .add_action(StorageWithdraw::storage_withdraw())
+        .await
+        .expect("sent");
+    outcome.result().expect("batched with the defaults");
+    assert_eq!(
+        sent_gas_and_deposit(&outcome),
+        (Gas::from_tgas(40), NearToken::from_yoctonear(1))
     );
 }

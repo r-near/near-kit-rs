@@ -1,5 +1,5 @@
-error: #[call] does not accept options
- --> tests/compile-fail/unknown_call_option.rs:6:7
+error: unknown #[call] option, expected `gas = ..` or `deposit = ..`
+ --> tests/compile-fail/unknown_call_option.rs:5:12
   |
-6 |     #[call(payable)]
-  |       ^^^^^^^^^^^^^
+5 |     #[call(payable)]
+  |            ^^^^^^^

@@ -17,7 +17,7 @@
 
 use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use syn::{
     FnArg, Ident, ItemTrait, Pat, ReceiverKind, ReturnType, TraitItem, TraitItemFn, Type,
@@ -93,6 +93,10 @@ struct MethodInfo {
     format_override: Option<SerializationFormat>,
     arg: Option<(Ident, Type)>,
     return_type: Type,
+    /// `#[call(gas = ..)]`: the call's default gas.
+    gas: Option<syn::Expr>,
+    /// `#[call(deposit = ..)]`: the call's default deposit.
+    deposit: Option<syn::Expr>,
 }
 
 fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
@@ -186,18 +190,45 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         }
     };
 
-    let mut is_call = false;
+    let mut call_attr = None;
+    let mut gas = None;
+    let mut deposit = None;
     for attr in method
         .attrs
         .iter()
         .filter(|attr| attr.path().is_ident("call"))
     {
-        is_call = true;
-        if attr.meta.require_path_only().is_err() {
+        if call_attr.is_some() {
             return Err(syn::Error::new_spanned(
                 &attr.meta,
-                "#[call] does not accept options",
+                "#[call] may only be specified once",
             ));
+        }
+        call_attr = Some(attr);
+        match &attr.meta {
+            syn::Meta::Path(_) => {}
+            syn::Meta::List(_) => attr.parse_nested_meta(|meta| {
+                let (slot, key) = if meta.path.is_ident("gas") {
+                    (&mut gas, "gas")
+                } else if meta.path.is_ident("deposit") {
+                    (&mut deposit, "deposit")
+                } else {
+                    return Err(
+                        meta.error("unknown #[call] option, expected `gas = ..` or `deposit = ..`")
+                    );
+                };
+                if slot.is_some() {
+                    return Err(meta.error(format!("`{key}` is specified more than once")));
+                }
+                *slot = Some(meta.value()?.parse::<syn::Expr>()?);
+                Ok(())
+            })?,
+            syn::Meta::NameValue(_) => {
+                return Err(syn::Error::new_spanned(
+                    &attr.meta,
+                    "#[call] takes options as `#[call(gas = .., deposit = ..)]`",
+                ));
+            }
         }
     }
 
@@ -235,6 +266,18 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
             }
             None => format_override = Some(format),
         }
+    }
+
+    let is_call = call_attr.is_some();
+    if let Some(attr) = call_attr
+        && is_view
+        && (gas.is_some() || deposit.is_some())
+    {
+        return Err(syn::Error::new_spanned(
+            &attr.meta,
+            "`gas` and `deposit` apply only to calls: a view method (&self) sends no \
+             transaction. To make it a call, take `&mut self`",
+        ));
     }
 
     if is_view && is_call {
@@ -315,6 +358,8 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         format_override,
         arg,
         return_type,
+        gas,
+        deposit,
     })
 }
 
@@ -453,7 +498,18 @@ fn generate_function_call_method(
     let method_name_str = method_name.unraw().to_string();
     let docs = &method.docs;
     let cfgs = &method.cfgs;
-    let (params, arg) = arg_tokens(method);
+    // The argument gets mixed-site hygiene, so a `gas` or `deposit`
+    // expression, which keeps the trait's own hygiene, can't see it: the
+    // defaults are per method, not per argument.
+    let hygienic_arg = method.arg.as_ref().map(|(name, ty)| {
+        let mut name = name.clone();
+        name.set_span(Span::mixed_site().located_at(name.span()));
+        (name, ty)
+    });
+    let params = hygienic_arg
+        .as_ref()
+        .map(|(name, ty)| quote! { #name: #ty });
+    let arg = hygienic_arg.as_ref().map(|(name, _)| name);
 
     let args_call = match (arg, method.format_override.unwrap_or(contract_format)) {
         (Some(arg), SerializationFormat::Json) => quote! { .args(#arg) },
@@ -463,12 +519,18 @@ fn generate_function_call_method(
         // JSON default.
         (None, SerializationFormat::Borsh) => quote! { .args_raw(::std::vec::Vec::new()) },
     };
+    // Evaluated each time the constructor runs.
+    let gas = method.gas.as_ref().map(|gas| quote! { .gas(#gas) });
+    let deposit = method
+        .deposit
+        .as_ref()
+        .map(|deposit| quote! { .deposit(#deposit) });
 
     quote! {
         #(#cfgs)*
         #(#docs)*
         pub fn #method_name(#params) -> #near_kit::transaction::FunctionCall {
-            #near_kit::transaction::FunctionCall::new(#method_name_str) #args_call
+            #near_kit::transaction::FunctionCall::new(#method_name_str) #args_call #gas #deposit
         }
     }
 }
@@ -492,7 +554,34 @@ fn generate_function_call_method(
 ///   to build the client.
 ///
 /// Each method takes `&self` (a view) or `&mut self` with `#[call]`, and at
-/// most one argument bound to a plain name (`args: Args`). Generic, `async`
+/// most one argument bound to a plain name (`args: Args`).
+///
+/// A call sends 30 Tgas and no deposit unless `#[call(gas = EXPR, deposit =
+/// EXPR)]` sets its defaults; either key may be left out. Each value is a
+/// Rust expression of type `Gas` or `NearToken` (a `const`,
+/// `Gas::from_tgas(100)`, `NearToken::from_yoctonear(1)`), resolved where
+/// the trait is declared and evaluated each time the call is built. It can't
+/// refer to the method's argument. Both the client method and the
+/// `FunctionCall` constructor start from these defaults, and the call site
+/// overrides them: `.gas(..)`/`.deposit(..)` on the returned `Call`, or on
+/// the `FunctionCall` before it's added to a transaction.
+///
+/// ```
+/// use near_kit::{Gas, NearToken};
+/// # #[derive(serde::Serialize)] pub struct MtTransfer {}
+///
+/// #[near_kit::contract]
+/// pub trait MultiToken {
+///     // NEP-245 requires exactly 1 yoctoNEAR.
+///     #[call(deposit = NearToken::from_yoctonear(1))]
+///     fn mt_transfer(&mut self, args: MtTransfer);
+/// }
+///
+/// let call = MultiToken::mt_transfer(MtTransfer {}).gas(Gas::from_tgas(50));
+/// # let _ = call;
+/// ```
+///
+/// Generic, `async`
 /// and default methods are rejected, as are the names `client`,
 /// `contract_id` and `clone`. A method's `#[cfg]` and `#[cfg_attr]`
 /// attributes apply to everything generated for it, but `#[call]`,
@@ -638,4 +727,83 @@ fn contract_impl(format: SerializationFormat, input: ItemTrait) -> syn::Result<T
     };
 
     Ok(expanded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(method: TraitItemFn) -> syn::Result<MethodInfo> {
+        parse_method(&method)
+    }
+
+    fn error(method: TraitItemFn) -> String {
+        match parse(method) {
+            Ok(_) => panic!("expected an error"),
+            Err(error) => error.to_string(),
+        }
+    }
+
+    #[test]
+    fn call_options_are_parsed_as_expressions() {
+        let method = parse(parse_quote! {
+            #[call(gas = Gas::from_tgas(300), deposit = ONE_YOCTO)]
+            fn mt_transfer_call(&mut self, args: Args);
+        })
+        .unwrap();
+        let gas = method.gas.as_ref().unwrap();
+        let deposit = method.deposit.as_ref().unwrap();
+        assert_eq!(quote!(#gas).to_string(), "Gas :: from_tgas (300)");
+        assert_eq!(quote!(#deposit).to_string(), "ONE_YOCTO");
+
+        for method in [
+            parse_quote! { #[call] fn plain(&mut self); },
+            parse_quote! { #[call()] fn empty(&mut self); },
+        ] {
+            let method = parse(method).unwrap();
+            assert!(!method.is_view && method.gas.is_none() && method.deposit.is_none());
+        }
+    }
+
+    #[test]
+    fn the_constructor_sets_the_defaults_after_the_arguments() {
+        let method = parse(parse_quote! {
+            #[call(deposit = ONE_YOCTO)]
+            fn transfer(&mut self, args: Args);
+        })
+        .unwrap();
+        let tokens =
+            generate_function_call_method(&method, SerializationFormat::Json, &quote!(::near_kit))
+                .to_string();
+        assert!(
+            tokens.contains(". args (args) . deposit (ONE_YOCTO)"),
+            "{tokens}"
+        );
+        assert!(!tokens.contains(". gas ("), "{tokens}");
+    }
+
+    #[test]
+    fn bad_call_options_are_rejected() {
+        assert_eq!(
+            error(parse_quote! { #[call(payable)] fn f(&mut self); }),
+            "unknown #[call] option, expected `gas = ..` or `deposit = ..`"
+        );
+        assert_eq!(
+            error(parse_quote! { #[call(deposit = A, deposit = B)] fn f(&mut self); }),
+            "`deposit` is specified more than once"
+        );
+        assert_eq!(
+            error(parse_quote! { #[call] #[call(gas = A)] fn f(&mut self); }),
+            "#[call] may only be specified once"
+        );
+        assert_eq!(
+            error(parse_quote! { #[call = 1] fn f(&mut self); }),
+            "#[call] takes options as `#[call(gas = .., deposit = ..)]`"
+        );
+        assert!(
+            error(parse_quote! { #[call(gas = A)] fn f(&self); })
+                .starts_with("`gas` and `deposit` apply only to calls")
+        );
+        assert!(error(parse_quote! { #[call(gas)] fn f(&mut self); }).contains("expected `=`"));
+    }
 }
