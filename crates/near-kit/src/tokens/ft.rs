@@ -17,10 +17,6 @@ use crate::{Contract, TxSender, Viewer};
 use super::types::{FtMetadata, StorageBalance, StorageBalanceBounds};
 use super::{Stringified, read};
 
-// =============================================================================
-// FungibleToken
-// =============================================================================
-
 /// A NEP-141 fungible token contract.
 ///
 /// The marker for [`Near::contract`](crate::Near::contract) and
@@ -90,10 +86,6 @@ impl<C> FungibleTokenClient<C> {
     }
 }
 
-// =============================================================================
-// View Methods
-// =============================================================================
-
 impl<C: Viewer> FungibleTokenClient<C> {
     /// Get token metadata (ft_metadata).
     ///
@@ -149,10 +141,6 @@ impl<C: Viewer> FungibleTokenClient<C> {
             .map(|Stringified(raw)| raw)
     }
 
-    // =========================================================================
-    // Storage Methods (NEP-145)
-    // =========================================================================
-
     /// Check if an account is registered on this token contract.
     ///
     /// An account must be registered (via `storage_deposit`) before it can
@@ -201,10 +189,6 @@ impl<C: Viewer> FungibleTokenClient<C> {
             .await
     }
 }
-
-// =============================================================================
-// Call Methods
-// =============================================================================
 
 impl<C: TxSender + Clone> FungibleTokenClient<C> {
     fn call(&self, function_call: FunctionCall) -> Call<C> {

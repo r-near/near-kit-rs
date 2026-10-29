@@ -47,10 +47,6 @@ pub enum KeyStoreError {
     Platform(String),
 }
 
-// ============================================================================
-// RPC Errors
-// ============================================================================
-
 /// An error from the JSON-RPC layer: the transport, the response, or an error
 /// the node returned.
 ///
@@ -72,7 +68,6 @@ pub enum KeyStoreError {
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum RpcError {
-    // ─── Network/Transport ───
     // reqwest only compiles with the `rpc` feature and never on WASI (the
     // wasi:http transport reports failures as `Network` instead), so this
     // variant (and its `is_retryable` arm below) exists only there.
@@ -113,7 +108,6 @@ pub enum RpcError {
     #[error("Invalid response: {0}")]
     InvalidResponse(String),
 
-    // ─── Generic RPC Error ───
     /// A JSON-RPC error that no other variant covers.
     ///
     /// Retryable for code `-32603`, and for `-32000` when `cause` is absent or
@@ -131,7 +125,6 @@ pub enum RpcError {
         cause: Option<String>,
     },
 
-    // ─── Account Errors ───
     /// The account does not exist at the queried block (`UNKNOWN_ACCOUNT`).
     #[error("Account not found: {account_id}")]
     AccountNotFound {
@@ -192,7 +185,6 @@ pub enum RpcError {
         block_hash: Option<CryptoHash>,
     },
 
-    // ─── Contract Errors ───
     /// The account has no contract deployed (`NO_CONTRACT_CODE`).
     #[error("Contract not deployed on account: {account_id}")]
     ContractNotDeployed {
@@ -283,7 +275,6 @@ pub enum RpcError {
         block_hash: Option<CryptoHash>,
     },
 
-    // ─── Block/Chunk Errors ───
     /// The node doesn't have the block: it is unknown or was garbage-collected
     /// (`UNKNOWN_BLOCK`, `GARBAGE_COLLECTED_BLOCK`). Holds the block reference.
     ///
@@ -309,7 +300,6 @@ pub enum RpcError {
     #[error("Invalid shard ID: {0}")]
     InvalidShardId(String),
 
-    // ─── Receipt Errors ───
     /// The node doesn't know the receipt (`UNKNOWN_RECEIPT`). Holds the
     /// receipt ID.
     #[error("Receipt not found: {0}")]
@@ -322,7 +312,6 @@ pub enum RpcError {
     #[error("Receipt-to-transaction lookup failed: {0}")]
     ReceiptToTx(ReceiptToTxError),
 
-    // ─── Transaction Errors ───
     /// The node has no record of the transaction (`UNKNOWN_TRANSACTION`).
     ///
     /// nearcore answers this way only to a status request that does not wait
@@ -355,7 +344,6 @@ pub enum RpcError {
         details: Option<serde_json::Value>,
     },
 
-    // ─── Node Errors ───
     /// The node can't serve the shard right now (`UNAVAILABLE_SHARD`).
     /// Retryable.
     #[error("Shard unavailable: {0}")]
@@ -370,7 +358,6 @@ pub enum RpcError {
     #[error("Internal server error: {0}")]
     InternalError(String),
 
-    // ─── Request Errors ───
     /// The node could not parse the request's parameters (`PARSE_ERROR`).
     #[error("Parse error: {0}")]
     ParseError(String),
@@ -399,7 +386,6 @@ pub enum RpcError {
         cause: Option<TimeoutCause>,
     },
 
-    // ─── Access Key Listing ───
     /// An unpaginated `view_access_key_list` request hit the node's cap.
     ///
     /// nearcore only returns an account's keys in one shot when there are at
@@ -758,10 +744,6 @@ fn is_connection_dropped(error: &reqwest::Error) -> bool {
     false
 }
 
-// ============================================================================
-// Main Error Type
-// ============================================================================
-
 impl RpcError {
     /// Returns true if this error indicates the account was not found.
     pub fn is_account_not_found(&self) -> bool {
@@ -933,14 +915,12 @@ impl RpcError {
 /// type with `?`.
 #[derive(Debug, Error)]
 pub enum Error {
-    // ─── Configuration ───
     /// The client or signer is misconfigured: a missing or malformed
     /// environment variable, an unreadable credentials file, or an empty or
     /// mixed-account `RotatingSigner` key set.
     #[error("Invalid configuration: {0}")]
     Config(String),
 
-    // ─── Parsing ───
     /// An account ID did not parse.
     #[error(transparent)]
     ParseAccountId(#[from] ParseAccountIdError),
@@ -949,12 +929,10 @@ pub enum Error {
     #[error(transparent)]
     ParseKey(#[from] ParseKeyError),
 
-    // ─── RPC ───
     /// The RPC request failed. Boxed to keep `Error` small.
     #[error(transparent)]
     Rpc(Box<RpcError>),
 
-    // ─── Transaction validation ───
     /// Transaction was rejected before execution. No receipt was created,
     /// no nonce was incremented, no gas was consumed.
     ///
@@ -986,18 +964,15 @@ pub enum Error {
     #[error(transparent)]
     DecodeDelegate(#[from] DecodeDelegateError),
 
-    // ─── Signing ───
     /// The signer could not sign, or could not be built (for example an
     /// invalid seed phrase).
     #[error("Signing failed: {0}")]
     Signing(#[source] SignerError),
 
-    // ─── KeyStore ───
     /// Loading a key from a key store failed.
     #[error(transparent)]
     KeyStore(#[from] KeyStoreError),
 
-    // ─── Serialization ───
     /// JSON encoding or decoding failed: call arguments, a view's return
     /// value, or a transaction's JSON result.
     #[error("JSON error: {0}")]
@@ -1129,10 +1104,6 @@ impl Error {
 mod tests {
     use super::*;
     use crate::types::FinalExecutionStatus;
-
-    // ========================================================================
-    // RpcError tests
-    // ========================================================================
 
     #[test]
     fn test_rpc_error_is_retryable() {
@@ -1423,10 +1394,6 @@ mod tests {
             "Request timeout: Server error (transaction pending, reached INCLUDED)"
         );
     }
-
-    // ========================================================================
-    // Error (main type) tests
-    // ========================================================================
 
     #[test]
     fn test_error_from_rpc_invalid_tx_promotes() {

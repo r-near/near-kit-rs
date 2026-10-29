@@ -118,10 +118,6 @@ pub fn from_keyring(
     Ok(InMemorySigner::new(account_id, secret_key))
 }
 
-// ============================================================================
-// Credential Parsing
-// ============================================================================
-
 /// Parse the `private_key` of a near-cli-rs keyring credential (the other
 /// fields vary by how the key was imported and are ignored).
 fn parse_keyring_credential(
@@ -140,10 +136,6 @@ fn parse_keyring_credential(
     })?;
     Ok(private_key.parse()?)
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

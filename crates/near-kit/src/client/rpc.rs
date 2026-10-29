@@ -903,10 +903,6 @@ impl RpcClient {
         serde_json::from_value(result_value).map_err(RpcError::Json)
     }
 
-    // ========================================================================
-    // High-level RPC methods
-    // ========================================================================
-
     /// View account information.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
     pub async fn view_account(
@@ -1466,10 +1462,6 @@ impl std::fmt::Debug for RpcClient {
     }
 }
 
-// ============================================================================
-// Helper functions
-// ============================================================================
-
 /// The JSON-RPC parameters that select `block`.
 fn block_params(block: &BlockReference) -> serde_json::Value {
     match block {
@@ -1838,10 +1830,6 @@ mod tests {
         CountingTransport::new(200, body).client()
     }
 
-    // ========================================================================
-    // RetryConfig tests
-    // ========================================================================
-
     #[test]
     fn test_retry_config_default() {
         let config = RetryConfig::default();
@@ -1860,10 +1848,6 @@ mod tests {
         assert_eq!(config.initial_delay_ms, 500);
         assert_eq!(config.max_delay_ms, 5000);
     }
-
-    // ========================================================================
-    // Retry-loop tests (mock transport, counted attempts)
-    // ========================================================================
 
     #[tokio::test]
     async fn test_call_does_not_retry_invalid_nonce() {
@@ -2102,10 +2086,6 @@ mod tests {
         );
         assert_eq!(transport.calls(), 67, "1 attempt + 66 retries");
     }
-
-    // ========================================================================
-    // RpcClient tests
-    // ========================================================================
 
     #[tokio::test]
     async fn test_view_function_distinguishes_contract_errors() {
@@ -2466,10 +2446,6 @@ mod tests {
         server.join().unwrap();
     }
 
-    // ========================================================================
-    // view_state_all pagination
-    // ========================================================================
-
     /// One `view_state` page holding `keys` (all with value `b"v"`), with an
     /// optional `last_key` continuation cursor.
     fn view_state_page(keys: &[&[u8]], last_key: Option<&[u8]>) -> serde_json::Value {
@@ -2613,10 +2589,6 @@ mod tests {
         assert_eq!(by_value, [b"a".to_vec(), b"b".to_vec()]);
         assert_eq!(all.clone().into_values(), all.values);
     }
-
-    // ========================================================================
-    // view_access_key_list pagination
-    // ========================================================================
 
     const PAGE_ONE_HASH: &str = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj";
     const ED_KEY: &str = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";
@@ -2851,10 +2823,6 @@ mod tests {
         );
     }
 
-    // ========================================================================
-    // sanitize_url tests
-    // ========================================================================
-
     #[test]
     fn test_sanitize_url_strips_query_and_fragment() {
         for (url, shown) in [
@@ -2879,10 +2847,6 @@ mod tests {
         }
     }
 
-    // ========================================================================
-    // is_retryable_status tests
-    // ========================================================================
-
     #[test]
     fn test_is_retryable_status() {
         // Retryable statuses
@@ -2903,10 +2867,6 @@ mod tests {
         assert!(!is_retryable_status(404)); // Not Found
         assert!(!is_retryable_status(422)); // Unprocessable Entity
     }
-
-    // ========================================================================
-    // InvalidTxError parsing tests
-    // ========================================================================
 
     #[test]
     fn test_invalid_transaction_parses_invalid_nonce() {
@@ -2961,10 +2921,6 @@ mod tests {
         let err = RpcError::invalid_tx("some error", Some(data));
         assert!(matches!(err, RpcError::InvalidTxUnparsed { .. }));
     }
-
-    // ========================================================================
-    // parse_rpc_error tests (via RpcClient)
-    // ========================================================================
 
     #[test]
     fn test_parse_rpc_error_unknown_account() {
@@ -4480,10 +4436,6 @@ mod tests {
         }
     }
 
-    // ========================================================================
-    // block_id_or_null tests
-    // ========================================================================
-
     #[test]
     fn test_block_id_or_null_keeps_only_heights_and_hashes() {
         let hash = CryptoHash::hash(b"test block");
@@ -4504,10 +4456,6 @@ mod tests {
             assert!(block_id_or_null(Some(&latest)).is_null(), "{latest:?}");
         }
     }
-
-    // ========================================================================
-    // Tracing event tests
-    // ========================================================================
 
     /// The library must not log above DEBUG for errors it hands back to the
     /// caller. These install a capturing subscriber and check the level and
@@ -4721,10 +4669,6 @@ mod tests {
             assert_eq!(retry.field("max_attempts"), Some("2"));
         }
     }
-
-    // ========================================================================
-    // Block metadata on typed `query` views
-    // ========================================================================
 
     fn rpc_with_result(result: serde_json::Value) -> RpcClient {
         CountingTransport::results([result]).client()

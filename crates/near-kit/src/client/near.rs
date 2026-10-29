@@ -136,9 +136,6 @@ impl Near {
         SigningNear::new(self.clone(), Arc::new(signer))
     }
 
-    // ========================================================================
-    // Reads
-    // ========================================================================
     //
     // Only reads that add something to the matching `RpcClient` method live
     // here; for everything else use `near.rpc()` (e.g.
@@ -315,10 +312,6 @@ impl Near {
     ) -> TransactionStatusQuery {
         TransactionStatusQuery::new(self.rpc.clone(), *tx_hash, sender_id.into())
     }
-
-    // ========================================================================
-    // Typed Contract Interfaces
-    // ========================================================================
 
     /// Create a typed contract client backed by this `Near`.
     ///
@@ -519,10 +512,6 @@ mod tests {
 
     const ALICE_KEY: &str = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
 
-    // ========================================================================
-    // Near client tests
-    // ========================================================================
-
     #[test]
     fn test_near_mainnet_and_testnet_builders() {
         assert!(Near::mainnet().build().chain_id().is_mainnet());
@@ -542,20 +531,12 @@ mod tests {
         assert!(near.chain_id().is_testnet());
     }
 
-    // ========================================================================
-    // NearBuilder tests
-    // ========================================================================
-
     #[test]
     fn test_near_builder_from_trait() {
         let builder = Near::testnet();
         let near: Near = builder.into();
         assert!(!near.rpc().url().is_empty());
     }
-
-    // ========================================================================
-    // Clone tests
-    // ========================================================================
 
     #[test]
     fn test_near_with_signer_derived() {

@@ -123,10 +123,6 @@ fn record_function_call_fields(actions: &[Action]) {
     }
 }
 
-// ============================================================================
-// Delegate Action Types
-// ============================================================================
-
 /// Options for creating a delegate action (meta-transaction).
 ///
 /// Set the fields you need on top of `Default`:
@@ -560,10 +556,6 @@ impl PreparedTransaction {
     }
 }
 
-// ============================================================================
-// Tx
-// ============================================================================
-
 /// A transaction being assembled: a receiver, the actions so far, and the
 /// [`SigningNear`] that will sign and send it.
 ///
@@ -694,10 +686,6 @@ impl<W: WaitLevel> IntoFuture for Tx<W> {
         })
     }
 }
-
-// ============================================================================
-// SignedTransactionSend
-// ============================================================================
 
 /// Awaitable builder for sending a pre-signed transaction.
 ///
@@ -990,10 +978,6 @@ mod tests {
         assert!(matches!(error, Error::Validation(_)), "{error:?}");
     }
 
-    // ========================================================================
-    // Nonce refresh + re-sign on InvalidNonce (mock transport)
-    // ========================================================================
-
     /// An uninitialized `0u` account: every access key is unknown, and
     /// `view_account` reports a `bootstrap_nonce` of 100000000.
     #[derive(Default)]
@@ -1261,10 +1245,6 @@ mod tests {
         ));
         assert_eq!(transport.sent.lock().unwrap().len(), 1);
     }
-
-    // ========================================================================
-    // Nonce cache: key, reset, bootstrap and delegate nonces (mock transport)
-    // ========================================================================
 
     /// Transport for nonce tests: answers `EXPERIMENTAL_view_access_key` from a
     /// script of `(nonce, block_height)` views (the last one repeats), answers

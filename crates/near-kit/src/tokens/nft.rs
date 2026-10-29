@@ -17,10 +17,6 @@ use crate::{Contract, TxSender, Viewer};
 use super::types::{NftContractMetadata, NftToken};
 use super::{Stringified, read};
 
-// =============================================================================
-// NonFungibleToken
-// =============================================================================
-
 /// A NEP-171 non-fungible token contract.
 ///
 /// The marker for [`Near::contract`](crate::Near::contract) and
@@ -91,10 +87,6 @@ impl<C> NonFungibleTokenClient<C> {
         &self.contract_id
     }
 }
-
-// =============================================================================
-// View Methods
-// =============================================================================
 
 impl<C: Viewer> NonFungibleTokenClient<C> {
     /// Get contract metadata (nft_metadata).
@@ -219,10 +211,6 @@ impl<C: Viewer> NonFungibleTokenClient<C> {
         .map(|Stringified(supply)| supply)
     }
 }
-
-// =============================================================================
-// Call Methods
-// =============================================================================
 
 impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
     fn call(&self, function_call: FunctionCall) -> Call<C> {

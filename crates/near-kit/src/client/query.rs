@@ -32,10 +32,6 @@ impl AccountRead {
     }
 }
 
-// ============================================================================
-// BalanceQuery
-// ============================================================================
-
 /// An account's balance, ready to `.await`.
 ///
 /// Created by [`Near::balance`](crate::Near::balance). Reads at the final
@@ -95,10 +91,6 @@ impl IntoFuture for BalanceQuery {
     }
 }
 
-// ============================================================================
-// AccountExistsQuery
-// ============================================================================
-
 /// Whether an account exists, ready to `.await`.
 ///
 /// Created by [`Near::account_exists`](crate::Near::account_exists). Reads
@@ -155,10 +147,6 @@ impl IntoFuture for AccountExistsQuery {
         })
     }
 }
-
-// ============================================================================
-// TransactionStatusQuery
-// ============================================================================
 
 /// Awaitable query for transaction execution status.
 ///
