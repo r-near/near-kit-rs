@@ -2751,6 +2751,31 @@ mod tests {
     }
 
     #[test]
+    fn congestion_info_gas_decodes_from_a_decimal_string() {
+        let info: CongestionInfoView = serde_json::from_str(
+            r#"{"delayed_receipts_gas":"340282366920938463463374607431768211455","buffered_receipts_gas":"7","receipt_bytes":3,"allowed_shard":1}"#,
+        )
+        .unwrap();
+        assert_eq!(info.delayed_receipts_gas, u128::MAX);
+        assert_eq!(info.buffered_receipts_gas, 7);
+
+        let info: CongestionInfoView = serde_json::from_str("{}").unwrap();
+        assert_eq!(info.delayed_receipts_gas, 0);
+        assert_eq!(info.buffered_receipts_gas, 0);
+
+        // nearcore always sends these as strings; a bare number isn't accepted.
+        for bad in [
+            r#"{"delayed_receipts_gas":"x"}"#,
+            r#"{"delayed_receipts_gas":7}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<CongestionInfoView>(bad).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
     fn test_max_nonces_for_gas_key() {
         assert_eq!(AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY, 1024);
     }
