@@ -718,10 +718,9 @@ pub struct GasPrice {
 ///
 /// Represents the final result of a transaction, matching nearcore's `FinalExecutionStatus`.
 /// This is the `status` field in `FinalExecutionOutcome`.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub enum FinalExecutionStatus {
     /// The transaction has not yet started execution.
-    #[default]
     NotStarted,
     /// The transaction has started but the first receipt hasn't completed.
     Started,
@@ -2858,12 +2857,6 @@ mod tests {
     // ========================================================================
     // FinalExecutionStatus tests
     // ========================================================================
-
-    #[test]
-    fn test_final_execution_status_default() {
-        let status = FinalExecutionStatus::default();
-        assert!(matches!(status, FinalExecutionStatus::NotStarted));
-    }
 
     #[test]
     fn test_final_execution_status_not_started() {
