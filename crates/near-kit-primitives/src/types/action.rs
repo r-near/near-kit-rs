@@ -515,13 +515,16 @@ impl VersionedSignedDelegateAction {
     }
 
     /// Decode from bytes.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, borsh::io::Error> {
-        borsh::from_slice(bytes)
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        borsh::from_slice(bytes).map_err(DecodeError::Borsh)
     }
 
     /// Decode from base64.
     pub fn from_base64(s: &str) -> Result<Self, DecodeError> {
-        Ok(Self::from_bytes(&STANDARD.decode(s)?)?)
+        let bytes = STANDARD
+            .decode(s)
+            .map_err(|e| DecodeError::Base64(e.to_string()))?;
+        Self::from_bytes(&bytes)
     }
 }
 
@@ -815,13 +818,16 @@ impl SignedDelegateAction {
     }
 
     /// Decode a signed delegate action from bytes.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, borsh::io::Error> {
-        borsh::from_slice(bytes)
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        borsh::from_slice(bytes).map_err(DecodeError::Borsh)
     }
 
     /// Decode a signed delegate action from base64.
     pub fn from_base64(s: &str) -> Result<Self, DecodeError> {
-        Ok(Self::from_bytes(&STANDARD.decode(s)?)?)
+        let bytes = STANDARD
+            .decode(s)
+            .map_err(|e| DecodeError::Base64(e.to_string()))?;
+        Self::from_bytes(&bytes)
     }
 
     /// Get the sender account ID.
@@ -837,10 +843,11 @@ impl SignedDelegateAction {
 
 /// Error decoding a signed delegate action.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DecodeError {
-    /// Base64 decoding failed.
+    /// The input is not valid base64. Holds the decoder's message.
     #[error("base64 decode error: {0}")]
-    Base64(#[from] base64::DecodeError),
+    Base64(String),
     /// Borsh deserialization failed.
     #[error("borsh decode error: {0}")]
     Borsh(#[from] borsh::io::Error),

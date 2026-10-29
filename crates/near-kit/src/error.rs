@@ -1401,6 +1401,22 @@ mod tests {
             .unwrap_err()
             .into();
         assert!(matches!(err, Error::DecodeDelegate(_)), "{err:?}");
+
+        // `from_bytes` returns the same error type, so `?` converts it too.
+        let err: Error = crate::protocol::SignedDelegateAction::from_bytes(&[1, 2, 3])
+            .unwrap_err()
+            .into();
+        assert!(
+            matches!(&err, Error::DecodeDelegate(DecodeDelegateError::Borsh(_))),
+            "{err:?}"
+        );
+        let err: Error = crate::protocol::VersionedSignedDelegateAction::from_bytes(&[1, 2, 3])
+            .unwrap_err()
+            .into();
+        assert!(
+            matches!(&err, Error::DecodeDelegate(DecodeDelegateError::Borsh(_))),
+            "{err:?}"
+        );
     }
 
     #[test]

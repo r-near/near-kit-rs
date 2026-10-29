@@ -1427,7 +1427,10 @@ impl ActionView {
 fn decode_view_base64(field: &'static str, s: &str) -> Result<Vec<u8>, ActionViewConversionError> {
     STANDARD
         .decode(s)
-        .map_err(|source| ActionViewConversionError::InvalidBase64 { field, source })
+        .map_err(|e| ActionViewConversionError::InvalidBase64 {
+            field,
+            message: e.to_string(),
+        })
 }
 
 /// Decode the `code` field of a deploy view into the 32-byte code hash it holds.

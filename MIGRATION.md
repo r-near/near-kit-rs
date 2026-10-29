@@ -79,7 +79,7 @@ after the table cover each one.
 | `DelegateOptions::with_offset(n)`, `DelegateOptions::with_max_height(h)` | `DelegateOptions { block_height_offset: Some(n), ..Default::default() }`, `max_block_height: Some(h)` |
 | `TransactionBuilder::signed_delegate_action(signed)` | `relayer.transaction(signed.sender_id()).add_action(Action::delegate(signed))` |
 | `DelegateAction::sign(sig)`, `VersionedDelegateActionPayload::sign(sig)` | `into_signed(sig)` |
-| `protocol::DelegateDecodeError` | `protocol::DecodeDelegateError` |
+| `protocol::DelegateDecodeError` | `protocol::DecodeDelegateError`, now `#[non_exhaustive]` (a `match` needs a `_` arm); `Base64` holds the message as a `String` |
 | `DelegateActionView::actions`, `DelegateActionV2View::actions` as `Vec<ActionView>` | `Vec<Action>` |
 
 ### Reads and blocks
@@ -195,6 +195,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `RpcError::Timeout(u32)` | Removed: nothing returned it |
 | `RpcError::InvalidTransaction { message, details }` | `RpcError::InvalidTxUnparsed { message, details }` |
 | `RpcError::network(..)`, `RpcError::invalid_transaction(..)` | Crate-private; build the variant (`RpcError::Network { .. }`) in a custom transport |
+| `ActionViewConversionError::InvalidBase64 { field, source: base64::DecodeError }` | `InvalidBase64 { field, message: String }`, with the same `Display` text |
 | `protocol::UniversalStateInitError` | `protocol::StateInitError` (from near-global-contracts): same `Malformed` and `NonCanonical` variants, different `Display` text |
 
 ### Protocol types
@@ -624,7 +625,7 @@ with `?`. See [errors](https://docs.rs/near-kit/latest/near_kit/guide/errors/ind
 | API | Now returns |
 |---|---|
 | `SignedTransaction(V1)::from_bytes` / `from_base64` | `DecodeTransactionError` (becomes `Error::Decode`) |
-| `SignedDelegateAction::from_base64`, `VersionedSignedDelegateAction::from_base64` | `DecodeDelegateError` (becomes `Error::DecodeDelegate`) |
+| `SignedDelegateAction::from_bytes` / `from_base64`, `VersionedSignedDelegateAction::from_bytes` / `from_base64` | `DecodeDelegateError` (becomes `Error::DecodeDelegate`); `from_bytes` returned `borsh::io::Error` |
 | `FinalExecutionOutcome::result` / `json` | `OutcomeError` (becomes `Error::InvalidTx`, `Error::Json` or `Error::Outcome`) |
 | `FunctionCall::into_action`, `TryFrom<FunctionCall> for Action` | `CodecError` |
 | `InMemorySigner::implicit`, `SecretKey::from_seed_phrase` / `generate_with_seed_phrase`, `RotatingSigner::new` / `from_signers` | `SignerError` |

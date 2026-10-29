@@ -78,12 +78,12 @@ pub enum ParseHashError {
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ActionViewConversionError {
     /// A base64-encoded field of the view failed to decode.
-    #[error("Invalid base64 in `{field}`: {source}")]
+    #[error("Invalid base64 in `{field}`: {message}")]
     InvalidBase64 {
         /// Name of the view field that failed to decode.
         field: &'static str,
-        /// The underlying base64 decode error.
-        source: base64::DecodeError,
+        /// The base64 decoder's message.
+        message: String,
     },
 
     /// A `DeployContract` / `DeployGlobalContract*` view's `code` isn't a
