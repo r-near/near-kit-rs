@@ -27,6 +27,7 @@ pub(crate) use near_kit_primitives::transaction::CodecError;
 /// environment and credentials-file loaders report problems as
 /// [`Error::Config`] or a parse error instead.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum KeyStoreError {
     /// The store has no key for this account and public key.
     #[error("Key not found for account: {0}")]
@@ -857,6 +858,7 @@ impl RpcError {
 /// [`OutcomeError`](crate::rpc::OutcomeError), and others) convert into this
 /// type with `?`.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// The client or signer is misconfigured: a missing or malformed
     /// environment variable, an unreadable credentials file, or an empty or

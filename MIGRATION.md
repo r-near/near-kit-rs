@@ -105,6 +105,7 @@ after the table cover each one.
 | `rpc::TxExecutionStatus::is_executed()`, `is_block_final()`, `is_final()` | `matches!(s, ExecutedOptimistic \| Executed \| Final)`, `matches!(s, IncludedFinal \| Executed \| Final)`, `s == TxExecutionStatus::Final` |
 | `PartialOrd for rpc::TxExecutionStatus` (`<`, `partial_cmp`) | `matches!` on the levels you accept, as in the row above |
 | `ViewFunctionResult::bytes()` | The `result` field: `&view.result` |
+| `ViewFunctionResult { result, logs, block_height, block_hash }` (a struct literal) | `ViewFunctionResult::new(result, block_height, block_hash).with_logs(logs)`: the struct is `#[non_exhaustive]`; its fields stay readable |
 | `ViewStateAllResult::into_values()` | The `values` field: `all.values` |
 | `AccountState::is_initialized()` | `view.state == AccountState::Initialized` |
 | `ExecutionStatus::success_value()` | `match status { ExecutionStatus::SuccessValue(v) => Some(v), _ => None }` |
@@ -184,6 +185,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | 0.20.1 | This release |
 |---|---|
 | `Error::NoSigner` | Removed: sending from a `Near` is a compile error |
+| `Error`, `KeyStoreError` (exhaustive) | `#[non_exhaustive]`: a `match` on either needs a `_` arm |
 | `Error::InvalidTransaction(String)` | `Error::Validation(String)` for local checks before sending; `Error::Outcome(OutcomeError)` for an outcome with no usable result; `Error::Decode(DecodeTransactionError)` for a signed transaction that fails to decode |
 | `Error::DelegateDecode` | `Error::DecodeDelegate`; `?` on `SignedDelegateAction::from_base64` converts into it |
 | `KeyStoreError::Io`, `Json`, `PathError` | Removed: nothing returned them |
@@ -225,6 +227,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `Sandbox::root_signer()` | `sandbox.root_account().signer().clone()` |
 | `SandboxError::InvalidRootAccount`, `SandboxError::InvalidAccount` | Removed: account IDs are typed |
 | `SandboxError::RootSigner` | Nothing; the root key is a valid constant |
+| `SandboxError` (exhaustive) | `#[non_exhaustive]`: a `match` needs a `_` arm |
 | `SandboxBuilder::root_account("x")`, `Sandbox::set_balance("x", amount)` | Take `impl Into<AccountId>`: `account!("x")` |
 | `SANDBOX_ROOT_ACCOUNT: &str` | `&AccountIdRef` |
 

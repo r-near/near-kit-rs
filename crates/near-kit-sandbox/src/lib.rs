@@ -134,6 +134,7 @@ pub const SANDBOX_ROOT_SECRET_KEY: &str = "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJ
 
 /// Failure while validating sandbox configuration or starting its container.
 #[derive(Debug, ThisError)]
+#[non_exhaustive]
 pub enum SandboxError {
     /// The requested chain ID is reserved for a public network.
     #[error("sandbox chain ID {0:?} is reserved by neard; use a custom ID such as \"localnet\"")]

@@ -1768,6 +1768,7 @@ pub struct GasProfileEntry {
 /// The default payload is raw bytes. Typed views using `with_metadata().await`
 /// return this same structure with a decoded payload.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ViewFunctionResult<T = Vec<u8>> {
     /// Raw return bytes or the decoded contract return value.
     pub result: T,
