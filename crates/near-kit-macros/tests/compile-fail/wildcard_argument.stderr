@@ -1,0 +1,13 @@
+error: contract method arguments must be a plain name, like `args: Args` (the generated method takes the argument by that name)
+  --> tests/compile-fail/wildcard_argument.rs:13:23
+   |
+13 |     fn set(&mut self, _: Args);
+   |                       ^
+
+warning: unused import: `near_kit::*`
+ --> tests/compile-fail/wildcard_argument.rs:3:5
+  |
+3 | use near_kit::*;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

@@ -1,0 +1,5 @@
+error: #[borsh] can't be applied through #[cfg_attr]: #[near_kit::contract] reads it before `cfg` is evaluated. Declare the method twice instead, each copy under its own #[cfg]
+ --> tests/compile-fail/cfg_attr_format_marker.rs:5:23
+  |
+5 |     #[cfg_attr(all(), borsh)]
+  |                       ^^^^^

@@ -70,6 +70,7 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
     FnArg, Ident, ItemTrait, Pat, ReceiverKind, ReturnType, TraitItem, TraitItemFn, Type,
+    ext::IdentExt,
     parse::{Parse, ParseStream},
     parse_macro_input,
     spanned::Spanned,
@@ -146,6 +147,9 @@ struct MethodInfo {
     name: Ident,
     /// The method's `#[doc]` attributes, copied onto the generated methods.
     docs: Vec<syn::Attribute>,
+    /// The method's `#[cfg]` and `#[cfg_attr]` attributes, copied onto every
+    /// item generated for it.
+    cfgs: Vec<syn::Attribute>,
     is_view: bool,
     /// Per-method format override (if specified via #[json] or #[borsh])
     format_override: Option<SerializationFormat>,
@@ -157,18 +161,75 @@ struct MethodInfo {
 /// Parse a method from a trait item.
 fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
     let name = method.sig.ident.clone();
+    let unraw_name = name.unraw().to_string();
 
     // `contract_id` is the generated client's accessor and `client` is the
     // `Contract` constructor on the marker type; a contract method with
     // either name would collide with or shadow them.
-    if name == "contract_id" || name == "client" {
+    if unraw_name == "contract_id" || unraw_name == "client" {
         return Err(syn::Error::new(
             name.span(),
             format!(
-                "`{name}` is reserved by #[near_kit::contract] (the generated client uses it); \
-                 rename the method"
+                "`{unraw_name}` is reserved by #[near_kit::contract] (the generated client uses \
+                 it); rename the method"
             ),
         ));
+    }
+    // An inherent `clone` on the client would shadow its `Clone::clone`.
+    if unraw_name == "clone" {
+        return Err(syn::Error::new(
+            name.span(),
+            "`clone` is reserved by #[near_kit::contract] (it would shadow `Clone::clone` on \
+             the generated client); rename the method",
+        ));
+    }
+
+    // The generated methods return `View`/`Call`, which are awaited; they
+    // can't be `async` themselves.
+    if let Some(asyncness) = &method.sig.asyncness {
+        return Err(syn::Error::new(
+            asyncness.span(),
+            "contract methods can't be `async`; the generated method returns a `View` or \
+             `Call` to `.await`, so remove `async`",
+        ));
+    }
+
+    if !method.sig.generics.params.is_empty() {
+        return Err(syn::Error::new_spanned(
+            &method.sig.generics,
+            "#[near_kit::contract] does not support generic methods or lifetime parameters \
+             (use `impl Trait` or a concrete argument type)",
+        ));
+    }
+    if let Some(where_clause) = &method.sig.generics.where_clause {
+        return Err(syn::Error::new_spanned(
+            where_clause,
+            "#[near_kit::contract] does not support where clauses on methods",
+        ));
+    }
+
+    // `#[call]`, `#[json]` and `#[borsh]` are read here, before any `cfg` is
+    // evaluated, so one behind `#[cfg_attr]` would be ignored for the method
+    // and then copied onto the generated items, where it is no attribute at
+    // all. Reject it instead.
+    for attr in &method.attrs {
+        if let syn::Meta::List(list) = &attr.meta
+            && list.path.is_ident("cfg_attr")
+            && let Some(marker) = conditional_marker(list)
+        {
+            let name = marker
+                .get_ident()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            return Err(syn::Error::new_spanned(
+                marker,
+                format!(
+                    "#[{name}] can't be applied through #[cfg_attr]: #[near_kit::contract] reads \
+                     it before `cfg` is evaluated. Declare the method twice instead, each copy \
+                     under its own #[cfg]"
+                ),
+            ));
+        }
     }
 
     // Check receiver type
@@ -279,9 +340,21 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
                 ));
             }
 
-            // Extract argument name
-            if let Pat::Ident(pat_ident) = pat_type.pat.as_ref() {
-                arg_name = Some(pat_ident.ident.clone());
+            // The name becomes the generated method's parameter, so it must
+            // be a plain identifier (`args`, `mut args`).
+            match pat_type.pat.as_ref() {
+                Pat::Ident(pat_ident)
+                    if pat_ident.by_ref.is_none() && pat_ident.subpat.is_none() =>
+                {
+                    arg_name = Some(pat_ident.ident.clone());
+                }
+                other => {
+                    return Err(syn::Error::new(
+                        other.span(),
+                        "contract method arguments must be a plain name, like `args: Args` \
+                         (the generated method takes the argument by that name)",
+                    ));
+                }
             }
             arg_type = Some((*pat_type.ty).clone());
         }
@@ -308,15 +381,42 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         .filter(|attr| attr.path().is_ident("doc"))
         .cloned()
         .collect();
+    let cfgs = method
+        .attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("cfg") || attr.path().is_ident("cfg_attr"))
+        .cloned()
+        .collect();
 
     Ok(MethodInfo {
         name,
         docs,
+        cfgs,
         is_view,
         format_override,
         arg_name,
         arg_type,
         return_type,
+    })
+}
+
+/// The first `#[contract]` marker (`call`, `json`, `borsh`) that a
+/// `cfg_attr(predicate, attrs..)` would apply, looking inside nested
+/// `cfg_attr`s too. Contents that don't parse are left for rustc to report.
+fn conditional_marker(cfg_attr: &syn::MetaList) -> Option<syn::Path> {
+    let metas = cfg_attr
+        .parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+        .ok()?;
+    // The first entry is the predicate.
+    metas.into_iter().skip(1).find_map(|meta| match meta {
+        syn::Meta::List(nested) if nested.path.is_ident("cfg_attr") => conditional_marker(&nested),
+        meta if ["call", "json", "borsh"]
+            .iter()
+            .any(|marker| meta.path().is_ident(marker)) =>
+        {
+            Some(meta.path().clone())
+        }
+        _ => None,
     })
 }
 
@@ -330,8 +430,10 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
 fn generate_view_method(method: &MethodInfo, contract_format: SerializationFormat) -> TokenStream2 {
     let near_kit = near_kit_path();
     let method_name = &method.name;
-    let method_name_str = method_name.to_string();
+    // `fn r#type` is the contract method `type`.
+    let method_name_str = method_name.unraw().to_string();
     let docs = &method.docs;
+    let cfgs = &method.cfgs;
     let backend = backend_param();
 
     let format = method.format_override.unwrap_or(contract_format);
@@ -363,6 +465,7 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
     };
 
     quote! {
+        #(#cfgs)*
         #(#docs)*
         pub fn #method_name(&self, #params) -> #near_kit::View<#backend, #return_type>
         where
@@ -385,6 +488,7 @@ fn generate_call_method(method: &MethodInfo, trait_name: &Ident) -> TokenStream2
     let near_kit = near_kit_path();
     let method_name = &method.name;
     let docs = &method.docs;
+    let cfgs = &method.cfgs;
     let backend = backend_param();
 
     let (params, args) = match (&method.arg_name, &method.arg_type) {
@@ -393,15 +497,20 @@ fn generate_call_method(method: &MethodInfo, trait_name: &Ident) -> TokenStream2
     };
 
     quote! {
+        #(#cfgs)*
         #(#docs)*
         pub fn #method_name(&self, #params) -> #near_kit::Call<#backend>
         where
             #backend: #near_kit::TxSender + ::core::clone::Clone,
         {
+            // The constructor carries the method's attributes, so a
+            // `#[deprecated]` method would warn here, in generated code.
+            #[allow(deprecated)]
+            let function_call = #trait_name::#method_name(#args);
             #near_kit::__private::call(
                 ::core::clone::Clone::clone(&self.backend),
                 self.contract_id.clone(),
-                #trait_name::#method_name(#args),
+                function_call,
             )
         }
     }
@@ -417,10 +526,11 @@ fn generate_function_call_method(
 ) -> TokenStream2 {
     let near_kit = near_kit_path();
     let method_name = &method.name;
-    let method_name_str = method_name.to_string();
+    let method_name_str = method_name.unraw().to_string();
 
     let format = method.format_override.unwrap_or(contract_format);
     let docs = &method.docs;
+    let cfgs = &method.cfgs;
 
     if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
         let args_method = match format {
@@ -429,6 +539,7 @@ fn generate_function_call_method(
         };
 
         quote! {
+            #(#cfgs)*
             #(#docs)*
             pub fn #method_name(#arg_name: #arg_type) -> #near_kit::transaction::FunctionCall {
                 #near_kit::transaction::FunctionCall::new(#method_name_str)
@@ -440,6 +551,7 @@ fn generate_function_call_method(
             SerializationFormat::Json => {
                 // Use args_raw to avoid depending on serde_json in expanded code
                 quote! {
+                    #(#cfgs)*
                     #(#docs)*
                     pub fn #method_name() -> #near_kit::transaction::FunctionCall {
                         #near_kit::transaction::FunctionCall::new(#method_name_str)
@@ -449,6 +561,7 @@ fn generate_function_call_method(
             }
             SerializationFormat::Borsh => {
                 quote! {
+                    #(#cfgs)*
                     #(#docs)*
                     pub fn #method_name() -> #near_kit::transaction::FunctionCall {
                         #near_kit::transaction::FunctionCall::new(#method_name_str)
@@ -476,6 +589,16 @@ fn generate_function_call_method(
 ///   defaults to `near_kit::Near`;
 /// - `impl Contract for Counter`, which `Near::contract::<Counter>(id)` uses
 ///   to build the client.
+///
+/// Each method takes `&self` (a view) or `&mut self` with `#[call]`, and at
+/// most one argument bound to a plain name (`args: Args`). Generic, `async`
+/// and default methods are rejected, as are the names `client`,
+/// `contract_id` and `clone`. A method's `#[cfg]` and `#[cfg_attr]`
+/// attributes apply to everything generated for it, but `#[call]`,
+/// `#[json]` and `#[borsh]` can't go behind `#[cfg_attr]`; for a format that
+/// depends on a `cfg`, declare the method twice, each under its own
+/// `#[cfg]`. A raw identifier (`fn r#type`) calls the contract method
+/// without the `r#` (`type`).
 ///
 /// Everything it names is in near-kit-primitives, so it works without the
 /// RPC client (e.g. in contracts built for wasm).
