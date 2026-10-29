@@ -3004,6 +3004,30 @@ mod tests {
                 "https://user:p?ss@rpc.provider.com:3030?api_key=secret123",
                 "https://rpc.provider.com:3030",
             ),
+            (
+                "https://user:p?s@s@rpc.provider.com/?k=a@b",
+                "https://rpc.provider.com",
+            ),
+            // An `@` in the query or fragment is not userinfo.
+            (
+                "https://rpc.provider.com?email=foo@bar&api_key=SECRET",
+                "https://rpc.provider.com",
+            ),
+            (
+                "https://rpc.provider.com?apikey=user@SECRET",
+                "https://rpc.provider.com",
+            ),
+            (
+                "https://rpc.provider.com#user@SECRET",
+                "https://rpc.provider.com",
+            ),
+            // A `://` in the query is not the scheme.
+            (
+                "rpc.provider.com?apikey=SECRET&redirect=https://other.example",
+                "rpc.provider.com",
+            ),
+            // No valid host anywhere: only the scheme.
+            ("https://user:SECRET?", "https://…"),
         ] {
             assert_eq!(redact_url(url), shown, "{url}");
         }

@@ -27,18 +27,77 @@ compile_error!(
 /// (`?apikey=...`), in the path (`/v3/<key>`, `/<token>/`) and in `user:pass@`
 /// userinfo, so all of those are left out.
 ///
-/// The userinfo is everything up to the last `@` before the path, even when
-/// it holds an unencoded `?` or `#`: `https://user:p?ss@host/` shows as
-/// `https://host`, not as `https://user:p`.
+/// The host is the one an HTTP client connects to: the authority ends at the
+/// first `/`, `?` or `#`, so an `@` in the query is never read as the end of
+/// userinfo. Only when that authority is not a valid `host[:port]`, as with
+/// an unencoded `?` or `#` in a password (`https://user:p?ss@host/`, which
+/// clients reject), is the host taken from after an `@` further on. If no
+/// valid host is found, only the scheme is shown.
 pub(crate) fn redact_url(url: &str) -> String {
-    let authority_start = url.find("://").map_or(0, |i| i + 3);
-    let rest = &url[authority_start..];
-    let before_path = &rest[..rest.find('/').unwrap_or(rest.len())];
-    let host = before_path
+    let scheme_len = url
+        .find("://")
+        .filter(|&i| is_scheme(&url[..i]))
+        .map_or(0, |i| i + 3);
+    let (scheme, rest) = url.split_at(scheme_len);
+    let authority = &rest[..rest.find(['/', '\\', '?', '#']).unwrap_or(rest.len())];
+    let host = authority
         .rfind('@')
-        .map_or(before_path, |at| &before_path[at + 1..]);
-    let host = &host[..host.find(['?', '#']).unwrap_or(host.len())];
-    format!("{}{host}", &url[..authority_start])
+        .map_or(authority, |at| &authority[at + 1..]);
+    if is_host_and_port(host) {
+        return format!("{scheme}{host}");
+    }
+    // The authority isn't a host: the userinfo may hold a `?` or `#`. Take
+    // the first `@` before the path that a valid host follows.
+    let before_path = &rest[..rest.find(['/', '\\']).unwrap_or(rest.len())];
+    before_path
+        .match_indices('@')
+        .map(|(at, _)| {
+            let host = &before_path[at + 1..];
+            &host[..host.find(['?', '#']).unwrap_or(host.len())]
+        })
+        .find(|host| is_host_and_port(host))
+        .map_or_else(|| format!("{scheme}…"), |host| format!("{scheme}{host}"))
+}
+
+/// A URL scheme: a letter, then letters, digits, `+`, `-` or `.`.
+fn is_scheme(s: &str) -> bool {
+    s.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+}
+
+/// A host name, IPv4 address or bracketed IPv6 address, with an optional
+/// numeric port.
+fn is_host_and_port(s: &str) -> bool {
+    let (host_ok, port) = match s.strip_prefix('[') {
+        Some(v6) => match v6.split_once(']') {
+            Some((addr, port)) => (
+                !addr.is_empty()
+                    && addr
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() || matches!(b, b':' | b'.')),
+                port,
+            ),
+            None => return false,
+        },
+        None => {
+            let (host, port) = s.split_at(s.find(':').unwrap_or(s.len()));
+            (
+                !host.is_empty()
+                    && host.bytes().all(|b| {
+                        b.is_ascii_alphanumeric()
+                            || matches!(b, b'-' | b'.' | b'_')
+                            || !b.is_ascii()
+                    }),
+                port,
+            )
+        }
+    };
+    host_ok
+        && (port.is_empty()
+            || port
+                .strip_prefix(':')
+                .is_some_and(|port| port.bytes().all(|b| b.is_ascii_digit())))
 }
 
 /// A raw HTTP response handed back from an [`RpcTransport`].
