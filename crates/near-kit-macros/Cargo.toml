@@ -22,6 +22,6 @@ proc-macro-crate = "3"
 [dev-dependencies]
 trybuild = "1.0"
 near-kit = { path = "../near-kit", features = ["contracts"] }
-serde = { workspace = true, features = ["derive"] }
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

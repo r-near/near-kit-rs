@@ -67,7 +67,7 @@ thiserror = "2"
 tracing = "0.1"
 
 # Proc macro dependencies
-syn = { version = "3", features = ["full", "parsing", "extra-traits"] }
+syn = { version = "3", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
 
