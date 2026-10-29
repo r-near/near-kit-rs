@@ -656,13 +656,23 @@ enum SecretKeyRepr {
     Ed25519([u8; 32]),
     Secp256k1([u8; 32]),
     MlDsa65(Box<[u8; ML_DSA_65_SEED_LENGTH]>),
+    /// A 4032-byte expanded key (FIPS-204 `skEncode`) loaded from nearcore-based
+    /// tooling. The seed it came from can't be recovered, so this is kept as is.
+    MlDsa65Expanded(Box<[u8; ML_DSA_65_SECRET_KEY_LENGTH]>),
 }
+
+/// Bytes `128..1536` of an ML-DSA-65 expanded key hold s1 and s2: after ρ (32),
+/// K (32) and tr (64) come 5 + 6 polynomials of 256 four-bit coefficients.
+const ML_DSA_65_S1_S2: core::ops::Range<usize> = 128..128 + (5 + 6) * 128;
 
 /// A NEAR secret key.
 ///
-/// ML-DSA-65 keys are held only as the safe, canonical 32-byte FIPS-204 seed
-/// (ξ). Use [`SecretKey::to_ml_dsa65_expanded_bytes`] for one-way export to
-/// nearcore-based tooling that requires the 4032-byte expanded encoding.
+/// ML-DSA-65 keys are normally held as the canonical 32-byte FIPS-204 seed
+/// (ξ). A 4032-byte expanded key, as nearcore's `near-crypto` and near-cli-rs
+/// write it, can also be parsed; it has no recoverable seed, so such a key
+/// keeps and prints the expanded form. Use
+/// [`SecretKey::to_ml_dsa65_expanded_bytes`] to export the expanded encoding
+/// that nearcore-based tooling requires.
 ///
 /// The representation is private so every Secp256k1 scalar must pass the
 /// validating constructor before it can be used by [`SecretKey::public_key`]
@@ -723,29 +733,34 @@ impl SecretKey {
         match &self.0 {
             SecretKeyRepr::Ed25519(_) => KeyType::Ed25519,
             SecretKeyRepr::Secp256k1(_) => KeyType::Secp256k1,
-            SecretKeyRepr::MlDsa65(_) => KeyType::MlDsa65,
+            SecretKeyRepr::MlDsa65(_) | SecretKeyRepr::MlDsa65Expanded(_) => KeyType::MlDsa65,
         }
     }
 
     /// Get the raw key bytes as a slice.
     ///
-    /// For ML-DSA-65 this is always the 32-byte FIPS-204 seed.
+    /// For Ed25519 and Secp256k1 this is the 32-byte secret. For ML-DSA-65 it
+    /// is the 32-byte FIPS-204 seed, or the 4032-byte expanded key if the key
+    /// was parsed from that form (it has no recoverable seed).
     pub fn as_bytes(&self) -> &[u8] {
         match &self.0 {
             SecretKeyRepr::Ed25519(bytes) => bytes.as_slice(),
             SecretKeyRepr::Secp256k1(bytes) => bytes.as_slice(),
             SecretKeyRepr::MlDsa65(seed) => seed.as_slice(),
+            SecretKeyRepr::MlDsa65Expanded(bytes) => bytes.as_slice(),
         }
     }
 
     /// Return the raw 4032-byte expanded form (FIPS-204 `skEncode`) of this
-    /// ML-DSA-65 seed for one-way export to nearcore-based tooling.
+    /// ML-DSA-65 key for export to nearcore-based tooling.
     ///
-    /// The returned bytes derive the same public key, but cannot be imported
-    /// back into [`SecretKey`] because the original seed is not recoverable.
+    /// The returned bytes derive the same public key. Parsing them back
+    /// (`ml-dsa-65:<base58>`) gives a [`SecretKey`] that signs identically but
+    /// holds the expanded form, since the original seed is not recoverable.
     /// Returns `None` for Ed25519 and Secp256k1 keys.
     pub fn to_ml_dsa65_expanded_bytes(&self) -> Option<Box<[u8; ML_DSA_65_SECRET_KEY_LENGTH]>> {
         match &self.0 {
+            SecretKeyRepr::MlDsa65Expanded(bytes) => Some(bytes.clone()),
             SecretKeyRepr::MlDsa65(seed) => {
                 // `to_expanded` is deprecated upstream in favor of seed keygen,
                 // but the expanded encoding is what nearcore interoperates on.
@@ -765,6 +780,61 @@ impl SecretKey {
     ) -> ml_dsa::ExpandedSigningKey<MlDsa65> {
         let xi = B32::try_from(seed.as_slice()).expect("32-byte seed");
         ml_dsa::ExpandedSigningKey::<MlDsa65>::from_seed(&xi)
+    }
+
+    /// The ML-DSA-65 signing key, from the seed or the expanded encoding.
+    ///
+    /// Panics for Ed25519 and Secp256k1 keys; callers match on the repr first.
+    fn ml_dsa65_key(&self) -> ml_dsa::ExpandedSigningKey<MlDsa65> {
+        match &self.0 {
+            SecretKeyRepr::MlDsa65(seed) => Self::ml_dsa65_signing_key(seed),
+            SecretKeyRepr::MlDsa65Expanded(bytes) => Self::ml_dsa65_expanded_signing_key(bytes),
+            SecretKeyRepr::Ed25519(_) | SecretKeyRepr::Secp256k1(_) => {
+                unreachable!("not an ML-DSA-65 key")
+            }
+        }
+    }
+
+    /// Decode a 4032-byte expanded key that [`Self::ml_dsa65_from_expanded`]
+    /// has validated.
+    fn ml_dsa65_expanded_signing_key(
+        bytes: &[u8; ML_DSA_65_SECRET_KEY_LENGTH],
+    ) -> ml_dsa::ExpandedSigningKey<MlDsa65> {
+        let enc = ml_dsa::ExpandedSigningKeyBytes::<MlDsa65>::try_from(bytes.as_slice())
+            .expect("4032-byte expanded key");
+        // `from_expanded` is deprecated upstream in favor of seeds, but
+        // nearcore-based tooling only exports the expanded encoding. It panics
+        // on out-of-range s1/s2 coefficients, which `ml_dsa65_from_expanded`
+        // rejects first.
+        #[allow(deprecated)]
+        ml_dsa::ExpandedSigningKey::<MlDsa65>::from_expanded(&enc)
+    }
+
+    /// Build an ML-DSA-65 key from a 4032-byte expanded encoding, rejecting
+    /// encodings that would panic or don't form a consistent key.
+    fn ml_dsa65_from_expanded(data: &[u8]) -> Result<Self, ParseKeyError> {
+        let bytes: [u8; ML_DSA_65_SECRET_KEY_LENGTH] =
+            data.try_into().map_err(|_| ParseKeyError::InvalidLength {
+                expected: ML_DSA_65_SECRET_KEY_LENGTH,
+                actual: data.len(),
+            })?;
+        // s1 and s2 coefficients are stored as η − c with η = 4, so every
+        // four-bit value must be at most 8.
+        if data[ML_DSA_65_S1_S2]
+            .iter()
+            .any(|byte| byte & 0x0F > 8 || byte >> 4 > 8)
+        {
+            return Err(ParseKeyError::InvalidFormat);
+        }
+        let key = Self(SecretKeyRepr::MlDsa65Expanded(Box::new(bytes)));
+        // The signer hashes the message with the stored tr; the verifier with
+        // H(public key derived from ρ, s1, s2). They agree only if the parts
+        // belong together.
+        let probe = b"near-kit ml-dsa-65 expanded key check";
+        if !key.sign(probe).verify(probe, &key.public_key()) {
+            return Err(ParseKeyError::KeyPairMismatch);
+        }
+        Ok(key)
     }
 
     /// Derive the public key.
@@ -788,8 +858,8 @@ impl SecretKey {
                 result.copy_from_slice(&uncompressed_bytes[1..]);
                 PublicKey::Secp256k1(result)
             }
-            SecretKeyRepr::MlDsa65(sk) => {
-                let signing_key = Self::ml_dsa65_signing_key(sk);
+            SecretKeyRepr::MlDsa65(_) | SecretKeyRepr::MlDsa65Expanded(_) => {
+                let signing_key = self.ml_dsa65_key();
                 let encoded: EncodedVerifyingKey<MlDsa65> = signing_key.verifying_key().encode();
                 let mut bytes = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
                 bytes.copy_from_slice(encoded.as_slice());
@@ -841,11 +911,11 @@ impl SecretKey {
 
                 Signature::Secp256k1(sig_bytes)
             }
-            SecretKeyRepr::MlDsa65(sk) => {
+            SecretKeyRepr::MlDsa65(_) | SecretKeyRepr::MlDsa65Expanded(_) => {
                 // FIPS-204 ML-DSA.Sign with empty context. The `ml-dsa` crate's
                 // `Signer` is the deterministic variant; nearcore verifies with a
                 // FIPS-204 verifier, which accepts any conformant signature.
-                let signing_key = Self::ml_dsa65_signing_key(sk);
+                let signing_key = self.ml_dsa65_key();
                 let sig: ml_dsa::Signature<MlDsa65> = signing_key.sign(message);
                 let encoded: EncodedSignature<MlDsa65> = sig.encode();
                 let mut bytes = Box::new([0u8; ML_DSA_65_SIGNATURE_LENGTH]);
@@ -984,11 +1054,12 @@ impl FromStr for SecretKey {
             .into_vec()
             .map_err(|e| ParseKeyError::InvalidBase58(e.to_string()))?;
 
-        // ML-DSA-65 secret keys are always the safe 32-byte FIPS-204 seed.
-        // Expanded 4032-byte strings exported by external tooling are rejected:
-        // importing them would invoke upstream range decoding that can panic,
-        // and the original seed cannot be recovered from that representation.
+        // ML-DSA-65 secret keys are the 32-byte FIPS-204 seed, or the 4032-byte
+        // expanded key nearcore's `near-crypto` (and so near-cli-rs) writes.
         if key_type == KeyType::MlDsa65 {
+            if data.len() == ML_DSA_65_SECRET_KEY_LENGTH {
+                return Self::ml_dsa65_from_expanded(&data);
+            }
             if data.len() != ML_DSA_65_SEED_LENGTH {
                 return Err(ParseKeyError::InvalidLength {
                     expected: ML_DSA_65_SEED_LENGTH,
@@ -1000,11 +1071,12 @@ impl FromStr for SecretKey {
             return Ok(Self::ml_dsa65_from_seed(seed));
         }
 
-        // For ed25519, the secret key might be 32 bytes (seed) or 64 bytes (expanded)
-        // For secp256k1, it must be 32 bytes
+        // Ed25519: the 32-byte seed, or seed || public key (64 bytes).
+        // Secp256k1: the 32-byte secret, or secret || public key (96 bytes) as
+        // near-api-js writes it.
         let valid_len = match key_type {
             KeyType::Ed25519 => data.len() == 32 || data.len() == 64,
-            KeyType::Secp256k1 => data.len() == 32,
+            KeyType::Secp256k1 => data.len() == 32 || data.len() == 96,
             KeyType::MlDsa65 => unreachable!("handled above"),
         };
         if !valid_len {
@@ -1014,16 +1086,21 @@ impl FromStr for SecretKey {
             });
         }
 
-        // Take first 32 bytes if 64-byte expanded key
+        // The secret is the first 32 bytes.
         let bytes: [u8; 32] = data[..32]
             .try_into()
             .map_err(|_| ParseKeyError::InvalidFormat)?;
 
-        match key_type {
-            KeyType::Ed25519 => Ok(Self::ed25519_from_bytes(bytes)),
-            KeyType::Secp256k1 => Self::secp256k1_from_bytes(bytes),
+        let key = match key_type {
+            KeyType::Ed25519 => Self::ed25519_from_bytes(bytes),
+            KeyType::Secp256k1 => Self::secp256k1_from_bytes(bytes)?,
             KeyType::MlDsa65 => unreachable!("handled above"),
+        };
+        // An appended public key must be the one the secret derives.
+        if data.len() > 32 && key.public_key().as_bytes() != &data[32..] {
+            return Err(ParseKeyError::KeyPairMismatch);
         }
+        Ok(key)
     }
 }
 
@@ -1035,20 +1112,30 @@ impl TryFrom<&str> for SecretKey {
     }
 }
 
-/// Formats the key as `<key-type>:<base58 payload>`, where the payload is
-/// [`SecretKey::as_bytes`].
+/// Formats the key as `<key-type>:<base58 payload>`.
 ///
-/// For ML-DSA-65 the payload is always the 32-byte seed. nearcore's
-/// `near-crypto` expects the 4032-byte expanded encoding instead; obtain those
-/// raw bytes with [`SecretKey::to_ml_dsa65_expanded_bytes`] when exporting.
+/// - Ed25519: the 64-byte `seed || public key` keypair, the form nearcore's
+///   `near-crypto`, near-cli-rs and neard key files read. (Parsing also
+///   accepts the bare 32-byte seed; [`SecretKey::as_bytes`] returns the seed.)
+/// - Secp256k1: the 32-byte secret scalar.
+/// - ML-DSA-65: [`SecretKey::as_bytes`], normally the 32-byte seed. nearcore's
+///   `near-crypto` expects the 4032-byte expanded encoding instead; obtain those
+///   raw bytes with [`SecretKey::to_ml_dsa65_expanded_bytes`] when exporting.
+///   A key parsed from the expanded form has no seed and prints that form.
 impl Display for SecretKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}:{}",
-            self.key_type().as_str(),
-            bs58::encode(self.as_bytes()).into_string()
-        )
+        let payload = match &self.0 {
+            SecretKeyRepr::Ed25519(seed) => {
+                let mut keypair = [0u8; 64];
+                keypair[..32].copy_from_slice(seed);
+                keypair[32..].copy_from_slice(self.public_key().as_bytes());
+                bs58::encode(keypair).into_string()
+            }
+            SecretKeyRepr::Secp256k1(_)
+            | SecretKeyRepr::MlDsa65(_)
+            | SecretKeyRepr::MlDsa65Expanded(_) => bs58::encode(self.as_bytes()).into_string(),
+        };
+        write!(f, "{}:{}", self.key_type().as_str(), payload)
     }
 }
 
@@ -1434,9 +1521,80 @@ mod tests {
         let parsed: SecretKey = expanded_str.parse().unwrap();
         assert_eq!(parsed.public_key(), public);
 
-        // Re-serializing yields the 32-byte seed form
+        // Re-serializing yields the same 64-byte form
         let reserialized = parsed.to_string();
-        assert_eq!(reserialized, secret.to_string());
+        assert_eq!(reserialized, expanded_str);
+        assert_eq!(secret.to_string(), expanded_str);
+    }
+
+    /// The public half of a 64-byte ed25519 secret must be the one its seed
+    /// derives.
+    #[test]
+    fn test_ed25519_secret_key_64_byte_with_wrong_public_half_is_rejected() {
+        let secret = SecretKey::ed25519_from_bytes([4u8; 32]);
+        let other = SecretKey::ed25519_from_bytes([5u8; 32]);
+        let encode = |public: &[u8]| {
+            let mut keypair = [0u8; 64];
+            keypair[..32].copy_from_slice(secret.as_bytes());
+            keypair[32..].copy_from_slice(public);
+            format!("ed25519:{}", bs58::encode(keypair).into_string())
+        };
+
+        assert!(
+            encode(secret.public_key().as_bytes())
+                .parse::<SecretKey>()
+                .is_ok()
+        );
+        assert_eq!(
+            encode(other.public_key().as_bytes())
+                .parse::<SecretKey>()
+                .err(),
+            Some(ParseKeyError::KeyPairMismatch)
+        );
+        let mut flipped = secret.public_key().as_bytes().to_vec();
+        flipped[31] ^= 1;
+        assert_eq!(
+            encode(&flipped).parse::<SecretKey>().err(),
+            Some(ParseKeyError::KeyPairMismatch)
+        );
+    }
+
+    /// nearcore's `near-crypto` (and so near-cli-rs and neard key files) only
+    /// reads the 64-byte `seed || public key` form. The expected strings are
+    /// `near_crypto::SecretKey::ED25519(..).to_string()` (near-crypto 0.38.0)
+    /// for the same seeds.
+    #[test]
+    fn test_ed25519_secret_key_display_matches_near_crypto() {
+        let vectors = [
+            (
+                [7u8; 32],
+                "ed25519:99eUso3aSbE9tqGSTXzo3TLfKb9RkMTURrHKQ1K7Zh3StnzFNUx8FKCPPPPpR479qsw5zv2WNBKmgiz7WqgAJfM",
+                "ed25519:GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB",
+            ),
+            (
+                [1u8; 32],
+                "ed25519:2AXDGYSE4f2sz7tvMMzyHvUfcoJmxudvdhBcmiUSo6iuCXagjUCKEQF21awZnUGxmwD4m9vGXuC3qieHXJQHAcT",
+                "ed25519:AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+            ),
+        ];
+        for (seed, expected, public) in vectors {
+            let secret = SecretKey::ed25519_from_bytes(seed);
+            assert_eq!(secret.public_key().to_string(), public);
+            assert_eq!(secret.to_string(), expected);
+            assert_eq!(
+                serde_json::to_value(&secret).unwrap(),
+                serde_json::Value::String(expected.to_string())
+            );
+            // `as_bytes` stays the 32-byte seed.
+            assert_eq!(secret.as_bytes(), seed.as_slice());
+
+            // Both forms still parse to the same key.
+            let from_64: SecretKey = expected.parse().unwrap();
+            let seed_only = format!("ed25519:{}", bs58::encode(seed).into_string());
+            let from_32: SecretKey = seed_only.parse().unwrap();
+            assert_eq!(from_64.as_bytes(), seed.as_slice());
+            assert_eq!(from_32.to_string(), expected);
+        }
     }
 
     // ========================================================================
@@ -1746,6 +1904,43 @@ mod tests {
         assert_eq!(secret.public_key(), parsed.public_key());
     }
 
+    /// near-api-js writes secp256k1 secret keys as `secret (32) || public key (64)`.
+    #[test]
+    fn test_secp256k1_secret_key_96_byte_near_api_js_form() {
+        let secret = SecretKey::secp256k1_from_bytes([2u8; 32]).unwrap();
+        let mut keypair = [0u8; 96];
+        keypair[..32].copy_from_slice(secret.as_bytes());
+        keypair[32..].copy_from_slice(secret.public_key().as_bytes());
+        let near_api_js = format!("secp256k1:{}", bs58::encode(keypair).into_string());
+
+        let parsed: SecretKey = near_api_js.parse().unwrap();
+        assert_eq!(parsed.key_type(), KeyType::Secp256k1);
+        assert_eq!(parsed.public_key(), secret.public_key());
+        // Still written as the 32-byte secret.
+        assert_eq!(parsed.as_bytes(), secret.as_bytes());
+        assert_eq!(parsed.to_string(), secret.to_string());
+
+        // A public half that doesn't belong to the secret is rejected.
+        let mut mismatched = keypair;
+        mismatched[95] ^= 1;
+        let mismatched = format!("secp256k1:{}", bs58::encode(mismatched).into_string());
+        assert_eq!(
+            mismatched.parse::<SecretKey>().err(),
+            Some(ParseKeyError::KeyPairMismatch)
+        );
+        let other = SecretKey::secp256k1_from_bytes([3u8; 32]).unwrap();
+        keypair[32..].copy_from_slice(other.public_key().as_bytes());
+        let other_half = format!("secp256k1:{}", bs58::encode(keypair).into_string());
+        assert_eq!(
+            other_half.parse::<SecretKey>().err(),
+            Some(ParseKeyError::KeyPairMismatch)
+        );
+
+        // Other lengths are still rejected.
+        let short = format!("secp256k1:{}", bs58::encode([2u8; 64]).into_string());
+        assert!(short.parse::<SecretKey>().is_err());
+    }
+
     #[test]
     fn test_secp256k1_secret_key_random() {
         let secret_key = SecretKey::generate_secp256k1();
@@ -2030,24 +2225,124 @@ mod tests {
         );
     }
 
+    /// SHA-256 of `near_crypto::ml_dsa_65_from_seed(&[3; 32]).to_string()`
+    /// (near-crypto 0.38.0), the `ml-dsa-65:<base58 of 4032 bytes>` string
+    /// near-cli-rs writes, and of the matching public key string.
+    const NEAR_CRYPTO_ML_DSA_65_SEED_3_SECRET_SHA256: &str =
+        "ab509dc208e9698eb6a76f6bb310988fce26ca2b0f81b7688116a59e752f6cde";
+    const NEAR_CRYPTO_ML_DSA_65_SEED_3_PUBLIC_SHA256: &str =
+        "a3eb28e3a900f85c11ec9f5b0867a2f40e550ae2a679e9b213e9e23da6930a88";
+
+    fn sha256_hex(s: &str) -> String {
+        use sha2::{Digest as _, Sha256};
+        hex::encode(Sha256::digest(s.as_bytes()))
+    }
+
     #[test]
-    fn test_ml_dsa65_expanded_secret_key_is_rejected() {
-        let expanded = SecretKey::ml_dsa65_from_seed([7u8; ML_DSA_65_SEED_LENGTH])
-            .to_ml_dsa65_expanded_bytes()
-            .unwrap();
+    fn test_ml_dsa65_expanded_secret_key_loads() {
+        let seed_key = SecretKey::ml_dsa65_from_seed([3u8; ML_DSA_65_SEED_LENGTH]);
+        let expanded = seed_key.to_ml_dsa65_expanded_bytes().unwrap();
         let external = format!(
             "ml-dsa-65:{}",
             bs58::encode(expanded.as_slice()).into_string()
         );
+        // This is the exact string near-crypto writes for this key.
+        assert_eq!(
+            sha256_hex(&external),
+            NEAR_CRYPTO_ML_DSA_65_SEED_3_SECRET_SHA256
+        );
 
-        assert!(matches!(
-            external.parse::<SecretKey>(),
-            Err(ParseKeyError::InvalidLength {
-                expected: ML_DSA_65_SEED_LENGTH,
-                actual: ML_DSA_65_SECRET_KEY_LENGTH,
-            })
-        ));
-        assert!(serde_json::from_value::<SecretKey>(serde_json::Value::String(external)).is_err());
+        let loaded: SecretKey = external.parse().unwrap();
+        assert_eq!(loaded.key_type(), KeyType::MlDsa65);
+        assert_eq!(loaded.public_key(), seed_key.public_key());
+        assert_eq!(
+            sha256_hex(&loaded.public_key().to_string()),
+            NEAR_CRYPTO_ML_DSA_65_SEED_3_PUBLIC_SHA256
+        );
+
+        // Same key material and a deterministic signer: identical signatures.
+        let message = b"expanded import";
+        let signature = loaded.sign(message);
+        assert_eq!(signature, seed_key.sign(message));
+        assert!(signature.verify(message, &seed_key.public_key()));
+
+        // There is no seed to recover, so the key keeps the expanded form.
+        assert_eq!(loaded.as_bytes(), expanded.as_slice());
+        assert_eq!(loaded.to_string(), external);
+        assert_eq!(loaded.to_ml_dsa65_expanded_bytes().unwrap(), expanded);
+
+        let from_json: SecretKey =
+            serde_json::from_value(serde_json::Value::String(external)).unwrap();
+        assert_eq!(from_json.public_key(), seed_key.public_key());
+
+        // A seed-held key still writes the seed.
+        assert_eq!(
+            seed_key.to_string(),
+            format!("ml-dsa-65:{}", bs58::encode([3u8; 32]).into_string())
+        );
+    }
+
+    #[test]
+    fn test_ml_dsa65_malformed_expanded_secret_key_is_rejected() {
+        let parse = |bytes: &[u8]| {
+            format!("ml-dsa-65:{}", bs58::encode(bytes).into_string()).parse::<SecretKey>()
+        };
+        let good = SecretKey::ml_dsa65_from_seed([7u8; ML_DSA_65_SEED_LENGTH])
+            .to_ml_dsa65_expanded_bytes()
+            .unwrap();
+        assert!(parse(good.as_slice()).is_ok());
+
+        // Well-formed encodings whose parts don't belong to one key.
+        let mut mismatched: Vec<Vec<u8>> = vec![
+            // In range everywhere, but tr doesn't match the key.
+            vec![0x00; ML_DSA_65_SECRET_KEY_LENGTH],
+        ];
+        // Corrupted tr.
+        let mut bad_tr = good.to_vec();
+        bad_tr[64] ^= 1;
+        mismatched.push(bad_tr);
+        // One s1 coefficient changed, still in range.
+        let mut bad_s1 = good.to_vec();
+        let low = bad_s1[128] & 0x0F;
+        bad_s1[128] = (bad_s1[128] & 0xF0) | ((low + 1) % 9);
+        mismatched.push(bad_s1);
+        for bytes in mismatched {
+            assert_eq!(
+                parse(&bytes).err(),
+                Some(ParseKeyError::KeyPairMismatch),
+                "inconsistent expanded key not reported as a mismatch"
+            );
+        }
+
+        // Malformed encodings.
+        let mut cases: Vec<Vec<u8>> = vec![
+            // s1/s2 coefficients out of range: the upstream decoder asserts on these.
+            vec![0xFF; ML_DSA_65_SECRET_KEY_LENGTH],
+        ];
+        // One s1 coefficient out of range.
+        let mut bad_range = good.to_vec();
+        bad_range[200] |= 0x0F;
+        cases.push(bad_range);
+        // Pseudo-random fills.
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        for _ in 0..8 {
+            let bytes = (0..ML_DSA_65_SECRET_KEY_LENGTH)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    state as u8
+                })
+                .collect();
+            cases.push(bytes);
+        }
+
+        for bytes in cases {
+            assert!(
+                matches!(parse(&bytes), Err(ParseKeyError::InvalidFormat)),
+                "malformed expanded key accepted"
+            );
+        }
     }
 
     #[test]

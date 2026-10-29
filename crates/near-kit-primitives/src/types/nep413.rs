@@ -489,10 +489,14 @@ where
     serializer.serialize_str(&base64_str)
 }
 
-/// Deserialize a Signature from multiple formats for backwards compatibility:
+/// Deserialize a Signature from the formats clients send:
+/// - Prefixed base58 (`ed25519:...`, `secp256k1:...` or `ml-dsa-65:...`, as
+///   near-cli-rs `sign-nep413` prints it)
 /// - Base64 (NEP-413 spec)
-/// - Prefixed base58 (ed25519:... or secp256k1:...)
 /// - Plain base58
+///
+/// Unprefixed payloads pick the key type from the decoded length: 64 bytes is
+/// Ed25519, 65 Secp256k1 and 3309 ML-DSA-65.
 fn deserialize_signature_flexible<'de, D>(deserializer: D) -> Result<Signature, D::Error>
 where
     D: Deserializer<'de>,
@@ -502,45 +506,42 @@ where
 
     let s: String = String::deserialize(deserializer)?;
 
-    // Try base64 first (NEP-413 spec)
-    if let Ok(bytes) = BASE64_STANDARD.decode(&s)
-        && bytes.len() == 64
-    {
-        return Ok(Signature::ed25519_from_bytes(
-            bytes
-                .try_into()
-                .map_err(|_| D::Error::custom("Invalid signature length"))?,
-        ));
+    // Base64 and base58 never contain ':', so a colon means a key-type prefix.
+    if s.contains(':') {
+        return s
+            .parse::<Signature>()
+            .map_err(|e| D::Error::custom(format!("Invalid signature: {e}")));
     }
 
-    // Try prefixed format (ed25519:base58 or secp256k1:base58)
-    if let Some(data) = s.strip_prefix("ed25519:") {
-        let bytes = bs58::decode(data)
-            .into_vec()
-            .map_err(|e| D::Error::custom(format!("Invalid base58: {}", e)))?;
-        if bytes.len() == 64 {
-            return Ok(Signature::ed25519_from_bytes(
-                bytes
-                    .try_into()
-                    .map_err(|_| D::Error::custom("Invalid signature length"))?,
-            ));
+    // Base64 first (NEP-413 spec), then plain base58.
+    let decoded = [
+        BASE64_STANDARD.decode(&s).ok(),
+        bs58::decode(&s).into_vec().ok(),
+    ];
+    for bytes in decoded.into_iter().flatten() {
+        if let Some(signature) = signature_from_unprefixed_bytes(&bytes) {
+            return Ok(signature);
         }
     }
 
-    // Try plain base58
-    if let Ok(bytes) = bs58::decode(&s).into_vec()
-        && bytes.len() == 64
-    {
-        return Ok(Signature::ed25519_from_bytes(
-            bytes
-                .try_into()
-                .map_err(|_| D::Error::custom("Invalid signature length"))?,
-        ));
-    }
-
     Err(D::Error::custom(
-        "Invalid signature format. Expected base64, ed25519:base58, or plain base58",
+        "Invalid signature format. Expected base64, <key-type>:base58, or plain base58 \
+         of a 64-byte (ed25519), 65-byte (secp256k1) or 3309-byte (ml-dsa-65) signature",
     ))
+}
+
+/// Build a signature from raw bytes, choosing the key type by length.
+fn signature_from_unprefixed_bytes(bytes: &[u8]) -> Option<Signature> {
+    use crate::types::ML_DSA_65_SIGNATURE_LENGTH;
+
+    match bytes.len() {
+        64 => Some(Signature::ed25519_from_bytes(bytes.try_into().ok()?)),
+        65 => Some(Signature::secp256k1_from_bytes(bytes.try_into().ok()?)),
+        ML_DSA_65_SIGNATURE_LENGTH => Some(Signature::ml_dsa65_from_bytes(Box::new(
+            bytes.try_into().ok()?,
+        ))),
+        _ => None,
+    }
 }
 
 // ============================================================================
@@ -1090,5 +1091,123 @@ mod tests {
             &roundtrip_params,
             Duration::MAX
         ));
+    }
+
+    /// One key of each type, with a signed message for fixed params.
+    fn signed_by_every_key_type() -> Vec<(SignedMessage, SignMessageParams)> {
+        use crate::types::SecretKey;
+
+        let params = SignMessageParams {
+            message: "Login".to_string(),
+            recipient: "myapp.com".to_string(),
+            nonce: [1; 32],
+            callback_url: None,
+            state: None,
+        };
+        let keys = [
+            SecretKey::ed25519_from_bytes([7; 32]),
+            SecretKey::secp256k1_from_bytes([2; 32]).unwrap(),
+            SecretKey::ml_dsa65_from_seed([3; 32]),
+        ];
+        keys.into_iter()
+            .map(|secret| {
+                let signed = SignedMessage {
+                    account_id: "alice.near".parse().unwrap(),
+                    public_key: secret.public_key(),
+                    signature: secret.sign(hash_message(&params).as_bytes()),
+                    state: None,
+                };
+                (signed, params.clone())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn signed_message_json_roundtrips_for_every_key_type() {
+        for (signed, params) in signed_by_every_key_type() {
+            let key_type = signed.public_key.key_type();
+            let json = serde_json::to_string(&signed).unwrap();
+            let back: SignedMessage = serde_json::from_str(&json)
+                .unwrap_or_else(|e| panic!("{key_type:?} SignedMessage round-trip: {e}"));
+            assert_eq!(back, signed);
+            assert!(verify_signature(&back, &params, NonceValidation::None));
+        }
+    }
+
+    #[test]
+    fn auth_payload_json_roundtrips_for_every_key_type() {
+        for (signed, params) in signed_by_every_key_type() {
+            let key_type = signed.public_key.key_type();
+            let payload = AuthPayload::from_signed(signed.clone(), &params);
+            let json = serde_json::to_string(&payload).unwrap();
+            let back: AuthPayload = serde_json::from_str(&json)
+                .unwrap_or_else(|e| panic!("{key_type:?} AuthPayload round-trip: {e}"));
+            assert_eq!(back.signed_message, signed);
+            assert!(verify_signature(
+                &back.signed_message,
+                &back.to_params(),
+                NonceValidation::None
+            ));
+        }
+    }
+
+    /// near-cli-rs `sign-nep413` prints `{accountId, publicKey, signature}`
+    /// with the signature as `<key-type>:<base58>`.
+    #[test]
+    fn near_cli_rs_signed_message_parses_for_every_key_type() {
+        for (signed, params) in signed_by_every_key_type() {
+            let key_type = signed.public_key.key_type();
+            let json = serde_json::json!({
+                "accountId": signed.account_id.as_str(),
+                "publicKey": signed.public_key.to_string(),
+                "signature": signed.signature.to_string(),
+            });
+            let back: SignedMessage = serde_json::from_value(json)
+                .unwrap_or_else(|e| panic!("{key_type:?} near-cli-rs JSON: {e}"));
+            assert_eq!(back, signed);
+            assert!(verify_signature(&back, &params, NonceValidation::None));
+        }
+    }
+
+    #[test]
+    fn unprefixed_base58_signature_parses_for_every_key_type() {
+        for (signed, _) in signed_by_every_key_type() {
+            let key_type = signed.public_key.key_type();
+            let json = serde_json::json!({
+                "accountId": signed.account_id.as_str(),
+                "publicKey": signed.public_key.to_string(),
+                "signature": bs58::encode(signed.signature.as_bytes()).into_string(),
+            });
+            let back: SignedMessage = serde_json::from_value(json)
+                .unwrap_or_else(|e| panic!("{key_type:?} plain base58: {e}"));
+            assert_eq!(back.signature, signed.signature);
+        }
+    }
+
+    #[test]
+    fn signature_of_unknown_length_is_rejected() {
+        use base64::prelude::*;
+
+        // 0xFF bytes base64-encode to '/', which is not base58, so neither
+        // encoding can be misread as the other.
+        for bytes in [vec![0xFF; 63], vec![0xFF; 66], vec![0xFF; 3308]] {
+            for encoded in [
+                BASE64_STANDARD.encode(&bytes),
+                bs58::encode(&bytes).into_string(),
+            ] {
+                let json = serde_json::json!({
+                    "accountId": "alice.near",
+                    "publicKey": "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847",
+                    "signature": encoded,
+                });
+                assert!(serde_json::from_value::<SignedMessage>(json).is_err());
+            }
+        }
+        let json = serde_json::json!({
+            "accountId": "alice.near",
+            "publicKey": "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847",
+            "signature": format!("secp256k1:{}", bs58::encode([0u8; 64]).into_string()),
+        });
+        assert!(serde_json::from_value::<SignedMessage>(json).is_err());
     }
 }

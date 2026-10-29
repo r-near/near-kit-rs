@@ -115,6 +115,39 @@ let me = Near::testnet()
 let balance = me.near().balance(me.account_id()).await?;
 ```
 
+### Secret key strings
+
+An Ed25519 `SecretKey` now prints (`to_string()`, `Display`, serde) as the
+64-byte `ed25519:<base58(seed ‖ public key)>` form that nearcore,
+near-cli-rs and neard key files read; 0.20 printed the 32-byte seed, which
+they reject. Both forms still parse, and `as_bytes()` still returns the
+32-byte seed. Code that compares a key's string or JSON against a stored
+32-byte form needs updating. Secp256k1 and ML-DSA-65 output is unchanged.
+
+ML-DSA-65 `SecretKey` parsing (and so `from_credentials`,
+`from_credentials_file`, `from_keyring` and `from_env`) accepts the 4032-byte
+expanded `ml-dsa-65:` key that nearcore and near-cli-rs write, as well as the
+32-byte seed. 0.18 to 0.20 rejected it with `ParseKeyError::InvalidLength`. A
+malformed expanded key returns `ParseKeyError::InvalidFormat`, and one whose
+parts don't belong to one key the new `ParseKeyError::KeyPairMismatch`. The seed
+can't be recovered from an expanded key, so such a key's `as_bytes()` and
+`to_string()` are the 4032-byte form; seed-held keys still print the seed.
+`from_keyring` also finds ML-DSA-65 entries near-cli-rs 0.31 stores under the
+key's `ml-dsa-65-hash:` handle.
+
+Secp256k1 `SecretKey` parsing also accepts near-api-js's 96-byte
+`secp256k1:<base58(secret ‖ public key)>` form, and returns
+`ParseKeyError::KeyPairMismatch` if the public half doesn't match the secret.
+The key still prints as the 32-byte secret.
+
+A 64-byte `ed25519:` secret key whose public half isn't the one its seed
+derives now fails to parse with `ParseKeyError::KeyPairMismatch`; 0.20
+ignored the public half. Exhaustive matches on `ParseKeyError` need an arm
+for the new variant.
+
+`from_credentials` and `from_credentials_file` now return `Error::Config` for
+a file whose `public_key` names a different key than its `private_key`.
+
 ## Transactions
 
 | 0.20 | 0.21 |
@@ -771,7 +804,8 @@ seed. The expanded-key constructors and conversions returning `SecretKey` were
 removed. Use `to_ml_dsa65_expanded_bytes()` for one-way export to tooling that
 requires the 4032-byte representation. Parsing or deserializing an external
 4032-byte `ml-dsa-65:` string now returns `ParseKeyError::InvalidLength` rather
-than importing it. `PublicKey` and `Signature` JSON and Borsh wire encodings
+than importing it. (0.21 accepts it again; see
+[Secret key strings](#secret-key-strings).) `PublicKey` and `Signature` JSON and Borsh wire encodings
 remain compatible.
 
 `InMemorySigner::implicit(secret_key)` is now fallible; use
