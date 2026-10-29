@@ -132,6 +132,10 @@ struct JsonRpcRequest<'a, P: Serialize> {
 /// failures when the RPC returns an error with a partial/unexpected `result`.
 #[derive(Deserialize)]
 struct JsonRpcResponse {
+    #[allow(dead_code)]
+    jsonrpc: String,
+    #[allow(dead_code)]
+    id: u64,
     result: Option<serde_json::Value>,
     error: Option<JsonRpcError>,
 }
@@ -146,6 +150,9 @@ struct JsonRpcError {
     data: Option<serde_json::Value>,
     #[serde(default)]
     cause: Option<ErrorCause>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    name: Option<String>,
 }
 
 /// Structured error cause from NEAR RPC.
@@ -889,6 +896,7 @@ impl RpcClient {
                 message: error_str.to_string(),
                 data: Some(serde_json::Value::String(error_str.to_string())),
                 cause: None,
+                name: None,
             };
             return Err(parse_rpc_error(&synthetic));
         }
@@ -1663,6 +1671,7 @@ mod tests {
                 name: cause.to_string(),
                 info,
             }),
+            name: Some("HANDLER_ERROR".to_string()),
         }
     }
 
@@ -4201,6 +4210,7 @@ mod tests {
                 "account missing.near does not exist while viewing"
             )),
             cause: None,
+            name: None,
         };
         let result = parse_rpc_error(&error);
         assert!(matches!(result, RpcError::AccountNotFound { .. }));
@@ -4224,6 +4234,7 @@ mod tests {
             message: "Invalid request".to_string(),
             data: None,
             cause: None,
+            name: None,
         };
         let result = parse_rpc_error(&error);
         match result {
@@ -4247,7 +4258,7 @@ mod tests {
         }
         type Check = fn(&RpcError) -> bool;
         // `(status, body, attempts with 2 retries allowed, expected error)`
-        let cases: [(u16, Vec<u8>, usize, Check); 8] = [
+        let cases: [(u16, Vec<u8>, usize, Check); 10] = [
             (
                 422,
                 handler(
@@ -4329,6 +4340,46 @@ mod tests {
                 1,
                 |e| not_retryable_network(e, 422),
             ),
+            // A JSON body without the `jsonrpc`/`id` envelope (a proxy or
+            // rate limiter, not nearcore) keeps the status's own retry
+            // classification, even if its `error` names a typed cause.
+            (
+                429,
+                br#"{"error":{"code":-32000,"message":"Too many requests"}}"#.to_vec(),
+                3,
+                |e| {
+                    matches!(
+                        e,
+                        RpcError::Network {
+                            status_code: Some(429),
+                            retryable: true,
+                            ..
+                        }
+                    )
+                },
+            ),
+            (
+                503,
+                serde_json::to_vec(&serde_json::json!({
+                    "error": {
+                        "code": -32000,
+                        "message": "Server error",
+                        "cause": { "name": "UNKNOWN_BLOCK", "info": {} }
+                    }
+                }))
+                .unwrap(),
+                3,
+                |e| {
+                    matches!(
+                        e,
+                        RpcError::Network {
+                            status_code: Some(503),
+                            retryable: true,
+                            ..
+                        }
+                    )
+                },
+            ),
         ];
         for (status, body, attempts, is_expected) in cases {
             let transport = CountingTransport::new(status, body);
@@ -4346,6 +4397,34 @@ mod tests {
                 .unwrap_err();
             assert!(is_expected(&error), "HTTP {status}: {error:?}");
             assert_eq!(transport.calls(), attempts, "HTTP {status}: {error:?}");
+        }
+    }
+
+    /// A 2xx body must carry the JSON-RPC envelope: without `jsonrpc` and a
+    /// numeric `id` it is a JSON decode error (with its serde `source()`),
+    /// not a missing result.
+    #[tokio::test]
+    async fn test_2xx_body_without_envelope_is_a_json_error() {
+        let bodies: [&[u8]; 3] = [
+            b"{}",
+            br#"{"jsonrpc":"2.0","id":null,"result":{}}"#,
+            br#"{"result":{}}"#,
+        ];
+        for body in bodies {
+            let transport = CountingTransport::new(200, body);
+            let error = transport
+                .client()
+                .request::<_, serde_json::Value>("status", serde_json::json!([]))
+                .await
+                .unwrap_err();
+            let shown = String::from_utf8_lossy(body);
+            assert!(matches!(error, RpcError::Json(_)), "{shown}: {error:?}");
+            assert!(
+                std::error::Error::source(&error).is_some(),
+                "{shown}: {error:?}"
+            );
+            assert!(!error.is_retryable(), "{shown}: {error:?}");
+            assert_eq!(transport.calls(), 1, "{shown}");
         }
     }
 
