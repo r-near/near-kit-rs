@@ -1,6 +1,6 @@
 //! Chain identification for NEAR Protocol.
 
-use std::{fmt, str::FromStr};
+use std::fmt;
 
 /// Identifies the NEAR chain the client is connected to.
 ///
@@ -60,12 +60,6 @@ impl Default for ChainId {
     }
 }
 
-impl AsRef<str> for ChainId {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
 impl fmt::Display for ChainId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
@@ -81,14 +75,6 @@ impl From<&str> for ChainId {
 impl From<String> for ChainId {
     fn from(s: String) -> Self {
         Self::new(s)
-    }
-}
-
-impl FromStr for ChainId {
-    type Err = std::convert::Infallible;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self::new(s))
     }
 }
 
