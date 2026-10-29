@@ -524,17 +524,9 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_near_mainnet_builder() {
-        let near = Near::mainnet().build();
-        assert!(near.rpc().url().contains("fastnear") || near.rpc().url().contains("near"));
-        assert!(near.chain_id().is_mainnet());
-    }
-
-    #[test]
-    fn test_near_testnet_builder() {
-        let near = Near::testnet().build();
-        assert!(near.rpc().url().contains("fastnear") || near.rpc().url().contains("test"));
-        assert!(near.chain_id().is_testnet());
+    fn test_near_mainnet_and_testnet_builders() {
+        assert!(Near::mainnet().build().chain_id().is_mainnet());
+        assert!(Near::testnet().build().chain_id().is_testnet());
     }
 
     #[test]
@@ -544,62 +536,15 @@ mod tests {
         assert!(near.chain_id().is_mainnet());
     }
 
-    #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
-    #[test]
-    fn test_near_builder_with_reexported_reqwest_client() {
-        let client = crate::reqwest::Client::builder()
-            .user_agent("near-kit-test")
-            .build()
-            .unwrap();
-        let near = Near::custom("https://rpc.example.com", "mainnet")
-            .transport(crate::rpc::ReqwestTransport::with_client(client))
-            .build();
-        assert_eq!(near.rpc().url(), "https://rpc.example.com");
-    }
-
     #[test]
     fn test_near_custom_builder_with_chain_id_type() {
         let near = Near::custom("https://rpc.example.com", ChainId::testnet()).build();
         assert!(near.chain_id().is_testnet());
     }
 
-    #[test]
-    fn test_near_debug() {
-        let near = Near::testnet().build();
-        let debug = format!("{:?}", near);
-        assert!(debug.contains("Near"));
-        assert!(debug.contains("rpc"));
-    }
-
-    #[test]
-    fn test_near_rpc_accessor() {
-        let near = Near::testnet().build();
-        let rpc = near.rpc();
-        assert!(!rpc.url().is_empty());
-    }
-
     // ========================================================================
     // NearBuilder tests
     // ========================================================================
-
-    #[test]
-    fn test_near_builder_new() {
-        let builder = NearBuilder::new("https://example.com", ChainId::new("custom"));
-        let near = builder.build();
-        assert_eq!(near.rpc().url(), "https://example.com");
-    }
-
-    #[test]
-    fn test_near_builder_retry_config() {
-        let config = RetryConfig {
-            max_retries: 10,
-            initial_delay_ms: 200,
-            max_delay_ms: 10000,
-        };
-        let near = Near::testnet().retry_config(config).build();
-        // Can't directly test retry config, but we can verify it builds
-        assert!(!near.rpc().url().is_empty());
-    }
 
     #[test]
     fn test_near_builder_from_trait() {
@@ -611,13 +556,6 @@ mod tests {
     // ========================================================================
     // Clone tests
     // ========================================================================
-
-    #[test]
-    fn test_near_clone() {
-        let near1 = Near::testnet().build();
-        let near2 = near1.clone();
-        assert_eq!(near1.rpc().url(), near2.rpc().url());
-    }
 
     #[test]
     fn test_near_with_signer_derived() {

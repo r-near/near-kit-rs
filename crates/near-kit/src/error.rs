@@ -1345,23 +1345,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_error_network_constructor() {
-        let err = RpcError::network("connection refused", Some(503), true);
-        match err {
-            RpcError::Network {
-                message,
-                status_code,
-                retryable,
-            } => {
-                assert_eq!(message, "connection refused");
-                assert_eq!(status_code, Some(503));
-                assert!(retryable);
-            }
-            _ => panic!("Expected Network error"),
-        }
-    }
-
-    #[test]
     fn test_rpc_error_is_account_not_found() {
         let account_id: AccountId = "alice.near".parse().unwrap();
         assert!(

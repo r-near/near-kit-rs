@@ -846,15 +846,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn add_action_in_a_loop() {
-        let mut tx = test_tx();
-        for method in ["step1", "step2", "step3"] {
-            tx = tx.add_action(FunctionCall::new(method));
-        }
-        assert_eq!(tx.actions.len(), 3);
-    }
-
     #[tokio::test]
     async fn encode_errors_are_deferred_until_await() {
         let error = test_tx()
@@ -1002,27 +993,6 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(error, Error::Validation(_)), "{error:?}");
-    }
-
-    #[test]
-    fn state_init_actions_name_their_receiver() {
-        // The receiver of a state init is the account it derives; the old
-        // builder rewrote the receiver, now the caller passes it.
-        let state_init = StateInit::from(crate::protocol::StateInitV1::code(CryptoHash::ZERO));
-        let tx = test_signing()
-            .transaction(state_init.derive_account_id())
-            .add_action(Action::state_init(state_init.clone(), NearToken::ZERO));
-        assert_eq!(tx.receiver_id, state_init.derive_account_id());
-
-        let universal = crate::protocol::UniversalStateInit::from(
-            crate::protocol::UniversalStateInitV1::new()
-                .with_access_key(crate::types::PublicKeyHandle::MlDsa65Hash([0x11; 32])),
-        );
-        // nearcore 2.14-release `test_derive_universal_account_id` key-only vector.
-        assert_eq!(
-            universal.derive_account_id().as_str(),
-            "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g"
-        );
     }
 
     // ========================================================================

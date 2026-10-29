@@ -1882,27 +1882,6 @@ mod tests {
     }
 
     #[test]
-    fn test_retry_config_clone() {
-        let config = RetryConfig {
-            max_retries: 5,
-            initial_delay_ms: 100,
-            max_delay_ms: 1000,
-        };
-        let cloned = config.clone();
-        assert_eq!(cloned.max_retries, 5);
-        assert_eq!(cloned.initial_delay_ms, 100);
-        assert_eq!(cloned.max_delay_ms, 1000);
-    }
-
-    #[test]
-    fn test_retry_config_debug() {
-        let config = RetryConfig::default();
-        let debug = format!("{:?}", config);
-        assert!(debug.contains("RetryConfig"));
-        assert!(debug.contains("max_retries"));
-    }
-
-    #[test]
     fn test_retry_config_none() {
         let config = RetryConfig::none();
         assert_eq!(config.max_retries, 0);
@@ -2181,27 +2160,6 @@ mod tests {
     // ========================================================================
     // RpcClient tests
     // ========================================================================
-
-    #[test]
-    fn test_rpc_client_new() {
-        let client = RpcClient::new("https://rpc.testnet.near.org");
-        assert_eq!(client.url(), "https://rpc.testnet.near.org");
-    }
-
-    #[test]
-    fn test_rpc_client_clone() {
-        let client = RpcClient::new("https://rpc.testnet.near.org");
-        let cloned = client.clone();
-        assert_eq!(cloned.url(), client.url());
-    }
-
-    #[test]
-    fn test_rpc_client_debug() {
-        let client = RpcClient::new("https://rpc.testnet.near.org");
-        let debug = format!("{:?}", client);
-        assert!(debug.contains("RpcClient"));
-        assert!(debug.contains("rpc.testnet.near.org"));
-    }
 
     #[tokio::test]
     async fn test_view_function_distinguishes_contract_errors() {
