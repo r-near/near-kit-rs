@@ -433,16 +433,7 @@ impl NearBuilder {
     ///
     /// Callers that own their retry policy (CLIs with a "retry?" prompt,
     /// relayers with their own backoff) can pass [`RetryConfig::none()`] so
-    /// near-kit fails fast and leaves the decision to them:
-    ///
-    /// ```rust
-    /// use near_kit::Near;
-    /// use near_kit::rpc::RetryConfig;
-    ///
-    /// let near = Near::testnet()
-    ///     .retry_config(RetryConfig::none())
-    ///     .build();
-    /// ```
+    /// near-kit fails fast and leaves the decision to them.
     pub fn retry_config(mut self, config: RetryConfig) -> Self {
         self.retry_config = config;
         self

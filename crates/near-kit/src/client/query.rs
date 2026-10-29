@@ -31,25 +31,6 @@ impl AccountRead {
 ///
 /// Created by [`Near::balance`](crate::Near::balance). Reads at the final
 /// block unless [`at`](Self::at) picks another.
-///
-/// # Example
-///
-/// ```rust,no_run
-/// # use near_kit::*;
-/// # use near_kit::rpc::Finality;
-/// # async fn example() -> Result<(), near_kit::Error> {
-/// let near = Near::testnet().build();
-///
-/// let balance = near.balance(account!("alice.testnet")).await?;
-///
-/// // At a block height (a recent one: the default endpoints aren't
-/// // archival), or with another finality
-/// let height = near.rpc().block(Finality::Final).await?.header.height;
-/// let balance = near.balance(account!("alice.testnet")).at(height).await?;
-/// let balance = near.balance(account!("alice.testnet")).at(Finality::Optimistic).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[must_use = "queries do nothing unless awaited"]
 pub struct BalanceQuery {
     read: AccountRead,
@@ -90,20 +71,6 @@ impl IntoFuture for BalanceQuery {
 ///
 /// Created by [`Near::account_exists`](crate::Near::account_exists). Reads
 /// at the final block unless [`at`](Self::at) picks another.
-///
-/// # Example
-///
-/// ```rust,no_run
-/// # use near_kit::*;
-/// # async fn example() -> Result<(), near_kit::Error> {
-/// let near = Near::testnet().build();
-///
-/// if near.account_exists(account!("alice.testnet")).await? {
-///     println!("Account exists!");
-/// }
-/// # Ok(())
-/// # }
-/// ```
 #[must_use = "queries do nothing unless awaited"]
 pub struct AccountExistsQuery {
     read: AccountRead,
@@ -145,49 +112,11 @@ impl IntoFuture for AccountExistsQuery {
 
 /// Awaitable query for transaction execution status.
 ///
-/// Awaiting this query directly uses [`Submitted`], which asks the node for its
-/// current progress without waiting for a new execution milestone. Use
+/// Created by [`Near::tx_status`](crate::Near::tx_status). Awaiting it
+/// directly uses [`Submitted`], which asks the node for its current progress
+/// without waiting for a new execution milestone. Use
 /// [`wait_until`](Self::wait_until) to block until a specific type-safe level.
 /// The selected wait-level type also determines the response type.
-///
-/// # Example
-///
-/// ```rust,no_run
-/// # use near_kit::*;
-/// # use near_kit::rpc::{FinalExecutionOutcome, SendTxResponse};
-/// # use near_kit::transaction::Final;
-/// # async fn example(
-/// #     near: &Near,
-/// #     tx_hash: &CryptoHash,
-/// #     sender_id: &AccountId,
-/// # ) -> Result<(), Error> {
-/// // The default is a non-blocking progress query.
-/// let progress: SendTxResponse = near.tx_status(tx_hash, sender_id).await?;
-///
-/// // Waiting for execution returns a full execution outcome.
-/// let outcome: FinalExecutionOutcome = near
-///     .tx_status(tx_hash, sender_id)
-///     .wait_until::<Final>()
-///     .await?;
-/// outcome.result()?;
-/// # Ok(())
-/// # }
-/// ```
-///
-/// Wait levels compose naturally in generic helpers because they are selected
-/// entirely in type position:
-///
-/// ```rust,no_run
-/// # use near_kit::*;
-/// # use near_kit::transaction::WaitLevel;
-/// async fn status_at<W: WaitLevel>(
-///     near: &Near,
-///     tx_hash: &CryptoHash,
-///     sender_id: &AccountId,
-/// ) -> Result<W::Response, Error> {
-///     near.tx_status(tx_hash, sender_id).wait_until::<W>().await
-/// }
-/// ```
 #[must_use = "transaction status queries do nothing unless awaited"]
 pub struct TransactionStatusQuery<W: WaitLevel = Submitted> {
     rpc: Arc<RpcClient>,
