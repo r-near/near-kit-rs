@@ -111,6 +111,7 @@ pub struct DelegateOptions {
 
     /// Number of blocks after the current height when the delegate action should expire.
     /// Defaults to 200 blocks if neither this nor `max_block_height` is provided.
+    /// The sum saturates, so `Some(u64::MAX)` never expires.
     pub block_height_offset: Option<u64>,
 
     /// Override nonce to use for the delegate action. If omitted, the next
@@ -517,7 +518,9 @@ impl PreparedTransaction {
         } else {
             let status = self.rpc.status().await?;
             let offset = options.block_height_offset.unwrap_or(200);
-            status.sync_info.latest_block_height + offset
+            // A huge offset ("never expire") must not wrap to a height
+            // that has already passed.
+            status.sync_info.latest_block_height.saturating_add(offset)
         };
 
         let PreparedTransaction {
@@ -1777,6 +1780,33 @@ mod tests {
             max_block_height: Some(1000),
             ..Default::default()
         }
+    }
+
+    #[tokio::test]
+    async fn sign_delegate_expires_200_blocks_ahead_by_default() {
+        // The mock node is at height 100.
+        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        let near = signing_via("http://expiry.invalid", "expiry", transport, signer);
+        let expiry = |options| {
+            let near = near.clone();
+            async move {
+                near.sign_delegate(account!("bob.testnet"), transfer(), options)
+                    .await
+                    .unwrap()
+                    .delegate_action
+                    .max_block_height
+            }
+        };
+
+        assert_eq!(expiry(DelegateOptions::default()).await, 300);
+        let offset = |offset| DelegateOptions {
+            block_height_offset: Some(offset),
+            ..Default::default()
+        };
+        assert_eq!(expiry(offset(5)).await, 105);
+        // "Never expire" saturates; it must not wrap below the current height.
+        assert_eq!(expiry(offset(u64::MAX)).await, u64::MAX);
     }
 
     #[tokio::test]
