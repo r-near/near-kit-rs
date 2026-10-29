@@ -632,10 +632,10 @@ impl RpcError {
                 }
             }
             RpcError::Network { retryable, .. } => *retryable,
-            RpcError::ShardUnavailable(_) => true,
-            RpcError::NodeNotSynced(_) => true,
-            RpcError::InternalError(_) => true,
-            RpcError::Timeout { .. } => true,
+            RpcError::ShardUnavailable(_)
+            | RpcError::NodeNotSynced(_)
+            | RpcError::InternalError(_)
+            | RpcError::Timeout { .. } => true,
             // The payload is fixed here, so `InvalidNonce` can't be fixed by
             // re-sending it (the transaction layer re-signs instead); shard
             // congestion/stalls can clear on their own. See the doc comment.
@@ -693,23 +693,17 @@ impl RpcError {
     ///
     /// The data field typically looks like:
     /// `{"TxExecutionError": {"InvalidTxError": {"InvalidNonce": {...}}}}`
-    fn try_parse_invalid_tx(data: &serde_json::Value) -> Option<crate::types::InvalidTxError> {
-        // Nested form: data.TxExecutionError.InvalidTxError
-        if let Some(tx_err) = data.get("TxExecutionError")
-            && let Some(invalid_tx_value) = tx_err.get("InvalidTxError")
-            && let Ok(parsed) = serde_json::from_value(invalid_tx_value.clone())
-        {
-            return Some(parsed);
-        }
-
-        // Fallback: InvalidTxError at the top level (some RPC versions)
-        if let Some(invalid_tx_value) = data.get("InvalidTxError")
-            && let Ok(parsed) = serde_json::from_value(invalid_tx_value.clone())
-        {
-            return Some(parsed);
-        }
-
-        None
+    fn try_parse_invalid_tx(data: &serde_json::Value) -> Option<InvalidTxError> {
+        use serde::Deserialize;
+        // Nested under `TxExecutionError`, or at the top level (some RPC versions).
+        [
+            data.get("TxExecutionError")
+                .and_then(|e| e.get("InvalidTxError")),
+            data.get("InvalidTxError"),
+        ]
+        .into_iter()
+        .flatten()
+        .find_map(|v| InvalidTxError::deserialize(v).ok())
     }
 }
 
@@ -985,7 +979,7 @@ pub enum Error {
 
     /// A signed transaction failed to decode from base64 or Borsh.
     #[error(transparent)]
-    Decode(DecodeTransactionError),
+    Decode(#[from] DecodeTransactionError),
 
     /// A signed delegate action failed to decode from base64 or Borsh
     /// (`SignedDelegateAction::from_base64` and the V2 equivalent).
@@ -1057,12 +1051,6 @@ impl<E: Into<Error> + std::fmt::Display> From<ContractError<E>> for Error {
             ContractError::Backend(e) => e.into(),
             other => Error::Validation(other.to_string()),
         }
-    }
-}
-
-impl From<DecodeTransactionError> for Error {
-    fn from(err: DecodeTransactionError) -> Self {
-        Error::Decode(err)
     }
 }
 
