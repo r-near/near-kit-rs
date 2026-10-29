@@ -245,59 +245,31 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(120);
 struct NearSandbox {
     image_name: String,
     tag: String,
-    env_vars: Vec<(String, String)>,
+    env_vars: Vec<(&'static str, String)>,
 }
 
 impl NearSandbox {
-    /// Creates a new [`NearSandbox`] image with the given version tag.
-    ///
-    /// The image name and tag can be overridden by setting the
-    /// `NEAR_SANDBOX_IMAGE` environment variable (e.g.
-    /// `my-registry/sandbox:custom`).
-    fn new(version: &str) -> Self {
-        let (image_name, tag) = match std::env::var("NEAR_SANDBOX_IMAGE") {
-            Ok(raw) => {
-                let val = raw.trim();
-                if val.is_empty() {
-                    (DEFAULT_IMAGE.to_owned(), version.to_owned())
-                } else {
-                    match val.rsplit_once(':') {
-                        Some((name, tag)) if !name.is_empty() && !tag.is_empty() => {
-                            (name.to_owned(), tag.to_owned())
-                        }
-                        _ => (val.to_owned(), version.to_owned()),
-                    }
-                }
-            }
-            Err(_) => (DEFAULT_IMAGE.to_owned(), version.to_owned()),
+    /// The image for `version`, unless `NEAR_SANDBOX_IMAGE` names another.
+    fn new(version: &str, root_account: &AccountId, chain_id: Option<&ChainId>) -> Self {
+        let image = std::env::var("NEAR_SANDBOX_IMAGE").ok();
+        let (image_name, tag) = match image.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            None => (DEFAULT_IMAGE, version),
+            Some(image) => match image.rsplit_once(':') {
+                Some((name, tag)) if !name.is_empty() && !tag.is_empty() => (name, tag),
+                _ => (image, version),
+            },
         };
-
+        let mut env_vars = vec![
+            // Enable sandbox logging for easier debugging
+            ("NEAR_ENABLE_SANDBOX_LOG", "1".to_owned()),
+            ("NEAR_ROOT_ACCOUNT", root_account.to_string()),
+        ];
+        env_vars.extend(chain_id.map(|c| ("NEAR_CHAIN_ID", c.to_string())));
         Self {
-            image_name,
-            tag,
-            env_vars: vec![
-                // Enable sandbox logging for easier debugging
-                ("NEAR_ENABLE_SANDBOX_LOG".to_owned(), "1".to_owned()),
-            ],
+            image_name: image_name.to_owned(),
+            tag: tag.to_owned(),
+            env_vars,
         }
-    }
-
-    fn with_account_id(mut self, account_id: impl Into<String>) -> Self {
-        self.env_vars
-            .push(("NEAR_ROOT_ACCOUNT".to_owned(), account_id.into()));
-        self
-    }
-
-    fn with_chain_id(mut self, chain_id: impl Into<String>) -> Self {
-        self.env_vars
-            .push(("NEAR_CHAIN_ID".to_owned(), chain_id.into()));
-        self
-    }
-}
-
-impl Default for NearSandbox {
-    fn default() -> Self {
-        Self::new(DEFAULT_VERSION)
     }
 }
 
@@ -317,7 +289,7 @@ impl Image for NearSandbox {
     fn env_vars(
         &self,
     ) -> impl IntoIterator<Item = (impl Into<Cow<'_, str>>, impl Into<Cow<'_, str>>)> {
-        self.env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str()))
+        self.env_vars.iter().map(|(k, v)| (*k, v.as_str()))
     }
 
     fn expose_ports(&self) -> &[ContainerPort] {
@@ -391,60 +363,6 @@ pub struct Sandbox {
 }
 
 impl Sandbox {
-    async fn start(
-        version: &str,
-        root_account: AccountId,
-        chain_id: Option<ChainId>,
-    ) -> Result<Self, SandboxError> {
-        info!(
-            version = version,
-            root_account = %root_account,
-            chain_id = chain_id.as_ref().map(ChainId::as_str).unwrap_or("(default)"),
-            "Starting sandbox container"
-        );
-
-        let root_key: SecretKey = SANDBOX_ROOT_SECRET_KEY
-            .parse()
-            .expect("SANDBOX_ROOT_SECRET_KEY is a valid ed25519 key");
-        let root_signer = Arc::new(InMemorySigner::new(&root_account, root_key));
-        let mut image = NearSandbox::new(version).with_account_id(root_account.to_string());
-        if let Some(ref id) = chain_id {
-            image = image.with_chain_id(id.to_string());
-        }
-        let container_err = |operation| {
-            move |error: TestcontainersError| SandboxError::Container {
-                operation,
-                message: error.to_string(),
-            }
-        };
-        let container = image
-            .with_health_check(Healthcheck::empty().with_start_period(HEALTHCHECK_START_PERIOD))
-            .with_startup_timeout(STARTUP_TIMEOUT)
-            .start()
-            .await
-            .map_err(container_err("start"))?;
-        let container_id = container.id().to_string();
-        let host = container
-            .get_host()
-            .await
-            .map_err(container_err("host discovery"))?;
-        let host_port = container
-            .get_host_port_ipv4(RPC_PORT)
-            .await
-            .map_err(container_err("RPC port discovery"))?;
-        let rpc_url = format!("http://{host}:{host_port}");
-
-        info!(rpc_url = %rpc_url, "Sandbox container ready");
-
-        Ok(Self {
-            _container: Arc::new(container),
-            container_id,
-            rpc_url,
-            chain_id: chain_id.unwrap_or_else(|| ChainId::new("sandbox")),
-            root_signer,
-        })
-    }
-
     /// A builder for a sandbox: `.fresh()` for a new isolated instance,
     /// `.shared()` for the process-wide one, after any
     /// [`version`](SandboxBuilder::version),
@@ -473,7 +391,12 @@ impl Sandbox {
     /// # }
     /// ```
     pub fn builder() -> SandboxBuilder {
-        SandboxBuilder::new()
+        SandboxBuilder {
+            version: None,
+            root_account: None,
+            chain_id: None,
+            construction_error: None,
+        }
     }
 
     /// Get a signing client for this sandbox's root account.
@@ -655,35 +578,58 @@ pub struct SandboxBuilder {
 }
 
 impl SandboxBuilder {
-    fn new() -> Self {
-        Self {
-            version: None,
-            root_account: None,
-            chain_id: None,
-            construction_error: None,
-        }
-    }
-
-    fn record_error(&mut self, error: SandboxError) {
-        if self.construction_error.is_none() {
-            self.construction_error = Some(error);
-        }
-    }
-
-    fn resolve(self) -> Result<ResolvedSandboxConfig, SandboxError> {
+    async fn start(self) -> Result<Sandbox, SandboxError> {
         if let Some(error) = self.construction_error {
             return Err(error);
         }
+        let version = self.version.unwrap_or_else(|| DEFAULT_VERSION.to_owned());
+        let root_account = self
+            .root_account
+            .unwrap_or_else(|| SANDBOX_ROOT_ACCOUNT.into());
+        let chain_id = self.chain_id;
+        info!(
+            version = %version,
+            root_account = %root_account,
+            chain_id = chain_id.as_ref().map(ChainId::as_str).unwrap_or("(default)"),
+            "Starting sandbox container"
+        );
 
-        let root_account = match self.root_account {
-            Some(account_id) => account_id,
-            None => SANDBOX_ROOT_ACCOUNT.into(),
+        let root_key: SecretKey = SANDBOX_ROOT_SECRET_KEY
+            .parse()
+            .expect("SANDBOX_ROOT_SECRET_KEY is a valid ed25519 key");
+        let root_signer = Arc::new(InMemorySigner::new(&root_account, root_key));
+        let image = NearSandbox::new(&version, &root_account, chain_id.as_ref());
+        let container_err = |operation| {
+            move |error: TestcontainersError| SandboxError::Container {
+                operation,
+                message: error.to_string(),
+            }
         };
+        let container = image
+            .with_health_check(Healthcheck::empty().with_start_period(HEALTHCHECK_START_PERIOD))
+            .with_startup_timeout(STARTUP_TIMEOUT)
+            .start()
+            .await
+            .map_err(container_err("start"))?;
+        let container_id = container.id().to_string();
+        let host = container
+            .get_host()
+            .await
+            .map_err(container_err("host discovery"))?;
+        let host_port = container
+            .get_host_port_ipv4(RPC_PORT)
+            .await
+            .map_err(container_err("RPC port discovery"))?;
+        let rpc_url = format!("http://{host}:{host_port}");
 
-        Ok(ResolvedSandboxConfig {
-            version: self.version.unwrap_or_else(|| DEFAULT_VERSION.to_string()),
-            root_account,
-            chain_id: self.chain_id,
+        info!(rpc_url = %rpc_url, "Sandbox container ready");
+
+        Ok(Sandbox {
+            _container: Arc::new(container),
+            container_id,
+            rpc_url,
+            chain_id: chain_id.unwrap_or_else(|| ChainId::new("sandbox")),
+            root_signer,
         })
     }
 
@@ -764,7 +710,8 @@ impl SandboxBuilder {
     pub fn chain_id(mut self, chain_id: impl Into<String>) -> Self {
         let chain_id = chain_id.into();
         if matches!(chain_id.as_str(), "mainnet" | "testnet") {
-            self.record_error(SandboxError::UnsupportedChainId(chain_id));
+            self.construction_error
+                .get_or_insert(SandboxError::UnsupportedChainId(chain_id));
         } else {
             self.chain_id = Some(ChainId::new(chain_id));
         }
@@ -776,8 +723,7 @@ impl SandboxBuilder {
     /// The sandbox container will be stopped when the last clone of
     /// the returned [`Sandbox`] is dropped.
     pub async fn fresh(self) -> Result<Sandbox, SandboxError> {
-        let config = self.resolve()?;
-        Sandbox::start(&config.version, config.root_account, config.chain_id).await
+        self.start().await
     }
 
     /// Get or create the shared sandbox with the configured options.
@@ -786,11 +732,9 @@ impl SandboxBuilder {
     /// shared sandbox hasn't been initialized yet. If it's already running, the
     /// existing instance is returned regardless of the options specified here.
     pub async fn shared(self) -> Result<&'static Sandbox, SandboxError> {
-        let config = self.resolve()?;
         SHARED_SANDBOX
             .get_or_try_init(|| async move {
-                let sandbox =
-                    Sandbox::start(&config.version, config.root_account, config.chain_id).await?;
+                let sandbox = self.start().await?;
                 // SAFETY: `cleanup_shared_sandbox` is a plain `extern "C" fn`
                 // that never unwinds across the C boundary.
                 unsafe { libc::atexit(cleanup_shared_sandbox) };
@@ -798,12 +742,6 @@ impl SandboxBuilder {
             })
             .await
     }
-}
-
-struct ResolvedSandboxConfig {
-    version: String,
-    root_account: AccountId,
-    chain_id: Option<ChainId>,
 }
 
 #[cfg(test)]
@@ -817,31 +755,29 @@ mod tests {
 
     #[test]
     fn chain_id_mainnet_is_deferred_as_an_error() {
-        let result = Sandbox::builder().chain_id("mainnet").resolve();
+        let builder = Sandbox::builder().chain_id("mainnet");
         assert!(matches!(
-            result,
-            Err(SandboxError::UnsupportedChainId(chain_id)) if chain_id == "mainnet"
+            builder.construction_error,
+            Some(SandboxError::UnsupportedChainId(chain_id)) if chain_id == "mainnet"
         ));
     }
 
     #[test]
     fn chain_id_custom_is_accepted() {
-        let config = Sandbox::builder().chain_id("localnet").resolve().unwrap();
+        let builder = Sandbox::builder().chain_id("localnet");
+        assert!(builder.construction_error.is_none());
         assert_eq!(
-            config.chain_id.as_ref().map(ChainId::as_str),
+            builder.chain_id.as_ref().map(ChainId::as_str),
             Some("localnet")
         );
     }
 
     #[test]
     fn builder_preserves_the_first_construction_error() {
-        let result = Sandbox::builder()
-            .chain_id("mainnet")
-            .chain_id("testnet")
-            .resolve();
+        let builder = Sandbox::builder().chain_id("mainnet").chain_id("testnet");
         assert!(matches!(
-            result,
-            Err(SandboxError::UnsupportedChainId(chain_id)) if chain_id == "mainnet"
+            builder.construction_error,
+            Some(SandboxError::UnsupportedChainId(chain_id)) if chain_id == "mainnet"
         ));
     }
 }
