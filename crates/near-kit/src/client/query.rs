@@ -1,9 +1,4 @@
-//! Awaitable read builders for the [`Near`](crate::Near) reads that add
-//! behaviour on top of [`RpcClient`]: unit assembly ([`BalanceQuery`]),
-//! error-to-value mapping ([`AccountExistsQuery`]) and typed wait levels
-//! ([`TransactionStatusQuery`]). Every other read is an `RpcClient` method.
-//!
-//! All of them implement `IntoFuture` so they can be `.await`ed directly.
+//! Awaitable builders for the [`Near`](crate::Near) reads that add something to [`RpcClient`].
 
 use std::future::IntoFuture;
 use std::marker::PhantomData;

@@ -1,11 +1,4 @@
-//! Load an [`InMemorySigner`] from the environment or a near-cli credentials
-//! file.
-//!
-//! These read once and return a plain [`InMemorySigner`]; nothing is re-read
-//! when signing. The [`Signer`](crate::signer::Signer) trait, [`SigningKey`]
-//! and the in-memory and rotating signers live in `near-kit-primitives`.
-//!
-//! [`SigningKey`]: crate::signer::SigningKey
+//! Load an [`InMemorySigner`] from the environment or a near-cli credentials file.
 
 #[cfg(feature = "file-signer")]
 use std::path::Path;

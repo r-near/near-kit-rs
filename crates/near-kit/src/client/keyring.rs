@@ -1,26 +1,4 @@
-//! Load an [`InMemorySigner`] from the operating system's credential store
-//! (macOS Keychain, Windows Credential Manager, or Linux Secret Service).
-//!
-//! # Compatibility
-//!
-//! [`from_keyring`] reads keys stored by `near-cli-rs`. If you've imported
-//! keys with `near-cli-rs`, you can use them directly with near-kit.
-//!
-//! # Platform Support
-//!
-//! - **macOS**: Uses Keychain (works out of the box)
-//! - **Windows**: Uses Credential Manager (works out of the box)
-//! - **Linux**: Uses Secret Service D-Bus API (requires `gnome-keyring`, `kwallet`, or similar)
-//!
-//! # Importing Keys
-//!
-//! Use `near-cli-rs` to import keys to the system keyring:
-//!
-//! ```bash
-//! near account import-account using-seed-phrase "your seed phrase here" \
-//!   --seed-phrase-hd-path "m/44'/397'/0'" \
-//!   network-config testnet
-//! ```
+//! Load an [`InMemorySigner`] from the system keyring, where `near-cli-rs` stores keys.
 
 use crate::error::{Error, KeyStoreError};
 use crate::types::{AccountId, InMemorySigner, PublicKey, SecretKey};
@@ -34,6 +12,14 @@ use crate::types::{AccountId, InMemorySigner, PublicKey, SecretKey};
 /// are tried, the handle first), so unlike
 /// [`from_credentials`](crate::signer::from_credentials) this needs the
 /// public key. Requires the opt-in `keyring` feature.
+///
+/// To import a key into the keyring with `near-cli-rs`:
+///
+/// ```bash
+/// near account import-account using-seed-phrase "your seed phrase here" \
+///   --seed-phrase-hd-path "m/44'/397'/0'" \
+///   network-config testnet
+/// ```
 ///
 /// # Example
 ///

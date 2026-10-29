@@ -1,28 +1,4 @@
-//! Pluggable HTTP transport for the JSON-RPC client.
-//!
-//! [`RpcClient`](super::rpc::RpcClient) never talks to an HTTP library
-//! directly — it drives an [`RpcTransport`] trait object. The built-in
-//! implementation is chosen by target:
-//!
-//! - **Every target except WASI** (native + `wasm32-unknown-unknown`):
-//!   [`ReqwestTransport`]. reqwest's fetch backend covers browsers/JS hosts;
-//!   its native stack covers everything else.
-//! - **`wasm32-wasip2`** with the opt-in `wasi-http` feature:
-//!   `WasiHttpTransport` (only nameable there), which speaks
-//!   `wasi:http/outgoing-handler` through the `wasi` crate's raw bindings.
-//!   reqwest has no WASI support (its native stack drags in an `aws-lc-sys` C
-//!   cross-compile and hyper's tokio `net`, neither of which builds for wasm),
-//!   so a wasip2 component needs a `wasi:http`-native client instead.
-//! - **WASI without `wasi-http`**: an erroring fallback makes client
-//!   construction infallible while keeping `wasi:http` imports out of the
-//!   component. Inject a different transport to make RPC calls operational (or
-//!   build near-kit without `rpc`).
-//!
-//! Custom implementations plug in via
-//! [`NearBuilder::transport`](super::NearBuilder::transport) (or
-//! [`RpcClient::with_transport_and_retry_config`](super::RpcClient::with_transport_and_retry_config)) —
-//! for example a host-call transport on a platform whose runtime proxies RPC
-//! traffic instead of exposing raw HTTP.
+//! The [`RpcTransport`] trait and the built-in transport for each target.
 
 use std::sync::Arc;
 
@@ -283,6 +259,8 @@ mod reqwest_backend {
     }
 }
 
+// reqwest doesn't build for WASI (its native stack needs aws-lc-sys and
+// tokio's `net`), so wasip2 components speak `wasi:http` directly.
 #[cfg(all(
     feature = "wasi-http",
     target_arch = "wasm32",

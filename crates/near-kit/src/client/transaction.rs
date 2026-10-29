@@ -1,28 +1,4 @@
-//! Transaction sending: [`Tx`], the private send path shared by
-//! [`SigningNear`](crate::SigningNear), and pre-signed submission.
-//!
-//! # Example
-//!
-//! ```rust,no_run
-//! # use near_kit::*;
-//! # use near_kit::protocol::Action;
-//! # use near_kit::signer::PublicKey;
-//! # use near_kit::transaction::FunctionCall;
-//! # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
-//! // Create a new sub-account with funding, a key and a contract
-//! let new_public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
-//! let wasm_code = std::fs::read("contract.wasm").expect("failed to read wasm");
-//! alice
-//!     .transaction(account!("new.alice.testnet"))
-//!     .add_action(Action::create_account())
-//!     .add_action(Action::transfer(NearToken::from_near(5)))
-//!     .add_action(Action::add_full_access_key(new_public_key))
-//!     .add_action(Action::deploy_contract(wasm_code))
-//!     .add_action(FunctionCall::new("init").args(serde_json::json!({ "owner": "alice.testnet" })))
-//!     .await?.result()?;
-//! # Ok(())
-//! # }
-//! ```
+//! [`Tx`], the private send path, and pre-signed submission.
 
 use std::fmt;
 use std::future::IntoFuture;
