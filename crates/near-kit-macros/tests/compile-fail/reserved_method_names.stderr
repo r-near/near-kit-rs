@@ -1,0 +1,23 @@
+error: `client` is reserved by #[near_kit::contract] (the generated client uses it); rename the method
+ --> tests/compile-fail/reserved_method_names.rs:8:8
+  |
+8 |     fn client(&mut self);
+  |        ^^^^^^
+
+error: `client` is reserved by #[near_kit::contract] (the generated client uses it); rename the method
+  --> tests/compile-fail/reserved_method_names.rs:14:8
+   |
+14 |     fn r#client(&mut self);
+   |        ^^^^^^^^
+
+error: `contract_id` is reserved by #[near_kit::contract] (the generated client uses it); rename the method
+  --> tests/compile-fail/reserved_method_names.rs:19:8
+   |
+19 |     fn contract_id(&self) -> String;
+   |        ^^^^^^^^^^^
+
+error: `clone` is reserved by #[near_kit::contract] (it would shadow `Clone::clone` on the generated client); rename the method
+  --> tests/compile-fail/reserved_method_names.rs:24:8
+   |
+24 |     fn clone(&self) -> u64;
+   |        ^^^^^
