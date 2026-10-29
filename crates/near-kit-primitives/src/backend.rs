@@ -196,13 +196,14 @@ impl<C, T> View<C, T> {
         backend: C,
         contract_id: AccountId,
         method: String,
+        args: Vec<u8>,
         decode: fn(&[u8]) -> Result<T, CodecError>,
     ) -> Self {
         Self {
             backend,
             contract_id,
             method,
-            args: Ok(Vec::new()),
+            args: Ok(args),
             block: BlockReference::default(),
             decode,
         }
@@ -210,33 +211,45 @@ impl<C, T> View<C, T> {
 
     /// A view of `method` on `contract_id` whose result is decoded as JSON.
     ///
-    /// It sends no arguments until [`args`](Self::args),
+    /// It sends the empty JSON object `{}` until [`args`](Self::args),
     /// [`args_borsh`](Self::args_borsh) or [`args_raw`](Self::args_raw) sets
-    /// them. An empty result (a void method) decodes as `null`, so `()` and
-    /// `Option<_>` work.
+    /// other arguments, as a `#[contract]` view without arguments does. A
+    /// method whose parameters are all `Option` needs that object; empty
+    /// bytes fail to parse. An empty result (a void method) decodes as
+    /// `null`, so `()` and `Option<_>` work.
     pub fn json(backend: C, contract_id: impl Into<AccountId>, method: impl Into<String>) -> Self
     where
         C: Viewer,
         T: serde::de::DeserializeOwned,
     {
-        Self::new(backend, contract_id.into(), method.into(), |bytes| {
-            let bytes = if bytes.is_empty() { b"null" } else { bytes };
-            Ok(serde_json::from_slice(bytes)?)
-        })
+        Self::new(
+            backend,
+            contract_id.into(),
+            method.into(),
+            b"{}".to_vec(),
+            |bytes| {
+                let bytes = if bytes.is_empty() { b"null" } else { bytes };
+                Ok(serde_json::from_slice(bytes)?)
+            },
+        )
     }
 
     /// A view of `method` on `contract_id` whose result is decoded as Borsh.
     ///
-    /// Like [`json`](Self::json), it sends no arguments until one of the
-    /// `args` methods sets them.
+    /// It sends no arguments (empty bytes, the Borsh encoding of `()`) until
+    /// one of the `args` methods sets them.
     pub fn borsh(backend: C, contract_id: impl Into<AccountId>, method: impl Into<String>) -> Self
     where
         C: Viewer,
         T: borsh::BorshDeserialize,
     {
-        Self::new(backend, contract_id.into(), method.into(), |bytes| {
-            borsh::from_slice(bytes).map_err(CodecError::Borsh)
-        })
+        Self::new(
+            backend,
+            contract_id.into(),
+            method.into(),
+            Vec::new(),
+            |bytes| borsh::from_slice(bytes).map_err(CodecError::Borsh),
+        )
     }
 
     /// JSON-encode `args` as the view's arguments.
@@ -603,7 +616,7 @@ mod tests {
             viewer.clone(),
             contract(),
             "get",
-            json_args(&()).map(|_| b"{}".to_vec()),
+            Ok(b"{}".to_vec()),
         ))
         .unwrap();
         assert_eq!(value, 42);
@@ -707,13 +720,21 @@ mod tests {
     }
 
     #[test]
-    fn public_constructors_send_no_args_until_set() {
+    fn public_constructors_send_default_args_until_set() {
+        // JSON sends the empty object, as a `#[contract]` view does.
         let viewer = MockViewer::new(b"");
         let value: Option<u64> =
             run(View::json(viewer.clone(), contract(), String::from("get"))).unwrap();
         assert_eq!(value, None);
         let (_, method, args, _) = viewer.seen.lock().unwrap().take().unwrap();
-        assert_eq!((method.as_str(), args), ("get", Vec::new()));
+        assert_eq!((method.as_str(), args), ("get", b"{}".to_vec()));
+
+        // Borsh sends nothing, the encoding of `()`.
+        let viewer = MockViewer::new(&borsh::to_vec(&9_u16).unwrap());
+        let value: u16 = run(View::borsh(viewer.clone(), contract(), "get")).unwrap();
+        assert_eq!(value, 9);
+        let (_, _, args, _) = viewer.seen.lock().unwrap().take().unwrap();
+        assert_eq!(args, Vec::<u8>::new());
 
         let viewer = MockViewer::new(&borsh::to_vec(&9_u16).unwrap());
         let value: u16 =

@@ -420,7 +420,7 @@ mod tests {
                 json!({"token_id": "token-1"}),
                 json!({"account_id": "alice.near", "from_index": "10", "limit": 5}),
                 json!({"account_id": "alice.near"}),
-                serde_json::Value::Null,
+                json!({}),
                 json!({"account_id": "alice.near"}),
             ]
         );

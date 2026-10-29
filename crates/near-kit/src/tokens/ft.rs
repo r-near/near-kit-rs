@@ -435,11 +435,11 @@ mod tests {
                     "ft_balance_of".to_owned(),
                     json!({ "account_id": "alice.near" })
                 ),
-                ("ft_total_supply".to_owned(), serde_json::Value::Null),
-                ("ft_metadata".to_owned(), serde_json::Value::Null),
+                ("ft_total_supply".to_owned(), json!({})),
+                ("ft_metadata".to_owned(), json!({})),
             ],
             "amounts don't read metadata, metadata is read once, and \
-             no-argument views send no arguments"
+             no-argument views send `{{}}`"
         );
     }
 

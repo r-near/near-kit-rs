@@ -58,6 +58,7 @@ after the table cover each one.
 | `Near::universal_state_init(usi, deposit)` | `alice.transaction(usi.derive_account_id()).add_action(Action::universal_state_init(usi, deposit))` for a typed `UniversalStateInit`; for a `RawStateInit`, `raw.try_derive_account_id()` returns a `StateInitError`, which doesn't convert into `Error` |
 | `TransactionBuilder::create_account()`, `transfer`, `deploy`, `add_full_access_key`, `add_function_call_key`, `delete_key`, `delete_account`, `stake`, `publish`, `deploy_from`, `state_init`, `universal_state_init` | `Tx::add_action(Action::create_account())` and so on: one `Action::*` constructor per helper (`deploy` is `Action::deploy_contract`) |
 | `TransactionBuilder::call(m)`, `CallBuilder` (`args`, `args_borsh`, `args_raw`, `gas`, `deposit`) | `add_action(FunctionCall::new(m).args(a).gas(g).deposit(d))` |
+| `near.call(id, m)` or `CallBuilder` without `.args(..)` sent empty bytes | `FunctionCall::new(m)` sends `{}`, as a `#[contract]` call without arguments always did; a `#[contract(borsh)]` call without arguments still sends nothing. For empty bytes, `.args_raw(Vec::new())` |
 | `CallBuilder::finish()` | Not needed: `add_action` returns the `Tx` |
 | `CallBuilder::into_call()` | Build the `FunctionCall` directly; from a typed `Call`, `FunctionCall::from(call)` |
 | `CallBuilder::into_action()` | `function_call.into_action()?`, or `FunctionCall::from(call).into_action()?` |
@@ -94,6 +95,7 @@ after the table cover each one.
 | `BlockReference::to_rpc_params()` | Removed; `RpcClient` builds the params |
 | `ViewCall<T>`, `ViewCallBorsh<T>` | `View<C, T>` (crate root) |
 | `ViewCall::borsh()` | `View::<_, T>::borsh(near.clone(), id, m)` |
+| `near.view(id, m)` without `.args(..)` sent empty bytes | It sends `{}`, as a `#[contract]` view without arguments always did, so a method whose parameters are all `Option` parses it. `View::borsh` still sends nothing. For empty bytes, `.args_raw(Vec::new())` |
 | `Near::account(id)`, `AccountQuery` | `near.rpc().view_account(&id, block)` |
 | `Near::access_keys(id)`, `AccessKeysQuery`, `AccessKeysQuery::page(..)` | `near.rpc().view_access_key_list(&id, block)`, `view_access_key_list_page(..)` |
 | `Near::contract_code(id)`, `ContractCodeQuery`, `ContractCodeQuery::exists()` | `near.rpc().view_code(&id, block)`; for `exists`, treat `RpcError::ContractNotDeployed` and `RpcError::AccountNotFound` as `false` |

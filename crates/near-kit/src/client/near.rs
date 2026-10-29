@@ -199,9 +199,10 @@ impl Near {
     /// Returns the same [`View`] a `#[near_kit::contract]` client returns:
     /// set arguments with [`args`](View::args) (JSON),
     /// [`args_borsh`](View::args_borsh) or [`args_raw`](View::args_raw), pick
-    /// a block with [`at`](View::at), and `.await` it. It sends no arguments
-    /// unless one of those sets them. For a Borsh-encoded result, build the
-    /// view with [`View::borsh`] instead.
+    /// a block with [`at`](View::at), and `.await` it. Until one of those sets
+    /// arguments it sends `{}`, as a `#[near_kit::contract]` view without
+    /// arguments does. For a Borsh-encoded result, build the view with
+    /// [`View::borsh`] instead.
     ///
     /// # Example
     ///

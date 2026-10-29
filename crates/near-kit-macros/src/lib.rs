@@ -459,7 +459,9 @@ fn generate_function_call_method(
         (Some(arg), SerializationFormat::Json) => quote! { .args(#arg) },
         (Some(arg), SerializationFormat::Borsh) => quote! { .args_borsh(#arg) },
         (None, SerializationFormat::Json) => quote! { .args_raw(b"{}".to_vec()) },
-        (None, SerializationFormat::Borsh) => quote! {},
+        // Borsh's encoding of no arguments is no bytes, not `FunctionCall`'s
+        // JSON default.
+        (None, SerializationFormat::Borsh) => quote! { .args_raw(::std::vec::Vec::new()) },
     };
 
     quote! {
