@@ -779,6 +779,7 @@ mod tests {
 
     use super::*;
     use crate::account;
+    use crate::client::test_rpc::{invalid_tx_body, rpc_error, rpc_result};
     use crate::client::{BoxFuture, RpcTransport, TransportResponse};
     use crate::transaction::FunctionCall;
     use crate::types::{
@@ -1076,50 +1077,34 @@ mod tests {
             body: Vec<u8>,
         ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
             let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
-            let response = match request["method"].as_str().unwrap() {
-                "EXPERIMENTAL_view_access_key" => serde_json::json!({
-                    "error": {
-                        "name": "HANDLER_ERROR",
-                        "cause": {
-                            "name": "UNKNOWN_ACCESS_KEY",
-                            "info": {
-                                "public_key": request["params"]["public_key"],
-                                "block_height": 100,
-                                "block_hash": "11111111111111111111111111111111",
-                            },
-                        },
-                        "code": -32000,
-                        "message": "Server error",
-                    },
-                }),
-                "EXPERIMENTAL_view_account" => serde_json::json!({
-                    "result": {
-                        "amount": "1000000000000000000000000",
-                        "locked": "0",
-                        "code_hash": "11111111111111111111111111111111",
-                        "storage_usage": 100,
-                        "state": "uninitialized",
-                        "bootstrap_nonce": 100000000,
+            let body = match request["method"].as_str().unwrap() {
+                "EXPERIMENTAL_view_access_key" => rpc_error(
+                    Some("UNKNOWN_ACCESS_KEY"),
+                    serde_json::json!({
+                        "public_key": request["params"]["public_key"],
                         "block_height": 100,
-                        "block_hash": CryptoHash::from_bytes([2; 32]),
-                    },
-                }),
+                        "block_hash": "11111111111111111111111111111111",
+                    }),
+                    serde_json::Value::Null,
+                ),
+                "EXPERIMENTAL_view_account" => rpc_result(serde_json::json!({
+                    "amount": "1000000000000000000000000",
+                    "locked": "0",
+                    "code_hash": "11111111111111111111111111111111",
+                    "storage_usage": 100,
+                    "state": "uninitialized",
+                    "bootstrap_nonce": 100000000,
+                    "block_height": 100,
+                    "block_hash": CryptoHash::from_bytes([2; 32]),
+                })),
                 "send_tx" => {
                     let signed = request["params"]["signed_tx_base64"].as_str().unwrap();
                     self.sent.lock().unwrap().push(signed.to_string());
-                    if let Some(body) = self.send_tx_responses.lock().unwrap().pop_front() {
-                        return Box::pin(
-                            async move { Ok(TransportResponse { status: 200, body }) },
-                        );
-                    }
-                    serde_json::json!({ "result": { "final_execution_status": "NONE" } })
+                    let scripted = self.send_tx_responses.lock().unwrap().pop_front();
+                    scripted.unwrap_or_else(accepted_body)
                 }
                 other => panic!("unexpected RPC method {other}"),
             };
-            let mut response = response;
-            response["jsonrpc"] = "2.0".into();
-            response["id"] = 0.into();
-            let body = serde_json::to_vec(&response).unwrap();
             Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
         }
     }
@@ -1193,24 +1178,19 @@ mod tests {
     }
 
     fn status_body(genesis_hash: CryptoHash) -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "result": {
-                "protocol_version": 83,
-                "latest_protocol_version": 83,
-                "chain_id": "mock",
-                "genesis_hash": genesis_hash,
-                "sync_info": {
-                    "latest_block_hash": "11111111111111111111111111111111",
-                    "latest_block_height": 100,
-                    "latest_block_time": "2026-01-01T00:00:00Z",
-                    "syncing": false,
-                },
-                "version": { "version": "2.13.0", "build": "mock" },
+        rpc_result(serde_json::json!({
+            "protocol_version": 83,
+            "latest_protocol_version": 83,
+            "chain_id": "mock",
+            "genesis_hash": genesis_hash,
+            "sync_info": {
+                "latest_block_hash": "11111111111111111111111111111111",
+                "latest_block_height": 100,
+                "latest_block_time": "2026-01-01T00:00:00Z",
+                "syncing": false,
             },
+            "version": { "version": "2.13.0", "build": "mock" },
         }))
-        .unwrap()
     }
 
     /// A genesis hash no other test's chain has: the nonce cache is global.
@@ -1220,52 +1200,17 @@ mod tests {
     }
 
     fn invalid_nonce_body(tx_nonce: u64, ak_nonce: u64) -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
-                "code": -32000,
-                "message": "Server error",
-                "data": {
-                    "TxExecutionError": {
-                        "InvalidTxError": {
-                            "InvalidNonce": { "tx_nonce": tx_nonce, "ak_nonce": ak_nonce }
-                        }
-                    }
-                },
-            },
+        invalid_tx_body(serde_json::json!({
+            "InvalidNonce": { "tx_nonce": tx_nonce, "ak_nonce": ak_nonce }
         }))
-        .unwrap()
     }
 
     fn accepted_body() -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "result": { "final_execution_status": "NONE" },
-        }))
-        .unwrap()
+        rpc_result(serde_json::json!({ "final_execution_status": "NONE" }))
     }
 
     fn expired_body() -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
-                "code": -32000,
-                "message": "Server error",
-                "data": {
-                    "TxExecutionError": {
-                        "InvalidTxError": "Expired"
-                    }
-                },
-            },
-        }))
-        .unwrap()
+        invalid_tx_body("Expired".into())
     }
 
     #[tokio::test]
@@ -1456,17 +1401,12 @@ mod tests {
                             views[0]
                         }
                     };
-                    serde_json::to_vec(&serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": 0,
-                        "result": {
-                            "nonce": nonce,
-                            "permission": "FullAccess",
-                            "block_height": block_height,
-                            "block_hash": "11111111111111111111111111111111",
-                        },
+                    rpc_result(serde_json::json!({
+                        "nonce": nonce,
+                        "permission": "FullAccess",
+                        "block_height": block_height,
+                        "block_hash": "11111111111111111111111111111111",
                     }))
-                    .unwrap()
                 }
                 "send_tx" => {
                     let signed = request["params"]["signed_tx_base64"]
@@ -1492,24 +1432,9 @@ mod tests {
     }
 
     fn nonce_too_large_body(tx_nonce: u64, upper_bound: u64) -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
-                "code": -32000,
-                "message": "Server error",
-                "data": {
-                    "TxExecutionError": {
-                        "InvalidTxError": {
-                            "NonceTooLarge": { "tx_nonce": tx_nonce, "upper_bound": upper_bound }
-                        }
-                    }
-                },
-            },
+        invalid_tx_body(serde_json::json!({
+            "NonceTooLarge": { "tx_nonce": tx_nonce, "upper_bound": upper_bound }
         }))
-        .unwrap()
     }
 
     fn signing_via(

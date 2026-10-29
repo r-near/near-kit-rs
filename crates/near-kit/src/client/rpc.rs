@@ -1689,6 +1689,7 @@ mod tests {
     use crate::reqwest::header::{HeaderMap, HeaderValue};
 
     use super::*;
+    use crate::client::test_rpc::{invalid_tx_body, rpc_error, rpc_result};
     use crate::client::{BoxFuture, TransportResponse};
     use crate::types::Finality;
 
@@ -1820,45 +1821,8 @@ mod tests {
         }
     }
 
-    /// JSON-RPC error body for a `send_tx` rejected with `InvalidNonce`.
-    fn invalid_nonce_body() -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
-                "code": -32000,
-                "message": "Server error",
-                "data": {
-                    "TxExecutionError": {
-                        "InvalidTxError": {
-                            "InvalidNonce": { "tx_nonce": 6, "ak_nonce": 20 }
-                        }
-                    }
-                },
-            },
-        }))
-        .unwrap()
-    }
-
     fn rpc_with_handler_error(cause_name: &str, info: serde_json::Value) -> RpcClient {
-        let body = serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": {
-                    "name": cause_name,
-                    "info": info,
-                },
-                "code": -32000,
-                "message": "Server error",
-                "data": "view function failed",
-            },
-        }))
-        .unwrap();
-
+        let body = rpc_error(Some(cause_name), info, "view function failed".into());
         RpcClient::with_transport_and_retry_config(
             "https://example.com",
             Arc::new(StaticResponseTransport { body }),
@@ -1901,7 +1865,12 @@ mod tests {
         // The signed payload is fixed at this layer: re-sending it
         // byte-for-byte can't fix an `InvalidNonce`, so it must be terminal
         // here even though it is transient one layer up (re-sign).
-        let transport = CountingTransport::new(200, invalid_nonce_body());
+        let transport = CountingTransport::new(
+            200,
+            invalid_tx_body(
+                serde_json::json!({ "InvalidNonce": { "tx_nonce": 6, "ak_nonce": 20 } }),
+            ),
+        );
         let client = RpcClient::with_transport_and_retry_config(
             "https://example.com",
             transport.clone(),
@@ -1933,24 +1902,9 @@ mod tests {
     async fn test_call_retries_shard_congested() {
         // Congestion can clear while the same signed bytes are re-sent, so
         // this InvalidTx variant keeps the transport-level retry loop.
-        let body = serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
-                "code": -32000,
-                "message": "Server error",
-                "data": {
-                    "TxExecutionError": {
-                        "InvalidTxError": {
-                            "ShardCongested": { "congestion_level": 1.0, "shard_id": 0 }
-                        }
-                    }
-                },
-            },
-        }))
-        .unwrap();
+        let body = invalid_tx_body(serde_json::json!({
+            "ShardCongested": { "congestion_level": 1.0, "shard_id": 0 }
+        }));
         let transport = CountingTransport::new(200, body);
         let client = RpcClient::with_transport_and_retry_config(
             "https://example.com",
@@ -1976,21 +1930,6 @@ mod tests {
         assert_eq!(transport.calls(), 3, "1 attempt + 2 retries");
     }
 
-    /// A `-32000` handler error with `cause` (`None` omits the field).
-    fn server_error_body(cause: Option<&str>) -> Vec<u8> {
-        let mut error = serde_json::json!({
-            "name": "HANDLER_ERROR",
-            "code": -32000,
-            "message": "Server error",
-            "data": "details",
-        });
-        if let Some(cause) = cause {
-            error["cause"] = serde_json::json!({ "name": cause, "info": {} });
-        }
-        serde_json::to_vec(&serde_json::json!({ "jsonrpc": "2.0", "id": 0, "error": error }))
-            .unwrap()
-    }
-
     #[tokio::test]
     async fn test_call_retries_server_error_only_without_cause_or_with_a_transient_one() {
         // `(cause, expected attempts)` with 2 retries allowed.
@@ -2005,7 +1944,10 @@ mod tests {
             (Some("BUSY"), 3),
         ];
         for (cause, attempts) in cases {
-            let transport = CountingTransport::new(200, server_error_body(cause));
+            let transport = CountingTransport::new(
+                200,
+                rpc_error(cause, serde_json::json!({}), "details".into()),
+            );
             let client = RpcClient::with_transport_and_retry_config(
                 "https://example.com",
                 transport.clone(),
@@ -2104,8 +2046,7 @@ mod tests {
     #[tokio::test]
     async fn test_retry_forever_config_succeeds() {
         // `u32::MAX` ("retry forever") on a call that succeeds at once.
-        let transport =
-            CountingTransport::new(200, r#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#);
+        let transport = CountingTransport::new(200, rpc_result(serde_json::json!({ "ok": true })));
         let client = RpcClient::with_transport_and_retry_config(
             "https://example.com",
             transport.clone(),
@@ -2559,17 +2500,7 @@ mod tests {
 
     impl RecordingTransport {
         fn new(results: impl IntoIterator<Item = serde_json::Value>) -> Arc<Self> {
-            let responses = results
-                .into_iter()
-                .map(|result| {
-                    serde_json::to_vec(&serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": 0,
-                        "result": result,
-                    }))
-                    .unwrap()
-                })
-                .collect();
+            let responses = results.into_iter().map(rpc_result).collect();
             Arc::new(Self {
                 responses: Mutex::new(responses),
                 params: Mutex::new(Vec::new()),
@@ -3499,28 +3430,6 @@ mod tests {
         ]
     }
 
-    fn handler_error_body(
-        cause: &str,
-        info: Option<serde_json::Value>,
-        data: &str,
-    ) -> serde_json::Value {
-        let mut cause = serde_json::json!({ "name": cause });
-        if let Some(info) = info {
-            cause["info"] = info;
-        }
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": cause,
-                "code": -32000,
-                "message": "Server error",
-                "data": data,
-            },
-        })
-    }
-
     #[tokio::test]
     async fn test_deterministic_lookup_errors_are_not_retried() {
         for (cause, info, data) in deterministic_lookup_errors() {
@@ -3538,8 +3447,8 @@ mod tests {
         data: &str,
         expected_calls: usize,
     ) -> RpcError {
-        let body = handler_error_body(cause, info, data);
-        let transport = CountingTransport::new(200, serde_json::to_vec(&body).unwrap());
+        let body = rpc_error(Some(cause), info.unwrap_or_default(), data.into());
+        let transport = CountingTransport::new(200, body);
         let client = RpcClient::with_transport_and_retry_config(
             "https://example.com",
             transport.clone(),
@@ -3628,15 +3537,11 @@ mod tests {
     #[test]
     fn test_receipt_to_tx_causes_are_specific_to_that_method() {
         // The indexer also sends `UNSUPPORTED`; it is not a receipt-to-tx error.
-        let error: JsonRpcError = serde_json::from_value(
-            handler_error_body(
-                "UNSUPPORTED",
-                Some(serde_json::json!({ "error_message": "no indexer" })),
-                "unsupported indexer request: no indexer",
-            )["error"]
-                .clone(),
-        )
-        .unwrap();
+        let error = handler_error(
+            "UNSUPPORTED",
+            Some(serde_json::json!({ "error_message": "no indexer" })),
+            Some("unsupported indexer request: no indexer".into()),
+        );
         assert!(matches!(
             parse_method_rpc_error("EXPERIMENTAL_indexer_block", &error),
             RpcError::Rpc { .. }
@@ -4482,8 +4387,7 @@ mod tests {
     /// retry classification.
     #[tokio::test]
     async fn test_non_2xx_responses_decode_and_keep_http_retry_classification() {
-        let handler =
-            |cause, info, data| serde_json::to_vec(&handler_error_body(cause, info, data)).unwrap();
+        let handler = |cause, info, data: &str| rpc_error(Some(cause), info, data.into());
         fn not_retryable_network(e: &RpcError, status: u16) -> bool {
             matches!(e, RpcError::Network { status_code: Some(s), retryable: false, .. } if *s == status)
         }
@@ -4494,7 +4398,7 @@ mod tests {
                 422,
                 handler(
                     "UNKNOWN_BLOCK",
-                    Some(serde_json::json!({})),
+                    serde_json::json!({}),
                     "DB Not Found Error: BLOCK HEIGHT: 1",
                 ),
                 1,
@@ -4504,9 +4408,7 @@ mod tests {
                 422,
                 handler(
                     "UNKNOWN_CHUNK",
-                    Some(
-                        serde_json::json!({ "chunk_hash": "3tMcx4v6hUzN7XeQgEr4kQb8R5rGvmM4Py7o4nP1T8bY" }),
-                    ),
+                    serde_json::json!({ "chunk_hash": "3tMcx4v6hUzN7XeQgEr4kQb8R5rGvmM4Py7o4nP1T8bY" }),
                     "Chunk Missing",
                 ),
                 1,
@@ -4517,7 +4419,7 @@ mod tests {
                 408,
                 handler(
                     "TIMEOUT_ERROR",
-                    Some(serde_json::json!({ "cause": "NOT_OBSERVED" })),
+                    serde_json::json!({ "cause": "NOT_OBSERVED" }),
                     "Timeout",
                 ),
                 3,
@@ -4531,13 +4433,21 @@ mod tests {
             ),
             (
                 422,
-                server_error_body(Some("FUTURE_HANDLER_ERROR")),
+                rpc_error(
+                    Some("FUTURE_HANDLER_ERROR"),
+                    serde_json::json!({}),
+                    "details".into(),
+                ),
                 1,
                 |e| not_retryable_network(e, 422),
             ),
             (
                 418,
-                server_error_body(Some("SOME_UNMAPPED_CAUSE")),
+                rpc_error(
+                    Some("SOME_UNMAPPED_CAUSE"),
+                    serde_json::json!({}),
+                    "details".into(),
+                ),
                 1,
                 |e| not_retryable_network(e, 418),
             ),
@@ -4545,13 +4455,20 @@ mod tests {
             // isn't retried, a missing one is.
             (
                 503,
-                server_error_body(Some("FUTURE_HANDLER_ERROR")),
+                rpc_error(
+                    Some("FUTURE_HANDLER_ERROR"),
+                    serde_json::json!({}),
+                    "details".into(),
+                ),
                 1,
                 |e| matches!(e, RpcError::Rpc { .. }),
             ),
-            (503, server_error_body(None), 3, |e| {
-                matches!(e, RpcError::Rpc { .. })
-            }),
+            (
+                503,
+                rpc_error(None, serde_json::json!({}), "details".into()),
+                3,
+                |e| matches!(e, RpcError::Rpc { .. }),
+            ),
             (
                 422,
                 b"<html><body><h1>422 Unprocessable Entity</h1></body></html>".to_vec(),
@@ -4584,24 +4501,14 @@ mod tests {
         // re-sending the *same* signed bytes (nearcore treats a resubmission
         // of a known tx as "keep waiting"), never re-signs, and the final
         // error carries the caller-known hash so the caller can poll by hash.
-        let body = serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": {
-                    "name": "TIMEOUT_ERROR",
-                    "info": {
-                        "cause": "PENDING",
-                        "status": { "final_execution_status": "INCLUDED" }
-                    }
-                },
-                "code": -32000,
-                "message": "Server error",
-                "data": "Timeout",
-            },
-        }))
-        .unwrap();
+        let body = rpc_error(
+            Some("TIMEOUT_ERROR"),
+            serde_json::json!({
+                "cause": "PENDING",
+                "status": { "final_execution_status": "INCLUDED" }
+            }),
+            "Timeout".into(),
+        );
         let transport = CountingTransport::new(408, body);
         let client = RpcClient::with_transport_and_retry_config(
             "https://example.com",
@@ -4820,7 +4727,7 @@ mod tests {
                     } else {
                         TransportResponse {
                             status: 200,
-                            body: br#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#.to_vec(),
+                            body: rpc_result(serde_json::json!({ "ok": true })),
                         }
                     })
                 })
@@ -4917,12 +4824,7 @@ mod tests {
     // ========================================================================
 
     fn rpc_with_result(result: serde_json::Value) -> RpcClient {
-        let body = serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "result": result,
-        }))
-        .unwrap();
+        let body = rpc_result(result);
         RpcClient::with_transport_and_retry_config(
             "https://example.com",
             Arc::new(StaticResponseTransport { body }),
