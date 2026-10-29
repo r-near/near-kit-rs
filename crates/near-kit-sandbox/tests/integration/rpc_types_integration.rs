@@ -5,6 +5,7 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
+use near_kit::protocol::Action;
 use near_kit::*;
 use near_kit::{rpc::*, signer::SecretKey, transaction::*};
 use near_kit_sandbox::SANDBOX_ROOT_ACCOUNT;
@@ -20,7 +21,12 @@ async fn test_block_view_full_fields() {
     let (_, near) = super::support::shared_client().await;
 
     // Get a block and verify fields are present and deserialize correctly
-    let block = near.rpc().block(BlockReference::final_()).await.unwrap();
+    let block = near
+        .near()
+        .rpc()
+        .block(BlockReference::Finality(Finality::Final))
+        .await
+        .unwrap();
 
     // Verify BlockView fields
     assert!(
@@ -76,7 +82,12 @@ async fn test_block_view_full_fields() {
 async fn test_chunk_header_view_full_fields() {
     let (_, near) = super::support::shared_client().await;
 
-    let block = near.rpc().block(BlockReference::final_()).await.unwrap();
+    let block = near
+        .near()
+        .rpc()
+        .block(BlockReference::Finality(Finality::Final))
+        .await
+        .unwrap();
 
     // Verify ChunkHeaderView fields for each chunk
     for chunk in &block.chunks {
@@ -106,7 +117,7 @@ async fn test_chunk_header_view_full_fields() {
 async fn test_status_response_full_fields() {
     let (_, near) = super::support::shared_client().await;
 
-    let status = near.rpc().status().await.unwrap();
+    let status = near.near().rpc().status().await.unwrap();
 
     // Verify StatusResponse fields
     assert!(
@@ -168,8 +179,13 @@ async fn test_status_response_full_fields() {
 async fn test_account_view_full_fields() {
     let (_, near) = super::support::shared_client().await;
 
-    let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
-    let account = near.account(&account_id).await.unwrap();
+    let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.into();
+    let account = near
+        .near()
+        .rpc()
+        .view_account(&account_id, near_kit::rpc::Finality::Final)
+        .await
+        .unwrap();
 
     // Verify AccountView fields
     assert!(
@@ -192,8 +208,13 @@ async fn test_account_view_full_fields() {
 async fn test_access_key_list_view() {
     let (_, near) = super::support::shared_client().await;
 
-    let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
-    let keys = near.access_keys(&account_id).await.unwrap();
+    let account_id: AccountId = SANDBOX_ROOT_ACCOUNT.into();
+    let keys = near
+        .near()
+        .rpc()
+        .view_access_key_list(&account_id, near_kit::rpc::Finality::Final)
+        .await
+        .unwrap();
 
     // Verify AccessKeyListView fields
     assert!(
@@ -236,19 +257,18 @@ async fn test_access_key_list_view() {
 async fn test_final_execution_outcome_full_fields() {
     let (_, near) = super::support::shared_client().await;
 
-    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.into();
 
     // Create and execute a transaction
     let receiver_key = SecretKey::generate_ed25519();
     let receiver_id = unique_account("rpc");
 
     let outcome = near
-        .transaction(&receiver_id)
-        .create_account()
-        .transfer(NearToken::from_near(5))
-        .add_full_access_key(receiver_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&receiver_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(5)))
+        .add_action(Action::add_full_access_key(receiver_key.public_key()))
         .await
         .unwrap();
 
@@ -314,12 +334,11 @@ async fn test_execution_metadata_and_gas_profile() {
     let receiver_id = unique_account("rpc");
 
     let outcome = near
-        .transaction(&receiver_id)
-        .create_account()
-        .transfer(NearToken::from_near(1))
-        .add_full_access_key(receiver_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&receiver_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(1)))
+        .add_action(Action::add_full_access_key(receiver_key.public_key()))
         .await
         .unwrap();
 
@@ -354,19 +373,18 @@ async fn test_execution_metadata_and_gas_profile() {
 async fn test_tx_status_with_receipts() {
     let (_, near) = super::support::shared_client().await;
 
-    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.into();
 
     // Execute a transaction first
     let receiver_key = SecretKey::generate_ed25519();
     let receiver_id = unique_account("rpc");
 
     let outcome = near
-        .transaction(&receiver_id)
-        .create_account()
-        .transfer(NearToken::from_near(2))
-        .add_full_access_key(receiver_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&receiver_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(2)))
+        .add_action(Action::add_full_access_key(receiver_key.public_key()))
         .await
         .unwrap();
 
@@ -374,6 +392,7 @@ async fn test_tx_status_with_receipts() {
 
     // Now get the full transaction status with receipts
     let status_outcome: FinalExecutionOutcome = near
+        .near()
         .tx_status(tx_hash, &root_account)
         .wait_until::<Final>()
         .await
@@ -427,19 +446,18 @@ async fn test_tx_status_with_receipts() {
 async fn test_tx_status_early_wait_level_surfaces_receipts() {
     let (_, near) = super::support::shared_client().await;
 
-    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+    let root_account: AccountId = SANDBOX_ROOT_ACCOUNT.into();
 
     // Execute a transaction and let it settle.
     let receiver_key = SecretKey::generate_ed25519();
     let receiver_id = unique_account("rpc");
 
     let outcome = near
-        .transaction(&receiver_id)
-        .create_account()
-        .transfer(NearToken::from_near(2))
-        .add_full_access_key(receiver_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&receiver_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(2)))
+        .add_action(Action::add_full_access_key(receiver_key.public_key()))
         .await
         .unwrap();
 
@@ -447,7 +465,7 @@ async fn test_tx_status_early_wait_level_surfaces_receipts() {
 
     // A bare status query defaults to Submitted: it returns the node's current
     // progress immediately instead of waiting for a later milestone.
-    let current: SendTxResponse = near.tx_status(tx_hash, &root_account).await.unwrap();
+    let current: SendTxResponse = near.near().tx_status(tx_hash, &root_account).await.unwrap();
     assert_eq!(&current.transaction_hash, tx_hash);
     assert_eq!(&current.sender_id, &root_account);
     assert!(
@@ -459,6 +477,7 @@ async fn test_tx_status_early_wait_level_surfaces_receipts() {
     // outcome and returned only hash + sender; now it carries the partial
     // outcome so the receipts are reachable.
     let response: SendTxResponse = near
+        .near()
         .tx_status(tx_hash, &root_account)
         .wait_until::<Included>()
         .await
@@ -496,7 +515,7 @@ async fn test_tx_status_early_wait_level_surfaces_receipts() {
 async fn test_gas_price() {
     let (_, near) = super::support::shared_client().await;
 
-    let gas_price = near.rpc().gas_price(None).await.unwrap();
+    let gas_price = near.near().rpc().gas_price(None).await.unwrap();
 
     assert!(
         gas_price.gas_price.as_yoctonear() > 0,
@@ -523,12 +542,11 @@ async fn test_action_view_variants() {
     let account1_id = unique_account("rpc");
 
     let outcome = near
-        .transaction(&account1_id)
-        .create_account()
-        .transfer(NearToken::from_near(3))
-        .add_full_access_key(account1_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&account1_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(3)))
+        .add_action(Action::add_full_access_key(account1_key.public_key()))
         .await
         .unwrap();
 
@@ -572,8 +590,8 @@ async fn test_action_view_variants() {
 async fn test_account_not_found_error() {
     let (_, near) = super::support::shared_client().await;
 
-    let non_existent: AccountId = "non-existent-account.testnet".parse().unwrap();
-    let result = near.balance(&non_existent).await;
+    let non_existent: AccountId = near_kit::account!("non-existent-account.testnet");
+    let result = near.near().balance(&non_existent).await;
 
     assert!(
         result.is_err(),
@@ -595,10 +613,16 @@ async fn test_view_function_result() {
     // so we'll test that the ViewFunctionResult structure is correct
     // by checking what happens when we call a non-existent contract
 
-    let contract_id: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+    let contract_id: AccountId = SANDBOX_ROOT_ACCOUNT.into();
     let result = near
+        .near()
         .rpc()
-        .view_function(&contract_id, "get_greeting", &[], BlockReference::final_())
+        .view_function(
+            &contract_id,
+            "get_greeting",
+            &[],
+            BlockReference::Finality(Finality::Final),
+        )
         .await;
 
     // This will fail because sandbox root account has no contract,

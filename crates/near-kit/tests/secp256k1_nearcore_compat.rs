@@ -108,10 +108,10 @@ fn digest_signature_matches_near_crypto() {
 fn signed_transaction_verifies_like_nearcore() {
     let key = vector_key();
     let tx = Transaction::new(
-        "alice.testnet".parse().unwrap(),
+        near_kit::account!("alice.testnet"),
         key.public_key(),
         7,
-        "bob.testnet".parse().unwrap(),
+        near_kit::account!("bob.testnet"),
         CryptoHash::hash(b"block"),
         vec![transfer()],
     );
@@ -135,8 +135,8 @@ fn signed_transaction_verifies_like_nearcore() {
 fn signed_delegate_action_verifies_like_nearcore() {
     let key = vector_key();
     let delegate = DelegateAction {
-        sender_id: "alice.testnet".parse().unwrap(),
-        receiver_id: "bob.testnet".parse().unwrap(),
+        sender_id: near_kit::account!("alice.testnet"),
+        receiver_id: near_kit::account!("bob.testnet"),
         actions: vec![NonDelegateAction::from_action(transfer()).unwrap()],
         nonce: 1,
         max_block_height: 1000,
@@ -171,7 +171,7 @@ async fn signing_key_paths_verify_like_nearcore() {
         state: None,
     };
     let signed = signing_key
-        .sign_nep413(&"alice.near".parse().unwrap(), &params)
+        .sign_nep413(&near_kit::account!("alice.near"), &params)
         .await
         .unwrap();
     let hash = nep413::serialize_message(&params);

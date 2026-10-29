@@ -1,0 +1,61 @@
+error[E0277]: `ViewOnly` cannot send transactions
+  --> tests/compile-fail/call_without_sender.rs:35:21
+   |
+35 |     let _ = counter.increment().await;
+   |                     ^^^^^^^^^ needs a signer
+   |
+help: the trait `TxSender` is not implemented for `ViewOnly`
+  --> tests/compile-fail/call_without_sender.rs:16:1
+   |
+16 | struct ViewOnly;
+   | ^^^^^^^^^^^^^^^
+   = note: `near.with_signer(signer)` returns a sender; or implement `TxSender`
+help: the following other types implement trait `TxSender`
+  --> $WORKSPACE/crates/near-kit-primitives/src/backend.rs
+   |
+   | impl<T: TxSender + ?Sized> TxSender for &T {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `&T`
+...
+   | impl<T: TxSender + ?Sized> TxSender for Box<T> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Box<T>`
+...
+   | impl<T: TxSender + ?Sized> TxSender for Arc<T> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Arc<T>`
+   |
+  ::: $WORKSPACE/crates/near-kit/src/client/signing.rs
+   |
+   | impl<W: WaitLevel> crate::TxSender for SigningNear<W> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `SigningNear<W>`
+note: required by a bound in `CounterClient::<__NearKitBackend>::increment`
+  --> tests/compile-fail/call_without_sender.rs:7:1
+   |
+ 7 | #[near_kit::contract]
+   | ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `CounterClient::<__NearKitBackend>::increment`
+...
+12 |     fn increment(&mut self);
+   |        --------- required by a bound in this associated function
+   = note: this error originates in the attribute macro `near_kit::contract` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `Call<ViewOnly>` is not a future
+  --> tests/compile-fail/call_without_sender.rs:35:33
+   |
+35 |     let _ = counter.increment().await;
+   |                                 ^^^^^ `Call<ViewOnly>` is not a future
+   |
+   = help: the trait `IntoFuture` is not implemented for `Call<ViewOnly>`
+   = note: Call<ViewOnly> must be a future or must implement `IntoFuture` to be awaited
+help: the trait `IntoFuture` is conditionally implemented for `Call<C>`
+  --> $WORKSPACE/crates/near-kit-primitives/src/backend.rs
+   |
+   | / impl<C> IntoFuture for Call<C>
+   | | where
+   | |     C: TxSender + 'static,
+   | |        -------- unsatisfied requirement introduced here: `ViewOnly: TxSender`
+   | |     C::Output: 'static,
+   | |     C::SendError: 'static,
+   | |__________________________^
+help: remove the `.await`
+   |
+35 -     let _ = counter.increment().await;
+35 +     let _ = counter.increment();
+   |

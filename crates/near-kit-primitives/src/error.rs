@@ -13,35 +13,6 @@ use crate::types::{AccountId, ActionError, CryptoHash, FinalExecutionStatus, Inv
 /// This is a re-export of the upstream [`near_account_id::ParseAccountError`].
 pub type ParseAccountIdError = near_account_id::ParseAccountError;
 
-/// Error parsing a NEAR token amount.
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
-pub enum ParseAmountError {
-    #[error("Ambiguous amount '{0}'. Use explicit units like '5 NEAR' or '1000 yocto'")]
-    AmbiguousAmount(String),
-
-    #[error("Invalid amount format: '{0}'")]
-    InvalidFormat(String),
-
-    #[error("Invalid number in amount: '{0}'")]
-    InvalidNumber(String),
-
-    #[error("Amount overflow: value too large")]
-    Overflow,
-}
-
-/// Error parsing a gas value.
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
-pub enum ParseGasError {
-    #[error("Invalid gas format: '{0}'. Use '30 Tgas', '5 Ggas', or '1000000 gas'")]
-    InvalidFormat(String),
-
-    #[error("Invalid number in gas: '{0}'")]
-    InvalidNumber(String),
-
-    #[error("Gas overflow: value too large")]
-    Overflow,
-}
-
 /// Error parsing a public or secret key.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ParseKeyError {
@@ -149,9 +120,8 @@ pub enum UniversalStateInitError {
 
 /// Error building a signer or signing with it.
 ///
-/// Converts into `near_kit::Error` with `?`. Parse failures keep their
-/// `Error::ParseAccountId` and `Error::ParseKey` variants and an invalid
-/// key set becomes `Error::Config`, as before this type existed.
+/// Converts into `near_kit::Error` with `?`. A key that fails to parse
+/// becomes `Error::ParseKey` and an invalid key set `Error::Config`.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SignerError {
@@ -166,10 +136,6 @@ pub enum SignerError {
 
     #[error("Implicit accounts require an Ed25519 secret key")]
     ImplicitAccountRequiresEd25519,
-
-    /// The signer's account ID did not parse.
-    #[error(transparent)]
-    InvalidAccountId(#[from] ParseAccountIdError),
 
     /// A secret key did not parse.
     #[error(transparent)]
@@ -187,29 +153,32 @@ pub enum SignerError {
     },
 }
 
-/// Error building a [`FunctionCall`](crate::transaction::FunctionCall).
+/// Error encoding contract arguments or decoding a contract's return value.
 ///
-/// The builder keeps the first failure and returns it when the call is
-/// converted into an action. Converts into `near_kit::Error` with `?`,
-/// keeping the variant it had before this type existed.
+/// [`FunctionCall`](crate::transaction::FunctionCall) keeps the first
+/// argument-encoding failure and returns it when the call is converted into
+/// an action. Contract clients also return it, inside
+/// [`ContractError::Codec`](crate::transaction::ContractError::Codec), when
+/// a view result fails to decode. Converts into `near_kit::Error` with `?`
+/// (`Error::Json` / `Error::Borsh`).
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum FunctionCallBuildError {
-    /// The JSON arguments failed to serialize.
+pub enum CodecError {
+    /// JSON serialization or deserialization failed.
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
-    /// The Borsh arguments failed to serialize.
+    /// Borsh serialization or deserialization failed.
     #[error("Borsh error: {0}")]
     Borsh(#[source] std::io::Error),
+}
 
-    /// The gas amount did not parse.
-    #[error(transparent)]
-    ParseGas(#[from] ParseGasError),
-
-    /// The deposit did not parse.
-    #[error(transparent)]
-    ParseAmount(#[from] ParseAmountError),
+/// Lets infallible conversions (an [`Action`](crate::protocol::Action) into
+/// itself) go wherever a fallible action conversion is accepted.
+impl From<std::convert::Infallible> for CodecError {
+    fn from(value: std::convert::Infallible) -> Self {
+        match value {}
+    }
 }
 
 /// Error decoding a [`SignedTransaction`](crate::protocol::SignedTransaction)
@@ -293,50 +262,6 @@ mod tests {
 
         let err = "bad..account".parse::<AccountId>().unwrap_err();
         assert!(err.to_string().contains("redundant separator"));
-    }
-
-    // ========================================================================
-    // ParseAmountError tests
-    // ========================================================================
-
-    #[test]
-    fn test_parse_amount_error_display() {
-        assert_eq!(
-            ParseAmountError::AmbiguousAmount("123".to_string()).to_string(),
-            "Ambiguous amount '123'. Use explicit units like '5 NEAR' or '1000 yocto'"
-        );
-        assert_eq!(
-            ParseAmountError::InvalidFormat("xyz".to_string()).to_string(),
-            "Invalid amount format: 'xyz'"
-        );
-        assert_eq!(
-            ParseAmountError::InvalidNumber("abc".to_string()).to_string(),
-            "Invalid number in amount: 'abc'"
-        );
-        assert_eq!(
-            ParseAmountError::Overflow.to_string(),
-            "Amount overflow: value too large"
-        );
-    }
-
-    // ========================================================================
-    // ParseGasError tests
-    // ========================================================================
-
-    #[test]
-    fn test_parse_gas_error_display() {
-        assert_eq!(
-            ParseGasError::InvalidFormat("xyz".to_string()).to_string(),
-            "Invalid gas format: 'xyz'. Use '30 Tgas', '5 Ggas', or '1000000 gas'"
-        );
-        assert_eq!(
-            ParseGasError::InvalidNumber("abc".to_string()).to_string(),
-            "Invalid number in gas: 'abc'"
-        );
-        assert_eq!(
-            ParseGasError::Overflow.to_string(),
-            "Gas overflow: value too large"
-        );
     }
 
     // ========================================================================

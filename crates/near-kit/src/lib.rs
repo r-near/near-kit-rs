@@ -1,378 +1,303 @@
 //! # near-kit
 //!
-//! A clean, ergonomic Rust client for NEAR Protocol.
+//! A Rust client for NEAR Protocol, built from plain values and two verbs.
 //!
-//! `near-kit` provides a fluent API for interacting with NEAR Protocol,
-//! with a focus on developer experience and type safety. It's a ground-up
-//! implementation with hand-rolled types based on actual NEAR RPC responses.
+//! ## The model
 //!
-//! ## Quick Start
+//! Chain work is described by **plain values** that need no client: an
+//! [`AccountId`] (write literals with [`account!`], checked at compile time),
+//! [`NearToken`] and [`Gas`] amounts, [`Action`](protocol::Action)s and
+//! [`FunctionCall`](transaction::FunctionCall)s, and a
+//! [`BlockReference`](rpc::BlockReference) saying which block to read.
 //!
-//! Add `near-kit` to your `Cargo.toml`:
+//! Two **verbs**, one small trait each, are what the rest is built on:
+//!
+//! | Verb | Does | Implemented by |
+//! |------|------|----------------|
+//! | [`Viewer`] | runs a view function at a block | `Near`, `SigningNear` |
+//! | [`TxSender`] | sends a receiver plus a list of actions | `SigningNear` |
+//!
+//! `Near` reads. `near.with_signer(signer)` returns a `SigningNear`, which reads
+//! and sends. Everything else (typed contract clients, the FT/NFT helpers, the
+//! awaitable [`View`](transaction::View) and [`Call`](transaction::Call)
+//! values) is written against the two traits, so it runs on your own backend
+//! too.
+//!
+//! ## Quick start
 //!
 //! ```bash
 //! cargo add near-kit
 //! ```
 //!
-//! ### Read-Only Operations
-//!
-//! No credentials needed for querying blockchain state:
-//!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
+//! use near_kit::protocol::Action;
+//! use near_kit::signer::InMemorySigner;
+//! use near_kit::transaction::FunctionCall;
 //! use near_kit::*;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
+//!     // Reads need no credentials.
 //!     let near = Near::testnet().build();
+//!     let balance = near.balance(account!("alice.testnet")).await?;
+//!     let count: u64 = near.view(account!("counter.testnet"), "get_count").await?;
+//!     println!("{} available, count = {count}", balance.available);
 //!
-//!     // Check account balance
-//!     let balance = near.balance("alice.testnet").await?;
-//!     println!("Balance: {}", balance.available);
-//!
-//!     // Call a view function
-//!     let count: u64 = near.view("counter.testnet", "get_count").await?;
-//!     println!("Count: {}", count);
-//!
-//!     Ok(())
-//! }
-//! ```
-//!
-//! ### Transactions (Writes)
-//!
-//! For state-changing operations, configure a signer:
-//!
-#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::*;
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Error> {
-//!     let near = Near::testnet()
-//!         .credentials("ed25519:YOUR_PRIVATE_KEY", "your-account.testnet")?
-//!         .build();
-//!
-//!     // Transfer NEAR
-//!     near.transfer("bob.testnet", NearToken::from_near(1)).await?;
-//!
-//!     // Call a contract function
-//!     near.call("counter.testnet", "increment")
-//!         .gas("30 Tgas")
+//!     // Writes need a signer.
+//!     let me = near.with_signer(InMemorySigner::new(
+//!         account!("me.testnet"),
+//!         "ed25519:YOUR_PRIVATE_KEY".parse()?,
+//!     ));
+//!     me.transaction(account!("bob.testnet"))
+//!         .add_action(Action::transfer(NearToken::from_near(1)))
 //!         .await?;
-//!
+//!     me.transaction(account!("counter.testnet"))
+//!         .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(30)))
+//!         .await?;
 //!     Ok(())
 //! }
 //! ```
 //!
-//! ## Design Principles
+//! ## Reads
 //!
-//! 1. **Single entry point** — Everything flows through the `Near` client
-//! 2. **Configure once** — Network and signer are set at client creation
-//! 3. **Type-safe but ergonomic** — Accept both typed values and string parsing
-//! 4. **Explicit units** — No ambiguous amounts; must specify `NEAR`, `yocto`, `Tgas`, etc.
-//! 5. **Progressive disclosure** — Simple things are simple; advanced options available when needed
-//!
-//! ## Core Types
-//!
-//! | Type | Description |
-//! |------|-------------|
-//! | `Near` | Main client — the single entry point for all operations |
-//! | [`AccountId`] | Validated NEAR account identifier |
-//! | [`NearToken`] | Token amount with yoctoNEAR precision |
-//! | [`Gas`] | Gas units for transactions |
-//! | [`signer::PublicKey`] / [`signer::SecretKey`] | Supported cryptographic keys |
-//! | [`CryptoHash`] | 32-byte SHA-256 hash (blocks, transactions) |
-//!
-//! ## Working with Amounts
-//!
-//! ### Typed Constructors (Recommended)
-//!
-//! For compile-time safety, use the typed constructors:
-//!
-//! ```rust
-//! use near_kit::{NearToken, Gas};
-//!
-//! // NEAR amounts
-//! let five_near = NearToken::from_near(5);
-//! let half_near = NearToken::from_millinear(500);
-//! let one_yocto = NearToken::from_yoctonear(1);
-//!
-//! // Gas amounts
-//! let gas = Gas::from_tgas(30);      // 30 teragas
-//! let more_gas = Gas::from_ggas(5);  // 5 gigagas
-//! ```
-//!
-//! ### String Parsing (Runtime Input)
-//!
-//! For CLI arguments, config files, or user input:
-//!
-//! ```rust
-//! use near_kit::{NearToken, Gas};
-//!
-//! // Parse NEAR amounts (upstream format)
-//! let amount: NearToken = "5 NEAR".parse().unwrap();
-//! let small: NearToken = "100 milliNEAR".parse().unwrap();
-//! let tiny: NearToken = "1000 yoctoNEAR".parse().unwrap();
-//!
-//! // Parse gas
-//! let gas: Gas = "30 Tgas".parse().unwrap();
-//! ```
-//!
-//! Many builder methods also accept strings directly:
+//! `Near::view` returns a [`View`](transaction::View): set arguments with
+//! `.args(..)`, pick a block with `.at(..)` (a height, a hash, or a
+//! [`Finality`](rpc::Finality); the default is `Final`), then `.await`.
+//! `.with_metadata()` also returns the block height and hash the value was
+//! read at. `balance` and `account_exists` take the same `.at(..)`;
+//! `tx_status` picks how far the transaction must have run with
+//! `.wait_until::<W>()`.
+//! Every other RPC method is on [`near.rpc()`](rpc::RpcClient).
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! # use near_kit::*;
-//! # async fn example(near: &Near) -> Result<(), Error> {
-//! near.call("contract.testnet", "method")
-//!     .gas("100 Tgas")
-//!     .deposit("0.1 NEAR")
-//!     .await?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ## Query Builders
-//!
-//! Read operations return query builders that can be customized before awaiting:
-//!
-#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::*;
 //! use near_kit::rpc::Finality;
-//!
-//! # async fn example() -> Result<(), Error> {
-//! let near = Near::testnet().build();
-//!
-//! // Simple query
-//! let balance = near.balance("alice.testnet").await?;
-//!
-//! // Query at a specific block height
-//! let old_balance = near.balance("alice.testnet")
-//!     .at_block(100_000_000)
-//!     .await?;
-//!
-//! // Query with different finality
-//! let optimistic = near.balance("alice.testnet")
-//!     .finality(Finality::Optimistic)
-//!     .await?;
-//!
-//! // Contract code — regular accounts and the global registry
-//! let contract = near.contract_code("app.near").await?;
-//! let global = near.global_contract("publisher.near").await?;
-//! println!("current global code hash: {}", global.hash);
-//! if near.global_contract("publisher.near").exists().await? {
-//!     println!("published!");
-//! }
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ## Transaction Builders
-//!
-//! Write operations return transaction builders for customization:
-//!
-#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
-//! use near_kit::transaction::Final;
 //!
 //! # async fn example(near: &Near) -> Result<(), Error> {
-//! // Function call with arguments, gas, and deposit
-//! near.call("nft.testnet", "nft_mint")
-//!     .args(serde_json::json!({ "token_id": "1", "receiver_id": "alice.testnet" }))
-//!     .gas("100 Tgas")
-//!     .deposit("0.1 NEAR")
+//! let messages: Vec<serde_json::Value> = near
+//!     .view(account!("guestbook.testnet"), "get_messages")
+//!     .args(serde_json::json!({ "limit": 5 }))
+//!     .at(Finality::Optimistic)
 //!     .await?;
 //!
-//! // Wait for different execution levels
-//! near.transfer("bob.testnet", NearToken::from_near(1))
-//!     .wait_until::<Final>()
+//! let read = near
+//!     .view::<u64>(account!("counter.testnet"), "get_count")
+//!     .at(180_000_000)
+//!     .with_metadata()
+//!     .await?;
+//! println!("{} at block {}", read.result, read.block_height);
+//!
+//! let old = near.balance(account!("alice.testnet")).at(180_000_000).await?;
+//! let keys = near
+//!     .rpc()
+//!     .view_access_key_list(&account!("alice.testnet"), Finality::Final)
 //!     .await?;
 //! # Ok(())
 //! # }
 //! ```
 //!
-//! ## Multi-Action Transactions
+//! ## Writes
 //!
-//! Chain multiple actions into a single atomic transaction:
+//! `SigningNear::transaction(receiver)` collects actions with `.add_action(..)`
+//! and sends on `.await`. Nonces, block hashes, signing and retries are
+//! handled for you. Sends wait for `Final` execution by default; pick another
+//! [wait level](transaction::WaitLevel) once with `.wait_until::<W>()`.
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
+//! use near_kit::protocol::Action;
+//! use near_kit::signer::SecretKey;
+//! use near_kit::transaction::{FunctionCall, Included};
 //! use near_kit::*;
-//! use near_kit::signer::PublicKey;
 //!
-//! # async fn example(near: &Near) -> Result<(), Box<dyn std::error::Error>> {
-//! // Create a sub-account with funding and deploy a contract
-//! let new_key: PublicKey = "ed25519:6E8sCci...".parse()?;
+//! # async fn example(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
+//! // One atomic transaction: create, fund, add a key, deploy and initialise.
+//! let key = SecretKey::generate_ed25519();
 //! let wasm = std::fs::read("contract.wasm")?;
+//! alice
+//!     .transaction(account!("app.alice.testnet"))
+//!     .add_action(Action::create_account())
+//!     .add_action(Action::transfer(NearToken::from_near(5)))
+//!     .add_action(Action::add_full_access_key(key.public_key()))
+//!     .add_action(Action::deploy_contract(wasm))
+//!     .add_action(
+//!         FunctionCall::new("new").args(serde_json::json!({ "owner_id": alice.account_id() })),
+//!     )
+//!     .await?;
 //!
-//! near.transaction("sub.alice.testnet")
-//!     .create_account()
-//!     .transfer(NearToken::from_near(10))
-//!     .add_full_access_key(new_key)
-//!     .deploy(wasm)
-//!     .call("new")
-//!         .args(serde_json::json!({ "owner_id": "alice.testnet" }))
-//!     .send()
+//! // Return as soon as the transaction is in a block.
+//! let fast = alice.wait_until::<Included>();
+//! fast.transaction(account!("bob.testnet"))
+//!     .add_action(Action::transfer(NearToken::from_millinear(100)))
 //!     .await?;
 //! # Ok(())
 //! # }
 //! ```
 //!
-//! ## Token Helpers
+//! `SigningNear::sign` signs without sending (submit later with
+//! `Near::send_signed`) and `SigningNear::delegate` builds NEP-366
+//! meta-transactions.
 //!
-//! Built-in support for fungible (NEP-141) and non-fungible (NEP-171) tokens.
+//! ## Typed contracts
 //!
-#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
+//! With the opt-in `contracts` feature, `#[near_kit::contract]` turns a trait
+//! into a client. Views need a [`Viewer`] and return a `View`; `#[call]` methods
+//! need a [`TxSender`] and return a [`Call`](transaction::Call) that takes
+//! `.gas(..)` and `.deposit(..)`.
+//!
+#![cfg_attr(all(feature = "rpc", feature = "contracts"), doc = "```rust,no_run")]
+#![cfg_attr(
+    not(all(feature = "rpc", feature = "contracts")),
+    doc = "```rust,ignore"
+)]
 //! use near_kit::*;
-//!
-//! # async fn example() -> Result<(), Error> {
-//! let near = Near::mainnet().build();
-//!
-//! let token = near.ft("wrap.near".parse::<AccountId>()?);
-//! let balance = token.balance_of("alice.near").await?;
-//! println!("Balance: {}", balance);
-//!
-//! // NFTs (NEP-171)
-//! let nft = near.nft("nft.testnet".parse::<AccountId>()?);
-//! let tokens = nft.tokens_for_owner("alice.testnet", None, Some(10)).await?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ## Typed Contract Interfaces
-//!
-//! Enable the opt-in `contracts` feature and use the `#[near_kit::contract]`
-//! macro for compile-time type safety:
-//!
-//! ```rust,ignore
-//! use near_kit::*;
-//! use serde::Serialize;
 //!
 //! #[near_kit::contract]
 //! pub trait Counter {
-//!     // View method (read-only, no signer needed)
 //!     fn get_count(&self) -> u64;
 //!
-//!     // Change method (requires signer)
-//!     #[call]
-//!     fn increment(&mut self);
-//!
-//!     // Change method with arguments
 //!     #[call]
 //!     fn add(&mut self, args: AddArgs);
 //! }
 //!
-//! #[derive(Serialize)]
+//! #[derive(serde::Serialize)]
 //! pub struct AddArgs {
 //!     pub value: u64,
 //! }
 //!
-//! async fn example(near: &Near) -> Result<(), Error> {
-//!     let counter = near.contract::<Counter>("counter.testnet".parse::<AccountId>()?);
+//! # async fn example(near: &Near, alice: &SigningNear) -> Result<(), Error> {
+//! let count = near.contract::<Counter>(account!("counter.testnet")).get_count().await?;
 //!
-//!     // Type-safe view call
-//!     let count = counter.get_count().await?;
+//! let counter = alice.contract::<Counter>(account!("counter.testnet"));
+//! counter.add(AddArgs { value: 5 }).gas(Gas::from_tgas(10)).await?;
+//! let count = counter.get_count().at(180_000_000).await?;
+//! # Ok(())
+//! # }
+//! ```
 //!
-//!     // Type-safe change calls
-//!     counter.increment().await?;
-//!     counter.add(AddArgs { value: 5 }).await?;
+//! The macro also generates offline constructors such as
+//! `Counter::add(args) -> FunctionCall`, for adding to a multi-action
+//! transaction.
 //!
-//!     Ok(())
+//! ## Tokens
+//!
+//! NEP-141 and NEP-171 clients: [`standards::FungibleToken`] and
+//! [`standards::NonFungibleToken`] are [`Contract`] markers, so
+//! `near.contract::<FungibleToken>(id)` reads and
+//! `signing.contract::<FungibleToken>(id)` also transfers.
+//!
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
+//! use near_kit::*;
+//! use near_kit::standards::{FungibleToken, NonFungibleToken};
+//!
+//! # async fn example(near: &Near, alice: &SigningNear) -> Result<(), Error> {
+//! let wrap = account!("wrap.near");
+//! let balance = near.contract::<FungibleToken>(&wrap).balance_of(account!("alice.near")).await?;
+//! println!("{balance}");
+//!
+//! alice
+//!     .contract::<FungibleToken>(&wrap)
+//!     .transfer(account!("bob.near"), 1_000_u128, None)
+//!     .await?;
+//!
+//! let nfts = near
+//!     .contract::<NonFungibleToken>(account!("nft.near"))
+//!     .tokens_for_owner(account!("alice.near"), None, Some(10))
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Your own backend
+//!
+//! Implement [`Viewer`] or [`TxSender`] and the typed clients, `View`/`Call`
+//! and the token helpers run on it: a test double, a gateway, or a sender
+//! that queues actions elsewhere. Both traits are also implemented for `&T`,
+//! `Box<T>` and `Arc<T>`.
+//!
+//! ```rust
+//! use near_kit::rpc::{BlockReference, ViewFunctionResult};
+//! use near_kit::transaction::View;
+//! use near_kit::*;
+//!
+//! /// Answers every view with the same JSON.
+//! struct Canned(&'static str);
+//!
+//! impl Viewer for Canned {
+//!     type ViewError = String;
+//!
+//!     async fn view_function(
+//!         &self,
+//!         _contract_id: &AccountId,
+//!         _method: &str,
+//!         _args: &[u8],
+//!         _block: BlockReference,
+//!     ) -> Result<ViewFunctionResult, String> {
+//!         Ok(ViewFunctionResult::new(self.0.as_bytes().to_vec(), 1, CryptoHash::ZERO))
+//!     }
 //! }
+//!
+//! # #[tokio::main(flavor = "current_thread")]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let count: u64 = View::json(Canned("42"), account!("counter.near"), "get_count").await?;
+//! assert_eq!(count, 42);
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Signers
 //!
-//! Several signer implementations are available:
-//!
-//! | Signer | Use Case |
+//! | Signer or loader | Use case |
 //! |--------|----------|
-//! | [`signer::InMemorySigner`] | Simple scripts with a private key |
-//! | `signer::FileSigner` | Load from `~/.near-credentials` (near-cli compatible; requires `file-signer`) |
-//! | [`signer::EnvSigner`] | CI/CD environments via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` |
-//! | [`signer::RotatingSigner`] | High-throughput with multiple keys (avoids nonce collisions) |
-//! | `signer::KeyringSigner` | System keyring (macOS Keychain, etc.) — requires `keyring` feature |
+//! | [`signer::InMemorySigner`] | A key you hold in memory |
+//! | [`signer::RotatingSigner`] | Several keys for one account, to avoid nonce collisions |
+//! | [`signer::from_env()`] | An `InMemorySigner` from `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` (CI) |
+//! | `signer::from_credentials(network, id)` | One from `~/.near-credentials` (near-cli compatible; `file-signer` feature) |
+//! | `signer::from_keyring(network, id, &public_key)` | One from the system keyring (`keyring` feature) |
 //!
-#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::*;
-//! use near_kit::signer::EnvSigner;
+//! Signing clients made from one `Near` share its connection, so one client
+//! per account is cheap. `SigningNear::from_env()` reads the network and the
+//! credentials from the environment.
 //!
-//! # fn example() -> Result<(), Error> {
-//! // Using credentials directly
-//! let near = Near::testnet()
-//!     .credentials("ed25519:...", "alice.testnet")?
-//!     .build();
+//! ## Amounts
 //!
-//! // Environment variables (CI/CD)
-//! let signer = EnvSigner::new()?;
-//! let near = Near::testnet().signer(signer).build();
-//! # Ok(())
-//! # }
+//! Amounts always carry a unit: `NearToken::from_near(5)`,
+//! `NearToken::from_millinear(500)`, `Gas::from_tgas(30)`. Runtime input
+//! parses with `FromStr`:
+//!
+//! ```rust
+//! use near_kit::{Gas, NearToken};
+//!
+//! let amount: NearToken = "5 NEAR".parse()?;
+//! let gas: Gas = "30 Tgas".parse()?;
+//! assert_eq!(amount, NearToken::from_near(5));
+//! assert_eq!(gas, Gas::from_tgas(30));
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! ### Multiple Accounts
+//! ## Errors
 //!
-//! For production apps that manage multiple accounts, use `Near::with_signer` to
-//! derive clients that share the same RPC connection but sign as different accounts:
+//! Queries such as `balance` and `transaction(..)` sends return
+//! [`Error`]. A `View` or `Call` (including typed-contract and
+//! token methods) returns [`ContractError<E>`](transaction::ContractError):
+//! a codec error for the arguments or result, or the backend's own error `E`
+//! (`RpcError` for `Near`'s views). `?` converts it into `Error`.
 //!
-#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::*;
-//! use near_kit::signer::InMemorySigner;
+//! ## Sandbox testing
 //!
-//! # fn example() -> Result<(), Error> {
-//! let near = Near::testnet().build();
-//!
-//! let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
-//! let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
-//!
-//! // Both share the same connection, no overhead
-//! // alice.transfer("carol.testnet", NearToken::from_near(1)).await?;
-//! // bob.transfer("carol.testnet", NearToken::from_near(2)).await?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! Use `Near::with_signer` for multi-account management and
-//! [`signer::RotatingSigner`] for high-throughput single-account usage (multiple keys to
-//! avoid nonce collisions). For one-off overrides on a single transaction, use
-//! `.sign_with()` on the transaction builder.
-//!
-//! ## Sandbox Testing
-//!
-//! Use the companion `near-kit-sandbox` crate for Docker-backed local testing:
-//!
-//! ```toml
-//! [dev-dependencies]
-//! near-kit = "0.18"
-//! near-kit-sandbox = "0.18"
-//! ```
-//!
-//! ```rust,ignore
-//! use near_kit::*;
-//! use near_kit_sandbox::SandboxConfig;
-//!
-//! #[tokio::test]
-//! async fn test_contract() -> Result<(), Box<dyn std::error::Error>> {
-//!     let sandbox = SandboxConfig::fresh().await?;
-//!     let near = Near::sandbox(&sandbox);
-//!
-//!     // Root account is pre-configured with credentials
-//!     near.transfer("alice.sandbox", NearToken::from_near(10)).await?;
-//!     Ok(())
-//! }
-//! ```
+//! The companion [`near-kit-sandbox`](https://docs.rs/near-kit-sandbox) crate
+//! starts a Docker-backed local node; `sandbox.client()` is a `SigningNear` for
+//! its root account.
 //!
 //! ## WebAssembly support
 //!
 //! `near-kit` compiles for `wasm32-unknown-unknown` (Dioxus, Leptos, Yew, etc.) with
 //! `default-features = false`. The `keyring` and `file-signer` features use OS APIs
 //! unavailable in the browser and should stay off; use [`signer::InMemorySigner`] or
-//! [`signer::EnvSigner`] instead. Add the opt-in `tracing` feature if you want spans
+//! [`signer::from_env()`] instead. Add the opt-in `tracing` feature if you want spans
 //! (the `tracing` crate itself is wasm-compatible). Add `rpc` to keep the `Near`
 //! client, which speaks HTTP through the browser's `fetch` on this target.
 //!
@@ -384,7 +309,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.18", default-features = false, features = ["js", "rpc"] }
+//! near-kit = { version = "0.21", default-features = false, features = ["js", "rpc"] }
 //! ```
 //!
 //! If you're running `wasm32-unknown-unknown` outside a JS host, leave `js` off and
@@ -403,7 +328,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.18", default-features = false, features = ["wasi-http"] }
+//! near-kit = { version = "0.21", default-features = false, features = ["wasi-http"] }
 //! ```
 //!
 //! The host must provide the `wasi:http` interface — `wasmtime run -S http`, or
@@ -436,7 +361,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.18", default-features = false }
+//! near-kit = { version = "0.21", default-features = false }
 //! ```
 //!
 //! Build with `RUSTFLAGS='--cfg getrandom_backend="custom"'` and export an `extern
@@ -460,26 +385,26 @@
 //!
 //! ## Offline / no-network usage
 //!
-//! The entire RPC layer — `Near`, the query/transaction builders, token helpers,
+//! The entire RPC layer — `Near`, `SigningNear`, the token helpers,
 //! and the HTTP client underneath — is gated behind the default-on `rpc` feature.
 //! Typed-contract interfaces and macros additionally require `contracts`; with
 //! `contracts` but not `rpc`, `#[near_kit::contract]` still generates the
-//! offline `FunctionCall` constructors (e.g. `Counter::increment()`), just not
-//! the `Near`-backed client. With
+//! offline `FunctionCall` constructors (e.g. `Counter::increment()`) and the
+//! backend-generic `CounterClient<C>`, whose backend then has no `Near`
+//! default. With
 //! `default-features = false` you keep the offline core:
 //! all the types, the signers ([`signer::InMemorySigner`],
-//! [`signer::EnvSigner`], ...), transaction construction and signing via
+//! [`signer::RotatingSigner`], [`signer::from_env()`]), transaction construction and signing via
 //! [`protocol::Transaction`] (`new` → `sign` → `to_bytes`), standalone call construction
-//! via [`transaction::FunctionCall`], and NEP-413
-//! [`standards::nep413::verify_signature`].
-//! The fluent `transaction::TransactionBuilder` is part of the RPC layer — it is created
-//! from a `Near` client — so it requires `rpc`.
+//! via [`transaction::FunctionCall`], NEP-413
+//! [`standards::nep413::verify_signature`], and the [`Viewer`] / [`TxSender`]
+//! traits for plugging in a backend of your own.
 //! This is what you want on targets with no network stack at all — sign
 //! transactions and messages locally, send them elsewhere:
 //!
 //! ```toml
 //! [dependencies]
-//! near-kit = { version = "0.18", default-features = false }
+//! near-kit = { version = "0.21", default-features = false }
 //! ```
 //!
 //! The offline core is also published on its own as
@@ -491,11 +416,11 @@
 //!
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
-//! | `rpc` | Yes | The RPC layer: `Near`, queries, transactions, tokens, and the HTTP transport (reqwest, except on WASI). Disable for offline signing/verification |
-//! | `contracts` | No | Typed contract interfaces and the `#[near_kit::contract]` macro. Works without `rpc` (offline `FunctionCall` constructors only); the `Near`-backed client also needs `rpc` |
+//! | `rpc` | Yes | The RPC layer: `Near`, `SigningNear`, queries, transactions, tokens, and the HTTP transport (reqwest, except on WASI). Disable for offline signing/verification |
+//! | `contracts` | No | Typed contract interfaces and the `#[near_kit::contract]` macro. Works without `rpc` (offline `FunctionCall` constructors and a client over any `Viewer`/`TxSender`); `Near::contract` needs `rpc` |
 //! | `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2` (implies `rpc`; no-op on non-WASI targets; unsupported on earlier WASI targets). On WASI Preview 2 hosts without `wasi:http`, inject a transport via `NearBuilder::transport` |
-//! | `keyring` | No | System keyring signer (macOS Keychain, Windows Credential Manager, etc.) |
-//! | `file-signer` | No | `signer::FileSigner` for loading keys from `~/.near-credentials` |
+//! | `keyring` | No | `signer::from_keyring`: load a key from the system keyring (macOS Keychain, Windows Credential Manager, etc.) |
+//! | `file-signer` | No | `signer::from_credentials`/`from_credentials_file`: load a key from `~/.near-credentials` |
 //! | `tracing` | No | [`tracing`](https://docs.rs/tracing) spans and events for RPC calls and transactions (see below) |
 //! | `mnemonic` | No | BIP-39 seed phrases and SLIP-10 hierarchical key derivation |
 //! | `js` | No | JS-host entropy backend (`getrandom`'s `wasm_js`) for `wasm32-unknown-unknown` |
@@ -510,29 +435,6 @@
 //! expected failures such as probing a contract for a method it doesn't export.
 //! The one WARN is reserved for an anomaly that is *not* surfaced as an error:
 //! an RPC error variant this version couldn't parse and mapped to `Unknown`.
-//!
-//! ## Error Handling
-//!
-//! All operations return `Result<T, near_kit::Error>`. The [`Error`] type provides
-//! detailed information about failures:
-//!
-#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
-#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::*;
-//!
-//! # async fn example() -> Result<(), Error> {
-//! let near = Near::testnet().build();
-//!
-//! match near.balance("nonexistent.testnet").await {
-//!     Ok(balance) => println!("Balance: {}", balance.available),
-//!     Err(e) => {
-//!         println!("Error: {}", e);
-//!         return Err(e);
-//!     }
-//! }
-//! # Ok(())
-//! # }
-//! ```
 
 // Lets `#[near_kit::contract]` expansions name `::near_kit` even inside this
 // crate.
@@ -540,9 +442,6 @@
 extern crate self as near_kit;
 
 mod client;
-#[cfg(all(feature = "contracts", feature = "rpc"))]
-#[path = "contract.rs"]
-mod contract_support;
 mod error;
 #[cfg(feature = "rpc")]
 mod platform;
@@ -560,19 +459,19 @@ pub mod transaction;
 // The root is intentionally small; advanced APIs live in explicit facades.
 pub use error::Error;
 #[doc(inline)]
+pub use near_kit_primitives::account;
+#[doc(inline)]
 pub use near_kit_primitives::{AccountId, CryptoHash, Gas, NearToken};
-
-// Re-export contract types. The traits tie a contract to its `Near`-backed
-// client, so they need the RPC layer; the macro itself does not.
-#[cfg(all(feature = "contracts", feature = "rpc"))]
-pub use contract_support::{Contract, ContractClient};
+#[doc(inline)]
+pub use near_kit_primitives::{Contract, MaybeSend, MaybeSync, TxSender, Viewer};
 
 #[cfg(feature = "rpc")]
-pub use client::{Near, NearBuilder};
+pub use client::{Near, NearBuilder, SigningNear};
 
-// Re-export the typed-contract macro and its marker/format attributes together.
+// The typed-contract macro. Its `#[call]` / `#[json]` / `#[borsh]` markers are
+// read by the macro itself and need no import.
 #[cfg(feature = "contracts")]
-pub use near_kit_macros::{borsh, call, contract, json};
+pub use near_kit_macros::contract;
 
 /// Support code for the `#[near_kit::contract]` expansion. Not public API.
 ///
@@ -581,23 +480,29 @@ pub use near_kit_macros::{borsh, call, contract, json};
 /// expansions that name near-kit.
 #[doc(hidden)]
 pub mod __private {
+    pub use near_kit_primitives::__private::{borsh_args, call, json_args, view_borsh, view_json};
+
     // A `cfg` in proc-macro output is evaluated against the *calling* crate's
-    // features, not near-kit's. So the macro wraps its `Near`-backed client
-    // code in `rpc_only!`, and near-kit decides here, with its own features,
-    // whether that code is kept.
-    pub use crate::__near_kit_rpc_only as rpc_only;
+    // features, not near-kit's. So the macro wraps its client struct in
+    // `client_struct!`, and near-kit decides here, with its own features,
+    // whether the backend defaults to `Near`.
+    pub use crate::__near_kit_client_struct as client_struct;
 }
 
 #[doc(hidden)]
-#[cfg(all(feature = "contracts", feature = "rpc"))]
+#[cfg(feature = "rpc")]
 #[macro_export]
-macro_rules! __near_kit_rpc_only {
-    ($($tokens:tt)*) => { $($tokens)* };
+macro_rules! __near_kit_client_struct {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident<$backend:ident> $body:tt) => {
+        $(#[$attr])* $vis struct $name<$backend = $crate::Near> $body
+    };
 }
 
 #[doc(hidden)]
-#[cfg(not(all(feature = "contracts", feature = "rpc")))]
+#[cfg(not(feature = "rpc"))]
 #[macro_export]
-macro_rules! __near_kit_rpc_only {
-    ($($tokens:tt)*) => {};
+macro_rules! __near_kit_client_struct {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident<$backend:ident> $body:tt) => {
+        $(#[$attr])* $vis struct $name<$backend> $body
+    };
 }

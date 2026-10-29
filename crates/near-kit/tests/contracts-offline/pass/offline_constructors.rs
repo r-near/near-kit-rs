@@ -1,5 +1,6 @@
 //! `contracts` without `rpc`: the macro, its `#[call]` / `#[json]` / `#[borsh]`
-//! markers, and the offline `FunctionCall` constructors all work.
+//! markers, the offline `FunctionCall` constructors and the backend-generic
+//! client all work.
 
 use near_kit::protocol::{Action, FunctionCallAction};
 use near_kit::transaction::FunctionCall;
@@ -48,7 +49,31 @@ pub trait Store {
     fn clear(&mut self);
 }
 
+/// A backend that can view but not send.
+#[derive(Clone)]
+struct Fixed;
+
+impl near_kit::Viewer for Fixed {
+    type ViewError = std::convert::Infallible;
+
+    async fn view_function(
+        &self,
+        _contract_id: &near_kit::AccountId,
+        _method: &str,
+        _args: &[u8],
+        _block: near_kit::rpc::BlockReference,
+    ) -> Result<near_kit::rpc::ViewFunctionResult, Self::ViewError> {
+        Ok(near_kit::rpc::ViewFunctionResult::new(b"3".to_vec(), 1, near_kit::CryptoHash::ZERO))
+    }
+}
+
 fn main() {
+    use near_kit::Contract;
+
+    let counter: CounterClient<Fixed> =
+        Counter::client(Fixed, near_kit::account!("counter.near"));
+    let _view: near_kit::transaction::View<Fixed, u64> = counter.get_count();
+
     let call: FunctionCall = Counter::add(AddArgs { value: 5 })
         .gas(Gas::from_tgas(30))
         .deposit(NearToken::from_yoctonear(1));

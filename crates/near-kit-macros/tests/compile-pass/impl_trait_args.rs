@@ -1,6 +1,7 @@
 //! Test that `impl Trait` arguments are accepted, as in any trait method.
 
-use near_kit::transaction::{CallBuilder, FunctionCall};
+use near_kit::transaction::{Call, FunctionCall};
+use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::*;
 
 #[near_kit::contract]
@@ -18,9 +19,13 @@ struct Key {
 
 fn main() {
     let near = Near::testnet().build();
-    let client = RegistryClient::new(near, "registry.testnet".parse().unwrap());
+    let client = near.contract::<Registry>(account!("registry.testnet"));
 
     let _view = client.lookup(Key { key: "a".into() });
-    let _call: CallBuilder = client.register(Key { key: "a".into() });
+    let account: SigningNear = near.with_signer(
+        InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519()),
+    );
+    let signing_client = account.contract::<Registry>(account!("registry.testnet"));
+    let _call: Call<SigningNear> = signing_client.register(Key { key: "a".into() });
     let _offline: FunctionCall = Registry::register(Key { key: "a".into() });
 }

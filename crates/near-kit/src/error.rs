@@ -20,11 +20,14 @@
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
 //! use near_kit::*;
+//! use near_kit::protocol::Action;
 //!
-//! # async fn example() -> Result<(), Error> {
-//! let near = Near::testnet().build();
+//! # async fn example(alice: SigningNear) -> Result<(), Error> {
+//! let transfer = alice
+//!     .transaction(account!("bob.testnet"))
+//!     .add_action(Action::transfer(NearToken::from_near(1)));
 //!
-//! match near.transfer("bob.testnet", "1 NEAR").await {
+//! match transfer.await {
 //!     Ok(outcome) if outcome.is_success() => {
 //!         println!("Success! Hash: {}", outcome.transaction_hash());
 //!     }
@@ -55,19 +58,17 @@
 use thiserror::Error;
 
 use crate::types::{
-    AccountId, CryptoHash, DelegateDecodeError, FinalExecutionOutcome,
-    GlobalContractIdentifierView, InvalidTxError, PublicKey, TxExecutionStatus,
+    AccountId, CryptoHash, FinalExecutionOutcome, GlobalContractIdentifierView, InvalidTxError,
+    PublicKey, TxExecutionStatus,
 };
 
 // The client-free error types live in near-kit-primitives (each is public in
 // near-kit through the facade modules). They are imported here so the
 // `From` impls below, and `crate::error::*` paths elsewhere, keep working.
-pub(crate) use near_kit_primitives::protocol::{
-    DecodeTransactionError, ParseAccountIdError, ParseAmountError, ParseGasError,
-};
+pub(crate) use near_kit_primitives::protocol::{DecodeTransactionError, ParseAccountIdError};
 pub(crate) use near_kit_primitives::rpc::OutcomeError;
 pub(crate) use near_kit_primitives::signer::{ParseKeyError, SignerError};
-pub(crate) use near_kit_primitives::transaction::FunctionCallBuildError;
+pub(crate) use near_kit_primitives::transaction::{CodecError, ContractError};
 
 /// Error during keystore operations.
 #[derive(Debug, Error)]
@@ -437,7 +438,7 @@ impl RpcError {
     /// too ([`InvalidTxError::is_retryable`] says so) but re-sending the
     /// rejected transaction byte-for-byte can never succeed — it needs a
     /// fresh nonce and a new signature. That refresh-and-re-sign loop lives
-    /// in the transaction layer (`Near::send*`), where retrying can actually
+    /// in the transaction layer (`SigningNear` sends), where retrying can actually
     /// change the outcome, so it is `false` here.
     ///
     /// A connection the server reset, aborted, or closed mid-exchange counts
@@ -484,8 +485,14 @@ impl RpcError {
         }
     }
 
+    // Only the `rpc` client builds these three.
+    #[cfg_attr(not(feature = "rpc"), allow(dead_code))]
     /// Create a network error.
-    pub fn network(message: impl Into<String>, status_code: Option<u16>, retryable: bool) -> Self {
+    pub(crate) fn network(
+        message: impl Into<String>,
+        status_code: Option<u16>,
+        retryable: bool,
+    ) -> Self {
         RpcError::Network {
             message: message.into(),
             status_code,
@@ -493,8 +500,9 @@ impl RpcError {
         }
     }
 
+    #[cfg_attr(not(feature = "rpc"), allow(dead_code))]
     /// Create an invalid transaction error, attempting to parse structured data first.
-    pub fn invalid_transaction(
+    pub(crate) fn invalid_transaction(
         message: impl Into<String>,
         details: Option<serde_json::Value>,
     ) -> Self {
@@ -511,6 +519,7 @@ impl RpcError {
         }
     }
 
+    #[cfg_attr(not(feature = "rpc"), allow(dead_code))]
     /// Try to extract an `InvalidTxError` from the RPC error data JSON.
     ///
     /// The data field typically looks like:
@@ -692,23 +701,12 @@ impl RpcError {
 #[derive(Debug, Error)]
 pub enum Error {
     // ─── Configuration ───
-    #[error(
-        "No signer configured. Use .credentials()/.signer() on NearBuilder, .with_signer() on the client, or .sign_with() on the transaction."
-    )]
-    NoSigner,
-
     #[error("Invalid configuration: {0}")]
     Config(String),
 
     // ─── Parsing ───
     #[error(transparent)]
     ParseAccountId(#[from] ParseAccountIdError),
-
-    #[error(transparent)]
-    ParseAmount(#[from] ParseAmountError),
-
-    #[error(transparent)]
-    ParseGas(#[from] ParseGasError),
 
     #[error(transparent)]
     ParseKey(#[from] ParseKeyError),
@@ -745,9 +743,6 @@ pub enum Error {
 
     #[error("Borsh error: {0}")]
     Borsh(String),
-
-    #[error("Delegate action decode error: {0}")]
-    DelegateDecode(#[from] DelegateDecodeError),
 }
 
 impl From<RpcError> for Error {
@@ -763,7 +758,6 @@ impl From<RpcError> for Error {
 impl From<SignerError> for Error {
     fn from(err: SignerError) -> Self {
         match err {
-            SignerError::InvalidAccountId(e) => Error::ParseAccountId(e),
             SignerError::InvalidKey(e) => Error::ParseKey(e),
             SignerError::NoKeys | SignerError::MixedAccounts { .. } => {
                 Error::Config(err.to_string())
@@ -773,13 +767,24 @@ impl From<SignerError> for Error {
     }
 }
 
-impl From<FunctionCallBuildError> for Error {
-    fn from(err: FunctionCallBuildError) -> Self {
+impl From<CodecError> for Error {
+    fn from(err: CodecError) -> Self {
         match err {
-            FunctionCallBuildError::Json(e) => Error::Json(e),
-            FunctionCallBuildError::Borsh(e) => Error::Borsh(e.to_string()),
-            FunctionCallBuildError::ParseGas(e) => Error::ParseGas(e),
-            FunctionCallBuildError::ParseAmount(e) => Error::ParseAmount(e),
+            CodecError::Json(e) => Error::Json(e),
+            CodecError::Borsh(e) => Error::Borsh(e.to_string()),
+            other => Error::InvalidTransaction(other.to_string()),
+        }
+    }
+}
+
+/// Lets `?` turn a contract client's error into an [`enum@Error`]: encoding and
+/// decoding failures map like [`CodecError`], backend errors through their own
+/// `Into<Error>` (`RpcError` becomes [`Error::Rpc`]).
+impl<E: Into<Error> + std::fmt::Display> From<ContractError<E>> for Error {
+    fn from(err: ContractError<E>) -> Self {
+        match err {
+            ContractError::Codec(e) => e.into(),
+            ContractError::Backend(e) => e.into(),
             other => Error::InvalidTransaction(other.to_string()),
         }
     }
@@ -802,16 +807,11 @@ impl From<OutcomeError> for Error {
 }
 
 impl Error {
-    /// Returns `true` if this is an [`Error::InvalidTx`] variant.
-    pub fn is_invalid_tx(&self) -> bool {
-        matches!(self, Error::InvalidTx(_))
-    }
-
     /// The underlying [`RpcError`], if this is an [`Error::Rpc`].
     ///
-    /// High-level calls (`Near::view`, typed `#[near_kit::contract]` views,
-    /// queries) return [`Error`], which boxes the RPC error. Use this to
-    /// inspect it without matching through the box.
+    /// Queries such as `Near::balance`, signed sends, and views converted with
+    /// `?` or `Error::from` give an [`Error`](crate::Error), which boxes the
+    /// RPC error. Use this to inspect it without matching through the box.
     ///
     /// Structured transaction validation errors are promoted to
     /// [`Error::InvalidTx`] and are not returned here.
@@ -822,7 +822,8 @@ impl Error {
     #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
     /// # use near_kit::Near;
     /// # async fn example(near: &Near) -> Result<(), near_kit::Error> {
-    /// match near.view::<u64>("counter.testnet", "get_count").await {
+    /// # use near_kit::account;
+    /// match near.view::<u64>(account!("counter.testnet"), "get_count").await.map_err(near_kit::Error::from) {
     ///     Ok(count) => println!("{count}"),
     ///     Err(e) if e.as_rpc().is_some_and(|e| e.is_contract_not_deployed()) => {
     ///         println!("no contract");
@@ -845,11 +846,11 @@ impl Error {
     ///
     #[cfg_attr(feature = "rpc", doc = "```rust,no_run")]
     #[cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-    /// # use near_kit::{Error, Near};
+    /// # use near_kit::{Error, Near, account};
     /// # use near_kit::rpc::RpcError;
     /// # async fn example(near: &Near) -> Result<(), Error> {
-    /// let result = near.view::<String>("resolver.testnet", "resolve").await;
-    /// match result.map_err(Error::into_rpc) {
+    /// let result = near.view::<String>(account!("resolver.testnet"), "resolve").await;
+    /// match result.map_err(Error::from).map_err(Error::into_rpc) {
     ///     Ok(value) => println!("{value}"),
     ///     Err(Ok(RpcError::ContractPanic { message, .. })) => println!("panicked: {message}"),
     ///     Err(Ok(other)) => return Err(other.into()),
@@ -1390,14 +1391,6 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_error_no_signer_display() {
-        assert_eq!(
-            Error::NoSigner.to_string(),
-            "No signer configured. Use .credentials()/.signer() on NearBuilder, .with_signer() on the client, or .sign_with() on the transaction."
-        );
-    }
-
-    #[test]
     fn test_error_config_display() {
         assert_eq!(
             Error::Config("invalid url".to_string()).to_string(),
@@ -1442,16 +1435,6 @@ mod tests {
         let err: Error = parse_err.into();
         assert!(matches!(err, Error::ParseAccountId(_)));
 
-        // ParseAmountError -> Error
-        let parse_err = ParseAmountError::Overflow;
-        let err: Error = parse_err.into();
-        assert!(matches!(err, Error::ParseAmount(_)));
-
-        // ParseGasError -> Error
-        let parse_err = ParseGasError::Overflow;
-        let err: Error = parse_err.into();
-        assert!(matches!(err, Error::ParseGas(_)));
-
         // ParseKeyError -> Error
         let parse_err = ParseKeyError::InvalidFormat;
         let err: Error = parse_err.into();
@@ -1477,12 +1460,8 @@ mod tests {
 
     #[test]
     fn test_error_from_signer_construction_errors() {
-        let err: Error = crate::signer::InMemorySigner::new("bad..id", "ed25519:x")
-            .unwrap_err()
-            .into();
-        assert!(matches!(err, Error::ParseAccountId(_)));
-
-        let err: Error = crate::signer::InMemorySigner::new("alice.near", "nope")
+        let err: Error = "nope"
+            .parse::<crate::signer::SecretKey>()
             .unwrap_err()
             .into();
         assert!(matches!(err, Error::ParseKey(_)));
@@ -1550,22 +1529,44 @@ mod tests {
     }
 
     #[test]
-    fn test_error_from_function_call_build_error() {
+    fn test_error_from_contract_error() {
+        let err: Error =
+            ContractError::<RpcError>::Codec(CodecError::Borsh(std::io::Error::other("bad")))
+                .into();
+        assert!(matches!(&err, Error::Borsh(m) if m == "bad"), "{err:?}");
+
+        let err: Error = ContractError::Backend(RpcError::ContractPanic {
+            message: "boom".to_string(),
+            block_height: None,
+            block_hash: None,
+        })
+        .into();
+        assert!(err.as_rpc().is_some_and(RpcError::is_contract_panic));
+
+        let err: Error = ContractError::Backend(Error::Config("x".to_string())).into();
+        assert!(matches!(err, Error::Config(m) if m == "x"));
+    }
+
+    #[test]
+    fn test_error_from_codec_error() {
         use crate::transaction::FunctionCall;
 
-        let err: Error = FunctionCall::new("m")
-            .gas("nope")
-            .into_action()
-            .unwrap_err()
-            .into();
-        assert!(matches!(err, Error::ParseGas(_)));
+        struct FailingJson;
+        impl serde::Serialize for FailingJson {
+            fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+                Err(serde::ser::Error::custom("deliberate"))
+            }
+        }
 
         let err: Error = FunctionCall::new("m")
-            .deposit("nope")
+            .args(FailingJson)
             .into_action()
             .unwrap_err()
             .into();
-        assert!(matches!(err, Error::ParseAmount(_)));
+        assert!(matches!(err, Error::Json(_)));
+
+        let err: Error = CodecError::Borsh(std::io::Error::other("bad")).into();
+        assert!(matches!(&err, Error::Borsh(m) if m == "bad"), "{err:?}");
     }
 
     #[test]
@@ -1583,9 +1584,9 @@ mod tests {
             other => panic!("unexpected: {other:?}"),
         }
 
-        let err = Error::NoSigner;
+        let err = Error::Config("x".to_string());
         assert!(err.as_rpc().is_none());
-        assert!(matches!(err.into_rpc(), Err(Error::NoSigner)));
+        assert!(matches!(err.into_rpc(), Err(Error::Config(_))));
 
         // Structured tx validation errors are promoted out of `Error::Rpc`.
         let err: Error = RpcError::InvalidTx(InvalidTxError::Expired).into();

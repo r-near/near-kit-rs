@@ -1,8 +1,8 @@
 //! Typed-contract macro behavior that crosses the RPC and runtime boundary.
 
-use near_kit::rpc::Finality;
-use near_kit::transaction::Final;
-use near_kit::{AccountId, Error, Gas, Near, NearToken};
+use near_kit::protocol::Action;
+use near_kit::transaction::{CodecError, ContractError, Final};
+use near_kit::{AccountId, Gas, Near, NearToken, SigningNear};
 use near_kit_sandbox::Sandbox;
 use serde::{Deserialize, Serialize};
 
@@ -29,17 +29,19 @@ pub trait Guestbook {
     fn add_message(&mut self, args: AddMessageArgs);
 }
 
-async fn deploy_guestbook(prefix: &str) -> (&'static Sandbox, Near, AccountId) {
+/// Deploy a guestbook; returns the root account waiting for finality, so a
+/// typed call is visible to the default (final) read that follows it.
+async fn deploy_guestbook(prefix: &str) -> (&'static Sandbox, SigningNear<Final>, AccountId) {
     let (sandbox, root) = shared_client().await;
     let (contract, contract_id, _) =
         funded_account(&root, sandbox, prefix, NearToken::from_near(20)).await;
     contract
-        .deploy(guestbook_wasm())
-        .send()
         .wait_until::<Final>()
+        .transaction(contract.account_id())
+        .add_action(Action::deploy_contract(guestbook_wasm()))
         .await
         .expect("guestbook deployment");
-    (sandbox, root, contract_id)
+    (sandbox, root.wait_until::<Final>(), contract_id)
 }
 
 #[tokio::test]
@@ -60,8 +62,6 @@ async fn typed_views_and_calls_roundtrip() {
         .add_message(AddMessageArgs {
             text: "typed message".to_owned(),
         })
-        .send()
-        .wait_until::<Final>()
         .await
         .expect("typed call");
 
@@ -81,34 +81,27 @@ async fn typed_call_configuration_reaches_the_contract() {
         })
         .gas(Gas::from_tgas(50))
         .deposit(NearToken::from_near(1))
-        .send()
-        .wait_until::<Final>()
         .await
         .expect("configured typed call");
 
     let messages = guestbook
         .get_messages()
-        .finality(Finality::Optimistic)
         .await
         .expect("configured typed view");
     assert_eq!(messages.len(), 1);
     assert!(messages[0].premium);
 }
 
+// A `#[call]` on a client over a read-only `Near` no longer compiles (pinned by
+// near-kit-macros' `compile-fail/call_without_sender`), so only the view half
+// of this behaviour is a runtime test.
 #[tokio::test]
-async fn typed_views_work_without_a_signer_but_calls_do_not() {
+async fn typed_views_work_without_a_signer() {
     let (sandbox, _, contract_id) = deploy_guestbook("typednosigner").await;
-    let no_signer = Near::custom(sandbox.rpc_url(), sandbox.chain_id().clone()).build();
+    let no_signer: Near = sandbox.client().near().clone();
     let guestbook = no_signer.contract::<Guestbook>(&contract_id);
 
     assert_eq!(guestbook.total_messages().await.expect("unsigned view"), 0);
-    let error = guestbook
-        .add_message(AddMessageArgs {
-            text: "cannot send".to_owned(),
-        })
-        .await
-        .expect_err("call without signer must fail");
-    assert!(matches!(error, Error::NoSigner));
 }
 
 #[tokio::test]
@@ -120,11 +113,14 @@ async fn typed_views_preserve_decode_and_block_errors() {
 
     let (_, near, contract_id) = deploy_guestbook("typederrors").await;
     let wrong = near.contract::<WrongGuestbook>(&contract_id);
-    assert!(matches!(wrong.total_messages().await, Err(Error::Json(_))));
+    assert!(matches!(
+        wrong.total_messages().await,
+        Err(ContractError::Codec(CodecError::Json(_)))
+    ));
 
     let guestbook = near.contract::<Guestbook>(&contract_id);
     assert!(matches!(
-        guestbook.total_messages().at_block(999_999_999_u64).await,
-        Err(Error::Rpc(_))
+        guestbook.total_messages().at(999_999_999_u64).await,
+        Err(ContractError::Backend(_))
     ));
 }

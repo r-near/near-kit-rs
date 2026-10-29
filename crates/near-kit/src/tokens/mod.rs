@@ -1,45 +1,35 @@
 //! Token helpers for NEP-141 (Fungible Tokens) and NEP-171 (Non-Fungible Tokens).
 //!
-//! This module provides ergonomic APIs for interacting with standard NEAR token contracts.
-//!
-//! Create a token client from the contract's account ID:
-//!
-//! ```rust,no_run
-//! # use near_kit::*;
-//! # fn example(near: &Near) -> Result<(), near_kit::Error> {
-//! let token = near.ft("wrap.near".parse::<AccountId>()?);
-//! # Ok(())
-//! # }
-//! ```
+//! [`FungibleToken`] and [`NonFungibleToken`] implement
+//! [`Contract`](crate::Contract) like the markers `#[contract]` generates, so
+//! `near.contract::<FungibleToken>(id)` gives a read-only
+//! [`FungibleTokenClient`] and `signing.contract::<FungibleToken>(id)` one
+//! that can also send. Views need `C: Viewer` and calls
+//! `C: TxSender + Clone`; any other backend works through
+//! [`Contract::client`](crate::Contract::client).
 //!
 //! # Fungible Tokens (NEP-141)
 //!
 //! ```rust,no_run
 //! use near_kit::*;
+//! use near_kit::standards::FungibleToken;
 //!
-//! # async fn example() -> Result<(), near_kit::Error> {
-//! let near = Near::mainnet().build();
-//!
-//! let token = near.ft("wrap.near".parse::<AccountId>()?);
+//! # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+//! let token = alice.contract::<FungibleToken>(account!("wrap.near"));
 //!
 //! // Query metadata (cached after first call)
 //! let metadata = token.metadata().await?;
 //! println!("Token: {} ({})", metadata.name, metadata.symbol);
 //!
-//! // Query balance - returns FtAmount with decimals for formatting
-//! let balance = token.balance_of("alice.near").await?;
-//! println!("Balance: {}", balance);
+//! // Query a balance, in the token's smallest unit (scale by metadata.decimals)
+//! let balance = token.balance_of(account!("alice.near")).await?;
+//! println!("Balance: {balance}");
 //!
-//! // Transfer tokens (requires signer)
-//! let near = Near::mainnet()
-//!     .credentials("ed25519:...", "alice.near")?
-//!     .build();
-//! let token = near.ft("wrap.near".parse::<AccountId>()?);
-//!
-//! token.transfer("bob.near", 1_500_000_u128).await?;
-//!
-//! // Or with a memo
-//! token.transfer_with_memo("bob.near", 1_500_000_u128, "Payment").await?;
+//! // Transfer tokens as alice, with or without a memo
+//! token.transfer(account!("bob.near"), 1_500_000_u128, None).await?;
+//! token
+//!     .transfer(account!("bob.near"), 1_500_000_u128, Some("Payment".into()))
+//!     .await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -48,12 +38,10 @@
 //!
 //! ```rust,no_run
 //! use near_kit::*;
+//! use near_kit::standards::NonFungibleToken;
 //!
-//! # async fn example() -> Result<(), near_kit::Error> {
-//! let near = Near::testnet().build();
-//!
-//! // Get an NFT client
-//! let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
+//! # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+//! let nft = alice.contract::<NonFungibleToken>(account!("nft-contract.near"));
 //!
 //! // Query a specific token
 //! if let Some(token) = nft.token("token-123").await? {
@@ -61,21 +49,14 @@
 //! }
 //!
 //! // List tokens owned by an account
-//! let tokens = nft.tokens_for_owner("alice.near", None, Some(10)).await?;
+//! let tokens = nft.tokens_for_owner(account!("alice.near"), None, Some(10)).await?;
 //! for token in tokens {
 //!     println!("Token: {}", token.token_id);
 //! }
 //!
-//! // Transfer an NFT (requires signer)
-//! let near = Near::testnet()
-//!     .credentials("ed25519:...", "alice.near")?
-//!     .build();
-//! let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
-//!
-//! nft.transfer("bob.near", "token-123").await?;
-//!
-//! // Or with a memo
-//! nft.transfer_with_memo("bob.near", "token-123", "Gift").await?;
+//! // Transfer an NFT as alice, with or without a memo
+//! nft.transfer(account!("bob.near"), "token-123", None).await?;
+//! nft.transfer(account!("bob.near"), "token-456", Some("Gift".into())).await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -87,3 +68,131 @@ mod types;
 pub use ft::*;
 pub use nft::*;
 pub use types::*;
+
+use std::str::FromStr;
+
+use serde::de::DeserializeOwned;
+
+use crate::Viewer;
+use crate::transaction::{ContractError, View};
+use crate::types::{AccountId, Finality};
+
+/// Run a JSON view of `method` through a borrowed backend at optimistic
+/// finality, sending `args` if there are any.
+async fn read<C, T>(
+    backend: &C,
+    contract_id: &AccountId,
+    method: &'static str,
+    args: Option<serde_json::Value>,
+) -> Result<T, ContractError<C::ViewError>>
+where
+    C: Viewer,
+    T: DeserializeOwned,
+{
+    let mut view = View::json(backend, contract_id.clone(), method).at(Finality::Optimistic);
+    if let Some(args) = args {
+        view = view.args(args);
+    }
+    Ok(view.with_metadata().await?.result)
+}
+
+/// A number the contract returns as a JSON string (`U128`/`U64`).
+struct Stringified<T>(T);
+
+impl<'de, T> serde::Deserialize<'de> for Stringified<T>
+where
+    T: FromStr,
+    T::Err: std::fmt::Display,
+{
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        text.parse().map(Stringified).map_err(|error| {
+            serde::de::Error::custom(format_args!("invalid number {text:?}: {error}"))
+        })
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod mock {
+    //! A backend that answers views from a table and records what it sends.
+
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    use crate::rpc::{BlockReference, ViewFunctionResult};
+    use crate::types::{AccountId, Action, CryptoHash};
+    use crate::{TxSender, Viewer};
+
+    #[derive(Clone, Default)]
+    pub(crate) struct Mock {
+        pub views: Arc<Mutex<HashMap<&'static str, serde_json::Value>>>,
+        pub seen: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
+    }
+
+    impl Mock {
+        pub fn answer(self, method: &'static str, value: serde_json::Value) -> Self {
+            self.views.lock().unwrap().insert(method, value);
+            self
+        }
+    }
+
+    impl Viewer for Mock {
+        type ViewError = String;
+
+        async fn view_function(
+            &self,
+            _contract_id: &AccountId,
+            method: &str,
+            args: &[u8],
+            _block: BlockReference,
+        ) -> Result<ViewFunctionResult, String> {
+            let args = if args.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::from_slice(args).unwrap()
+            };
+            self.seen.lock().unwrap().push((method.to_owned(), args));
+            let value = self.views.lock().unwrap().get(method).cloned();
+            let value = value.ok_or_else(|| format!("no answer for {method}"))?;
+            Ok(ViewFunctionResult::new(
+                serde_json::to_vec(&value).unwrap(),
+                1,
+                CryptoHash::ZERO,
+            ))
+        }
+    }
+
+    impl TxSender for Mock {
+        type Output = (AccountId, Vec<Action>);
+        type SendError = String;
+
+        fn account_id(&self) -> &AccountId {
+            unimplemented!("tokens never ask for the sender")
+        }
+
+        async fn send(
+            &self,
+            receiver_id: AccountId,
+            actions: Vec<Action>,
+        ) -> Result<Self::Output, String> {
+            Ok((receiver_id, actions))
+        }
+    }
+
+    /// The JSON arguments, deposit and gas of a single sent function call.
+    pub(crate) fn sent_call(
+        sent: (AccountId, Vec<Action>),
+    ) -> (String, serde_json::Value, u128, u64) {
+        let (_, actions) = sent;
+        assert_eq!(actions.len(), 1);
+        match actions.into_iter().next().unwrap() {
+            Action::FunctionCall(call) => (
+                call.method_name.clone(),
+                serde_json::from_slice(&call.args).unwrap(),
+                call.deposit.as_yoctonear(),
+                call.gas.as_gas(),
+            ),
+            action => panic!("expected function call, got {action:?}"),
+        }
+    }
+}

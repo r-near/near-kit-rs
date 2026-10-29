@@ -1,39 +1,16 @@
-//! Keyring-based signer using system credential storage.
-//!
-//! This module provides [`KeyringSigner`], which loads keys from the operating system's
-//! native credential storage (macOS Keychain, Windows Credential Manager, or Linux
-//! Secret Service).
+//! Load an [`InMemorySigner`] from the operating system's credential store
+//! (macOS Keychain, Windows Credential Manager, or Linux Secret Service).
 //!
 //! # Compatibility
 //!
-//! `KeyringSigner` is fully compatible with keys stored by `near-cli-rs`. If you've
-//! imported keys using `near-cli-rs`, you can use them directly with `near-kit-rs`.
+//! [`from_keyring`] reads keys stored by `near-cli-rs`. If you've imported
+//! keys with `near-cli-rs`, you can use them directly with near-kit.
 //!
 //! # Platform Support
 //!
 //! - **macOS**: Uses Keychain (works out of the box)
 //! - **Windows**: Uses Credential Manager (works out of the box)
 //! - **Linux**: Uses Secret Service D-Bus API (requires `gnome-keyring`, `kwallet`, or similar)
-//!
-//! # Example
-//!
-//! ```rust,no_run
-//! use near_kit::Near;
-//! use near_kit::signer::KeyringSigner;
-//!
-//! # async fn example() -> Result<(), near_kit::Error> {
-//! // Load a key stored by near-cli-rs
-//! let signer = KeyringSigner::new(
-//!     "testnet",
-//!     "alice.testnet",
-//!     "ed25519:6fWy..."
-//! )?;
-//!
-//! let near = Near::testnet().signer(signer).build();
-//! near.transfer("bob.testnet", "1 NEAR").await?;
-//! # Ok(())
-//! # }
-//! ```
 //!
 //! # Importing Keys
 //!
@@ -46,148 +23,79 @@
 //! ```
 
 use crate::error::{Error, KeyStoreError, ParseKeyError};
-use crate::types::{
-    AccountId, InMemorySigner, PublicKey, SecretKey, Signer, SigningKey, TryIntoAccountId,
-};
+use crate::types::{AccountId, InMemorySigner, PublicKey, SecretKey};
 
-/// Signer that loads keys from the system keyring.
+/// Load the key `public_key` of `account_id` on `network` from the system
+/// keyring, where `near-cli-rs` stores it.
 ///
-/// Compatible with keys stored by `near-cli-rs`.
+/// The keyring is read once; the result is a plain [`InMemorySigner`].
+/// Keyring entries are keyed by `{account_id}:{public_key}`, so unlike
+/// [`from_credentials`](crate::signer::from_credentials) this needs the
+/// public key. Requires the opt-in `keyring` feature.
 ///
-/// # Construction
-///
-/// Unlike `FileSigner`, `KeyringSigner` requires the public key
-/// because keyring entries are keyed by `{account_id}:{public_key}`.
+/// # Example
 ///
 /// ```rust,no_run
-/// use near_kit::signer::KeyringSigner;
+/// use near_kit::protocol::Action;
+/// use near_kit::signer::{self, PublicKey};
+/// use near_kit::{Near, NearToken, account};
 ///
-/// let signer = KeyringSigner::new(
-///     "testnet",
-///     "alice.testnet",
-///     "ed25519:6fWy..."
-/// )?;
-/// # Ok::<(), near_kit::Error>(())
+/// # async fn example() -> Result<(), near_kit::Error> {
+/// let public_key: PublicKey = "ed25519:6fWy...".parse()?;
+/// let signer = signer::from_keyring("testnet", account!("alice.testnet"), &public_key)?;
+///
+/// let alice = Near::testnet().build().with_signer(signer);
+/// alice
+///     .transaction(account!("bob.testnet"))
+///     .add_action(Action::transfer(NearToken::from_near(1)))
+///     .await?;
+/// # Ok(())
+/// # }
 /// ```
-#[derive(Clone)]
-pub struct KeyringSigner {
-    inner: InMemorySigner,
-}
+///
+/// # Errors
+///
+/// [`Error::KeyStore`] if the keyring is not available (e.g. no Secret
+/// Service on Linux), the key is not found, the stored credential has an
+/// invalid format, or it holds a different key.
+pub fn from_keyring(
+    network: &str,
+    account_id: impl Into<AccountId>,
+    public_key: &PublicKey,
+) -> Result<InMemorySigner, Error> {
+    let account_id: AccountId = account_id.into();
 
-impl KeyringSigner {
-    /// Load a key from the system keyring.
-    ///
-    /// # Arguments
-    ///
-    /// * `network` - Network name (e.g., "testnet", "mainnet")
-    /// * `account_id` - The NEAR account ID
-    /// * `public_key` - The public key to look up (e.g., "ed25519:...")
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The keyring is not available (e.g., no Secret Service on Linux)
-    /// - The key is not found in the keyring
-    /// - The stored credential has an invalid format
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use near_kit::signer::KeyringSigner;
-    ///
-    /// let signer = KeyringSigner::new(
-    ///     "testnet",
-    ///     "alice.testnet",
-    ///     "ed25519:6fWy..."
-    /// )?;
-    /// # Ok::<(), near_kit::Error>(())
-    /// ```
-    pub fn new(
-        network: impl AsRef<str>,
-        account_id: impl TryIntoAccountId,
-        public_key: impl AsRef<str>,
-    ) -> Result<Self, Error> {
-        let network = network.as_ref();
-        let account_id: AccountId = account_id.try_into_account_id()?;
-        let public_key_str = public_key.as_ref();
+    // near-cli-rs entry format. Service: "near-{network}-{account_id}",
+    // username: "{account_id}:{public_key}".
+    let service_name = format!("near-{network}-{account_id}");
+    let username = format!("{account_id}:{public_key}");
 
-        // Parse public key for validation
-        let public_key: PublicKey = public_key_str.parse()?;
+    let entry = keyring::Entry::new(&service_name, &username).map_err(|e| {
+        Error::KeyStore(KeyStoreError::Platform(format!(
+            "Failed to access keyring: {}. On Linux, ensure a Secret Service daemon \
+             (gnome-keyring, kwallet) is running.",
+            e
+        )))
+    })?;
 
-        // Construct keyring entry using near-cli-rs format
-        // Service: "near-{network}-{account_id}"
-        // Username: "{account_id}:{public_key}"
-        let service_name = format!("near-{}-{}", network, account_id);
-        let username = format!("{}:{}", account_id, public_key_str);
+    let password = entry.get_password().map_err(|e| match e {
+        keyring::Error::NoEntry => Error::KeyStore(KeyStoreError::KeyNotFound(account_id.clone())),
+        _ => Error::KeyStore(KeyStoreError::Platform(format!(
+            "Failed to read from keyring: {}",
+            e
+        ))),
+    })?;
 
-        let entry = keyring::Entry::new(&service_name, &username).map_err(|e| {
-            Error::KeyStore(KeyStoreError::Platform(format!(
-                "Failed to access keyring: {}. On Linux, ensure a Secret Service daemon \
-                 (gnome-keyring, kwallet) is running.",
-                e
-            )))
-        })?;
-
-        let password = entry.get_password().map_err(|e| match e {
-            keyring::Error::NoEntry => {
-                Error::KeyStore(KeyStoreError::KeyNotFound(account_id.clone()))
-            }
-            _ => Error::KeyStore(KeyStoreError::Platform(format!(
-                "Failed to read from keyring: {}",
-                e
-            ))),
-        })?;
-
-        // Parse the stored JSON credential
-        let secret_key = parse_keyring_credential(&password, &account_id, &public_key)?;
-
-        // Create the inner signer
-        let inner = InMemorySigner::from_secret_key(account_id, secret_key)?;
-
-        // Verify the public key matches
-        if inner.public_key() != &public_key {
-            return Err(Error::KeyStore(KeyStoreError::InvalidFormat(format!(
-                "Public key mismatch: stored key has {}, but requested {}",
-                inner.public_key(),
-                public_key
-            ))));
-        }
-
-        Ok(Self { inner })
+    let secret_key = parse_keyring_credential(&password, &account_id, public_key)?;
+    if &secret_key.public_key() != public_key {
+        return Err(Error::KeyStore(KeyStoreError::InvalidFormat(format!(
+            "Public key mismatch: stored key has {}, but requested {}",
+            secret_key.public_key(),
+            public_key
+        ))));
     }
 
-    /// Get the public key.
-    pub fn public_key(&self) -> &PublicKey {
-        self.inner.public_key()
-    }
-
-    /// Unwrap into the underlying [`InMemorySigner`].
-    pub fn into_inner(self) -> InMemorySigner {
-        self.inner
-    }
-}
-
-impl std::fmt::Debug for KeyringSigner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("KeyringSigner")
-            .field("account_id", self.inner.account_id())
-            .field("public_key", self.inner.public_key())
-            .finish()
-    }
-}
-
-impl Signer for KeyringSigner {
-    fn account_id(&self) -> &AccountId {
-        self.inner.account_id()
-    }
-
-    fn key(&self) -> SigningKey {
-        self.inner.key()
-    }
-
-    fn public_key(&self) -> PublicKey {
-        Signer::public_key(&self.inner)
-    }
+    Ok(InMemorySigner::new(account_id, secret_key))
 }
 
 // ============================================================================

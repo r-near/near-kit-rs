@@ -9,40 +9,45 @@
 //!   USER_ACCOUNT_ID / USER_PRIVATE_KEY - The user who signs (doesn't pay gas)
 //!   RELAYER_ACCOUNT_ID / RELAYER_PRIVATE_KEY - The relayer who submits (pays gas)
 
+use near_kit::protocol::Action;
+use near_kit::protocol::SignedDelegateAction;
 use near_kit::rpc::FinalExecutionOutcome;
-use near_kit::transaction::{DelegateOptions, DelegateResult};
+use near_kit::signer::InMemorySigner;
+use near_kit::transaction::{DelegateOptions, FunctionCall};
 use near_kit::*;
 
 // ============================================================================
 // User Side: Create and sign delegate action (off-chain, no gas cost)
 // ============================================================================
 
-async fn user_creates_delegate(
-    user_near: &Near,
-    user_account: &str,
-) -> Result<DelegateResult, Error> {
+async fn user_creates_delegate(user: &SigningNear) -> Result<SignedDelegateAction, Error> {
     println!("=== User Side ===\n");
 
-    // Build the transaction and sign it off-chain with .delegate()
+    // Sign the actions off-chain with .delegate()
     // The user pays NO gas - they're just signing the intent
-    let delegate_result = user_near
-        .transaction("guestbook.near-examples.testnet")
-        .call("add_message")
+    let call = FunctionCall::new("add_message")
         .args(serde_json::json!({ "text": "Gasless transaction from near-kit-rs!" }))
-        .gas(Gas::from_tgas(30))
-        .finish()
-        .delegate(DelegateOptions::default())
+        .gas(Gas::from_tgas(30));
+    let delegate_result = user
+        .delegate(
+            account!("guestbook.near-examples.testnet"),
+            vec![call.try_into()?],
+            DelegateOptions::default(),
+        )
         .await?;
 
     println!("User signed delegate action (no gas paid)");
-    println!("Sender: {user_account}");
-    println!("Payload length: {} bytes", delegate_result.payload.len());
+    println!("Sender: {}", user.account_id());
+    println!(
+        "Payload length: {} bytes",
+        delegate_result.to_base64().len()
+    );
 
     // In a real app, the user would send this payload to the relayer via HTTP:
     //
     // reqwest::Client::new()
     //     .post("https://relayer.example.com/relay")
-    //     .json(&serde_json::json!({ "payload": delegate_result.payload }))
+    //     .json(&serde_json::json!({ "payload": delegate_result.to_base64() }))
     //     .send()
     //     .await?;
 
@@ -54,17 +59,17 @@ async fn user_creates_delegate(
 // ============================================================================
 
 async fn relayer_submits_delegate(
-    relayer_near: &Near,
-    delegate_result: DelegateResult,
+    relayer: &SigningNear,
+    delegate_result: SignedDelegateAction,
 ) -> Result<FinalExecutionOutcome, Error> {
     println!("\n=== Relayer Side ===\n");
 
     // Relayer decodes and wraps the user's signed action
     // The relayer pays gas, but the contract sees the USER as the signer
-    let outcome = relayer_near
+    // The transaction goes to the user's account, the delegate's sender.
+    let outcome = relayer
         .transaction(delegate_result.sender_id())
-        .signed_delegate_action(delegate_result.signed_delegate_action)
-        .send()
+        .add_action(Action::delegate(delegate_result))
         .await?;
 
     println!(
@@ -97,19 +102,21 @@ async fn main() -> Result<(), Error> {
     match (user_key, relayer_key) {
         (Some(user_key), Some(relayer_key)) => {
             // Set up both clients
-            let user_near = Near::testnet()
-                .credentials(&user_key, &user_account)?
-                .build();
-
-            let relayer_near = Near::testnet()
-                .credentials(&relayer_key, &relayer_account)?
-                .build();
+            let near = Near::testnet().build();
+            let user = near.with_signer(InMemorySigner::new(
+                user_account.parse::<AccountId>()?,
+                user_key.parse()?,
+            ));
+            let relayer = near.with_signer(InMemorySigner::new(
+                relayer_account.parse::<AccountId>()?,
+                relayer_key.parse()?,
+            ));
 
             // Step 1: User signs the action off-chain
-            let delegate_result = user_creates_delegate(&user_near, &user_account).await?;
+            let delegate_result = user_creates_delegate(&user).await?;
 
             // Step 2: Relayer submits it on-chain (pays gas)
-            relayer_submits_delegate(&relayer_near, delegate_result).await?;
+            relayer_submits_delegate(&relayer, delegate_result).await?;
 
             println!("\n=== Result ===");
             println!("User's action executed without paying gas!");

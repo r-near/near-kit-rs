@@ -55,6 +55,10 @@ mod noop {
         pub(crate) fn display<T>(value: T) -> T {
             value
         }
+
+        pub(crate) fn debug<T>(value: T) -> T {
+            value
+        }
     }
 
     macro_rules! noop_event {

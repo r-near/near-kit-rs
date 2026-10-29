@@ -6,20 +6,21 @@
 //! (`after_key_base64` / `limit` / `last_key`).
 
 use super::support::{guestbook_wasm, sandbox_2_13};
+use near_kit::protocol::Action;
+use near_kit::transaction::FunctionCall;
 use near_kit::*;
 use near_kit::{rpc::BlockReference, signer::SecretKey, transaction::Final};
 
 /// Deploy the guestbook contract to the given (freshly created) account.
-async fn deploy_guestbook(near: &Near, contract_account: &str) {
+async fn deploy_guestbook(near: &SigningNear, contract_account: &AccountId) {
     let wasm_code = guestbook_wasm();
     let new_key = SecretKey::generate_ed25519();
-    near.transaction(contract_account)
-        .create_account()
-        .transfer("10 NEAR")
-        .add_full_access_key(new_key.public_key())
-        .deploy(wasm_code)
-        .send()
-        .wait_until::<Final>()
+    near.wait_until::<Final>()
+        .transaction(contract_account)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(10)))
+        .add_action(Action::add_full_access_key(new_key.public_key()))
+        .add_action(Action::deploy_contract(wasm_code))
         .await
         .expect("deploy guestbook");
 }
@@ -27,29 +28,31 @@ async fn deploy_guestbook(near: &Near, contract_account: &str) {
 #[tokio::test]
 async fn test_view_state_pagination_reads_all_entries() {
     let sandbox = sandbox_2_13().await;
-    let near = Near::sandbox(sandbox);
+    let near = sandbox.client();
 
-    let contract_id = format!("vstate.{}", sandbox.root_account_id());
+    let contract_id: AccountId = format!("vstate.{}", near.account_id()).parse().unwrap();
     deploy_guestbook(&near, &contract_id).await;
 
     // Populate state: each message extends the on-trie Vector, adding entries.
     const N: usize = 8;
     for i in 0..N {
-        near.transaction(&contract_id)
-            .call("add_message")
-            .args(serde_json::json!({ "text": format!("message number {i}") }))
-            .send()
-            .wait_until::<Final>()
+        near.wait_until::<Final>()
+            .transaction(&contract_id)
+            .add_action(
+                FunctionCall::new("add_message")
+                    .args(serde_json::json!({ "text": format!("message number {i}") })),
+            )
             .await
             .expect("add_message");
     }
 
-    let contract: AccountId = contract_id.parse().unwrap();
+    let contract = contract_id.clone();
 
     // Single-page call with a small limit must return a continuation cursor.
     let first = near
+        .near()
         .rpc()
-        .view_state(&contract, &[], None, Some(2), BlockReference::final_())
+        .view_state(&contract, &[], None, Some(2), BlockReference::default())
         .await
         .expect("view_state page");
     assert!(!first.values.is_empty());
@@ -61,13 +64,14 @@ async fn test_view_state_pagination_reads_all_entries() {
 
     // Following the cursor yields different entries than the first page.
     let second = near
+        .near()
         .rpc()
         .view_state(
             &contract,
             &[],
             first.last_key.as_deref(),
             Some(2),
-            BlockReference::final_(),
+            BlockReference::default(),
         )
         .await
         .expect("view_state page 2");
@@ -80,13 +84,15 @@ async fn test_view_state_pagination_reads_all_entries() {
     // The paginating helper must collect every entry regardless of page size:
     // a small explicit limit vs. the default page size (page_size = 0).
     let all_small_pages = near
+        .near()
         .rpc()
-        .view_state_all(&contract, &[], 2, BlockReference::final_())
+        .view_state_all(&contract, &[], 2, BlockReference::default())
         .await
         .expect("view_state_all with small pages");
     let all_default_page = near
+        .near()
         .rpc()
-        .view_state_all(&contract, &[], 0, BlockReference::final_())
+        .view_state_all(&contract, &[], 0, BlockReference::default())
         .await
         .expect("view_state_all with default page size");
 
@@ -104,8 +110,9 @@ async fn test_view_state_pagination_reads_all_entries() {
     // may differ; check the reported hash/height agree with the node instead.
     assert!(all_small_pages.block_height > 0);
     let pinned = near
+        .near()
         .rpc()
-        .block(BlockReference::at_hash(all_small_pages.block_hash))
+        .block(BlockReference::Hash(all_small_pages.block_hash))
         .await
         .expect("block view_state_all was pinned to");
     assert_eq!(pinned.header.height, all_small_pages.block_height);
@@ -113,8 +120,9 @@ async fn test_view_state_pagination_reads_all_entries() {
     // Prefix filtering: every returned key must start with the requested prefix.
     let prefix = &all_small_pages[0].key[..1];
     let filtered = near
+        .near()
         .rpc()
-        .view_state_all(&contract, prefix, 0, BlockReference::final_())
+        .view_state_all(&contract, prefix, 0, BlockReference::default())
         .await
         .expect("view_state_all prefix");
     assert!(!filtered.is_empty());

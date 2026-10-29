@@ -18,15 +18,19 @@
 
 ## Why near-kit?
 
-If you've worked with NEAR in Rust before, you've probably dealt with raw JSON-RPC calls, manual serialization, or incomplete client libraries. **near-kit** is designed to fix that.
+near-kit is a ground-up NEAR client with a small surface: chain work is
+described by **plain values**, and two **verbs** (one trait each) do it:
 
-It's a ground-up implementation focused on developer experience:
+- **Values** need no client: `AccountId` (write literals with `account!`, checked
+  at compile time), `NearToken` and `Gas` (always with a unit), `Action` and
+  `FunctionCall`, and a `BlockReference` for which block to read.
+- **`Viewer`** runs a view function at a block. `Near` implements it.
+- **`TxSender`** sends a receiver plus a list of actions.
+  `near.with_signer(signer)` returns a `SigningNear`, which implements both.
 
-- **One entry point.** Everything flows through the `Near` client — no hunting for the right module.
-- **Configure once.** Set your network and credentials at startup, then just write your logic.
-- **Explicit units.** No more wondering if that's yoctoNEAR or NEAR. Write `NearToken::from_near(5)` or `"5 NEAR"`.
-- **Batteries included.** Built-in FT/NFT helpers, multiple signer options,
-  automatic retries, and opt-in typed-contract interfaces.
+Typed contract clients, the FT/NFT helpers and the awaitable `View`/`Call`
+values are written against the two traits, so they also run on your own
+backend.
 
 ## Quick Start
 
@@ -34,181 +38,222 @@ It's a ground-up implementation focused on developer experience:
 cargo add near-kit
 ```
 
-Reading from the blockchain doesn't require any credentials:
-
 ```rust
+use near_kit::protocol::Action;
+use near_kit::signer::InMemorySigner;
 use near_kit::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    // Reads need no credentials.
     let near = Near::testnet().build();
+    let balance = near.balance(account!("alice.testnet")).await?;
+    let count: u64 = near.view(account!("counter.testnet"), "get_count").await?;
+    println!("{} available, count = {count}", balance.available);
 
-    let balance = near.balance("alice.testnet").await?;
-    println!("Balance: {}", balance.available);
-
-    let count: u64 = near.view("counter.testnet", "get_count").await?;
-    println!("Count: {count}");
-
+    // Writes need a signer.
+    let me = near.with_signer(InMemorySigner::new(account!("me.testnet"), "ed25519:...".parse()?));
+    me.transaction(account!("bob.testnet"))
+        .add_action(Action::transfer(NearToken::from_near(1)))
+        .await?;
     Ok(())
 }
 ```
 
-## Sending Transactions
+For CI, `SigningNear::from_env()` reads `NEAR_NETWORK`, `NEAR_ACCOUNT_ID` and
+`NEAR_PRIVATE_KEY`.
 
-For writes, just add your credentials. The client handles nonce management, block references, signing, and retries automatically:
+## Reads
+
+`near.view(..)` returns a `View`: add `.args(..)`, pick a block with `.at(..)`
+(a height, a hash or a `Finality`; the default is `Final`), and `.await`.
+`.with_metadata()` also gives the block height and hash. `balance` and
+`account_exists` take the same `.at(..)`; `tx_status` picks how far the
+transaction must have run with `.wait_until::<W>()`. Every other RPC method
+is on `near.rpc()`.
 
 ```rust
-let near = Near::testnet()
-    .credentials("ed25519:...", "alice.testnet")?
-    .build();
+use near_kit::rpc::Finality;
 
-// Transfer tokens
-near.transfer("bob.testnet", NearToken::from_near(1)).await?;
+let messages: Vec<serde_json::Value> = near
+    .view(account!("guestbook.testnet"), "get_messages")
+    .args(serde_json::json!({ "limit": 5 }))
+    .at(Finality::Optimistic)
+    .await?;
 
-// Call a contract function
-near.call("counter.testnet", "increment")
-    .gas(Gas::from_tgas(30))
+let read = near
+    .view::<u64>(account!("counter.testnet"), "get_count")
+    .at(180_000_000)
+    .with_metadata()
+    .await?;
+println!("{} at block {}", read.result, read.block_height);
+
+let keys = near
+    .rpc()
+    .view_access_key_list(&account!("alice.testnet"), Finality::Final)
     .await?;
 ```
 
-For CI/CD, configure via environment variables:
+## Writes
+
+A transaction is a receiver plus actions. `transaction(receiver)` collects
+`Action`s and `FunctionCall`s and sends on `.await`, atomically. Nonces, block
+hashes, signing and retries are handled for you.
 
 ```rust
-// Reads NEAR_NETWORK, NEAR_ACCOUNT_ID, NEAR_PRIVATE_KEY
-let near = Near::from_env()?;
+use near_kit::protocol::Action;
+use near_kit::transaction::FunctionCall;
+
+me.transaction(account!("app.me.testnet"))
+    .add_action(Action::create_account())
+    .add_action(Action::transfer(NearToken::from_near(5)))
+    .add_action(Action::add_full_access_key(new_key))
+    .add_action(Action::deploy_contract(wasm))
+    .add_action(FunctionCall::new("new").args(serde_json::json!({ "owner_id": me.account_id() })))
+    .await?;
+
+me.transaction(account!("nft.testnet"))
+    .add_action(
+        FunctionCall::new("nft_mint")
+            .args(serde_json::json!({ "token_id": "1", "receiver_id": "me.testnet" }))
+            .deposit(NearToken::from_millinear(100))
+            .gas(Gas::from_tgas(100)),
+    )
+    .await?;
 ```
 
-Advanced APIs are grouped by purpose: `near_kit::rpc`, `near_kit::transaction`,
-`near_kit::signer`, `near_kit::protocol`, and `near_kit::standards`. The crate
-root keeps the main client, errors, account IDs, hashes, and gas/token units.
+Sends wait for `Final` execution by default. Choose another wait level once,
+for every send from that handle:
+
+```rust
+use near_kit::transaction::Included;
+
+let fast = me.wait_until::<Included>();
+fast.transaction(account!("bob.testnet"))
+    .add_action(Action::transfer(NearToken::from_near(1)))
+    .await?;
+```
+
+`me.sign(..)` signs without sending (submit later with `near.send_signed(..)`),
+and `me.delegate(..)` builds NEP-366 meta-transactions.
 
 ## Multiple Accounts
 
-Transport and signing are separate concerns. Set up the connection once, then derive clients for different accounts with `with_signer`. They share the same RPC connection, so there's no overhead:
+Signing clients made from one `Near` share its RPC connection, so make one per
+account:
 
 ```rust
-use near_kit::signer::InMemorySigner;
-
-let near = Near::testnet().build(); // read-only, shared connection
-
-let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
-let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
-
-alice.transfer("carol.testnet", NearToken::from_near(1)).await?;
-bob.transfer("carol.testnet", NearToken::from_near(2)).await?;
+let near = Near::testnet().build();
+let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...".parse()?));
+let bob = near.with_signer(InMemorySigner::new(account!("bob.testnet"), "ed25519:...".parse()?));
 ```
 
-For single-account scripts, the `credentials` builder is still the simplest path. Use `with_signer` when you need to manage multiple accounts or want explicit separation between connection setup and signing.
-
-Need to pass arguments or attach a deposit? Chain the builders:
-
-```rust
-near.call("nft.testnet", "nft_mint")
-    .args(serde_json::json!({ "token_id": "1", "receiver_id": "alice.testnet" }))
-    .deposit(NearToken::from_millinear(100))
-    .gas(Gas::from_tgas(100))
-    .await?;
-```
-
-## Multi-Action Transactions
-
-NEAR supports batching multiple actions into a single atomic transaction. This is useful for creating accounts, deploying contracts, or any sequence that should succeed or fail together:
-
-```rust
-near.transaction("sub.alice.testnet")
-    .create_account()
-    .transfer(NearToken::from_near(5))
-    .add_full_access_key(new_public_key)
-    .deploy(wasm_bytes)
-    .call("init")
-        .args(serde_json::json!({ "owner": "alice.testnet" }))
-    .send()
-    .await?;
-```
-
-For more dynamic use cases, you can conditionally add actions or work with pre-built actions directly:
-
-```rust
-use near_kit::transaction::FunctionCall;
-
-let mut tx = near.transaction("contract.testnet");
-
-if needs_funding {
-    tx = tx.transfer(NearToken::from_near(1));
-}
-
-tx = tx.call("setup")
-    .args(serde_json::json!({ "admin": "alice.testnet" }))
-    .finish(); // return to TransactionBuilder for more chaining
-
-// Or add pre-built function calls
-tx.add_action(FunctionCall::new("notify").args(serde_json::json!({ "msg": "hello" })))
-    .send()
-    .await?;
-```
+`alice.near()` gets the read-only client back.
 
 ## Typed Contract Interfaces
 
-Tired of stringly-typed method names and `serde_json::json!` everywhere? Define a trait for your contract and get compile-time checking:
-
-Typed interfaces are opt-in so the default RPC client does not pull in proc-macro
-dependencies:
+Enable the opt-in `contracts` feature and describe the contract as a trait:
 
 ```toml
 [dependencies]
-near-kit = { version = "0.18", features = ["contracts"] }
+near-kit = { version = "0.21", features = ["contracts"] }
 ```
 
 ```rust
 #[near_kit::contract]
 pub trait Counter {
-    fn get_count(&self) -> u64;          // view method
+    fn get_count(&self) -> u64;                // view
 
     #[call]
-    fn increment(&mut self);              // change method
+    fn add(&mut self, args: AddArgs);          // change
 }
 
-// Now you get autocomplete and type errors at compile time
-let counter = near.contract::<Counter>("counter.testnet".parse::<AccountId>()?);
-let count = counter.get_count().await?;
-counter.increment().await?;
+#[derive(serde::Serialize)]
+pub struct AddArgs {
+    pub value: u64,
+}
+
+// Views work on `Near`; calls need a `SigningNear`.
+let count = near.contract::<Counter>(account!("counter.testnet")).get_count().await?;
+
+let counter = me.contract::<Counter>(account!("counter.testnet"));
+counter.add(AddArgs { value: 5 }).gas(Gas::from_tgas(10)).await?;
 ```
 
-## Signers
-
-Different situations call for different key management. near-kit supports several approaches:
-
-| Signer | When to use it |
-|--------|----------------|
-| `signer::InMemorySigner` | Scripts and bots with a hardcoded or loaded key |
-| `signer::FileSigner` | Local development — reads from `~/.near-credentials` (requires `file-signer`) |
-| `signer::EnvSigner` | CI/CD pipelines via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` |
-| `signer::RotatingSigner` | High-throughput apps that need multiple keys to avoid nonce conflicts. Use `into_per_key_signers()` to split into per-key signers for sequential send queues |
-| `signer::KeyringSigner` | Desktop apps using the system keychain (requires `keyring` feature) |
+The macro also generates `Counter::add(args) -> FunctionCall`, for batching
+with other actions.
 
 ## Token Standards
 
-Working with fungible or non-fungible tokens? near-kit includes helpers for NEP-141 and NEP-171.
+NEP-141 and NEP-171 clients. `FungibleToken` and `NonFungibleToken` in
+`near_kit::standards` are `Contract` markers like the ones `#[contract]`
+generates: `near.contract::<FungibleToken>(..)` reads, and
+`me.contract::<FungibleToken>(..)` also transfers.
 
 ```rust
-let near = Near::mainnet().build();
-let token = near.ft("wrap.near".parse::<AccountId>()?);
-let balance = token.balance_of("alice.near").await?;
-println!("Balance: {}", balance);
+use near_kit::standards::{FungibleToken, NonFungibleToken};
 
-// Non-fungible tokens
-let nft = near.nft("nft.near".parse::<AccountId>()?);
+let wrap = near.contract::<FungibleToken>(account!("wrap.near"));
+let balance = wrap.balance_of(account!("alice.near")).await?;
+println!("{balance}");
+
+me.contract::<FungibleToken>(account!("wrap.near"))
+    .transfer(account!("bob.near"), 1_000_u128, None)
+    .await?;
+
+let nft = near.contract::<NonFungibleToken>(account!("nft.near"));
 if let Some(token) = nft.token("token-123").await? {
     println!("Owner: {}", token.owner_id);
 }
 ```
 
+## Your Own Backend
+
+Implement `Viewer` or `TxSender` for a test double, a gateway or a send
+queue, and typed contract clients, `View`/`Call` and the token helpers run on
+it:
+
+```rust
+use near_kit::rpc::{BlockReference, ViewFunctionResult};
+
+#[derive(Clone)]
+struct Canned(&'static str);
+
+impl Viewer for Canned {
+    type ViewError = String;
+
+    async fn view_function(
+        &self,
+        _contract_id: &AccountId,
+        _method: &str,
+        _args: &[u8],
+        _block: BlockReference,
+    ) -> Result<ViewFunctionResult, String> {
+        Ok(ViewFunctionResult::new(self.0.as_bytes().to_vec(), 1, CryptoHash::ZERO))
+    }
+}
+
+let count = Counter::client(Canned("42"), account!("counter.near")).get_count().await?;
+```
+
+## Signers
+
+| Signer or loader | When to use it |
+|--------|----------------|
+| `signer::InMemorySigner` | A key you hold in memory: `InMemorySigner::new(id, "ed25519:...".parse()?)` |
+| `signer::RotatingSigner` | Several keys for one account, to avoid nonce conflicts. `into_per_key_signers()` splits it for sequential send queues |
+| `signer::from_env()` | CI/CD: an `InMemorySigner` from `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` |
+| `signer::from_credentials(network, id)` | Local development: reads `~/.near-credentials` (`file-signer` feature) |
+| `signer::from_keyring(network, id, &public_key)` | Desktop apps using the system keychain (`keyring` feature) |
+
+The loaders read the key once and return an `InMemorySigner`.
+
 ## Feature Flags
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `rpc` | Yes | The `Near` client, queries, transactions, token helpers, and the HTTP transport — reqwest, except on WASI |
-| `contracts` | No | Typed contract interfaces and macros. Without `rpc`, only the offline `FunctionCall` constructors are generated |
+| `rpc` | Yes | `Near`, `SigningNear`, the token helpers, and the HTTP transport — reqwest, except on WASI |
+| `contracts` | No | Typed contract interfaces (`#[near_kit::contract]`). Without `rpc`, the generated client has no `Near` default and runs on any `Viewer` / `TxSender` |
 | `wasi-http` | No | Built-in `wasi:http` transport for `wasm32-wasip2`; implies `rpc`, is a no-op on non-WASI targets, and is unsupported on earlier WASI targets |
 | `keyring` | No | System keyring integration for desktop apps |
 | `file-signer` | No | Load signers from `~/.near-credentials` |
@@ -221,9 +266,9 @@ if let Some(token) = nft.token("token-123").await? {
 With `tracing` on, RPC calls and transactions run inside spans (`call`, `view_function`, `send_transaction`, ...) and emit events at DEBUG (retries, failed requests, transaction lifecycle) and TRACE (raw request/response payloads). near-kit never logs at WARN or ERROR for an error it returns to you — that is the caller's decision — so a WARN-level subscriber stays quiet on expected failures such as probing a contract for a method it doesn't export. The one WARN is reserved for an anomaly that is *not* surfaced as an error: an RPC error variant this version couldn't parse and mapped to `Unknown`.
 
 Docker-backed local testing lives in the companion `near-kit-sandbox` crate. Add
-it as a dev-dependency and call `SandboxConfig::fresh().await?` or
-`SandboxConfig::shared().await?`; each `Sandbox` can create a configured client
-with `sandbox.client()` or `Near::sandbox(&sandbox)`. See the
+it as a dev-dependency and call `Sandbox::builder().fresh().await?` or
+`Sandbox::builder().shared().await?`; `sandbox.client()` is a `SigningNear` for the
+sandbox root account. See the
 [`near-kit-sandbox` guide](https://github.com/r-near/near-kit-rs/blob/main/crates/near-kit-sandbox/README.md) for setup and
 lifecycle details.
 
@@ -233,7 +278,7 @@ near-kit runs inside WASI Preview 2 components with full RPC support — the `wa
 
 ```toml
 [dependencies]
-near-kit = { version = "0.18", default-features = false, features = ["wasi-http"] }
+near-kit = { version = "0.21", default-features = false, features = ["wasi-http"] }
 ```
 
 The host must provide the `wasi:http` interface (e.g. `wasmtime run -S http`, or any runtime targeting the `wasi:http/proxy` world). The transport is blocking — one request in flight at a time, the natural shape for a single-threaded component — and does not follow HTTP redirects, so point it at the final RPC URL.
@@ -248,7 +293,7 @@ high-level client) instead of panicking. Or go fully offline (below).
 
 ### Offline / no-network usage
 
-With `default-features = false` the RPC layer drops out and near-kit becomes a pure offline toolkit: protocol types under `near_kit::protocol`, signers under `near_kit::signer`, transaction construction and signing via `protocol::Transaction` (`new` → `sign` → `to_bytes`), and NEP-413 verification under `near_kit::standards::nep413`. This is what you want on targets without any network stack: sign transactions and messages locally and hand them off for submission elsewhere. Note the fluent `transaction::TransactionBuilder` belongs to the RPC layer (it is created from a `Near` client), so it requires the `rpc` feature.
+With `default-features = false` the RPC layer drops out and near-kit becomes a pure offline toolkit: protocol types under `near_kit::protocol`, signers under `near_kit::signer`, transaction construction and signing via `protocol::Transaction` (`new` → `sign` → `to_bytes`), and NEP-413 verification under `near_kit::standards::nep413`. The `Viewer` and `TxSender` traits are there too, so typed contract clients can run on a backend of your own. This is what you want on targets without any network stack: sign transactions and messages locally and hand them off for submission elsewhere.
 
 ### A note on `near-token` / `near-gas`
 

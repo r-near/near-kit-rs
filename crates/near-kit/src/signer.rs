@@ -1,39 +1,36 @@
 //! Transaction and message signing APIs.
 //!
 //! Keys, [`Signer`], [`InMemorySigner`], and [`RotatingSigner`] are re-exported
-//! from `near-kit-primitives`. [`EnvSigner`], `FileSigner` (feature
-//! `file-signer`), and `KeyringSigner` (feature `keyring`) load keys from the
-//! environment and the OS.
+//! from `near-kit-primitives`. [`from_env`], `from_credentials` (feature
+//! `file-signer`), and `from_keyring` (feature `keyring`) load a key once
+//! from the environment or the OS into an [`InMemorySigner`].
 //!
 //! # Example
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::Near;
+//! use near_kit::protocol::Action;
 //! use near_kit::signer::InMemorySigner;
+//! use near_kit::{Near, NearToken, account};
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let signer = InMemorySigner::new(
-//!     "alice.testnet",
-//!     "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
-//! )?;
+//!     account!("alice.testnet"),
+//!     "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr".parse()?,
+//! );
 //!
-//! let near = Near::testnet()
-//!     .signer(signer)
-//!     .build();
+//! let alice = Near::testnet().build().with_signer(signer);
 //!
-//! near.transfer("bob.testnet", "1 NEAR").await?;
+//! alice
+//!     .transaction(account!("bob.testnet"))
+//!     .add_action(Action::transfer(NearToken::from_near(1)))
+//!     .await?;
 //! # Ok(())
 //! # }
 //! ```
 
-pub use crate::client::EnvSigner;
+pub use crate::client::{from_env, from_env_vars};
 pub use crate::error::KeyStoreError;
-#[cfg(feature = "mnemonic")]
-#[doc(inline)]
-pub use near_kit_primitives::signer::{
-    DEFAULT_HD_PATH, DEFAULT_ML_DSA_65_WORD_COUNT, DEFAULT_WORD_COUNT, generate_seed_phrase,
-};
 #[doc(inline)]
 pub use near_kit_primitives::signer::{
     InMemorySigner, ParseKeyError, RotatingSigner, Signer, SignerError, SigningBackend, SigningKey,
@@ -45,7 +42,7 @@ pub use near_kit_primitives::signer::{
     Signature,
 };
 
-#[cfg(feature = "file-signer")]
-pub use crate::client::FileSigner;
 #[cfg(feature = "keyring")]
-pub use crate::client::KeyringSigner;
+pub use crate::client::from_keyring;
+#[cfg(feature = "file-signer")]
+pub use crate::client::{from_credentials, from_credentials_file};

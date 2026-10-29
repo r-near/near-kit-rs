@@ -6,9 +6,10 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
+use near_kit::protocol::Action;
 use near_kit::*;
 use near_kit::{protocol::*, rpc::*, signer::*};
-use near_kit_sandbox::SandboxConfig;
+use near_kit_sandbox::Sandbox;
 
 use super::support::{funded_account as setup_funded_account, guestbook_wasm};
 
@@ -16,7 +17,7 @@ use super::support::{funded_account as setup_funded_account, guestbook_wasm};
 async fn funded_account(
     sandbox: &near_kit_sandbox::Sandbox,
     balance: NearToken,
-) -> (Near, AccountId, SecretKey) {
+) -> (SigningNear, AccountId, SecretKey) {
     let near = sandbox.client();
     setup_funded_account(&near, sandbox, "typerr", balance).await
 }
@@ -24,13 +25,13 @@ async fn funded_account(
 /// Build, sign, and send a transaction via `rpc().send_tx()` so we get the
 /// raw `FinalExecutionOutcome` without the client converting failures to `Err`.
 async fn send_raw_tx(
-    near: &Near,
+    near: &SigningNear,
     sender: &AccountId,
     key: &SecretKey,
     receiver: &AccountId,
     actions: Vec<Action>,
 ) -> FinalExecutionOutcome {
-    let rpc = near.rpc();
+    let rpc = near.near().rpc();
 
     let ak = rpc
         .view_access_key(
@@ -68,7 +69,7 @@ async fn send_raw_tx(
 
 #[tokio::test]
 async fn test_delete_nonexistent_key_deserializes_as_typed_error() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
+    let sandbox = Sandbox::builder().shared().await.unwrap();
     let (near, id, key) = funded_account(sandbox, NearToken::from_near(10)).await;
 
     let fake_key = SecretKey::generate_ed25519();
@@ -103,7 +104,7 @@ async fn test_delete_nonexistent_key_deserializes_as_typed_error() {
 
 #[tokio::test]
 async fn test_add_duplicate_key_deserializes_as_typed_error() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
+    let sandbox = Sandbox::builder().shared().await.unwrap();
     let (near, id, key) = funded_account(sandbox, NearToken::from_near(10)).await;
 
     let outcome = send_raw_tx(
@@ -138,7 +139,7 @@ async fn test_add_duplicate_key_deserializes_as_typed_error() {
 
 #[tokio::test]
 async fn test_stake_insufficient_balance_deserializes_as_typed_error() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
+    let sandbox = Sandbox::builder().shared().await.unwrap();
     let (near, id, key) = funded_account(sandbox, NearToken::from_near(1)).await;
 
     let outcome = send_raw_tx(
@@ -180,12 +181,15 @@ async fn test_stake_insufficient_balance_deserializes_as_typed_error() {
 
 #[tokio::test]
 async fn test_call_nonexistent_method_deserializes_as_typed_error() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
+    let sandbox = Sandbox::builder().shared().await.unwrap();
     let (near, id, key) = funded_account(sandbox, NearToken::from_near(50)).await;
 
     // Deploy a contract first
     let wasm = guestbook_wasm();
-    near.deploy(wasm).await.unwrap();
+    near.transaction(near.account_id())
+        .add_action(Action::deploy_contract(wasm))
+        .await
+        .unwrap();
 
     // Call a method that doesn't exist
     let outcome = send_raw_tx(
@@ -228,7 +232,7 @@ async fn test_call_nonexistent_method_deserializes_as_typed_error() {
 
 #[tokio::test]
 async fn test_failure_message_is_human_readable_not_json() {
-    let sandbox = SandboxConfig::shared().await.unwrap();
+    let sandbox = Sandbox::builder().shared().await.unwrap();
     let (near, id, key) = funded_account(sandbox, NearToken::from_near(10)).await;
 
     let fake_key = SecretKey::generate_ed25519();

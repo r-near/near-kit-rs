@@ -1,0 +1,51 @@
+error[E0277]: `SendOnly` cannot run contract views
+  --> tests/compile-fail/view_without_viewer.rs:34:21
+   |
+34 |     let _ = counter.get_count().await;
+   |                     ^^^^^^^^^ not a `Viewer`
+   |
+help: the trait `Viewer` is not implemented for `SendOnly`
+  --> tests/compile-fail/view_without_viewer.rs:16:1
+   |
+16 | struct SendOnly(AccountId);
+   | ^^^^^^^^^^^^^^^
+   = note: use a `Near` client, or implement `Viewer` for this backend
+   = help: the following other types implement trait `Viewer`:
+             &T
+             Arc<T>
+             Box<T>
+             Near
+             SigningNear<W>
+note: required by a bound in `CounterClient::<__NearKitBackend>::get_count`
+  --> tests/compile-fail/view_without_viewer.rs:7:1
+   |
+ 7 | #[near_kit::contract]
+   | ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `CounterClient::<__NearKitBackend>::get_count`
+ 8 | pub trait Counter {
+ 9 |     fn get_count(&self) -> u64;
+   |        --------- required by a bound in this associated function
+   = note: this error originates in the attribute macro `near_kit::contract` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `View<SendOnly, u64>` is not a future
+  --> tests/compile-fail/view_without_viewer.rs:34:33
+   |
+34 |     let _ = counter.get_count().await;
+   |                                 ^^^^^ `View<SendOnly, u64>` is not a future
+   |
+   = help: the trait `IntoFuture` is not implemented for `View<SendOnly, u64>`
+   = note: View<SendOnly, u64> must be a future or must implement `IntoFuture` to be awaited
+help: the trait `IntoFuture` is conditionally implemented for `View<C, T>`
+  --> $WORKSPACE/crates/near-kit-primitives/src/backend.rs
+   |
+   | / impl<C, T> IntoFuture for View<C, T>
+   | | where
+   | |     C: Viewer + 'static,
+   | |        ------ unsatisfied requirement introduced here: `SendOnly: Viewer`
+   | |     C::ViewError: 'static,
+   | |     T: 'static,
+   | |_______________^
+help: remove the `.await`
+   |
+34 -     let _ = counter.get_count().await;
+34 +     let _ = counter.get_count();
+   |

@@ -5,6 +5,7 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
+use near_kit::protocol::Action;
 use near_kit::*;
 use near_kit::{protocol::*, rpc::*, transaction::Final};
 
@@ -24,8 +25,9 @@ const UNIVERSAL_ACCOUNTS_PROTOCOL_VERSION: u32 = 87;
 const ACCESS_KEY_NONCE_RANGE_MULTIPLIER: u64 = 1_000_000;
 
 /// Whether the node runs with `universal_accounts` enabled.
-async fn universal_accounts_enabled(near: &Near) -> bool {
+async fn universal_accounts_enabled(near: &SigningNear) -> bool {
     let protocol_config: serde_json::Value = near
+        .near()
         .rpc()
         .call(
             "EXPERIMENTAL_protocol_config",
@@ -49,15 +51,17 @@ fn key_only_state_init() -> (UniversalStateInit, AccountId, SecretKey) {
 }
 
 /// Assert `account_id` is initialized and `key` is one of its access keys.
-async fn assert_initialized_with(near: &Near, account_id: &AccountId, key: &SecretKey) {
+async fn assert_initialized_with(near: &SigningNear, account_id: &AccountId, key: &SecretKey) {
     let view = near
+        .near()
         .rpc()
         .view_account(account_id, BlockReference::Finality(Finality::Final))
         .await
         .expect("view the 0u account");
     assert_eq!(view.state, AccountState::Initialized);
     assert_eq!(view.bootstrap_nonce, None);
-    near.rpc()
+    near.near()
+        .rpc()
         .view_access_key(
             account_id,
             &key.public_key(),
@@ -77,8 +81,12 @@ async fn test_universal_state_init_by_another_account() {
     let (state_init, account_id, key) = key_only_state_init();
 
     let outcome = root_near
-        .universal_state_init(state_init, NearToken::from_millinear(100))
         .wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::universal_state_init(
+            state_init,
+            NearToken::from_millinear(100),
+        ))
         .await
         .expect("state init sent by another account");
     assert!(outcome.is_success(), "{outcome:?}");
@@ -95,19 +103,21 @@ async fn test_universal_account_bootstraps_itself() {
     let (state_init, account_id, key) = key_only_state_init();
 
     root_near
-        .transfer(&account_id, NearToken::from_near(1))
         .wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::transfer(NearToken::from_near(1)))
         .await
         .expect("fund the 0u id");
 
     // Plain `send`: the nonce comes from `bootstrap_nonce`, since the key is
     // not on chain until the state init applies.
-    let signer = InMemorySigner::from_secret_key(account_id.clone(), key.clone())
-        .expect("signer for the 0u account");
+    let signer = InMemorySigner::new(account_id.clone(), key.clone());
     let outcome = root_near
-        .universal_state_init(state_init, NearToken::ZERO)
-        .sign_with(signer)
+        .near()
+        .with_signer(signer)
         .wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::universal_state_init(state_init, NearToken::ZERO))
         .await
         .expect("self-signed state init");
     assert!(outcome.is_success(), "{outcome:?}");
@@ -119,12 +129,13 @@ async fn test_transfer_to_universal_account() {
     let (_sandbox, root_near) = shared_client().await;
     let account_id: AccountId = UNIVERSAL_ACCOUNT_ID.parse().expect("valid 0u account id");
 
-    let status = root_near.rpc().status().await.expect("status");
+    let status = root_near.near().rpc().status().await.expect("status");
     let amount = NearToken::from_near(1);
 
     if universal_accounts_enabled(&root_near).await {
         // The id doesn't exist until the transfer funds it.
         let missing = root_near
+            .near()
             .rpc()
             .view_account(&account_id, BlockReference::Finality(Finality::Final))
             .await
@@ -135,10 +146,9 @@ async fn test_transfer_to_universal_account() {
         );
 
         let outcome = root_near
-            .transaction(&account_id)
-            .transfer(amount)
-            .send()
             .wait_until::<Final>()
+            .transaction(&account_id)
+            .add_action(Action::transfer(amount))
             .await
             .expect("transfer to a 0u account must be accepted");
         assert!(
@@ -147,6 +157,7 @@ async fn test_transfer_to_universal_account() {
         );
 
         let view = root_near
+            .near()
             .rpc()
             .view_account(&account_id, BlockReference::Finality(Finality::Final))
             .await
@@ -178,10 +189,9 @@ async fn test_transfer_to_universal_account() {
         );
 
         let error = root_near
-            .transaction(&account_id)
-            .transfer(amount)
-            .send()
             .wait_until::<Final>()
+            .transaction(&account_id)
+            .add_action(Action::transfer(amount))
             .await
             .expect_err("a transfer to a 0u account must be rejected during the ban");
         match error {

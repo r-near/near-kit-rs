@@ -1,5 +1,5 @@
 error: #[json] may only be specified once
- --> tests/compile-fail/duplicate_format_marker.rs:9:7
+ --> tests/compile-fail/duplicate_format_marker.rs:6:7
   |
-9 |     #[json]
+6 |     #[json]
   |       ^^^^

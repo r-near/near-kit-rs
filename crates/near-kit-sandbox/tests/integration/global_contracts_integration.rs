@@ -2,10 +2,12 @@
 //!
 //! These tests exercise the global contract actions (DeployGlobalContract, UseGlobalContract)
 //! and NEP-616 deterministic account creation, as well as all other action types
-//! supported by the TransactionBuilder.
+//! built from `Action::*` constructors.
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
+use near_kit::protocol::Action;
+use near_kit::transaction::FunctionCall;
 use near_kit::*;
 use near_kit::{protocol::*, signer::*, transaction::Final};
 use std::collections::BTreeMap;
@@ -22,10 +24,10 @@ fn load_test_contract() -> Vec<u8> {
 // =============================================================================
 
 async fn create_funded_account(
-    root_near: &Near,
+    root_near: &SigningNear,
     sandbox: &near_kit_sandbox::Sandbox,
     funding: NearToken,
-) -> (Near, AccountId, SecretKey) {
+) -> (SigningNear, AccountId, SecretKey) {
     funded_account(root_near, sandbox, "gc", funding).await
 }
 
@@ -40,10 +42,11 @@ async fn create_funded_account(
 /// the same block as the distribution; under load the distribution can land
 /// later and the query sees `GlobalContractNotFound`. Bounded so a genuinely
 /// failed publish still fails the test instead of hanging.
-async fn wait_for_global_contract(near: &Near, id: impl TryIntoGlobalContractId + Clone) {
+async fn wait_for_global_contract(near: &SigningNear, id: impl Into<GlobalContractId>) {
     const ATTEMPTS: u32 = 50;
+    let id = id.into();
     for _ in 0..ATTEMPTS {
-        if near.global_contract(id.clone()).exists().await.unwrap() {
+        if global_contract_exists(near.near(), &id).await {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -51,126 +54,23 @@ async fn wait_for_global_contract(near: &Near, id: impl TryIntoGlobalContractId 
     panic!("global contract not visible at final after {ATTEMPTS} polls");
 }
 
+/// Whether anything is published under `id`: "not found" (and, for a
+/// publisher account, "no such account") reads as `false`.
+async fn global_contract_exists(near: &Near, id: &GlobalContractId) -> bool {
+    match near
+        .rpc()
+        .view_global_contract_code(id.clone(), near_kit::rpc::Finality::Final)
+        .await
+    {
+        Ok(_) => true,
+        Err(e) if e.is_global_contract_not_found() || e.is_account_not_found() => false,
+        Err(e) => panic!("unexpected error: {e:?}"),
+    }
+}
+
 // =============================================================================
 // Global Contract Tests
 // =============================================================================
-
-/// Test the `near.publish()` convenience shorthand (updatable mode).
-#[tokio::test]
-async fn test_near_publish_shorthand_updatable() {
-    let (sandbox, root_near) = super::support::shared_client().await;
-
-    let (publisher_near, _, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
-
-    let wasm_code = load_test_contract();
-
-    // Use the Near::publish() shorthand (targets the signer's own account)
-    let outcome = publisher_near
-        .publish(wasm_code, PublishMode::Updatable)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    assert!(!outcome.transaction_hash().to_string().is_empty());
-}
-
-/// Test the `near.publish()` convenience shorthand (immutable mode).
-#[tokio::test]
-async fn test_near_publish_shorthand_immutable() {
-    let (sandbox, root_near) = super::support::shared_client().await;
-
-    let (publisher_near, _, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
-
-    let wasm_code = load_test_contract();
-
-    let outcome = publisher_near
-        .publish(wasm_code, PublishMode::Immutable)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    assert!(!outcome.transaction_hash().to_string().is_empty());
-}
-
-/// Test the `near.deploy_from()` convenience shorthand with a publisher account.
-#[tokio::test]
-async fn test_near_deploy_from_shorthand_publisher() {
-    let (sandbox, root_near) = super::support::shared_client().await;
-
-    // Publisher publishes the contract
-    let (publisher_near, publisher_id, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
-
-    let wasm_code = load_test_contract();
-
-    publisher_near
-        .publish(wasm_code, PublishMode::Updatable)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // User deploys using the Near::deploy_from() shorthand
-    let (user_near, user_id, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(10)).await;
-
-    user_near
-        .deploy_from(publisher_id.clone())
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Verify by calling a view method on the deployed contract
-    let messages: Vec<serde_json::Value> = root_near
-        .view(&user_id, "get_messages")
-        .args(serde_json::json!({}))
-        .await
-        .unwrap();
-    assert!(messages.is_empty());
-}
-
-/// Test the `near.deploy_from()` convenience shorthand with a CryptoHash.
-#[tokio::test]
-async fn test_near_deploy_from_shorthand_hash() {
-    let (sandbox, root_near) = super::support::shared_client().await;
-
-    let (publisher_near, _, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
-
-    let wasm_code = load_test_contract();
-    let code_hash = CryptoHash::hash(&wasm_code);
-
-    publisher_near
-        .publish(wasm_code, PublishMode::Immutable)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // User deploys using the Near::deploy_from() shorthand with CryptoHash
-    let (user_near, user_id, _) =
-        create_funded_account(&root_near, sandbox, NearToken::from_near(10)).await;
-
-    user_near
-        .deploy_from(code_hash)
-        .send()
-        .wait_until::<Final>()
-        .await
-        .unwrap();
-
-    // Verify by calling a view method
-    let messages: Vec<serde_json::Value> = root_near
-        .view(&user_id, "get_messages")
-        .args(serde_json::json!({}))
-        .await
-        .unwrap();
-    assert!(messages.is_empty());
-}
 
 /// End-to-end test: publish → deploy_from → call the deployed contract.
 #[tokio::test]
@@ -184,9 +84,9 @@ async fn test_publish_deploy_from_call_end_to_end() {
     let wasm_code = load_test_contract();
 
     publisher_near
-        .publish(wasm_code, PublishMode::Updatable)
-        .send()
         .wait_until::<Final>()
+        .transaction(publisher_near.account_id())
+        .add_action(Action::publish(wasm_code, PublishMode::Updatable))
         .await
         .unwrap();
 
@@ -195,26 +95,28 @@ async fn test_publish_deploy_from_call_end_to_end() {
         create_funded_account(&root_near, sandbox, NearToken::from_near(10)).await;
 
     user_near
-        .deploy_from(publisher_id.as_str())
-        .send()
         .wait_until::<Final>()
+        .transaction(user_near.account_id())
+        .add_action(Action::deploy_from_account(publisher_id.clone()))
         .await
         .unwrap();
 
     // Call a mutating method on the deployed contract
     user_near
-        .transaction(&user_id)
-        .call("add_message")
-        .args(serde_json::json!({ "text": "Hello from global contract!" }))
-        .gas(Gas::from_tgas(30))
-        .deposit(NearToken::ZERO)
-        .send()
         .wait_until::<Final>()
+        .transaction(&user_id)
+        .add_action(
+            FunctionCall::new("add_message")
+                .args(serde_json::json!({ "text": "Hello from global contract!" }))
+                .gas(Gas::from_tgas(30))
+                .deposit(NearToken::ZERO),
+        )
         .await
         .unwrap();
 
     // Verify the message was stored
     let messages: Vec<serde_json::Value> = root_near
+        .near()
         .view(&user_id, "get_messages")
         .args(serde_json::json!({}))
         .await
@@ -236,10 +138,9 @@ async fn test_publish_contract_by_account() {
 
     // Publish the contract in updatable mode (identified by the publisher account)
     let outcome = publisher_near
-        .transaction(&publisher_id)
-        .publish(wasm_code, PublishMode::Updatable)
-        .send()
         .wait_until::<Final>()
+        .transaction(&publisher_id)
+        .add_action(Action::publish(wasm_code, PublishMode::Updatable))
         .await
         .unwrap();
 
@@ -262,10 +163,9 @@ async fn test_publish_contract_by_hash() {
 
     // Publish the contract using PublishMode::Immutable (identified by code hash, immutable)
     let outcome = publisher_near
-        .transaction(&publisher_id)
-        .publish(wasm_code, PublishMode::Immutable)
-        .send()
         .wait_until::<Final>()
+        .transaction(&publisher_id)
+        .add_action(Action::publish(wasm_code, PublishMode::Immutable))
         .await
         .unwrap();
 
@@ -288,10 +188,9 @@ async fn test_deploy_from_publisher() {
 
     // First, publish the contract
     publisher_near
-        .transaction(&publisher_id)
-        .publish(wasm_code, PublishMode::Updatable)
-        .send()
         .wait_until::<Final>()
+        .transaction(&publisher_id)
+        .add_action(Action::publish(wasm_code, PublishMode::Updatable))
         .await
         .unwrap();
 
@@ -301,10 +200,9 @@ async fn test_deploy_from_publisher() {
 
     // Deploy from the publisher's global contract (passing AccountId directly)
     let outcome = user_near
-        .transaction(&user_id)
-        .deploy_from(publisher_id.clone())
-        .send()
         .wait_until::<Final>()
+        .transaction(&user_id)
+        .add_action(Action::deploy_from_account(publisher_id.clone()))
         .await
         .unwrap();
 
@@ -317,6 +215,7 @@ async fn test_deploy_from_publisher() {
     // (with global contracts, the account references global code, not a local code_hash)
     // The guestbook contract expects empty JSON object {} for get_messages
     let messages: Vec<serde_json::Value> = root_near
+        .near()
         .view(&user_id, "get_messages")
         .args(serde_json::json!({}))
         .await
@@ -341,10 +240,9 @@ async fn test_deploy_from_hash() {
 
     // Publish the contract by hash (immutable)
     publisher_near
-        .transaction(&publisher_id)
-        .publish(wasm_code, PublishMode::Immutable)
-        .send()
         .wait_until::<Final>()
+        .transaction(&publisher_id)
+        .add_action(Action::publish(wasm_code, PublishMode::Immutable))
         .await
         .unwrap();
 
@@ -354,10 +252,9 @@ async fn test_deploy_from_hash() {
 
     // Deploy from the code hash
     let outcome = user_near
-        .transaction(&user_id)
-        .deploy_from(code_hash)
-        .send()
         .wait_until::<Final>()
+        .transaction(&user_id)
+        .add_action(Action::deploy_from_hash(code_hash))
         .await
         .unwrap();
 
@@ -370,6 +267,7 @@ async fn test_deploy_from_hash() {
     // (with global contracts, the account references global code, not a local code_hash)
     // The guestbook contract expects empty JSON object {} for get_messages
     let messages: Vec<serde_json::Value> = root_near
+        .near()
         .view(&user_id, "get_messages")
         .args(serde_json::json!({}))
         .await
@@ -391,10 +289,9 @@ async fn test_state_init_by_hash() {
 
     // First, publish the contract by hash
     publisher_near
-        .transaction(&publisher_id)
-        .publish(wasm_code, PublishMode::Immutable)
-        .send()
         .wait_until::<Final>()
+        .transaction(&publisher_id)
+        .add_action(Action::publish(wasm_code, PublishMode::Immutable))
         .await
         .unwrap();
 
@@ -403,10 +300,11 @@ async fn test_state_init_by_hash() {
 
     // Use state_init to create a deterministic account
     let si = StateInit::by_hash(code_hash, initial_data);
+    let receiver = si.derive_account_id();
     let outcome = publisher_near
-        .state_init(si, NearToken::from_near(5))
-        .send()
         .wait_until::<Final>()
+        .transaction(&receiver)
+        .add_action(Action::state_init(si, NearToken::from_near(5)))
         .await
         .unwrap();
 
@@ -429,10 +327,9 @@ async fn test_state_init_by_publisher() {
 
     // First, publish the contract by account
     publisher_near
-        .transaction(&publisher_id)
-        .publish(wasm_code, PublishMode::Updatable)
-        .send()
         .wait_until::<Final>()
+        .transaction(&publisher_id)
+        .add_action(Action::publish(wasm_code, PublishMode::Updatable))
         .await
         .unwrap();
 
@@ -442,10 +339,11 @@ async fn test_state_init_by_publisher() {
 
     // Use state_init to create a deterministic account
     let si = StateInit::by_publisher(publisher_id.clone(), initial_data);
+    let receiver = si.derive_account_id();
     let outcome = publisher_near
-        .state_init(si, NearToken::from_near(5))
-        .send()
         .wait_until::<Final>()
+        .transaction(&receiver)
+        .add_action(Action::state_init(si, NearToken::from_near(5)))
         .await
         .unwrap();
 
@@ -456,7 +354,7 @@ async fn test_state_init_by_publisher() {
 }
 
 // =============================================================================
-// Action Type Tests - Exercise all TransactionBuilder actions
+// Action Type Tests - Exercise the remaining `Action` constructors
 // =============================================================================
 
 /// Test AddKey action with function call access
@@ -468,23 +366,27 @@ async fn test_action_add_function_call_key() {
         create_funded_account(&root_near, sandbox, NearToken::from_near(10)).await;
 
     let fc_key = SecretKey::generate_ed25519();
-    let receiver_contract: AccountId = "some-contract.sandbox".parse().unwrap();
+    let receiver_contract: AccountId = near_kit::account!("some-contract.sandbox");
 
     let _outcome = account_near
+        .wait_until::<Final>()
         .transaction(&account_id)
-        .add_function_call_key(
+        .add_action(Action::add_function_call_key(
             fc_key.public_key(),
-            &receiver_contract,
+            receiver_contract,
             vec!["method1".to_string(), "method2".to_string()],
             Some(NearToken::from_near(1)),
-        )
-        .send()
-        .wait_until::<Final>()
+        ))
         .await
         .unwrap();
 
     // Verify the key was added
-    let keys = root_near.access_keys(&account_id).await.unwrap();
+    let keys = root_near
+        .near()
+        .rpc()
+        .view_access_key_list(&account_id, near_kit::rpc::Finality::Final)
+        .await
+        .unwrap();
     assert_eq!(keys.keys.len(), 2);
 }
 
@@ -501,30 +403,42 @@ async fn test_action_delete_account() {
     let to_delete_id: AccountId = format!("todelete.{}", beneficiary_id).parse().unwrap();
 
     beneficiary_near
-        .transaction(&to_delete_id)
-        .create_account()
-        .transfer(NearToken::from_near(2))
-        .add_full_access_key(to_delete_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&to_delete_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(2)))
+        .add_action(Action::add_full_access_key(to_delete_key.public_key()))
         .await
         .unwrap();
 
-    assert!(root_near.account_exists(&to_delete_id).await.unwrap());
+    assert!(
+        root_near
+            .near()
+            .account_exists(&to_delete_id)
+            .await
+            .unwrap()
+    );
 
     // Delete the account
-    let to_delete_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&to_delete_id, to_delete_key.to_string()).unwrap());
+    let to_delete_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&to_delete_id, to_delete_key.clone()));
 
     to_delete_near
-        .transaction(&to_delete_id)
-        .delete_account(&beneficiary_id)
-        .send()
         .wait_until::<Final>()
+        .transaction(&to_delete_id)
+        .add_action(Action::delete_account(beneficiary_id.clone()))
         .await
         .unwrap();
 
-    assert!(!root_near.account_exists(&to_delete_id).await.unwrap());
+    assert!(
+        !root_near
+            .near()
+            .account_exists(&to_delete_id)
+            .await
+            .unwrap()
+    );
 }
 
 /// Test Stake action
@@ -544,23 +458,27 @@ async fn test_action_stake() {
         .unwrap();
 
     // Verify the patched balance
-    let balance = root_near.balance(&staker_id).await.unwrap();
+    let balance = root_near.near().balance(&staker_id).await.unwrap();
     assert_eq!(balance.total, staking_balance);
 
     // Now stake with enough to meet the minimum
     let stake_amount = NearToken::from_near(1_000_000);
     let outcome = staker_near
-        .transaction(&staker_id)
-        .stake(stake_amount, staker_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&staker_id)
+        .add_action(Action::stake(stake_amount, staker_key.public_key()))
         .await
         .unwrap();
 
     println!("Stake action completed: {:?}", outcome.transaction_hash());
 
     // Verify locked balance reflects the stake
-    let account = root_near.account(&staker_id).await.unwrap();
+    let account = root_near
+        .near()
+        .rpc()
+        .view_account(&staker_id, near_kit::rpc::Finality::Final)
+        .await
+        .unwrap();
     println!("Locked balance after staking: {}", account.locked);
     assert!(account.locked >= stake_amount);
 }
@@ -577,25 +495,26 @@ async fn test_multiple_function_calls() {
 
     // Deploy the contract
     contract_near
-        .transaction(&contract_id)
-        .deploy(wasm_code)
-        .send()
         .wait_until::<Final>()
+        .transaction(&contract_id)
+        .add_action(Action::deploy_contract(wasm_code))
         .await
         .unwrap();
 
     // Call multiple methods in one transaction
     let outcome = contract_near
-        .transaction(&contract_id)
-        .call("add_message")
-        .args(serde_json::json!({ "text": "First message" }))
-        .gas(Gas::from_tgas(15))
-        .finish()
-        .call("add_message")
-        .args(serde_json::json!({ "text": "Second message" }))
-        .gas(Gas::from_tgas(15))
-        .send()
         .wait_until::<Final>()
+        .transaction(&contract_id)
+        .add_action(
+            FunctionCall::new("add_message")
+                .args(serde_json::json!({ "text": "First message" }))
+                .gas(Gas::from_tgas(15)),
+        )
+        .add_action(
+            FunctionCall::new("add_message")
+                .args(serde_json::json!({ "text": "Second message" }))
+                .gas(Gas::from_tgas(15)),
+        )
         .await
         .unwrap();
 
@@ -620,24 +539,23 @@ async fn test_global_contract_query_by_account() {
     let wasm_code = load_test_contract();
 
     publisher_near
-        .publish(wasm_code.clone(), PublishMode::Updatable)
-        .send()
         .wait_until::<Final>()
+        .transaction(publisher_near.account_id())
+        .add_action(Action::publish(wasm_code.clone(), PublishMode::Updatable))
         .await
         .unwrap();
-    wait_for_global_contract(&root_near, &publisher_id).await;
+    wait_for_global_contract(&root_near, publisher_id.clone()).await;
 
-    let contract = root_near.global_contract(&publisher_id).await.unwrap();
+    let id = GlobalContractId::from(publisher_id.clone());
+    let contract = root_near
+        .near()
+        .rpc()
+        .view_global_contract_code(id.clone(), near_kit::rpc::Finality::Final)
+        .await
+        .unwrap();
     assert_eq!(contract.code, wasm_code);
     assert_eq!(contract.hash, CryptoHash::hash(&wasm_code));
-
-    assert!(
-        root_near
-            .global_contract(&publisher_id)
-            .exists()
-            .await
-            .unwrap()
-    );
+    assert!(global_contract_exists(root_near.near(), &id).await);
 }
 
 /// Query a published (immutable) global contract by code hash.
@@ -652,81 +570,84 @@ async fn test_global_contract_query_by_hash() {
     let code_hash = CryptoHash::hash(&wasm_code);
 
     publisher_near
-        .publish(wasm_code.clone(), PublishMode::Immutable)
-        .send()
         .wait_until::<Final>()
+        .transaction(publisher_near.account_id())
+        .add_action(Action::publish(wasm_code.clone(), PublishMode::Immutable))
         .await
         .unwrap();
-    wait_for_global_contract(&root_near, code_hash).await;
+    wait_for_global_contract(&root_near, *code_hash.as_bytes()).await;
 
-    let contract = root_near.global_contract(code_hash).await.unwrap();
+    let id = GlobalContractId::from(code_hash);
+    let contract = root_near
+        .near()
+        .rpc()
+        .view_global_contract_code(id.clone(), near_kit::rpc::Finality::Final)
+        .await
+        .unwrap();
     assert_eq!(contract.code, wasm_code);
     assert_eq!(contract.hash, code_hash);
-
-    assert!(root_near.global_contract(code_hash).exists().await.unwrap());
+    assert!(global_contract_exists(root_near.near(), &id).await);
 }
 
-/// Missing global contracts surface a typed error, and exists() returns false.
+/// Missing global contracts surface a typed error, which reads as "not
+/// published".
 #[tokio::test]
 async fn test_global_contract_query_not_found() {
     let (_, root_near) = super::support::shared_client().await;
 
     // An account that never published anything
-    let unpublished_account = unique_account("gc");
+    let unpublished = GlobalContractId::from(unique_account("gc"));
     let err = root_near
-        .global_contract(&unpublished_account)
+        .near()
+        .rpc()
+        .view_global_contract_code(unpublished.clone(), near_kit::rpc::Finality::Final)
         .await
         .unwrap_err();
     assert!(
-        matches!(&err, Error::Rpc(e) if e.is_global_contract_not_found()),
+        err.is_global_contract_not_found(),
         "unexpected error: {err:?}"
     );
-
-    assert!(
-        !root_near
-            .global_contract(&unpublished_account)
-            .exists()
-            .await
-            .unwrap()
-    );
+    assert!(!global_contract_exists(root_near.near(), &unpublished).await);
 
     // A hash nothing was published under
     let bogus_hash = CryptoHash::hash(b"no contract with this hash");
     assert!(
-        !root_near
-            .global_contract(bogus_hash)
-            .exists()
-            .await
-            .unwrap()
+        !global_contract_exists(
+            root_near.near(),
+            &GlobalContractId::from(*bogus_hash.as_bytes())
+        )
+        .await
     );
 }
 
-/// near.contract_code() returns the code deployed on a regular account.
+/// `RpcClient::view_code` returns the code deployed on a regular account,
+/// and a typed error before anything is deployed.
 #[tokio::test]
 async fn test_contract_code_query() {
     let (sandbox, root_near) = super::support::shared_client().await;
 
     let (account_near, account_id, _) =
         create_funded_account(&root_near, sandbox, NearToken::from_near(50)).await;
+    let rpc = root_near.near().rpc();
 
     // No contract deployed yet
-    assert!(!root_near.contract_code(&account_id).exists().await.unwrap());
-    let err = root_near.contract_code(&account_id).await.unwrap_err();
-    assert!(
-        matches!(&err, Error::Rpc(e) if e.is_contract_not_deployed()),
-        "unexpected error: {err:?}"
-    );
+    let err = rpc
+        .view_code(&account_id, near_kit::rpc::Finality::Final)
+        .await
+        .unwrap_err();
+    assert!(err.is_contract_not_deployed(), "unexpected error: {err:?}");
 
     let wasm_code = load_test_contract();
     account_near
-        .deploy(wasm_code.clone())
-        .send()
-        .wait_until::<Final>()
+        .transaction(account_near.account_id())
+        .add_action(Action::deploy_contract(wasm_code.clone()))
         .await
         .unwrap();
 
-    let contract = root_near.contract_code(&account_id).await.unwrap();
+    let contract = rpc
+        .view_code(&account_id, near_kit::rpc::Finality::Final)
+        .await
+        .unwrap();
     assert_eq!(contract.code, wasm_code);
     assert_eq!(contract.hash, CryptoHash::hash(&wasm_code));
-    assert!(root_near.contract_code(&account_id).exists().await.unwrap());
 }

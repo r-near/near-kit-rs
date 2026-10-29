@@ -7,15 +7,16 @@
 //!
 //! This example starts a local NEAR node through Docker.
 
+use near_kit::protocol::Action;
 use near_kit::*;
 
 use near_kit::rpc::FinalExecutionOutcome;
 use near_kit::signer::{InMemorySigner, RotatingSigner, SecretKey};
-use near_kit_sandbox::{Sandbox, SandboxConfig};
+use near_kit_sandbox::Sandbox;
 
 async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting local sandbox...\n");
-    let sandbox: Sandbox = SandboxConfig::fresh().await?;
+    let sandbox: Sandbox = Sandbox::builder().fresh().await?;
 
     let root_near = sandbox.client();
     let root_account = root_near.account_id().to_string();
@@ -27,22 +28,21 @@ async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     // Create a bot account with the first key
-    let bot_account = format!("bot-{}.{}", std::process::id(), root_account);
+    let bot_account: AccountId = format!("bot-{}.{}", std::process::id(), root_account).parse()?;
     println!("Creating bot account: {bot_account}");
 
     root_near
         .transaction(&bot_account)
-        .create_account()
-        .transfer(NearToken::from_near(50))
-        .add_full_access_key(secret_keys[0].public_key())
-        .send()
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(50)))
+        .add_action(Action::add_full_access_key(secret_keys[0].public_key()))
         .await?;
 
     // Add remaining keys using a loop
-    let bot_near = Near::sandbox(&sandbox).with_signer(InMemorySigner::from_secret_key(
-        bot_account.as_str(),
-        secret_keys[0].clone(),
-    )?);
+    let bot_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&bot_account, secret_keys[0].clone()));
 
     println!("Adding {} more access keys...", num_keys - 1);
 
@@ -50,27 +50,25 @@ async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
     secret_keys[1..]
         .iter()
         .fold(bot_near.transaction(&bot_account), |tx, key| {
-            tx.add_full_access_key(key.public_key())
+            tx.add_action(Action::add_full_access_key(key.public_key()))
         })
-        .send()
         .await?;
 
     // Create RotatingSigner with all keys
     let rotating_signer = RotatingSigner::new(&bot_account, secret_keys)?;
 
-    let near = Near::sandbox(&sandbox).with_signer(rotating_signer);
+    let near = sandbox.client().near().with_signer(rotating_signer);
 
     // Create recipient accounts
     let num_recipients = 20;
     println!("\nCreating {num_recipients} recipient accounts...");
 
     for i in 0..num_recipients {
-        let recipient = format!("recipient-{i}.{root_account}");
+        let recipient: AccountId = format!("recipient-{i}.{root_account}").parse()?;
         root_near
             .transaction(&recipient)
-            .create_account()
-            .transfer(NearToken::from_millinear(100))
-            .send()
+            .add_action(Action::create_account())
+            .add_action(Action::transfer(NearToken::from_millinear(100)))
             .await?;
     }
 
@@ -81,9 +79,15 @@ async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
     let root_account_clone = root_account.clone();
     let futures: Vec<_> = (0..num_recipients)
         .map(|i| {
-            let recipient = format!("recipient-{i}.{root_account_clone}");
+            let recipient: AccountId = format!("recipient-{i}.{root_account_clone}")
+                .parse()
+                .expect("valid recipient account ID");
             let near = near.clone();
-            async move { near.transfer(&recipient, NearToken::from_near(1)).await }
+            async move {
+                near.transaction(&recipient)
+                    .add_action(Action::transfer(NearToken::from_near(1)))
+                    .await
+            }
         })
         .collect();
 
@@ -114,8 +118,8 @@ async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
     // Verify some balances
     println!("\nSample recipient balances:");
     for i in 0..3 {
-        let recipient = format!("recipient-{i}.{root_account}");
-        let balance = near.balance(&recipient).await?;
+        let recipient: AccountId = format!("recipient-{i}.{root_account}").parse()?;
+        let balance = near.near().balance(&recipient).await?;
         println!("  {recipient}: {}", balance.available);
     }
 

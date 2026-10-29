@@ -71,7 +71,8 @@ mnemonic = ["dep:bip39", "dep:hmac"]
 js = ["getrandom/wasm_js"]
 # The `#[contract]` proc macro, for crates that can't depend on the RPC
 # client (e.g. contracts built for wasm). It generates the offline
-# `FunctionCall` constructors; the `Near`-backed client needs near-kit.
+# `FunctionCall` constructors and a client generic over any `Viewer` /
+# `TxSender` backend.
 contracts = ["dep:near-kit-macros"]
 
 [dev-dependencies]

@@ -115,7 +115,14 @@ mod rpc {
             .transport(ResponseTransport(response))
             .build();
 
-        let list = near.access_keys("alice.testnet").await.unwrap();
+        let list = near
+            .rpc()
+            .view_access_key_list(
+                &near_kit::account!("alice.testnet"),
+                near_kit::rpc::Finality::Final,
+            )
+            .await
+            .unwrap();
         assert_eq!(list.keys.len(), 2);
         assert_eq!(list.keys[0].public_key.full_pubkey(), Some(&key));
         assert!(list.keys[0].public_key.refers_to(&key));

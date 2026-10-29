@@ -1,0 +1,17 @@
+error[E0107]: missing generics for struct `CounterClient`
+  --> tests/contracts-offline/fail/no_default_backend_without_rpc.rs:14:19
+   |
+14 |     let _: Option<CounterClient> = None;
+   |                   ^^^^^^^^^^^^^ expected 1 generic argument
+   |
+note: struct defined here, with 1 generic parameter: `__NearKitBackend`
+  --> tests/contracts-offline/fail/no_default_backend_without_rpc.rs:5:11
+   |
+ 4 | #[near_kit::contract]
+   | ---------------------
+ 5 | pub trait Counter {
+   |           ^^^^^^^
+help: add missing generic argument
+   |
+14 |     let _: Option<CounterClient<__NearKitBackend>> = None;
+   |                                ++++++++++++++++++

@@ -13,6 +13,7 @@
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
+use near_kit::protocol::Action;
 use near_kit::*;
 use near_kit::{protocol::*, rpc::*, signer::*, transaction::Final};
 
@@ -20,12 +21,17 @@ use super::support::{sandbox_2_13, unique_account};
 
 /// Read a gas key's parallel nonces via the stabilized `query` RPC shape.
 async fn view_gas_key_nonces(
-    near: &Near,
+    near: &SigningNear,
     account_id: &AccountId,
     public_key: &PublicKey,
 ) -> Vec<u64> {
-    near.rpc()
-        .view_gas_key_nonces(account_id, public_key, BlockReference::final_())
+    near.near()
+        .rpc()
+        .view_gas_key_nonces(
+            account_id,
+            public_key,
+            BlockReference::Finality(Finality::Final),
+        )
         .await
         .expect("view_gas_key_nonces query failed")
         .nonces
@@ -40,18 +46,17 @@ async fn test_gas_key_signed_transaction() {
     let owner_key = SecretKey::generate_ed25519();
     let owner_id = unique_account("gkowner");
     root_near
-        .transaction(&owner_id)
-        .create_account()
-        .transfer(NearToken::from_near(20))
-        .add_full_access_key(owner_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&owner_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(20)))
+        .add_action(Action::add_full_access_key(owner_key.public_key()))
         .await
         .expect("create owner account");
 
-    let owner_near = root_near.with_signer(
-        InMemorySigner::from_secret_key(owner_id.clone(), owner_key.clone()).expect("owner signer"),
-    );
+    let owner_near = root_near
+        .near()
+        .with_signer(InMemorySigner::new(owner_id.clone(), owner_key.clone()));
 
     // --- 2. Add a gas key (GasKeyFullAccess) and fund it. -------------------
     let gas_key = SecretKey::generate_ed25519();
@@ -71,14 +76,13 @@ async fn test_gas_key_signed_transaction() {
     });
 
     owner_near
+        .wait_until::<Final>()
         .transaction(&owner_id)
         .add_action(add_gas_key)
         .add_action(Action::transfer_to_gas_key(
             gas_pk.clone(),
             NearToken::from_near(5),
         ))
-        .send()
-        .wait_until::<Final>()
         .await
         .expect("add + fund gas key");
 
@@ -93,6 +97,7 @@ async fn test_gas_key_signed_transaction() {
 
     // A recent block hash. view_access_key on the gas key returns one.
     let ak = root_near
+        .near()
         .rpc()
         .view_access_key(
             &owner_id,
@@ -107,16 +112,16 @@ async fn test_gas_key_signed_transaction() {
     let recipient_id = unique_account("gkrecipient");
     let recipient_key = SecretKey::generate_ed25519();
     root_near
-        .transaction(&recipient_id)
-        .create_account()
-        .transfer(NearToken::from_near(1))
-        .add_full_access_key(recipient_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&recipient_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(1)))
+        .add_action(Action::add_full_access_key(recipient_key.public_key()))
         .await
         .expect("create recipient");
 
     let recipient_before = root_near
+        .near()
         .balance(&recipient_id)
         .await
         .expect("recipient balance before")
@@ -148,6 +153,7 @@ async fn test_gas_key_signed_transaction() {
         "wait_until": "FINAL",
     });
     let resp: RawTransactionResponse = root_near
+        .near()
         .rpc()
         .call("send_tx", send_params)
         .await
@@ -174,6 +180,7 @@ async fn test_gas_key_signed_transaction() {
 
     // --- 5. Assert effects: recipient credited, gas-key nonce advanced. -----
     let recipient_after = root_near
+        .near()
         .balance(&recipient_id)
         .await
         .expect("recipient balance after")

@@ -408,9 +408,8 @@ pub struct ContractCodeView {
 /// One entry in a [`BlockEffects`] response: which kind of state was touched
 /// for an account in the block.
 ///
-/// `block_effects` reports only the *kind* of change per account (no cause or
-/// value), so this is a lighter view than the per-account
-/// `StateChangeWithCauseView`.
+/// `block_effects` reports only the *kind* of change per account, with no
+/// cause or value.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum StateChangeKindView {
@@ -804,7 +803,7 @@ pub enum FinalExecutionStatus {
 /// Whether a (partial) execution outcome is available depends on which RPC
 /// produced the response, not on the wait level alone:
 ///
-/// - Via `Near::send` / `.send()` (the `send_tx` RPC): the
+/// - Via a sent transaction or `Near::send_signed` (the `send_tx` RPC): the
 ///   node returns no execution outcome at these early levels, so `outcome` is
 ///   [`None`].
 /// - Via `Near::tx_status` (the `EXPERIMENTAL_tx_status`
@@ -1602,7 +1601,7 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 /// With a live `near-kit` client:
 ///
 /// ```rust,ignore
-/// let outcome = near.tx_status(&tx_hash, "alice.near").wait_until::<Final>().await?;
+/// let outcome = near.tx_status(&tx_hash, account!("alice.near")).wait_until::<Final>().await?;
 /// let actions = outcome
 ///     .transaction
 ///     .actions
@@ -1842,6 +1841,28 @@ pub struct ViewFunctionResult<T = Vec<u8>> {
     pub block_height: u64,
     /// Block hash of the query.
     pub block_hash: CryptoHash,
+}
+
+impl<T> ViewFunctionResult<T> {
+    /// A result read at `block_height` / `block_hash`, with no logs.
+    ///
+    /// [`Viewer`](crate::Viewer) implementations build their results with
+    /// this (and [`with_logs`](Self::with_logs)) rather than a struct
+    /// literal, so fields can be added later without breaking them.
+    pub fn new(result: T, block_height: u64, block_hash: CryptoHash) -> Self {
+        Self {
+            result,
+            logs: Vec::new(),
+            block_height,
+            block_hash,
+        }
+    }
+
+    /// Attach the logs the view emitted.
+    pub fn with_logs(mut self, logs: Vec<String>) -> Self {
+        self.logs = logs;
+        self
+    }
 }
 
 impl ViewFunctionResult {
@@ -2379,12 +2400,7 @@ mod tests {
     // ========================================================================
 
     fn make_view_result(result: Vec<u8>) -> ViewFunctionResult {
-        ViewFunctionResult {
-            result,
-            logs: vec![],
-            block_height: 12345,
-            block_hash: CryptoHash::default(),
-        }
+        ViewFunctionResult::new(result, 12345, CryptoHash::default())
     }
 
     #[test]

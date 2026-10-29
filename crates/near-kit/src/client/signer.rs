@@ -1,39 +1,62 @@
-//! Signers that load their key from the environment or the filesystem.
+//! Load an [`InMemorySigner`] from the environment or a near-cli credentials
+//! file.
 //!
-//! The [`Signer`] trait, [`SigningKey`], and the in-memory and rotating
-//! signers live in `near-kit-primitives`; these wrap an [`InMemorySigner`] and
-//! report failures as [`Error`](crate::Error).
+//! These read once and return a plain [`InMemorySigner`]; nothing is re-read
+//! when signing. The [`Signer`](crate::signer::Signer) trait, [`SigningKey`]
+//! and the in-memory and rotating signers live in `near-kit-primitives`.
+//!
+//! [`SigningKey`]: crate::signer::SigningKey
 
 #[cfg(feature = "file-signer")]
 use std::path::Path;
 
-#[cfg(feature = "file-signer")]
-use crate::types::TryIntoAccountId;
-use crate::types::{AccountId, InMemorySigner, PublicKey, Signer, SigningKey};
+use crate::error::Error;
+use crate::types::{AccountId, InMemorySigner};
 
-// ============================================================================
-// FileSigner
-// ============================================================================
-
-/// A signer that loads its key from `~/.near-credentials/{network}/{account}.json`.
-///
-/// Compatible with credentials created by near-cli and near-cli-rs.
-///
-/// Requires the opt-in `file-signer` feature and is not usable on
-/// `wasm32-unknown-unknown`, which has no filesystem.
+/// Load a signer from the `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY`
+/// environment variables.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// use near_kit::signer::FileSigner;
+/// use near_kit::signer;
 ///
-/// // Load from ~/.near-credentials/testnet/alice.testnet.json
-/// let signer = FileSigner::new("testnet", "alice.testnet").unwrap();
+/// // With NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY set:
+/// let signer = signer::from_env()?;
+/// # Ok::<(), near_kit::Error>(())
 /// ```
-#[cfg(feature = "file-signer")]
-#[derive(Clone)]
-pub struct FileSigner {
-    inner: InMemorySigner,
+///
+/// # Errors
+///
+/// [`Error::Config`] if either variable is missing, and a parse error if
+/// either value is invalid.
+pub fn from_env() -> Result<InMemorySigner, Error> {
+    from_env_vars("NEAR_ACCOUNT_ID", "NEAR_PRIVATE_KEY")
+}
+
+/// Load a signer from the environment variables named `account_var` (the
+/// account ID) and `key_var` (its private key, e.g. `"ed25519:..."`).
+///
+/// # Errors
+///
+/// [`Error::Config`] if either variable is missing, and a parse error if
+/// either value is invalid.
+pub fn from_env_vars(account_var: &str, key_var: &str) -> Result<InMemorySigner, Error> {
+    match (std::env::var(account_var).ok(), std::env::var(key_var).ok()) {
+        (Some(account_id), Some(key)) => Ok(InMemorySigner::new(
+            account_id.parse::<AccountId>()?,
+            key.parse()?,
+        )),
+        (Some(_), None) => Err(Error::Config(format!(
+            "{account_var} is set but {key_var} is missing"
+        ))),
+        (None, Some(_)) => Err(Error::Config(format!(
+            "{key_var} is set but {account_var} is missing"
+        ))),
+        (None, None) => Err(Error::Config(format!(
+            "{account_var} and {key_var} must be set"
+        ))),
+    }
 }
 
 /// Credential file format compatible with near-cli.
@@ -44,206 +67,86 @@ struct CredentialFile {
     private_key: String,
 }
 
-#[cfg(feature = "file-signer")]
-impl FileSigner {
-    /// Load credentials for an account from the standard NEAR credentials directory.
-    ///
-    /// Looks for the file at `~/.near-credentials/{network}/{account_id}.json`.
-    ///
-    /// # Arguments
-    ///
-    /// * `network` - Network name (e.g., "testnet", "mainnet")
-    /// * `account_id` - The NEAR account ID
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The home directory cannot be determined
-    /// - The credentials file doesn't exist
-    /// - The file cannot be parsed
-    pub fn new(
-        network: impl AsRef<str>,
-        account_id: impl TryIntoAccountId,
-    ) -> Result<Self, crate::error::Error> {
-        let account_id: AccountId = account_id.try_into_account_id()?;
-        let home = dirs::home_dir().ok_or_else(|| {
-            crate::error::Error::Config("Could not determine home directory".to_string())
-        })?;
-        let path = home
-            .join(".near-credentials")
-            .join(network.as_ref())
-            .join(format!("{}.json", account_id));
-
-        Self::from_file(&path, account_id)
-    }
-
-    /// Load credentials from a specific file path.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to the credentials JSON file
-    /// * `account_id` - The NEAR account ID
-    pub fn from_file(
-        path: impl AsRef<Path>,
-        account_id: impl TryIntoAccountId,
-    ) -> Result<Self, crate::error::Error> {
-        let content = std::fs::read_to_string(path.as_ref()).map_err(|e| {
-            crate::error::Error::Config(format!(
-                "Failed to read credentials file {}: {}",
-                path.as_ref().display(),
-                e
-            ))
-        })?;
-
-        let cred: CredentialFile = serde_json::from_str(&content).map_err(|e| {
-            crate::error::Error::Config(format!(
-                "Failed to parse credentials file {}: {}",
-                path.as_ref().display(),
-                e
-            ))
-        })?;
-
-        let inner = InMemorySigner::new(account_id, &cred.private_key)?;
-        Ok(Self { inner })
-    }
-
-    /// Get the public key.
-    pub fn public_key(&self) -> &PublicKey {
-        self.inner.public_key()
-    }
-
-    /// Unwrap into the underlying [`InMemorySigner`].
-    ///
-    /// Use this to combine keys from several credential files into a
-    /// [`RotatingSigner`](crate::signer::RotatingSigner):
-    ///
-    /// ```rust,no_run
-    /// use near_kit::signer::{FileSigner, RotatingSigner};
-    ///
-    /// // Load keys from separate credential files for the same account
-    /// let signers = vec![
-    ///     FileSigner::from_file("keys/bot-key-0.json", "bot.testnet")?.into_inner(),
-    ///     FileSigner::from_file("keys/bot-key-1.json", "bot.testnet")?.into_inner(),
-    /// ];
-    /// let rotating = RotatingSigner::from_signers(signers)?;
-    /// # Ok::<(), near_kit::Error>(())
-    /// ```
-    pub fn into_inner(self) -> InMemorySigner {
-        self.inner
-    }
-}
-
-#[cfg(feature = "file-signer")]
-impl std::fmt::Debug for FileSigner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FileSigner")
-            .field("account_id", self.inner.account_id())
-            .field("public_key", self.inner.public_key())
-            .finish()
-    }
-}
-
-#[cfg(feature = "file-signer")]
-impl Signer for FileSigner {
-    fn account_id(&self) -> &AccountId {
-        self.inner.account_id()
-    }
-
-    fn key(&self) -> SigningKey {
-        self.inner.key()
-    }
-
-    fn public_key(&self) -> PublicKey {
-        Signer::public_key(&self.inner)
-    }
-}
-
-// ============================================================================
-// EnvSigner
-// ============================================================================
-
-/// A signer that loads credentials from environment variables.
+/// Load the key for `account_id` from
+/// `~/.near-credentials/{network}/{account_id}.json`, the file near-cli and
+/// near-cli-rs write.
 ///
-/// By default, reads from:
-/// - `NEAR_ACCOUNT_ID` - The account ID
-/// - `NEAR_PRIVATE_KEY` - The private key
+/// Requires the opt-in `file-signer` feature and is not usable on
+/// `wasm32-unknown-unknown`, which has no filesystem.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// use near_kit::signer::EnvSigner;
+/// use near_kit::{account, signer};
 ///
-/// // With NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY set:
-/// let signer = EnvSigner::new().unwrap();
+/// // Load from ~/.near-credentials/testnet/alice.testnet.json
+/// let signer = signer::from_credentials("testnet", account!("alice.testnet"))?;
+/// # Ok::<(), near_kit::Error>(())
 /// ```
-#[derive(Clone)]
-pub struct EnvSigner {
-    inner: InMemorySigner,
+///
+/// # Errors
+///
+/// [`Error::Config`] if the home directory can't be determined or the file
+/// can't be read or parsed, and a parse error for an invalid key.
+#[cfg(feature = "file-signer")]
+pub fn from_credentials(
+    network: &str,
+    account_id: impl Into<AccountId>,
+) -> Result<InMemorySigner, Error> {
+    let account_id: AccountId = account_id.into();
+    let home = dirs::home_dir()
+        .ok_or_else(|| Error::Config("Could not determine home directory".to_string()))?;
+    let path = home
+        .join(".near-credentials")
+        .join(network)
+        .join(format!("{account_id}.json"));
+    from_credentials_file(&path, account_id)
 }
 
-impl EnvSigner {
-    /// Load from `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` environment variables.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Either environment variable is not set
-    /// - The values cannot be parsed
-    pub fn new() -> Result<Self, crate::error::Error> {
-        Self::from_env_vars("NEAR_ACCOUNT_ID", "NEAR_PRIVATE_KEY")
-    }
-
-    /// Load from custom environment variable names.
-    ///
-    /// # Arguments
-    ///
-    /// * `account_var` - Name of the environment variable containing the account ID
-    /// * `key_var` - Name of the environment variable containing the private key
-    pub fn from_env_vars(account_var: &str, key_var: &str) -> Result<Self, crate::error::Error> {
-        let account_id = std::env::var(account_var).map_err(|_| {
-            crate::error::Error::Config(format!("Environment variable {} not set", account_var))
-        })?;
-
-        let private_key = std::env::var(key_var).map_err(|_| {
-            crate::error::Error::Config(format!("Environment variable {} not set", key_var))
-        })?;
-
-        let inner = InMemorySigner::new(account_id, &private_key)?;
-        Ok(Self { inner })
-    }
-
-    /// Get the public key.
-    pub fn public_key(&self) -> &PublicKey {
-        self.inner.public_key()
-    }
-
-    /// Unwrap into the underlying [`InMemorySigner`].
-    pub fn into_inner(self) -> InMemorySigner {
-        self.inner
-    }
-}
-
-impl std::fmt::Debug for EnvSigner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EnvSigner")
-            .field("account_id", self.inner.account_id())
-            .field("public_key", self.inner.public_key())
-            .finish()
-    }
-}
-
-impl Signer for EnvSigner {
-    fn account_id(&self) -> &AccountId {
-        self.inner.account_id()
-    }
-
-    fn key(&self) -> SigningKey {
-        self.inner.key()
-    }
-
-    fn public_key(&self) -> PublicKey {
-        Signer::public_key(&self.inner)
-    }
+/// Load the key for `account_id` from a near-cli credentials file at `path`.
+///
+/// Requires the opt-in `file-signer` feature. To sign with several keys of
+/// one account, load each and combine them:
+///
+/// ```rust,no_run
+/// use near_kit::account;
+/// use near_kit::signer::{self, RotatingSigner};
+///
+/// let rotating = RotatingSigner::from_signers(vec![
+///     signer::from_credentials_file("keys/bot-key-0.json", account!("bot.testnet"))?,
+///     signer::from_credentials_file("keys/bot-key-1.json", account!("bot.testnet"))?,
+/// ])?;
+/// # Ok::<(), near_kit::Error>(())
+/// ```
+///
+/// # Errors
+///
+/// [`Error::Config`] if the file can't be read or parsed, and a parse error
+/// for an invalid key.
+#[cfg(feature = "file-signer")]
+pub fn from_credentials_file(
+    path: impl AsRef<Path>,
+    account_id: impl Into<AccountId>,
+) -> Result<InMemorySigner, Error> {
+    let path = path.as_ref();
+    let content = std::fs::read_to_string(path).map_err(|e| {
+        Error::Config(format!(
+            "Failed to read credentials file {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+    let credentials: CredentialFile = serde_json::from_str(&content).map_err(|e| {
+        Error::Config(format!(
+            "Failed to parse credentials file {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+    Ok(InMemorySigner::new(
+        account_id,
+        credentials.private_key.parse()?,
+    ))
 }
 
 #[cfg(test)]
@@ -251,9 +154,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_env_signer_missing_vars() {
-        // This should fail because the env vars aren't set
-        let result = EnvSigner::from_env_vars("NONEXISTENT_VAR_1", "NONEXISTENT_VAR_2");
-        assert!(result.is_err());
+    fn env_vars_must_both_be_set() {
+        let error = from_env_vars("NONEXISTENT_VAR_1", "NONEXISTENT_VAR_2").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Invalid configuration: NONEXISTENT_VAR_1 and NONEXISTENT_VAR_2 must be set"
+        );
+    }
+
+    #[cfg(feature = "file-signer")]
+    #[test]
+    fn credentials_files_load_a_plain_in_memory_signer() {
+        use crate::signer::Signer;
+
+        let path = std::env::temp_dir().join(format!(
+            "near-kit-credentials-test-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"account_id":"alice.testnet","private_key":"ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"}"#,
+        )
+        .unwrap();
+        let signer = from_credentials_file(&path, crate::account!("alice.testnet")).unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        assert_eq!(signer.account_id().as_str(), "alice.testnet");
+        let key: crate::signer::SecretKey = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
+            .parse()
+            .unwrap();
+        assert_eq!(signer.public_key(), key.public_key());
     }
 }

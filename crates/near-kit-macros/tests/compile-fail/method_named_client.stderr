@@ -1,0 +1,13 @@
+error: `client` is reserved by #[near_kit::contract] (the generated client uses it); rename the method
+ --> tests/compile-fail/method_named_client.rs:8:8
+  |
+8 |     fn client(&mut self);
+  |        ^^^^^^
+
+warning: unused import: `near_kit::*`
+ --> tests/compile-fail/method_named_client.rs:3:5
+  |
+3 | use near_kit::*;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

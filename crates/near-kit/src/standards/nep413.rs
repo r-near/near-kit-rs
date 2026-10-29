@@ -11,21 +11,18 @@
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
-//! use near_kit::Near;
-//! use near_kit::signer::InMemorySigner;
+//! use near_kit::{Near, account};
+//! use near_kit::signer::{InMemorySigner, Signer};
 //! use near_kit::standards::nep413;
 //!
 //! # async fn example() -> Result<(), near_kit::Error> {
 //! let signer = InMemorySigner::new(
-//!     "alice.testnet",
-//!     "ed25519:..."
-//! )?;
+//!     account!("alice.testnet"),
+//!     "ed25519:...".parse()?,
+//! );
 //!
-//! let near = Near::testnet()
-//!     .signer(signer)
-//!     .build();
-//!
-//! // Sign a message
+//! // Sign a message. A `SigningNear` signs the same way through
+//! // `alice.signer().key()` and `alice.account_id()`.
 //! let params = nep413::SignMessageParams {
 //!     message: "Login to MyApp".to_string(),
 //!     recipient: "myapp.com".to_string(),
@@ -34,9 +31,10 @@
 //!     state: None,
 //! };
 //!
-//! let signed = near.sign_message(params.clone()).await?;
+//! let signed = signer.key().sign_nep413(signer.account_id(), &params).await?;
 //!
 //! // Verify the signature
+//! let near = Near::testnet().build();
 //! let is_valid = nep413::verify(&signed, &params, &near, Default::default()).await?;
 //! # Ok(())
 //! # }
@@ -145,7 +143,7 @@ pub async fn verify(
             .view_access_key(
                 &signed.account_id,
                 &signed.public_key,
-                BlockReference::optimistic(),
+                BlockReference::Finality(crate::types::Finality::Optimistic),
             )
             .await;
 

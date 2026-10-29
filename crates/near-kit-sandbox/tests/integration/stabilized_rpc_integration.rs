@@ -1,6 +1,8 @@
-//! Integration tests for the stabilized 2.13 RPC method wrappers:
-//! `block_effects`, `genesis_config`, and `maintenance_windows`.
+//! Integration tests for the stabilized 2.13 RPC methods: the
+//! `block_effects` and `maintenance_windows` wrappers, and `genesis_config`
+//! through the raw `RpcClient::call`.
 
+use near_kit::protocol::Action;
 use near_kit::*;
 use near_kit::{rpc::*, signer::SecretKey, transaction::Final};
 use near_kit_sandbox::SANDBOX_ROOT_ACCOUNT;
@@ -11,7 +13,12 @@ use super::support::unique_account;
 async fn test_genesis_config_returns_chain_config() {
     let (_, near) = super::support::shared_client().await;
 
-    let config = near.rpc().genesis_config().await.expect("genesis_config");
+    let config: serde_json::Value = near
+        .near()
+        .rpc()
+        .call("genesis_config", serde_json::json!([]))
+        .await
+        .expect("genesis_config");
     // The genesis document always carries a chain id and a protocol version.
     assert!(
         config.get("chain_id").and_then(|v| v.as_str()).is_some(),
@@ -37,19 +44,19 @@ async fn test_block_effects_returns_changes_for_block() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account("blockfx");
     let outcome = near
-        .transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(3))
-        .add_full_access_key(key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(3)))
+        .add_action(Action::add_full_access_key(key.public_key()))
         .await
         .expect("create_account must execute");
 
     let block_hash = outcome.transaction_outcome.block_hash;
     let effects = near
+        .near()
         .rpc()
-        .block_effects(BlockReference::at_hash(block_hash))
+        .block_effects(BlockReference::Hash(block_hash))
         .await
         .expect("block_effects must parse");
 
@@ -74,11 +81,12 @@ async fn test_block_effects_returns_changes_for_block() {
 async fn test_maintenance_windows_for_account() {
     let (_, near) = super::support::shared_client().await;
 
-    let account: AccountId = SANDBOX_ROOT_ACCOUNT.parse().unwrap();
+    let account: AccountId = SANDBOX_ROOT_ACCOUNT.into();
     // The root account is the sandbox's sole validator, so this must not error.
     // Windows may be empty depending on the epoch; the call succeeding and the
     // ranges being well-formed (start <= end) is the contract under test.
     let windows = near
+        .near()
         .rpc()
         .maintenance_windows(&account)
         .await

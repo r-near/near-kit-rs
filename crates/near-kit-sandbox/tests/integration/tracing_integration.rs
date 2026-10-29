@@ -7,6 +7,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use near_kit::protocol::Action;
+use near_kit::standards::FungibleToken;
+use near_kit::transaction::FunctionCall;
 use near_kit::*;
 use near_kit::{signer::*, transaction::Final};
 use tracing::span::Id;
@@ -177,12 +180,11 @@ async fn test_send_transaction_span_hierarchy() {
     let account_id = unique_account("trace");
 
     root_near
-        .transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(10))
-        .add_full_access_key(account_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(10)))
+        .add_action(Action::add_full_access_key(account_key.public_key()))
         .await
         .unwrap();
 
@@ -246,11 +248,14 @@ async fn test_sign_transaction_span_hierarchy() {
 
     // Use .sign() to exercise sign_transaction span
     let _signed = root_near
-        .transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(5))
-        .add_full_access_key(account_key.public_key())
-        .sign()
+        .sign(
+            &account_id,
+            vec![
+                Action::create_account(),
+                Action::transfer(NearToken::from_near(5)),
+                Action::add_full_access_key(account_key.public_key()),
+            ],
+        )
         .await
         .unwrap();
 
@@ -293,25 +298,27 @@ async fn test_function_call_span_fields() {
     let ft_id = unique_account("trace");
 
     root_near
-        .transaction(&ft_id)
-        .create_account()
-        .transfer(NearToken::from_near(50))
-        .add_full_access_key(ft_key.public_key())
-        .deploy(fungible_token_wasm())
-        .send()
         .wait_until::<Final>()
+        .transaction(&ft_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(50)))
+        .add_action(Action::add_full_access_key(ft_key.public_key()))
+        .add_action(Action::deploy_contract(fungible_token_wasm()))
         .await
         .unwrap();
 
     // Clear setup spans — we only care about the function call
     captured.spans.lock().unwrap().clear();
 
-    let ft_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&ft_id, ft_key.to_string()).unwrap());
+    let ft_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&ft_id, ft_key.clone()));
 
     ft_near
-        .call(&ft_id, "new")
-        .args(serde_json::json!({
+        .wait_until::<Final>()
+        .transaction(&ft_id)
+        .add_action(FunctionCall::new("new").args(serde_json::json!({
             "owner_id": ft_id.to_string(),
             "total_supply": "1000000000000000000000000",
             "metadata": {
@@ -320,9 +327,7 @@ async fn test_function_call_span_fields() {
                 "symbol": "TEST",
                 "decimals": 18
             }
-        }))
-        .send()
-        .wait_until::<Final>()
+        })))
         .await
         .unwrap();
 
@@ -373,12 +378,11 @@ async fn test_ft_balance_of_span_hierarchy() {
 
     // Create owner account
     root_near
-        .transaction(&owner_id)
-        .create_account()
-        .transfer(NearToken::from_near(50))
-        .add_full_access_key(owner_key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&owner_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(50)))
+        .add_action(Action::add_full_access_key(owner_key.public_key()))
         .await
         .unwrap();
 
@@ -386,22 +390,24 @@ async fn test_ft_balance_of_span_hierarchy() {
     let wasm = fungible_token_wasm();
 
     root_near
-        .transaction(&ft_id)
-        .create_account()
-        .transfer(NearToken::from_near(50))
-        .add_full_access_key(ft_key.public_key())
-        .deploy(wasm)
-        .send()
         .wait_until::<Final>()
+        .transaction(&ft_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(50)))
+        .add_action(Action::add_full_access_key(ft_key.public_key()))
+        .add_action(Action::deploy_contract(wasm))
         .await
         .unwrap();
 
-    let ft_near = Near::sandbox(sandbox)
-        .with_signer(InMemorySigner::new(&ft_id, ft_key.to_string()).unwrap());
+    let ft_near = sandbox
+        .client()
+        .near()
+        .with_signer(InMemorySigner::new(&ft_id, ft_key.clone()));
 
     ft_near
-        .call(&ft_id, "new")
-        .args(serde_json::json!({
+        .wait_until::<Final>()
+        .transaction(&ft_id)
+        .add_action(FunctionCall::new("new").args(serde_json::json!({
             "owner_id": owner_id.to_string(),
             "total_supply": "1000000000000000000000000",
             "metadata": {
@@ -410,16 +416,14 @@ async fn test_ft_balance_of_span_hierarchy() {
                 "symbol": "TEST",
                 "decimals": 18
             }
-        }))
-        .send()
-        .wait_until::<Final>()
+        })))
         .await
         .unwrap();
 
     // Clear spans from setup, we only care about balance_of
     captured.spans.lock().unwrap().clear();
 
-    let ft = ft_near.ft(&ft_id);
+    let ft = ft_near.contract::<FungibleToken>(&ft_id);
     let _balance = ft.balance_of(&owner_id).await.unwrap();
 
     // Verify ft_balance_of span was created

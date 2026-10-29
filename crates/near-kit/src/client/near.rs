@@ -1,114 +1,60 @@
 //! The main Near client.
 
+use std::future::Future;
 use std::sync::Arc;
 
-#[cfg(feature = "contracts")]
-use crate::contract_support::ContractClient;
-use crate::error::Error;
-use crate::types::{
-    AccountId, ChainId, IntoNearToken, PublicKey, PublishMode, RawStateInit, StateInit,
-    TryIntoAccountId, TryIntoGlobalContractId,
-};
+use crate::error::RpcError;
+use crate::platform::MaybeSend;
+use serde::de::DeserializeOwned;
 
-use super::query::{
-    AccessKeysQuery, AccountExistsQuery, AccountQuery, BalanceQuery, ContractCodeQuery,
-    GlobalContractQuery, TransactionStatusQuery, ViewCall,
-};
+use crate::transaction::View;
+use crate::types::{AccountId, BlockReference, ChainId, ViewFunctionResult};
+
+use super::query::{AccountExistsQuery, BalanceQuery, TransactionStatusQuery};
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
-use super::transaction::{CallBuilder, SignedTransactionSend, TransactionBuilder};
+use super::signing::SigningNear;
+use super::transaction::SignedTransactionSend;
 use super::transport::{self, RpcTransport};
-use crate::types::{InMemorySigner, Signer};
-
-/// Trait for sandbox network configuration.
-///
-/// Implement this trait for your sandbox type to enable ergonomic
-/// integration with the `Near` client via [`Near::sandbox()`].
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use near_kit::Near;
-/// use near_kit_sandbox::SandboxConfig;
-///
-/// let sandbox = SandboxConfig::fresh().await?;
-/// let near = Near::sandbox(&sandbox);
-///
-/// // The root account credentials are automatically configured
-/// near.transfer("alice.sandbox", "10 NEAR").await?;
-/// ```
-pub trait SandboxNetwork {
-    /// The RPC URL for the sandbox (e.g., `http://127.0.0.1:3030`).
-    fn rpc_url(&self) -> &str;
-
-    /// The sandbox chain ID.
-    fn chain_id(&self) -> &ChainId;
-
-    /// Return the root account signer without claiming or rotating a key.
-    ///
-    /// Implementations should return a cheap clone of stable signer state. This
-    /// method must not advance key rotation, prompt, or perform network I/O.
-    fn root_signer(&self) -> Arc<dyn Signer>;
-}
+use crate::types::Signer;
 
 /// Nonce retries a new client allows unless configured otherwise.
 const DEFAULT_MAX_NONCE_RETRIES: u32 = 3;
 
-/// The main client for interacting with NEAR Protocol.
+/// The read-only client for NEAR Protocol.
 ///
-/// The `Near` client is the single entry point for all NEAR operations.
-/// It can be configured with a signer for write operations, or used
-/// without a signer for read-only operations.
-///
-/// Transport (RPC connection) and signing are separate concerns — the client
-/// holds a shared `Arc<RpcClient>` and an optional signer. Use [`with_signer`](Near::with_signer)
-/// to derive new clients that share the same connection but sign as different accounts.
+/// `Near` holds the RPC connection and network configuration. It reads chain
+/// state and submits pre-signed transactions, but it never holds a signer:
+/// attach one with [`with_signer`](Near::with_signer) to get a
+/// [`SigningNear`] that can send transactions. Every `SigningNear` derived
+/// from one `Near` shares its `Arc<RpcClient>`.
 ///
 /// # Example
 ///
 /// ```rust,no_run
 /// use near_kit::*;
+/// use near_kit::signer::InMemorySigner;
+/// use near_kit::protocol::Action;
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), near_kit::Error> {
-///     // Read-only client (no signer)
 ///     let near = Near::testnet().build();
-///     let balance = near.balance("alice.testnet").await?;
+///     let balance = near.balance(account!("alice.testnet")).await?;
 ///     println!("Balance: {}", balance);
 ///
-///     // Client with signer for transactions
-///     let near = Near::testnet()
-///         .credentials("ed25519:...", "alice.testnet")?
-///         .build();
-///     near.transfer("bob.testnet", "1 NEAR").await?;
+///     let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...".parse()?));
+///     alice
+///         .transaction(account!("bob.testnet"))
+///         .add_action(Action::transfer(NearToken::from_near(1)))
+///         .await?;
 ///
 ///     Ok(())
 /// }
 /// ```
-///
-/// # Multiple Accounts
-///
-/// For production apps that manage multiple accounts, set up the connection once
-/// and derive signing contexts with [`with_signer`](Near::with_signer):
-///
-/// ```rust,no_run
-/// # use near_kit::*;
-/// # use near_kit::signer::InMemorySigner;
-/// # fn example() -> Result<(), Error> {
-/// let near = Near::testnet().build();
-///
-/// let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
-/// let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
-///
-/// // Both share the same RPC connection, sign as different accounts
-/// # Ok(())
-/// # }
-/// ```
 #[derive(Clone)]
 pub struct Near {
-    rpc: Arc<RpcClient>,
-    signer: Option<Arc<dyn Signer>>,
+    pub(super) rpc: Arc<RpcClient>,
     chain_id: ChainId,
-    max_nonce_retries: u32,
+    pub(super) max_nonce_retries: u32,
 }
 
 impl Near {
@@ -139,211 +85,9 @@ impl Near {
         NearBuilder::new(rpc_url, chain_id.into())
     }
 
-    /// Create a configured client from environment variables.
-    ///
-    /// Reads the following environment variables:
-    /// - `NEAR_NETWORK` (optional): `"mainnet"`, `"testnet"`, or a custom RPC URL.
-    ///   Defaults to `"testnet"` if not set.
-    /// - `NEAR_CHAIN_ID` (optional): Overrides the chain identifier (e.g., `"pinet"`).
-    ///   If set, always overrides the chain ID inferred from `NEAR_NETWORK`, including
-    ///   the built-in `"mainnet"` and `"testnet"` presets. Typically only needed for
-    ///   custom networks.
-    /// - `NEAR_ACCOUNT_ID` (optional): Account ID for signing transactions.
-    /// - `NEAR_PRIVATE_KEY` (optional): Private key for signing (e.g., `"ed25519:..."`).
-    /// - `NEAR_MAX_NONCE_RETRIES` (optional): Number of nonce retries on
-    ///   `InvalidNonce` errors. `0` means no retries. Defaults to `3`.
-    ///
-    /// If `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` are both set, the client will
-    /// be configured with signing capability. Otherwise, it will be read-only.
-    ///
-    /// # Example
-    ///
-    /// ```bash
-    /// # Environment variables
-    /// export NEAR_NETWORK=https://rpc.pinet.near.org
-    /// export NEAR_CHAIN_ID=pinet
-    /// export NEAR_ACCOUNT_ID=alice.testnet
-    /// export NEAR_PRIVATE_KEY=ed25519:...
-    /// export NEAR_MAX_NONCE_RETRIES=10
-    /// ```
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// // Auto-configures from environment
-    /// let near = Near::from_env()?;
-    ///
-    /// // If credentials are set, transactions work
-    /// near.transfer("bob.testnet", "1 NEAR").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - `NEAR_ACCOUNT_ID` is set without `NEAR_PRIVATE_KEY` (or vice versa)
-    /// - `NEAR_PRIVATE_KEY` contains an invalid key format
-    /// - `NEAR_MAX_NONCE_RETRIES` is set but not a valid integer
-    pub fn from_env() -> Result<Near, Error> {
-        let network = std::env::var("NEAR_NETWORK").ok();
-        let mut chain_id_override = std::env::var("NEAR_CHAIN_ID").ok();
-        let account_id = std::env::var("NEAR_ACCOUNT_ID").ok();
-        let private_key = std::env::var("NEAR_PRIVATE_KEY").ok();
-
-        // Determine builder based on NEAR_NETWORK
-        let mut builder = match network.as_deref() {
-            Some("mainnet") => Near::mainnet(),
-            Some("testnet") | None => Near::testnet(),
-            Some(url) => {
-                let chain_id = chain_id_override
-                    .take()
-                    .unwrap_or_else(|| "custom".to_string());
-                Near::custom(url, chain_id)
-            }
-        };
-
-        // Override chain_id if NEAR_CHAIN_ID is set (applies to mainnet/testnet presets)
-        if let Some(id) = chain_id_override {
-            builder = builder.chain_id(id);
-        }
-
-        // Configure signer if both account and key are provided
-        match (account_id, private_key) {
-            (Some(account), Some(key)) => {
-                builder = builder.credentials(&key, account)?;
-            }
-            (Some(_), None) => {
-                return Err(Error::Config(
-                    "NEAR_ACCOUNT_ID is set but NEAR_PRIVATE_KEY is missing".into(),
-                ));
-            }
-            (None, Some(_)) => {
-                return Err(Error::Config(
-                    "NEAR_PRIVATE_KEY is set but NEAR_ACCOUNT_ID is missing".into(),
-                ));
-            }
-            (None, None) => {
-                // Read-only client, no credentials
-            }
-        }
-
-        // Configure max nonce retries if set
-        if let Ok(retries) = std::env::var("NEAR_MAX_NONCE_RETRIES") {
-            let retries: u32 = retries.parse().map_err(|_| {
-                Error::Config(format!(
-                    "NEAR_MAX_NONCE_RETRIES must be a non-negative integer, got: {retries}"
-                ))
-            })?;
-            builder = builder.max_nonce_retries(retries);
-        }
-
-        Ok(builder.build())
-    }
-
-    /// Create a builder configured for a sandbox network.
-    ///
-    /// This automatically configures the client with the sandbox's RPC URL
-    /// and root account credentials, making it ready for transactions.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use near_kit::{Near, NearToken};
-    /// use near_kit_sandbox::SandboxConfig;
-    ///
-    /// let sandbox = SandboxConfig::fresh().await?;
-    /// let near = Near::sandbox(&sandbox);
-    ///
-    /// // Root account credentials are auto-configured - ready for transactions!
-    /// near.transfer("alice.sandbox", "10 NEAR").await?;
-    /// ```
-    /// Only exists where a built-in transport does (every configuration except
-    /// WASI without the `wasi-http` feature): it connects immediately, so it
-    /// needs a transport nobody injected.
-    #[cfg(any(
-        not(all(target_arch = "wasm32", target_os = "wasi")),
-        all(feature = "wasi-http", target_env = "p2")
-    ))]
-    pub fn sandbox(network: &impl SandboxNetwork) -> Near {
-        Near {
-            rpc: Arc::new(RpcClient::new(network.rpc_url())),
-            signer: Some(network.root_signer()),
-            chain_id: network.chain_id().clone(),
-            max_nonce_retries: DEFAULT_MAX_NONCE_RETRIES,
-        }
-    }
-
-    /// Wrap an existing [`RpcClient`] in a `Near` client without a signer.
-    ///
-    /// The client keeps the RPC client's URL, transport and retry
-    /// configuration. Use this when a component is handed an `RpcClient` but
-    /// wants the high-level API on top of it, such as typed
-    /// `#[near_kit::contract]` views. Add a signer with
-    /// [`with_signer`](Self::with_signer).
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit::Near;
-    /// use near_kit::rpc::RpcClient;
-    ///
-    /// let rpc = RpcClient::new("https://rpc.testnet.near.org");
-    /// let near = Near::from_rpc(rpc, "testnet");
-    /// assert_eq!(near.chain_id().as_str(), "testnet");
-    /// assert!(near.try_account_id().is_none());
-    /// ```
-    pub fn from_rpc(rpc: RpcClient, chain_id: impl Into<ChainId>) -> Near {
-        Near {
-            rpc: Arc::new(rpc),
-            signer: None,
-            chain_id: chain_id.into(),
-            max_nonce_retries: DEFAULT_MAX_NONCE_RETRIES,
-        }
-    }
-
     /// Get the underlying RPC client.
     pub fn rpc(&self) -> &RpcClient {
         &self.rpc
-    }
-
-    /// Get the RPC URL.
-    pub fn rpc_url(&self) -> &str {
-        self.rpc.url()
-    }
-
-    /// Get the signer's account ID.
-    ///
-    /// # Panics
-    ///
-    /// Panics if no signer is configured. Use [`try_account_id`](Self::try_account_id)
-    /// if you need to handle the no-signer case.
-    pub fn account_id(&self) -> &AccountId {
-        self.signer
-            .as_ref()
-            .expect("account_id() called on a Near client without a signer configured — use try_account_id() or configure a signer")
-            .account_id()
-    }
-
-    /// Get the signer's account ID, if a signer is configured.
-    pub fn try_account_id(&self) -> Option<&AccountId> {
-        self.signer.as_ref().map(|s| s.account_id())
-    }
-
-    /// Get the signer's public key, if a signer is configured.
-    ///
-    /// This does not advance the rotation counter on
-    /// [`RotatingSigner`](crate::signer::RotatingSigner).
-    pub fn public_key(&self) -> Option<PublicKey> {
-        self.signer.as_ref().map(|s| s.public_key())
-    }
-
-    /// Get the signer, if one is configured.
-    ///
-    /// This is useful when you need to pass the signer to another system
-    /// or construct clients manually.
-    pub fn signer(&self) -> Option<Arc<dyn Signer>> {
-        self.signer.clone()
     }
 
     /// Get the chain ID this client is connected to.
@@ -355,26 +99,29 @@ impl Near {
     ///
     /// `0` means no retries (send once), `1` means one retry, etc. Defaults to `3`.
     ///
-    /// Useful when you need to adjust retries after construction,
-    /// for example when using a client obtained from a sandbox.
+    /// A [`SigningNear`] takes the setting of the `Near` it was created
+    /// from; use [`SigningNear::max_nonce_retries`] to change it for one
+    /// sender.
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # fn example(sandbox: Near) {
-    /// let relayer = sandbox.max_nonce_retries(u32::MAX);
-    /// # }
+    /// let near = Near::testnet().build().max_nonce_retries(10);
     /// ```
     pub fn max_nonce_retries(mut self, retries: u32) -> Near {
         self.max_nonce_retries = retries;
         self
     }
 
-    /// Create a new client that shares this client's transport but uses a different signer.
+    /// Attach a signer, giving a [`SigningNear`] that sends transactions as
+    /// the signer's account.
     ///
-    /// This is the recommended way to manage multiple accounts. The RPC connection
-    /// is shared (via `Arc`), so there's no overhead from creating multiple clients.
+    /// The RPC connection is shared (via `Arc`), so deriving one signing
+    /// client per account costs nothing. The result waits for
+    /// [`Final`](crate::transaction::Final), the level reads default to; pick
+    /// another level once with
+    /// [`SigningNear::wait_until`](SigningNear::wait_until).
     ///
     /// # Example
     ///
@@ -382,36 +129,32 @@ impl Near {
     /// # use near_kit::*;
     /// # use near_kit::signer::InMemorySigner;
     /// # fn example() -> Result<(), Error> {
-    /// // Set up a shared connection
     /// let near = Near::testnet().build();
     ///
-    /// // Derive signing contexts for different accounts
-    /// let alice = near.with_signer(InMemorySigner::new("alice.testnet", "ed25519:...")?);
-    /// let bob = near.with_signer(InMemorySigner::new("bob.testnet", "ed25519:...")?);
-    ///
-    /// // Both share the same RPC connection
-    /// // alice.transfer("carol.testnet", NearToken::from_near(1)).await?;
-    /// // bob.transfer("carol.testnet", NearToken::from_near(2)).await?;
+    /// let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), "ed25519:...".parse()?));
+    /// let bob = near.with_signer(InMemorySigner::new(account!("bob.testnet"), "ed25519:...".parse()?));
+    /// assert_eq!(alice.account_id().as_str(), "alice.testnet");
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_signer(&self, signer: impl Signer + 'static) -> Near {
-        Near {
-            rpc: self.rpc.clone(),
-            signer: Some(Arc::new(signer)),
-            chain_id: self.chain_id.clone(),
-            max_nonce_retries: self.max_nonce_retries,
-        }
+    pub fn with_signer(&self, signer: impl Signer + 'static) -> SigningNear {
+        SigningNear::new(self.clone(), Arc::new(signer))
     }
 
     // ========================================================================
-    // Read Operations (Query Builders)
+    // Reads
     // ========================================================================
+    //
+    // Only reads that add something to the matching `RpcClient` method live
+    // here; for everything else use `near.rpc()` (e.g.
+    // `near.rpc().view_account(&id, block)`).
 
-    /// Get account balance.
+    /// Get an account's balance: total, available, locked and the amount
+    /// reserved for storage.
     ///
-    /// Returns a query builder that can be customized with block reference
-    /// options before awaiting.
+    /// Assembles an [`AccountBalance`](crate::rpc::AccountBalance) from the
+    /// account view and the storage cost. Reads at the final block unless
+    /// [`at`](BalanceQuery::at) picks another.
     ///
     /// # Example
     ///
@@ -421,27 +164,23 @@ impl Near {
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
     ///
-    /// // Simple query
-    /// let balance = near.balance("alice.testnet").await?;
+    /// let balance = near.balance(account!("alice.testnet")).await?;
     /// println!("Available: {}", balance.available);
     ///
-    /// // Query at specific block height
-    /// let balance = near.balance("alice.testnet")
-    ///     .at_block(100_000_000)
-    ///     .await?;
-    ///
-    /// // Query with specific finality
-    /// let balance = near.balance("alice.testnet")
-    ///     .finality(Finality::Optimistic)
-    ///     .await?;
+    /// // At a specific block height, or with another finality
+    /// let balance = near.balance(account!("alice.testnet")).at(100_000_000).await?;
+    /// let balance = near.balance(account!("alice.testnet")).at(Finality::Optimistic).await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn balance(&self, account_id: impl TryIntoAccountId) -> BalanceQuery {
-        BalanceQuery::new(self.rpc.clone(), account_id)
+    pub fn balance(&self, account_id: impl Into<AccountId>) -> BalanceQuery {
+        BalanceQuery::new(self.rpc.clone(), account_id.into())
     }
 
-    /// Get full account information.
+    /// Check whether an account exists.
+    ///
+    /// Maps [`RpcError::AccountNotFound`] to `false`. For the account itself,
+    /// use `near.rpc().view_account(&id, block)`.
     ///
     /// # Example
     ///
@@ -449,549 +188,80 @@ impl Near {
     /// # use near_kit::*;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
-    /// let account = near.account("alice.testnet").await?;
-    /// println!("Storage used: {} bytes", account.storage_usage);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn account(&self, account_id: impl TryIntoAccountId) -> AccountQuery {
-        AccountQuery::new(self.rpc.clone(), account_id)
-    }
-
-    /// Check if an account exists.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    /// if near.account_exists("alice.testnet").await? {
+    /// if near.account_exists(account!("alice.testnet")).await? {
     ///     println!("Account exists!");
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub fn account_exists(&self, account_id: impl TryIntoAccountId) -> AccountExistsQuery {
-        AccountExistsQuery::new(self.rpc.clone(), account_id)
+    pub fn account_exists(&self, account_id: impl Into<AccountId>) -> AccountExistsQuery {
+        AccountExistsQuery::new(self.rpc.clone(), account_id.into())
     }
 
-    /// Call a view function on a contract.
+    /// Call a view function and decode its JSON result.
     ///
-    /// Returns a query builder that can be customized with arguments
-    /// and block reference options before awaiting.
+    /// Returns the same [`View`] a `#[near_kit::contract]` client returns:
+    /// set arguments with [`args`](View::args) (JSON),
+    /// [`args_borsh`](View::args_borsh) or [`args_raw`](View::args_raw), pick
+    /// a block with [`at`](View::at), and `.await` it. It sends no arguments
+    /// unless one of those sets them. For a Borsh-encoded result, build the
+    /// view with [`View::borsh`] instead.
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::transaction::View;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
     ///
-    /// // Simple view call
-    /// let count: u64 = near.view("counter.testnet", "get_count").await?;
+    /// let count: u64 = near.view(account!("counter.testnet"), "get_count").await?;
     ///
-    /// // View call with arguments
-    /// let messages: Vec<String> = near.view("guestbook.testnet", "get_messages")
+    /// let messages: Vec<String> = near
+    ///     .view(account!("guestbook.testnet"), "get_messages")
     ///     .args(serde_json::json!({ "limit": 10 }))
     ///     .await?;
+    ///
+    /// #[derive(borsh::BorshDeserialize)]
+    /// struct State { count: u64 }
+    /// let state: State = View::borsh(near.clone(), account!("counter.testnet"), "get_state").await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn view<T>(&self, contract_id: impl TryIntoAccountId, method: &str) -> ViewCall<T> {
-        ViewCall::new(self.rpc.clone(), contract_id, method.to_string())
-    }
-
-    /// Get all access keys for an account.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    /// let keys = near.access_keys("alice.testnet").await?;
-    /// for key_info in keys.keys {
-    ///     println!("Key: {}", key_info.public_key);
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn access_keys(&self, account_id: impl TryIntoAccountId) -> AccessKeysQuery {
-        AccessKeysQuery::new(self.rpc.clone(), account_id)
-    }
-
-    /// Get the WASM code deployed on an account.
-    ///
-    /// Returns the code bytes plus their SHA-256 hash. Use `.exists()` to
-    /// check for a deployed contract without caring about the code itself.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    ///
-    /// let contract = near.contract_code("app.near").await?;
-    /// println!("code hash: {}, {} bytes", contract.hash, contract.code.len());
-    ///
-    /// if near.contract_code("app.near").exists().await? {
-    ///     println!("Contract deployed!");
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn contract_code(&self, account_id: impl TryIntoAccountId) -> ContractCodeQuery {
-        ContractCodeQuery::new(self.rpc.clone(), account_id)
-    }
-
-    /// Get a global contract's code and hash.
-    ///
-    /// Accepts the same identifiers as [`Near::deploy_from`]: a publisher
-    /// account ID (updatable contracts, where `hash` reflects the currently
-    /// published version) or a code hash (immutable contracts). Use
-    /// `.exists()` to check whether anything is published under the
-    /// identifier.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example(code_hash: CryptoHash) -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    ///
-    /// // By publisher account (updatable)
-    /// let contract = near.global_contract("publisher.near").await?;
-    /// println!("current code hash: {}", contract.hash);
-    ///
-    /// // By code hash (immutable)
-    /// let contract = near.global_contract(code_hash).await?;
-    ///
-    /// // Deployment check
-    /// if near.global_contract("publisher.near").exists().await? {
-    ///     println!("Global contract published!");
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn global_contract(&self, id: impl TryIntoGlobalContractId) -> GlobalContractQuery {
-        GlobalContractQuery::new(self.rpc.clone(), id)
-    }
-
-    // ========================================================================
-    // Validator / Epoch Queries
-    // ========================================================================
-
-    /// Get validator information for the latest epoch.
-    ///
-    /// Returns current validators, next epoch validators, current proposals,
-    /// and kicked-out validators.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    /// let info = near.validators().await?;
-    /// println!("Current validators: {}", info.current_validators.len());
-    /// println!("Epoch height: {}", info.epoch_height);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn validators(&self) -> Result<crate::types::EpochValidatorInfo, Error> {
-        Ok(self.rpc.validators(None).await?)
-    }
-
-    // ========================================================================
-    // Off-Chain Signing (NEP-413)
-    // ========================================================================
-
-    /// Sign a message for off-chain authentication (NEP-413).
-    ///
-    /// This enables users to prove account ownership without gas fees
-    /// or blockchain transactions. Commonly used for:
-    /// - Web3 authentication/login
-    /// - Off-chain message signing
-    /// - Proof of account ownership
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # use near_kit::standards::nep413;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///     .credentials("ed25519:...", "alice.testnet")?
-    ///     .build();
-    ///
-    /// let signed = near.sign_message(nep413::SignMessageParams {
-    ///     message: "Login to MyApp".to_string(),
-    ///     recipient: "myapp.com".to_string(),
-    ///     nonce: nep413::generate_nonce(),
-    ///     callback_url: None,
-    ///     state: None,
-    /// }).await?;
-    ///
-    /// println!("Signed by: {}", signed.account_id);
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// @see <https://github.com/near/NEPs/blob/master/neps/nep-0413.md>
-    pub async fn sign_message(
+    pub fn view<T: DeserializeOwned>(
         &self,
-        params: crate::types::nep413::SignMessageParams,
-    ) -> Result<crate::types::nep413::SignedMessage, Error> {
-        let signer = self.signer.as_ref().ok_or(Error::NoSigner)?;
-        let key = signer.key();
-        key.sign_nep413(signer.account_id(), &params)
-            .await
-            .map_err(Error::Signing)
-    }
-
-    // ========================================================================
-    // Write Operations (Transaction Builders)
-    // ========================================================================
-
-    /// Transfer NEAR tokens.
-    ///
-    /// Returns a transaction builder that can be customized with
-    /// wait options before awaiting.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # use near_kit::transaction::Final;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///         .credentials("ed25519:...", "alice.testnet")?
-    ///     .build();
-    ///
-    /// // Preferred: typed constructor
-    /// near.transfer("bob.testnet", NearToken::from_near(1)).await?;
-    ///
-    /// // Transfer with wait for finality
-    /// near.transfer("bob.testnet", NearToken::from_near(1000))
-    ///     .wait_until::<Final>()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn transfer(
-        &self,
-        receiver: impl TryIntoAccountId,
-        amount: impl IntoNearToken,
-    ) -> TransactionBuilder {
-        self.transaction(receiver).transfer(amount)
-    }
-
-    /// Call a function on a contract.
-    ///
-    /// Returns a transaction builder that can be customized with
-    /// arguments, gas, deposit, and other options before awaiting.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///         .credentials("ed25519:...", "alice.testnet")?
-    ///     .build();
-    ///
-    /// // Simple call
-    /// near.call("counter.testnet", "increment").await?;
-    ///
-    /// // Call with args, gas, and deposit
-    /// near.call("nft.testnet", "nft_mint")
-    ///     .args(serde_json::json!({ "token_id": "1" }))
-    ///     .gas("100 Tgas")
-    ///     .deposit("0.1 NEAR")
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn call(&self, contract_id: impl TryIntoAccountId, method: &str) -> CallBuilder {
-        self.transaction(contract_id).call(method)
-    }
-
-    /// Deploy WASM bytes to the signer's account.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///         .credentials("ed25519:...", "alice.testnet")?
-    ///     .build();
-    ///
-    /// let wasm_code = std::fs::read("contract.wasm").unwrap();
-    /// near.deploy(wasm_code).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// If no signer is configured, the returned builder retains
-    /// [`Error::NoSigner`] and returns it when built, signed, delegated, or sent.
-    pub fn deploy(&self, code: impl Into<Vec<u8>>) -> TransactionBuilder {
-        self.signer_account_transaction().deploy(code)
-    }
-
-    /// Deploy a contract from the global registry.
-    ///
-    /// Accepts either a `CryptoHash` (for immutable contracts identified by hash)
-    /// or an account ID string/`AccountId` (for publisher-updatable contracts).
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example(code_hash: CryptoHash) -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///         .credentials("ed25519:...", "alice.testnet")?
-    ///     .build();
-    ///
-    /// // Deploy by publisher (updatable)
-    /// near.deploy_from("publisher.near").await?;
-    ///
-    /// // Deploy by hash (immutable)
-    /// near.deploy_from(code_hash).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// If no signer is configured, the returned builder retains
-    /// [`Error::NoSigner`] and returns it when built, signed, delegated, or sent.
-    pub fn deploy_from(&self, contract_ref: impl TryIntoGlobalContractId) -> TransactionBuilder {
-        self.signer_account_transaction().deploy_from(contract_ref)
-    }
-
-    /// Publish a contract to the global registry.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # use near_kit::protocol::PublishMode;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///         .credentials("ed25519:...", "alice.testnet")?
-    ///     .build();
-    ///
-    /// let wasm_code = std::fs::read("contract.wasm").unwrap();
-    ///
-    /// // Publish updatable contract (identified by your account)
-    /// near.publish(wasm_code.clone(), PublishMode::Updatable).await?;
-    ///
-    /// // Publish immutable contract (identified by its hash)
-    /// near.publish(wasm_code, PublishMode::Immutable).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// If no signer is configured, the returned builder retains
-    /// [`Error::NoSigner`] and returns it when built, signed, delegated, or sent.
-    pub fn publish(&self, code: impl Into<Vec<u8>>, mode: PublishMode) -> TransactionBuilder {
-        self.signer_account_transaction().publish(code, mode)
-    }
-
-    /// Add a full access key to the signer's account.
-    ///
-    /// If no signer is configured, the returned builder retains
-    /// [`Error::NoSigner`] and returns it when built, signed, delegated, or sent.
-    pub fn add_full_access_key(&self, public_key: PublicKey) -> TransactionBuilder {
-        self.signer_account_transaction()
-            .add_full_access_key(public_key)
-    }
-
-    /// Delete an access key from the signer's account.
-    ///
-    /// If no signer is configured, the returned builder retains
-    /// [`Error::NoSigner`] and returns it when built, signed, delegated, or sent.
-    pub fn delete_key(&self, public_key: PublicKey) -> TransactionBuilder {
-        self.signer_account_transaction().delete_key(public_key)
-    }
-
-    // ========================================================================
-    // Multi-Action Transactions
-    // ========================================================================
-
-    /// Create a transaction builder for multi-action transactions.
-    ///
-    /// This allows chaining multiple actions (transfers, function calls, account creation, etc.)
-    /// into a single atomic transaction. All actions either succeed together or fail together.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # use near_kit::signer::PublicKey;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///     .credentials("ed25519:...", "alice.testnet")?
-    ///     .build();
-    ///
-    /// // Create a new sub-account with funding and a key
-    /// let new_public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
-    /// near.transaction("new.alice.testnet")
-    ///     .create_account()
-    ///     .transfer("5 NEAR")
-    ///     .add_full_access_key(new_public_key)
-    ///     .send()
-    ///     .await?;
-    ///
-    /// // Multiple function calls in one transaction
-    /// near.transaction("contract.testnet")
-    ///     .call("method1")
-    ///         .args(serde_json::json!({ "value": 1 }))
-    ///     .finish()
-    ///     .call("method2")
-    ///         .args(serde_json::json!({ "value": 2 }))
-    ///     .send()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn transaction(&self, receiver_id: impl TryIntoAccountId) -> TransactionBuilder {
-        TransactionBuilder::new_fallible(
-            self.rpc.clone(),
-            self.signer.clone(),
-            receiver_id.try_into_account_id().map_err(Error::from),
-            self.max_nonce_retries,
-        )
-    }
-
-    fn signer_account_transaction(&self) -> TransactionBuilder {
-        match self.try_account_id() {
-            Some(account_id) => self.transaction(account_id),
-            // The receiver is never observed because the retained validation
-            // error wins at every terminal operation. Keeping NoSigner in the
-            // sticky validation slot also prevents a later receiver-changing
-            // action from accidentally clearing it.
-            None => self
-                .transaction("system")
-                .with_validation(Err(Error::NoSigner)),
-        }
-    }
-
-    /// Create a NEP-616 deterministic state init transaction.
-    ///
-    /// The receiver_id is automatically derived from the state init parameters,
-    /// so unlike [`transaction()`](Self::transaction), no receiver needs to be specified.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # use near_kit::protocol::{StateInit, StateInitExt};
-    /// # async fn example(near: Near, code_hash: CryptoHash) -> Result<(), near_kit::Error> {
-    /// let si = StateInit::by_hash(code_hash, Default::default());
-    /// let outcome = near.state_init(si, NearToken::from_near(5))
-    ///     .send()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// Deposit parsing failures are retained and returned when the transaction
-    /// is sent, built, signed, or delegated.
-    pub fn state_init(
-        &self,
-        state_init: StateInit,
-        deposit: impl IntoNearToken,
-    ) -> TransactionBuilder {
-        let receiver_id = state_init.derive_account_id();
-        self.transaction(receiver_id)
-            .state_init(state_init, deposit)
-    }
-
-    /// Create a `0u` universal account from its state init (nearcore 2.14).
-    ///
-    /// The receiver_id is the account id derived from the state init, so no
-    /// receiver needs to be specified. See
-    /// [`UniversalStateInit`](crate::protocol::UniversalStateInit) for how the
-    /// id is derived.
-    ///
-    /// There are two ways to create the account:
-    ///
-    /// - **Someone else creates it.** Any funded account sends the state init
-    ///   with a deposit that covers the account's storage.
-    /// - **The account bootstraps itself.** Fund the `0u` id with a transfer
-    ///   first, which leaves an uninitialized account. Then send the state init
-    ///   signed by one of its own keys, with `signer_id` set to the `0u` id. The
-    ///   key isn't on chain yet, so the nonce comes from the account's
-    ///   [`bootstrap_nonce`](crate::rpc::AccountView::bootstrap_nonce). This is
-    ///   handled for you when the transaction is built, signed, or sent.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # use near_kit::protocol::{UniversalStateInit, UniversalStateInitV1};
-    /// # use near_kit::signer::{InMemorySigner, SecretKey};
-    /// # async fn example(near: Near) -> Result<(), near_kit::Error> {
-    /// let key = SecretKey::generate_ed25519();
-    /// let state_init: UniversalStateInit =
-    ///     UniversalStateInitV1::new().with_access_key(key.public_key()).into();
-    /// let account_id = state_init.derive_account_id();
-    ///
-    /// // Someone else creates it.
-    /// near.universal_state_init(state_init.clone(), NearToken::from_millinear(10))
-    ///     .send()
-    ///     .await?;
-    ///
-    /// // Or: fund the id, then let the account bootstrap itself.
-    /// near.transfer(&account_id, NearToken::from_near(1)).await?;
-    /// near.universal_state_init(state_init, NearToken::ZERO)
-    ///     .sign_with(InMemorySigner::from_secret_key(account_id, key)?)
-    ///     .send()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// Deposit parsing failures are retained and returned when the transaction
-    /// is sent, built, signed, or delegated.
-    pub fn universal_state_init(
-        &self,
-        state_init: impl Into<RawStateInit>,
-        deposit: impl IntoNearToken,
-    ) -> TransactionBuilder {
-        let state_init = state_init.into();
-        self.transaction(state_init.derive_account_id())
-            .universal_state_init(state_init, deposit)
+        contract_id: impl Into<AccountId>,
+        method: impl Into<String>,
+    ) -> View<Near, T> {
+        View::json(self.clone(), contract_id, method)
     }
 
     /// Send a pre-signed transaction.
     ///
-    /// Use this with transactions signed via `.sign()` for offline signing
-    /// or inspection before sending.
+    /// Use this with transactions signed via
+    /// [`SigningNear::sign`](SigningNear::sign) (or offline with
+    /// [`Transaction::sign`](crate::protocol::Transaction::sign)) to inspect
+    /// them or send them later. There is no nonce retry here: the signature
+    /// fixes the nonce.
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
+    /// # use near_kit::protocol::Action;
     /// # use near_kit::rpc::FinalExecutionOutcome;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet()
-    ///     .credentials("ed25519:...", "alice.testnet")?
-    ///     .build();
-    ///
-    /// // Sign offline
-    /// let signed = near.transfer("bob.testnet", NearToken::from_near(1))
-    ///     .sign()
+    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+    /// let signed = alice
+    ///     .sign(account!("bob.testnet"), vec![Action::transfer(NearToken::from_near(1))])
     ///     .await?;
     ///
-    /// // Send later. The default waits for optimistic execution.
-    /// let outcome: FinalExecutionOutcome = near.send(&signed).await?;
+    /// // Send later. Like a `Tx`, it waits for `Final` unless you pick
+    /// // another level with `.wait_until::<W>()`.
+    /// let outcome: FinalExecutionOutcome = alice.near().send_signed(&signed).await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn send<'tx>(
+    pub fn send_signed<'tx>(
         &self,
         signed_tx: &'tx crate::types::SignedTransaction,
     ) -> SignedTransactionSend<'tx> {
@@ -1027,14 +297,14 @@ impl Near {
     /// # use near_kit::transaction::Final;
     /// # async fn example(near: &Near, tx_hash: CryptoHash) -> Result<(), Error> {
     /// let outcome = near
-    ///     .tx_status(&tx_hash, "alice.testnet")
+    ///     .tx_status(&tx_hash, account!("alice.testnet"))
     ///     .wait_until::<Final>()
     ///     .await?;
     /// println!("Gas used: {}", outcome.total_gas_used());
     /// println!("Receipts: {}", outcome.receipts.len());
     ///
     /// // Poll current progress without blocking:
-    /// let status = near.tx_status(&tx_hash, "alice.testnet").await?;
+    /// let status = near.tx_status(&tx_hash, account!("alice.testnet")).await?;
     /// if let Some(partial) = &status.outcome {
     ///     println!("Receipts so far: {}", partial.receipts_outcome.len());
     /// }
@@ -1044,132 +314,66 @@ impl Near {
     pub fn tx_status(
         &self,
         tx_hash: &crate::types::CryptoHash,
-        sender_id: impl crate::types::TryIntoAccountId,
+        sender_id: impl Into<AccountId>,
     ) -> TransactionStatusQuery {
-        TransactionStatusQuery::new(self.rpc.clone(), *tx_hash, sender_id)
+        TransactionStatusQuery::new(self.rpc.clone(), *tx_hash, sender_id.into())
     }
 
     // ========================================================================
     // Typed Contract Interfaces
     // ========================================================================
 
-    /// Create a typed contract client.
+    /// Create a typed contract client backed by this `Near`.
     ///
-    /// This method creates a type-safe client for interacting with a contract,
-    /// using the interface defined via the `#[near_kit::contract]` macro.
+    /// `T` is the marker type `#[near_kit::contract]` generates for a trait;
+    /// the result is its generated `<Name>Client<Near>`. View methods return
+    /// a [`View`](crate::transaction::View) and `#[call]` methods a
+    /// [`Call`](crate::transaction::Call); both are `.await`ed directly.
+    ///
+    /// A `Near`-backed client can only view; for `#[call]` methods, use
+    /// [`SigningNear::contract`](crate::SigningNear::contract).
     ///
     /// # Example
     ///
-    /// ```ignore
+    #[cfg_attr(feature = "contracts", doc = "```rust,no_run")]
+    #[cfg_attr(not(feature = "contracts"), doc = "```rust,ignore")]
     /// use near_kit::*;
-    /// use serde::Serialize;
     ///
     /// #[near_kit::contract]
     /// pub trait Counter {
     ///     fn get_count(&self) -> u64;
-    ///     
-    ///     #[call]
-    ///     fn increment(&mut self);
-    ///     
-    ///     #[call]
-    ///     fn add(&mut self, args: AddArgs);
-    /// }
-    ///
-    /// #[derive(Serialize)]
-    /// pub struct AddArgs {
-    ///     pub value: u64,
     /// }
     ///
     /// async fn example(near: &Near) -> Result<(), near_kit::Error> {
-    ///     let counter = near.contract::<Counter>("counter.testnet".parse::<AccountId>()?);
-    ///     
-    ///     // View call - type-safe!
+    ///     let counter = near.contract::<Counter>(account!("counter.testnet"));
     ///     let count = counter.get_count().await?;
-    ///     
-    ///     // Change call - type-safe!
-    ///     counter.increment().await?;
-    ///     counter.add(AddArgs { value: 5 }).await?;
-    ///     
+    ///     let earlier = counter.get_count().at(180_000_000).await?;
     ///     Ok(())
     /// }
     /// ```
     ///
-    /// Takes an already-validated account ID — an [`AccountId`], `&AccountId`,
-    /// or `&AccountIdRef` — so creating the client cannot fail. Parse runtime
-    /// strings first (`"counter.near".parse::<AccountId>()?`), or use
-    /// [`AccountIdRef::new_or_panic`](crate::protocol::AccountIdRef::new_or_panic)
-    /// in a `const` for a compile-time-checked literal.
-    ///
-    /// Requires both the `contracts` and `rpc` features.
-    #[cfg(feature = "contracts")]
-    pub fn contract<T: crate::Contract>(&self, contract_id: impl Into<AccountId>) -> T::Client {
-        T::Client::new(self.clone(), contract_id.into())
+    /// Takes an already-validated account ID (an [`AccountId`], `&AccountId`,
+    /// or `&AccountIdRef`), so creating the client cannot fail. Use
+    /// [`account!`](crate::account) for a literal.
+    pub fn contract<T: crate::Contract>(
+        &self,
+        contract_id: impl Into<AccountId>,
+    ) -> T::Client<Near> {
+        T::client(self.clone(), contract_id.into())
     }
+}
 
-    // ========================================================================
-    // Token Helpers
-    // ========================================================================
+impl crate::Viewer for Near {
+    type ViewError = RpcError;
 
-    /// Get a fungible token client for a NEP-141 contract.
-    ///
-    /// Takes an already-validated account ID — an [`AccountId`], `&AccountId`,
-    /// or `&AccountIdRef` — so creating the client cannot fail. Parse runtime
-    /// strings first, or use
-    /// [`AccountIdRef::new_or_panic`](crate::protocol::AccountIdRef::new_or_panic)
-    /// in a `const` for a compile-time-checked literal.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// use near_kit::protocol::AccountIdRef;
-    ///
-    /// const WRAP_NEAR: &AccountIdRef = AccountIdRef::new_or_panic("wrap.near");
-    ///
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::mainnet().build();
-    ///
-    /// let token = near.ft(WRAP_NEAR);
-    ///
-    /// // Get metadata
-    /// let meta = token.metadata().await?;
-    /// println!("{} ({})", meta.name, meta.symbol);
-    ///
-    /// // Get balance - returns FtAmount for nice formatting
-    /// let balance = token.balance_of("alice.near").await?;
-    /// println!("Balance: {}", balance);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn ft(&self, contract: impl Into<AccountId>) -> crate::tokens::FungibleToken {
-        crate::tokens::FungibleToken::new(self.clone(), contract.into())
-    }
-
-    /// Get a non-fungible token client for a NEP-171 contract.
-    ///
-    /// Like [`ft`](Self::ft), this takes an already-validated account ID and
-    /// cannot fail.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// # async fn example() -> Result<(), near_kit::Error> {
-    /// let near = Near::testnet().build();
-    /// let nft = near.nft("nft-contract.near".parse::<AccountId>()?);
-    ///
-    /// // Get a specific token
-    /// if let Some(token) = nft.token("token-123").await? {
-    ///     println!("Owner: {}", token.owner_id);
-    /// }
-    ///
-    /// // List tokens for an owner
-    /// let tokens = nft.tokens_for_owner("alice.near", None, Some(10)).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn nft(&self, contract: impl Into<AccountId>) -> crate::tokens::NonFungibleToken {
-        crate::tokens::NonFungibleToken::new(self.clone(), contract.into())
+    fn view_function(
+        &self,
+        contract_id: &AccountId,
+        method: &str,
+        args: &[u8],
+        block: BlockReference,
+    ) -> impl Future<Output = Result<ViewFunctionResult, RpcError>> + MaybeSend {
+        self.rpc.view_function(contract_id, method, args, block)
     }
 }
 
@@ -1177,7 +381,7 @@ impl std::fmt::Debug for Near {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Near")
             .field("rpc", &self.rpc)
-            .field("account_id", &self.try_account_id())
+            .field("chain_id", &self.chain_id)
             .finish()
     }
 }
@@ -1189,14 +393,9 @@ impl std::fmt::Debug for Near {
 /// ```rust,ignore
 /// use near_kit::*;
 ///
-/// // Read-only client
-/// let near = Near::testnet().build();
-///
-/// // Client with credentials (secret key + account)
 /// let near = Near::testnet()
-///     .credentials("ed25519:...", "alice.testnet")?
+///     .max_nonce_retries(10)
 ///     .build();
-///
 /// ```
 pub struct NearBuilder {
     rpc_url: String,
@@ -1204,7 +403,6 @@ pub struct NearBuilder {
     /// a transport never constructs the target's default. On WASI without
     /// `wasi-http`, that default reports a non-retryable transport error.
     transport: Option<Arc<dyn RpcTransport>>,
-    signer: Option<Arc<dyn Signer>>,
     retry_config: RetryConfig,
     chain_id: ChainId,
     max_nonce_retries: u32,
@@ -1216,42 +414,10 @@ impl NearBuilder {
         Self {
             rpc_url: rpc_url.into(),
             transport: None,
-            signer: None,
             retry_config: RetryConfig::default(),
             chain_id,
             max_nonce_retries: DEFAULT_MAX_NONCE_RETRIES,
         }
-    }
-
-    /// Set the signer for transactions.
-    ///
-    /// The signer determines which account will sign transactions.
-    pub fn signer(mut self, signer: impl Signer + 'static) -> Self {
-        self.signer = Some(Arc::new(signer));
-        self
-    }
-
-    /// Set up signing using a private key string and account ID.
-    ///
-    /// This is a convenience method that creates an `InMemorySigner` for you.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use near_kit::Near;
-    ///
-    /// let near = Near::testnet()
-    ///     .credentials("ed25519:...", "alice.testnet")?
-    ///     .build();
-    /// ```
-    pub fn credentials(
-        mut self,
-        private_key: impl AsRef<str>,
-        account_id: impl TryIntoAccountId,
-    ) -> Result<Self, Error> {
-        let signer = InMemorySigner::new(account_id, private_key)?;
-        self.signer = Some(Arc::new(signer));
-        Ok(self)
     }
 
     /// Set the chain ID.
@@ -1289,29 +455,15 @@ impl NearBuilder {
         self
     }
 
-    /// Use a preconfigured HTTP client for RPC requests.
-    ///
-    /// This allows callers to configure transport concerns such as default
-    /// headers, proxies, TLS, and timeouts without expanding near-kit's API for
-    /// each individual HTTP setting.
-    ///
-    /// Not available on WASI, where reqwest doesn't build — see
-    /// [`NearBuilder::transport`] for full transport replacement.
-    #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
-    pub fn http_client(mut self, client: reqwest::Client) -> Self {
-        self.transport = Some(Arc::new(transport::ReqwestTransport::with_client(client)));
-        self
-    }
-
     /// Replace the HTTP transport entirely with a custom [`RpcTransport`].
     ///
     /// This is the injection point for platforms whose HTTP stack near-kit
     /// doesn't know about — e.g. a runtime that proxies RPC traffic through a
     /// host call instead of exposing raw HTTP. On WASI builds without the
     /// `wasi-http` feature it is the *only* way to reach the network — the
-    /// default there only returns a typed transport error. For merely
-    /// *configuring* the default reqwest transport (headers, proxies, TLS), prefer
-    /// [`NearBuilder::http_client`].
+    /// default there only returns a typed transport error. To configure the
+    /// default reqwest transport (headers, proxies, TLS, timeouts), pass
+    /// `ReqwestTransport::with_client(client)`.
     pub fn transport(mut self, transport: impl RpcTransport + 'static) -> Self {
         self.transport = Some(Arc::new(transport));
         self
@@ -1344,7 +496,6 @@ impl NearBuilder {
                 transport,
                 self.retry_config,
             )),
-            signer: self.signer,
             chain_id: self.chain_id,
             max_nonce_retries: self.max_nonce_retries,
         }
@@ -1360,7 +511,10 @@ impl From<NearBuilder> for Near {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::NearToken;
+    use crate::account;
+    use crate::types::InMemorySigner;
+
+    const ALICE_KEY: &str = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
 
     // ========================================================================
     // Near client tests
@@ -1369,21 +523,21 @@ mod tests {
     #[test]
     fn test_near_mainnet_builder() {
         let near = Near::mainnet().build();
-        assert!(near.rpc_url().contains("fastnear") || near.rpc_url().contains("near"));
-        assert!(near.try_account_id().is_none()); // No signer configured
+        assert!(near.rpc().url().contains("fastnear") || near.rpc().url().contains("near"));
+        assert!(near.chain_id().is_mainnet());
     }
 
     #[test]
     fn test_near_testnet_builder() {
         let near = Near::testnet().build();
-        assert!(near.rpc_url().contains("fastnear") || near.rpc_url().contains("test"));
-        assert!(near.try_account_id().is_none());
+        assert!(near.rpc().url().contains("fastnear") || near.rpc().url().contains("test"));
+        assert!(near.chain_id().is_testnet());
     }
 
     #[test]
     fn test_near_custom_builder() {
         let near = Near::custom("https://custom-rpc.example.com", "mainnet").build();
-        assert_eq!(near.rpc_url(), "https://custom-rpc.example.com");
+        assert_eq!(near.rpc().url(), "https://custom-rpc.example.com");
         assert!(near.chain_id().is_mainnet());
     }
 
@@ -1391,31 +545,6 @@ mod tests {
     fn test_near_custom_builder_with_chain_id_type() {
         let near = Near::custom("https://rpc.example.com", ChainId::testnet()).build();
         assert!(near.chain_id().is_testnet());
-    }
-
-    #[test]
-    fn test_near_with_credentials() {
-        let near = Near::testnet()
-            .credentials(
-                "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
-                "alice.testnet",
-            )
-            .unwrap()
-            .build();
-
-        assert_eq!(near.account_id().as_str(), "alice.testnet");
-    }
-
-    #[test]
-    fn test_near_with_signer() {
-        let signer = InMemorySigner::new(
-            "bob.testnet",
-            "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
-        ).unwrap();
-
-        let near = Near::testnet().signer(signer).build();
-
-        assert_eq!(near.account_id().as_str(), "bob.testnet");
     }
 
     #[test]
@@ -1433,100 +562,6 @@ mod tests {
         assert!(!rpc.url().is_empty());
     }
 
-    #[tokio::test]
-    async fn invalid_builder_account_ids_return_errors_instead_of_panicking() {
-        let near = Near::testnet().build();
-
-        let query_error = near.balance("INVALID").await.unwrap_err();
-        assert!(matches!(query_error, Error::ParseAccountId(_)));
-
-        let transaction_error = near
-            .transfer("INVALID", NearToken::from_near(1))
-            .await
-            .unwrap_err();
-        assert!(matches!(transaction_error, Error::ParseAccountId(_)));
-
-        let global_contract_error = near.global_contract("INVALID").await.unwrap_err();
-        assert!(matches!(global_contract_error, Error::ParseAccountId(_)));
-
-        let state_init = <StateInit as crate::types::StateInitExt>::by_hash(
-            crate::types::CryptoHash::ZERO,
-            Default::default(),
-        );
-        let deposit_error = near
-            .state_init(state_init, "definitely not NEAR")
-            .await
-            .unwrap_err();
-        assert!(matches!(deposit_error, Error::ParseAmount(_)));
-    }
-
-    #[test]
-    fn signer_account_builders_retain_no_signer_errors() {
-        let near = Near::custom("http://127.0.0.1:1", "test").build();
-        let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
-            .parse()
-            .unwrap();
-
-        let builders = [
-            near.deploy(Vec::new()),
-            near.deploy_from(crate::types::CryptoHash::ZERO),
-            near.publish(Vec::new(), PublishMode::Updatable),
-            near.add_full_access_key(public_key.clone()),
-            near.delete_key(public_key.clone()),
-        ];
-
-        for builder in builders {
-            let error = builder
-                .build_offline(
-                    "offline-signer.test",
-                    public_key.clone(),
-                    crate::types::CryptoHash::ZERO,
-                    1,
-                )
-                .unwrap_err();
-            assert!(matches!(error, Error::NoSigner));
-        }
-    }
-
-    #[tokio::test]
-    async fn signer_account_builder_uses_configured_account() {
-        let near = Near::custom("http://127.0.0.1:1", "test")
-            .credentials(
-                "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
-                "alice.testnet",
-            )
-            .unwrap()
-            .build();
-        let account_id = near.account_id().clone();
-
-        let transaction = near
-            .deploy(Vec::new())
-            .sign_offline(crate::types::CryptoHash::ZERO, 1)
-            .await
-            .unwrap();
-
-        assert_eq!(transaction.transaction.receiver_id, account_id);
-    }
-
-    #[test]
-    fn token_helpers_accept_account_ids_without_network() {
-        use crate::types::AccountIdRef;
-
-        const WRAP: &AccountIdRef = AccountIdRef::new_or_panic("wrap.testnet");
-
-        let near = Near::custom("http://127.0.0.1:1", "test").build();
-
-        let ft = near.ft(WRAP);
-        assert_eq!(ft.contract_id().as_str(), "wrap.testnet");
-
-        let nft_id: AccountId = "nft.testnet".parse().unwrap();
-        let nft = near.nft(nft_id.clone());
-        assert_eq!(nft.contract_id(), &nft_id);
-
-        let nft = near.nft(&nft_id);
-        assert_eq!(nft.contract_id(), &nft_id);
-    }
-
     // ========================================================================
     // NearBuilder tests
     // ========================================================================
@@ -1535,7 +570,7 @@ mod tests {
     fn test_near_builder_new() {
         let builder = NearBuilder::new("https://example.com", ChainId::new("custom"));
         let near = builder.build();
-        assert_eq!(near.rpc_url(), "https://example.com");
+        assert_eq!(near.rpc().url(), "https://example.com");
     }
 
     #[test]
@@ -1547,73 +582,14 @@ mod tests {
         };
         let near = Near::testnet().retry_config(config).build();
         // Can't directly test retry config, but we can verify it builds
-        assert!(!near.rpc_url().is_empty());
+        assert!(!near.rpc().url().is_empty());
     }
 
     #[test]
     fn test_near_builder_from_trait() {
         let builder = Near::testnet();
         let near: Near = builder.into();
-        assert!(!near.rpc_url().is_empty());
-    }
-
-    #[test]
-    fn test_near_builder_credentials_invalid_key() {
-        let result = Near::testnet().credentials("invalid-key", "alice.testnet");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_near_builder_credentials_invalid_account() {
-        // Empty account ID is now rejected by the upstream AccountId parser.
-        let result = Near::testnet().credentials(
-            "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
-            "",
-        );
-        assert!(result.is_err());
-    }
-
-    // ========================================================================
-    // SandboxNetwork trait tests
-    // ========================================================================
-
-    struct MockSandbox {
-        rpc_url: String,
-        chain_id: ChainId,
-        root_signer: Arc<dyn Signer>,
-    }
-
-    impl SandboxNetwork for MockSandbox {
-        fn rpc_url(&self) -> &str {
-            &self.rpc_url
-        }
-
-        fn chain_id(&self) -> &ChainId {
-            &self.chain_id
-        }
-
-        fn root_signer(&self) -> Arc<dyn Signer> {
-            self.root_signer.clone()
-        }
-    }
-
-    #[test]
-    fn test_sandbox_network_trait() {
-        let mock = MockSandbox {
-            rpc_url: "http://127.0.0.1:3030".to_string(),
-            chain_id: ChainId::new("sandbox"),
-            root_signer: Arc::new(
-                InMemorySigner::new(
-                    "sandbox",
-                    "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJnpBKWieC73hVTpBeA6FZiCc5tfyZL3a3tHeQJegQe4qGSv8FLsYp7TYd1r6",
-                )
-                .unwrap(),
-            ),
-        };
-
-        let near = Near::sandbox(&mock);
-        assert_eq!(near.rpc_url(), "http://127.0.0.1:3030");
-        assert_eq!(near.account_id().as_str(), "sandbox");
+        assert!(!near.rpc().url().is_empty());
     }
 
     // ========================================================================
@@ -1624,23 +600,18 @@ mod tests {
     fn test_near_clone() {
         let near1 = Near::testnet().build();
         let near2 = near1.clone();
-        assert_eq!(near1.rpc_url(), near2.rpc_url());
+        assert_eq!(near1.rpc().url(), near2.rpc().url());
     }
 
     #[test]
     fn test_near_with_signer_derived() {
         let near = Near::testnet().build();
-        assert!(near.try_account_id().is_none());
-
-        let signer = InMemorySigner::new(
-            "alice.testnet",
-            "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
-        ).unwrap();
+        let signer = InMemorySigner::new(account!("alice.testnet"), ALICE_KEY.parse().unwrap());
 
         let alice = near.with_signer(signer);
         assert_eq!(alice.account_id().as_str(), "alice.testnet");
-        assert_eq!(alice.rpc_url(), near.rpc_url()); // Same transport
-        assert!(near.try_account_id().is_none()); // Original unchanged
+        assert_eq!(alice.near().rpc().url(), near.rpc().url()); // Same transport
+        assert!(Arc::ptr_eq(&alice.near().rpc, &near.rpc));
     }
 
     #[test]
@@ -1648,18 +619,17 @@ mod tests {
         let near = Near::testnet().build();
 
         let alice = near.with_signer(InMemorySigner::new(
-            "alice.testnet",
-            "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
-        ).unwrap());
-
+            account!("alice.testnet"),
+            ALICE_KEY.parse().unwrap(),
+        ));
         let bob = near.with_signer(InMemorySigner::new(
-            "bob.testnet",
-            "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
-        ).unwrap());
+            account!("bob.testnet"),
+            ALICE_KEY.parse().unwrap(),
+        ));
 
         assert_eq!(alice.account_id().as_str(), "alice.testnet");
         assert_eq!(bob.account_id().as_str(), "bob.testnet");
-        assert_eq!(alice.rpc_url(), bob.rpc_url()); // Shared transport
+        assert!(Arc::ptr_eq(&alice.near().rpc, &bob.near().rpc)); // Shared transport
     }
 
     #[test]
@@ -1673,189 +643,9 @@ mod tests {
         // 0 means no retries (send once)
         let near = near.max_nonce_retries(0);
         assert_eq!(near.max_nonce_retries, 0);
-    }
 
-    // ========================================================================
-    // from_env tests
-    // ========================================================================
-
-    // NOTE: Environment variable tests are consolidated into a single test
-    // because they modify global state and would race with each other if
-    // run in parallel. Each scenario is tested sequentially within this test.
-    #[test]
-    fn test_from_env_scenarios() {
-        // Helper to clean up env vars
-        fn clear_env() {
-            // SAFETY: This is a test and we control the execution
-            unsafe {
-                std::env::remove_var("NEAR_CHAIN_ID");
-                std::env::remove_var("NEAR_NETWORK");
-                std::env::remove_var("NEAR_ACCOUNT_ID");
-                std::env::remove_var("NEAR_PRIVATE_KEY");
-                std::env::remove_var("NEAR_MAX_NONCE_RETRIES");
-            }
-        }
-
-        // Scenario 1: No vars - defaults to testnet, read-only
-        clear_env();
-        {
-            let near = Near::from_env().unwrap();
-            assert!(
-                near.rpc_url().contains("test") || near.rpc_url().contains("fastnear"),
-                "Expected testnet URL, got: {}",
-                near.rpc_url()
-            );
-            assert!(near.try_account_id().is_none());
-        }
-
-        // Scenario 2: Mainnet network
-        clear_env();
-        unsafe {
-            std::env::set_var("NEAR_NETWORK", "mainnet");
-        }
-        {
-            let near = Near::from_env().unwrap();
-            assert!(
-                near.rpc_url().contains("mainnet") || near.rpc_url().contains("fastnear"),
-                "Expected mainnet URL, got: {}",
-                near.rpc_url()
-            );
-            assert!(near.try_account_id().is_none());
-        }
-
-        // Scenario 3: Custom URL
-        clear_env();
-        unsafe {
-            std::env::set_var("NEAR_NETWORK", "https://custom-rpc.example.com");
-        }
-        {
-            let near = Near::from_env().unwrap();
-            assert_eq!(near.rpc_url(), "https://custom-rpc.example.com");
-        }
-
-        // Scenario 4: Full credentials
-        clear_env();
-        unsafe {
-            std::env::set_var("NEAR_NETWORK", "testnet");
-            std::env::set_var("NEAR_ACCOUNT_ID", "alice.testnet");
-            std::env::set_var(
-                "NEAR_PRIVATE_KEY",
-                "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
-            );
-        }
-        {
-            let near = Near::from_env().unwrap();
-            assert_eq!(near.account_id().as_str(), "alice.testnet");
-        }
-
-        // Scenario 5: Account without key - should error
-        clear_env();
-        unsafe {
-            std::env::set_var("NEAR_ACCOUNT_ID", "alice.testnet");
-        }
-        {
-            let result = Near::from_env();
-            assert!(
-                result.is_err(),
-                "Expected error when account set without key"
-            );
-            let err = result.unwrap_err();
-            assert!(
-                err.to_string().contains("NEAR_PRIVATE_KEY"),
-                "Error should mention NEAR_PRIVATE_KEY: {}",
-                err
-            );
-        }
-
-        // Scenario 6: Key without account - should error
-        clear_env();
-        unsafe {
-            std::env::set_var(
-                "NEAR_PRIVATE_KEY",
-                "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB",
-            );
-        }
-        {
-            let result = Near::from_env();
-            assert!(
-                result.is_err(),
-                "Expected error when key set without account"
-            );
-            let err = result.unwrap_err();
-            assert!(
-                err.to_string().contains("NEAR_ACCOUNT_ID"),
-                "Error should mention NEAR_ACCOUNT_ID: {}",
-                err
-            );
-        }
-
-        // Scenario 7: Custom max_nonce_retries
-        clear_env();
-        unsafe {
-            std::env::set_var("NEAR_MAX_NONCE_RETRIES", "10");
-        }
-        {
-            let near = Near::from_env().unwrap();
-            assert_eq!(near.max_nonce_retries, 10);
-        }
-
-        // Scenario 8: Invalid max_nonce_retries (not a number)
-        clear_env();
-        unsafe {
-            std::env::set_var("NEAR_MAX_NONCE_RETRIES", "abc");
-        }
-        {
-            let result = Near::from_env();
-            assert!(
-                result.is_err(),
-                "Expected error for non-numeric NEAR_MAX_NONCE_RETRIES"
-            );
-            let err = result.unwrap_err();
-            assert!(
-                err.to_string().contains("NEAR_MAX_NONCE_RETRIES"),
-                "Error should mention NEAR_MAX_NONCE_RETRIES: {}",
-                err
-            );
-        }
-
-        // Scenario 9: max_nonce_retries zero is valid (means no retries)
-        clear_env();
-        unsafe {
-            std::env::set_var("NEAR_MAX_NONCE_RETRIES", "0");
-        }
-        {
-            let near = Near::from_env().expect("0 retries should be valid");
-            assert_eq!(near.max_nonce_retries, 0);
-        }
-
-        // Scenario 10: NEAR_CHAIN_ID overrides chain_id for custom network
-        clear_env();
-        unsafe {
-            std::env::set_var("NEAR_NETWORK", "https://rpc.pinet.near.org");
-            std::env::set_var("NEAR_CHAIN_ID", "pinet");
-        }
-        {
-            let near = Near::from_env().unwrap();
-            assert_eq!(near.rpc_url(), "https://rpc.pinet.near.org");
-            assert_eq!(near.chain_id().as_str(), "pinet");
-        }
-
-        // Scenario 11: NEAR_CHAIN_ID without NEAR_NETWORK defaults to testnet RPC
-        clear_env();
-        unsafe {
-            std::env::set_var("NEAR_CHAIN_ID", "my-chain");
-        }
-        {
-            let near = Near::from_env().unwrap();
-            assert!(
-                near.rpc_url().contains("test") || near.rpc_url().contains("fastnear"),
-                "Expected testnet URL, got: {}",
-                near.rpc_url()
-            );
-            assert_eq!(near.chain_id().as_str(), "my-chain");
-        }
-
-        // Final cleanup
-        clear_env();
+        // A signing client takes the setting of the Near it came from.
+        let signer = InMemorySigner::new(account!("alice.testnet"), ALICE_KEY.parse().unwrap());
+        assert_eq!(near.with_signer(signer).near().max_nonce_retries, 0);
     }
 }

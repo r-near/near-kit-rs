@@ -11,6 +11,5 @@
 pub(crate) use near_kit_primitives::protocol::*;
 pub(crate) use near_kit_primitives::rpc::*;
 pub(crate) use near_kit_primitives::signer::*;
-pub(crate) use near_kit_primitives::standards::nep413;
 pub(crate) use near_kit_primitives::transaction::*;
 pub(crate) use near_kit_primitives::{AccountId, CryptoHash, Gas, NearToken};

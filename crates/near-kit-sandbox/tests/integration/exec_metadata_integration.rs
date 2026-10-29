@@ -8,6 +8,7 @@
 //! This test confirms a real 2.13 outcome round-trips through the typed
 //! `.send().wait_until::<Final>()` path and exposes the V4 `contracts` field.
 
+use near_kit::protocol::Action;
 use near_kit::*;
 use near_kit::{signer::SecretKey, transaction::Final};
 
@@ -23,12 +24,11 @@ async fn test_v4_execution_metadata_parses_through_send() {
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account("execmeta");
     let outcome = near
-        .transaction(&account_id)
-        .create_account()
-        .transfer(NearToken::from_near(5))
-        .add_full_access_key(key.public_key())
-        .send()
         .wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(5)))
+        .add_action(Action::add_full_access_key(key.public_key()))
         .await
         .expect("create_account outcome must deserialize (incl. V4 metadata)");
 
@@ -43,7 +43,13 @@ async fn test_v4_execution_metadata_parses_through_send() {
 
     // On a protocol-v85+ node the receipt outcomes carry V4 metadata, whose
     // typed `contracts` field must be exposed (one entry per action).
-    let protocol = near.rpc().status().await.expect("status").protocol_version;
+    let protocol = near
+        .near()
+        .rpc()
+        .status()
+        .await
+        .expect("status")
+        .protocol_version;
     if protocol >= 85 {
         let v4 = outcome
             .receipts_outcome

@@ -7,11 +7,11 @@ use borsh::de::EnumExt as _;
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ParseAccountIdError, UniversalStateInitError};
+use crate::error::UniversalStateInitError;
 
 use super::{
     AccountId, CryptoHash, Gas, NearToken, PublicKey, RawStateInit, Signature, TransactionNonce,
-    TryIntoAccountId, UniversalStateInit,
+    UniversalStateInit,
 };
 
 /// NEP-616 deterministic account types, re-exported from the
@@ -44,61 +44,6 @@ pub enum PublishMode {
     /// The signer can update the contract later.
     #[serde(rename = "AccountId")]
     Updatable,
-}
-
-/// Fallible conversion into a global contract identifier.
-///
-/// This allows `deploy_from` to accept either a `CryptoHash` (for immutable
-/// contracts) or an account ID string/`AccountId` (for publisher-updatable contracts),
-/// converting into the canonical [`GlobalContractId`]. An already-constructed
-/// [`GlobalContractId`] is accepted as-is (identity conversion).
-pub trait TryIntoGlobalContractId {
-    /// Convert this value into a global contract identifier.
-    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError>;
-}
-
-impl TryIntoGlobalContractId for GlobalContractId {
-    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
-        Ok(self)
-    }
-}
-
-impl TryIntoGlobalContractId for CryptoHash {
-    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
-        Ok(GlobalContractId::CodeHash(*self.as_bytes()))
-    }
-}
-
-impl TryIntoGlobalContractId for AccountId {
-    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
-        Ok(GlobalContractId::AccountId(self))
-    }
-}
-
-impl TryIntoGlobalContractId for &AccountId {
-    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
-        Ok(GlobalContractId::AccountId(self.clone()))
-    }
-}
-
-impl TryIntoGlobalContractId for &str {
-    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
-        self.try_into_account_id().map(GlobalContractId::AccountId)
-    }
-}
-
-impl TryIntoGlobalContractId for String {
-    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
-        self.try_into_account_id().map(GlobalContractId::AccountId)
-    }
-}
-
-impl TryIntoGlobalContractId for &String {
-    fn try_into_identifier(self) -> Result<GlobalContractId, ParseAccountIdError> {
-        self.as_str()
-            .try_into_account_id()
-            .map(GlobalContractId::AccountId)
-    }
 }
 
 /// NEP-461 domain prefix for V1 delegate actions (meta-transactions, NEP-366).
@@ -368,6 +313,14 @@ pub struct UseGlobalContractAction {
 // upstream `near-global-contracts` crate and are re-exported above. The action wrapper and the
 // `by_hash`/`by_publisher` construction ergonomics stay in near-kit.
 
+// Allowed by the orphan rule because `CryptoHash` is local. Upstream already
+// converts from `[u8; 32]` and `AccountId`.
+impl From<CryptoHash> for GlobalContractId {
+    fn from(code_hash: CryptoHash) -> Self {
+        Self::CodeHash(*code_hash.as_bytes())
+    }
+}
+
 /// Deploy a contract with a deterministically derived account ID (NEP-616).
 ///
 /// This enables creating accounts where the account ID is derived from the
@@ -412,10 +365,31 @@ impl StateInitExt for StateInit {
 impl DeterministicStateInitAction {
     /// Derive the deterministic account ID for this action.
     ///
-    /// Convenience method that delegates to [`StateInit::derive_account_id`].
+    /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`, the same id as
+    /// [`StateInit::derive_account_id`] and nearcore's
+    /// `derive_near_deterministic_account_id`. Hashed in pure Rust, so it
+    /// never calls a NEAR host function, whatever features are unified on
+    /// near-global-contracts.
     pub fn derive_account_id(&self) -> AccountId {
-        self.state_init.derive_account_id()
+        derive_deterministic_account_id(&self.state_init)
     }
+}
+
+/// The `0s` account id of a NEP-616 state init, computed with pure-Rust
+/// Keccak-256.
+///
+/// near-global-contracts' `StateInit::derive_account_id` switches to the
+/// `keccak256` host function under its `__near-sdk-unit-testing` feature,
+/// which `near-sdk/unit-testing` anywhere in a workspace turns on. A test
+/// binary that links near-kit but not near-sdk then fails to link.
+pub(crate) fn derive_deterministic_account_id(state_init: &StateInit) -> AccountId {
+    use sha3::{Digest as _, Keccak256};
+
+    let bytes = borsh::to_vec(state_init).expect("borsh into a Vec never fails");
+    let hash: [u8; 32] = Keccak256::digest(&bytes).into();
+    format!("0s{}", hex::encode(&hash[12..32]))
+        .parse()
+        .expect("a 0s id is always a valid account id: 42 lowercase hex characters")
 }
 
 /// Transfer NEAR to a gas key.
@@ -671,20 +645,20 @@ impl Action {
     }
 
     /// Create a DeployContract action.
-    pub fn deploy_contract(code: Vec<u8>) -> Self {
-        Self::DeployContract(DeployContractAction { code })
+    pub fn deploy_contract(code: impl Into<Vec<u8>>) -> Self {
+        Self::DeployContract(DeployContractAction { code: code.into() })
     }
 
     /// Create a FunctionCall action.
     pub fn function_call(
         method_name: impl Into<String>,
-        args: Vec<u8>,
+        args: impl Into<Vec<u8>>,
         gas: Gas,
         deposit: NearToken,
     ) -> Self {
         Self::FunctionCall(FunctionCallAction {
             method_name: method_name.into(),
-            args,
+            args: args.into(),
             gas,
             deposit,
         })
@@ -764,9 +738,9 @@ impl Action {
     /// // Publish immutable contract (identified by its hash)
     /// let immutable = Action::publish(wasm_code, PublishMode::Immutable);
     /// ```
-    pub fn publish(code: Vec<u8>, mode: PublishMode) -> Self {
+    pub fn publish(code: impl Into<Vec<u8>>, mode: PublishMode) -> Self {
         Self::DeployGlobalContract(DeployGlobalContractAction {
-            code,
+            code: code.into(),
             deploy_mode: mode,
         })
     }
@@ -793,7 +767,9 @@ impl Action {
     /// Create a NEP-616 deterministic state init action.
     ///
     /// The account ID is derived from the state init data:
-    /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`
+    /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`. Send the
+    /// transaction to that account ([`DeterministicStateInitAction::derive_account_id`]);
+    /// near-kit's `Tx` rejects any other receiver before signing.
     pub fn state_init(state_init: StateInit, deposit: NearToken) -> Self {
         Self::DeterministicStateInit(DeterministicStateInitAction {
             state_init,
@@ -968,6 +944,15 @@ impl TryFrom<Action> for NonDelegateAction {
 mod tests {
     use super::*;
     use crate::types::{Gas, NearToken, SecretKey};
+
+    #[test]
+    fn global_contract_id_from_crypto_hash_is_the_code_hash() {
+        let hash = CryptoHash::hash(b"code");
+        assert_eq!(
+            GlobalContractId::from(hash),
+            GlobalContractId::CodeHash(*hash.as_bytes())
+        );
+    }
 
     fn create_test_delegate_action() -> DelegateAction {
         let sender_id: AccountId = "alice.testnet".parse().unwrap();
@@ -1398,7 +1383,7 @@ mod tests {
             data: BTreeMap::new(),
         });
 
-        let account_id = state_init.derive_account_id();
+        let account_id = derive_deterministic_account_id(&state_init);
         let account_str = account_id.as_str();
 
         // Should start with "0s"
@@ -1441,8 +1426,8 @@ mod tests {
         });
 
         assert_eq!(
-            state_init1.derive_account_id(),
-            state_init2.derive_account_id(),
+            derive_deterministic_account_id(&state_init1),
+            derive_deterministic_account_id(&state_init2),
             "Same input should produce same account ID"
         );
     }
@@ -1461,8 +1446,8 @@ mod tests {
         });
 
         assert_ne!(
-            state_init1.derive_account_id(),
-            state_init2.derive_account_id(),
+            derive_deterministic_account_id(&state_init1),
+            derive_deterministic_account_id(&state_init2),
             "Different code references should produce different account IDs"
         );
     }
@@ -1520,8 +1505,8 @@ mod tests {
         });
 
         assert_ne!(
-            state_init1.derive_account_id(),
-            state_init2.derive_account_id(),
+            derive_deterministic_account_id(&state_init1),
+            derive_deterministic_account_id(&state_init2),
             "Different data should produce different account IDs"
         );
     }
@@ -1589,25 +1574,6 @@ mod tests {
         let json = serde_json::to_string(&id).unwrap();
         let decoded: GlobalContractId = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, id);
-    }
-
-    #[test]
-    fn test_global_contract_id_try_into_identifier_is_identity() {
-        // An already-constructed `GlobalContractId` is accepted by `deploy_from`
-        // and passes through unchanged.
-        let by_hash = GlobalContractId::CodeHash(*CryptoHash::hash(&[1, 2, 3]).as_bytes());
-        assert_eq!(by_hash.clone().try_into_identifier().unwrap(), by_hash);
-
-        let by_account = GlobalContractId::AccountId("publisher.near".parse().unwrap());
-        assert_eq!(
-            by_account.clone().try_into_identifier().unwrap(),
-            by_account
-        );
-    }
-
-    #[test]
-    fn test_global_contract_id_string_conversion_is_fallible() {
-        assert!("INVALID".try_into_identifier().is_err());
     }
 
     #[test]

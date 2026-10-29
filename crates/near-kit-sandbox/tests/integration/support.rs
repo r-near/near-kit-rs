@@ -1,9 +1,10 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use near_kit::protocol::Action;
 use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::transaction::Final;
-use near_kit::{AccountId, Near, NearToken};
-use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, Sandbox, SandboxConfig};
+use near_kit::{AccountId, NearToken, SigningNear};
+use near_kit_sandbox::{SANDBOX_ROOT_ACCOUNT, Sandbox};
 use tokio::sync::OnceCell;
 
 static ACCOUNT_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -16,8 +17,9 @@ pub(crate) fn unique_account(prefix: &str) -> AccountId {
         .expect("generated sandbox account ID must be valid")
 }
 
-pub(crate) async fn shared_client() -> (&'static Sandbox, Near) {
-    let sandbox = SandboxConfig::shared()
+pub(crate) async fn shared_client() -> (&'static Sandbox, SigningNear) {
+    let sandbox = Sandbox::builder()
+        .shared()
         .await
         .expect("shared sandbox must start");
     (sandbox, sandbox.client())
@@ -25,7 +27,7 @@ pub(crate) async fn shared_client() -> (&'static Sandbox, Near) {
 
 pub(crate) async fn sandbox_2_13() -> &'static Sandbox {
     SANDBOX_2_13
-        .get_or_try_init(|| async { SandboxConfig::builder().version("2.13.4").fresh().await })
+        .get_or_try_init(|| async { Sandbox::builder().version("2.13.4").fresh().await })
         .await
         .expect("2.13 sandbox must start")
 }
@@ -34,27 +36,25 @@ pub(crate) fn client_for(
     sandbox: &Sandbox,
     account_id: &AccountId,
     secret_key: &SecretKey,
-) -> Near {
-    let signer = InMemorySigner::from_secret_key(account_id.clone(), secret_key.clone())
-        .expect("typed sandbox account and key must create a signer");
-    Near::sandbox(sandbox).with_signer(signer)
+) -> SigningNear {
+    let signer = InMemorySigner::new(account_id.clone(), secret_key.clone());
+    sandbox.client().near().with_signer(signer)
 }
 
 pub(crate) async fn funded_account(
-    root: &Near,
+    root: &SigningNear,
     sandbox: &Sandbox,
     prefix: &str,
     balance: NearToken,
-) -> (Near, AccountId, SecretKey) {
+) -> (SigningNear, AccountId, SecretKey) {
     let account_id = unique_account(prefix);
     let secret_key = SecretKey::generate_ed25519();
 
-    root.transaction(&account_id)
-        .create_account()
-        .transfer(balance)
-        .add_full_access_key(secret_key.public_key())
-        .send()
-        .wait_until::<Final>()
+    root.wait_until::<Final>()
+        .transaction(&account_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(balance))
+        .add_action(Action::add_full_access_key(secret_key.public_key()))
         .await
         .expect("funded sandbox account must be created");
 

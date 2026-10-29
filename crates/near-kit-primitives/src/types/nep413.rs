@@ -6,11 +6,11 @@
 //! # Example
 //!
 //! ```rust
-//! use near_kit_primitives::signer::{InMemorySigner, Signer};
+//! use near_kit_primitives::signer::{InMemorySigner, SecretKey, Signer};
 //! use near_kit_primitives::standards::nep413;
 //!
 //! # async fn example() -> Result<(), near_kit_primitives::signer::SignerError> {
-//! let signer = InMemorySigner::generate_implicit();
+//! let signer = InMemorySigner::implicit(SecretKey::generate_ed25519())?;
 //!
 //! // Sign a message
 //! let params = nep413::SignMessageParams {
@@ -172,11 +172,11 @@ impl AuthPayload {
     /// # Example
     ///
     /// ```rust
-    /// use near_kit_primitives::signer::{InMemorySigner, Signer};
+    /// use near_kit_primitives::signer::{InMemorySigner, SecretKey, Signer};
     /// use near_kit_primitives::standards::nep413;
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let signer = InMemorySigner::generate_implicit();
+    /// let signer = InMemorySigner::implicit(SecretKey::generate_ed25519())?;
     ///
     /// let params = nep413::SignMessageParams {
     ///     message: "Sign in to My App".to_string(),

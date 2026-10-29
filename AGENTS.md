@@ -36,15 +36,17 @@ near-kit-rs/
 │   │   │   ├── lib.rs          # Public API exports
 │   │   │   ├── protocol.rs, rpc.rs, signer.rs, transaction.rs, standards.rs
 │   │   │   │                   # Public facades: re-export near-kit-primitives + client items
-│   │   │   ├── error.rs        # Error, RpcError, KeyStoreError (+ From impls)
-│   │   │   ├── client/         # Near client, RPC, transports, Env/File/Keyring signers
-│   │   │   ├── tokens/         # FT/NFT helpers (NEP-141, NEP-171)
-│   │   │   └── contract.rs     # Typed contract support
+│   │   │   ├── error.rs        # Error, RpcError, KeyStoreError, TimeoutCause
+│   │   │   ├── client/         # Near/SigningNear, Tx, RpcClient, transports,
+│   │   │   │                   # signer loaders (from_env, from_credentials, from_keyring)
+│   │   │   ├── tokens/         # FungibleToken/NonFungibleToken Contract markers + clients
+│   │   │   └── standards/      # NEP-413 verify over RPC
 │   │   └── examples/
 │   ├── near-kit-primitives/    # Offline core: no tokio/reqwest/hyper (CI-enforced)
 │   │   └── src/
 │   │       ├── lib.rs          # Facades mirror near-kit's (protocol, rpc, signer, ...)
-│   │       ├── error.rs        # Parse*/Signer/FunctionCallBuild/Outcome errors
+│   │       ├── backend.rs      # Viewer/TxSender, View/Call, Contract, ContractError
+│   │       ├── error.rs        # ParseKey/ParseHash/Signer/Codec/Outcome errors
 │   │       ├── types/          # AccountId, NearToken, Gas, keys, actions, txs,
 │   │       │                   # RPC views, Signer/InMemorySigner/RotatingSigner, NEP-413
 │   │       └── transaction/    # FunctionCall
@@ -70,7 +72,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::error::ParseAmountError;
+use crate::error::ParseKeyError;
 use crate::types::AccountId;
 ```
 
@@ -99,12 +101,12 @@ use crate::types::AccountId;
 
 ```rust
 #[derive(Debug, Error)]
-pub enum ParseAmountError {
-    #[error("Ambiguous amount '{0}'. Use explicit units like '5 NEAR' or '1000 yocto'")]
-    AmbiguousAmount(String),
+pub enum ParseKeyError {
+    #[error("Unknown key type: '{0}'")]
+    UnknownKeyType(String),
 
-    #[error("Invalid amount format: '{0}'")]
-    InvalidFormat(String),
+    #[error("Invalid base58 encoding: {0}")]
+    InvalidBase58(String),
 }
 ```
 
@@ -117,18 +119,18 @@ pub enum ParseAmountError {
 
 ### Key Patterns
 
-1. **String parsing**: Implement `FromStr` for types that can be parsed from strings
-2. **Builder pattern**: Use for complex configuration (`NearBuilder`, `ContractCall`)
-3. **IntoFuture**: Query builders implement `IntoFuture` for direct `.await`
-4. **Explicit units**: No bare numbers for amounts—require `NearToken::near(5)` or `"5 NEAR"`
+1. **Typed inputs**: Methods take parsed types (`impl Into<AccountId>`, `SecretKey`,
+   `NearToken`); callers parse strings at the edge with `FromStr`
+2. **Builder pattern**: Only for real configuration (`NearBuilder`, `Sandbox::builder()`)
+3. **IntoFuture**: `View`, `Call`, `Tx` and query builders `.await` directly
+4. **Backend traits**: Contract clients are generic over `Viewer`/`TxSender`; a
+   `Contract` marker (generated or `FungibleToken`) builds them via `near.contract::<T>(id)`
+5. **Explicit units**: No bare numbers for amounts—require `NearToken::from_near(5)`
 
 ```rust
 // Good: explicit units
-let amount = NearToken::near(5);
-let gas = Gas::tgas(30);
-
-// Also good: string parsing for runtime input
-let amount: NearToken = "5 NEAR".parse()?;
+let amount = NearToken::from_near(5);
+let gas = Gas::from_tgas(30);
 ```
 
 ### Serialization
@@ -148,7 +150,8 @@ offline; examples that need `Near` go in near-kit's facade module docs.
 ### Feature Flags
 
 - `near-kit/contracts`: Typed contract clients and proc macros
-- `near-kit/keyring`: System keyring support (macOS Keychain, etc.)
+- `near-kit/keyring`: `signer::from_keyring` (macOS Keychain, etc.)
+- `near-kit/file-signer`: `signer::from_credentials` (`~/.near-credentials`)
 - `near-kit-sandbox/integration-tests`: Docker-backed integration suite
 - `near-kit-primitives/{mnemonic,js,tracing}`: forwarded from the same-named
   `near-kit` features
@@ -173,9 +176,9 @@ docs: update README examples
 
 ## Design Philosophy
 
-1. **Single entry point**: Everything flows through the `Near` client
-2. **Configure once**: Network and signer set at client creation
-3. **Type-safe but ergonomic**: Accept both typed values and string parsing
+1. **Two clients**: `Near` reads; `near.with_signer(s)` returns a `SigningNear` that also sends
+2. **Configure once**: Network on `Near`, account and wait level on `SigningNear<W>`
+3. **One way to do each thing**: Typed values in, no duplicate shortcuts
 4. **Explicit units**: Must specify `NEAR`, `yocto`, `Tgas`, etc.
 5. **Minimal dependencies**: No NEAR official crates—hand-roll everything
 

@@ -1,0 +1,13 @@
+error: `#[call]` methods resolve to the sender's `TxSender::Output`; remove the return type
+ --> tests/compile-fail/call_return_type.rs:8:28
+  |
+8 |     fn close(&mut self) -> bool;
+  |                            ^^^^
+
+warning: unused import: `near_kit::*`
+ --> tests/compile-fail/call_return_type.rs:3:5
+  |
+3 | use near_kit::*;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

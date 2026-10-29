@@ -20,12 +20,12 @@ use crate::error::{RpcError, TimeoutCause};
 use crate::trace;
 use crate::types::RawTransactionResponse;
 use crate::types::{
-    AccessKeyListView, AccessKeyView, AccountId, AccountView, BlockEffects, BlockReference,
-    BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
+    AccessKeyListView, AccessKeyView, AccountId, AccountIdRef, AccountView, BlockEffects,
+    BlockReference, BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
     FunctionCallError, GasKeyNoncesView, GasPrice, GlobalContractId, GlobalContractIdentifierView,
     HostError, MaintenanceWindow, MethodResolveError, PublicKey, PublicKeyHandle,
-    ReceiptToTxResponse, SignedTransaction, StatusResponse, TxExecutionStatus, ViewFunctionResult,
-    ViewStateAllResult, ViewStateResult,
+    ReceiptToTxResponse, SignedTransaction, StatusResponse, SyncCheckpoint, TxExecutionStatus,
+    ViewFunctionResult, ViewStateAllResult, ViewStateResult,
 };
 
 /// Platform-appropriate async sleep, used for retry backoff.
@@ -78,7 +78,7 @@ pub const TESTNET: NetworkConfig = NetworkConfig {
 ///
 /// A transaction rejected with `InvalidNonce` is never retried here —
 /// re-sending the same signed bytes can't change the outcome. Nonce refresh
-/// and re-signing happen one layer up, in the `Near::send*` transaction path
+/// and re-signing happen one layer up, in the `SigningNear` transaction path
 /// (see `NearBuilder::max_nonce_retries`).
 ///
 /// Use [`RetryConfig::none()`] to disable retries entirely, e.g. when the
@@ -227,7 +227,7 @@ fn classify_function_call_error(
     match error {
         FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist { account_id }) => {
             Some(RpcError::ContractNotDeployed {
-                account_id: account_id.clone(),
+                account_id: account_id.to_owned(),
                 block_height,
                 block_hash,
             })
@@ -430,7 +430,7 @@ impl RpcClient {
     /// `view_state` query as paginated when `limit` or `after_key` is present,
     /// and only paginated queries are exempt from the `TOO_LARGE_CONTRACT_STATE`
     /// size gate.
-    pub const DEFAULT_VIEW_STATE_PAGE_SIZE: u32 = 10_000;
+    pub(crate) const DEFAULT_VIEW_STATE_PAGE_SIZE: u32 = 10_000;
 
     /// Page size [`RpcClient::view_access_key_list`] requests per round trip.
     ///
@@ -441,7 +441,7 @@ impl RpcClient {
     /// `limit` or `after_key` is present, and an unpaginated request for an
     /// account with more keys than the cap fails with
     /// [`RpcError::TooManyAccessKeys`] instead of returning the list.
-    pub const DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE: u32 = 100;
+    pub(crate) const DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE: u32 = 100;
 
     /// Create a new RPC client with the given URL.
     ///
@@ -458,17 +458,6 @@ impl RpcClient {
             transport::default_transport(),
             RetryConfig::default(),
         )
-    }
-
-    /// Create a new RPC client with custom retry configuration.
-    ///
-    /// Only exists where a built-in transport does — see [`RpcClient::new`].
-    #[cfg(any(
-        not(all(target_arch = "wasm32", target_os = "wasi")),
-        all(feature = "wasi-http", target_env = "p2")
-    ))]
-    pub fn with_retry_config(url: impl Into<String>, retry_config: RetryConfig) -> Self {
-        Self::with_transport_and_retry_config(url, transport::default_transport(), retry_config)
     }
 
     /// Create a new RPC client with a custom [`RpcTransport`] and retry
@@ -971,9 +960,10 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
     pub async fn view_account(
         &self,
-        account_id: &AccountId,
-        block: BlockReference,
+        account_id: &AccountIdRef,
+        block: impl Into<BlockReference>,
     ) -> Result<AccountView, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "account_id": account_id.to_string(),
         });
@@ -985,10 +975,11 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id, %public_key)))]
     pub async fn view_access_key(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
         public_key: &PublicKey,
-        block: BlockReference,
+        block: impl Into<BlockReference>,
     ) -> Result<AccessKeyView, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "account_id": account_id.to_string(),
             "public_key": public_key.to_string(),
@@ -1006,7 +997,7 @@ impl RpcClient {
                     block_hash,
                     ..
                 } => RpcError::AccessKeyNotFound {
-                    account_id: account_id.clone(),
+                    account_id: account_id.to_owned(),
                     public_key,
                     block_height,
                     block_hash,
@@ -1021,7 +1012,7 @@ impl RpcClient {
     /// (100 by default) and rejects an *unpaginated* request for a larger
     /// account with [`RpcError::TooManyAccessKeys`]. This helper is cap-safe by
     /// construction: every request carries
-    /// `limit = `[`DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE`](Self::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE)
+    /// `limit = 100` (nearcore's default `view_access_keys_limit`)
     /// and it follows the [`last_key`](AccessKeyListView::last_key) cursor with
     /// `after_key` until the node reports no more keys.
     ///
@@ -1035,15 +1026,16 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
     pub async fn view_access_key_list(
         &self,
-        account_id: &AccountId,
-        block: BlockReference,
+        account_id: &AccountIdRef,
+        block: impl Into<BlockReference>,
     ) -> Result<AccessKeyListView, RpcError> {
+        let block = block.into();
         let limit = NonZeroU32::new(Self::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE)
             .expect("DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE is non-zero");
         let mut list = self
             .view_access_key_list_page(account_id, None, Some(limit), block)
             .await?;
-        let pinned = BlockReference::at_hash(list.block_hash);
+        let pinned = BlockReference::Hash(list.block_hash);
         while let Some(cursor) = list.last_key.take() {
             let page = self
                 .view_access_key_list_page(account_id, Some(&cursor), Some(limit), pinned)
@@ -1088,10 +1080,10 @@ impl RpcClient {
     /// # async fn example(rpc: &RpcClient, account: &AccountId) -> Result<(), RpcError> {
     /// let page_size = NonZeroU32::new(50);
     /// let mut page = rpc
-    ///     .view_access_key_list_page(account, None, page_size, BlockReference::final_())
+    ///     .view_access_key_list_page(account, None, page_size, BlockReference::default())
     ///     .await?;
     /// // Later pages read the snapshot the first page was taken at.
-    /// let snapshot = BlockReference::at_hash(page.block_hash);
+    /// let snapshot = BlockReference::Hash(page.block_hash);
     /// let mut keys = page.keys;
     /// while let Some(cursor) = page.last_key {
     ///     page = rpc
@@ -1105,11 +1097,12 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, after_key, block), fields(%account_id)))]
     pub async fn view_access_key_list_page(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
         after_key: Option<&PublicKeyHandle>,
         limit: Option<NonZeroU32>,
-        block: BlockReference,
+        block: impl Into<BlockReference>,
     ) -> Result<AccessKeyListView, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "request_type": "view_access_key_list",
             "account_id": account_id.to_string(),
@@ -1133,10 +1126,11 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id, %public_key)))]
     pub async fn view_gas_key_nonces(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
         public_key: &PublicKey,
-        block: BlockReference,
+        block: impl Into<BlockReference>,
     ) -> Result<GasKeyNoncesView, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "request_type": "view_gas_key_nonces",
             "account_id": account_id.to_string(),
@@ -1152,7 +1146,7 @@ impl RpcClient {
                 block_hash,
                 ..
             } => RpcError::GasKeyNotFound {
-                account_id: account_id.clone(),
+                account_id: account_id.to_owned(),
                 public_key,
                 block_height,
                 block_hash,
@@ -1165,11 +1159,12 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, args, block), fields(contract_id = %account_id, method = method_name)))]
     pub async fn view_function(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
         method_name: &str,
         args: &[u8],
-        block: BlockReference,
+        block: impl Into<BlockReference>,
     ) -> Result<ViewFunctionResult, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "account_id": account_id.to_string(),
             "method_name": method_name,
@@ -1191,7 +1186,7 @@ impl RpcClient {
                     block_hash,
                     ..
                 } => RpcError::ContractExecution {
-                    contract_id: account_id.clone(),
+                    contract_id: account_id.to_owned(),
                     method_name: Some(method_name.to_string()),
                     message,
                     block_height,
@@ -1202,7 +1197,7 @@ impl RpcClient {
                     block_hash,
                     ..
                 } => RpcError::MethodNotFound {
-                    contract_id: account_id.clone(),
+                    contract_id: account_id.to_owned(),
                     method_name: method_name.to_string(),
                     block_height,
                     block_hash,
@@ -1210,12 +1205,10 @@ impl RpcClient {
                 other => other,
             })?;
 
-        Ok(ViewFunctionResult {
-            result: response.result,
-            logs: response.logs,
-            block_height: response.block_height,
-            block_hash: response.block_hash,
-        })
+        Ok(
+            ViewFunctionResult::new(response.result, response.block_height, response.block_hash)
+                .with_logs(response.logs),
+        )
     }
 
     /// View the WASM code deployed on an account.
@@ -1224,9 +1217,10 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
     pub async fn view_code(
         &self,
-        account_id: &AccountId,
-        block: BlockReference,
+        account_id: &AccountIdRef,
+        block: impl Into<BlockReference>,
     ) -> Result<ContractCodeView, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "request_type": "view_code",
             "account_id": account_id.to_string(),
@@ -1240,13 +1234,16 @@ impl RpcClient {
     /// Picks the request type from the identifier kind:
     /// `view_global_contract_code` for code-hash identifiers,
     /// `view_global_contract_code_by_account_id` for publisher accounts.
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(?id)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, id, block), fields(id = tracing::field::Empty)))]
     pub async fn view_global_contract_code(
         &self,
-        id: &GlobalContractId,
-        block: BlockReference,
+        id: impl Into<GlobalContractId>,
+        block: impl Into<BlockReference>,
     ) -> Result<ContractCodeView, RpcError> {
-        let mut params = match id {
+        let block = block.into();
+        let id = id.into();
+        trace::Span::current().record("id", trace::field::debug(&id));
+        let mut params = match &id {
             GlobalContractId::CodeHash(hash) => serde_json::json!({
                 "request_type": "view_global_contract_code",
                 "code_hash": CryptoHash::from_bytes(*hash).to_string(),
@@ -1266,7 +1263,7 @@ impl RpcClient {
                 block_hash,
                 ..
             } => RpcError::GlobalContractNotFound {
-                identifier: match id {
+                identifier: match &id {
                     GlobalContractId::CodeHash(hash) => {
                         GlobalContractIdentifierView::CodeHash(CryptoHash::from_bytes(*hash))
                     }
@@ -1294,12 +1291,13 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, prefix, after_key, block), fields(%account_id)))]
     pub async fn view_state(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
         prefix: &[u8],
         after_key: Option<&[u8]>,
         limit: Option<u32>,
-        block: BlockReference,
+        block: impl Into<BlockReference>,
     ) -> Result<ViewStateResult, RpcError> {
+        let block = block.into();
         let mut params = serde_json::json!({
             "request_type": "view_state",
             "account_id": account_id.to_string(),
@@ -1328,8 +1326,8 @@ impl RpcClient {
     /// and returns all matching [`StateItem`](crate::rpc::StateItem)s as a
     /// [`ViewStateAllResult`] together with the `block_height`/`block_hash`
     /// the state was read at. Pass an empty `prefix` for the whole state.
-    /// `page_size` of `0` means the default page size,
-    /// [`RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`].
+    /// `page_size` of `0` means the default page size, 10,000 entries
+    /// (nearcore's `MAX_VIEW_STATE_PAGE_ITEMS`).
     ///
     /// Every request carries a positive `limit`, so the node treats it as
     /// paginated and does not reject large states with
@@ -1345,11 +1343,12 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, prefix, block), fields(%account_id)))]
     pub async fn view_state_all(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
         prefix: &[u8],
         page_size: u32,
-        block: BlockReference,
+        block: impl Into<BlockReference>,
     ) -> Result<ViewStateAllResult, RpcError> {
+        let block = block.into();
         // Always send a positive limit: an omitted `limit` on the first page
         // would make the node treat that request as unpaginated and apply
         // its `TOO_LARGE_CONTRACT_STATE` size gate.
@@ -1370,7 +1369,7 @@ impl RpcClient {
             .await?;
         let block_height = first.block_height;
         let block_hash = first.block_hash;
-        let pinned = BlockReference::at_hash(block_hash);
+        let pinned = BlockReference::Hash(block_hash);
         let mut values = first.values;
         let mut after_key = first.last_key;
         while let Some(cursor) = after_key {
@@ -1389,8 +1388,9 @@ impl RpcClient {
 
     /// Get block information.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block)))]
-    pub async fn block(&self, block: BlockReference) -> Result<BlockView, RpcError> {
-        let params = block.to_rpc_params();
+    pub async fn block(&self, block: impl Into<BlockReference>) -> Result<BlockView, RpcError> {
+        let block = block.into();
+        let params = block_params(&block);
         self.call("block", params).await
     }
 
@@ -1399,22 +1399,13 @@ impl RpcClient {
     /// Uses the stabilized `block_effects` method (protocol 2.13), the new name
     /// for `EXPERIMENTAL_changes_in_block`.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block)))]
-    pub async fn block_effects(&self, block: BlockReference) -> Result<BlockEffects, RpcError> {
-        let params = block.to_rpc_params();
+    pub async fn block_effects(
+        &self,
+        block: impl Into<BlockReference>,
+    ) -> Result<BlockEffects, RpcError> {
+        let block = block.into();
+        let params = block_params(&block);
         self.call("block_effects", params).await
-    }
-
-    /// Get the network's genesis configuration as raw JSON.
-    ///
-    /// Uses the stabilized `genesis_config` method (protocol 2.13), the new name
-    /// for `EXPERIMENTAL_genesis_config`. The genesis config is a large,
-    /// network-specific document, so it is returned as untyped JSON.
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    pub async fn genesis_config(&self) -> Result<serde_json::Value, RpcError> {
-        // Send an empty params array (not `null`) — this is what the other
-        // no-arg methods here use, and some JSON-RPC servers require `params` to
-        // be an array/object.
-        self.call("genesis_config", serde_json::json!([])).await
     }
 
     /// Get the upcoming maintenance windows for a validator account.
@@ -1425,7 +1416,7 @@ impl RpcClient {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%account_id)))]
     pub async fn maintenance_windows(
         &self,
-        account_id: &AccountId,
+        account_id: &AccountIdRef,
     ) -> Result<Vec<MaintenanceWindow>, RpcError> {
         let params = serde_json::json!({ "account_id": account_id.to_string() });
         self.call("maintenance_windows", params).await
@@ -1497,7 +1488,7 @@ impl RpcClient {
     pub async fn tx_status(
         &self,
         tx_hash: &CryptoHash,
-        sender_id: &AccountId,
+        sender_id: &AccountIdRef,
         wait_until: TxExecutionStatus,
     ) -> Result<RawTransactionResponse, RpcError> {
         let params = serde_json::json!({
@@ -1533,95 +1524,11 @@ impl RpcClient {
 
     /// Merge block reference parameters into a JSON object.
     fn merge_block_reference(&self, params: &mut serde_json::Value, block: &BlockReference) {
-        if let serde_json::Value::Object(block_params) = block.to_rpc_params()
+        if let serde_json::Value::Object(block_params) = block_params(block)
             && let serde_json::Value::Object(map) = params
         {
             map.extend(block_params);
         }
-    }
-
-    // ========================================================================
-    // Sandbox-only methods
-    // ========================================================================
-
-    /// Patch account state in sandbox.
-    ///
-    /// This is a sandbox-only method that allows modifying account state directly,
-    /// useful for testing scenarios that require specific account configurations
-    /// (e.g., setting a high balance for staking tests).
-    ///
-    /// # Arguments
-    ///
-    /// * `records` - State records to patch (Account, Data, Contract, AccessKey, etc.)
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// // Set account balance to 1M NEAR
-    /// rpc.sandbox_patch_state(serde_json::json!([
-    ///     {
-    ///         "Account": {
-    ///             "account_id": "alice.sandbox",
-    ///             "account": {
-    ///                 "amount": "1000000000000000000000000000000",
-    ///                 "locked": "0",
-    ///                 "code_hash": "11111111111111111111111111111111",
-    ///                 "storage_usage": 182
-    ///             }
-    ///         }
-    ///     }
-    /// ])).await?;
-    /// ```
-    /// Fast-forward the sandbox by `delta_height` blocks.
-    ///
-    /// This is useful for testing time-dependent logic (e.g., lockups, staking
-    /// epoch changes) without waiting for real block production.
-    ///
-    /// **Note:** This can take a while for large deltas — the sandbox node
-    /// internally produces all intermediate blocks. The RPC call will block
-    /// until fast-forwarding completes (up to 1 hour server-side timeout).
-    /// It is sent once, without retries: a retry after a lost response could
-    /// advance the chain twice.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// // Advance the sandbox by 1000 blocks
-    /// rpc.sandbox_fast_forward(1000).await?;
-    /// ```
-    pub async fn sandbox_fast_forward(&self, delta_height: u64) -> Result<(), RpcError> {
-        let params = serde_json::json!({
-            "delta_height": delta_height,
-        });
-
-        let _: serde_json::Value = self.call("sandbox_fast_forward", params).await?;
-        Ok(())
-    }
-
-    pub async fn sandbox_patch_state(&self, records: serde_json::Value) -> Result<(), RpcError> {
-        let params = serde_json::json!({
-            "records": records,
-        });
-
-        // The sandbox_patch_state method returns an empty result on success
-        let _: serde_json::Value = self.call("sandbox_patch_state", params).await?;
-
-        // NOTE: For some reason, patching account-related items sometimes requires
-        // sending the patch twice for it to take effect reliably.
-        // See: https://github.com/near/near-workspaces-rs/commit/2b72b9b8491c3140ff2d30b0c45d09b200cb027b
-        let _: serde_json::Value = self
-            .call(
-                "sandbox_patch_state",
-                serde_json::json!({
-                    "records": records,
-                }),
-            )
-            .await?;
-
-        // Small delay to allow state to propagate - sandbox patch_state has race conditions
-        async_sleep(std::time::Duration::from_millis(100)).await;
-
-        Ok(())
     }
 }
 
@@ -1655,6 +1562,22 @@ impl std::fmt::Debug for RpcClient {
 ///
 /// Height and hash variants are forwarded as-is; finality and sync-checkpoint
 /// variants become `null` (latest).
+/// The JSON-RPC parameters that select `block`.
+fn block_params(block: &BlockReference) -> serde_json::Value {
+    match block {
+        BlockReference::Finality(finality) => serde_json::json!({ "finality": finality.as_str() }),
+        BlockReference::Height(height) => serde_json::json!({ "block_id": *height }),
+        BlockReference::Hash(hash) => serde_json::json!({ "block_id": hash.to_string() }),
+        BlockReference::SyncCheckpoint(checkpoint) => {
+            let checkpoint = match checkpoint {
+                SyncCheckpoint::Genesis => "genesis",
+                SyncCheckpoint::EarliestAvailable => "earliest_available",
+            };
+            serde_json::json!({ "sync_checkpoint": checkpoint })
+        }
+    }
+}
+
 fn block_id_or_null(block: Option<&BlockReference>) -> serde_json::Value {
     match block {
         Some(BlockReference::Height(h)) => serde_json::json!(*h),
@@ -1788,6 +1711,34 @@ mod tests {
 
     use super::*;
     use crate::client::{BoxFuture, TransportResponse};
+    use crate::types::Finality;
+
+    #[test]
+    fn block_params_select_each_kind_of_block() {
+        assert_eq!(
+            block_params(&Finality::Final.into()),
+            serde_json::json!({ "finality": "final" })
+        );
+        assert_eq!(
+            block_params(&12345_u64.into()),
+            serde_json::json!({ "block_id": 12345 })
+        );
+        let hash = CryptoHash::hash(b"test block");
+        assert_eq!(
+            block_params(&hash.into()),
+            serde_json::json!({ "block_id": hash.to_string() })
+        );
+        assert_eq!(
+            block_params(&BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis)),
+            serde_json::json!({ "sync_checkpoint": "genesis" })
+        );
+        assert_eq!(
+            block_params(&BlockReference::SyncCheckpoint(
+                SyncCheckpoint::EarliestAvailable
+            )),
+            serde_json::json!({ "sync_checkpoint": "earliest_available" })
+        );
+    }
 
     struct StaticResponseTransport {
         body: Vec<u8>,
@@ -1856,6 +1807,15 @@ mod tests {
             let body = self.body.clone();
             Box::pin(async move { Ok(TransportResponse { status, body }) })
         }
+    }
+
+    /// An `RpcClient` over the default reqwest transport.
+    fn test_client(url: &str, retry_config: RetryConfig) -> RpcClient {
+        RpcClient::with_transport_and_retry_config(
+            url,
+            Arc::new(transport::ReqwestTransport::default()),
+            retry_config,
+        )
     }
 
     /// Retry config with `max_retries` retries and negligible backoff, so
@@ -2105,17 +2065,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_client_with_retry_config() {
-        let config = RetryConfig {
-            max_retries: 5,
-            initial_delay_ms: 100,
-            max_delay_ms: 1000,
-        };
-        let client = RpcClient::with_retry_config("https://rpc.example.com", config);
-        assert_eq!(client.url(), "https://rpc.example.com");
-    }
-
-    #[test]
     fn test_rpc_client_clone() {
         let client = RpcClient::new("https://rpc.testnet.near.org");
         let cloned = client.clone();
@@ -2149,7 +2098,7 @@ mod tests {
             &missing_account,
             "nep413_get_message",
             &[],
-            BlockReference::final_(),
+            BlockReference::Finality(Finality::Final),
         )
         .await
         .unwrap_err();
@@ -2183,7 +2132,7 @@ mod tests {
             &account_without_code,
             "nep413_get_message",
             &[],
-            BlockReference::final_(),
+            BlockReference::Finality(Finality::Final),
         )
         .await
         .unwrap_err();
@@ -2210,7 +2159,12 @@ mod tests {
                 "block_hash": block_hash,
             }),
         )
-        .view_function(&contract_id, missing_method, &[], BlockReference::final_())
+        .view_function(
+            &contract_id,
+            missing_method,
+            &[],
+            BlockReference::Finality(Finality::Final),
+        )
         .await
         .unwrap_err();
         match error {
@@ -2238,7 +2192,12 @@ mod tests {
                 "block_hash": block_hash,
             }),
         )
-        .view_function(&contract_id, "verify_nep413", &[], BlockReference::final_())
+        .view_function(
+            &contract_id,
+            "verify_nep413",
+            &[],
+            BlockReference::Finality(Finality::Final),
+        )
         .await
         .unwrap_err();
         match error {
@@ -2256,7 +2215,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_near_builder_uses_custom_http_client() {
+    async fn test_near_builder_uses_a_configured_reqwest_client() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let (request_tx, request_rx) = mpsc::channel();
@@ -2299,7 +2258,7 @@ mod tests {
             .build()
             .unwrap();
         let near = crate::Near::custom(format!("http://{address}"), "test")
-            .http_client(http_client)
+            .transport(transport::ReqwestTransport::with_client(http_client))
             .build();
         let debug = format!("{:?}", near.rpc());
         assert!(!debug.contains(secret));
@@ -2404,14 +2363,14 @@ mod tests {
     async fn test_connection_reset_is_retried() {
         let (url, server) = scripted_server(vec![Conn::Reset, Conn::Reset, Conn::Respond]);
 
-        let error = RpcClient::with_retry_config(&url, RetryConfig::none())
+        let error = test_client(&url, RetryConfig::none())
             .call::<_, serde_json::Value>("status", ())
             .await
             .unwrap_err();
         assert!(matches!(error, RpcError::Http(_)), "{error:?}");
         assert!(error.is_retryable(), "{error:?}");
 
-        let response: serde_json::Value = RpcClient::with_retry_config(&url, fast_retries(1))
+        let response: serde_json::Value = test_client(&url, fast_retries(1))
             .call("status", ())
             .await
             .unwrap();
@@ -2426,14 +2385,14 @@ mod tests {
     async fn test_connection_closed_before_response_is_retried() {
         let (url, server) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
 
-        let error = RpcClient::with_retry_config(&url, RetryConfig::none())
+        let error = test_client(&url, RetryConfig::none())
             .call::<_, serde_json::Value>("status", ())
             .await
             .unwrap_err();
         assert!(is_incomplete_message(&error), "{error:?}");
         assert!(error.is_retryable(), "{error:?}");
 
-        let response: serde_json::Value = RpcClient::with_retry_config(&url, fast_retries(1))
+        let response: serde_json::Value = test_client(&url, fast_retries(1))
             .call("status", ())
             .await
             .unwrap();
@@ -2449,9 +2408,15 @@ mod tests {
         // If fast_forward were retried, it would consume all three
         // connections and succeed.
         let (url, server) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
-        let client = RpcClient::with_retry_config(&url, fast_retries(2));
+        let client = test_client(&url, fast_retries(2));
 
-        let error = client.sandbox_fast_forward(1).await.unwrap_err();
+        let error = client
+            .call::<_, serde_json::Value>(
+                "sandbox_fast_forward",
+                serde_json::json!({ "delta_height": 1 }),
+            )
+            .await
+            .unwrap_err();
         assert!(is_incomplete_message(&error), "{error:?}");
 
         let response: serde_json::Value = client
@@ -2566,7 +2531,7 @@ mod tests {
 
         let all = transport
             .client()
-            .view_state_all(&account, b"se", 0, BlockReference::at_height(1))
+            .view_state_all(&account, b"se", 0, BlockReference::Height(1))
             .await
             .unwrap();
         let keys: Vec<&[u8]> = all.iter().map(|item| item.key.as_slice()).collect();
@@ -2613,7 +2578,7 @@ mod tests {
 
         let all = transport
             .client()
-            .view_state_all(&account, b"", 1, BlockReference::final_())
+            .view_state_all(&account, b"", 1, BlockReference::Finality(Finality::Final))
             .await
             .unwrap();
         assert_eq!(all.len(), 2);
@@ -2638,7 +2603,7 @@ mod tests {
 
         let all = transport
             .client()
-            .view_state_all(&account, b"", 25, BlockReference::at_height(1))
+            .view_state_all(&account, b"", 25, BlockReference::Height(1))
             .await
             .unwrap();
         assert_eq!(all.len(), 1);
@@ -2661,7 +2626,7 @@ mod tests {
 
         let all = transport
             .client()
-            .view_state_all(&account, b"", 1, BlockReference::at_height(1))
+            .view_state_all(&account, b"", 1, BlockReference::Height(1))
             .await
             .unwrap();
         assert_eq!(all.len(), 2);
@@ -2719,7 +2684,7 @@ mod tests {
 
         let list = transport
             .client()
-            .view_access_key_list(&account, BlockReference::final_())
+            .view_access_key_list(&account, BlockReference::Finality(Finality::Final))
             .await
             .unwrap();
         assert_eq!(list.keys.len(), 1);
@@ -2756,7 +2721,7 @@ mod tests {
 
         let list = transport
             .client()
-            .view_access_key_list(&account, BlockReference::final_())
+            .view_access_key_list(&account, BlockReference::Finality(Finality::Final))
             .await
             .unwrap();
         let keys: Vec<String> = list.keys.iter().map(|k| k.public_key.to_string()).collect();
@@ -2796,7 +2761,7 @@ mod tests {
                 &account,
                 Some(&after),
                 NonZeroU32::new(2),
-                BlockReference::at_height(1),
+                BlockReference::Height(1),
             )
             .await
             .unwrap();
@@ -2821,7 +2786,12 @@ mod tests {
 
         let page = transport
             .client()
-            .view_access_key_list_page(&account, None, None, BlockReference::final_())
+            .view_access_key_list_page(
+                &account,
+                None,
+                None,
+                BlockReference::Finality(Finality::Final),
+            )
             .await
             .unwrap();
         assert!(page.keys.is_empty());
@@ -3195,7 +3165,11 @@ mod tests {
                 "block_hash": "11111111111111111111111111111111",
             }),
         )
-        .view_gas_key_nonces(&account_id, &public_key, BlockReference::final_())
+        .view_gas_key_nonces(
+            &account_id,
+            &public_key,
+            BlockReference::Finality(Finality::Final),
+        )
         .await
         .unwrap_err();
         assert!(
@@ -4885,7 +4859,7 @@ mod tests {
 
     #[test]
     fn test_block_id_or_null_with_height() {
-        let block = BlockReference::at_height(12345);
+        let block = BlockReference::Height(12345);
         let result = block_id_or_null(Some(&block));
         assert_eq!(result, serde_json::json!(12345));
     }
@@ -4893,25 +4867,25 @@ mod tests {
     #[test]
     fn test_block_id_or_null_with_hash() {
         let hash = CryptoHash::hash(b"test block");
-        let block = BlockReference::at_hash(hash);
+        let block = BlockReference::Hash(hash);
         let result = block_id_or_null(Some(&block));
         assert_eq!(result, serde_json::json!(hash.to_string()));
     }
 
     #[test]
     fn test_block_id_or_null_with_finality_falls_back_to_null() {
-        let block = BlockReference::final_();
+        let block = BlockReference::Finality(Finality::Final);
         let result = block_id_or_null(Some(&block));
         assert!(result.is_null(), "finality variants should map to null");
 
-        let block = BlockReference::optimistic();
+        let block = BlockReference::Finality(Finality::Optimistic);
         let result = block_id_or_null(Some(&block));
         assert!(result.is_null(), "optimistic should map to null");
     }
 
     #[test]
     fn test_block_id_or_null_with_sync_checkpoint_falls_back_to_null() {
-        let block = BlockReference::genesis();
+        let block = BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis);
         let result = block_id_or_null(Some(&block));
         assert!(result.is_null(), "sync checkpoint should map to null");
     }
@@ -5092,7 +5066,7 @@ mod tests {
                 &contract_id,
                 "no_such_method",
                 &[],
-                BlockReference::final_(),
+                BlockReference::Finality(Finality::Final),
             )
             .await
             .unwrap_err();
@@ -5193,7 +5167,7 @@ mod tests {
         let account: AccountId = "app.near".parse().unwrap();
 
         let view = rpc
-            .view_code(&account, BlockReference::final_())
+            .view_code(&account, BlockReference::Finality(Finality::Final))
             .await
             .unwrap();
         assert_eq!(view.code, b"\0asm");
@@ -5202,9 +5176,8 @@ mod tests {
         assert_eq!(view.block_hash, QUERY_BLOCK_HASH.parse().unwrap());
 
         // Same wire shape for the global-contract lookups.
-        let id = GlobalContractId::CodeHash(*code_hash.as_bytes());
         let global = rpc
-            .view_global_contract_code(&id, BlockReference::final_())
+            .view_global_contract_code(code_hash, Finality::Final)
             .await
             .unwrap();
         assert_eq!(global, view);
@@ -5220,7 +5193,13 @@ mod tests {
         let account: AccountId = "app.near".parse().unwrap();
 
         let page = rpc
-            .view_state(&account, b"", None, None, BlockReference::final_())
+            .view_state(
+                &account,
+                b"",
+                None,
+                None,
+                BlockReference::Finality(Finality::Final),
+            )
             .await
             .unwrap();
         assert_eq!(page.values.len(), 1);

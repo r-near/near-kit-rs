@@ -5,8 +5,9 @@
 //! so these bounds are unnecessary (and often impossible to satisfy with browser
 //! APIs). WASI targets (`wasm32-wasip1`/`p2`) keep the regular bounds.
 //!
-//! `near-kit` re-exports these through `__private` for its RPC transport
-//! rather than defining its own.
+//! `MaybeSend` and `MaybeSync` are public at the crate root because they
+//! appear in the [`Viewer`](crate::Viewer) and [`TxSender`](crate::TxSender)
+//! signatures; `near-kit` re-exports them rather than defining its own.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -18,26 +19,34 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
-/// Trait alias: `Send` everywhere except `wasm32-unknown-unknown`, where it's
-/// unconditional.
+/// `Send` everywhere except `wasm32-unknown-unknown`, where every type
+/// implements it.
+///
+/// Use it where a [`Viewer`](crate::Viewer) or [`TxSender`](crate::TxSender)
+/// forwarding impl spells out its return type
+/// (`-> impl Future<Output = ...> + MaybeSend`), or to bound a backend error
+/// held across an `.await`. Writing `Send` there instead fails to build for
+/// JS-host wasm. It has a blanket impl; never implement it by hand.
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub trait MaybeSend: Send {}
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-impl<T: Send> MaybeSend for T {}
+impl<T: Send + ?Sized> MaybeSend for T {}
 
+/// Implemented by every type on `wasm32-unknown-unknown`; `Send` elsewhere.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub trait MaybeSend {}
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-impl<T> MaybeSend for T {}
+impl<T: ?Sized> MaybeSend for T {}
 
-/// Trait alias: `Sync` everywhere except `wasm32-unknown-unknown`, where it's
-/// unconditional.
+/// `Sync` everywhere except `wasm32-unknown-unknown`, where every type
+/// implements it. See [`MaybeSend`].
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub trait MaybeSync: Sync {}
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-impl<T: Sync> MaybeSync for T {}
+impl<T: Sync + ?Sized> MaybeSync for T {}
 
+/// Implemented by every type on `wasm32-unknown-unknown`; `Sync` elsewhere.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub trait MaybeSync {}
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-impl<T> MaybeSync for T {}
+impl<T: ?Sized> MaybeSync for T {}

@@ -6,7 +6,7 @@ Docker-backed local NEAR sandbox support for [`near-kit`](https://crates.io/crat
 
 This companion crate owns the Docker/testcontainers lifecycle that previously
 lived behind near-kit's `sandbox` feature. It starts a `nearprotocol/sandbox`
-container and returns a normal signed `near_kit::Near` client.
+container and returns a normal `near_kit::SigningNear` for its root account.
 
 ## Setup
 
@@ -15,8 +15,8 @@ dependency:
 
 ```toml
 [dev-dependencies]
-near-kit = "0.18"
-near-kit-sandbox = "0.18"
+near-kit = "0.21"
+near-kit-sandbox = "0.21"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
 
@@ -28,41 +28,40 @@ export DOCKER_HOST="$(docker context inspect --format '{{.Endpoints.docker.Host}
 ```
 
 ```rust
-use near_kit::{NearToken, signer::SecretKey};
-use near_kit_sandbox::SandboxConfig;
+use near_kit::{account, NearToken, protocol::Action, signer::SecretKey};
+use near_kit_sandbox::Sandbox;
 
 #[tokio::test]
 async fn creates_an_account() -> Result<(), Box<dyn std::error::Error>> {
-    let sandbox = SandboxConfig::fresh().await?;
-    let near = sandbox.client();
+    let sandbox = Sandbox::builder().fresh().await?;
+    let root = sandbox.client();
     let alice_key = SecretKey::generate_ed25519();
 
-    near.transaction("alice.sandbox")
-        .create_account()
-        .transfer(NearToken::from_near(100))
-        .add_full_access_key(alice_key.public_key())
-        .send()
+    root.transaction(account!("alice.sandbox"))
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(100)))
+        .add_action(Action::add_full_access_key(alice_key.public_key()))
         .await?;
 
     Ok(())
 }
 ```
 
-Use `SandboxConfig::fresh()` when a test needs isolated chain state. Use
-`SandboxConfig::shared()` to reuse one process-wide sandbox and reduce startup
+Use `Sandbox::builder().fresh()` when a test needs isolated chain state. Use
+`Sandbox::builder().shared()` to reuse one process-wide sandbox and reduce startup
 cost. The shared instance persists until process exit; tests sharing it must use
 unique accounts or otherwise coordinate state.
 
-`sandbox.client()` and `Near::sandbox(&sandbox)` both return a configured
-`Near` signed by the sandbox root account. `Sandbox::set_balance` and
+`sandbox.client()` returns a `SigningNear` for the sandbox root account. Sign
+as another account with `sandbox.client().near().with_signer(signer)`. `Sandbox::set_balance` and
 `Sandbox::fast_forward` expose sandbox-owned test controls.
 
 For custom configuration:
 
 ```rust
-let sandbox = SandboxConfig::builder()
+let sandbox = Sandbox::builder()
     .version("2.13.4")
-    .root_account("local")
+    .root_account(account!("local"))
     .chain_id("localnet")
     .fresh()
     .await?;
