@@ -285,6 +285,25 @@ impl PreparedTransaction {
         )
     }
 
+    /// [`transaction`](Self::transaction) for a one-shot signature: moves
+    /// the actions (a deployment's code included) instead of copying them.
+    fn into_transaction(
+        self,
+        signer_id: AccountId,
+        public_key: PublicKey,
+        nonce: u64,
+        block_hash: CryptoHash,
+    ) -> Transaction {
+        Transaction::new(
+            signer_id,
+            public_key,
+            nonce,
+            self.receiver_id,
+            block_hash,
+            self.actions,
+        )
+    }
+
     async fn sign_transaction(
         transaction: Transaction,
         key: &SigningKey,
@@ -315,7 +334,7 @@ impl PreparedTransaction {
             record_function_call_fields(&self.actions);
 
             let (nonce, block_hash, _) = self.online_context(&signer_id, &public_key, None).await?;
-            let tx = self.transaction(signer_id, public_key, nonce, block_hash);
+            let tx = self.into_transaction(signer_id, public_key, nonce, block_hash);
             let (signed_tx, _tx_hash) = PreparedTransaction::sign_transaction(tx, &key).await?;
 
             trace::debug!(tx_hash = %_tx_hash, nonce, "Transaction signed");
@@ -1641,6 +1660,33 @@ mod tests {
             })
             .collect();
         assert_eq!(nonces, vec![100_000_001, 100_000_001]);
+    }
+
+    #[tokio::test]
+    async fn sign_moves_deployment_code_into_the_transaction() {
+        // A one-shot signature has no retry to keep the actions for, so a
+        // deployment's code reaches the signed transaction without a copy.
+        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        let near = signing_via("http://sign-moves.invalid", "sign-moves", transport, signer);
+        let code = vec![0x5a; 1 << 20];
+        let code_ptr = code.as_ptr();
+
+        let signed = near
+            .sign(
+                account!("alice.testnet"),
+                vec![Action::deploy_contract(code)],
+            )
+            .await
+            .unwrap();
+
+        match signed.transaction.actions.as_slice() {
+            [Action::DeployContract(deploy)] => {
+                assert_eq!(deploy.code.len(), 1 << 20);
+                assert_eq!(deploy.code.as_ptr(), code_ptr, "the code was copied");
+            }
+            other => panic!("expected one deployment, got {other:?}"),
+        }
     }
 
     fn delegate_options() -> DelegateOptions {
