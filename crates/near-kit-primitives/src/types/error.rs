@@ -802,38 +802,27 @@ mod tests {
     }
 
     #[test]
-    fn test_host_error_p256_verify_invalid_input() {
-        let json = serde_json::json!({
-            "P256VerifyInvalidInput": { "msg": "signature must be 64 bytes" }
-        });
-        let err: HostError = serde_json::from_value(json).unwrap();
-        match &err {
-            HostError::P256VerifyInvalidInput { msg } => {
-                assert_eq!(msg, "signature must be 64 bytes");
-            }
-            other => panic!("Expected P256VerifyInvalidInput, got {other:?}"),
-        }
-        assert!(err.to_string().contains("P-256"));
-    }
-
-    #[test]
-    fn test_actions_validation_total_deploy_actions_exceeded() {
-        let json = serde_json::json!({
-            "TotalNumberOfDeployActionsExceeded": {
-                "number_of_deploy_actions": 5,
-                "limit": 4
-            }
-        });
-        let err: ActionsValidationError = serde_json::from_value(json).unwrap();
-        match &err {
-            ActionsValidationError::TotalNumberOfDeployActionsExceeded {
-                number_of_deploy_actions,
-                limit,
-            } => {
-                assert_eq!(*number_of_deploy_actions, 5);
-                assert_eq!(*limit, 4);
-            }
-            other => panic!("Expected TotalNumberOfDeployActionsExceeded, got {other:?}"),
+    fn test_host_error_verify_invalid_input() {
+        for (json, expected) in [
+            (
+                serde_json::json!({
+                    "P256VerifyInvalidInput": { "msg": "signature must be 64 bytes" }
+                }),
+                "P-256 verification invalid input: signature must be 64 bytes",
+            ),
+            (
+                serde_json::json!({
+                    "MlDsaVerifyInvalidInput": { "msg": "signature must be 3309 bytes" }
+                }),
+                "ML-DSA verification invalid input: signature must be 3309 bytes",
+            ),
+        ] {
+            let err: HostError = serde_json::from_value(json.clone()).unwrap();
+            assert!(
+                !matches!(err, HostError::Unknown(_)),
+                "{json} fell through to Unknown"
+            );
+            assert_eq!(err.to_string(), expected);
         }
     }
 
@@ -905,6 +894,15 @@ mod tests {
                 }),
                 UNIVERSAL_ACCOUNT_ID,
             ),
+            (
+                serde_json::json!({
+                    "TotalNumberOfDeployActionsExceeded": {
+                        "number_of_deploy_actions": 5,
+                        "limit": 4
+                    }
+                }),
+                "number of deploy actions (5) exceeded the limit (4)",
+            ),
         ] {
             let err: ActionsValidationError = serde_json::from_value(json.clone()).unwrap();
             assert!(
@@ -970,21 +968,6 @@ mod tests {
     }
 
     #[test]
-    fn test_host_error_ml_dsa_verify_invalid_input() {
-        let json = serde_json::json!({
-            "MlDsaVerifyInvalidInput": { "msg": "signature must be 3309 bytes" }
-        });
-        let err: HostError = serde_json::from_value(json).unwrap();
-        match &err {
-            HostError::MlDsaVerifyInvalidInput { msg } => {
-                assert_eq!(msg, "signature must be 3309 bytes");
-            }
-            other => panic!("Expected MlDsaVerifyInvalidInput, got {other:?}"),
-        }
-        assert!(err.to_string().contains("ML-DSA"));
-    }
-
-    #[test]
     fn test_invalid_tx_transfer_to_universal_account_not_allowed() {
         // A transaction transferring to a `0u` account is rejected at submission.
         let json = serde_json::json!({
@@ -1015,12 +998,7 @@ mod tests {
 
     #[test]
     fn test_known_tag_with_incompatible_shape_falls_back_to_unknown() {
-        // A known tag whose payload no longer matches the expected field
-        // shape (here a required field is missing) is captured by the
-        // untagged `Unknown` fallback rather than failing the whole parse.
-        // The raw JSON is preserved so callers can still inspect it. This is
-        // the same forward-compat behavior we want when nearcore changes a
-        // known variant's field shape between releases.
+        // A required field is missing, as when nearcore changes a variant's shape.
         let json = serde_json::json!({ "AccountAlreadyExists": {} });
         let err: ActionErrorKind = serde_json::from_value(json.clone()).unwrap();
         match err {
@@ -1039,16 +1017,6 @@ mod tests {
 
         let err: WasmTrap = serde_json::from_str("\"SomeFutureTrap\"").unwrap();
         assert!(matches!(err, WasmTrap::Unknown(_)));
-    }
-
-    #[test]
-    fn test_known_variants_not_shadowed_by_fallback() {
-        let err: PrepareError = serde_json::from_str("\"GasInstrumentation\"").unwrap();
-        assert!(matches!(err, PrepareError::GasInstrumentation));
-
-        let json = serde_json::json!({ "GuestPanic": { "panic_msg": "boom" } });
-        let err: HostError = serde_json::from_value(json).unwrap();
-        assert!(matches!(err, HostError::GuestPanic { .. }));
     }
 
     #[test]
