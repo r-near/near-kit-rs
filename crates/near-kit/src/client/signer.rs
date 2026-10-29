@@ -133,13 +133,22 @@ fn from_credentials_in(
         return from_credentials_file(&account_file, account_id);
     }
     let key_dir = network_dir.join(account_id.as_str());
-    let mut key_files: Vec<std::path::PathBuf> = std::fs::read_dir(&key_dir)
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "json"))
-        .collect();
+    let unreadable =
+        |e: std::io::Error| Error::Config(format!("Failed to read {}: {e}", key_dir.display()));
+    let mut key_files: Vec<std::path::PathBuf> = Vec::new();
+    match std::fs::read_dir(&key_dir) {
+        // No per-key directory: only the account file could hold the key.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(unreadable(e)),
+        Ok(entries) => {
+            for entry in entries {
+                let path = entry.map_err(unreadable)?.path();
+                if path.is_file() && path.extension().is_some_and(|ext| ext == "json") {
+                    key_files.push(path);
+                }
+            }
+        }
+    }
     key_files.sort();
     match key_files.as_slice() {
         // Report the file near-cli and near-cli-rs always write.
@@ -369,6 +378,23 @@ mod tests {
             assert!(message.contains(file), "{file} missing from: {message}");
         }
         assert!(message.contains("from_credentials_file"), "{message}");
+    }
+
+    /// An `<account>/` that can't be read is reported as such, not as a
+    /// missing account file.
+    #[cfg(feature = "file-signer")]
+    #[test]
+    fn credentials_dir_that_cant_be_read_is_reported() {
+        let dir = TempCredentials::new("unreadable");
+        // A file where the directory should be: `read_dir` fails.
+        std::fs::write(
+            dir.0.join("testnet").join("alice.testnet"),
+            "not a directory",
+        )
+        .unwrap();
+        let message = dir.load().unwrap_err().to_string();
+        assert!(message.contains("Failed to read"), "{message}");
+        assert!(!message.contains("alice.testnet.json"), "{message}");
     }
 
     /// With neither, the error names the file it looked for.
