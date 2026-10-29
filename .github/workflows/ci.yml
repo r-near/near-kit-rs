@@ -115,6 +115,71 @@ jobs:
       - run: cargo doc -p near-kit-primitives --no-deps --features contracts,mnemonic,tracing
       - run: cargo doc -p near-kit-sandbox --no-deps --features tracing
 
+  public-api:
+    name: Public API
+    runs-on: ubuntu-latest
+    env:
+      # The snapshot builds on a pinned nightly; a new nightly lint must not
+      # fail the API check.
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v7
+      # The nightly and cargo-public-api versions are pinned in the script.
+      - name: Read pinned versions
+        id: pins
+        run: scripts/public-api.sh --pins >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.pins.outputs.nightly }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: public-api
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: "true"
+      - uses: taiki-e/cache-cargo-install-action@v3
+        with:
+          tool: cargo-public-api@${{ steps.pins.outputs.cargo-public-api }}
+      # On failure the diff is in the log and the job summary; update with
+      # `scripts/public-api.sh --bless` and commit public-api/.
+      - run: scripts/public-api.sh
+
+  # Advisory only: reports what semver bump the PR implies relative to the
+  # latest crates.io release. Expected to flag breaks during pre-1.0 refactors,
+  # so it never fails the job; release-plz enforces the real check.
+  semver:
+    name: Semver (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: semver
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: "true"
+      - uses: taiki-e/install-action@cargo-semver-checks
+      - name: cargo semver-checks
+        id: check
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo semver-checks -p near-kit -p near-kit-primitives -p near-kit-sandbox --color never 2>&1 | tee semver.txt
+      - name: Summarize
+        if: always()
+        run: |
+          if [ "${{ steps.check.outcome }}" = success ]; then
+            echo "## Semver: no breaking changes against the latest release" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=Semver (advisory)::cargo semver-checks reported problems; see the job summary"
+            {
+              echo "## Semver: problems against the latest release (advisory)"
+              echo
+              echo '```'
+              head -n 500 semver.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   msrv:
     name: MSRV (1.95)
     runs-on: ubuntu-latest

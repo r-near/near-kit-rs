@@ -1,0 +1,707 @@
+pub mod near_kit
+pub use near_kit::AccountId
+pub use near_kit::AccountIdRef
+pub use near_kit::Call
+pub use near_kit::Contract
+pub use near_kit::ContractError
+pub use near_kit::CryptoHash
+pub use near_kit::Gas
+pub use near_kit::MaybeSend
+pub use near_kit::MaybeSync
+pub use near_kit::NearToken
+pub use near_kit::TxSender
+pub use near_kit::View
+pub use near_kit::Viewer
+pub use near_kit::account
+pub use near_kit::contract
+pub use near_kit::reqwest
+pub mod near_kit::guide
+pub mod near_kit::guide::clients
+pub mod near_kit::guide::contracts_and_tokens
+pub mod near_kit::guide::errors
+pub mod near_kit::guide::finality
+pub mod near_kit::guide::keys
+pub mod near_kit::guide::meta_transactions
+pub mod near_kit::guide::nonces
+pub mod near_kit::guide::offline_signing
+pub mod near_kit::guide::platforms
+pub mod near_kit::guide::testing
+pub mod near_kit::guide::transactions
+pub mod near_kit::protocol
+pub use near_kit::protocol::AccessKey
+pub use near_kit::protocol::AccessKeyPermission
+pub use near_kit::protocol::Action
+pub use near_kit::protocol::ActionError
+pub use near_kit::protocol::ActionErrorKind
+pub use near_kit::protocol::ActionViewConversionError
+pub use near_kit::protocol::ActionsValidationError
+pub use near_kit::protocol::AddKeyAction
+pub use near_kit::protocol::ChainId
+pub use near_kit::protocol::CompilationError
+pub use near_kit::protocol::CreateAccountAction
+pub use near_kit::protocol::DecodeDelegateError
+pub use near_kit::protocol::DecodeTransactionError
+pub use near_kit::protocol::DelegateAction
+pub use near_kit::protocol::DelegateActionV2
+pub use near_kit::protocol::DeleteAccountAction
+pub use near_kit::protocol::DeleteKeyAction
+pub use near_kit::protocol::DeployContractAction
+pub use near_kit::protocol::DeployGlobalContractAction
+pub use near_kit::protocol::DepositCostFailureReason
+pub use near_kit::protocol::DeterministicStateInitAction
+pub use near_kit::protocol::FunctionCallAction
+pub use near_kit::protocol::FunctionCallError
+pub use near_kit::protocol::FunctionCallPermission
+pub use near_kit::protocol::GasKeyInfo
+pub use near_kit::protocol::GlobalContractId
+pub use near_kit::protocol::HostError
+pub use near_kit::protocol::InvalidAccessKeyError
+pub use near_kit::protocol::InvalidTxError
+pub use near_kit::protocol::MethodResolveError
+pub use near_kit::protocol::NonDelegateAction
+pub use near_kit::protocol::Nonce
+pub use near_kit::protocol::NonceIndex
+pub use near_kit::protocol::NonceMode
+pub use near_kit::protocol::ParseAccountIdError
+pub use near_kit::protocol::ParseHashError
+pub use near_kit::protocol::PrepareError
+pub use near_kit::protocol::PublishMode
+pub use near_kit::protocol::RawStateInit
+pub use near_kit::protocol::ReceiptValidationError
+pub use near_kit::protocol::SignedDelegateAction
+pub use near_kit::protocol::SignedTransaction
+pub use near_kit::protocol::SignedTransactionV1
+pub use near_kit::protocol::StakeAction
+pub use near_kit::protocol::StateInit
+pub use near_kit::protocol::StateInitError
+pub use near_kit::protocol::StateInitV1
+pub use near_kit::protocol::StorageError
+pub use near_kit::protocol::Transaction
+pub use near_kit::protocol::TransactionNonce
+pub use near_kit::protocol::TransactionV1
+pub use near_kit::protocol::TransferAction
+pub use near_kit::protocol::TransferToGasKeyAction
+pub use near_kit::protocol::TxExecutionError
+pub use near_kit::protocol::UniversalStateInit
+pub use near_kit::protocol::UniversalStateInitAction
+pub use near_kit::protocol::UniversalStateInitV1
+pub use near_kit::protocol::UnknownError
+pub use near_kit::protocol::UseGlobalContractAction
+pub use near_kit::protocol::VersionedDelegateActionPayload
+pub use near_kit::protocol::VersionedSignedDelegateAction
+pub use near_kit::protocol::VersionedTransaction
+pub use near_kit::protocol::WasmTrap
+pub use near_kit::protocol::WithdrawFromGasKeyAction
+pub mod near_kit::rpc
+pub use near_kit::rpc::AccessKeyDetails
+pub use near_kit::rpc::AccessKeyInfoView
+pub use near_kit::rpc::AccessKeyListView
+pub use near_kit::rpc::AccessKeyPermissionView
+pub use near_kit::rpc::AccessKeyView
+pub use near_kit::rpc::AccountBalance
+pub use near_kit::rpc::AccountContractView
+pub use near_kit::rpc::AccountState
+pub use near_kit::rpc::AccountView
+pub use near_kit::rpc::ActionReceiptData
+pub use near_kit::rpc::ActionView
+pub use near_kit::rpc::BandwidthRequest
+pub use near_kit::rpc::BandwidthRequestBitmap
+pub use near_kit::rpc::BandwidthRequests
+pub use near_kit::rpc::BandwidthRequestsV1
+pub use near_kit::rpc::BlockHeaderView
+pub use near_kit::rpc::BlockReference
+pub use near_kit::rpc::BlockView
+pub use near_kit::rpc::BoxFuture
+pub use near_kit::rpc::ChunkHeaderView
+pub use near_kit::rpc::CongestionInfoView
+pub use near_kit::rpc::ContractCodeView
+pub use near_kit::rpc::CurrentEpochValidatorInfo
+pub use near_kit::rpc::DataReceiptData
+pub use near_kit::rpc::DataReceiverView
+pub use near_kit::rpc::DelegateActionV2View
+pub use near_kit::rpc::DelegateActionView
+pub use near_kit::rpc::EpochValidatorInfo
+pub use near_kit::rpc::ExecutionMetadata
+pub use near_kit::rpc::ExecutionOutcome
+pub use near_kit::rpc::ExecutionOutcomeWithId
+pub use near_kit::rpc::ExecutionStatus
+pub use near_kit::rpc::FinalExecutionOutcome
+pub use near_kit::rpc::FinalExecutionStatus
+pub use near_kit::rpc::Finality
+pub use near_kit::rpc::GasKeyNoncesView
+pub use near_kit::rpc::GasPrice
+pub use near_kit::rpc::GasProfileEntry
+pub use near_kit::rpc::GlobalContractIdentifierView
+pub use near_kit::rpc::MerkleDirection
+pub use near_kit::rpc::MerklePathItem
+pub use near_kit::rpc::NextEpochValidatorInfo
+pub use near_kit::rpc::NodeVersion
+pub use near_kit::rpc::OutcomeError
+pub use near_kit::rpc::Receipt
+pub use near_kit::rpc::ReceiptContent
+pub use near_kit::rpc::ReceiptToTxResponse
+pub use near_kit::rpc::RpcTransactionResponse
+pub use near_kit::rpc::STORAGE_AMOUNT_PER_BYTE
+pub use near_kit::rpc::SendTxResponse
+pub use near_kit::rpc::SlashedValidator
+pub use near_kit::rpc::StateItem
+pub use near_kit::rpc::StatusResponse
+pub use near_kit::rpc::SyncCheckpoint
+pub use near_kit::rpc::SyncInfo
+pub use near_kit::rpc::TransactionNonceView
+pub use near_kit::rpc::TransactionView
+pub use near_kit::rpc::TrieSplit
+pub use near_kit::rpc::TxExecutionStatus
+pub use near_kit::rpc::ValidatorInfo
+pub use near_kit::rpc::ValidatorKickoutReason
+pub use near_kit::rpc::ValidatorKickoutView
+pub use near_kit::rpc::ValidatorStakeView
+pub use near_kit::rpc::VersionedDelegateActionPayloadView
+pub use near_kit::rpc::ViewFunctionResult
+pub use near_kit::rpc::ViewStateAllResult
+pub use near_kit::rpc::ViewStateResult
+#[non_exhaustive] pub enum near_kit::rpc::ReceiptToTxError
+pub near_kit::rpc::ReceiptToTxError::BudgetExceeded
+pub near_kit::rpc::ReceiptToTxError::BudgetExceeded::limit: u64
+pub near_kit::rpc::ReceiptToTxError::BudgetExceeded::scanned: u64
+pub near_kit::rpc::ReceiptToTxError::DepthExceeded
+pub near_kit::rpc::ReceiptToTxError::DepthExceeded::limit: u32
+pub near_kit::rpc::ReceiptToTxError::DepthExceeded::receipt_id: near_kit_primitives::types::hash::CryptoHash
+pub near_kit::rpc::ReceiptToTxError::MalformedHint
+pub near_kit::rpc::ReceiptToTxError::MalformedHint::message: alloc::string::String
+pub near_kit::rpc::ReceiptToTxError::OutcomesNotStored
+pub near_kit::rpc::ReceiptToTxError::Unsupported
+pub near_kit::rpc::ReceiptToTxError::Unsupported::message: alloc::string::String
+pub near_kit::rpc::ReceiptToTxError::WindowTooLarge
+pub near_kit::rpc::ReceiptToTxError::WindowTooLarge::maximum: u64
+pub near_kit::rpc::ReceiptToTxError::WindowTooLarge::requested: u64
+impl core::clone::Clone for near_kit::rpc::ReceiptToTxError
+pub fn near_kit::rpc::ReceiptToTxError::clone(&self) -> near_kit::rpc::ReceiptToTxError
+impl core::cmp::Eq for near_kit::rpc::ReceiptToTxError
+impl core::cmp::PartialEq for near_kit::rpc::ReceiptToTxError
+pub fn near_kit::rpc::ReceiptToTxError::eq(&self, &near_kit::rpc::ReceiptToTxError) -> bool
+impl core::error::Error for near_kit::rpc::ReceiptToTxError
+impl core::fmt::Debug for near_kit::rpc::ReceiptToTxError
+pub fn near_kit::rpc::ReceiptToTxError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for near_kit::rpc::ReceiptToTxError
+pub fn near_kit::rpc::ReceiptToTxError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for near_kit::rpc::ReceiptToTxError
+#[non_exhaustive] pub enum near_kit::rpc::RpcError
+pub near_kit::rpc::RpcError::AccessKeyNotFound
+pub near_kit::rpc::RpcError::AccessKeyNotFound::account_id: near_account_id::account_id::AccountId
+pub near_kit::rpc::RpcError::AccessKeyNotFound::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::AccessKeyNotFound::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::AccessKeyNotFound::public_key: near_kit_primitives::types::key::PublicKey
+pub near_kit::rpc::RpcError::AccountNotFound
+pub near_kit::rpc::RpcError::AccountNotFound::account_id: near_account_id::account_id::AccountId
+pub near_kit::rpc::RpcError::AccountNotFound::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::AccountNotFound::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::BlockNotFound(alloc::string::String)
+pub near_kit::rpc::RpcError::ChunkNotFound(alloc::string::String)
+pub near_kit::rpc::RpcError::ContractExecution
+pub near_kit::rpc::RpcError::ContractExecution::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::ContractExecution::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::ContractExecution::contract_id: near_account_id::account_id::AccountId
+pub near_kit::rpc::RpcError::ContractExecution::message: alloc::string::String
+pub near_kit::rpc::RpcError::ContractExecution::method_name: core::option::Option<alloc::string::String>
+pub near_kit::rpc::RpcError::ContractNotDeployed
+pub near_kit::rpc::RpcError::ContractNotDeployed::account_id: near_account_id::account_id::AccountId
+pub near_kit::rpc::RpcError::ContractNotDeployed::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::ContractNotDeployed::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::ContractPanic
+pub near_kit::rpc::RpcError::ContractPanic::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::ContractPanic::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::ContractPanic::message: alloc::string::String
+pub near_kit::rpc::RpcError::ContractStateTooLarge
+pub near_kit::rpc::RpcError::ContractStateTooLarge::account_id: near_account_id::account_id::AccountId
+pub near_kit::rpc::RpcError::ContractStateTooLarge::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::ContractStateTooLarge::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::EpochNotFound(alloc::string::String)
+pub near_kit::rpc::RpcError::GasKeyNotFound
+pub near_kit::rpc::RpcError::GasKeyNotFound::account_id: near_account_id::account_id::AccountId
+pub near_kit::rpc::RpcError::GasKeyNotFound::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::GasKeyNotFound::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::GasKeyNotFound::public_key: near_kit_primitives::types::key::PublicKey
+pub near_kit::rpc::RpcError::GlobalContractNotFound
+pub near_kit::rpc::RpcError::GlobalContractNotFound::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::GlobalContractNotFound::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::GlobalContractNotFound::identifier: near_kit_primitives::types::rpc::GlobalContractIdentifierView
+pub near_kit::rpc::RpcError::Http(reqwest::error::Error)
+pub near_kit::rpc::RpcError::InternalError(alloc::string::String)
+pub near_kit::rpc::RpcError::InvalidAccount
+pub near_kit::rpc::RpcError::InvalidAccount::account_id: alloc::string::String
+pub near_kit::rpc::RpcError::InvalidAccount::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::InvalidAccount::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::InvalidResponse(alloc::string::String)
+pub near_kit::rpc::RpcError::InvalidShardId(alloc::string::String)
+pub near_kit::rpc::RpcError::InvalidTx(near_kit_primitives::types::error::InvalidTxError)
+pub near_kit::rpc::RpcError::InvalidTxUnparsed
+pub near_kit::rpc::RpcError::InvalidTxUnparsed::details: core::option::Option<serde_json::value::Value>
+pub near_kit::rpc::RpcError::InvalidTxUnparsed::message: alloc::string::String
+pub near_kit::rpc::RpcError::Json(serde_json::error::Error)
+pub near_kit::rpc::RpcError::MethodNotFound
+pub near_kit::rpc::RpcError::MethodNotFound::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::MethodNotFound::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::MethodNotFound::contract_id: near_account_id::account_id::AccountId
+pub near_kit::rpc::RpcError::MethodNotFound::method_name: alloc::string::String
+pub near_kit::rpc::RpcError::Network
+pub near_kit::rpc::RpcError::Network::message: alloc::string::String
+pub near_kit::rpc::RpcError::Network::retryable: bool
+pub near_kit::rpc::RpcError::Network::status_code: core::option::Option<u16>
+pub near_kit::rpc::RpcError::NodeNotSynced(alloc::string::String)
+pub near_kit::rpc::RpcError::ParseError(alloc::string::String)
+pub near_kit::rpc::RpcError::ReceiptNotFound(alloc::string::String)
+pub near_kit::rpc::RpcError::ReceiptToTx(near_kit::rpc::ReceiptToTxError)
+pub near_kit::rpc::RpcError::Rpc
+pub near_kit::rpc::RpcError::Rpc::cause: core::option::Option<alloc::string::String>
+pub near_kit::rpc::RpcError::Rpc::code: i64
+pub near_kit::rpc::RpcError::Rpc::data: core::option::Option<serde_json::value::Value>
+pub near_kit::rpc::RpcError::Rpc::message: alloc::string::String
+pub near_kit::rpc::RpcError::ShardNotTracked
+pub near_kit::rpc::RpcError::ShardUnavailable(alloc::string::String)
+pub near_kit::rpc::RpcError::Timeout
+pub near_kit::rpc::RpcError::Timeout::cause: core::option::Option<near_kit::rpc::TimeoutCause>
+pub near_kit::rpc::RpcError::Timeout::message: alloc::string::String
+pub near_kit::rpc::RpcError::Timeout::transaction_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::TooManyAccessKeys
+pub near_kit::rpc::RpcError::TooManyAccessKeys::account_id: near_account_id::account_id::AccountId
+pub near_kit::rpc::RpcError::TooManyAccessKeys::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::TooManyAccessKeys::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::TooManyAccessKeys::limit: u32
+pub near_kit::rpc::RpcError::TransactionNotFound(near_kit_primitives::types::hash::CryptoHash)
+impl near_kit::rpc::RpcError
+pub fn near_kit::rpc::RpcError::block_hash(&self) -> core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub fn near_kit::rpc::RpcError::block_height(&self) -> core::option::Option<u64>
+impl near_kit::rpc::RpcError
+pub fn near_kit::rpc::RpcError::is_retryable(&self) -> bool
+impl core::convert::From<near_kit::rpc::RpcError> for near_kit::Error
+pub fn near_kit::Error::from(near_kit::rpc::RpcError) -> Self
+impl core::convert::From<reqwest::error::Error> for near_kit::rpc::RpcError
+pub fn near_kit::rpc::RpcError::from(reqwest::error::Error) -> Self
+impl core::convert::From<serde_json::error::Error> for near_kit::rpc::RpcError
+pub fn near_kit::rpc::RpcError::from(serde_json::error::Error) -> Self
+impl core::error::Error for near_kit::rpc::RpcError
+pub fn near_kit::rpc::RpcError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for near_kit::rpc::RpcError
+pub fn near_kit::rpc::RpcError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for near_kit::rpc::RpcError
+pub fn near_kit::rpc::RpcError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum near_kit::rpc::TimeoutCause
+pub near_kit::rpc::TimeoutCause::DoesNotTrackShard
+pub near_kit::rpc::TimeoutCause::DoesNotTrackShard::shard_id: u64
+pub near_kit::rpc::TimeoutCause::Error
+pub near_kit::rpc::TimeoutCause::Error::debug_info: alloc::string::String
+pub near_kit::rpc::TimeoutCause::NotObserved
+pub near_kit::rpc::TimeoutCause::Pending
+pub near_kit::rpc::TimeoutCause::Pending::final_execution_status: near_kit_primitives::types::block_reference::TxExecutionStatus
+pub near_kit::rpc::TimeoutCause::Pending::outcome: core::option::Option<alloc::boxed::Box<near_kit_primitives::types::rpc::FinalExecutionOutcome>>
+pub near_kit::rpc::TimeoutCause::Unknown(serde_json::value::Value)
+impl core::clone::Clone for near_kit::rpc::TimeoutCause
+pub fn near_kit::rpc::TimeoutCause::clone(&self) -> near_kit::rpc::TimeoutCause
+impl core::fmt::Debug for near_kit::rpc::TimeoutCause
+pub fn near_kit::rpc::TimeoutCause::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for near_kit::rpc::TimeoutCause
+pub fn near_kit::rpc::TimeoutCause::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct near_kit::rpc::AccountExistsQuery
+impl near_kit::rpc::AccountExistsQuery
+pub fn near_kit::rpc::AccountExistsQuery::at(self, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> Self
+impl core::future::into_future::IntoFuture for near_kit::rpc::AccountExistsQuery
+pub type near_kit::rpc::AccountExistsQuery::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit::rpc::AccountExistsQuery as core::future::into_future::IntoFuture>::Output> + core::marker::Send)>>
+pub type near_kit::rpc::AccountExistsQuery::Output = core::result::Result<bool, near_kit::Error>
+pub fn near_kit::rpc::AccountExistsQuery::into_future(self) -> Self::IntoFuture
+pub struct near_kit::rpc::BalanceQuery
+impl near_kit::rpc::BalanceQuery
+pub fn near_kit::rpc::BalanceQuery::at(self, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> Self
+impl core::future::into_future::IntoFuture for near_kit::rpc::BalanceQuery
+pub type near_kit::rpc::BalanceQuery::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit::rpc::BalanceQuery as core::future::into_future::IntoFuture>::Output> + core::marker::Send)>>
+pub type near_kit::rpc::BalanceQuery::Output = core::result::Result<near_kit_primitives::types::rpc::AccountBalance, near_kit::Error>
+pub fn near_kit::rpc::BalanceQuery::into_future(self) -> Self::IntoFuture
+pub struct near_kit::rpc::ReqwestTransport
+impl near_kit::rpc::ReqwestTransport
+pub fn near_kit::rpc::ReqwestTransport::new() -> Self
+pub fn near_kit::rpc::ReqwestTransport::with_client(reqwest::async_impl::client::Client) -> Self
+impl core::clone::Clone for near_kit::rpc::ReqwestTransport
+pub fn near_kit::rpc::ReqwestTransport::clone(&self) -> near_kit::rpc::ReqwestTransport
+impl core::default::Default for near_kit::rpc::ReqwestTransport
+pub fn near_kit::rpc::ReqwestTransport::default() -> near_kit::rpc::ReqwestTransport
+impl core::fmt::Debug for near_kit::rpc::ReqwestTransport
+pub fn near_kit::rpc::ReqwestTransport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl near_kit::rpc::RpcTransport for near_kit::rpc::ReqwestTransport
+pub fn near_kit::rpc::ReqwestTransport::post_json(&self, &str, alloc::vec::Vec<u8>) -> near_kit_primitives::platform::BoxFuture<'_, core::result::Result<near_kit::rpc::TransportResponse, near_kit::rpc::RpcError>>
+pub struct near_kit::rpc::RetryConfig
+pub near_kit::rpc::RetryConfig::initial_delay_ms: u64
+pub near_kit::rpc::RetryConfig::max_delay_ms: u64
+pub near_kit::rpc::RetryConfig::max_retries: u32
+impl near_kit::rpc::RetryConfig
+pub fn near_kit::rpc::RetryConfig::none() -> Self
+impl core::clone::Clone for near_kit::rpc::RetryConfig
+pub fn near_kit::rpc::RetryConfig::clone(&self) -> near_kit::rpc::RetryConfig
+impl core::default::Default for near_kit::rpc::RetryConfig
+pub fn near_kit::rpc::RetryConfig::default() -> Self
+impl core::fmt::Debug for near_kit::rpc::RetryConfig
+pub fn near_kit::rpc::RetryConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct near_kit::rpc::RpcClient
+impl near_kit::rpc::RpcClient
+pub async fn near_kit::rpc::RpcClient::block(&self, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::BlockView, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::gas_price(&self, core::option::Option<&near_kit_primitives::types::hash::CryptoHash>) -> core::result::Result<near_kit_primitives::types::rpc::GasPrice, near_kit::rpc::RpcError>
+pub fn near_kit::rpc::RpcClient::new(impl core::convert::Into<alloc::string::String>) -> Self
+pub async fn near_kit::rpc::RpcClient::receipt_to_tx(&self, &near_kit_primitives::types::hash::CryptoHash) -> core::result::Result<near_kit_primitives::types::rpc::ReceiptToTxResponse, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::request<P: serde_core::ser::Serialize, R: serde_core::de::DeserializeOwned>(&self, &str, P) -> core::result::Result<R, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::send_tx(&self, &near_kit_primitives::types::transaction::SignedTransaction, near_kit_primitives::types::block_reference::TxExecutionStatus) -> core::result::Result<near_kit_primitives::types::rpc::RpcTransactionResponse, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::status(&self) -> core::result::Result<near_kit_primitives::types::rpc::StatusResponse, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::tx_status(&self, &near_kit_primitives::types::hash::CryptoHash, &near_account_id::account_id_ref::AccountIdRef, near_kit_primitives::types::block_reference::TxExecutionStatus) -> core::result::Result<near_kit_primitives::types::rpc::RpcTransactionResponse, near_kit::rpc::RpcError>
+pub fn near_kit::rpc::RpcClient::url(&self) -> &str
+pub async fn near_kit::rpc::RpcClient::validators(&self, core::option::Option<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc_extra::EpochValidatorInfo, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::view_access_key(&self, &near_account_id::account_id_ref::AccountIdRef, &near_kit_primitives::types::key::PublicKey, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::AccessKeyView, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::view_access_key_list(&self, &near_account_id::account_id_ref::AccountIdRef, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::AccessKeyListView, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::view_access_key_list_page(&self, &near_account_id::account_id_ref::AccountIdRef, core::option::Option<&near_kit_primitives::types::key::PublicKeyHandle>, core::option::Option<core::num::nonzero::NonZeroU32>, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::AccessKeyListView, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::view_account(&self, &near_account_id::account_id_ref::AccountIdRef, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::AccountView, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::view_code(&self, &near_account_id::account_id_ref::AccountIdRef, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::ContractCodeView, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::view_function(&self, &near_account_id::account_id_ref::AccountIdRef, &str, &[u8], impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::ViewFunctionResult, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::view_gas_key_nonces(&self, &near_account_id::account_id_ref::AccountIdRef, &near_kit_primitives::types::key::PublicKey, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::GasKeyNoncesView, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::view_global_contract_code(&self, impl core::convert::Into<near_global_contracts::global_contract_identifier::GlobalContractId>, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::ContractCodeView, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::view_state(&self, &near_account_id::account_id_ref::AccountIdRef, &[u8], core::option::Option<&[u8]>, core::option::Option<u32>, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::ViewStateResult, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::view_state_all(&self, &near_account_id::account_id_ref::AccountIdRef, &[u8], u32, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::ViewStateAllResult, near_kit::rpc::RpcError>
+pub fn near_kit::rpc::RpcClient::with_transport_and_retry_config(impl core::convert::Into<alloc::string::String>, alloc::sync::Arc<dyn near_kit::rpc::RpcTransport>, near_kit::rpc::RetryConfig) -> Self
+impl core::clone::Clone for near_kit::rpc::RpcClient
+pub fn near_kit::rpc::RpcClient::clone(&self) -> Self
+impl core::fmt::Debug for near_kit::rpc::RpcClient
+pub fn near_kit::rpc::RpcClient::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct near_kit::rpc::TransactionStatusQuery<W: near_kit_primitives::types::wait_level::WaitLevel>
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit::rpc::TransactionStatusQuery<W>
+pub fn near_kit::rpc::TransactionStatusQuery<W>::wait_until<W2: near_kit_primitives::types::wait_level::WaitLevel>(self) -> near_kit::rpc::TransactionStatusQuery<W2>
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::future::into_future::IntoFuture for near_kit::rpc::TransactionStatusQuery<W>
+pub type near_kit::rpc::TransactionStatusQuery<W>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit::rpc::TransactionStatusQuery<W> as core::future::into_future::IntoFuture>::Output> + core::marker::Send)>>
+pub type near_kit::rpc::TransactionStatusQuery<W>::Output = core::result::Result<<W as near_kit_primitives::types::wait_level::WaitLevel>::Response, near_kit::Error>
+pub fn near_kit::rpc::TransactionStatusQuery<W>::into_future(self) -> Self::IntoFuture
+#[non_exhaustive] pub struct near_kit::rpc::TransportResponse
+pub near_kit::rpc::TransportResponse::body: alloc::vec::Vec<u8>
+pub near_kit::rpc::TransportResponse::status: u16
+impl near_kit::rpc::TransportResponse
+pub fn near_kit::rpc::TransportResponse::new(u16, alloc::vec::Vec<u8>) -> Self
+impl core::fmt::Debug for near_kit::rpc::TransportResponse
+pub fn near_kit::rpc::TransportResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub trait near_kit::rpc::RpcTransport: near_kit_primitives::platform::MaybeSend + near_kit_primitives::platform::MaybeSync
+pub fn near_kit::rpc::RpcTransport::post_json(&self, &str, alloc::vec::Vec<u8>) -> near_kit_primitives::platform::BoxFuture<'_, core::result::Result<near_kit::rpc::TransportResponse, near_kit::rpc::RpcError>>
+impl near_kit::rpc::RpcTransport for near_kit::rpc::ReqwestTransport
+pub fn near_kit::rpc::ReqwestTransport::post_json(&self, &str, alloc::vec::Vec<u8>) -> near_kit_primitives::platform::BoxFuture<'_, core::result::Result<near_kit::rpc::TransportResponse, near_kit::rpc::RpcError>>
+impl<T: near_kit::rpc::RpcTransport + ?core::marker::Sized> near_kit::rpc::RpcTransport for alloc::sync::Arc<T>
+pub fn alloc::sync::Arc<T>::post_json(&self, &str, alloc::vec::Vec<u8>) -> near_kit_primitives::platform::BoxFuture<'_, core::result::Result<near_kit::rpc::TransportResponse, near_kit::rpc::RpcError>>
+pub mod near_kit::signer
+pub use near_kit::signer::InMemorySigner
+pub use near_kit::signer::KeyType
+pub use near_kit::signer::ParseKeyError
+pub use near_kit::signer::PublicKey
+pub use near_kit::signer::PublicKeyHandle
+pub use near_kit::signer::RotatingSigner
+pub use near_kit::signer::SecretKey
+pub use near_kit::signer::Signature
+pub use near_kit::signer::Signer
+pub use near_kit::signer::SignerError
+pub use near_kit::signer::SigningBackend
+pub use near_kit::signer::SigningKey
+#[non_exhaustive] pub enum near_kit::signer::KeyStoreError
+pub near_kit::signer::KeyStoreError::InvalidFormat(alloc::string::String)
+pub near_kit::signer::KeyStoreError::InvalidKey(near_kit_primitives::error::ParseKeyError)
+pub near_kit::signer::KeyStoreError::KeyNotFound(near_account_id::account_id::AccountId)
+pub near_kit::signer::KeyStoreError::Platform(alloc::string::String)
+impl core::convert::From<near_kit::signer::KeyStoreError> for near_kit::Error
+pub fn near_kit::Error::from(near_kit::signer::KeyStoreError) -> Self
+impl core::convert::From<near_kit_primitives::error::ParseKeyError> for near_kit::signer::KeyStoreError
+pub fn near_kit::signer::KeyStoreError::from(near_kit_primitives::error::ParseKeyError) -> Self
+impl core::error::Error for near_kit::signer::KeyStoreError
+pub fn near_kit::signer::KeyStoreError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for near_kit::signer::KeyStoreError
+pub fn near_kit::signer::KeyStoreError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for near_kit::signer::KeyStoreError
+pub fn near_kit::signer::KeyStoreError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn near_kit::signer::from_credentials(&str, impl core::convert::Into<near_account_id::account_id::AccountId>) -> core::result::Result<near_kit_primitives::types::signer::InMemorySigner, near_kit::Error>
+pub fn near_kit::signer::from_credentials_file(impl core::convert::AsRef<std::path::Path>, impl core::convert::Into<near_account_id::account_id::AccountId>) -> core::result::Result<near_kit_primitives::types::signer::InMemorySigner, near_kit::Error>
+pub fn near_kit::signer::from_env() -> core::result::Result<near_kit_primitives::types::signer::InMemorySigner, near_kit::Error>
+pub fn near_kit::signer::from_env_vars(&str, &str) -> core::result::Result<near_kit_primitives::types::signer::InMemorySigner, near_kit::Error>
+pub fn near_kit::signer::from_keyring(&str, impl core::convert::Into<near_account_id::account_id::AccountId>, &near_kit_primitives::types::key::PublicKey) -> core::result::Result<near_kit_primitives::types::signer::InMemorySigner, near_kit::Error>
+pub mod near_kit::standards
+pub mod near_kit::standards::nep413
+pub use near_kit::standards::nep413::AuthPayload
+pub use near_kit::standards::nep413::DEFAULT_MAX_AGE
+pub use near_kit::standards::nep413::NonceValidation
+pub use near_kit::standards::nep413::SignMessageParams
+pub use near_kit::standards::nep413::SignedMessage
+pub use near_kit::standards::nep413::VerifyOptions
+pub use near_kit::standards::nep413::extract_timestamp_from_nonce
+pub use near_kit::standards::nep413::generate_nonce
+pub use near_kit::standards::nep413::hash_message
+pub use near_kit::standards::nep413::verify_signature
+pub async fn near_kit::standards::nep413::verify(&near_kit_primitives::types::nep413::SignedMessage, &near_kit_primitives::types::nep413::SignMessageParams, &near_kit::Near, near_kit_primitives::types::nep413::VerifyOptions) -> core::result::Result<bool, near_kit::Error>
+pub struct near_kit::standards::FtMetadata
+pub near_kit::standards::FtMetadata::decimals: u8
+pub near_kit::standards::FtMetadata::icon: core::option::Option<alloc::string::String>
+pub near_kit::standards::FtMetadata::name: alloc::string::String
+pub near_kit::standards::FtMetadata::reference: core::option::Option<alloc::string::String>
+pub near_kit::standards::FtMetadata::reference_hash: core::option::Option<alloc::string::String>
+pub near_kit::standards::FtMetadata::spec: alloc::string::String
+pub near_kit::standards::FtMetadata::symbol: alloc::string::String
+impl core::clone::Clone for near_kit::standards::FtMetadata
+pub fn near_kit::standards::FtMetadata::clone(&self) -> near_kit::standards::FtMetadata
+impl core::fmt::Debug for near_kit::standards::FtMetadata
+pub fn near_kit::standards::FtMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for near_kit::standards::FtMetadata
+pub fn near_kit::standards::FtMetadata::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for near_kit::standards::FtMetadata
+pub fn near_kit::standards::FtMetadata::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct near_kit::standards::FungibleToken
+impl core::clone::Clone for near_kit::standards::FungibleToken
+pub fn near_kit::standards::FungibleToken::clone(&self) -> near_kit::standards::FungibleToken
+impl core::fmt::Debug for near_kit::standards::FungibleToken
+pub fn near_kit::standards::FungibleToken::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl near_kit_primitives::backend::Contract for near_kit::standards::FungibleToken
+pub type near_kit::standards::FungibleToken::Client<C> = near_kit::standards::FungibleTokenClient<C>
+pub fn near_kit::standards::FungibleToken::client<C>(C, near_account_id::account_id::AccountId) -> near_kit::standards::FungibleTokenClient<C>
+pub struct near_kit::standards::FungibleTokenClient<C>
+impl<C: near_kit_primitives::backend::TxSender + core::clone::Clone> near_kit::standards::FungibleTokenClient<C>
+pub fn near_kit::standards::FungibleTokenClient<C>::storage_deposit(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, near_token::NearToken) -> near_kit_primitives::backend::Call<C>
+pub fn near_kit::standards::FungibleTokenClient<C>::transfer(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, u128, core::option::Option<alloc::string::String>) -> near_kit_primitives::backend::Call<C>
+pub fn near_kit::standards::FungibleTokenClient<C>::transfer_call(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, u128, impl core::convert::Into<alloc::string::String>) -> near_kit_primitives::backend::Call<C>
+impl<C: near_kit_primitives::backend::Viewer> near_kit::standards::FungibleTokenClient<C>
+pub async fn near_kit::standards::FungibleTokenClient<C>::balance_of(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> core::result::Result<u128, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
+pub async fn near_kit::standards::FungibleTokenClient<C>::is_registered(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> core::result::Result<bool, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
+pub async fn near_kit::standards::FungibleTokenClient<C>::metadata(&self) -> core::result::Result<&near_kit::standards::FtMetadata, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
+pub async fn near_kit::standards::FungibleTokenClient<C>::storage_balance_bounds(&self) -> core::result::Result<&near_kit::standards::StorageBalanceBounds, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
+pub async fn near_kit::standards::FungibleTokenClient<C>::storage_balance_of(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> core::result::Result<core::option::Option<near_kit::standards::StorageBalance>, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
+pub async fn near_kit::standards::FungibleTokenClient<C>::total_supply(&self) -> core::result::Result<u128, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
+impl<C> near_kit::standards::FungibleTokenClient<C>
+pub fn near_kit::standards::FungibleTokenClient<C>::contract_id(&self) -> &near_account_id::account_id::AccountId
+impl<C: core::clone::Clone> core::clone::Clone for near_kit::standards::FungibleTokenClient<C>
+pub fn near_kit::standards::FungibleTokenClient<C>::clone(&self) -> near_kit::standards::FungibleTokenClient<C>
+impl<C> core::fmt::Debug for near_kit::standards::FungibleTokenClient<C>
+pub fn near_kit::standards::FungibleTokenClient<C>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct near_kit::standards::NftContractMetadata
+pub near_kit::standards::NftContractMetadata::base_uri: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftContractMetadata::icon: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftContractMetadata::name: alloc::string::String
+pub near_kit::standards::NftContractMetadata::reference: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftContractMetadata::reference_hash: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftContractMetadata::spec: alloc::string::String
+pub near_kit::standards::NftContractMetadata::symbol: alloc::string::String
+impl core::clone::Clone for near_kit::standards::NftContractMetadata
+pub fn near_kit::standards::NftContractMetadata::clone(&self) -> near_kit::standards::NftContractMetadata
+impl core::fmt::Debug for near_kit::standards::NftContractMetadata
+pub fn near_kit::standards::NftContractMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for near_kit::standards::NftContractMetadata
+pub fn near_kit::standards::NftContractMetadata::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for near_kit::standards::NftContractMetadata
+pub fn near_kit::standards::NftContractMetadata::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct near_kit::standards::NftToken
+pub near_kit::standards::NftToken::approved_account_ids: core::option::Option<std::collections::hash::map::HashMap<alloc::string::String, u64>>
+pub near_kit::standards::NftToken::metadata: core::option::Option<near_kit::standards::NftTokenMetadata>
+pub near_kit::standards::NftToken::owner_id: alloc::string::String
+pub near_kit::standards::NftToken::token_id: alloc::string::String
+impl core::clone::Clone for near_kit::standards::NftToken
+pub fn near_kit::standards::NftToken::clone(&self) -> near_kit::standards::NftToken
+impl core::fmt::Debug for near_kit::standards::NftToken
+pub fn near_kit::standards::NftToken::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for near_kit::standards::NftToken
+pub fn near_kit::standards::NftToken::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for near_kit::standards::NftToken
+pub fn near_kit::standards::NftToken::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct near_kit::standards::NftTokenMetadata
+pub near_kit::standards::NftTokenMetadata::copies: core::option::Option<u64>
+pub near_kit::standards::NftTokenMetadata::description: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftTokenMetadata::expires_at: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftTokenMetadata::extra: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftTokenMetadata::issued_at: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftTokenMetadata::media: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftTokenMetadata::media_hash: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftTokenMetadata::reference: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftTokenMetadata::reference_hash: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftTokenMetadata::starts_at: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftTokenMetadata::title: core::option::Option<alloc::string::String>
+pub near_kit::standards::NftTokenMetadata::updated_at: core::option::Option<alloc::string::String>
+impl core::clone::Clone for near_kit::standards::NftTokenMetadata
+pub fn near_kit::standards::NftTokenMetadata::clone(&self) -> near_kit::standards::NftTokenMetadata
+impl core::fmt::Debug for near_kit::standards::NftTokenMetadata
+pub fn near_kit::standards::NftTokenMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for near_kit::standards::NftTokenMetadata
+pub fn near_kit::standards::NftTokenMetadata::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for near_kit::standards::NftTokenMetadata
+pub fn near_kit::standards::NftTokenMetadata::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct near_kit::standards::NonFungibleToken
+impl core::clone::Clone for near_kit::standards::NonFungibleToken
+pub fn near_kit::standards::NonFungibleToken::clone(&self) -> near_kit::standards::NonFungibleToken
+impl core::fmt::Debug for near_kit::standards::NonFungibleToken
+pub fn near_kit::standards::NonFungibleToken::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl near_kit_primitives::backend::Contract for near_kit::standards::NonFungibleToken
+pub type near_kit::standards::NonFungibleToken::Client<C> = near_kit::standards::NonFungibleTokenClient<C>
+pub fn near_kit::standards::NonFungibleToken::client<C>(C, near_account_id::account_id::AccountId) -> near_kit::standards::NonFungibleTokenClient<C>
+pub struct near_kit::standards::NonFungibleTokenClient<C>
+impl<C: near_kit_primitives::backend::TxSender + core::clone::Clone> near_kit::standards::NonFungibleTokenClient<C>
+pub fn near_kit::standards::NonFungibleTokenClient<C>::transfer(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::AsRef<str>, core::option::Option<alloc::string::String>) -> near_kit_primitives::backend::Call<C>
+pub fn near_kit::standards::NonFungibleTokenClient<C>::transfer_call(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::AsRef<str>, impl core::convert::Into<alloc::string::String>) -> near_kit_primitives::backend::Call<C>
+pub fn near_kit::standards::NonFungibleTokenClient<C>::transfer_with_approval(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::AsRef<str>, u64) -> near_kit_primitives::backend::Call<C>
+impl<C: near_kit_primitives::backend::Viewer> near_kit::standards::NonFungibleTokenClient<C>
+pub async fn near_kit::standards::NonFungibleTokenClient<C>::metadata(&self) -> core::result::Result<&near_kit::standards::NftContractMetadata, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
+pub async fn near_kit::standards::NonFungibleTokenClient<C>::supply_for_owner(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> core::result::Result<u64, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
+pub async fn near_kit::standards::NonFungibleTokenClient<C>::token(&self, impl core::convert::AsRef<str>) -> core::result::Result<core::option::Option<near_kit::standards::NftToken>, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
+pub async fn near_kit::standards::NonFungibleTokenClient<C>::tokens_for_owner(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<alloc::vec::Vec<near_kit::standards::NftToken>, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
+pub async fn near_kit::standards::NonFungibleTokenClient<C>::total_supply(&self) -> core::result::Result<u64, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
+impl<C> near_kit::standards::NonFungibleTokenClient<C>
+pub fn near_kit::standards::NonFungibleTokenClient<C>::contract_id(&self) -> &near_account_id::account_id::AccountId
+impl<C: core::clone::Clone> core::clone::Clone for near_kit::standards::NonFungibleTokenClient<C>
+pub fn near_kit::standards::NonFungibleTokenClient<C>::clone(&self) -> near_kit::standards::NonFungibleTokenClient<C>
+impl<C> core::fmt::Debug for near_kit::standards::NonFungibleTokenClient<C>
+pub fn near_kit::standards::NonFungibleTokenClient<C>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct near_kit::standards::StorageBalance
+pub near_kit::standards::StorageBalance::available: near_token::NearToken
+pub near_kit::standards::StorageBalance::total: near_token::NearToken
+impl core::clone::Clone for near_kit::standards::StorageBalance
+pub fn near_kit::standards::StorageBalance::clone(&self) -> near_kit::standards::StorageBalance
+impl core::fmt::Debug for near_kit::standards::StorageBalance
+pub fn near_kit::standards::StorageBalance::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for near_kit::standards::StorageBalance
+pub fn near_kit::standards::StorageBalance::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for near_kit::standards::StorageBalance
+pub fn near_kit::standards::StorageBalance::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct near_kit::standards::StorageBalanceBounds
+pub near_kit::standards::StorageBalanceBounds::max: core::option::Option<near_token::NearToken>
+pub near_kit::standards::StorageBalanceBounds::min: near_token::NearToken
+impl core::clone::Clone for near_kit::standards::StorageBalanceBounds
+pub fn near_kit::standards::StorageBalanceBounds::clone(&self) -> near_kit::standards::StorageBalanceBounds
+impl core::fmt::Debug for near_kit::standards::StorageBalanceBounds
+pub fn near_kit::standards::StorageBalanceBounds::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for near_kit::standards::StorageBalanceBounds
+pub fn near_kit::standards::StorageBalanceBounds::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for near_kit::standards::StorageBalanceBounds
+pub fn near_kit::standards::StorageBalanceBounds::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub mod near_kit::transaction
+pub use near_kit::transaction::CodecError
+pub use near_kit::transaction::Executed
+pub use near_kit::transaction::ExecutedOptimistic
+pub use near_kit::transaction::Final
+pub use near_kit::transaction::FunctionCall
+pub use near_kit::transaction::Included
+pub use near_kit::transaction::IncludedFinal
+pub use near_kit::transaction::Submitted
+pub use near_kit::transaction::WaitLevel
+pub struct near_kit::transaction::DelegateOptions
+pub near_kit::transaction::DelegateOptions::block_height_offset: core::option::Option<u64>
+pub near_kit::transaction::DelegateOptions::max_block_height: core::option::Option<u64>
+pub near_kit::transaction::DelegateOptions::nonce: core::option::Option<u64>
+impl core::clone::Clone for near_kit::transaction::DelegateOptions
+pub fn near_kit::transaction::DelegateOptions::clone(&self) -> near_kit::transaction::DelegateOptions
+impl core::default::Default for near_kit::transaction::DelegateOptions
+pub fn near_kit::transaction::DelegateOptions::default() -> near_kit::transaction::DelegateOptions
+impl core::fmt::Debug for near_kit::transaction::DelegateOptions
+pub fn near_kit::transaction::DelegateOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct near_kit::transaction::SignedTransactionSend<'tx, W: near_kit_primitives::types::wait_level::WaitLevel>
+impl<'tx, W: near_kit_primitives::types::wait_level::WaitLevel> near_kit::transaction::SignedTransactionSend<'tx, W>
+pub fn near_kit::transaction::SignedTransactionSend<'tx, W>::wait_until<W2: near_kit_primitives::types::wait_level::WaitLevel>(self) -> near_kit::transaction::SignedTransactionSend<'tx, W2>
+impl<'tx, W: near_kit_primitives::types::wait_level::WaitLevel> core::future::into_future::IntoFuture for near_kit::transaction::SignedTransactionSend<'tx, W>
+pub type near_kit::transaction::SignedTransactionSend<'tx, W>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit::transaction::SignedTransactionSend<'tx, W> as core::future::into_future::IntoFuture>::Output> + core::marker::Send + 'tx)>>
+pub type near_kit::transaction::SignedTransactionSend<'tx, W>::Output = core::result::Result<<W as near_kit_primitives::types::wait_level::WaitLevel>::Response, near_kit::Error>
+pub fn near_kit::transaction::SignedTransactionSend<'tx, W>::into_future(self) -> Self::IntoFuture
+pub struct near_kit::transaction::Tx<W: near_kit_primitives::types::wait_level::WaitLevel>
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit::transaction::Tx<W>
+pub fn near_kit::transaction::Tx<W>::add_action<A>(self, A) -> Self where A: core::convert::TryInto<near_kit_primitives::types::action::Action>, <A as core::convert::TryInto>::Error: core::convert::Into<near_kit_primitives::error::CodecError>
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::fmt::Debug for near_kit::transaction::Tx<W>
+pub fn near_kit::transaction::Tx<W>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::future::into_future::IntoFuture for near_kit::transaction::Tx<W>
+pub type near_kit::transaction::Tx<W>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit::transaction::Tx<W> as core::future::into_future::IntoFuture>::Output> + core::marker::Send)>>
+pub type near_kit::transaction::Tx<W>::Output = core::result::Result<<W as near_kit_primitives::types::wait_level::WaitLevel>::Response, near_kit::Error>
+pub fn near_kit::transaction::Tx<W>::into_future(self) -> Self::IntoFuture
+#[non_exhaustive] pub enum near_kit::Error
+pub near_kit::Error::Borsh(alloc::string::String)
+pub near_kit::Error::Config(alloc::string::String)
+pub near_kit::Error::Decode(near_kit_primitives::error::DecodeTransactionError)
+pub near_kit::Error::DecodeDelegate(near_kit_primitives::types::action::DecodeError)
+pub near_kit::Error::InvalidTx(alloc::boxed::Box<near_kit_primitives::types::error::InvalidTxError>)
+pub near_kit::Error::Json(serde_json::error::Error)
+pub near_kit::Error::KeyStore(near_kit::signer::KeyStoreError)
+pub near_kit::Error::Outcome(near_kit_primitives::error::OutcomeError)
+pub near_kit::Error::ParseAccountId(near_kit_primitives::error::ParseAccountIdError)
+pub near_kit::Error::ParseKey(near_kit_primitives::error::ParseKeyError)
+pub near_kit::Error::Rpc(alloc::boxed::Box<near_kit::rpc::RpcError>)
+pub near_kit::Error::Signing(near_kit_primitives::error::SignerError)
+pub near_kit::Error::Validation(alloc::string::String)
+impl near_kit::Error
+pub fn near_kit::Error::as_rpc(&self) -> core::option::Option<&near_kit::rpc::RpcError>
+pub fn near_kit::Error::into_rpc(self) -> core::result::Result<near_kit::rpc::RpcError, Self>
+impl core::convert::From<near_account_id::errors::ParseAccountError> for near_kit::Error
+pub fn near_kit::Error::from(near_kit_primitives::error::ParseAccountIdError) -> Self
+impl core::convert::From<near_kit::rpc::RpcError> for near_kit::Error
+pub fn near_kit::Error::from(near_kit::rpc::RpcError) -> Self
+impl core::convert::From<near_kit::signer::KeyStoreError> for near_kit::Error
+pub fn near_kit::Error::from(near_kit::signer::KeyStoreError) -> Self
+impl core::convert::From<near_kit_primitives::error::CodecError> for near_kit::Error
+pub fn near_kit::Error::from(near_kit_primitives::error::CodecError) -> Self
+impl core::convert::From<near_kit_primitives::error::DecodeTransactionError> for near_kit::Error
+pub fn near_kit::Error::from(near_kit_primitives::error::DecodeTransactionError) -> Self
+impl core::convert::From<near_kit_primitives::error::OutcomeError> for near_kit::Error
+pub fn near_kit::Error::from(near_kit_primitives::error::OutcomeError) -> Self
+impl core::convert::From<near_kit_primitives::error::ParseKeyError> for near_kit::Error
+pub fn near_kit::Error::from(near_kit_primitives::error::ParseKeyError) -> Self
+impl core::convert::From<near_kit_primitives::error::SignerError> for near_kit::Error
+pub fn near_kit::Error::from(near_kit_primitives::error::SignerError) -> Self
+impl core::convert::From<near_kit_primitives::types::action::DecodeError> for near_kit::Error
+pub fn near_kit::Error::from(near_kit_primitives::types::action::DecodeError) -> Self
+impl core::convert::From<serde_json::error::Error> for near_kit::Error
+pub fn near_kit::Error::from(serde_json::error::Error) -> Self
+impl core::error::Error for near_kit::Error
+pub fn near_kit::Error::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Debug for near_kit::Error
+pub fn near_kit::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for near_kit::Error
+pub fn near_kit::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: core::convert::Into<near_kit::Error> + core::fmt::Display> core::convert::From<near_kit_primitives::backend::ContractError<E>> for near_kit::Error
+pub fn near_kit::Error::from(near_kit_primitives::backend::ContractError<E>) -> Self
+pub struct near_kit::Near
+impl near_kit::Near
+pub fn near_kit::Near::account_exists(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit::rpc::AccountExistsQuery
+pub fn near_kit::Near::balance(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit::rpc::BalanceQuery
+pub fn near_kit::Near::chain_id(&self) -> &near_kit_primitives::types::network::ChainId
+pub fn near_kit::Near::contract<T: near_kit_primitives::backend::Contract>(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> <T as near_kit_primitives::backend::Contract>::Client
+pub fn near_kit::Near::custom(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<near_kit_primitives::types::network::ChainId>) -> near_kit::NearBuilder
+pub fn near_kit::Near::mainnet() -> near_kit::NearBuilder
+pub fn near_kit::Near::rpc(&self) -> &near_kit::rpc::RpcClient
+pub fn near_kit::Near::send_signed<'tx>(&self, &'tx near_kit_primitives::types::transaction::SignedTransaction) -> near_kit::transaction::SignedTransactionSend<'tx>
+pub fn near_kit::Near::testnet() -> near_kit::NearBuilder
+pub fn near_kit::Near::tx_status(&self, &near_kit_primitives::types::hash::CryptoHash, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit::rpc::TransactionStatusQuery
+pub fn near_kit::Near::view<T: serde_core::de::DeserializeOwned>(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::Into<alloc::string::String>) -> near_kit_primitives::backend::View<near_kit::Near, T>
+pub fn near_kit::Near::with_signer(&self, impl near_kit_primitives::types::signer::Signer + 'static) -> near_kit::SigningNear
+impl core::clone::Clone for near_kit::Near
+pub fn near_kit::Near::clone(&self) -> near_kit::Near
+impl core::fmt::Debug for near_kit::Near
+pub fn near_kit::Near::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl near_kit_primitives::backend::Viewer for near_kit::Near
+pub type near_kit::Near::ViewError = near_kit::rpc::RpcError
+pub fn near_kit::Near::view_function(&self, &near_account_id::account_id::AccountId, &str, &[u8], near_kit_primitives::types::block_reference::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::types::rpc::ViewFunctionResult, near_kit::rpc::RpcError>> + near_kit_primitives::platform::MaybeSend
+pub struct near_kit::NearBuilder
+impl near_kit::NearBuilder
+pub fn near_kit::NearBuilder::build(self) -> near_kit::Near
+pub fn near_kit::NearBuilder::max_nonce_retries(self, u32) -> Self
+pub fn near_kit::NearBuilder::retry_config(self, near_kit::rpc::RetryConfig) -> Self
+pub fn near_kit::NearBuilder::transport(self, impl near_kit::rpc::RpcTransport + 'static) -> Self
+pub struct near_kit::SigningNear<W: near_kit_primitives::types::wait_level::WaitLevel>
+impl near_kit::SigningNear
+pub fn near_kit::SigningNear::from_env() -> core::result::Result<near_kit::SigningNear, near_kit::Error>
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit::SigningNear<W>
+pub fn near_kit::SigningNear<W>::account_id(&self) -> &near_account_id::account_id::AccountId
+pub fn near_kit::SigningNear<W>::contract<T: near_kit_primitives::backend::Contract>(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> <T as near_kit_primitives::backend::Contract>::Client
+pub fn near_kit::SigningNear<W>::max_nonce_retries(self, u32) -> Self
+pub fn near_kit::SigningNear<W>::near(&self) -> &near_kit::Near
+pub async fn near_kit::SigningNear<W>::sign(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, alloc::vec::Vec<near_kit_primitives::types::action::Action>) -> core::result::Result<near_kit_primitives::types::transaction::SignedTransaction, near_kit::Error>
+pub async fn near_kit::SigningNear<W>::sign_delegate(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, alloc::vec::Vec<near_kit_primitives::types::action::Action>, near_kit::transaction::DelegateOptions) -> core::result::Result<near_kit_primitives::types::action::SignedDelegateAction, near_kit::Error>
+pub fn near_kit::SigningNear<W>::signer(&self) -> &alloc::sync::Arc<dyn near_kit_primitives::types::signer::Signer>
+pub fn near_kit::SigningNear<W>::transaction(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit::transaction::Tx<W>
+pub fn near_kit::SigningNear<W>::wait_until<W2: near_kit_primitives::types::wait_level::WaitLevel>(&self) -> near_kit::SigningNear<W2>
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::clone::Clone for near_kit::SigningNear<W>
+pub fn near_kit::SigningNear<W>::clone(&self) -> Self
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::fmt::Debug for near_kit::SigningNear<W>
+pub fn near_kit::SigningNear<W>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit_primitives::backend::TxSender for near_kit::SigningNear<W>
+pub type near_kit::SigningNear<W>::Output = <W as near_kit_primitives::types::wait_level::WaitLevel>::Response
+pub type near_kit::SigningNear<W>::SendError = near_kit::Error
+pub fn near_kit::SigningNear<W>::account_id(&self) -> &near_account_id::account_id::AccountId
+pub fn near_kit::SigningNear<W>::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::types::action::Action>) -> impl core::future::future::Future<Output = core::result::Result<<W as near_kit_primitives::types::wait_level::WaitLevel>::Response, near_kit::Error>> + near_kit_primitives::platform::MaybeSend
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit_primitives::backend::Viewer for near_kit::SigningNear<W>
+pub type near_kit::SigningNear<W>::ViewError = near_kit::rpc::RpcError
+pub fn near_kit::SigningNear<W>::view_function(&self, &near_account_id::account_id::AccountId, &str, &[u8], near_kit_primitives::types::block_reference::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::types::rpc::ViewFunctionResult, near_kit::rpc::RpcError>> + near_kit_primitives::platform::MaybeSend

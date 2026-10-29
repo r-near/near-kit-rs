@@ -9,9 +9,18 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features    # CI denies warnings
 cargo test -p near-kit                                    # add a test name to filter
 cargo test -p near-kit-sandbox --features integration-tests --test integration   # needs Docker
+scripts/public-api.sh           # check public-api/*.txt is current (pinned nightly; CI runs this)
+scripts/public-api.sh --bless   # regenerate after an intended API change
 ```
 
 CI (`.github/workflows/ci.yml`) also checks `--no-default-features` and the wasm targets.
+
+Every change to the public API of `near-kit`, `near-kit-primitives` or
+`near-kit-sandbox` must show up as a diff in `public-api/`. If the Public API
+job fails, run `scripts/public-api.sh --bless`, check that the diff is what you
+meant, and commit it with the change. The snapshot omits blanket and auto-trait
+impls; `cargo semver-checks` (advisory on PRs, enforced by release-plz) covers
+those.
 
 ## Project Structure
 
