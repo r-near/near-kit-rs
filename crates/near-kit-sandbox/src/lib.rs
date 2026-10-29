@@ -585,7 +585,12 @@ impl SandboxBuilder {
     /// The version, root account, and chain ID are only used if the shared
     /// sandbox hasn't been initialized yet. If it's already running, the
     /// existing instance is returned regardless of the options specified here.
-    pub async fn shared(self) -> Result<&'static Sandbox, SandboxError> {
+    /// An invalid option (see [`chain_id`](Self::chain_id)) is reported either
+    /// way.
+    pub async fn shared(mut self) -> Result<&'static Sandbox, SandboxError> {
+        if let Some(error) = self.construction_error.take() {
+            return Err(error);
+        }
         SHARED_SANDBOX
             .get_or_try_init(|| async move {
                 let sandbox = self.start().await?;
@@ -613,6 +618,21 @@ mod tests {
         assert!(matches!(
             builder.construction_error,
             Some(SandboxError::UnsupportedChainId(chain_id)) if chain_id == "mainnet"
+        ));
+    }
+
+    /// Both entry points report the deferred error before touching Docker.
+    #[tokio::test]
+    async fn fresh_and_shared_report_the_construction_error() {
+        let fresh = Sandbox::builder().chain_id("testnet").fresh().await;
+        assert!(matches!(
+            fresh,
+            Err(SandboxError::UnsupportedChainId(chain_id)) if chain_id == "testnet"
+        ));
+        let shared = Sandbox::builder().chain_id("mainnet").shared().await;
+        assert!(matches!(
+            shared,
+            Err(SandboxError::UnsupportedChainId(chain_id)) if chain_id == "mainnet"
         ));
     }
 

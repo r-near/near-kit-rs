@@ -114,3 +114,22 @@ async fn custom_chain_id_and_fast_forward() {
         .latest_block_height;
     assert!(after >= before + 100, "before={before}, after={after}");
 }
+
+#[tokio::test]
+async fn shared_reports_a_construction_error_once_the_shared_sandbox_runs() {
+    let (sandbox, _) = shared_client().await;
+    let result = Sandbox::builder().chain_id("mainnet").shared().await;
+    assert!(
+        matches!(
+            result,
+            Err(near_kit_sandbox::SandboxError::UnsupportedChainId(ref chain_id)) if chain_id == "mainnet"
+        ),
+        "an invalid option must not hand back the running sandbox"
+    );
+    // The running shared sandbox is untouched.
+    let again = Sandbox::builder()
+        .shared()
+        .await
+        .expect("shared sandbox still available");
+    assert!(std::ptr::eq(sandbox, again));
+}
