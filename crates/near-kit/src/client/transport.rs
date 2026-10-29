@@ -337,7 +337,10 @@ impl RpcTransport for WasiHttpTransport {
         url: &str,
         body: Vec<u8>,
     ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-        Box::pin(wasi_http::Exchange::new(url, body))
+        // `exchange` never awaits, so the `!Send` wasi handles it creates
+        // never live across a yield and the future stays `Send`.
+        let url = url.to_owned();
+        Box::pin(async move { wasi_http::exchange(&url, &body) })
     }
 }
 
@@ -348,10 +351,6 @@ impl RpcTransport for WasiHttpTransport {
     target_env = "p2"
 ))]
 mod wasi_http {
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
-
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use wasi::http::outgoing_handler;
     use wasi::http::types::{
@@ -367,42 +366,8 @@ mod wasi_http {
     /// Bytes to request per `blocking-read` while draining the response body.
     const READ_CHUNK: u64 = 16 * 1024;
 
-    /// A future that runs the whole blocking `wasi:http` exchange inside a
-    /// single `poll` and returns `Ready`.
-    ///
-    /// Send-safety: `BoxFuture` requires `Send` on this target (only
-    /// `wasm32-unknown-unknown` relaxes it), but every `wasi` resource handle
-    /// (`OutgoingRequest`, streams, pollables) is `!Send`. Doing the exchange —
-    /// dispatch, pollable block, body drain — synchronously inside one `poll`
-    /// means those handles live and die in a single stack frame and are never
-    /// stored in the future. `Exchange` itself holds only a `String` and a
-    /// `Vec<u8>`, so it is `Send` by construction, with no `unsafe`.
-    pub(super) struct Exchange {
-        request: Option<(String, Vec<u8>)>,
-    }
-
-    impl Exchange {
-        pub(super) fn new(url: &str, body: Vec<u8>) -> Self {
-            Self {
-                request: Some((url.to_string(), body)),
-            }
-        }
-    }
-
-    impl Future for Exchange {
-        type Output = Result<TransportResponse, RpcError>;
-
-        fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-            let (url, body) = self
-                .request
-                .take()
-                .expect("Exchange future polled after completion");
-            Poll::Ready(exchange(&url, &body))
-        }
-    }
-
     /// The synchronous `wasi:http/outgoing-handler` exchange.
-    fn exchange(url: &str, body: &[u8]) -> Result<TransportResponse, RpcError> {
+    pub(super) fn exchange(url: &str, body: &[u8]) -> Result<TransportResponse, RpcError> {
         let UrlParts {
             scheme,
             authority,
