@@ -84,44 +84,19 @@ pub enum AccountState {
 }
 
 impl AccountView {
-    /// Calculate the total NEAR required for storage.
-    fn storage_required(&self) -> NearToken {
-        let yocto = STORAGE_AMOUNT_PER_BYTE.saturating_mul(self.storage_usage as u128);
-        NearToken::from_yoctonear(yocto)
-    }
-
-    /// Get available (spendable) balance.
-    ///
-    /// This accounts for the protocol rule that staked tokens count towards
-    /// the storage requirement:
-    /// - available = amount - max(0, storage_required - locked)
-    ///
-    /// If staked >= storage cost, all liquid balance is available.
-    /// If staked < storage cost, some liquid balance is reserved for storage.
+    /// Get available (spendable) balance: `amount` minus
+    /// [`storage_cost`](Self::storage_cost). Staked tokens count towards the
+    /// storage requirement, so if `locked` covers it all of `amount` is
+    /// available.
     pub fn available(&self) -> NearToken {
-        let storage_required = self.storage_required();
-
-        // If staked covers storage, all liquid is available
-        if self.locked >= storage_required {
-            return self.amount;
-        }
-
-        // Otherwise, reserve the difference from liquid balance
-        let reserved_for_storage = storage_required.saturating_sub(self.locked);
-        self.amount.saturating_sub(reserved_for_storage)
+        self.amount.saturating_sub(self.storage_cost())
     }
 
-    /// Get the amount of NEAR reserved for storage costs.
-    ///
-    /// This is calculated as: max(0, storage_required - locked)
+    /// Get the amount of NEAR reserved for storage costs:
+    /// `max(0, storage_usage * STORAGE_AMOUNT_PER_BYTE - locked)`.
     pub fn storage_cost(&self) -> NearToken {
-        let storage_required = self.storage_required();
-
-        if self.locked >= storage_required {
-            NearToken::ZERO
-        } else {
-            storage_required.saturating_sub(self.locked)
-        }
+        let required = STORAGE_AMOUNT_PER_BYTE.saturating_mul(u128::from(self.storage_usage));
+        NearToken::from_yoctonear(required).saturating_sub(self.locked)
     }
 
     /// Check if this account has a deployed contract.
@@ -921,10 +896,7 @@ impl FinalExecutionOutcome {
 
     /// Get the failure message if present.
     pub fn failure_message(&self) -> Option<String> {
-        match &self.status {
-            FinalExecutionStatus::Failure(err) => Some(err.to_string()),
-            _ => None,
-        }
+        self.failure_error().map(ToString::to_string)
     }
 
     /// Get the typed execution error if present.
