@@ -121,28 +121,6 @@ impl TxExecutionStatus {
             Self::Final => "FINAL",
         }
     }
-
-    /// Returns `true` if all non-refund receipt outcomes are available.
-    ///
-    /// True for `ExecutedOptimistic`, `Executed`, and `Final`.
-    pub fn is_executed(&self) -> bool {
-        matches!(
-            self,
-            Self::ExecutedOptimistic | Self::Executed | Self::Final
-        )
-    }
-
-    /// Returns `true` if the transaction's block has reached finality.
-    ///
-    /// True for `IncludedFinal`, `Executed`, and `Final`.
-    pub fn is_block_final(&self) -> bool {
-        matches!(self, Self::IncludedFinal | Self::Executed | Self::Final)
-    }
-
-    /// Returns `true` if all receipts are executed and all blocks finalized.
-    pub fn is_final(&self) -> bool {
-        matches!(self, Self::Final)
-    }
 }
 
 /// Partial ordering for `TxExecutionStatus` forms a diamond lattice:
@@ -323,36 +301,6 @@ mod tests {
             let parsed: SyncCheckpoint = serde_json::from_str(&json).unwrap();
             assert_eq!(cp, parsed);
         }
-    }
-
-    #[test]
-    fn test_tx_execution_status_is_executed() {
-        assert!(!TxExecutionStatus::None.is_executed());
-        assert!(!TxExecutionStatus::Included.is_executed());
-        assert!(TxExecutionStatus::ExecutedOptimistic.is_executed());
-        assert!(!TxExecutionStatus::IncludedFinal.is_executed());
-        assert!(TxExecutionStatus::Executed.is_executed());
-        assert!(TxExecutionStatus::Final.is_executed());
-    }
-
-    #[test]
-    fn test_tx_execution_status_is_block_final() {
-        assert!(!TxExecutionStatus::None.is_block_final());
-        assert!(!TxExecutionStatus::Included.is_block_final());
-        assert!(!TxExecutionStatus::ExecutedOptimistic.is_block_final());
-        assert!(TxExecutionStatus::IncludedFinal.is_block_final());
-        assert!(TxExecutionStatus::Executed.is_block_final());
-        assert!(TxExecutionStatus::Final.is_block_final());
-    }
-
-    #[test]
-    fn test_tx_execution_status_is_final() {
-        assert!(!TxExecutionStatus::None.is_final());
-        assert!(!TxExecutionStatus::Included.is_final());
-        assert!(!TxExecutionStatus::ExecutedOptimistic.is_final());
-        assert!(!TxExecutionStatus::IncludedFinal.is_final());
-        assert!(!TxExecutionStatus::Executed.is_final());
-        assert!(TxExecutionStatus::Final.is_final());
     }
 
     #[test]

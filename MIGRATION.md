@@ -102,6 +102,7 @@ after the table cover each one.
 | `rpc::LightClientBlockView`, `LightClientBlockLiteView`, `BlockHeaderInnerLiteView`, `StateChangeWithCauseView`, `StateChangeCauseView`, `StateChangeValueView` | Removed: no method returned them. Use `near.rpc().request::<_, serde_json::Value>(method, params)` or your own serde type |
 | `rpc::ValidatorStakeView` (an enum with one `V1` variant: `into_v1()`, `account_id()`, `stake()`), `rpc::ValidatorStakeViewV1` | `rpc::ValidatorStakeView`, now the struct: read `.account_id`, `.public_key` and `.stake` |
 | `ChunkHeaderView::proposed_split: Option<Option<TrieSplit>>` | `Option<TrieSplit>`: the inner `None` never occurred (a JSON `null` decoded as the outer `None`) |
+| `rpc::TxExecutionStatus::is_executed()`, `is_block_final()`, `is_final()` | `matches!(s, ExecutedOptimistic \| Executed \| Final)`, `matches!(s, IncludedFinal \| Executed \| Final)`, `s == TxExecutionStatus::Final` |
 
 ### RPC client
 
