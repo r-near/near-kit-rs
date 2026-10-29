@@ -2127,9 +2127,13 @@ pub struct NodeVersion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::AccessKeyPermission;
     use crate::protocol::ActionErrorKind;
     use crate::signer::KeyType;
+
+    const PK: &str = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";
+    const SIG: &str = "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5";
+    const TX_HASH: &str = "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U";
+    const RECEIPT_ID: &str = "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK";
 
     #[test]
     fn test_access_key_list_parses_ml_dsa65_hash_handle() {
@@ -2145,7 +2149,7 @@ mod tests {
                     "access_key": { "nonce": 1u64, "permission": "FullAccess" }
                 },
                 {
-                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                    "public_key": PK,
                     "access_key": { "nonce": 2u64, "permission": "FullAccess" }
                 }
             ],
@@ -2163,10 +2167,7 @@ mod tests {
         // The ed25519 entry is a full, usable key.
         let ed = list.keys[1].public_key.as_full().unwrap();
         assert_eq!(ed.key_type(), KeyType::Ed25519);
-        assert_eq!(
-            ed.to_string(),
-            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
-        );
+        assert_eq!(ed.to_string(), PK);
         // The cursor round-trips to the exact wire string, so it can be sent
         // back verbatim as `after_key`.
         let last_key = list.last_key.expect("last_key present");
@@ -2186,23 +2187,6 @@ mod tests {
         let list: AccessKeyListView = serde_json::from_value(json).unwrap();
         assert!(list.keys.is_empty());
         assert_eq!(list.last_key, None);
-    }
-
-    #[test]
-    fn test_gas_key_nonces_view_deserialization() {
-        let json = serde_json::json!({
-            "nonces": [7, 11, 42],
-            "block_height": 12345,
-            "block_hash": "11111111111111111111111111111111"
-        });
-
-        let view: GasKeyNoncesView = serde_json::from_value(json).unwrap();
-        assert_eq!(view.nonces, vec![7, 11, 42]);
-        assert_eq!(view.block_height, 12345);
-        assert_eq!(
-            view.block_hash,
-            "11111111111111111111111111111111".parse().unwrap()
-        );
     }
 
     #[test]
@@ -2443,28 +2427,6 @@ mod tests {
     }
 
     #[test]
-    fn test_view_function_result_json() {
-        let result = make_view_result(b"42".to_vec());
-        let value: u64 = result.json().unwrap();
-        assert_eq!(value, 42);
-    }
-
-    #[test]
-    fn test_view_function_result_json_object() {
-        let result = make_view_result(b"{\"count\":123}".to_vec());
-        let value: serde_json::Value = result.json().unwrap();
-        assert_eq!(value["count"], 123);
-    }
-
-    #[test]
-    fn test_view_function_result_json_empty_unit() {
-        // Void view methods return zero bytes; empty should decode as `()`.
-        let result = make_view_result(vec![]);
-        let value: () = result.json().unwrap();
-        assert_eq!(value, ());
-    }
-
-    #[test]
     fn test_view_function_result_json_empty_option_is_none() {
         // Empty bytes map to JSON null, so `Option<T>` decodes to `None`.
         let result = make_view_result(vec![]);
@@ -2480,44 +2442,6 @@ mod tests {
         assert_eq!(scalar, 42);
         let opt: Option<u64> = result.json().unwrap();
         assert_eq!(opt, Some(42));
-    }
-
-    #[test]
-    fn test_view_function_result_borsh() {
-        // Borsh-encode a u64 value
-        let original: u64 = 42;
-        let encoded = borsh::to_vec(&original).unwrap();
-        let result = make_view_result(encoded);
-
-        let decoded: u64 = result.borsh().unwrap();
-        assert_eq!(decoded, original);
-    }
-
-    #[test]
-    fn test_view_function_result_borsh_struct() {
-        #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Debug)]
-        struct TestStruct {
-            value: u64,
-            name: String,
-        }
-
-        let original = TestStruct {
-            value: 123,
-            name: "test".to_string(),
-        };
-        let encoded = borsh::to_vec(&original).unwrap();
-        let result = make_view_result(encoded);
-
-        let decoded: TestStruct = result.borsh().unwrap();
-        assert_eq!(decoded, original);
-    }
-
-    #[test]
-    fn test_view_function_result_borsh_error() {
-        // Invalid Borsh data for a u64 (too short)
-        let result = make_view_result(vec![1, 2, 3]);
-        let decoded: Result<u64, _> = result.borsh();
-        assert!(decoded.is_err());
     }
 
     // ========================================================================
@@ -2572,151 +2496,6 @@ mod tests {
     }
 
     #[test]
-    fn test_max_nonces_for_gas_key() {
-        assert_eq!(AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY, 1024);
-    }
-
-    #[test]
-    fn test_gas_key_function_call_deserialization() {
-        let json = serde_json::json!({
-            "GasKeyFunctionCall": {
-                "balance": "1000000000000000000000000",
-                "num_nonces": 5,
-                "allowance": "500000000000000000000000",
-                "receiver_id": "app.near",
-                "method_names": ["call_method"]
-            }
-        });
-        let perm: AccessKeyPermissionView = serde_json::from_value(json).unwrap();
-        assert!(matches!(
-            perm,
-            AccessKeyPermissionView::GasKeyFunctionCall { .. }
-        ));
-    }
-
-    #[test]
-    fn test_gas_key_full_access_deserialization() {
-        let json = serde_json::json!({
-            "GasKeyFullAccess": {
-                "balance": "1000000000000000000000000",
-                "num_nonces": 10
-            }
-        });
-        let perm: AccessKeyPermissionView = serde_json::from_value(json).unwrap();
-        assert!(matches!(
-            perm,
-            AccessKeyPermissionView::GasKeyFullAccess { .. }
-        ));
-    }
-
-    #[test]
-    fn test_transfer_to_gas_key_action_view_deserialization() {
-        let json = serde_json::json!({
-            "TransferToGasKey": {
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "deposit": "1000000000000000000000000"
-            }
-        });
-        let action: ActionView = serde_json::from_value(json).unwrap();
-        assert!(matches!(action, ActionView::TransferToGasKey { .. }));
-    }
-
-    #[test]
-    fn test_delegate_action_view_deserialization() {
-        let json = serde_json::json!({
-            "Delegate": {
-                "delegate_action": {
-                    "sender_id": "alice.near",
-                    "receiver_id": "contract.near",
-                    "actions": [
-                        {"FunctionCall": {
-                            "method_name": "do_something",
-                            "args": "e30=",
-                            "gas": 30000000000000_u64,
-                            "deposit": "0"
-                        }}
-                    ],
-                    "nonce": 42,
-                    "max_block_height": 100000,
-                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
-                },
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5"
-            }
-        });
-        let action: ActionView = serde_json::from_value(json).unwrap();
-        match action {
-            ActionView::Delegate {
-                delegate_action,
-                signature,
-            } => {
-                assert_eq!(delegate_action.sender_id.as_str(), "alice.near");
-                assert_eq!(delegate_action.receiver_id.as_str(), "contract.near");
-                assert_eq!(delegate_action.nonce, 42);
-                assert_eq!(delegate_action.max_block_height, 100000);
-                assert_eq!(delegate_action.actions.len(), 1);
-                assert!(signature.to_string().starts_with("ed25519:"));
-            }
-            _ => panic!("Expected Delegate action"),
-        }
-    }
-
-    #[test]
-    fn test_withdraw_from_gas_key_action_view_deserialization() {
-        let json = serde_json::json!({
-            "WithdrawFromGasKey": {
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "amount": "500000000000000000000000"
-            }
-        });
-        let action: ActionView = serde_json::from_value(json).unwrap();
-        assert!(matches!(action, ActionView::WithdrawFromGasKey { .. }));
-    }
-
-    #[test]
-    fn test_delegate_v2_action_view_deserialization() {
-        // Matches the node's JSON for Action::DelegateV2: an externally-tagged
-        // `{"V2": ..}` payload whose nonce is an externally-tagged gas-key nonce.
-        let json = serde_json::json!({
-            "DelegateV2": {
-                "delegate_action": {
-                    "V2": {
-                        "sender_id": "alice.near",
-                        "receiver_id": "contract.near",
-                        "actions": [
-                            { "Transfer": { "deposit": "1000000000000000000000000" } }
-                        ],
-                        "nonce": { "GasKeyNonce": { "nonce": 42, "nonce_index": 3 } },
-                        "max_block_height": 100000,
-                        "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
-                    }
-                },
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5"
-            }
-        });
-        let action: ActionView = serde_json::from_value(json).unwrap();
-        match action {
-            ActionView::DelegateV2 {
-                delegate_action: VersionedDelegateActionPayloadView::V2(d),
-                signature,
-            } => {
-                assert_eq!(d.sender_id.as_str(), "alice.near");
-                assert_eq!(d.receiver_id.as_str(), "contract.near");
-                assert_eq!(d.max_block_height, 100000);
-                assert_eq!(d.actions.len(), 1);
-                assert_eq!(
-                    d.nonce,
-                    TransactionNonceView::GasKeyNonce {
-                        nonce: 42,
-                        nonce_index: 3
-                    }
-                );
-                assert!(signature.to_string().starts_with("ed25519:"));
-            }
-            other => panic!("Expected DelegateV2 action, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn test_delegate_v2_action_view_plain_nonce() {
         // The V2 view must also accept an ordinary (non-gas-key) nonce.
         let json = serde_json::json!({
@@ -2728,10 +2507,10 @@ mod tests {
                         "actions": [],
                         "nonce": { "Nonce": { "nonce": 7 } },
                         "max_block_height": 1,
-                        "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                        "public_key": PK
                     }
                 },
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5"
+                "signature": SIG
             }
         });
         let action: ActionView = serde_json::from_value(json).unwrap();
@@ -2750,121 +2529,99 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_final_execution_status_not_started() {
-        let json = serde_json::json!("NotStarted");
-        let status: FinalExecutionStatus = serde_json::from_value(json).unwrap();
-        assert!(matches!(status, FinalExecutionStatus::NotStarted));
-    }
-
-    #[test]
-    fn test_final_execution_status_started() {
-        let json = serde_json::json!("Started");
-        let status: FinalExecutionStatus = serde_json::from_value(json).unwrap();
-        assert!(matches!(status, FinalExecutionStatus::Started));
-    }
-
-    #[test]
-    fn test_final_execution_status_success_value() {
-        let json = serde_json::json!({"SuccessValue": "aGVsbG8="});
-        let status: FinalExecutionStatus = serde_json::from_value(json).unwrap();
-        assert!(matches!(status, FinalExecutionStatus::SuccessValue(ref s) if s == "aGVsbG8="));
-    }
-
-    #[test]
-    fn test_final_execution_status_failure() {
-        let json = serde_json::json!({
-            "Failure": {
-                "ActionError": {
-                    "index": 0,
-                    "kind": {
-                        "FunctionCallError": {
-                            "ExecutionError": "Smart contract panicked"
-                        }
-                    }
-                }
-            }
-        });
-        let status: FinalExecutionStatus = serde_json::from_value(json).unwrap();
-        assert!(matches!(status, FinalExecutionStatus::Failure(_)));
+    fn test_final_execution_status_decodes() {
+        let decode = |json| serde_json::from_value::<FinalExecutionStatus>(json).unwrap();
+        assert!(matches!(
+            decode(serde_json::json!("NotStarted")),
+            FinalExecutionStatus::NotStarted
+        ));
+        assert!(matches!(
+            decode(serde_json::json!("Started")),
+            FinalExecutionStatus::Started
+        ));
+        assert!(matches!(
+            decode(serde_json::json!({"SuccessValue": "aGVsbG8="})),
+            FinalExecutionStatus::SuccessValue(s) if s == "aGVsbG8="
+        ));
+        assert!(matches!(
+            decode(panicked("Smart contract panicked")),
+            FinalExecutionStatus::Failure(_)
+        ));
     }
 
     // ========================================================================
     // FinalExecutionOutcome helper tests
     // ========================================================================
 
-    #[test]
-    fn test_final_execution_outcome_logs_in_order() {
-        let outcome = |id: &str, logs: &[&str]| {
+    /// The JSON of an outcome whose top-level status is `status`, with one
+    /// receipt outcome per entry of `receipts` (each a receipt status).
+    /// `logs[0]` holds the transaction outcome's logs and `logs[i + 1]` those
+    /// of receipt `i`; a missing entry logs nothing.
+    fn outcome_json(
+        status: serde_json::Value,
+        receipts: &[serde_json::Value],
+        logs: &[&[&str]],
+    ) -> serde_json::Value {
+        let outcome = |id: &str, status: &serde_json::Value, i: usize| {
             serde_json::json!({
                 "id": id,
                 "outcome": {
                     "executor_id": "alice.near",
                     "gas_burnt": 1,
                     "tokens_burnt": "0",
-                    "logs": logs,
+                    "logs": logs.get(i).copied().unwrap_or_default(),
                     "receipt_ids": [],
-                    "status": {"SuccessValue": ""}
+                    "status": status
                 },
                 "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
                 "proof": []
             })
         };
-        let json = serde_json::json!({
-            "status": {"SuccessValue": ""},
+        let tx_status = serde_json::json!({"SuccessReceiptId": RECEIPT_ID});
+        serde_json::json!({
+            "status": status,
             "transaction": {
                 "signer_id": "alice.near",
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "public_key": PK,
                 "nonce": 1,
                 "receiver_id": "bob.near",
                 "actions": [],
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+                "signature": SIG,
+                "hash": TX_HASH
             },
-            "transaction_outcome": outcome("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U", &["tx"]),
-            "receipts_outcome": [
-                outcome("3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK", &["a", "b"]),
-                outcome("A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo", &[]),
-                outcome("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U", &["c"]),
-            ]
-        });
-        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
-        assert_eq!(outcome.logs().collect::<Vec<_>>(), ["tx", "a", "b", "c"]);
+            "transaction_outcome": outcome(TX_HASH, &tx_status, 0),
+            "receipts_outcome": receipts
+                .iter()
+                .enumerate()
+                .map(|(i, status)| outcome(RECEIPT_ID, status, i + 1))
+                .collect::<Vec<_>>(),
+        })
+    }
+
+    fn outcome_with_receipts(
+        status: serde_json::Value,
+        receipts: &[serde_json::Value],
+    ) -> FinalExecutionOutcome {
+        serde_json::from_value(outcome_json(status, receipts, &[])).unwrap()
+    }
+
+    fn panicked(message: &str) -> serde_json::Value {
+        serde_json::json!({"Failure": {"ActionError": {
+            "index": 0,
+            "kind": {"FunctionCallError": {"ExecutionError": message}}
+        }}})
     }
 
     #[test]
-    fn test_send_tx_response_with_outcome() {
-        let json = serde_json::json!({
-            "final_execution_status": "FINAL",
-            "status": {"SuccessValue": ""},
-            "transaction": {
-                "signer_id": "alice.near",
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "nonce": 1,
-                "receiver_id": "bob.near",
-                "actions": [{"Transfer": {"deposit": "1000000000000000000000000"}}],
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-            },
-            "transaction_outcome": {
-                "id": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-                "outcome": {
-                    "executor_id": "alice.near",
-                    "gas_burnt": 223182562500_i64,
-                    "tokens_burnt": "22318256250000000000",
-                    "logs": [],
-                    "receipt_ids": ["3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"],
-                    "status": {"SuccessReceiptId": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"}
-                },
-                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
-                "proof": []
-            },
-            "receipts_outcome": []
-        });
-        let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
-        assert_eq!(response.final_execution_status, TxExecutionStatus::Final);
-        let outcome = response.outcome.unwrap();
-        assert!(outcome.is_success());
-        assert!(!outcome.is_failure());
+    fn test_final_execution_outcome_logs_in_order() {
+        let ok = serde_json::json!({"SuccessValue": ""});
+        let json = outcome_json(
+            ok.clone(),
+            &[ok.clone(), ok.clone(), ok],
+            &[&["tx"], &["a", "b"], &[], &["c"]],
+        );
+        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+        assert_eq!(outcome.logs().collect::<Vec<_>>(), ["tx", "a", "b", "c"]);
     }
 
     #[test]
@@ -2875,106 +2632,8 @@ mod tests {
         let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
         assert_eq!(response.final_execution_status, TxExecutionStatus::None);
         assert!(response.outcome.is_none());
-        // transaction_hash is serde(skip) — populated by rpc methods, not deserialization
+        // `transaction_hash` isn't in the JSON; the rpc methods fill it in.
         assert!(response.transaction_hash.is_zero());
-    }
-
-    #[test]
-    fn test_final_execution_outcome_failure() {
-        let json = serde_json::json!({
-            "final_execution_status": "EXECUTED_OPTIMISTIC",
-            "status": {
-                "Failure": {
-                    "ActionError": {
-                        "index": 0,
-                        "kind": {
-                            "FunctionCallError": {
-                                "ExecutionError": "Smart contract panicked"
-                            }
-                        }
-                    }
-                }
-            },
-            "transaction": {
-                "signer_id": "alice.near",
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "nonce": 1,
-                "receiver_id": "bob.near",
-                "actions": [],
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-            },
-            "transaction_outcome": {
-                "id": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-                "outcome": {
-                    "executor_id": "alice.near",
-                    "gas_burnt": 0,
-                    "tokens_burnt": "0",
-                    "logs": [],
-                    "receipt_ids": [],
-                    "status": "Unknown"
-                },
-                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
-                "proof": []
-            },
-            "receipts_outcome": []
-        });
-        let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
-        let outcome = response.outcome.unwrap();
-        assert!(outcome.is_failure());
-        assert!(!outcome.is_success());
-        assert!(outcome.failure_message().is_some());
-        assert!(outcome.failure_error().is_some());
-    }
-
-    /// An outcome whose top-level status is `status`, with one receipt
-    /// outcome per entry of `receipts` (each a receipt status).
-    fn outcome_with_receipts(
-        status: serde_json::Value,
-        receipts: &[serde_json::Value],
-    ) -> FinalExecutionOutcome {
-        let outcome = |id: &str, status: &serde_json::Value| {
-            serde_json::json!({
-                "id": id,
-                "outcome": {
-                    "executor_id": "alice.near",
-                    "gas_burnt": 1,
-                    "tokens_burnt": "0",
-                    "logs": [],
-                    "receipt_ids": [],
-                    "status": status
-                },
-                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
-                "proof": []
-            })
-        };
-        let tx_status =
-            serde_json::json!({"SuccessReceiptId": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"});
-        let json = serde_json::json!({
-            "status": status,
-            "transaction": {
-                "signer_id": "relayer.near",
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "nonce": 1,
-                "receiver_id": "alice.near",
-                "actions": [],
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-            },
-            "transaction_outcome": outcome("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U", &tx_status),
-            "receipts_outcome": receipts
-                .iter()
-                .map(|status| outcome("3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK", status))
-                .collect::<Vec<_>>(),
-        });
-        serde_json::from_value(json).unwrap()
-    }
-
-    fn panicked(message: &str) -> serde_json::Value {
-        serde_json::json!({"Failure": {"ActionError": {
-            "index": 0,
-            "kind": {"FunctionCallError": {"ExecutionError": message}}
-        }}})
     }
 
     /// A relayed transaction whose inner call panicked: the delegate receipt
@@ -3053,34 +2712,10 @@ mod tests {
     // ========================================================================
 
     fn make_success_outcome(base64_value: &str) -> FinalExecutionOutcome {
-        let json = serde_json::json!({
-            "final_execution_status": "FINAL",
-            "status": {"SuccessValue": base64_value},
-            "transaction": {
-                "signer_id": "alice.near",
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "nonce": 1,
-                "receiver_id": "bob.near",
-                "actions": [],
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-            },
-            "transaction_outcome": {
-                "id": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-                "outcome": {
-                    "executor_id": "alice.near",
-                    "gas_burnt": 223182562500_i64,
-                    "tokens_burnt": "22318256250000000000",
-                    "logs": [],
-                    "receipt_ids": [],
-                    "status": {"SuccessReceiptId": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"}
-                },
-                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
-                "proof": []
-            },
-            "receipts_outcome": []
-        });
+        let mut json = outcome_json(serde_json::json!({"SuccessValue": base64_value}), &[], &[]);
+        json["final_execution_status"] = "FINAL".into();
         let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(response.final_execution_status, TxExecutionStatus::Final);
         response.outcome.unwrap()
     }
 
@@ -3103,14 +2738,6 @@ mod tests {
         let outcome = make_success_outcome("NDI=");
         let val: u64 = outcome.json().unwrap();
         assert_eq!(val, 42);
-    }
-
-    #[test]
-    fn test_outcome_json_empty_unit() {
-        // Void change methods return an empty SuccessValue; empty should decode as `()`.
-        let outcome = make_success_outcome("");
-        let val: () = outcome.json().unwrap();
-        assert_eq!(val, ());
     }
 
     #[test]
@@ -3143,42 +2770,23 @@ mod tests {
 
     #[test]
     fn test_outcome_failure_result_returns_err() {
-        let json = serde_json::json!({
-            "final_execution_status": "FINAL",
-            "status": {"Failure": {"ActionError": {"index": 0, "kind": {"FunctionCallError": {"ExecutionError": "test error"}}}}},
-            "transaction": {
-                "signer_id": "alice.near",
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "nonce": 1,
-                "receiver_id": "bob.near",
-                "actions": [],
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-            },
-            "transaction_outcome": {
-                "id": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-                "outcome": {
-                    "executor_id": "alice.near",
-                    "gas_burnt": 223182562500_i64,
-                    "tokens_burnt": "22318256250000000000",
-                    "logs": [],
-                    "receipt_ids": [],
-                    "status": {"SuccessReceiptId": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"}
-                },
-                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
-                "proof": []
-            },
-            "receipts_outcome": []
-        });
-        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+        let mut json = outcome_json(panicked("test error"), &[], &[]);
+        json["final_execution_status"] = "EXECUTED_OPTIMISTIC".into();
+        let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
+        let outcome = response.outcome.unwrap();
 
         assert!(outcome.is_failure());
         assert!(!outcome.is_success());
+        assert!(outcome.failure_message().is_some());
+        assert!(outcome.failure_error().is_some());
         assert!(outcome.result().is_err());
         assert!(outcome.json::<u64>().is_err());
         // Metadata is still accessible
         assert!(!outcome.transaction_hash().is_zero());
         assert!(outcome.total_gas_used().as_gas() > 0);
+
+        let success = make_success_outcome("");
+        assert!(success.is_success() && !success.is_failure());
     }
 
     // ========================================================================
@@ -3200,10 +2808,8 @@ mod tests {
         assert!(matches!(&value, ExecutionStatus::SuccessValue(v) if v == b"hello"));
         assert!(value.failure().is_none());
 
-        let receipt: ExecutionStatus = serde_json::from_value(
-            serde_json::json!({"SuccessReceiptId": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"}),
-        )
-        .unwrap();
+        let receipt: ExecutionStatus =
+            serde_json::from_value(serde_json::json!({"SuccessReceiptId": TX_HASH})).unwrap();
         assert!(receipt.is_success() && !receipt.is_failure());
         assert!(matches!(receipt, ExecutionStatus::SuccessReceiptId(_)));
 
@@ -3241,61 +2847,34 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_global_contract_id_view_new_format_hash() {
-        let json = serde_json::json!({"hash": "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K"});
-        let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
-        assert!(matches!(id, GlobalContractIdentifierView::CodeHash(_)));
-    }
-
-    #[test]
-    fn test_global_contract_id_view_new_format_account() {
-        let json = serde_json::json!({"account_id": "alice.near"});
-        let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
-        assert!(matches!(id, GlobalContractIdentifierView::AccountId(_)));
-    }
-
-    #[test]
-    fn test_global_contract_id_view_deprecated_hash() {
-        let json = serde_json::json!("9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K");
-        let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
-        assert!(matches!(id, GlobalContractIdentifierView::CodeHash(_)));
-    }
-
-    #[test]
-    fn test_global_contract_id_view_deprecated_account() {
-        let json = serde_json::json!("alice.near");
-        let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
-        assert!(matches!(id, GlobalContractIdentifierView::AccountId(_)));
+    fn test_global_contract_id_view_formats() {
+        // The view format, the pre-2.12 identifier format and the bare string.
+        let hash = "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K";
+        for json in [
+            serde_json::json!({ "hash": hash }),
+            serde_json::json!({ "CodeHash": hash }),
+            serde_json::json!(hash),
+        ] {
+            let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
+            assert!(
+                matches!(id, GlobalContractIdentifierView::CodeHash(h) if h.to_string() == hash)
+            );
+        }
+        for json in [
+            serde_json::json!({ "account_id": "alice.near" }),
+            serde_json::json!({ "AccountId": "alice.near" }),
+            serde_json::json!("alice.near"),
+        ] {
+            let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
+            assert!(
+                matches!(id, GlobalContractIdentifierView::AccountId(a) if a.as_str() == "alice.near")
+            );
+        }
     }
 
     // ========================================================================
     // DeterministicStateInit ActionView tests
     // ========================================================================
-
-    #[test]
-    fn test_action_view_deterministic_state_init() {
-        let json = serde_json::json!({
-            "DeterministicStateInit": {
-                "code": {"hash": "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K"},
-                "data": {"a2V5": "dmFsdWU="},
-                "deposit": "1000000000000000000000000"
-            }
-        });
-        let action: ActionView = serde_json::from_value(json).unwrap();
-        match action {
-            ActionView::DeterministicStateInit {
-                code,
-                data,
-                deposit,
-            } => {
-                assert!(matches!(code, GlobalContractIdentifierView::CodeHash(_)));
-                assert_eq!(data.len(), 1);
-                assert_eq!(data.get("a2V5").unwrap(), "dmFsdWU=");
-                assert_eq!(deposit, NearToken::from_near(1));
-            }
-            _ => panic!("Expected DeterministicStateInit"),
-        }
-    }
 
     #[test]
     fn test_action_view_deterministic_state_init_empty_data() {
@@ -3369,75 +2948,27 @@ mod tests {
     }
 
     #[test]
-    fn test_gas_profile_entry_deserialization() {
-        let json = serde_json::json!({
-            "cost_category": "WASM_HOST_COST",
-            "cost": "BASE",
-            "gas_used": "2646228750"
-        });
-        let entry: GasProfileEntry = serde_json::from_value(json).unwrap();
-        assert_eq!(entry.cost_category, "WASM_HOST_COST");
-        assert_eq!(entry.cost, "BASE");
-        assert_eq!(entry.gas_used, Gas::from_gas(2646228750));
+    fn test_transaction_view_nonce_mode() {
+        // Nodes older than nearcore 2.12 send no `nonce_mode`.
+        for (nonce_mode, expected) in [(None, None), (Some("strict"), Some(NonceMode::Strict))] {
+            let mut json = serde_json::json!({
+                "signer_id": "alice.near",
+                "public_key": PK,
+                "nonce": 1,
+                "receiver_id": "bob.near",
+                "hash": TX_HASH,
+                "actions": [{"Transfer": {"deposit": "1000000000000000000000000"}}],
+                "signature": SIG
+            });
+            if let Some(mode) = nonce_mode {
+                json["nonce_mode"] = mode.into();
+            }
+            let tx: TransactionView = serde_json::from_value(json).unwrap();
+            assert_eq!(tx.signer_id.as_str(), "alice.near");
+            assert_eq!(tx.signature, SIG.parse().unwrap());
+            assert_eq!(tx.nonce_mode, expected);
+        }
     }
-
-    #[test]
-    fn test_transaction_view_with_signature() {
-        let json = serde_json::json!({
-            "signer_id": "alice.near",
-            "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-            "nonce": 1,
-            "receiver_id": "bob.near",
-            "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-            "actions": [{"Transfer": {"deposit": "1000000000000000000000000"}}],
-            "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5"
-        });
-        let tx: TransactionView = serde_json::from_value(json).unwrap();
-        assert_eq!(tx.signer_id.as_str(), "alice.near");
-        assert!(tx.signature.to_string().starts_with("ed25519:"));
-        // Fixture has no `nonce_mode` (older node); should deserialize to `None`.
-        assert_eq!(tx.nonce_mode, None);
-    }
-
-    #[test]
-    fn test_transaction_view_nonce_mode_strict() {
-        let json = serde_json::json!({
-            "signer_id": "alice.near",
-            "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-            "nonce": 1,
-            "receiver_id": "bob.near",
-            "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-            "actions": [{"Transfer": {"deposit": "1000000000000000000000000"}}],
-            "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-            "nonce_mode": "strict"
-        });
-        let tx: TransactionView = serde_json::from_value(json).unwrap();
-        assert_eq!(tx.nonce_mode, Some(NonceMode::Strict));
-    }
-
-    #[test]
-    fn test_receipt_to_tx_response() {
-        let json = serde_json::json!({
-            "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-            "sender_account_id": "alice.near"
-        });
-        let response: ReceiptToTxResponse = serde_json::from_value(json).unwrap();
-        assert_eq!(
-            response.transaction_hash.to_string(),
-            "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-        );
-        assert_eq!(response.sender_account_id.as_str(), "alice.near");
-    }
-}
-
-// Round-trips from the JSON the node returns for an `ActionView` back into the
-// wire `Action`. Kept in its own module so it stays a self-contained block.
-#[cfg(test)]
-mod action_view_conversion_tests {
-    use super::*;
-
-    const PK: &str = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";
-    const SIG: &str = "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5";
 
     fn pk() -> PublicKey {
         PK.parse().unwrap()
@@ -3570,11 +3101,11 @@ mod action_view_conversion_tests {
             public_key: pk(),
             access_key: AccessKey {
                 nonce: 9,
-                permission: AccessKeyPermission::function_call(
-                    "contract.near".parse().unwrap(),
-                    vec!["a".into(), "b".into()],
-                    Some(NearToken::from_millinear(250)),
-                ),
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(NearToken::from_millinear(250)),
+                    receiver_id: "contract.near".parse().unwrap(),
+                    method_names: vec!["a".into(), "b".into()],
+                }),
             },
         });
         assert_eq!(convert(json).unwrap(), expected);
