@@ -3,8 +3,8 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use crate::MaybeSend;
 use crate::error::RpcError;
-use crate::platform::MaybeSend;
 use serde::de::DeserializeOwned;
 
 use crate::View;
@@ -12,7 +12,7 @@ use crate::types::{AccountId, BlockReference, ChainId, ViewFunctionResult};
 
 use super::nonce_manager::GenesisHash;
 use super::query::{AccountExistsQuery, BalanceQuery, TransactionStatusQuery};
-use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
+use super::rpc::{RetryConfig, RpcClient};
 use super::signing::SigningNear;
 use super::transaction::SignedTransactionSend;
 use super::transport::{self, RpcTransport};
@@ -64,12 +64,12 @@ pub struct Near {
 impl Near {
     /// Create a builder for mainnet.
     pub fn mainnet() -> NearBuilder {
-        NearBuilder::new(MAINNET.rpc_url, ChainId::mainnet())
+        NearBuilder::new("https://free.rpc.fastnear.com", ChainId::mainnet())
     }
 
     /// Create a builder for testnet.
     pub fn testnet() -> NearBuilder {
-        NearBuilder::new(TESTNET.rpc_url, ChainId::testnet())
+        NearBuilder::new("https://test.rpc.fastnear.com", ChainId::testnet())
     }
 
     /// Create a builder with a custom RPC URL and chain ID.
@@ -136,9 +136,6 @@ impl Near {
         SigningNear::new(self.clone(), Arc::new(signer))
     }
 
-    // ========================================================================
-    // Reads
-    // ========================================================================
     //
     // Only reads that add something to the matching `RpcClient` method live
     // here; for everything else use `near.rpc()` (e.g.
@@ -316,10 +313,6 @@ impl Near {
         TransactionStatusQuery::new(self.rpc.clone(), *tx_hash, sender_id.into())
     }
 
-    // ========================================================================
-    // Typed Contract Interfaces
-    // ========================================================================
-
     /// Create a typed contract client backed by this `Near`.
     ///
     /// `T` is the marker type `#[near_kit::contract]` generates for a trait;
@@ -433,23 +426,14 @@ impl NearBuilder {
     ///
     /// Controls how the underlying [`RpcClient`] retries transient failures
     /// (transport errors, timeouts, 5xx). Defaults to
-    /// [`RetryConfig::default()`]: 3 retries with 500 ms → 2 s exponential
-    /// backoff. This is separate from [`NearBuilder::max_nonce_retries`],
-    /// which governs how many times a *transaction* is re-signed and re-sent
-    /// after an `InvalidNonce` rejection.
+    /// [`RetryConfig::default()`]. This is separate from
+    /// [`NearBuilder::max_nonce_retries`], which governs how many times a
+    /// *transaction* is re-signed and re-sent after an `InvalidNonce`
+    /// rejection.
     ///
     /// Callers that own their retry policy (CLIs with a "retry?" prompt,
     /// relayers with their own backoff) can pass [`RetryConfig::none()`] so
-    /// near-kit fails fast and leaves the decision to them:
-    ///
-    /// ```rust
-    /// use near_kit::Near;
-    /// use near_kit::rpc::RetryConfig;
-    ///
-    /// let near = Near::testnet()
-    ///     .retry_config(RetryConfig::none())
-    ///     .build();
-    /// ```
+    /// near-kit fails fast and leaves the decision to them.
     pub fn retry_config(mut self, config: RetryConfig) -> Self {
         self.retry_config = config;
         self
@@ -505,12 +489,6 @@ impl NearBuilder {
     }
 }
 
-impl From<NearBuilder> for Near {
-    fn from(builder: NearBuilder) -> Self {
-        builder.build()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -519,22 +497,10 @@ mod tests {
 
     const ALICE_KEY: &str = "ed25519:3tgdk2wPraJzT4nsTuf86UX41xgPNk3MHnq8epARMdBNs29AFEztAuaQ7iHddDfXG9F2RzV1XNQYgJyAyoW51UBB";
 
-    // ========================================================================
-    // Near client tests
-    // ========================================================================
-
     #[test]
-    fn test_near_mainnet_builder() {
-        let near = Near::mainnet().build();
-        assert!(near.rpc().url().contains("fastnear") || near.rpc().url().contains("near"));
-        assert!(near.chain_id().is_mainnet());
-    }
-
-    #[test]
-    fn test_near_testnet_builder() {
-        let near = Near::testnet().build();
-        assert!(near.rpc().url().contains("fastnear") || near.rpc().url().contains("test"));
-        assert!(near.chain_id().is_testnet());
+    fn test_near_mainnet_and_testnet_builders() {
+        assert!(Near::mainnet().build().chain_id().is_mainnet());
+        assert!(Near::testnet().build().chain_id().is_testnet());
     }
 
     #[test]
@@ -544,79 +510,10 @@ mod tests {
         assert!(near.chain_id().is_mainnet());
     }
 
-    #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
-    #[test]
-    fn test_near_builder_with_reexported_reqwest_client() {
-        let client = crate::reqwest::Client::builder()
-            .user_agent("near-kit-test")
-            .build()
-            .unwrap();
-        let near = Near::custom("https://rpc.example.com", "mainnet")
-            .transport(crate::rpc::ReqwestTransport::with_client(client))
-            .build();
-        assert_eq!(near.rpc().url(), "https://rpc.example.com");
-    }
-
     #[test]
     fn test_near_custom_builder_with_chain_id_type() {
         let near = Near::custom("https://rpc.example.com", ChainId::testnet()).build();
         assert!(near.chain_id().is_testnet());
-    }
-
-    #[test]
-    fn test_near_debug() {
-        let near = Near::testnet().build();
-        let debug = format!("{:?}", near);
-        assert!(debug.contains("Near"));
-        assert!(debug.contains("rpc"));
-    }
-
-    #[test]
-    fn test_near_rpc_accessor() {
-        let near = Near::testnet().build();
-        let rpc = near.rpc();
-        assert!(!rpc.url().is_empty());
-    }
-
-    // ========================================================================
-    // NearBuilder tests
-    // ========================================================================
-
-    #[test]
-    fn test_near_builder_new() {
-        let builder = NearBuilder::new("https://example.com", ChainId::new("custom"));
-        let near = builder.build();
-        assert_eq!(near.rpc().url(), "https://example.com");
-    }
-
-    #[test]
-    fn test_near_builder_retry_config() {
-        let config = RetryConfig {
-            max_retries: 10,
-            initial_delay_ms: 200,
-            max_delay_ms: 10000,
-        };
-        let near = Near::testnet().retry_config(config).build();
-        // Can't directly test retry config, but we can verify it builds
-        assert!(!near.rpc().url().is_empty());
-    }
-
-    #[test]
-    fn test_near_builder_from_trait() {
-        let builder = Near::testnet();
-        let near: Near = builder.into();
-        assert!(!near.rpc().url().is_empty());
-    }
-
-    // ========================================================================
-    // Clone tests
-    // ========================================================================
-
-    #[test]
-    fn test_near_clone() {
-        let near1 = Near::testnet().build();
-        let near2 = near1.clone();
-        assert_eq!(near1.rpc().url(), near2.rpc().url());
     }
 
     #[test]

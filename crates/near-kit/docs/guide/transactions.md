@@ -1,12 +1,5 @@
 # Transactions
 
-Read this when you send anything more than a single transfer or call:
-several actions in one transaction, account and key management, deploying
-contracts, global contracts, or deterministic and universal accounts. A
-transaction is a receiver plus a list of [`Action`](crate::protocol::Action)s,
-signed by one account. In near-kit that is
-`alice.transaction(receiver).add_action(..)`, then `.await`.
-
 ## Building and sending
 
 [`SigningNear::transaction`](crate::SigningNear::transaction) starts a
@@ -127,27 +120,7 @@ alice
 
 Typed calls batch the same way. A call from a typed contract client or a
 token client is a [`Call`](crate::Call); `FunctionCall::from(call)` keeps
-its method, arguments, gas and deposit, and drops the client:
-
-```rust,no_run
-use near_kit::protocol::Action;
-use near_kit::standards::FungibleToken;
-use near_kit::transaction::FunctionCall;
-use near_kit::*;
-
-# async fn example(alice: &SigningNear) -> Result<(), Error> {
-let wrap = account!("wrap.testnet");
-let token = alice.contract::<FungibleToken>(&wrap);
-
-// Wrap 1 NEAR and send it to bob, in one transaction to the token contract.
-alice
-    .transaction(&wrap)
-    .add_action(FunctionCall::new("near_deposit").deposit(NearToken::from_near(1)))
-    .add_action(FunctionCall::from(token.transfer(account!("bob.testnet"), 10_u128.pow(24), None)))
-    .await?.result()?;
-# Ok(())
-# }
-```
+its method, arguments, gas and deposit, and drops the client.
 
 A `#[near_kit::contract]` trait also generates a `FunctionCall`
 constructor for each `#[call]` method, such as `Counter::add(args)`; see
@@ -356,14 +329,3 @@ Each of these would otherwise reach the chain and fail there, after the
 signer had paid for it. Everything else is checked by the node: a rejected
 transaction is `Error::InvalidTx`, and an action that fails while running
 is a failed `Ok(outcome)`.
-
-## See also
-
-- [`Tx`](crate::transaction::Tx), [`SigningNear`](crate::SigningNear)
-- [`Action`](crate::protocol::Action),
-  [`FunctionCall`](crate::transaction::FunctionCall)
-- [`AccessKeyPermission`](crate::protocol::AccessKeyPermission),
-  [`PublishMode`](crate::protocol::PublishMode),
-  [`GlobalContractId`](crate::protocol::GlobalContractId)
-- [`StateInit`](crate::protocol::StateInit),
-  [`UniversalStateInit`](crate::protocol::UniversalStateInit)

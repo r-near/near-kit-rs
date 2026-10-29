@@ -10,14 +10,12 @@
 //! evaluating them, so values that are only used inside a tracing call must
 //! themselves be gated on the feature (or they trigger unused warnings).
 
-// Which re-exports are referenced depends on other features (e.g. `info` is
-// only used under `sandbox`), and rustc's unused-import tracking is unreliable
-// across macro re-export chains — so allow unused here.
+// Which re-exports are referenced depends on other features, and rustc's
+// unused-import tracking is unreliable across macro re-export chains, so
+// allow unused here.
 #[cfg(feature = "tracing")]
 #[allow(unused_imports)]
-pub(crate) use tracing::{
-    Instrument, Span, debug, debug_span, error, field, info, info_span, trace, warn,
-};
+pub(crate) use tracing::{Instrument, Span, debug, debug_span, field, info_span, trace};
 
 // Every user is `rpc`-gated code (the protocol types, which log one WARN,
 // moved to near-kit-primitives with their own copy of this shim), so without
@@ -77,6 +75,6 @@ mod noop {
 #[cfg(not(feature = "tracing"))]
 #[allow(unused_imports)]
 pub(crate) use noop::{
-    Instrument, Span, field, noop_event as debug, noop_event as error, noop_event as info,
-    noop_event as trace, noop_event as warn, noop_span as debug_span, noop_span as info_span,
+    Instrument, Span, field, noop_event as debug, noop_event as trace, noop_span as debug_span,
+    noop_span as info_span,
 };

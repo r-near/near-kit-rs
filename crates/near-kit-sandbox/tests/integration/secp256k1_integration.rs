@@ -10,7 +10,7 @@ use near_kit::signer::{InMemorySigner, KeyType, SecretKey};
 use near_kit::transaction::{DelegateOptions, Final};
 use near_kit::*;
 
-use super::support::unique_account;
+use super::support::{funded_account, unique_account};
 
 #[tokio::test]
 async fn test_secp256k1_signed_transfer_and_delegate_accepted_on_chain() {
@@ -30,19 +30,8 @@ async fn test_secp256k1_signed_transfer_and_delegate_accepted_on_chain() {
         .result()
         .unwrap();
 
-    let recipient_id = unique_account("secprecv");
-    root_near
-        .wait_until::<Final>()
-        .transaction(&recipient_id)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(1)))
-        .add_action(Action::add_full_access_key(
-            SecretKey::generate_ed25519().public_key(),
-        ))
-        .await
-        .unwrap()
-        .result()
-        .unwrap();
+    let (_, recipient_id, _) =
+        funded_account(&root_near, sandbox, "secprecv", NearToken::from_near(1)).await;
 
     let sender_near = sandbox
         .root_account()

@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::Value;
 
 use super::transport::RpcTransport;
 // The module itself is only referenced for `default_transport`, which doesn't
@@ -53,22 +54,6 @@ async fn async_sleep(duration: Duration) {
     }
 }
 
-/// Network configuration presets.
-pub struct NetworkConfig {
-    /// The RPC URL for this network.
-    pub rpc_url: &'static str,
-}
-
-/// Mainnet configuration.
-pub const MAINNET: NetworkConfig = NetworkConfig {
-    rpc_url: "https://free.rpc.fastnear.com",
-};
-
-/// Testnet configuration.
-pub const TESTNET: NetworkConfig = NetworkConfig {
-    rpc_url: "https://test.rpc.fastnear.com",
-};
-
 /// Retry configuration for RPC calls.
 ///
 /// Governs how [`RpcClient::request`] retries transient failures (transport
@@ -76,10 +61,9 @@ pub const TESTNET: NetworkConfig = NetworkConfig {
 /// [`RpcError::is_retryable`] is `true`). Delays grow exponentially from
 /// `initial_delay_ms`, capped at `max_delay_ms`.
 ///
-/// A transaction rejected with `InvalidNonce` is never retried here —
-/// re-sending the same signed bytes can't change the outcome. Nonce refresh
-/// and re-signing happen one layer up, in the `SigningNear` transaction path
-/// (see `NearBuilder::max_nonce_retries`).
+/// An `InvalidNonce` rejection is not retried here (see
+/// [`RpcError::is_retryable`]); the `SigningNear` transaction path re-signs
+/// instead (see `NearBuilder::max_nonce_retries`).
 ///
 /// Use [`RetryConfig::none()`] to disable retries entirely, e.g. when the
 /// caller runs its own retry loop.
@@ -177,6 +161,12 @@ struct ErrorCause {
     name: String,
     #[serde(default)]
     info: Option<serde_json::Value>,
+}
+
+/// Placeholder account for errors whose payload doesn't name one; the typed
+/// helpers patch in the caller-known account where they can.
+fn unknown_account() -> AccountId {
+    "unknown".parse().expect("`unknown` is a valid account id")
 }
 
 /// Extract the block context included in view RPC error payloads.
@@ -397,6 +387,303 @@ fn extract_contract_panic_message(message: &str) -> Option<String> {
     }
 }
 
+/// Parse an RPC error returned by `method`. Causes whose meaning depends
+/// on the method are mapped here; the rest by [`parse_rpc_error`].
+fn parse_method_rpc_error(method: &str, error: &JsonRpcError) -> RpcError {
+    // `UNSUPPORTED` is also an indexer cause, so only read these causes
+    // as `RpcReceiptToTxError` on `EXPERIMENTAL_receipt_to_tx`.
+    if method == "EXPERIMENTAL_receipt_to_tx"
+        && let Some(cause) = &error.cause
+        && let Some(receipt_to_tx) = parse_receipt_to_tx_error(&cause.name, cause.info.as_ref())
+    {
+        return RpcError::ReceiptToTx(receipt_to_tx);
+    }
+    parse_rpc_error(error)
+}
+
+/// Parse an RPC error into a specific error type.
+fn parse_rpc_error(error: &JsonRpcError) -> RpcError {
+    // First, check the direct cause field (NEAR RPC structured errors)
+    if let Some(cause) = &error.cause {
+        let cause_name = cause.name.as_str();
+        let info = cause.info.as_ref();
+        let data = &error.data;
+        let (block_height, block_hash) = parse_error_block_context(info);
+        let info_str = |key: &str| info.and_then(|i| i.get(key)).and_then(Value::as_str);
+        let data_or_message = data
+            .as_ref()
+            .and_then(Value::as_str)
+            .unwrap_or(&error.message);
+        // nearcore uses `contract_account_id`; the other keys are lenient
+        // fallbacks. The first key present wins.
+        let contract_key = info
+            .and_then(|i| {
+                ["contract_account_id", "account_id", "contract_id"]
+                    .into_iter()
+                    .find_map(|key| i.get(key))
+            })
+            .and_then(Value::as_str);
+
+        match cause_name {
+            "UNKNOWN_ACCOUNT" => {
+                if let Some(Ok(account_id)) = info_str("requested_account_id").map(str::parse) {
+                    return RpcError::AccountNotFound {
+                        account_id,
+                        block_height,
+                        block_hash,
+                    };
+                }
+            }
+            "INVALID_ACCOUNT" => {
+                let account_id = info_str("requested_account_id").unwrap_or("unknown");
+                return RpcError::InvalidAccount {
+                    account_id: account_id.to_string(),
+                    block_height,
+                    block_hash,
+                };
+            }
+            "UNKNOWN_ACCESS_KEY" | "UNKNOWN_GAS_KEY" => {
+                if let Some(public_key) = info_str("public_key").and_then(|k| k.parse().ok()) {
+                    // nearcore's payload only carries the public key
+                    // (`requested_account_id` is a legacy `query` extra);
+                    // the typed helpers patch in the caller-known account.
+                    // Fall back to "unknown".
+                    let account_id = info_str("requested_account_id")
+                        .and_then(|a| a.parse().ok())
+                        .unwrap_or_else(unknown_account);
+                    if cause_name == "UNKNOWN_GAS_KEY" {
+                        return RpcError::GasKeyNotFound {
+                            account_id,
+                            public_key,
+                            block_height,
+                            block_hash,
+                        };
+                    }
+                    return RpcError::AccessKeyNotFound {
+                        account_id,
+                        public_key,
+                        block_height,
+                        block_hash,
+                    };
+                }
+            }
+            "UNKNOWN_BLOCK" => {
+                return RpcError::BlockNotFound(data_or_message.to_string());
+            }
+            "GARBAGE_COLLECTED_BLOCK" => {
+                // A height-based `query` past the node's GC horizon
+                // (`RpcQueryError::GarbageCollectedBlock`). Same remedy as
+                // an unknown block (archival node), and equally
+                // deterministic, so it must not land on the retryable
+                // catch-all. nearcore fills `block_hash` with
+                // `unwrap_or_default()` when the header is gone too, so
+                // the all-zero hash is noise and is left out.
+                let block_ref = match (block_height, block_hash) {
+                    (Some(height), Some(hash)) if !hash.is_zero() => {
+                        format!("#{height} ({hash})")
+                    }
+                    (Some(height), _) => format!("#{height}"),
+                    (None, _) => data_or_message.to_string(),
+                };
+                return RpcError::BlockNotFound(block_ref);
+            }
+            "UNKNOWN_CHUNK" => {
+                let chunk_ref = info_str("chunk_hash").unwrap_or(&error.message);
+                return RpcError::ChunkNotFound(chunk_ref.to_string());
+            }
+            "UNKNOWN_EPOCH" => {
+                return RpcError::EpochNotFound(data_or_message.to_string());
+            }
+            "UNKNOWN_TRANSACTION" => {
+                // `RpcTransactionError::UnknownTransaction`. Without a
+                // hash, fall through to the generic error rather than
+                // inventing one.
+                if let Some(hash) =
+                    info_str("requested_transaction_hash").and_then(|h| h.parse().ok())
+                {
+                    return RpcError::TransactionNotFound(hash);
+                }
+            }
+            "DOES_NOT_TRACK_SHARD" => {
+                return RpcError::ShardNotTracked;
+            }
+            "UNKNOWN_RECEIPT" => {
+                let receipt_id = info_str("receipt_id").unwrap_or("unknown");
+                return RpcError::ReceiptNotFound(receipt_id.to_string());
+            }
+            "NO_CONTRACT_CODE" => {
+                if let Ok(account_id) = contract_key.unwrap_or("unknown").parse() {
+                    return RpcError::ContractNotDeployed {
+                        account_id,
+                        block_height,
+                        block_hash,
+                    };
+                }
+            }
+            "NO_GLOBAL_CONTRACT_CODE" => {
+                // The cause name is authoritative; the identifier parse is
+                // best-effort so an unexpected shape can't demote this to a
+                // generic error. `view_global_contract_code` patches in the
+                // caller-known identifier anyway.
+                let identifier = info
+                    .and_then(|i| i.get("identifier"))
+                    .and_then(|v| {
+                        serde_json::from_value::<GlobalContractIdentifierView>(v.clone()).ok()
+                    })
+                    .unwrap_or_else(|| GlobalContractIdentifierView::AccountId(unknown_account()));
+                return RpcError::GlobalContractNotFound {
+                    identifier,
+                    block_height,
+                    block_hash,
+                };
+            }
+            "TOO_LARGE_CONTRACT_STATE" => {
+                // Without a parseable account, fall through to the generic
+                // error rather than inventing an account id.
+                if let Some(account_id) = contract_key.and_then(|a| a.parse().ok()) {
+                    return RpcError::ContractStateTooLarge {
+                        account_id,
+                        block_height,
+                        block_hash,
+                    };
+                }
+            }
+            "CONTRACT_EXECUTION_ERROR" => {
+                // Legacy `query` includes contract_id/method_name;
+                // EXPERIMENTAL_call_function does not (the caller
+                // already knows them). Fall back to "unknown".
+                let contract_id = info_str("contract_id")
+                    .and_then(|c| c.parse().ok())
+                    .unwrap_or_else(unknown_account);
+                let method_name = info_str("method_name").map(String::from);
+                let function_call_error = parse_function_call_error(info);
+                if let Some(specific_error) = function_call_error.as_ref().and_then(|error| {
+                    classify_function_call_error(
+                        error,
+                        &contract_id,
+                        method_name.as_deref(),
+                        block_height,
+                        block_hash,
+                    )
+                }) {
+                    return specific_error;
+                }
+
+                // Legacy shape: no usable structured `vm_error`, only the
+                // Debug rendering of the error in `data` (or in the legacy
+                // `query` endpoint's `vm_error` string).
+                let legacy_messages = [data.as_ref().and_then(Value::as_str), info_str("vm_error")];
+                if let Some(specific_error) =
+                    legacy_messages.into_iter().flatten().find_map(|message| {
+                        classify_legacy_function_call_error(
+                            message,
+                            &contract_id,
+                            method_name.as_deref(),
+                            block_height,
+                            block_hash,
+                        )
+                    })
+                {
+                    return specific_error;
+                }
+
+                let message = data
+                    .as_ref()
+                    .and_then(Value::as_str)
+                    .map(String::from)
+                    .or_else(|| function_call_error.as_ref().map(ToString::to_string))
+                    .or_else(|| {
+                        // EXPERIMENTAL endpoint: use vm_error as fallback
+                        // when data isn't a string
+                        info.and_then(|i| i.get("vm_error")).map(|v| v.to_string())
+                    })
+                    .unwrap_or_else(|| error.message.clone());
+                return RpcError::ContractExecution {
+                    contract_id,
+                    method_name,
+                    message,
+                    block_height,
+                    block_hash,
+                };
+            }
+            "UNAVAILABLE_SHARD" => {
+                return RpcError::ShardUnavailable(error.message.clone());
+            }
+            "NO_SYNCED_BLOCKS" | "NOT_SYNCED_YET" => {
+                return RpcError::NodeNotSynced(error.message.clone());
+            }
+            "INVALID_SHARD_ID" => {
+                let shard_id = info
+                    .and_then(|i| i.get("shard_id"))
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                return RpcError::InvalidShardId(shard_id);
+            }
+            "INVALID_TRANSACTION" => {
+                return RpcError::invalid_tx(&error.message, data.clone());
+            }
+            "TIMEOUT_ERROR" => {
+                let transaction_hash = info_str("transaction_hash").and_then(|h| h.parse().ok());
+                return RpcError::Timeout {
+                    message: error.message.clone(),
+                    transaction_hash,
+                    cause: info.and_then(parse_timeout_cause),
+                };
+            }
+            "PARSE_ERROR" => {
+                return RpcError::ParseError(error.message.clone());
+            }
+            "INTERNAL_ERROR" => {
+                return RpcError::InternalError(error.message.clone());
+            }
+            "TOO_MANY_ACCESS_KEYS" => {
+                // Both fields are required; without them fall through to the
+                // generic error rather than inventing an account id or cap.
+                let account_id = info_str("requested_account_id").and_then(|a| a.parse().ok());
+                let limit = info
+                    .and_then(|i| i.get("limit"))
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|l| u32::try_from(l).ok());
+                if let (Some(account_id), Some(limit)) = (account_id, limit) {
+                    return RpcError::TooManyAccessKeys {
+                        account_id,
+                        limit,
+                        block_height,
+                        block_hash,
+                    };
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Fallback: check for string error messages in data field
+    if let Some(data) = &error.data
+        && let Some(error_str) = data.as_str()
+        && error_str.contains("does not exist")
+    {
+        // Try to extract account ID from error message
+        // Format: "account X does not exist while viewing"
+        if let Some(start) = error_str.strip_prefix("account ")
+            && let Some(account_str) = start.split_whitespace().next()
+            && let Ok(account_id) = account_str.parse()
+        {
+            return RpcError::AccountNotFound {
+                account_id,
+                block_height: None,
+                block_hash: None,
+            };
+        }
+    }
+
+    RpcError::Rpc {
+        code: error.code,
+        message: error.message.clone(),
+        data: error.data.clone(),
+        cause: error.cause.as_ref().map(|cause| cause.name.clone()),
+    }
+}
+
 /// Response from EXPERIMENTAL_call_function.
 /// Errors are returned through the JSON-RPC error envelope, so no `error`
 /// field is needed here.
@@ -441,7 +728,7 @@ impl RpcClient {
     /// `limit` or `after_key` is present, and an unpaginated request for an
     /// account with more keys than the cap fails with
     /// [`RpcError::TooManyAccessKeys`] instead of returning the list.
-    pub(crate) const DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE: u32 = 100;
+    pub(crate) const DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE: NonZeroU32 = NonZeroU32::new(100).unwrap();
 
     /// Create a new RPC client with the given URL.
     ///
@@ -487,11 +774,8 @@ impl RpcClient {
     /// Make a raw RPC call with retries.
     ///
     /// Transient failures ([`RpcError::is_retryable`]) are retried according
-    /// to the client's [`RetryConfig`]. An `InvalidNonce` rejection is
-    /// terminal here: the node has rejected this exact signed payload, so it
-    /// is returned after a single attempt without retrying (the transaction
-    /// layer re-signs with a fresh nonce instead). `sandbox_fast_forward` is
-    /// never retried, since it is not idempotent.
+    /// to the client's [`RetryConfig`]. `sandbox_fast_forward` is never
+    /// retried, since it is not idempotent.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %sanitize_url(&self.url))))]
     pub async fn request<P: Serialize, R: DeserializeOwned>(
         &self,
@@ -575,7 +859,7 @@ impl RpcClient {
             if let Ok(parsed) = serde_json::from_str::<JsonRpcResponse>(&body)
                 && let Some(error) = parsed.error
             {
-                let parsed_err = self.parse_method_rpc_error(request.method, &error);
+                let parsed_err = parse_method_rpc_error(request.method, &error);
                 return Err(preserve_http_retry_classification(
                     parsed_err, status, &body,
                 ));
@@ -591,7 +875,7 @@ impl RpcClient {
         let rpc_response: JsonRpcResponse = serde_json::from_str(&body).map_err(RpcError::Json)?;
 
         if let Some(error) = rpc_response.error {
-            return Err(self.parse_method_rpc_error(request.method, &error));
+            return Err(parse_method_rpc_error(request.method, &error));
         }
 
         let result_value = rpc_response
@@ -614,370 +898,11 @@ impl RpcClient {
                 cause: None,
                 name: None,
             };
-            return Err(self.parse_rpc_error(&synthetic));
+            return Err(parse_rpc_error(&synthetic));
         }
 
         serde_json::from_value(result_value).map_err(RpcError::Json)
     }
-
-    /// Parse an RPC error returned by `method`. Causes whose meaning depends
-    /// on the method are mapped here; the rest by [`parse_rpc_error`](Self::parse_rpc_error).
-    fn parse_method_rpc_error(&self, method: &str, error: &JsonRpcError) -> RpcError {
-        // `UNSUPPORTED` is also an indexer cause, so only read these causes
-        // as `RpcReceiptToTxError` on `EXPERIMENTAL_receipt_to_tx`.
-        if method == "EXPERIMENTAL_receipt_to_tx"
-            && let Some(cause) = &error.cause
-            && let Some(receipt_to_tx) = parse_receipt_to_tx_error(&cause.name, cause.info.as_ref())
-        {
-            return RpcError::ReceiptToTx(receipt_to_tx);
-        }
-        self.parse_rpc_error(error)
-    }
-
-    /// Parse an RPC error into a specific error type.
-    fn parse_rpc_error(&self, error: &JsonRpcError) -> RpcError {
-        // First, check the direct cause field (NEAR RPC structured errors)
-        if let Some(cause) = &error.cause {
-            let cause_name = cause.name.as_str();
-            let info = cause.info.as_ref();
-            let data = &error.data;
-            let (block_height, block_hash) = parse_error_block_context(info);
-
-            match cause_name {
-                "UNKNOWN_ACCOUNT" => {
-                    if let Some(account_id) = info
-                        .and_then(|i| i.get("requested_account_id"))
-                        .and_then(|a| a.as_str())
-                        && let Ok(account_id) = account_id.parse()
-                    {
-                        return RpcError::AccountNotFound {
-                            account_id,
-                            block_height,
-                            block_hash,
-                        };
-                    }
-                }
-                "INVALID_ACCOUNT" => {
-                    let account_id = info
-                        .and_then(|i| i.get("requested_account_id"))
-                        .and_then(|a| a.as_str())
-                        .unwrap_or("unknown");
-                    return RpcError::InvalidAccount {
-                        account_id: account_id.to_string(),
-                        block_height,
-                        block_hash,
-                    };
-                }
-                "UNKNOWN_ACCESS_KEY" | "UNKNOWN_GAS_KEY" => {
-                    if let Some(public_key) = info
-                        .and_then(|i| i.get("public_key"))
-                        .and_then(|k| k.as_str())
-                        .and_then(|k| k.parse().ok())
-                    {
-                        // nearcore's payload only carries the public key
-                        // (`requested_account_id` is a legacy `query` extra);
-                        // the typed helpers patch in the caller-known account.
-                        // Fall back to "unknown".
-                        let account_id = info
-                            .and_then(|i| i.get("requested_account_id"))
-                            .and_then(|a| a.as_str())
-                            .and_then(|a| a.parse().ok())
-                            .unwrap_or_else(|| "unknown".parse().unwrap());
-                        if cause_name == "UNKNOWN_GAS_KEY" {
-                            return RpcError::GasKeyNotFound {
-                                account_id,
-                                public_key,
-                                block_height,
-                                block_hash,
-                            };
-                        }
-                        return RpcError::AccessKeyNotFound {
-                            account_id,
-                            public_key,
-                            block_height,
-                            block_hash,
-                        };
-                    }
-                }
-                "UNKNOWN_BLOCK" => {
-                    let block_ref = data
-                        .as_ref()
-                        .and_then(|d| d.as_str())
-                        .unwrap_or(&error.message);
-                    return RpcError::BlockNotFound(block_ref.to_string());
-                }
-                "GARBAGE_COLLECTED_BLOCK" => {
-                    // A height-based `query` past the node's GC horizon
-                    // (`RpcQueryError::GarbageCollectedBlock`). Same remedy as
-                    // an unknown block (archival node), and equally
-                    // deterministic, so it must not land on the retryable
-                    // catch-all. nearcore fills `block_hash` with
-                    // `unwrap_or_default()` when the header is gone too, so
-                    // the all-zero hash is noise and is left out.
-                    let block_ref = match (block_height, block_hash) {
-                        (Some(height), Some(hash)) if !hash.is_zero() => {
-                            format!("#{height} ({hash})")
-                        }
-                        (Some(height), _) => format!("#{height}"),
-                        (None, _) => data
-                            .as_ref()
-                            .and_then(|d| d.as_str())
-                            .unwrap_or(&error.message)
-                            .to_string(),
-                    };
-                    return RpcError::BlockNotFound(block_ref);
-                }
-                "UNKNOWN_CHUNK" => {
-                    let chunk_ref = info
-                        .and_then(|i| i.get("chunk_hash"))
-                        .and_then(|c| c.as_str())
-                        .unwrap_or(&error.message);
-                    return RpcError::ChunkNotFound(chunk_ref.to_string());
-                }
-                "UNKNOWN_EPOCH" => {
-                    let block_ref = data
-                        .as_ref()
-                        .and_then(|d| d.as_str())
-                        .unwrap_or(&error.message);
-                    return RpcError::EpochNotFound(block_ref.to_string());
-                }
-                "UNKNOWN_TRANSACTION" => {
-                    // `RpcTransactionError::UnknownTransaction`. Without a
-                    // hash, fall through to the generic error rather than
-                    // inventing one.
-                    if let Some(hash) = info
-                        .and_then(|i| i.get("requested_transaction_hash"))
-                        .and_then(|h| h.as_str())
-                        .and_then(|h| h.parse().ok())
-                    {
-                        return RpcError::TransactionNotFound(hash);
-                    }
-                }
-                "DOES_NOT_TRACK_SHARD" => {
-                    return RpcError::ShardNotTracked;
-                }
-                "UNKNOWN_RECEIPT" => {
-                    let receipt_id = info
-                        .and_then(|i| i.get("receipt_id"))
-                        .and_then(|r| r.as_str())
-                        .unwrap_or("unknown");
-                    return RpcError::ReceiptNotFound(receipt_id.to_string());
-                }
-                "NO_CONTRACT_CODE" => {
-                    let account_id = info
-                        .and_then(|i| {
-                            i.get("contract_account_id")
-                                .or_else(|| i.get("account_id"))
-                                .or_else(|| i.get("contract_id"))
-                        })
-                        .and_then(|a| a.as_str())
-                        .unwrap_or("unknown");
-                    if let Ok(account_id) = account_id.parse() {
-                        return RpcError::ContractNotDeployed {
-                            account_id,
-                            block_height,
-                            block_hash,
-                        };
-                    }
-                }
-                "NO_GLOBAL_CONTRACT_CODE" => {
-                    // The cause name is authoritative; the identifier parse is
-                    // best-effort so an unexpected shape can't demote this to a
-                    // generic error. `view_global_contract_code` patches in the
-                    // caller-known identifier anyway.
-                    let identifier = info
-                        .and_then(|i| i.get("identifier"))
-                        .and_then(|v| {
-                            serde_json::from_value::<GlobalContractIdentifierView>(v.clone()).ok()
-                        })
-                        .unwrap_or_else(|| {
-                            GlobalContractIdentifierView::AccountId("unknown".parse().unwrap())
-                        });
-                    return RpcError::GlobalContractNotFound {
-                        identifier,
-                        block_height,
-                        block_hash,
-                    };
-                }
-                "TOO_LARGE_CONTRACT_STATE" => {
-                    // nearcore's `RpcQueryError::TooLargeContractState` puts the
-                    // account under `contract_account_id`; the other keys are
-                    // lenient fallbacks. If none parses, fall through to the
-                    // generic error rather than inventing an account id.
-                    if let Some(account_id) = info
-                        .and_then(|i| {
-                            i.get("contract_account_id")
-                                .or_else(|| i.get("account_id"))
-                                .or_else(|| i.get("contract_id"))
-                        })
-                        .and_then(|a| a.as_str())
-                        .and_then(|a| a.parse().ok())
-                    {
-                        return RpcError::ContractStateTooLarge {
-                            account_id,
-                            block_height,
-                            block_hash,
-                        };
-                    }
-                }
-                "CONTRACT_EXECUTION_ERROR" => {
-                    // Legacy `query` includes contract_id/method_name;
-                    // EXPERIMENTAL_call_function does not (the caller
-                    // already knows them). Fall back to "unknown".
-                    let contract_id = info
-                        .and_then(|i| i.get("contract_id"))
-                        .and_then(|c| c.as_str())
-                        .unwrap_or("unknown")
-                        .parse()
-                        .unwrap_or_else(|_| "unknown".parse().unwrap());
-                    let method_name = info
-                        .and_then(|i| i.get("method_name"))
-                        .and_then(|m| m.as_str())
-                        .map(String::from);
-                    let function_call_error = parse_function_call_error(info);
-                    if let Some(specific_error) = function_call_error.as_ref().and_then(|error| {
-                        classify_function_call_error(
-                            error,
-                            &contract_id,
-                            method_name.as_deref(),
-                            block_height,
-                            block_hash,
-                        )
-                    }) {
-                        return specific_error;
-                    }
-
-                    // Legacy shape: no usable structured `vm_error`, only the
-                    // Debug rendering of the error in `data` (or in the legacy
-                    // `query` endpoint's `vm_error` string).
-                    let legacy_messages = [
-                        data.as_ref().and_then(|d| d.as_str()),
-                        info.and_then(|i| i.get("vm_error"))
-                            .and_then(|v| v.as_str()),
-                    ];
-                    if let Some(specific_error) =
-                        legacy_messages.into_iter().flatten().find_map(|message| {
-                            classify_legacy_function_call_error(
-                                message,
-                                &contract_id,
-                                method_name.as_deref(),
-                                block_height,
-                                block_hash,
-                            )
-                        })
-                    {
-                        return specific_error;
-                    }
-
-                    let message = data
-                        .as_ref()
-                        .and_then(|d| d.as_str())
-                        .map(|s| s.to_string())
-                        .or_else(|| function_call_error.as_ref().map(ToString::to_string))
-                        .or_else(|| {
-                            // EXPERIMENTAL endpoint: use vm_error as fallback
-                            // when data isn't a string
-                            info.and_then(|i| i.get("vm_error")).map(|v| v.to_string())
-                        })
-                        .unwrap_or_else(|| error.message.clone());
-                    return RpcError::ContractExecution {
-                        contract_id,
-                        method_name,
-                        message,
-                        block_height,
-                        block_hash,
-                    };
-                }
-                "UNAVAILABLE_SHARD" => {
-                    return RpcError::ShardUnavailable(error.message.clone());
-                }
-                "NO_SYNCED_BLOCKS" | "NOT_SYNCED_YET" => {
-                    return RpcError::NodeNotSynced(error.message.clone());
-                }
-                "INVALID_SHARD_ID" => {
-                    let shard_id = info
-                        .and_then(|i| i.get("shard_id"))
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
-                    return RpcError::InvalidShardId(shard_id);
-                }
-                "INVALID_TRANSACTION" => {
-                    return RpcError::invalid_tx(&error.message, data.clone());
-                }
-                "TIMEOUT_ERROR" => {
-                    let transaction_hash = info
-                        .and_then(|i| i.get("transaction_hash"))
-                        .and_then(|h| h.as_str())
-                        .and_then(|h| h.parse().ok());
-                    return RpcError::Timeout {
-                        message: error.message.clone(),
-                        transaction_hash,
-                        cause: info.and_then(parse_timeout_cause),
-                    };
-                }
-                "PARSE_ERROR" => {
-                    return RpcError::ParseError(error.message.clone());
-                }
-                "INTERNAL_ERROR" => {
-                    return RpcError::InternalError(error.message.clone());
-                }
-                "TOO_MANY_ACCESS_KEYS" => {
-                    // nearcore's `RpcQueryError::TooManyAccessKeys`: an
-                    // unpaginated `view_access_key_list` on an account with
-                    // more than `limit` keys. Both identifying fields are
-                    // required; without them fall through to the generic error
-                    // rather than inventing an account id or cap.
-                    let account_id = info
-                        .and_then(|i| i.get("requested_account_id"))
-                        .and_then(|a| a.as_str())
-                        .and_then(|a| a.parse().ok());
-                    let limit = info
-                        .and_then(|i| i.get("limit"))
-                        .and_then(serde_json::Value::as_u64)
-                        .and_then(|l| u32::try_from(l).ok());
-                    if let (Some(account_id), Some(limit)) = (account_id, limit) {
-                        return RpcError::TooManyAccessKeys {
-                            account_id,
-                            limit,
-                            block_height,
-                            block_hash,
-                        };
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Fallback: check for string error messages in data field
-        if let Some(data) = &error.data
-            && let Some(error_str) = data.as_str()
-            && error_str.contains("does not exist")
-        {
-            // Try to extract account ID from error message
-            // Format: "account X does not exist while viewing"
-            if let Some(start) = error_str.strip_prefix("account ")
-                && let Some(account_str) = start.split_whitespace().next()
-                && let Ok(account_id) = account_str.parse()
-            {
-                return RpcError::AccountNotFound {
-                    account_id,
-                    block_height: None,
-                    block_hash: None,
-                };
-            }
-        }
-
-        RpcError::Rpc {
-            code: error.code,
-            message: error.message.clone(),
-            data: error.data.clone(),
-            cause: error.cause.as_ref().map(|cause| cause.name.clone()),
-        }
-    }
-
-    // ========================================================================
-    // High-level RPC methods
-    // ========================================================================
 
     /// View account information.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
@@ -986,11 +911,12 @@ impl RpcClient {
         account_id: &AccountIdRef,
         block: impl Into<BlockReference>,
     ) -> Result<AccountView, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "account_id": account_id.to_string(),
-        });
-        self.merge_block_reference(&mut params, &block);
+        let params = with_block(
+            serde_json::json!({
+                "account_id": account_id.to_string(),
+            }),
+            block.into(),
+        );
         self.request("EXPERIMENTAL_view_account", params).await
     }
 
@@ -1002,42 +928,31 @@ impl RpcClient {
         public_key: &PublicKey,
         block: impl Into<BlockReference>,
     ) -> Result<AccessKeyView, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "account_id": account_id.to_string(),
-            "public_key": public_key.to_string(),
-        });
-        self.merge_block_reference(&mut params, &block);
+        let params = with_block(
+            serde_json::json!({
+                "account_id": account_id.to_string(),
+                "public_key": public_key.to_string(),
+            }),
+            block.into(),
+        );
         self.request("EXPERIMENTAL_view_access_key", params)
             .await
-            .map_err(|e| match e {
+            .map_err(|mut e| {
                 // The EXPERIMENTAL endpoint's UNKNOWN_ACCESS_KEY error omits
-                // the account_id from its info payload. Patch it in from the
-                // request params so callers get a complete error.
-                RpcError::AccessKeyNotFound {
-                    public_key,
-                    block_height,
-                    block_hash,
-                    ..
-                } => RpcError::AccessKeyNotFound {
-                    account_id: account_id.to_owned(),
-                    public_key,
-                    block_height,
-                    block_hash,
-                },
-                other => other,
+                // the account_id from its info payload.
+                if let RpcError::AccessKeyNotFound { account_id: id, .. } = &mut e {
+                    *id = account_id.to_owned();
+                }
+                e
             })
     }
 
     /// View all access keys for an account, transparently following pagination.
     ///
-    /// nearcore caps how many keys one `view_access_key_list` response carries
-    /// (100 by default) and rejects an *unpaginated* request for a larger
-    /// account with [`RpcError::TooManyAccessKeys`]. This helper is cap-safe by
-    /// construction: every request carries
-    /// `limit = 100` (nearcore's default `view_access_keys_limit`)
-    /// and it follows the [`last_key`](AccessKeyListView::last_key) cursor with
-    /// `after_key` until the node reports no more keys.
+    /// Every request sends a `limit` of 100, so it never hits the node's
+    /// [`RpcError::TooManyAccessKeys`] cap, and it follows the
+    /// [`last_key`](AccessKeyListView::last_key) cursor with `after_key` until
+    /// the node reports no more keys.
     ///
     /// The first page is read at `block`; every later page is pinned to that
     /// page's `block_hash`, so a moving reference (`Final`/`Optimistic`) cannot
@@ -1053,8 +968,7 @@ impl RpcClient {
         block: impl Into<BlockReference>,
     ) -> Result<AccessKeyListView, RpcError> {
         let block = block.into();
-        let limit = NonZeroU32::new(Self::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE)
-            .expect("DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE is non-zero");
+        let limit = Self::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE;
         let mut list = self
             .view_access_key_list_page(account_id, None, Some(limit), block)
             .await?;
@@ -1125,20 +1039,19 @@ impl RpcClient {
         limit: Option<NonZeroU32>,
         block: impl Into<BlockReference>,
     ) -> Result<AccessKeyListView, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "request_type": "view_access_key_list",
-            "account_id": account_id.to_string(),
-        });
-        if let Some(obj) = params.as_object_mut() {
-            if let Some(after) = after_key {
-                obj.insert("after_key".to_string(), after.to_string().into());
-            }
-            if let Some(limit) = limit {
-                obj.insert("limit".to_string(), limit.get().into());
-            }
+        let mut params = with_block(
+            serde_json::json!({
+                "request_type": "view_access_key_list",
+                "account_id": account_id.to_string(),
+            }),
+            block.into(),
+        );
+        if let Some(after) = after_key {
+            params["after_key"] = after.to_string().into();
         }
-        self.merge_block_reference(&mut params, &block);
+        if let Some(limit) = limit {
+            params["limit"] = limit.get().into();
+        }
         self.request("query", params).await
     }
 
@@ -1153,28 +1066,20 @@ impl RpcClient {
         public_key: &PublicKey,
         block: impl Into<BlockReference>,
     ) -> Result<GasKeyNoncesView, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "request_type": "view_gas_key_nonces",
-            "account_id": account_id.to_string(),
-            "public_key": public_key.to_string(),
-        });
-        self.merge_block_reference(&mut params, &block);
-        self.request("query", params).await.map_err(|e| match e {
-            // UNKNOWN_GAS_KEY's payload omits the account; patch it in from
-            // the request params so callers get a complete error.
-            RpcError::GasKeyNotFound {
-                public_key,
-                block_height,
-                block_hash,
-                ..
-            } => RpcError::GasKeyNotFound {
-                account_id: account_id.to_owned(),
-                public_key,
-                block_height,
-                block_hash,
-            },
-            other => other,
+        let params = with_block(
+            serde_json::json!({
+                "request_type": "view_gas_key_nonces",
+                "account_id": account_id.to_string(),
+                "public_key": public_key.to_string(),
+            }),
+            block.into(),
+        );
+        self.request("query", params).await.map_err(|mut e| {
+            // UNKNOWN_GAS_KEY's payload omits the account.
+            if let RpcError::GasKeyNotFound { account_id: id, .. } = &mut e {
+                *id = account_id.to_owned();
+            }
+            e
         })
     }
 
@@ -1187,13 +1092,14 @@ impl RpcClient {
         args: &[u8],
         block: impl Into<BlockReference>,
     ) -> Result<ViewFunctionResult, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "account_id": account_id.to_string(),
-            "method_name": method_name,
-            "args_base64": STANDARD.encode(args),
-        });
-        self.merge_block_reference(&mut params, &block);
+        let params = with_block(
+            serde_json::json!({
+                "account_id": account_id.to_string(),
+                "method_name": method_name,
+                "args_base64": STANDARD.encode(args),
+            }),
+            block.into(),
+        );
 
         // EXPERIMENTAL_call_function returns errors through the JSON-RPC
         // error envelope, so `parse_rpc_error` handles them. Patch in
@@ -1202,30 +1108,27 @@ impl RpcClient {
         let response: CallFunctionResponse = self
             .request("EXPERIMENTAL_call_function", params)
             .await
-            .map_err(|e| match e {
-                RpcError::ContractExecution {
-                    message,
-                    block_height,
-                    block_hash,
-                    ..
-                } => RpcError::ContractExecution {
-                    contract_id: account_id.to_owned(),
-                    method_name: Some(method_name.to_string()),
-                    message,
-                    block_height,
-                    block_hash,
-                },
-                RpcError::MethodNotFound {
-                    block_height,
-                    block_hash,
-                    ..
-                } => RpcError::MethodNotFound {
-                    contract_id: account_id.to_owned(),
-                    method_name: method_name.to_string(),
-                    block_height,
-                    block_hash,
-                },
-                other => other,
+            .map_err(|mut e| {
+                match &mut e {
+                    RpcError::ContractExecution {
+                        contract_id,
+                        method_name: method,
+                        ..
+                    } => {
+                        *contract_id = account_id.to_owned();
+                        *method = Some(method_name.to_string());
+                    }
+                    RpcError::MethodNotFound {
+                        contract_id,
+                        method_name: method,
+                        ..
+                    } => {
+                        *contract_id = account_id.to_owned();
+                        *method = method_name.to_string();
+                    }
+                    _ => {}
+                }
+                e
             })?;
 
         Ok(
@@ -1243,12 +1146,13 @@ impl RpcClient {
         account_id: &AccountIdRef,
         block: impl Into<BlockReference>,
     ) -> Result<ContractCodeView, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "request_type": "view_code",
-            "account_id": account_id.to_string(),
-        });
-        self.merge_block_reference(&mut params, &block);
+        let params = with_block(
+            serde_json::json!({
+                "request_type": "view_code",
+                "account_id": account_id.to_string(),
+            }),
+            block.into(),
+        );
         self.request("query", params).await
     }
 
@@ -1263,10 +1167,9 @@ impl RpcClient {
         id: impl Into<GlobalContractId>,
         block: impl Into<BlockReference>,
     ) -> Result<ContractCodeView, RpcError> {
-        let block = block.into();
         let id = id.into();
         trace::Span::current().record("id", trace::field::debug(&id));
-        let mut params = match &id {
+        let params = match &id {
             GlobalContractId::CodeHash(hash) => serde_json::json!({
                 "request_type": "view_global_contract_code",
                 "code_hash": CryptoHash::from_bytes(*hash).to_string(),
@@ -1276,29 +1179,24 @@ impl RpcClient {
                 "account_id": account_id.to_string(),
             }),
         };
-        self.merge_block_reference(&mut params, &block);
-        self.request("query", params).await.map_err(|e| match e {
-            // Replace the error's best-effort identifier with the one the
-            // caller asked for, so it stays accurate whatever the node's
-            // serialization shape.
-            RpcError::GlobalContractNotFound {
-                block_height,
-                block_hash,
-                ..
-            } => RpcError::GlobalContractNotFound {
-                identifier: match &id {
-                    GlobalContractId::CodeHash(hash) => {
-                        GlobalContractIdentifierView::CodeHash(CryptoHash::from_bytes(*hash))
-                    }
-                    GlobalContractId::AccountId(account_id) => {
-                        GlobalContractIdentifierView::AccountId(account_id.clone())
-                    }
-                },
-                block_height,
-                block_hash,
-            },
-            other => other,
-        })
+        self.request("query", with_block(params, block.into()))
+            .await
+            .map_err(|mut e| {
+                // Replace the error's best-effort identifier with the one the
+                // caller asked for, so it stays accurate whatever the node's
+                // serialization shape.
+                if let RpcError::GlobalContractNotFound { identifier, .. } = &mut e {
+                    *identifier = match &id {
+                        GlobalContractId::CodeHash(hash) => {
+                            GlobalContractIdentifierView::CodeHash(CryptoHash::from_bytes(*hash))
+                        }
+                        GlobalContractId::AccountId(account_id) => {
+                            GlobalContractIdentifierView::AccountId(account_id.clone())
+                        }
+                    };
+                }
+                e
+            })
     }
 
     /// View a single page of a contract's state (raw key/value trie entries).
@@ -1320,25 +1218,21 @@ impl RpcClient {
         limit: Option<u32>,
         block: impl Into<BlockReference>,
     ) -> Result<ViewStateResult, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "request_type": "view_state",
-            "account_id": account_id.to_string(),
-            "prefix_base64": STANDARD.encode(prefix),
-        });
-        if let Some(obj) = params.as_object_mut() {
-            if let Some(after) = after_key {
-                obj.insert(
-                    "after_key_base64".to_string(),
-                    STANDARD.encode(after).into(),
-                );
-            }
-            // nearcore requires a non-zero limit; omit it otherwise.
-            if let Some(limit) = limit.filter(|&l| l > 0) {
-                obj.insert("limit".to_string(), limit.into());
-            }
+        let mut params = with_block(
+            serde_json::json!({
+                "request_type": "view_state",
+                "account_id": account_id.to_string(),
+                "prefix_base64": STANDARD.encode(prefix),
+            }),
+            block.into(),
+        );
+        if let Some(after) = after_key {
+            params["after_key_base64"] = STANDARD.encode(after).into();
         }
-        self.merge_block_reference(&mut params, &block);
+        // nearcore requires a non-zero limit; omit it otherwise.
+        if let Some(limit) = limit.filter(|&l| l > 0) {
+            params["limit"] = limit.into();
+        }
         self.request("query", params).await
     }
 
@@ -1352,11 +1246,9 @@ impl RpcClient {
     /// `page_size` of `0` means the default page size, 10,000 entries
     /// (nearcore's `MAX_VIEW_STATE_PAGE_ITEMS`).
     ///
-    /// Every request carries a positive `limit`, so the node treats it as
-    /// paginated and does not reject large states with
-    /// [`RpcError::ContractStateTooLarge`] — that gate only applies to
-    /// unpaginated single-shot queries. Use [`RpcClient::view_state`] with
-    /// `limit: None` if you want that one-shot behavior.
+    /// Every request sends a positive `limit`, so large states don't fail
+    /// with [`RpcError::ContractStateTooLarge`]. Use [`RpcClient::view_state`]
+    /// with `limit: None` for the unpaginated one-shot query.
     ///
     /// The first page is read at `block`; every later page is pinned to the
     /// `block_hash` that first page reports, so the result is a consistent
@@ -1372,9 +1264,6 @@ impl RpcClient {
         block: impl Into<BlockReference>,
     ) -> Result<ViewStateAllResult, RpcError> {
         let block = block.into();
-        // Always send a positive limit: an omitted `limit` on the first page
-        // would make the node treat that request as unpaginated and apply
-        // its `TOO_LARGE_CONTRACT_STATE` size gate.
         let limit = if page_size > 0 {
             page_size
         } else {
@@ -1412,9 +1301,7 @@ impl RpcClient {
     /// Get block information.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block)))]
     pub async fn block(&self, block: impl Into<BlockReference>) -> Result<BlockView, RpcError> {
-        let block = block.into();
-        let params = block_params(&block);
-        self.request("block", params).await
+        self.request("block", block_params(&block.into())).await
     }
 
     /// Get all state changes that occurred in a block.
@@ -1426,9 +1313,8 @@ impl RpcClient {
         &self,
         block: impl Into<BlockReference>,
     ) -> Result<BlockEffects, RpcError> {
-        let block = block.into();
-        let params = block_params(&block);
-        self.request("block_effects", params).await
+        self.request("block_effects", block_params(&block.into()))
+            .await
     }
 
     /// Get the upcoming maintenance windows for a validator account.
@@ -1454,10 +1340,7 @@ impl RpcClient {
     /// Get current gas price.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub async fn gas_price(&self, block_hash: Option<&CryptoHash>) -> Result<GasPrice, RpcError> {
-        let params = match block_hash {
-            Some(hash) => serde_json::json!([hash.to_string()]),
-            None => serde_json::json!([serde_json::Value::Null]),
-        };
+        let params = serde_json::json!([block_hash.map(ToString::to_string)]);
         self.request("gas_price", params).await
     }
 
@@ -1550,15 +1433,6 @@ impl RpcClient {
         let params = serde_json::json!({ "receipt_id": receipt_id.to_string() });
         self.request("EXPERIMENTAL_receipt_to_tx", params).await
     }
-
-    /// Merge block reference parameters into a JSON object.
-    fn merge_block_reference(&self, params: &mut serde_json::Value, block: &BlockReference) {
-        if let serde_json::Value::Object(block_params) = block_params(block)
-            && let serde_json::Value::Object(map) = params
-        {
-            map.extend(block_params);
-        }
-    }
 }
 
 impl Clone for RpcClient {
@@ -1581,16 +1455,6 @@ impl std::fmt::Debug for RpcClient {
     }
 }
 
-// ============================================================================
-// Helper functions
-// ============================================================================
-
-/// Convert a [`BlockReference`] to a `block_id` value for RPC methods that
-/// accept only positional `block_id` or `null` (e.g. `validators`,
-/// `EXPERIMENTAL_validators_ordered`).
-///
-/// Height and hash variants are forwarded as-is; finality and sync-checkpoint
-/// variants become `null` (latest).
 /// The JSON-RPC parameters that select `block`.
 fn block_params(block: &BlockReference) -> serde_json::Value {
     match block {
@@ -1607,6 +1471,16 @@ fn block_params(block: &BlockReference) -> serde_json::Value {
     }
 }
 
+/// `params` with the parameters that select `block` merged in.
+fn with_block(mut params: Value, block: BlockReference) -> Value {
+    if let (Value::Object(map), Value::Object(block)) = (&mut params, block_params(&block)) {
+        map.extend(block);
+    }
+    params
+}
+
+/// The positional `block_id` for methods that take only a height, a hash or
+/// `null` (latest), such as `validators`. Other references become `null`.
 fn block_id_or_null(block: Option<&BlockReference>) -> serde_json::Value {
     match block {
         Some(BlockReference::Height(h)) => serde_json::json!(*h),
@@ -1615,14 +1489,12 @@ fn block_id_or_null(block: Option<&BlockReference>) -> serde_json::Value {
     }
 }
 
-/// Strip query string, fragment, and userinfo from a URL for safe logging.
-///
-/// RPC provider URLs may carry API keys as query parameters or path tokens.
-/// This returns `scheme://host/path` so credentials don't leak into tracing spans.
+/// Cut a URL at its query string or fragment before it goes into a tracing
+/// span, since RPC providers often put API keys in query parameters. Userinfo
+/// and path segments are kept as they are.
 // Without `tracing`, only the unit tests reference this.
 #[cfg_attr(not(feature = "tracing"), allow(dead_code))]
 fn sanitize_url(url: &str) -> &str {
-    // Strip query and fragment
     let end = url.find('?').or_else(|| url.find('#')).unwrap_or(url.len());
     &url[..end]
 }
@@ -1651,11 +1523,7 @@ fn is_idempotent(method: &str) -> bool {
 
 /// Check if an HTTP status code is retryable.
 fn is_retryable_status(status: u16) -> bool {
-    // 408 Request Timeout - retryable
-    // 429 Too Many Requests - retryable (rate limiting)
-    // 503 Service Unavailable - retryable
-    // 5xx Server Errors - retryable
-    status == 408 || status == 429 || status == 503 || (500..600).contains(&status)
+    matches!(status, 408 | 429 | 500..=599)
 }
 
 /// Decode nearcore 2.14's `TimeoutErrorCause` from a `TIMEOUT_ERROR` payload.
@@ -1755,36 +1623,21 @@ fn parse_receipt_to_tx_error(
 ///
 /// nearcore's `TIMEOUT_ERROR` payload never carries the hash, but the caller
 /// needs it to poll `tx_status` instead of signing a new transaction.
-fn with_timeout_tx_hash(err: RpcError, tx_hash: CryptoHash) -> RpcError {
-    match err {
-        // The sent tx's hash is authoritative.
-        RpcError::Timeout { message, cause, .. } => RpcError::Timeout {
-            message,
-            transaction_hash: Some(tx_hash),
-            cause,
-        },
-        other => other,
+fn with_timeout_tx_hash(mut err: RpcError, tx_hash: CryptoHash) -> RpcError {
+    // The sent tx's hash is authoritative.
+    if let RpcError::Timeout {
+        transaction_hash, ..
+    } = &mut err
+    {
+        *transaction_hash = Some(tx_hash);
     }
+    err
 }
 
-/// When a non-2xx response is decoded via `parse_rpc_error`, HTTP status is
-/// ground truth for retryability: a 4xx response is a deterministic client-side
-/// failure and must not retry, regardless of what the JSON-RPC body claims.
-///
-/// `parse_rpc_error` returns one of two shapes:
-///   1. A typed handler variant (Block/Chunk/EpochNotFound, Timeout,
-///      NodeNotSynced/…). These have well-understood retry semantics already
-///      encoded in `RpcError::is_retryable` and should pass through unchanged.
-///   2. The catch-all `RpcError::Rpc { code, .. }` (unrecognized or missing
-///      `cause.name`). For code `-32000` with no cause or a transient one,
-///      `is_retryable` returns `true`, which is appropriate for 5xx
-///      (server-side) but *wrong* for 4xx — retrying a deterministic client
-///      error wastes time and hides the original failure.
-///
-/// For case (2) on a 4xx status, downgrade to `RpcError::Network` with
-/// `retryable: false` so unrecognized handler causes on 4xx preserve the
-/// pre-decode behavior (matches the HTML-body fallback path). On 5xx the
-/// error is left as-is, and `is_retryable` decides from its cause.
+/// A 4xx is a deterministic client error, so a catch-all [`RpcError::Rpc`]
+/// decoded from a 4xx body becomes a non-retryable `Network` error (as an
+/// undecodable 4xx body would). Typed variants and 5xx errors pass through
+/// for `is_retryable` to judge.
 fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) -> RpcError {
     match err {
         RpcError::Rpc { .. } if (400..500).contains(&status) => {
@@ -1799,14 +1652,28 @@ mod tests {
     use std::collections::VecDeque;
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Mutex, mpsc};
 
-    use reqwest::header::{HeaderMap, HeaderValue};
+    use crate::reqwest::header::{HeaderMap, HeaderValue};
 
     use super::*;
+    use crate::client::test_rpc::{invalid_tx_body, rpc_error, rpc_result};
     use crate::client::{BoxFuture, TransportResponse};
     use crate::types::Finality;
+
+    /// A `HANDLER_ERROR` with `cause`, as nearcore sends it.
+    fn handler_error(cause: &str, info: Option<Value>, data: Option<Value>) -> JsonRpcError {
+        JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data,
+            cause: Some(ErrorCause {
+                name: cause.to_string(),
+                info,
+            }),
+            name: Some("HANDLER_ERROR".to_string()),
+        }
+    }
 
     #[test]
     fn block_params_select_each_kind_of_block() {
@@ -1835,53 +1702,63 @@ mod tests {
         );
     }
 
-    struct StaticResponseTransport {
-        body: Vec<u8>,
-    }
-
-    impl RpcTransport for StaticResponseTransport {
-        fn post_json(
-            &self,
-            _url: &str,
-            _body: Vec<u8>,
-        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-            let body = self.body.clone();
-            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
-        }
-    }
-
-    /// Transport that returns the same response every time and records each
-    /// request body, so tests can assert on retry attempts and what they sent.
+    /// Transport that answers from a queue of `(status, body)` responses,
+    /// repeating the last one, and records each request body, so tests can
+    /// assert on retry attempts and what they sent.
     struct CountingTransport {
-        status: u16,
-        body: Vec<u8>,
-        calls: AtomicUsize,
-        requests: std::sync::Mutex<Vec<Vec<u8>>>,
+        responses: Mutex<VecDeque<(u16, Vec<u8>)>>,
+        requests: Mutex<Vec<Vec<u8>>>,
     }
 
     impl CountingTransport {
+        /// Answers every request with `status` and `body`.
         fn new(status: u16, body: impl Into<Vec<u8>>) -> Arc<Self> {
+            Self::queue([(status, body.into())])
+        }
+
+        fn queue(responses: impl IntoIterator<Item = (u16, Vec<u8>)>) -> Arc<Self> {
             Arc::new(Self {
-                status,
-                body: body.into(),
-                calls: AtomicUsize::new(0),
-                requests: std::sync::Mutex::new(Vec::new()),
+                responses: Mutex::new(responses.into_iter().collect()),
+                requests: Mutex::new(Vec::new()),
             })
         }
 
-        fn calls(&self) -> usize {
-            self.calls.load(Ordering::SeqCst)
+        /// Answers with each JSON-RPC `result` in turn.
+        fn results(results: impl IntoIterator<Item = serde_json::Value>) -> Arc<Self> {
+            Self::queue(results.into_iter().map(|result| (200, rpc_result(result))))
         }
 
-        /// `params.signed_tx_base64` of each request, in order.
-        fn sent_signed_txs(&self) -> Vec<String> {
+        /// A client over this transport that doesn't retry.
+        fn client(self: &Arc<Self>) -> RpcClient {
+            RpcClient::with_transport_and_retry_config(
+                "https://example.com",
+                self.clone(),
+                RetryConfig::none(),
+            )
+        }
+
+        fn calls(&self) -> usize {
+            self.requests.lock().unwrap().len()
+        }
+
+        /// The `params` of each request, in order.
+        fn params(&self) -> Vec<serde_json::Value> {
             self.requests
                 .lock()
                 .unwrap()
                 .iter()
                 .map(|body| {
-                    let req: serde_json::Value = serde_json::from_slice(body).unwrap();
-                    req["params"]["signed_tx_base64"]
+                    serde_json::from_slice::<serde_json::Value>(body).unwrap()["params"].clone()
+                })
+                .collect()
+        }
+
+        /// `params.signed_tx_base64` of each request, in order.
+        fn sent_signed_txs(&self) -> Vec<String> {
+            self.params()
+                .iter()
+                .map(|params| {
+                    params["signed_tx_base64"]
                         .as_str()
                         .expect("request has params.signed_tx_base64")
                         .to_string()
@@ -1896,10 +1773,13 @@ mod tests {
             _url: &str,
             body: Vec<u8>,
         ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
             self.requests.lock().unwrap().push(body);
-            let status = self.status;
-            let body = self.body.clone();
+            let mut responses = self.responses.lock().unwrap();
+            let (status, body) = if responses.len() > 1 {
+                responses.pop_front().unwrap()
+            } else {
+                responses[0].clone()
+            };
             Box::pin(async move { Ok(TransportResponse { status, body }) })
         }
     }
@@ -1923,58 +1803,10 @@ mod tests {
         }
     }
 
-    /// JSON-RPC error body for a `send_tx` rejected with `InvalidNonce`.
-    fn invalid_nonce_body() -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
-                "code": -32000,
-                "message": "Server error",
-                "data": {
-                    "TxExecutionError": {
-                        "InvalidTxError": {
-                            "InvalidNonce": { "tx_nonce": 6, "ak_nonce": 20 }
-                        }
-                    }
-                },
-            },
-        }))
-        .unwrap()
-    }
-
     fn rpc_with_handler_error(cause_name: &str, info: serde_json::Value) -> RpcClient {
-        let body = serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": {
-                    "name": cause_name,
-                    "info": info,
-                },
-                "code": -32000,
-                "message": "Server error",
-                "data": "view function failed",
-            },
-        }))
-        .unwrap();
-
-        RpcClient::with_transport_and_retry_config(
-            "https://example.com",
-            Arc::new(StaticResponseTransport { body }),
-            RetryConfig {
-                max_retries: 0,
-                ..RetryConfig::default()
-            },
-        )
+        let body = rpc_error(Some(cause_name), info, "view function failed".into());
+        CountingTransport::new(200, body).client()
     }
-
-    // ========================================================================
-    // RetryConfig tests
-    // ========================================================================
 
     #[test]
     fn test_retry_config_default() {
@@ -1982,27 +1814,6 @@ mod tests {
         assert_eq!(config.max_retries, 3);
         assert_eq!(config.initial_delay_ms, 500);
         assert_eq!(config.max_delay_ms, 5000);
-    }
-
-    #[test]
-    fn test_retry_config_clone() {
-        let config = RetryConfig {
-            max_retries: 5,
-            initial_delay_ms: 100,
-            max_delay_ms: 1000,
-        };
-        let cloned = config.clone();
-        assert_eq!(cloned.max_retries, 5);
-        assert_eq!(cloned.initial_delay_ms, 100);
-        assert_eq!(cloned.max_delay_ms, 1000);
-    }
-
-    #[test]
-    fn test_retry_config_debug() {
-        let config = RetryConfig::default();
-        let debug = format!("{:?}", config);
-        assert!(debug.contains("RetryConfig"));
-        assert!(debug.contains("max_retries"));
     }
 
     #[test]
@@ -2016,16 +1827,17 @@ mod tests {
         assert_eq!(config.max_delay_ms, 5000);
     }
 
-    // ========================================================================
-    // Retry-loop tests (mock transport, counted attempts)
-    // ========================================================================
-
     #[tokio::test]
     async fn test_call_does_not_retry_invalid_nonce() {
         // The signed payload is fixed at this layer: re-sending it
         // byte-for-byte can't fix an `InvalidNonce`, so it must be terminal
         // here even though it is transient one layer up (re-sign).
-        let transport = CountingTransport::new(200, invalid_nonce_body());
+        let transport = CountingTransport::new(
+            200,
+            invalid_tx_body(
+                serde_json::json!({ "InvalidNonce": { "tx_nonce": 6, "ak_nonce": 20 } }),
+            ),
+        );
         let client = RpcClient::with_transport_and_retry_config(
             "https://example.com",
             transport.clone(),
@@ -2057,24 +1869,9 @@ mod tests {
     async fn test_call_retries_shard_congested() {
         // Congestion can clear while the same signed bytes are re-sent, so
         // this InvalidTx variant keeps the transport-level retry loop.
-        let body = serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
-                "code": -32000,
-                "message": "Server error",
-                "data": {
-                    "TxExecutionError": {
-                        "InvalidTxError": {
-                            "ShardCongested": { "congestion_level": 1.0, "shard_id": 0 }
-                        }
-                    }
-                },
-            },
-        }))
-        .unwrap();
+        let body = invalid_tx_body(serde_json::json!({
+            "ShardCongested": { "congestion_level": 1.0, "shard_id": 0 }
+        }));
         let transport = CountingTransport::new(200, body);
         let client = RpcClient::with_transport_and_retry_config(
             "https://example.com",
@@ -2100,21 +1897,6 @@ mod tests {
         assert_eq!(transport.calls(), 3, "1 attempt + 2 retries");
     }
 
-    /// A `-32000` handler error with `cause` (`None` omits the field).
-    fn server_error_body(cause: Option<&str>) -> Vec<u8> {
-        let mut error = serde_json::json!({
-            "name": "HANDLER_ERROR",
-            "code": -32000,
-            "message": "Server error",
-            "data": "details",
-        });
-        if let Some(cause) = cause {
-            error["cause"] = serde_json::json!({ "name": cause, "info": {} });
-        }
-        serde_json::to_vec(&serde_json::json!({ "jsonrpc": "2.0", "id": 0, "error": error }))
-            .unwrap()
-    }
-
     #[tokio::test]
     async fn test_call_retries_server_error_only_without_cause_or_with_a_transient_one() {
         // `(cause, expected attempts)` with 2 retries allowed.
@@ -2129,7 +1911,10 @@ mod tests {
             (Some("BUSY"), 3),
         ];
         for (cause, attempts) in cases {
-            let transport = CountingTransport::new(200, server_error_body(cause));
+            let transport = CountingTransport::new(
+                200,
+                rpc_error(cause, serde_json::json!({}), "details".into()),
+            );
             let client = RpcClient::with_transport_and_retry_config(
                 "https://example.com",
                 transport.clone(),
@@ -2228,8 +2013,7 @@ mod tests {
     #[tokio::test]
     async fn test_retry_forever_config_succeeds() {
         // `u32::MAX` ("retry forever") on a call that succeeds at once.
-        let transport =
-            CountingTransport::new(200, r#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#);
+        let transport = CountingTransport::new(200, rpc_result(serde_json::json!({ "ok": true })));
         let client = RpcClient::with_transport_and_retry_config(
             "https://example.com",
             transport.clone(),
@@ -2279,31 +2063,6 @@ mod tests {
             "{err:?}"
         );
         assert_eq!(transport.calls(), 67, "1 attempt + 66 retries");
-    }
-
-    // ========================================================================
-    // RpcClient tests
-    // ========================================================================
-
-    #[test]
-    fn test_rpc_client_new() {
-        let client = RpcClient::new("https://rpc.testnet.near.org");
-        assert_eq!(client.url(), "https://rpc.testnet.near.org");
-    }
-
-    #[test]
-    fn test_rpc_client_clone() {
-        let client = RpcClient::new("https://rpc.testnet.near.org");
-        let cloned = client.clone();
-        assert_eq!(cloned.url(), client.url());
-    }
-
-    #[test]
-    fn test_rpc_client_debug() {
-        let client = RpcClient::new("https://rpc.testnet.near.org");
-        let debug = format!("{:?}", client);
-        assert!(debug.contains("RpcClient"));
-        assert!(debug.contains("rpc.testnet.near.org"));
     }
 
     #[tokio::test]
@@ -2443,48 +2202,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_near_builder_uses_a_configured_reqwest_client() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let (request_tx, request_rx) = mpsc::channel();
-
-        let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = Vec::new();
-            let mut buffer = [0u8; 1024];
-            loop {
-                let read = stream.read(&mut buffer).unwrap();
-                if read == 0 {
-                    break;
-                }
-                request.extend_from_slice(&buffer[..read]);
-                if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                    break;
-                }
-            }
-            request_tx
-                .send(String::from_utf8(request).unwrap())
-                .unwrap();
-
-            let body = r#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#;
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body,
-            )
-            .unwrap();
-        });
-
+        let (url, server, heads) = scripted_server(vec![Conn::Respond]);
         let secret = "test-provider-secret";
         let mut headers = HeaderMap::new();
         let mut api_key = HeaderValue::from_static(secret);
         api_key.set_sensitive(true);
         headers.insert("x-api-key", api_key);
-        let http_client = reqwest::Client::builder()
+        let http_client = crate::reqwest::Client::builder()
             .default_headers(headers)
             .build()
             .unwrap();
-        let near = crate::Near::custom(format!("http://{address}"), "test")
+        let near = crate::Near::custom(url, "test")
             .transport(transport::ReqwestTransport::with_client(http_client))
             .build();
         let debug = format!("{:?}", near.rpc());
@@ -2493,7 +2221,7 @@ mod tests {
         let response: serde_json::Value = near.rpc().request("status", ()).await.unwrap();
         assert_eq!(response, serde_json::json!({ "ok": true }));
 
-        let request = request_rx.recv().unwrap().to_ascii_lowercase();
+        let request = heads.recv().unwrap();
         assert!(request.contains(&format!("x-api-key: {secret}")));
         server.join().unwrap();
     }
@@ -2511,11 +2239,14 @@ mod tests {
     }
 
     /// Serve one connection per `script` entry, in order, then stop
-    /// listening. Returns the server's URL.
-    fn scripted_server(script: Vec<Conn>) -> (String, std::thread::JoinHandle<()>) {
+    /// listening. Returns the server's URL and a channel of the lowercased
+    /// head of each request it read.
+    fn scripted_server(
+        script: Vec<Conn>,
+    ) -> (String, std::thread::JoinHandle<()>, mpsc::Receiver<String>) {
         /// Read the request head, then its `Content-Length` body, so closing
         /// the socket afterwards sends a FIN rather than a reset.
-        fn read_request(stream: &mut std::net::TcpStream) {
+        fn read_request(stream: &mut std::net::TcpStream) -> String {
             let mut request = Vec::new();
             let mut buffer = [0u8; 1024];
             let head_len = loop {
@@ -2536,10 +2267,12 @@ mod tests {
                 .unwrap();
             let mut rest = vec![0u8; content_length - (request.len() - head_len)];
             stream.read_exact(&mut rest).unwrap();
+            head
         }
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
+        let (heads_tx, heads) = mpsc::channel();
         let server = std::thread::spawn(move || {
             for conn in script {
                 let (mut stream, _) = listener.accept().unwrap();
@@ -2549,11 +2282,11 @@ mod tests {
                         std::thread::sleep(Duration::from_millis(50));
                     }
                     Conn::Close => {
-                        read_request(&mut stream);
+                        let _ = heads_tx.send(read_request(&mut stream));
                         stream.shutdown(std::net::Shutdown::Both).unwrap();
                     }
                     Conn::Respond => {
-                        read_request(&mut stream);
+                        let _ = heads_tx.send(read_request(&mut stream));
                         let body = r#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#;
                         write!(
                             stream,
@@ -2566,7 +2299,7 @@ mod tests {
                 }
             }
         });
-        (url, server)
+        (url, server, heads)
     }
 
     /// Whether `error` is hyper's "connection closed before message completed".
@@ -2618,7 +2351,7 @@ mod tests {
     /// and a retrying client gets through.
     #[tokio::test]
     async fn test_connection_reset_is_retried() {
-        let (url, server) = scripted_server(vec![Conn::Reset, Conn::Reset, Conn::Respond]);
+        let (url, server, _) = scripted_server(vec![Conn::Reset, Conn::Reset, Conn::Respond]);
 
         let error = test_client(&url, RetryConfig::none())
             .request::<_, serde_json::Value>("status", ())
@@ -2640,7 +2373,7 @@ mod tests {
     /// client gets through.
     #[tokio::test]
     async fn test_connection_closed_before_response_is_retried() {
-        let (url, server) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
+        let (url, server, _) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
 
         let error = test_client(&url, RetryConfig::none())
             .request::<_, serde_json::Value>("status", ())
@@ -2664,7 +2397,7 @@ mod tests {
     async fn test_dropped_connection_is_not_retried_for_sandbox_fast_forward() {
         // If fast_forward were retried, it would consume all three
         // connections and succeed.
-        let (url, server) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
+        let (url, server, _) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
         let client = test_client(&url, fast_retries(2));
 
         let error = client
@@ -2689,70 +2422,6 @@ mod tests {
             .unwrap();
         assert_eq!(response, serde_json::json!({ "ok": true }));
         server.join().unwrap();
-    }
-
-    // ========================================================================
-    // view_state_all pagination
-    // ========================================================================
-
-    /// Transport that replays queued JSON-RPC results in order and records the
-    /// `params` of every request it was sent.
-    struct RecordingTransport {
-        responses: Mutex<VecDeque<Vec<u8>>>,
-        params: Mutex<Vec<serde_json::Value>>,
-    }
-
-    impl RecordingTransport {
-        fn new(results: impl IntoIterator<Item = serde_json::Value>) -> Arc<Self> {
-            let responses = results
-                .into_iter()
-                .map(|result| {
-                    serde_json::to_vec(&serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": 0,
-                        "result": result,
-                    }))
-                    .unwrap()
-                })
-                .collect();
-            Arc::new(Self {
-                responses: Mutex::new(responses),
-                params: Mutex::new(Vec::new()),
-            })
-        }
-
-        fn client(self: &Arc<Self>) -> RpcClient {
-            RpcClient::with_transport_and_retry_config(
-                "https://example.com",
-                self.clone(),
-                RetryConfig {
-                    max_retries: 0,
-                    ..RetryConfig::default()
-                },
-            )
-        }
-
-        fn params(&self) -> Vec<serde_json::Value> {
-            self.params.lock().unwrap().clone()
-        }
-    }
-
-    impl RpcTransport for RecordingTransport {
-        fn post_json(
-            &self,
-            _url: &str,
-            body: Vec<u8>,
-        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-            let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
-            self.params.lock().unwrap().push(request["params"].clone());
-            let body = self
-                .responses
-                .lock()
-                .unwrap()
-                .pop_front()
-                .expect("more RPC requests than queued responses");
-            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
-        }
     }
 
     /// One `view_state` page holding `keys` (all with value `b"v"`), with an
@@ -2780,7 +2449,7 @@ mod tests {
         // Regression for #294: an omitted `limit` makes nearcore treat the first
         // request as unpaginated and apply the TOO_LARGE_CONTRACT_STATE gate,
         // so `page_size == 0` must still put a positive `limit` on the wire.
-        let transport = RecordingTransport::new([
+        let transport = CountingTransport::results([
             view_state_page(&[b"sea", b"seb"], Some(b"seb")),
             view_state_page(&[b"sec"], None),
         ]);
@@ -2827,7 +2496,7 @@ mod tests {
     async fn test_view_state_all_pins_later_pages_without_resolving_finality_up_front() {
         // A finality reference goes straight to the first `view_state` page (no
         // separate `block` round trip); later pages use that page's hash.
-        let transport = RecordingTransport::new([
+        let transport = CountingTransport::results([
             view_state_page(&[b"a"], Some(b"a")),
             view_state_page(&[b"b"], None),
         ]);
@@ -2854,8 +2523,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_view_state_sends_only_a_positive_limit() {
+        // `(limit, expected params.limit)`: nearcore rejects `limit: 0`.
+        let cases = [
+            (None, None),
+            (Some(0), None),
+            (Some(1), Some(1)),
+            (Some(7), Some(7)),
+        ];
+        for (limit, expected) in cases {
+            let transport = CountingTransport::results([view_state_page(&[b"k"], None)]);
+            let account: AccountId = "app.near".parse().unwrap();
+            transport
+                .client()
+                .view_state(&account, b"", Some(b"a"), limit, BlockReference::Height(1))
+                .await
+                .unwrap();
+            let params = &transport.params()[0];
+            assert_eq!(
+                params.get("limit").and_then(serde_json::Value::as_u64),
+                expected,
+                "{limit:?}"
+            );
+            assert_eq!(params["after_key_base64"], STANDARD.encode(b"a"));
+        }
+    }
+
+    #[tokio::test]
     async fn test_view_state_all_forwards_explicit_page_size() {
-        let transport = RecordingTransport::new([view_state_page(&[b"k"], None)]);
+        let transport = CountingTransport::results([view_state_page(&[b"k"], None)]);
         let account: AccountId = "app.near".parse().unwrap();
 
         let all = transport
@@ -2873,9 +2569,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_view_state_all_result_is_ergonomic() {
-        // `ViewStateAllResult` derefs to `[StateItem]`, iterates by value and
-        // by reference, and `into_values` hands back the bare entries.
-        let transport = RecordingTransport::new([
+        // `ViewStateAllResult` derefs to `[StateItem]` and iterates by value
+        // and by reference.
+        let transport = CountingTransport::results([
             view_state_page(&[b"a"], Some(b"a")),
             view_state_page(&[b"b"], None),
         ]);
@@ -2896,12 +2592,7 @@ mod tests {
             by_value.push(item.key);
         }
         assert_eq!(by_value, [b"a".to_vec(), b"b".to_vec()]);
-        assert_eq!(all.clone().into_values(), all.values);
     }
-
-    // ========================================================================
-    // view_access_key_list pagination
-    // ========================================================================
 
     const PAGE_ONE_HASH: &str = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj";
     const ED_KEY: &str = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";
@@ -2936,7 +2627,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_view_access_key_list_single_page_is_one_paginated_request() {
-        let transport = RecordingTransport::new([access_key_page(&[ED_KEY], None, PAGE_ONE_HASH)]);
+        let transport =
+            CountingTransport::results([access_key_page(&[ED_KEY], None, PAGE_ONE_HASH)]);
         let account: AccountId = "alice.near".parse().unwrap();
 
         let list = transport
@@ -2957,7 +2649,7 @@ mod tests {
         // request as unpaginated and fail past 100 keys.
         assert_eq!(
             params[0]["limit"],
-            RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE
+            RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE.get()
         );
         assert_eq!(params[0]["limit"], 100);
         assert!(
@@ -2970,7 +2662,7 @@ mod tests {
     async fn test_view_access_key_list_follows_last_key_pinned_to_first_block() {
         // The second page is read at a later block by a drifting node; the
         // helper must still have asked for the first page's block.
-        let transport = RecordingTransport::new([
+        let transport = CountingTransport::results([
             access_key_page(&[ED_KEY], Some(ED_KEY), PAGE_ONE_HASH),
             access_key_page(&[SECP_KEY], None, "11111111111111111111111111111111"),
         ]);
@@ -2997,14 +2689,14 @@ mod tests {
         assert!(params[1].get("finality").is_none());
         assert_eq!(
             params[1]["limit"],
-            RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE
+            RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE.get()
         );
     }
 
     #[tokio::test]
     async fn test_view_access_key_list_page_passes_cursor_and_limit_through() {
         let ml_dsa_hash = format!("ml-dsa-65-hash:{}", bs58::encode([7u8; 32]).into_string());
-        let transport = RecordingTransport::new([access_key_page(
+        let transport = CountingTransport::results([access_key_page(
             &[SECP_KEY, &ml_dsa_hash],
             Some(&ml_dsa_hash),
             PAGE_ONE_HASH,
@@ -3038,7 +2730,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_view_access_key_list_page_unpaginated_sends_neither_param() {
-        let transport = RecordingTransport::new([access_key_page(&[], None, PAGE_ONE_HASH)]);
+        let transport = CountingTransport::results([access_key_page(&[], None, PAGE_ONE_HASH)]);
         let account: AccountId = "alice.near".parse().unwrap();
 
         let page = transport
@@ -3058,9 +2750,25 @@ mod tests {
         assert!(params[0].get("limit").is_none());
     }
 
+    #[tokio::test]
+    async fn test_gas_price_sends_the_hash_or_null() {
+        let price = serde_json::json!({ "gas_price": "100000000" });
+        let transport = CountingTransport::results([price.clone(), price]);
+        let client = transport.client();
+        let hash = CryptoHash::hash(b"block");
+        client.gas_price(Some(&hash)).await.unwrap();
+        client.gas_price(None).await.unwrap();
+        assert_eq!(
+            transport.params(),
+            [
+                serde_json::json!([hash.to_string()]),
+                serde_json::json!([null])
+            ]
+        );
+    }
+
     #[test]
     fn test_parse_rpc_error_too_many_access_keys() {
-        let client = RpcClient::new("https://example.com");
         // Wire shape of nearcore's `RpcQueryError::TooManyAccessKeys`.
         let error: JsonRpcError = serde_json::from_value(serde_json::json!({
             "code": -32000,
@@ -3078,7 +2786,7 @@ mod tests {
             }
         }))
         .unwrap();
-        let parsed = client.parse_rpc_error(&error);
+        let parsed = parse_rpc_error(&error);
         match &parsed {
             RpcError::TooManyAccessKeys {
                 account_id,
@@ -3107,63 +2815,41 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_too_many_access_keys_without_limit_falls_through() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "TOO_MANY_ACCESS_KEYS".to_string(),
-                info: Some(serde_json::json!({ "requested_account_id": "relayer.near" })),
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
+        let error = handler_error(
+            "TOO_MANY_ACCESS_KEYS",
+            Some(serde_json::json!({ "requested_account_id": "relayer.near" })),
+            None,
+        );
+        let result = parse_rpc_error(&error);
         assert!(
             matches!(result, RpcError::Rpc { code: -32000, .. }),
             "expected generic Rpc error, got {result:?}"
         );
     }
 
-    // ========================================================================
-    // sanitize_url tests
-    // ========================================================================
-
-    #[test]
-    fn test_sanitize_url_plain() {
-        assert_eq!(
-            sanitize_url("https://rpc.mainnet.near.org"),
-            "https://rpc.mainnet.near.org"
-        );
-    }
-
-    #[test]
-    fn test_sanitize_url_strips_query() {
-        assert_eq!(
-            sanitize_url("https://rpc.provider.com/v1?api_key=secret123"),
-            "https://rpc.provider.com/v1"
-        );
-    }
-
-    #[test]
-    fn test_sanitize_url_strips_fragment() {
-        assert_eq!(
-            sanitize_url("https://rpc.provider.com/v1#section"),
-            "https://rpc.provider.com/v1"
-        );
-    }
-
     #[test]
     fn test_sanitize_url_strips_query_and_fragment() {
-        assert_eq!(
-            sanitize_url("https://rpc.provider.com/v1?key=val#frag"),
-            "https://rpc.provider.com/v1"
-        );
+        for (url, shown) in [
+            (
+                "https://rpc.mainnet.near.org",
+                "https://rpc.mainnet.near.org",
+            ),
+            (
+                "https://rpc.provider.com/v1?api_key=secret123",
+                "https://rpc.provider.com/v1",
+            ),
+            (
+                "https://rpc.provider.com/v1#section",
+                "https://rpc.provider.com/v1",
+            ),
+            (
+                "https://rpc.provider.com/v1?key=val#frag",
+                "https://rpc.provider.com/v1",
+            ),
+        ] {
+            assert_eq!(sanitize_url(url), shown);
+        }
     }
-
-    // ========================================================================
-    // is_retryable_status tests
-    // ========================================================================
 
     #[test]
     fn test_is_retryable_status() {
@@ -3185,10 +2871,6 @@ mod tests {
         assert!(!is_retryable_status(404)); // Not Found
         assert!(!is_retryable_status(422)); // Unprocessable Entity
     }
-
-    // ========================================================================
-    // InvalidTxError parsing tests
-    // ========================================================================
 
     #[test]
     fn test_invalid_transaction_parses_invalid_nonce() {
@@ -3244,42 +2926,18 @@ mod tests {
         assert!(matches!(err, RpcError::InvalidTxUnparsed { .. }));
     }
 
-    // ========================================================================
-    // NetworkConfig tests
-    // ========================================================================
-
-    #[test]
-    fn test_mainnet_config() {
-        assert!(MAINNET.rpc_url.contains("fastnear"));
-    }
-
-    #[test]
-    fn test_testnet_config() {
-        assert!(TESTNET.rpc_url.contains("fastnear") || TESTNET.rpc_url.contains("test"));
-    }
-
-    // ========================================================================
-    // parse_rpc_error tests (via RpcClient)
-    // ========================================================================
-
     #[test]
     fn test_parse_rpc_error_unknown_account() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "UNKNOWN_ACCOUNT".to_string(),
-                info: Some(serde_json::json!({
-                    "requested_account_id": "nonexistent.near",
-                    "block_height": 243803761,
-                    "block_hash": "11111111111111111111111111111111"
-                })),
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
+        let error = handler_error(
+            "UNKNOWN_ACCOUNT",
+            Some(serde_json::json!({
+                "requested_account_id": "nonexistent.near",
+                "block_height": 243803761,
+                "block_hash": "11111111111111111111111111111111"
+            })),
+            None,
+        );
+        let result = parse_rpc_error(&error);
         assert!(matches!(
             result,
             RpcError::AccountNotFound {
@@ -3293,21 +2951,15 @@ mod tests {
     #[test]
     fn test_parse_rpc_error_unknown_access_key_legacy() {
         // Legacy `query` endpoint includes requested_account_id in info
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "UNKNOWN_ACCESS_KEY".to_string(),
-                info: Some(serde_json::json!({
-                    "requested_account_id": "alice.near",
-                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
-                })),
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
+        let error = handler_error(
+            "UNKNOWN_ACCESS_KEY",
+            Some(serde_json::json!({
+                "requested_account_id": "alice.near",
+                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+            })),
+            None,
+        );
+        let result = parse_rpc_error(&error);
         match result {
             RpcError::AccessKeyNotFound {
                 account_id,
@@ -3327,24 +2979,14 @@ mod tests {
     #[test]
     fn test_parse_rpc_error_unknown_access_key_experimental() {
         // EXPERIMENTAL_view_access_key omits requested_account_id from info
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: Some(serde_json::Value::String(
-                "Access key for public key ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp does not exist while viewing".to_string()
-            )),
-            cause: Some(ErrorCause {
-                name: "UNKNOWN_ACCESS_KEY".to_string(),
-                info: Some(serde_json::json!({
+        let error = handler_error("UNKNOWN_ACCESS_KEY", Some(serde_json::json!({
                     "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
                     "block_height": 243789592,
                     "block_hash": "EC5A7qc6rixfN8T4T9Gkt78H5pAsvdcjAos8Z7kFLJgi"
-                })),
-            }),
-            name: Some("HANDLER_ERROR".to_string()),
-        };
-        let result = client.parse_rpc_error(&error);
+                })), Some(serde_json::Value::String(
+                "Access key for public key ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp does not exist while viewing".to_string()
+            )));
+        let result = parse_rpc_error(&error);
         match result {
             RpcError::AccessKeyNotFound {
                 account_id,
@@ -3370,7 +3012,6 @@ mod tests {
         // nearcore's `RpcQueryError::UnknownGasKey { public_key, block_height,
         // block_hash }` as serialized by the `query` endpoint for
         // `view_gas_key_nonces`; the account is not on the wire.
-        let client = RpcClient::new("https://example.com");
         let error: JsonRpcError = serde_json::from_value(serde_json::json!({
             "code": -32000,
             "message": "Server error",
@@ -3386,7 +3027,7 @@ mod tests {
             }
         }))
         .unwrap();
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::GasKeyNotFound {
                 account_id,
                 public_key,
@@ -3443,24 +3084,53 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_view_access_key_patches_account_into_access_key_not_found() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+            .parse()
+            .unwrap();
+        let error = rpc_with_handler_error(
+            "UNKNOWN_ACCESS_KEY",
+            serde_json::json!({
+                "public_key": public_key,
+                "block_height": 100,
+                "block_hash": "11111111111111111111111111111111",
+            }),
+        )
+        .view_access_key(
+            &account_id,
+            &public_key,
+            BlockReference::Finality(Finality::Final),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                RpcError::AccessKeyNotFound {
+                    account_id: actual_account,
+                    public_key: actual_key,
+                    block_height: Some(100),
+                    block_hash: Some(CryptoHash::ZERO),
+                } if *actual_account == account_id && *actual_key == public_key
+            ),
+            "got {error:?}"
+        );
+    }
+
     #[test]
     fn test_parse_rpc_error_invalid_account() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "INVALID_ACCOUNT".to_string(),
-                info: Some(serde_json::json!({
-                    "requested_account_id": "invalid@account",
-                    "block_height": 243803761,
-                    "block_hash": "11111111111111111111111111111111"
-                })),
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
+        let error = handler_error(
+            "INVALID_ACCOUNT",
+            Some(serde_json::json!({
+                "requested_account_id": "invalid@account",
+                "block_height": 243803761,
+                "block_hash": "11111111111111111111111111111111"
+            })),
+            None,
+        );
+        let result = parse_rpc_error(&error);
         assert!(
             matches!(
                 &result,
@@ -3475,25 +3145,66 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_rpc_error_unknown_block() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Block not found".to_string(),
-            data: Some(serde_json::json!("12345")),
-            cause: Some(ErrorCause {
-                name: "UNKNOWN_BLOCK".to_string(),
-                info: None,
+    fn test_parse_rpc_error_maps_simple_causes() {
+        type Check = fn(&RpcError) -> bool;
+        let cases: [(&str, Option<Value>, Option<Value>, Check); 11] = [
+            (
+                "UNKNOWN_BLOCK",
+                None,
+                Some("12345".into()),
+                |e| matches!(e, RpcError::BlockNotFound(b) if b == "12345"),
+            ),
+            (
+                "UNKNOWN_CHUNK",
+                Some(serde_json::json!({ "chunk_hash": "abc123" })),
+                None,
+                |e| matches!(e, RpcError::ChunkNotFound(c) if c == "abc123"),
+            ),
+            (
+                "UNKNOWN_EPOCH",
+                None,
+                Some("epoch123".into()),
+                |e| matches!(e, RpcError::EpochNotFound(b) if b == "epoch123"),
+            ),
+            (
+                "UNKNOWN_RECEIPT",
+                Some(serde_json::json!({ "receipt_id": "receipt123" })),
+                None,
+                |e| matches!(e, RpcError::ReceiptNotFound(r) if r == "receipt123"),
+            ),
+            ("UNAVAILABLE_SHARD", None, None, |e| {
+                matches!(e, RpcError::ShardUnavailable(_))
             }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::BlockNotFound(_)));
+            ("NO_SYNCED_BLOCKS", None, None, |e| {
+                matches!(e, RpcError::NodeNotSynced(_))
+            }),
+            ("NOT_SYNCED_YET", None, None, |e| {
+                matches!(e, RpcError::NodeNotSynced(_))
+            }),
+            (
+                "INVALID_SHARD_ID",
+                Some(serde_json::json!({ "shard_id": 99 })),
+                None,
+                |e| matches!(e, RpcError::InvalidShardId(id) if id == "99"),
+            ),
+            ("INVALID_TRANSACTION", None, None, |e| {
+                matches!(e, RpcError::InvalidTxUnparsed { .. })
+            }),
+            ("PARSE_ERROR", None, None, |e| {
+                matches!(e, RpcError::ParseError(_))
+            }),
+            ("INTERNAL_ERROR", None, None, |e| {
+                matches!(e, RpcError::InternalError(_))
+            }),
+        ];
+        for (cause, info, data, is_expected) in cases {
+            let error = parse_rpc_error(&handler_error(cause, info, data));
+            assert!(is_expected(&error), "{cause}: {error:?}");
+        }
     }
 
     #[test]
     fn test_parse_rpc_error_garbage_collected_block() {
-        let client = RpcClient::new("https://example.com");
         // Real wire payload from rpc.mainnet.near.org (`view_account` at
         // `block_id: 100000000`, HTTP 200).
         let error: JsonRpcError = serde_json::from_value(serde_json::json!({
@@ -3510,7 +3221,7 @@ mod tests {
             "data": "The data for block #100000000 is garbage collected on this node, use an archival node to fetch historical data"
         }))
         .unwrap();
-        let result = client.parse_rpc_error(&error);
+        let result = parse_rpc_error(&error);
         match &result {
             RpcError::BlockNotFound(block_ref) => {
                 assert_eq!(
@@ -3539,85 +3250,25 @@ mod tests {
             "data": "The data for block #100000000 is garbage collected on this node, use an archival node to fetch historical data"
         }))
         .unwrap();
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::BlockNotFound(block_ref) => assert_eq!(block_ref, "#100000000"),
             other => panic!("expected BlockNotFound, got {other:?}"),
         }
 
         // No usable info: fall back to the descriptive `data` string.
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: Some(serde_json::json!(
+        let error = handler_error(
+            "GARBAGE_COLLECTED_BLOCK",
+            None,
+            Some(serde_json::json!(
                 "The data for block #5 is garbage collected"
             )),
-            cause: Some(ErrorCause {
-                name: "GARBAGE_COLLECTED_BLOCK".to_string(),
-                info: None,
-            }),
-            name: None,
-        };
-        match client.parse_rpc_error(&error) {
+        );
+        match parse_rpc_error(&error) {
             RpcError::BlockNotFound(block_ref) => {
                 assert_eq!(block_ref, "The data for block #5 is garbage collected");
             }
             other => panic!("expected BlockNotFound, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn test_parse_rpc_error_unknown_chunk() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Chunk not found".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "UNKNOWN_CHUNK".to_string(),
-                info: Some(serde_json::json!({
-                    "chunk_hash": "abc123"
-                })),
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::ChunkNotFound(_)));
-    }
-
-    #[test]
-    fn test_parse_rpc_error_unknown_epoch() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Epoch not found".to_string(),
-            data: Some(serde_json::json!("epoch123")),
-            cause: Some(ErrorCause {
-                name: "UNKNOWN_EPOCH".to_string(),
-                info: None,
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::EpochNotFound(_)));
-    }
-
-    #[test]
-    fn test_parse_rpc_error_unknown_receipt() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Receipt not found".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "UNKNOWN_RECEIPT".to_string(),
-                info: Some(serde_json::json!({
-                    "receipt_id": "receipt123"
-                })),
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::ReceiptNotFound(_)));
     }
 
     /// nearcore's `send_tx`/`tx_status`/`receipt_to_tx` handler errors that
@@ -3669,28 +3320,6 @@ mod tests {
         ]
     }
 
-    fn handler_error_body(
-        cause: &str,
-        info: Option<serde_json::Value>,
-        data: &str,
-    ) -> serde_json::Value {
-        let mut cause = serde_json::json!({ "name": cause });
-        if let Some(info) = info {
-            cause["info"] = info;
-        }
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": cause,
-                "code": -32000,
-                "message": "Server error",
-                "data": data,
-            },
-        })
-    }
-
     #[tokio::test]
     async fn test_deterministic_lookup_errors_are_not_retried() {
         for (cause, info, data) in deterministic_lookup_errors() {
@@ -3708,8 +3337,8 @@ mod tests {
         data: &str,
         expected_calls: usize,
     ) -> RpcError {
-        let body = handler_error_body(cause, info, data);
-        let transport = CountingTransport::new(200, serde_json::to_vec(&body).unwrap());
+        let body = rpc_error(Some(cause), info.unwrap_or_default(), data.into());
+        let transport = CountingTransport::new(200, body);
         let client = RpcClient::with_transport_and_retry_config(
             "https://example.com",
             transport.clone(),
@@ -3795,108 +3424,81 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_receipt_to_tx_causes_are_specific_to_that_method() {
-        // The indexer also sends `UNSUPPORTED`; it is not a receipt-to-tx error.
-        let client = RpcClient::new("https://example.com");
-        let error: JsonRpcError = serde_json::from_value(
-            handler_error_body(
-                "UNSUPPORTED",
-                Some(serde_json::json!({ "error_message": "no indexer" })),
-                "unsupported indexer request: no indexer",
-            )["error"]
-                .clone(),
-        )
-        .unwrap();
-        assert!(matches!(
-            client.parse_method_rpc_error("EXPERIMENTAL_indexer_block", &error),
-            RpcError::Rpc { .. }
-        ));
-        assert!(matches!(
-            client.parse_method_rpc_error("EXPERIMENTAL_receipt_to_tx", &error),
-            RpcError::ReceiptToTx(ReceiptToTxError::Unsupported { .. })
-        ));
-    }
+    #[tokio::test]
+    async fn test_receipt_to_tx_decodes_success_body() {
+        let transport = CountingTransport::results([serde_json::json!({
+            "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+            "sender_account_id": "alice.near"
+        })]);
+        let receipt_id = CryptoHash::hash(b"receipt");
 
-    // ========================================================================
-    // EXPERIMENTAL_receipt_to_tx tests
-    //
-    // There is no HTTP mock harness in this crate, so the success path is
-    // exercised by decoding a real-shape `result` envelope into the
-    // user-facing type (the same step `try_request` performs), and the error
-    // path is exercised through `parse_rpc_error` on the real error envelope.
-    // ========================================================================
-
-    #[test]
-    fn test_receipt_to_tx_decodes_success_body() {
-        // Real-shape success body nearcore returns for EXPERIMENTAL_receipt_to_tx.
-        let body = r#"{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {
-                "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-                "sender_account_id": "alice.near"
-            }
-        }"#;
-        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
-        assert!(parsed.error.is_none(), "no error envelope expected");
-        let result = parsed.result.expect("result present");
-        let response: ReceiptToTxResponse =
-            serde_json::from_value(result).expect("decodes into ReceiptToTxResponse");
+        let response = transport.client().receipt_to_tx(&receipt_id).await.unwrap();
         assert_eq!(
             response.transaction_hash.to_string(),
             "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
         );
         assert_eq!(response.sender_account_id.as_str(), "alice.near");
+        assert_eq!(
+            transport.params(),
+            [serde_json::json!({ "receipt_id": receipt_id.to_string() })]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_clone_shares_the_transport_and_settings() {
+        let transport = CountingTransport::results([serde_json::json!(1)]);
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(4),
+        );
+        let first: u64 = client
+            .request("status", serde_json::json!([]))
+            .await
+            .unwrap();
+
+        let clone = client.clone();
+        assert_eq!(clone.url(), client.url());
+        assert_eq!(clone.retry_config.max_retries, 4);
+        let second: u64 = clone
+            .request("status", serde_json::json!([]))
+            .await
+            .unwrap();
+        assert_eq!((first, second), (1, 1));
+        // Both requests went through the one shared transport.
+        assert_eq!(transport.calls(), 2);
     }
 
     #[test]
-    fn test_receipt_to_tx_maps_unknown_receipt() {
-        // Real-shape error body nearcore returns for an unknown receipt.
-        let body = r#"{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {
-                "code": -32000,
-                "message": "Server error",
-                "cause": {
-                    "name": "UNKNOWN_RECEIPT",
-                    "info": {
-                        "receipt_id": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"
-                    }
-                },
-                "name": "HANDLER_ERROR"
-            }
-        }"#;
-        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
-        let error = parsed.error.expect("error envelope present");
-        let client = RpcClient::new("https://example.com");
-        let result = client.parse_rpc_error(&error);
-        assert!(
-            matches!(result, RpcError::ReceiptNotFound(_)),
-            "expected ReceiptNotFound, got {:?}",
-            result
+    fn test_receipt_to_tx_causes_are_specific_to_that_method() {
+        // The indexer also sends `UNSUPPORTED`; it is not a receipt-to-tx error.
+        let error = handler_error(
+            "UNSUPPORTED",
+            Some(serde_json::json!({ "error_message": "no indexer" })),
+            Some("unsupported indexer request: no indexer".into()),
         );
+        assert!(matches!(
+            parse_method_rpc_error("EXPERIMENTAL_indexer_block", &error),
+            RpcError::Rpc { .. }
+        ));
+        assert!(matches!(
+            parse_method_rpc_error("EXPERIMENTAL_receipt_to_tx", &error),
+            RpcError::ReceiptToTx(ReceiptToTxError::Unsupported { .. })
+        ));
     }
 
     #[test]
     fn test_parse_rpc_error_no_contract_code() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "No contract code".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "NO_CONTRACT_CODE".to_string(),
-                info: Some(serde_json::json!({
-                    "contract_account_id": "no-contract.near",
-                    "block_height": 243803762,
-                    "block_hash": "11111111111111111111111111111111"
-                })),
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
+        let error = handler_error(
+            "NO_CONTRACT_CODE",
+            Some(serde_json::json!({
+                "contract_account_id": "no-contract.near",
+                "block_height": 243803762,
+                "block_hash": "11111111111111111111111111111111"
+            })),
+            None,
+        );
+        let result = parse_rpc_error(&error);
         assert!(matches!(
             result,
             RpcError::ContractNotDeployed {
@@ -3908,30 +3510,20 @@ mod tests {
     }
 
     fn no_global_contract_code_error(identifier: serde_json::Value) -> JsonRpcError {
-        JsonRpcError {
-            code: -32000,
-            message: "No global contract code".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "NO_GLOBAL_CONTRACT_CODE".to_string(),
-                info: Some(serde_json::json!({
-                    "identifier": identifier,
-                    "block_height": 100,
-                    "block_hash": "11111111111111111111111111111111"
-                })),
-            }),
-            name: None,
-        }
+        let info = serde_json::json!({
+            "identifier": identifier,
+            "block_height": 100,
+            "block_hash": "11111111111111111111111111111111"
+        });
+        handler_error("NO_GLOBAL_CONTRACT_CODE", Some(info), None)
     }
 
     #[test]
     fn test_parse_rpc_error_no_global_contract_code() {
-        let client = RpcClient::new("https://example.com");
-
         // Account-id identifier
         let error =
             no_global_contract_code_error(serde_json::json!({ "account_id": "publisher.near" }));
-        let result = client.parse_rpc_error(&error);
+        let result = parse_rpc_error(&error);
         match result {
             RpcError::GlobalContractNotFound {
                 identifier: GlobalContractIdentifierView::AccountId(id),
@@ -3949,7 +3541,7 @@ mod tests {
         let error = no_global_contract_code_error(
             serde_json::json!({ "hash": "11111111111111111111111111111111" }),
         );
-        let result = client.parse_rpc_error(&error);
+        let result = parse_rpc_error(&error);
         assert!(matches!(
             result,
             RpcError::GlobalContractNotFound {
@@ -3961,13 +3553,11 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_no_global_contract_code_pre_2_12_shape() {
-        let client = RpcClient::new("https://example.com");
-
         // Before nearcore#15539 (2.12.0), the identifier serialized with
         // variant names instead of the view field names.
         let error =
             no_global_contract_code_error(serde_json::json!({ "AccountId": "publisher.near" }));
-        let result = client.parse_rpc_error(&error);
+        let result = parse_rpc_error(&error);
         match result {
             RpcError::GlobalContractNotFound {
                 identifier: GlobalContractIdentifierView::AccountId(id),
@@ -3981,7 +3571,7 @@ mod tests {
         let error = no_global_contract_code_error(
             serde_json::json!({ "CodeHash": "11111111111111111111111111111111" }),
         );
-        let result = client.parse_rpc_error(&error);
+        let result = parse_rpc_error(&error);
         assert!(matches!(
             result,
             RpcError::GlobalContractNotFound {
@@ -3993,32 +3583,20 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_no_global_contract_code_unparseable_identifier() {
-        let client = RpcClient::new("https://example.com");
-
         // An unrecognized identifier shape must not demote the error to the
         // generic Rpc variant — the cause name alone identifies it.
         let error = no_global_contract_code_error(serde_json::json!({ "unexpected": 42 }));
-        let result = client.parse_rpc_error(&error);
+        let result = parse_rpc_error(&error);
         assert!(matches!(result, RpcError::GlobalContractNotFound { .. }));
 
         // Same when the identifier field is missing entirely.
-        let error = JsonRpcError {
-            code: -32000,
-            message: "No global contract code".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "NO_GLOBAL_CONTRACT_CODE".to_string(),
-                info: None,
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
+        let error = handler_error("NO_GLOBAL_CONTRACT_CODE", None, None);
+        let result = parse_rpc_error(&error);
         assert!(matches!(result, RpcError::GlobalContractNotFound { .. }));
     }
 
     #[test]
     fn test_parse_rpc_error_too_large_contract_state() {
-        let client = RpcClient::new("https://example.com");
         // Real wire payload from rpc.mainnet.near.org: nearcore keys the
         // account as `contract_account_id`, not `account_id`.
         let error: JsonRpcError = serde_json::from_value(serde_json::json!({
@@ -4036,7 +3614,7 @@ mod tests {
             }
         }))
         .unwrap();
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::ContractStateTooLarge {
                 account_id,
                 block_height,
@@ -4055,20 +3633,14 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_too_large_contract_state_legacy_account_id_key() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Contract state too large".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "TOO_LARGE_CONTRACT_STATE".to_string(),
-                info: Some(serde_json::json!({
-                    "account_id": "large-state.near"
-                })),
-            }),
-            name: None,
-        };
-        match client.parse_rpc_error(&error) {
+        let error = handler_error(
+            "TOO_LARGE_CONTRACT_STATE",
+            Some(serde_json::json!({
+                "account_id": "large-state.near"
+            })),
+            None,
+        );
+        match parse_rpc_error(&error) {
             RpcError::ContractStateTooLarge {
                 account_id,
                 block_height: None,
@@ -4082,112 +3654,20 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_too_large_contract_state_without_account_falls_through() {
-        let client = RpcClient::new("https://example.com");
         // No recognizable account key: don't invent "unknown", surface the
         // raw handler error instead.
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Contract state too large".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "TOO_LARGE_CONTRACT_STATE".to_string(),
-                info: Some(serde_json::json!({
-                    "block_height": 211889547
-                })),
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
+        let error = handler_error(
+            "TOO_LARGE_CONTRACT_STATE",
+            Some(serde_json::json!({
+                "block_height": 211889547
+            })),
+            None,
+        );
+        let result = parse_rpc_error(&error);
         assert!(
             matches!(result, RpcError::Rpc { code: -32000, .. }),
             "expected generic Rpc error, got {result:?}"
         );
-    }
-
-    #[test]
-    fn test_parse_rpc_error_unavailable_shard() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Shard unavailable".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "UNAVAILABLE_SHARD".to_string(),
-                info: None,
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::ShardUnavailable(_)));
-    }
-
-    #[test]
-    fn test_parse_rpc_error_not_synced() {
-        let client = RpcClient::new("https://example.com");
-
-        // NO_SYNCED_BLOCKS
-        let error = JsonRpcError {
-            code: -32000,
-            message: "No synced blocks".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "NO_SYNCED_BLOCKS".to_string(),
-                info: None,
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::NodeNotSynced(_)));
-
-        // NOT_SYNCED_YET
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Not synced yet".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "NOT_SYNCED_YET".to_string(),
-                info: None,
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::NodeNotSynced(_)));
-    }
-
-    #[test]
-    fn test_parse_rpc_error_invalid_shard_id() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Invalid shard ID".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "INVALID_SHARD_ID".to_string(),
-                info: Some(serde_json::json!({
-                    "shard_id": 99
-                })),
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::InvalidShardId(_)));
-    }
-
-    #[test]
-    fn test_parse_rpc_error_invalid_transaction() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Invalid transaction".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "INVALID_TRANSACTION".to_string(),
-                info: None,
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::InvalidTxUnparsed { .. }));
     }
 
     #[test]
@@ -4202,23 +3682,13 @@ mod tests {
     /// Build a `TIMEOUT_ERROR` exactly as nearcore 2.14 serializes it:
     /// `message: "Server error"`, `data: "Timeout"`, cause under `info`.
     fn timeout_error(info: Option<serde_json::Value>) -> JsonRpcError {
-        JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: Some(serde_json::json!("Timeout")),
-            cause: Some(ErrorCause {
-                name: "TIMEOUT_ERROR".to_string(),
-                info,
-            }),
-            name: Some("HANDLER_ERROR".to_string()),
-        }
+        handler_error("TIMEOUT_ERROR", info, Some(serde_json::json!("Timeout")))
     }
 
     fn parse_timeout(
         info: Option<serde_json::Value>,
     ) -> (Option<CryptoHash>, Option<TimeoutCause>) {
-        let client = RpcClient::new("https://example.com");
-        match client.parse_rpc_error(&timeout_error(info)) {
+        match parse_rpc_error(&timeout_error(info)) {
             RpcError::Timeout {
                 transaction_hash,
                 cause,
@@ -4358,57 +3828,17 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_rpc_error_parse_error() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32700,
-            message: "Parse error".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "PARSE_ERROR".to_string(),
-                info: None,
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::ParseError(_)));
-    }
-
-    #[test]
-    fn test_parse_rpc_error_internal_error() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32603,
-            message: "Internal error".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "INTERNAL_ERROR".to_string(),
-                info: None,
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::InternalError(_)));
-    }
-
-    #[test]
     fn test_parse_rpc_error_contract_execution_legacy() {
         // Legacy `query` endpoint includes contract_id and method_name in info
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Contract execution failed".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "CONTRACT_EXECUTION_ERROR".to_string(),
-                info: Some(serde_json::json!({
-                    "contract_id": "contract.near",
-                    "method_name": "my_method"
-                })),
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
+        let error = handler_error(
+            "CONTRACT_EXECUTION_ERROR",
+            Some(serde_json::json!({
+                "contract_id": "contract.near",
+                "method_name": "my_method"
+            })),
+            None,
+        );
+        let result = parse_rpc_error(&error);
         match result {
             RpcError::ContractExecution {
                 contract_id,
@@ -4426,24 +3856,18 @@ mod tests {
     fn test_parse_rpc_error_method_not_found_current_shape() {
         // EXPERIMENTAL_call_function omits contract_id/method_name from info,
         // but includes vm_error and a data string
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: Some(serde_json::json!(
+        let error = handler_error(
+            "CONTRACT_EXECUTION_ERROR",
+            Some(serde_json::json!({
+                "vm_error": { "MethodResolveError": "MethodNotFound" },
+                "block_height": 243803767,
+                "block_hash": "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+            })),
+            Some(serde_json::json!(
                 "Function call returned an error: MethodResolveError(MethodNotFound)"
             )),
-            cause: Some(ErrorCause {
-                name: "CONTRACT_EXECUTION_ERROR".to_string(),
-                info: Some(serde_json::json!({
-                    "vm_error": { "MethodResolveError": "MethodNotFound" },
-                    "block_height": 243803767,
-                    "block_hash": "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
-                })),
-            }),
-            name: Some("HANDLER_ERROR".to_string()),
-        };
-        let result = client.parse_rpc_error(&error);
+        );
+        let result = parse_rpc_error(&error);
         match result {
             RpcError::MethodNotFound {
                 contract_id,
@@ -4470,49 +3894,37 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_method_not_found_legacy_error_field() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "CONTRACT_EXECUTION_ERROR".to_string(),
-                info: Some(serde_json::json!({
-                    // The endpoint's initial structured shape called this
-                    // field `error`; current nearcore calls it `vm_error`.
-                    "error": { "MethodResolveError": "MethodNotFound" },
-                })),
-            }),
-            name: Some("HANDLER_ERROR".to_string()),
-        };
+        let error = handler_error(
+            "CONTRACT_EXECUTION_ERROR",
+            Some(serde_json::json!({
+                // The endpoint's initial structured shape called this
+                // field `error`; current nearcore calls it `vm_error`.
+                "error": { "MethodResolveError": "MethodNotFound" },
+            })),
+            None,
+        );
 
         assert!(matches!(
-            client.parse_rpc_error(&error),
+            parse_rpc_error(&error),
             RpcError::MethodNotFound { .. }
         ));
     }
 
     #[test]
     fn test_parse_rpc_error_contract_panic_current_shape() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "CONTRACT_EXECUTION_ERROR".to_string(),
-                info: Some(serde_json::json!({
-                    "vm_error": {
-                        "ExecutionError": "Smart contract panicked: invalid signature"
-                    },
-                    "block_height": 243803768,
-                    "block_hash": "11111111111111111111111111111111"
-                })),
-            }),
-            name: Some("HANDLER_ERROR".to_string()),
-        };
+        let error = handler_error(
+            "CONTRACT_EXECUTION_ERROR",
+            Some(serde_json::json!({
+                "vm_error": {
+                    "ExecutionError": "Smart contract panicked: invalid signature"
+                },
+                "block_height": 243803768,
+                "block_hash": "11111111111111111111111111111111"
+            })),
+            None,
+        );
 
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::ContractPanic {
                 message,
                 block_height: Some(243_803_768),
@@ -4526,29 +3938,23 @@ mod tests {
     fn test_parse_rpc_error_contract_panic_real_testnet_payload() {
         // Verbatim testnet `EXPERIMENTAL_call_function` response for a near-sdk
         // contract that panicked while deserializing its arguments.
-        let client = RpcClient::new("https://example.com");
         let panic_msg = "panicked at 'Failed to deserialize input from JSON.: Error(\"missing field `keys`\", line: 1, column: 2)', contract/src/api.rs:54:1";
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: Some(serde_json::json!(format!(
+        let error = handler_error(
+            "CONTRACT_EXECUTION_ERROR",
+            Some(serde_json::json!({
+                "vm_error": {
+                    "ExecutionError": format!("Smart contract panicked: {panic_msg}"),
+                },
+                "block_height": 263803636u64,
+                "block_hash": "B7UiEhkg1AeXvUoJUEaf8cqEc8Py7XhZ66vt7jJJUHw5",
+            })),
+            Some(serde_json::json!(format!(
                 "Function call returned an error: ExecutionError({:?})",
                 format!("Smart contract panicked: {panic_msg}")
             ))),
-            cause: Some(ErrorCause {
-                name: "CONTRACT_EXECUTION_ERROR".to_string(),
-                info: Some(serde_json::json!({
-                    "vm_error": {
-                        "ExecutionError": format!("Smart contract panicked: {panic_msg}"),
-                    },
-                    "block_height": 263803636u64,
-                    "block_hash": "B7UiEhkg1AeXvUoJUEaf8cqEc8Py7XhZ66vt7jJJUHw5",
-                })),
-            }),
-            name: Some("HANDLER_ERROR".to_string()),
-        };
+        );
 
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::ContractPanic {
                 message,
                 block_height,
@@ -4611,25 +4017,19 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_non_panic_execution_error_stays_generic() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "CONTRACT_EXECUTION_ERROR".to_string(),
-                info: Some(serde_json::json!({
-                    "vm_error": {
-                        "ExecutionError": "memory access violation"
-                    },
-                    "block_height": 243803769,
-                    "block_hash": "11111111111111111111111111111111"
-                })),
-            }),
-            name: Some("HANDLER_ERROR".to_string()),
-        };
+        let error = handler_error(
+            "CONTRACT_EXECUTION_ERROR",
+            Some(serde_json::json!({
+                "vm_error": {
+                    "ExecutionError": "memory access violation"
+                },
+                "block_height": 243803769,
+                "block_hash": "11111111111111111111111111111111"
+            })),
+            None,
+        );
 
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::ContractExecution {
                 message,
                 block_height: Some(243_803_769),
@@ -4644,27 +4044,21 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_contract_panic_legacy_guest_panic_shape() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: None,
-            cause: Some(ErrorCause {
-                name: "CONTRACT_EXECUTION_ERROR".to_string(),
-                info: Some(serde_json::json!({
-                    "error": {
-                        "HostError": {
-                            "GuestPanic": {
-                                "panic_msg": "legacy panic"
-                            }
+        let error = handler_error(
+            "CONTRACT_EXECUTION_ERROR",
+            Some(serde_json::json!({
+                "error": {
+                    "HostError": {
+                        "GuestPanic": {
+                            "panic_msg": "legacy panic"
                         }
-                    },
-                })),
-            }),
-            name: Some("HANDLER_ERROR".to_string()),
-        };
+                    }
+                },
+            })),
+            None,
+        );
 
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::ContractPanic { message, .. } => assert_eq!(message, "legacy panic"),
             other => panic!("Expected ContractPanic error, got {other:?}"),
         }
@@ -4673,30 +4067,24 @@ mod tests {
     #[test]
     fn test_parse_rpc_error_code_does_not_exist_experimental() {
         // EXPERIMENTAL_call_function returns CodeDoesNotExist as CONTRACT_EXECUTION_ERROR
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: Some(serde_json::json!(
+        let error = handler_error(
+            "CONTRACT_EXECUTION_ERROR",
+            Some(serde_json::json!({
+                "vm_error": {
+                    "CompilationError": {
+                        "CodeDoesNotExist": {
+                            "account_id": "nonexistent.testnet"
+                        }
+                    }
+                },
+                "block_height": 243803764,
+                "block_hash": "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+            })),
+            Some(serde_json::json!(
                 "Function call returned an error: CompilationError(CodeDoesNotExist { account_id: AccountId(\"nonexistent.testnet\") })"
             )),
-            cause: Some(ErrorCause {
-                name: "CONTRACT_EXECUTION_ERROR".to_string(),
-                info: Some(serde_json::json!({
-                    "vm_error": {
-                        "CompilationError": {
-                            "CodeDoesNotExist": {
-                                "account_id": "nonexistent.testnet"
-                            }
-                        }
-                    },
-                    "block_height": 243803764,
-                    "block_hash": "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
-                })),
-            }),
-            name: Some("HANDLER_ERROR".to_string()),
-        };
-        let result = client.parse_rpc_error(&error);
+        );
+        let result = parse_rpc_error(&error);
         match result {
             RpcError::ContractNotDeployed {
                 account_id,
@@ -4721,27 +4109,17 @@ mod tests {
     /// Build a `CONTRACT_EXECUTION_ERROR` whose only description of the
     /// failure is the string form: no structured `vm_error` anywhere.
     fn legacy_string_error(data: Option<&str>, info: Option<serde_json::Value>) -> JsonRpcError {
-        JsonRpcError {
-            code: -32000,
-            message: "Server error".to_string(),
-            data: data.map(|d| serde_json::json!(d)),
-            cause: Some(ErrorCause {
-                name: "CONTRACT_EXECUTION_ERROR".to_string(),
-                info,
-            }),
-            name: Some("HANDLER_ERROR".to_string()),
-        }
+        handler_error("CONTRACT_EXECUTION_ERROR", info, data.map(Value::from))
     }
 
     #[test]
     fn test_parse_rpc_error_legacy_string_method_not_found() {
-        let client = RpcClient::new("https://example.com");
         let error = legacy_string_error(
             Some("Function call returned an error: MethodResolveError(MethodNotFound)"),
             None,
         );
 
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::MethodNotFound {
                 contract_id,
                 method_name,
@@ -4759,7 +4137,6 @@ mod tests {
     fn test_parse_rpc_error_legacy_string_method_not_found_with_info_context() {
         // `info` is present (legacy `query` shape with contract/method and
         // block context) but carries no structured `vm_error`.
-        let client = RpcClient::new("https://example.com");
         let error = legacy_string_error(
             Some("Function call returned an error: MethodResolveError(MethodNotFound)"),
             Some(serde_json::json!({
@@ -4770,7 +4147,7 @@ mod tests {
             })),
         );
 
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::MethodNotFound {
                 contract_id,
                 method_name,
@@ -4795,7 +4172,6 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_legacy_string_code_does_not_exist() {
-        let client = RpcClient::new("https://example.com");
         let error = legacy_string_error(
             Some(
                 "Function call returned an error: CompilationError(CodeDoesNotExist { account_id: AccountId(\"nonexistent.testnet\") })",
@@ -4806,7 +4182,7 @@ mod tests {
             })),
         );
 
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::ContractNotDeployed {
                 account_id,
                 block_height: Some(243_803_764),
@@ -4820,7 +4196,6 @@ mod tests {
     fn test_parse_rpc_error_legacy_string_guest_panic_in_vm_error_string() {
         // Legacy `query` shape: `vm_error` is the Debug rendering as a string,
         // and there is no `data` at all.
-        let client = RpcClient::new("https://example.com");
         let error = legacy_string_error(
             None,
             Some(serde_json::json!({
@@ -4828,7 +4203,7 @@ mod tests {
             })),
         );
 
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::ContractPanic { message, .. } => {
                 assert_eq!(message, "assertion failed: \"a\" != \"b\"");
             }
@@ -4838,7 +4213,6 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_legacy_string_execution_error_panic() {
-        let client = RpcClient::new("https://example.com");
         let panic_msg = "panicked at 'Failed to deserialize input from JSON.: Error(\"missing field `keys`\", line: 1, column: 2)', contract/src/api.rs:54:1";
         let error = legacy_string_error(
             Some(&format!(
@@ -4848,7 +4222,7 @@ mod tests {
             None,
         );
 
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::ContractPanic { message, .. } => assert_eq!(message, panic_msg),
             other => panic!("Expected ContractPanic error, got {other:?}"),
         }
@@ -4856,7 +4230,6 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_legacy_string_unknown_stays_generic() {
-        let client = RpcClient::new("https://example.com");
         for data in [
             "Function call returned an error: WasmTrap(Unreachable)",
             // A non-panic ExecutionError shares the container variant with
@@ -4866,7 +4239,7 @@ mod tests {
             // make that variant the outer error.
             "Function call returned an error: LinkError { msg: \"MethodResolveError(MethodNotFound)\" }",
         ] {
-            match client.parse_rpc_error(&legacy_string_error(Some(data), None)) {
+            match parse_rpc_error(&legacy_string_error(Some(data), None)) {
                 RpcError::ContractExecution { message, .. } => assert_eq!(message, data),
                 other => panic!("Expected ContractExecution error for {data:?}, got {other:?}"),
             }
@@ -4877,7 +4250,6 @@ mod tests {
     fn test_parse_rpc_error_structured_vm_error_wins_over_legacy_string() {
         // When both shapes are present the structured field is authoritative,
         // even if the string disagrees.
-        let client = RpcClient::new("https://example.com");
         let error = legacy_string_error(
             Some("Function call returned an error: MethodResolveError(MethodNotFound)"),
             Some(serde_json::json!({
@@ -4885,7 +4257,7 @@ mod tests {
             })),
         );
 
-        match client.parse_rpc_error(&error) {
+        match parse_rpc_error(&error) {
             RpcError::ContractPanic { message, .. } => assert_eq!(message, "structured"),
             other => panic!("Expected ContractPanic error, got {other:?}"),
         }
@@ -4903,7 +4275,6 @@ mod tests {
 
     #[test]
     fn test_parse_rpc_error_fallback_account_not_exist() {
-        let client = RpcClient::new("https://example.com");
         let error = JsonRpcError {
             code: -32000,
             message: "Error".to_string(),
@@ -4913,30 +4284,23 @@ mod tests {
             cause: None,
             name: None,
         };
-        let result = client.parse_rpc_error(&error);
+        let result = parse_rpc_error(&error);
         assert!(matches!(result, RpcError::AccountNotFound { .. }));
     }
 
     #[test]
     fn test_parse_rpc_error_unknown_cause_fallback_to_generic() {
-        let client = RpcClient::new("https://example.com");
-        let error = JsonRpcError {
-            code: -32000,
-            message: "Some error".to_string(),
-            data: Some(serde_json::json!("some data")),
-            cause: Some(ErrorCause {
-                name: "UNKNOWN_ERROR_TYPE".to_string(),
-                info: None,
-            }),
-            name: None,
-        };
-        let result = client.parse_rpc_error(&error);
+        let error = handler_error(
+            "UNKNOWN_ERROR_TYPE",
+            None,
+            Some(serde_json::json!("some data")),
+        );
+        let result = parse_rpc_error(&error);
         assert!(matches!(result, RpcError::Rpc { .. }));
     }
 
     #[test]
     fn test_parse_rpc_error_no_cause_fallback_to_generic() {
-        let client = RpcClient::new("https://example.com");
         let error = JsonRpcError {
             code: -32600,
             message: "Invalid request".to_string(),
@@ -4944,7 +4308,7 @@ mod tests {
             cause: None,
             name: None,
         };
-        let result = client.parse_rpc_error(&error);
+        let result = parse_rpc_error(&error);
         match result {
             RpcError::Rpc { code, message, .. } => {
                 assert_eq!(code, -32600);
@@ -4954,107 +4318,185 @@ mod tests {
         }
     }
 
-    // ========================================================================
-    // non-2xx envelope decode tests
-    //
-    // nearcore returns HTTP 422 (UNKNOWN_BLOCK/UNKNOWN_CHUNK) and 408
-    // (TIMEOUT_ERROR) with a well-formed JSON-RPC error body. `try_request` now
-    // tries to decode that body before falling back to `RpcError::Network`.
-    // These tests verify the decode path on synthetic bodies without needing
-    // an HTTP mock harness.
-    // ========================================================================
-
-    #[test]
-    fn test_non_2xx_body_decodes_unknown_block() {
-        // Real-shape body nearcore returns with HTTP 422 for UNKNOWN_BLOCK.
-        let body = r#"{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {
-                "code": -32000,
-                "message": "Server error",
-                "data": "DB Not Found Error: BLOCK HEIGHT: 1",
-                "cause": {
-                    "name": "UNKNOWN_BLOCK",
-                    "info": {}
+    /// Non-2xx responses through the real `request` path: nearcore's typed
+    /// errors come through, a 4xx whose cause near-kit doesn't know stays a
+    /// non-retryable `Network` error (#189), and a 5xx keeps the body's own
+    /// retry classification.
+    #[tokio::test]
+    async fn test_non_2xx_responses_decode_and_keep_http_retry_classification() {
+        let handler = |cause, info, data: &str| rpc_error(Some(cause), info, data.into());
+        fn not_retryable_network(e: &RpcError, status: u16) -> bool {
+            matches!(e, RpcError::Network { status_code: Some(s), retryable: false, .. } if *s == status)
+        }
+        type Check = fn(&RpcError) -> bool;
+        // `(status, body, attempts with 2 retries allowed, expected error)`
+        let cases: [(u16, Vec<u8>, usize, Check); 10] = [
+            (
+                422,
+                handler(
+                    "UNKNOWN_BLOCK",
+                    serde_json::json!({}),
+                    "DB Not Found Error: BLOCK HEIGHT: 1",
+                ),
+                1,
+                |e| matches!(e, RpcError::BlockNotFound(_)),
+            ),
+            (
+                422,
+                handler(
+                    "UNKNOWN_CHUNK",
+                    serde_json::json!({ "chunk_hash": "3tMcx4v6hUzN7XeQgEr4kQb8R5rGvmM4Py7o4nP1T8bY" }),
+                    "Chunk Missing",
+                ),
+                1,
+                |e| matches!(e, RpcError::ChunkNotFound(_)),
+            ),
+            // nearcore 2.14's TIMEOUT_ERROR: retryable, so it is re-sent.
+            (
+                408,
+                handler(
+                    "TIMEOUT_ERROR",
+                    serde_json::json!({ "cause": "NOT_OBSERVED" }),
+                    "Timeout",
+                ),
+                3,
+                |e| {
+                    matches!(
+                        e,
+                        RpcError::Timeout { message, transaction_hash: None, cause: Some(TimeoutCause::NotObserved) }
+                            if message == "Server error"
+                    ) && e.is_retryable()
                 },
-                "name": "HANDLER_ERROR"
-            }
-        }"#;
-        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
-        let error = parsed.error.expect("error envelope present");
-        let client = RpcClient::new("https://example.com");
-        let result = client.parse_rpc_error(&error);
-        assert!(
-            matches!(result, RpcError::BlockNotFound(_)),
-            "expected BlockNotFound, got {:?}",
-            result
-        );
-    }
-
-    #[test]
-    fn test_non_2xx_body_decodes_unknown_chunk() {
-        // Real-shape body nearcore returns with HTTP 422 for UNKNOWN_CHUNK.
-        let body = r#"{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {
-                "code": -32000,
-                "message": "Server error",
-                "cause": {
-                    "name": "UNKNOWN_CHUNK",
-                    "info": {
-                        "chunk_hash": "3tMcx4v6hUzN7XeQgEr4kQb8R5rGvmM4Py7o4nP1T8bY"
+            ),
+            (
+                422,
+                rpc_error(
+                    Some("FUTURE_HANDLER_ERROR"),
+                    serde_json::json!({}),
+                    "details".into(),
+                ),
+                1,
+                |e| not_retryable_network(e, 422),
+            ),
+            (
+                418,
+                rpc_error(
+                    Some("SOME_UNMAPPED_CAUSE"),
+                    serde_json::json!({}),
+                    "details".into(),
+                ),
+                1,
+                |e| not_retryable_network(e, 418),
+            ),
+            // A 5xx keeps the generic error: a cause near-kit doesn't know
+            // isn't retried, a missing one is.
+            (
+                503,
+                rpc_error(
+                    Some("FUTURE_HANDLER_ERROR"),
+                    serde_json::json!({}),
+                    "details".into(),
+                ),
+                1,
+                |e| matches!(e, RpcError::Rpc { .. }),
+            ),
+            (
+                503,
+                rpc_error(None, serde_json::json!({}), "details".into()),
+                3,
+                |e| matches!(e, RpcError::Rpc { .. }),
+            ),
+            (
+                422,
+                b"<html><body><h1>422 Unprocessable Entity</h1></body></html>".to_vec(),
+                1,
+                |e| not_retryable_network(e, 422),
+            ),
+            // A JSON body without the `jsonrpc`/`id` envelope (a proxy or
+            // rate limiter, not nearcore) keeps the status's own retry
+            // classification, even if its `error` names a typed cause.
+            (
+                429,
+                br#"{"error":{"code":-32000,"message":"Too many requests"}}"#.to_vec(),
+                3,
+                |e| {
+                    matches!(
+                        e,
+                        RpcError::Network {
+                            status_code: Some(429),
+                            retryable: true,
+                            ..
+                        }
+                    )
+                },
+            ),
+            (
+                503,
+                serde_json::to_vec(&serde_json::json!({
+                    "error": {
+                        "code": -32000,
+                        "message": "Server error",
+                        "cause": { "name": "UNKNOWN_BLOCK", "info": {} }
                     }
+                }))
+                .unwrap(),
+                3,
+                |e| {
+                    matches!(
+                        e,
+                        RpcError::Network {
+                            status_code: Some(503),
+                            retryable: true,
+                            ..
+                        }
+                    )
                 },
-                "name": "HANDLER_ERROR"
-            }
-        }"#;
-        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
-        let error = parsed.error.expect("error envelope present");
-        let client = RpcClient::new("https://example.com");
-        let result = client.parse_rpc_error(&error);
-        assert!(
-            matches!(result, RpcError::ChunkNotFound(_)),
-            "expected ChunkNotFound, got {:?}",
-            result
-        );
+            ),
+        ];
+        for (status, body, attempts, is_expected) in cases {
+            let transport = CountingTransport::new(status, body);
+            let client = RpcClient::with_transport_and_retry_config(
+                "https://example.com",
+                transport.clone(),
+                fast_retries(2),
+            );
+            let error = client
+                .request::<_, serde_json::Value>(
+                    "block",
+                    serde_json::json!({ "finality": "final" }),
+                )
+                .await
+                .unwrap_err();
+            assert!(is_expected(&error), "HTTP {status}: {error:?}");
+            assert_eq!(transport.calls(), attempts, "HTTP {status}: {error:?}");
+        }
     }
 
-    #[test]
-    fn test_non_2xx_body_decodes_timeout() {
-        // Real-shape body nearcore 2.14 returns with HTTP 408 for TIMEOUT_ERROR
-        // (`RpcError::new_handler_error`: data is the error's Display, "Timeout").
-        let body = r#"{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {
-                "code": -32000,
-                "message": "Server error",
-                "data": "Timeout",
-                "cause": {
-                    "name": "TIMEOUT_ERROR",
-                    "info": { "cause": "NOT_OBSERVED" }
-                },
-                "name": "HANDLER_ERROR"
-            }
-        }"#;
-        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
-        let error = parsed.error.expect("error envelope present");
-        let client = RpcClient::new("https://example.com");
-        let result = client.parse_rpc_error(&error);
-        match result {
-            RpcError::Timeout {
-                ref message,
-                transaction_hash,
-                ref cause,
-            } => {
-                assert_eq!(message, "Server error");
-                assert!(transaction_hash.is_none());
-                assert!(matches!(cause, Some(TimeoutCause::NotObserved)));
-                assert!(result.is_retryable());
-            }
-            _ => panic!("expected Timeout, got {:?}", result),
+    /// A 2xx body must carry the JSON-RPC envelope: without `jsonrpc` and a
+    /// numeric `id` it is a JSON decode error (with its serde `source()`),
+    /// not a missing result.
+    #[tokio::test]
+    async fn test_2xx_body_without_envelope_is_a_json_error() {
+        let bodies: [&[u8]; 3] = [
+            b"{}",
+            br#"{"jsonrpc":"2.0","id":null,"result":{}}"#,
+            br#"{"result":{}}"#,
+        ];
+        for body in bodies {
+            let transport = CountingTransport::new(200, body);
+            let error = transport
+                .client()
+                .request::<_, serde_json::Value>("status", serde_json::json!([]))
+                .await
+                .unwrap_err();
+            let shown = String::from_utf8_lossy(body);
+            assert!(matches!(error, RpcError::Json(_)), "{shown}: {error:?}");
+            assert!(
+                std::error::Error::source(&error).is_some(),
+                "{shown}: {error:?}"
+            );
+            assert!(!error.is_retryable(), "{shown}: {error:?}");
+            assert_eq!(transport.calls(), 1, "{shown}");
         }
     }
 
@@ -5064,24 +4506,14 @@ mod tests {
         // re-sending the *same* signed bytes (nearcore treats a resubmission
         // of a known tx as "keep waiting"), never re-signs, and the final
         // error carries the caller-known hash so the caller can poll by hash.
-        let body = serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": {
-                    "name": "TIMEOUT_ERROR",
-                    "info": {
-                        "cause": "PENDING",
-                        "status": { "final_execution_status": "INCLUDED" }
-                    }
-                },
-                "code": -32000,
-                "message": "Server error",
-                "data": "Timeout",
-            },
-        }))
-        .unwrap();
+        let body = rpc_error(
+            Some("TIMEOUT_ERROR"),
+            serde_json::json!({
+                "cause": "PENDING",
+                "status": { "final_execution_status": "INCLUDED" }
+            }),
+            "Timeout".into(),
+        );
         let transport = CountingTransport::new(408, body);
         let client = RpcClient::with_transport_and_retry_config(
             "https://example.com",
@@ -5124,346 +4556,35 @@ mod tests {
     }
 
     #[test]
-    fn test_non_2xx_html_body_falls_back_to_network() {
-        // Non-JSON bodies (HTML error pages from proxies, gateways, etc.)
-        // must still fall through to `RpcError::Network` with the status code
-        // preserved. We verify the decode-attempt fails so try_request's fallback
-        // path kicks in.
-        let body = "<html><body><h1>422 Unprocessable Entity</h1></body></html>";
-        let parsed = serde_json::from_str::<JsonRpcResponse>(body);
-        assert!(
-            parsed.is_err(),
-            "HTML body must fail to parse as JsonRpcResponse so try_request falls back to Network"
-        );
-
-        // Confirm the fallback produces the expected shape (same call try_request
-        // makes once the decode attempt fails).
-        let fallback = RpcError::network(format!("HTTP {}: {}", 422, body), Some(422), false);
-        match fallback {
-            RpcError::Network {
-                status_code,
-                retryable,
-                ..
-            } => {
-                assert_eq!(status_code, Some(422));
-                assert!(!retryable, "422 should not be retryable");
-            }
-            _ => panic!("expected Network error"),
-        }
-    }
-
-    // ========================================================================
-    // preserve_http_retry_classification tests
-    //
-    // Regression coverage for PR #189: 4xx responses with unrecognized
-    // handler causes must stay non-retryable. Without the downgrade, a
-    // 422 + unknown cause would become `RpcError::Rpc { code: -32000 }`,
-    // which `is_retryable()` treats as retryable — causing extra retry
-    // loops for deterministic client-side failures.
-    // ========================================================================
-
-    #[test]
-    fn test_non_2xx_unknown_cause_4xx_downgrades_to_network() {
-        // 422 with a fictional unknown handler cause. nearcore (or a gateway)
-        // may introduce new cause names we don't yet map — those must retain
-        // the pre-decode classification (non-retryable on 4xx).
-        let body = r#"{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {
-                "code": -32000,
-                "message": "Server error",
-                "cause": {
-                    "name": "FUTURE_HANDLER_ERROR",
-                    "info": {}
-                },
-                "name": "HANDLER_ERROR"
-            }
-        }"#;
-        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
-        let error = parsed.error.expect("error envelope present");
-        let client = RpcClient::new("https://example.com");
-        let parsed_err = client.parse_rpc_error(&error);
-        // Sanity check: the parse step itself returns the generic Rpc variant
-        // because the cause name isn't mapped. The downgrade is what fixes it.
-        assert!(matches!(parsed_err, RpcError::Rpc { .. }));
-
-        let result = preserve_http_retry_classification(parsed_err, 422, body);
-        match result {
-            RpcError::Network {
-                status_code,
-                retryable,
-                ..
-            } => {
-                assert_eq!(status_code, Some(422));
-                assert!(!retryable, "4xx must never be retryable");
-            }
-            _ => panic!(
-                "expected Network error for 4xx + unknown cause, got {:?}",
-                result
-            ),
-        }
-    }
-
-    #[test]
-    fn test_non_2xx_unknown_cause_418_downgrades_to_network() {
-        // Same principle on a different 4xx code — 4xx is 4xx regardless of
-        // which specific code the upstream returns.
-        let body = r#"{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {
-                "code": -32000,
-                "message": "I'm a teapot",
-                "cause": {
-                    "name": "SOME_UNMAPPED_CAUSE",
-                    "info": {}
-                },
-                "name": "HANDLER_ERROR"
-            }
-        }"#;
-        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
-        let error = parsed.error.expect("error envelope present");
-        let client = RpcClient::new("https://example.com");
-        let parsed_err = client.parse_rpc_error(&error);
-        let result = preserve_http_retry_classification(parsed_err, 418, body);
-        match result {
-            RpcError::Network {
-                status_code,
-                retryable,
-                ..
-            } => {
-                assert_eq!(status_code, Some(418));
-                assert!(!retryable, "4xx must never be retryable");
-            }
-            _ => panic!(
-                "expected Network error for 4xx + unknown cause, got {:?}",
-                result
-            ),
-        }
-    }
-
-    #[test]
-    fn test_non_2xx_typed_variant_passes_through_unchanged() {
-        // Typed variants (BlockNotFound, Timeout, etc.) have well-known
-        // retry semantics and must not be downgraded — even on a 4xx status.
-        let body = r#"{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {
-                "code": -32000,
-                "message": "Server error",
-                "data": "DB Not Found Error: BLOCK HEIGHT: 1",
-                "cause": {
-                    "name": "UNKNOWN_BLOCK",
-                    "info": {}
-                },
-                "name": "HANDLER_ERROR"
-            }
-        }"#;
-        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
-        let error = parsed.error.expect("error envelope present");
-        let client = RpcClient::new("https://example.com");
-        let parsed_err = client.parse_rpc_error(&error);
-        let result = preserve_http_retry_classification(parsed_err, 422, body);
-        assert!(
-            matches!(result, RpcError::BlockNotFound(_)),
-            "typed BlockNotFound must pass through, got {:?}",
-            result
-        );
-    }
-
-    #[test]
-    fn test_non_2xx_unknown_cause_5xx_left_as_rpc() {
-        // 5xx + unknown cause is plausibly a transient server-side issue; keep
-        // the generic Rpc variant so existing retry semantics still apply.
-        let body = r#"{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {
-                "code": -32000,
-                "message": "Server error",
-                "cause": {
-                    "name": "FUTURE_HANDLER_ERROR",
-                    "info": {}
-                },
-                "name": "HANDLER_ERROR"
-            }
-        }"#;
-        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
-        let error = parsed.error.expect("error envelope present");
-        let client = RpcClient::new("https://example.com");
-        let parsed_err = client.parse_rpc_error(&error);
-        let result = preserve_http_retry_classification(parsed_err, 503, body);
-        assert!(
-            matches!(result, RpcError::Rpc { .. }),
-            "5xx + unknown cause should remain Rpc, got {:?}",
-            result
-        );
-    }
-
-    // ========================================================================
-    // block_id_or_null tests
-    // ========================================================================
-
-    #[test]
-    fn test_block_id_or_null_with_none() {
-        let result = block_id_or_null(None);
-        assert!(result.is_null());
-    }
-
-    #[test]
-    fn test_block_id_or_null_with_height() {
-        let block = BlockReference::Height(12345);
-        let result = block_id_or_null(Some(&block));
-        assert_eq!(result, serde_json::json!(12345));
-    }
-
-    #[test]
-    fn test_block_id_or_null_with_hash() {
+    fn test_block_id_or_null_keeps_only_heights_and_hashes() {
         let hash = CryptoHash::hash(b"test block");
-        let block = BlockReference::Hash(hash);
-        let result = block_id_or_null(Some(&block));
-        assert_eq!(result, serde_json::json!(hash.to_string()));
+        assert!(block_id_or_null(None).is_null());
+        assert_eq!(
+            block_id_or_null(Some(&BlockReference::Height(12345))),
+            serde_json::json!(12345)
+        );
+        assert_eq!(
+            block_id_or_null(Some(&BlockReference::Hash(hash))),
+            serde_json::json!(hash.to_string())
+        );
+        for latest in [
+            BlockReference::Finality(Finality::Final),
+            BlockReference::Finality(Finality::Optimistic),
+            BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis),
+        ] {
+            assert!(block_id_or_null(Some(&latest)).is_null(), "{latest:?}");
+        }
     }
-
-    #[test]
-    fn test_block_id_or_null_with_finality_falls_back_to_null() {
-        let block = BlockReference::Finality(Finality::Final);
-        let result = block_id_or_null(Some(&block));
-        assert!(result.is_null(), "finality variants should map to null");
-
-        let block = BlockReference::Finality(Finality::Optimistic);
-        let result = block_id_or_null(Some(&block));
-        assert!(result.is_null(), "optimistic should map to null");
-    }
-
-    #[test]
-    fn test_block_id_or_null_with_sync_checkpoint_falls_back_to_null() {
-        let block = BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis);
-        let result = block_id_or_null(Some(&block));
-        assert!(result.is_null(), "sync checkpoint should map to null");
-    }
-
-    // ========================================================================
-    // Tracing event tests
-    // ========================================================================
 
     /// The library must not log above DEBUG for errors it hands back to the
     /// caller. These install a capturing subscriber and check the level and
     /// fields of every event `RpcClient::request` emits.
     #[cfg(feature = "tracing")]
     mod tracing_events {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::{Arc, Mutex, Once};
-
-        use tracing::field::{Field, Visit};
-        use tracing::subscriber::Interest;
-        use tracing::{Event, Level, Subscriber, span};
-        use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+        use tracing::Level;
 
         use super::*;
-
-        /// A captured event: its level plus every field rendered as text.
-        #[derive(Clone, Debug)]
-        struct CapturedEvent {
-            level: Level,
-            fields: Vec<(&'static str, String)>,
-        }
-
-        impl CapturedEvent {
-            fn field(&self, name: &str) -> Option<&str> {
-                self.fields
-                    .iter()
-                    .find(|(n, _)| *n == name)
-                    .map(|(_, v)| v.as_str())
-            }
-
-            fn message(&self) -> Option<&str> {
-                self.field("message")
-            }
-        }
-
-        struct FieldVisitor<'a>(&'a mut Vec<(&'static str, String)>);
-
-        impl Visit for FieldVisitor<'_> {
-            fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-                self.0.push((field.name(), format!("{value:?}")));
-            }
-
-            fn record_str(&mut self, field: &Field, value: &str) {
-                self.0.push((field.name(), value.to_string()));
-            }
-        }
-
-        #[derive(Clone, Default)]
-        struct EventLog(Arc<Mutex<Vec<CapturedEvent>>>);
-
-        impl<S: Subscriber> Layer<S> for EventLog {
-            fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-                let mut fields = Vec::new();
-                event.record(&mut FieldVisitor(&mut fields));
-                self.0.lock().unwrap().push(CapturedEvent {
-                    level: *event.metadata().level(),
-                    fields,
-                });
-            }
-        }
-
-        /// Permanent, do-nothing global subscriber that keeps callsites
-        /// "sometimes" interested.
-        ///
-        /// `tracing` caches each callsite's interest process-wide. While only
-        /// one dispatcher is registered, that cache is rebuilt from whichever
-        /// thread's *current* dispatcher first hits the callsite; a sibling
-        /// test driving the same RPC path on another thread with no subscriber
-        /// pins it to `never`, and the thread-scoped `EventLog` below never
-        /// sees the event (`cargo test --lib -- error` reproduced this).
-        /// Registering a second dispatcher that answers `sometimes` forces the
-        /// per-event `enabled` check to consult the thread-local subscriber
-        /// instead, so the scoped log is honored whatever the scheduling.
-        struct KeepAlive;
-
-        impl Subscriber for KeepAlive {
-            fn register_callsite(&self, _: &'static tracing::Metadata<'static>) -> Interest {
-                Interest::sometimes()
-            }
-
-            fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
-                false
-            }
-
-            fn new_span(&self, _: &span::Attributes<'_>) -> span::Id {
-                span::Id::from_u64(1)
-            }
-
-            fn record(&self, _: &span::Id, _: &span::Record<'_>) {}
-
-            fn record_follows_from(&self, _: &span::Id, _: &span::Id) {}
-
-            fn event(&self, _: &Event<'_>) {}
-
-            fn enter(&self, _: &span::Id) {}
-
-            fn exit(&self, _: &span::Id) {}
-        }
-
-        impl EventLog {
-            /// Install as the thread-default subscriber for the current test.
-            fn install(&self) -> tracing::subscriber::DefaultGuard {
-                static KEEP_ALIVE: Once = Once::new();
-                // Ignore the error: another global default is just as good
-                // for our purpose (anything but the no-op default works).
-                KEEP_ALIVE.call_once(|| {
-                    let _ = tracing::subscriber::set_global_default(KeepAlive);
-                });
-                tracing::subscriber::set_default(tracing_subscriber::registry().with(self.clone()))
-            }
-
-            fn events(&self) -> Vec<CapturedEvent> {
-                self.0.lock().unwrap().clone()
-            }
-        }
+        use crate::client::test_rpc::tracing_capture::{CapturedEvent, EventLog};
 
         fn assert_nothing_above_debug(events: &[CapturedEvent]) {
             let loud: Vec<_> = events
@@ -5474,34 +4595,6 @@ mod tests {
                 loud.is_empty(),
                 "expected no events above DEBUG, got: {loud:?}"
             );
-        }
-
-        /// Fails the first request with a retryable HTTP status, then succeeds.
-        struct FlakyTransport {
-            calls: AtomicUsize,
-        }
-
-        impl RpcTransport for FlakyTransport {
-            fn post_json(
-                &self,
-                _url: &str,
-                _body: Vec<u8>,
-            ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-                let attempt = self.calls.fetch_add(1, Ordering::SeqCst);
-                Box::pin(async move {
-                    Ok(if attempt == 0 {
-                        TransportResponse {
-                            status: 503,
-                            body: b"upstream unavailable".to_vec(),
-                        }
-                    } else {
-                        TransportResponse {
-                            status: 200,
-                            body: br#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#.to_vec(),
-                        }
-                    })
-                })
-            }
         }
 
         #[tokio::test]
@@ -5556,9 +4649,11 @@ mod tests {
             let log = EventLog::default();
             let _guard = log.install();
 
-            let transport = Arc::new(FlakyTransport {
-                calls: AtomicUsize::new(0),
-            });
+            // Fails the first request with a retryable HTTP status, then succeeds.
+            let transport = CountingTransport::queue([
+                (503, b"upstream unavailable".to_vec()),
+                (200, rpc_result(serde_json::json!({ "ok": true }))),
+            ]);
             let client = RpcClient::with_transport_and_retry_config(
                 "https://example.com",
                 transport.clone(),
@@ -5574,7 +4669,7 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(result["ok"], true);
-            assert_eq!(transport.calls.load(Ordering::SeqCst), 2);
+            assert_eq!(transport.calls(), 2);
 
             let events = log.events();
             assert_nothing_above_debug(&events);
@@ -5589,25 +4684,8 @@ mod tests {
         }
     }
 
-    // ========================================================================
-    // Block metadata on typed `query` views
-    // ========================================================================
-
     fn rpc_with_result(result: serde_json::Value) -> RpcClient {
-        let body = serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "result": result,
-        }))
-        .unwrap();
-        RpcClient::with_transport_and_retry_config(
-            "https://example.com",
-            Arc::new(StaticResponseTransport { body }),
-            RetryConfig {
-                max_retries: 0,
-                ..RetryConfig::default()
-            },
-        )
+        CountingTransport::results([result]).client()
     }
 
     const QUERY_BLOCK_HASH: &str = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj";

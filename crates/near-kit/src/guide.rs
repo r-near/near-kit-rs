@@ -1,8 +1,5 @@
 //! Task-oriented guides to near-kit, one chapter per topic.
 //!
-//! Each chapter starts with when you need it, then works through tasks with
-//! examples that compile as doctests.
-//!
 //! | Chapter | Covers |
 //! |---------|--------|
 //! | [`clients`] | `Near` and `SigningNear`, networks and RPC endpoints, client settings |

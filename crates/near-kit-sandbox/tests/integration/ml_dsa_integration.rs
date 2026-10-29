@@ -13,7 +13,7 @@ use near_kit::protocol::Action;
 use near_kit::*;
 use near_kit::{signer::*, transaction::Final};
 
-use super::support::{sandbox_2_13, unique_account};
+use super::support::{funded_account, sandbox_2_13, unique_account};
 
 /// Protocol version that ships ML-DSA-65 (NEAR 2.13 / v85).
 const ML_DSA_PROTOCOL_VERSION: u32 = 85;
@@ -33,7 +33,6 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
         status.protocol_version
     );
 
-    // Deterministic ML-DSA-65 key from a fixed 32-byte seed.
     let ml_dsa_key = SecretKey::ml_dsa65_from_seed([42u8; 32]);
     let public_key = ml_dsa_key.public_key();
     assert_eq!(public_key.key_type(), KeyType::MlDsa65);
@@ -77,17 +76,7 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
 
     // Now sign a transfer FROM this account using the ML-DSA-65 secret key.
     // Acceptance proves the node verified an ML-DSA-65 signature.
-    let recipient = unique_account("mldsa");
-    let recipient_key = SecretKey::generate_ed25519();
-    near.wait_until::<Final>()
-        .transaction(&recipient)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(1)))
-        .add_action(Action::add_full_access_key(recipient_key.public_key()))
-        .await
-        .unwrap()
-        .result()
-        .unwrap();
+    let (_, recipient, _) = funded_account(&near, &sandbox, "mldsa", NearToken::from_near(1)).await;
 
     let signed = sandbox
         .root_account()

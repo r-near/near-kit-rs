@@ -3,8 +3,6 @@
 //! account and a state init sets it up; at protocol 87, before universal
 //! accounts, the transfer is rejected with
 //! `TransferToUniversalAccountNotAllowed`.
-//!
-//! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
 use near_kit::protocol::Action;
 use near_kit::*;
@@ -210,7 +208,7 @@ async fn test_transfer_to_universal_account() {
             .await
             .expect_err("0u account must not exist before the transfer");
         assert!(
-            missing.is_account_not_found(),
+            matches!(missing, RpcError::AccountNotFound { .. }),
             "expected AccountNotFound before the transfer, got {missing:?}"
         );
 

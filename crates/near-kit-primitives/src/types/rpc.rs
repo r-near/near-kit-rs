@@ -5,7 +5,7 @@ use std::ops::Deref;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
-use serde_with::{base64::Base64, serde_as};
+use serde_with::{DisplayFromStr, PickFirst, base64::Base64, serde_as};
 
 use crate::error::OutcomeError;
 
@@ -23,22 +23,10 @@ use super::transaction::{NonceMode, TransactionNonce};
 use super::{AccountId, CryptoHash, Gas, NearToken, Nonce, PublicKey, PublicKeyHandle, Signature};
 use crate::error::ActionViewConversionError;
 
-// ============================================================================
-// Constants
-// ============================================================================
-
-/// Cost per byte of storage in yoctoNEAR.
-///
-/// This is a protocol constant (10^19 yoctoNEAR per byte = 0.00001 NEAR/byte).
-/// It has remained unchanged since NEAR genesis and would require a hard fork
-/// to modify. Used for calculating available balance.
-///
-/// See: <https://docs.near.org/concepts/storage/storage-staking>
-pub const STORAGE_AMOUNT_PER_BYTE: u128 = 10_000_000_000_000_000_000; // 10^19 yoctoNEAR
-
-// ============================================================================
-// Account types
-// ============================================================================
+/// Cost per byte of storage in yoctoNEAR (0.00001 NEAR), a protocol constant
+/// used for the available balance. See
+/// <https://docs.near.org/concepts/storage/storage-staking>.
+pub const STORAGE_AMOUNT_PER_BYTE: u128 = 10_000_000_000_000_000_000;
 
 /// Account information from view_account RPC.
 #[derive(Debug, Clone, Deserialize)]
@@ -55,17 +43,14 @@ pub struct AccountView {
     #[serde(default)]
     pub storage_paid_at: u64,
     /// Global contract code hash (if using a global contract).
-    #[serde(default)]
     pub global_contract_hash: Option<CryptoHash>,
     /// Global contract account ID (if using a global contract by account).
-    #[serde(default)]
     pub global_contract_account_id: Option<AccountId>,
     /// Whether the account's state is installed (see [`AccountState`]).
     #[serde(default)]
     pub state: AccountState,
     /// Last used nonce of an uninitialized universal account (`None` once
     /// initialized). The state init transaction must use `bootstrap_nonce + 1`.
-    #[serde(default)]
     pub bootstrap_nonce: Option<u64>,
     /// Block height of the query.
     pub block_height: u64,
@@ -86,52 +71,20 @@ pub enum AccountState {
     Uninitialized,
 }
 
-impl AccountState {
-    /// Whether the account's state has been installed.
-    pub fn is_initialized(self) -> bool {
-        self == Self::Initialized
-    }
-}
-
 impl AccountView {
-    /// Calculate the total NEAR required for storage.
-    fn storage_required(&self) -> NearToken {
-        let yocto = STORAGE_AMOUNT_PER_BYTE.saturating_mul(self.storage_usage as u128);
-        NearToken::from_yoctonear(yocto)
-    }
-
-    /// Get available (spendable) balance.
-    ///
-    /// This accounts for the protocol rule that staked tokens count towards
-    /// the storage requirement:
-    /// - available = amount - max(0, storage_required - locked)
-    ///
-    /// If staked >= storage cost, all liquid balance is available.
-    /// If staked < storage cost, some liquid balance is reserved for storage.
+    /// Get available (spendable) balance: `amount` minus
+    /// [`storage_cost`](Self::storage_cost). Staked tokens count towards the
+    /// storage requirement, so if `locked` covers it all of `amount` is
+    /// available.
     pub fn available(&self) -> NearToken {
-        let storage_required = self.storage_required();
-
-        // If staked covers storage, all liquid is available
-        if self.locked >= storage_required {
-            return self.amount;
-        }
-
-        // Otherwise, reserve the difference from liquid balance
-        let reserved_for_storage = storage_required.saturating_sub(self.locked);
-        self.amount.saturating_sub(reserved_for_storage)
+        self.amount.saturating_sub(self.storage_cost())
     }
 
-    /// Get the amount of NEAR reserved for storage costs.
-    ///
-    /// This is calculated as: max(0, storage_required - locked)
+    /// Get the amount of NEAR reserved for storage costs:
+    /// `max(0, storage_usage * STORAGE_AMOUNT_PER_BYTE - locked)`.
     pub fn storage_cost(&self) -> NearToken {
-        let storage_required = self.storage_required();
-
-        if self.locked >= storage_required {
-            NearToken::ZERO
-        } else {
-            storage_required.saturating_sub(self.locked)
-        }
+        let required = STORAGE_AMOUNT_PER_BYTE.saturating_mul(u128::from(self.storage_usage));
+        NearToken::from_yoctonear(required).saturating_sub(self.locked)
     }
 
     /// Check if this account has a deployed contract.
@@ -197,7 +150,6 @@ pub struct AccessKeyDetails {
 
 /// Access key permission from RPC.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "PascalCase")]
 pub enum AccessKeyPermissionView {
     /// Full access.
     FullAccess,
@@ -247,7 +199,6 @@ pub struct AccessKeyListView {
     /// Pagination cursor. `Some` means this page was truncated: pass it as
     /// `after_key` to fetch the keys after it. `None` means this was the last
     /// page (or the full list).
-    #[serde(default)]
     pub last_key: Option<PublicKeyHandle>,
     /// Block height of the query.
     pub block_height: u64,
@@ -279,10 +230,6 @@ pub struct GasKeyNoncesView {
     /// Block hash of the query.
     pub block_hash: CryptoHash,
 }
-
-// ============================================================================
-// view_state
-// ============================================================================
 
 /// A single contract state entry (key/value), as returned by `view_state`.
 ///
@@ -330,8 +277,7 @@ pub struct ViewStateResult {
 ///
 /// The type derefs to `[StateItem]` and iterates over its entries, so
 /// `result.len()`, `result.iter()`, `&result[0]` and `for item in result` all
-/// work directly; use [`ViewStateAllResult::into_values`] to take ownership of
-/// the entries alone.
+/// work directly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViewStateAllResult {
     /// Every contract state entry matching the prefix, in trie order.
@@ -341,13 +287,6 @@ pub struct ViewStateAllResult {
     /// Block hash the state was read at (taken from the first page); every
     /// page was read against this hash.
     pub block_hash: CryptoHash,
-}
-
-impl ViewStateAllResult {
-    /// Consume the result and return just the state entries.
-    pub fn into_values(self) -> Vec<StateItem> {
-        self.values
-    }
 }
 
 impl Deref for ViewStateAllResult {
@@ -376,10 +315,6 @@ impl<'a> IntoIterator for &'a ViewStateAllResult {
     }
 }
 
-// ============================================================================
-// view_code / view_global_contract_code
-// ============================================================================
-
 /// A contract's WASM code and its hash, as returned by `view_code` and
 /// `view_global_contract_code` queries.
 ///
@@ -400,10 +335,6 @@ pub struct ContractCodeView {
     /// Block hash of the query.
     pub block_hash: CryptoHash,
 }
-
-// ============================================================================
-// Stabilized RPC method responses (protocol 2.13)
-// ============================================================================
 
 /// One entry in a [`BlockEffects`] response: which kind of state was touched
 /// for an account in the block.
@@ -457,10 +388,6 @@ pub struct MaintenanceWindow {
     pub end: u64,
 }
 
-// ============================================================================
-// Block types
-// ============================================================================
-
 /// Block information from block RPC.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlockView {
@@ -478,7 +405,6 @@ pub struct BlockHeaderView {
     /// Block height.
     pub height: u64,
     /// Previous block height (may be None for genesis).
-    #[serde(default)]
     pub prev_height: Option<u64>,
     /// Block hash.
     pub hash: CryptoHash,
@@ -513,7 +439,6 @@ pub struct BlockHeaderView {
     /// Gas price for this block.
     pub gas_price: NearToken,
     /// Block ordinal (may be None).
-    #[serde(default)]
     pub block_ordinal: Option<u64>,
     /// Total supply of NEAR tokens.
     pub total_supply: NearToken,
@@ -533,10 +458,8 @@ pub struct BlockHeaderView {
     /// Block merkle root.
     pub block_merkle_root: CryptoHash,
     /// Epoch sync data hash (optional).
-    #[serde(default)]
     pub epoch_sync_data_hash: Option<CryptoHash>,
     /// Block body hash (optional, added in later protocol versions).
-    #[serde(default)]
     pub block_body_hash: Option<CryptoHash>,
     /// Block approvals (nullable signatures).
     #[serde(default)]
@@ -546,61 +469,25 @@ pub struct BlockHeaderView {
     /// Latest protocol version.
     pub latest_protocol_version: u32,
     /// Rent paid (deprecated; when present, always 0).
-    #[serde(default)]
     pub rent_paid: Option<NearToken>,
     /// Validator reward (deprecated; when present, always 0).
-    #[serde(default)]
     pub validator_reward: Option<NearToken>,
     /// Chunk endorsements (optional).
-    #[serde(default)]
     pub chunk_endorsements: Option<Vec<Vec<u8>>>,
     /// Shard split info (optional).
-    #[serde(default)]
     pub shard_split: Option<(u64, AccountId)>,
 }
 
-/// Validator stake (versioned).
-///
-/// Used for validator proposals in block/chunk headers.
+/// Validator stake, as listed in validator proposals in block and chunk
+/// headers.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum ValidatorStakeView {
-    /// Version 1 (current).
-    V1(ValidatorStakeViewV1),
-}
-
-/// Validator stake data.
-#[derive(Debug, Clone, Deserialize)]
-pub struct ValidatorStakeViewV1 {
+pub struct ValidatorStakeView {
     /// Validator account ID.
     pub account_id: AccountId,
     /// Public key.
     pub public_key: PublicKey,
     /// Stake amount.
     pub stake: NearToken,
-}
-
-impl ValidatorStakeView {
-    /// Get the inner V1 data.
-    pub fn into_v1(self) -> ValidatorStakeViewV1 {
-        match self {
-            Self::V1(v) => v,
-        }
-    }
-
-    /// Get the account ID.
-    pub fn account_id(&self) -> &AccountId {
-        match self {
-            Self::V1(v) => &v.account_id,
-        }
-    }
-
-    /// Get the stake amount.
-    pub fn stake(&self) -> NearToken {
-        match self {
-            Self::V1(v) => v.stake,
-        }
-    }
 }
 
 /// Slashed validator from challenge results.
@@ -649,21 +536,13 @@ pub struct ChunkHeaderView {
     #[serde(default)]
     pub validator_proposals: Vec<ValidatorStakeView>,
     /// Congestion info (optional, added in later protocol versions).
-    #[serde(default)]
     pub congestion_info: Option<CongestionInfoView>,
     /// Bandwidth requests (optional, added in later protocol versions).
-    #[serde(default)]
     pub bandwidth_requests: Option<BandwidthRequests>,
     /// Rent paid (deprecated; when present, always 0).
-    #[serde(default)]
     pub rent_paid: Option<NearToken>,
-    /// Proposed trie split for resharding.
-    ///
-    /// - `None` — field absent (older protocol versions)
-    /// - `Some(None)` — field present as JSON `null` (no split proposed)
-    /// - `Some(Some(split))` — active split proposal
-    #[serde(default)]
-    pub proposed_split: Option<Option<TrieSplit>>,
+    /// Proposed trie split for resharding (`None` when absent or `null`).
+    pub proposed_split: Option<TrieSplit>,
     /// Chunk signature.
     pub signature: Signature,
 }
@@ -710,13 +589,16 @@ pub struct TrieSplit {
 }
 
 /// Congestion information for a shard.
+#[serde_as]
 #[derive(Debug, Clone, Deserialize)]
 pub struct CongestionInfoView {
     /// Gas used by delayed receipts.
-    #[serde(default, deserialize_with = "dec_format")]
+    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
+    #[serde(default)]
     pub delayed_receipts_gas: u128,
     /// Gas used by buffered receipts.
-    #[serde(default, deserialize_with = "dec_format")]
+    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
+    #[serde(default)]
     pub buffered_receipts_gas: u128,
     /// Bytes used by receipts.
     #[serde(default)]
@@ -726,35 +608,6 @@ pub struct CongestionInfoView {
     pub allowed_shard: u16,
 }
 
-/// Deserialize a u128 from a decimal string (NEAR RPC sends u128 as strings).
-fn dec_format<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u128, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum StringOrNum {
-        String(String),
-        Num(u128),
-    }
-    match StringOrNum::deserialize(deserializer)? {
-        StringOrNum::String(s) => s.parse().map_err(serde::de::Error::custom),
-        StringOrNum::Num(n) => Ok(n),
-    }
-}
-
-/// Deserialize a Gas (u64) from a decimal string or number.
-fn gas_dec_format<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Gas, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum StringOrNum {
-        String(String),
-        Num(u64),
-    }
-    let raw = match StringOrNum::deserialize(deserializer)? {
-        StringOrNum::String(s) => s.parse::<u64>().map_err(serde::de::Error::custom)?,
-        StringOrNum::Num(n) => n,
-    };
-    Ok(Gas::from_gas(raw))
-}
-
 /// Gas price response.
 #[derive(Debug, Clone, Deserialize)]
 pub struct GasPrice {
@@ -762,18 +615,13 @@ pub struct GasPrice {
     pub gas_price: NearToken,
 }
 
-// ============================================================================
-// Transaction outcome types
-// ============================================================================
-
 /// Overall transaction execution status.
 ///
 /// Represents the final result of a transaction, matching nearcore's `FinalExecutionStatus`.
 /// This is the `status` field in `FinalExecutionOutcome`.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub enum FinalExecutionStatus {
     /// The transaction has not yet started execution.
-    #[default]
     NotStarted,
     /// The transaction has started but the first receipt hasn't completed.
     Started,
@@ -783,60 +631,31 @@ pub enum FinalExecutionStatus {
     SuccessValue(String),
 }
 
-/// Response returned for non-executed wait levels.
-///
-/// When you use a non-executed wait level ([`Submitted`](crate::transaction::Submitted),
-/// [`Included`](crate::transaction::Included), [`IncludedFinal`](crate::transaction::IncludedFinal)),
-/// the transaction hasn't finished executing, so this type carries the
-/// information needed to poll for the final result later via
-/// `Near::tx_status`.
-///
-/// # The `outcome` field
-///
-/// The node returns the transaction's execution outcome as soon as it has
-/// one, on both paths. By wait level:
-///
-/// - [`Submitted`](crate::transaction::Submitted): the node doesn't wait for
-///   the transaction, so a sent transaction gets no outcome; `tx_status`
-///   returns whatever outcome the node already has.
-/// - [`Included`](crate::transaction::Included): the node answers once the
-///   transaction is in a block, often before it has stored the outcome, so
-///   `outcome` may be [`None`].
-/// - [`IncludedFinal`](crate::transaction::IncludedFinal): the node reports
-///   this level from the outcome, so `outcome` is present.
-///
-/// What it carries depends on the RPC:
-///
-/// - Via a sent transaction or `Near::send_signed` (the `send_tx` RPC): the
-///   outcome has `receipts_outcome` (per-receipt status) but no `receipts`.
-/// - Via `Near::tx_status` (the `EXPERIMENTAL_tx_status` RPC): it also has
-///   `receipts`, so a receiver_id can be mapped to a UI stage.
-///
-/// The outcome is *partial* while the transaction is still running and
-/// *complete* once it has finished (e.g. when polling a tx that already
-/// settled). This is what lets a frontend poll `tx_status` at an early wait
-/// level to drive a progressive UI without blocking for finality.
-///
-/// The outcome is exposed as-is (not validated); inspect
-/// [`FinalExecutionOutcome::status`] to see how far execution has progressed.
-/// See `near-kit`'s `rpc` module docs for polling with `tx_status` at an early
-/// wait level.
+/// Response returned for non-executed wait levels
+/// ([`Submitted`](crate::transaction::Submitted),
+/// [`Included`](crate::transaction::Included),
+/// [`IncludedFinal`](crate::transaction::IncludedFinal)): enough to poll for
+/// the final result later via `Near::tx_status`.
 #[derive(Debug, Clone)]
 pub struct SendTxResponse {
     /// Hash of the submitted transaction.
     pub transaction_hash: CryptoHash,
     /// Account ID of the transaction signer.
     pub sender_id: AccountId,
-    /// Execution outcome, when the RPC returned one.
+    /// The execution outcome, once the node has one, exposed as-is (not
+    /// validated): partial while the transaction runs, complete once it has
+    /// finished. Check [`FinalExecutionOutcome::status`] for how far it got.
     ///
-    /// May be partial (while the transaction is still executing) or complete
-    /// (when polling a tx that has already finished). [`None`] for a
-    /// transaction sent at [`Submitted`](crate::transaction::Submitted), and
-    /// while the node has no outcome yet, which can happen at `Submitted` or
-    /// [`Included`](crate::transaction::Included); the node returns one from
-    /// [`IncludedFinal`](crate::transaction::IncludedFinal). `receipts` is
-    /// only filled in when this response comes from `Near::tx_status`. See the
-    /// [type-level docs](SendTxResponse) for details.
+    /// - [`Submitted`](crate::transaction::Submitted): a sent transaction gets
+    ///   none; `tx_status` returns whatever the node already has.
+    /// - [`Included`](crate::transaction::Included): often [`None`], as the
+    ///   node answers before it has stored the outcome.
+    /// - [`IncludedFinal`](crate::transaction::IncludedFinal): present.
+    ///
+    /// Its `receipts` are filled in only by `Near::tx_status`
+    /// (`EXPERIMENTAL_tx_status`), which lets a frontend poll at an early wait
+    /// level to drive a progressive UI; from a send (`send_tx`) only
+    /// `receipts_outcome` is.
     pub outcome: Option<FinalExecutionOutcome>,
 }
 
@@ -857,11 +676,7 @@ pub struct ReceiptToTxResponse {
 /// response of its [`WaitLevel`](crate::transaction::WaitLevel)
 /// ([`FinalExecutionOutcome`] or [`SendTxResponse`]), built from this.
 ///
-/// `outcome` is `None` until the node has the transaction's outcome: always
-/// when sending at `wait_until: NONE`, and possibly at `NONE` or `INCLUDED`
-/// otherwise; from `INCLUDED_FINAL` it is present, and partial until the
-/// transaction has executed. Only
-/// `EXPERIMENTAL_tx_status` fills in its `receipts`.
+/// `outcome` follows the rules of [`SendTxResponse::outcome`].
 ///
 /// Deserializing fails if the JSON carries an outcome that does not decode
 /// (or only some of its fields); `outcome` is `None` only when the JSON has
@@ -938,14 +753,8 @@ impl<'de> Deserialize<'de> for RpcTransactionResponse {
 
 /// Final execution outcome from a NEAR transaction.
 ///
-/// Returned by both `send_tx` and `EXPERIMENTAL_tx_status` RPC methods.
-/// All fields are required — this type only appears when a transaction has
-/// actually been executed (not for non-executed wait levels).
-///
-/// The `receipts` field contains full receipt details when the outcome comes
-/// from `EXPERIMENTAL_tx_status` (i.e. `near.tx_status()`). When the outcome
-/// comes from `send_tx` (every send: `alice.transaction(..)` and
-/// `Near::send_signed`), this field is an empty `Vec`.
+/// Returned by both `send_tx` and `EXPERIMENTAL_tx_status` once the
+/// transaction has executed.
 ///
 /// A failed action still arrives as `Ok(outcome)`, so the type is
 /// `#[must_use]`: check [`is_failure`](Self::is_failure) or
@@ -1016,10 +825,7 @@ impl FinalExecutionOutcome {
 
     /// Get the failure message if present.
     pub fn failure_message(&self) -> Option<String> {
-        match &self.status {
-            FinalExecutionStatus::Failure(err) => Some(err.to_string()),
-            _ => None,
-        }
+        self.failure_error().map(ToString::to_string)
     }
 
     /// Get the typed execution error if present.
@@ -1174,34 +980,6 @@ impl ExecutionStatus {
         matches!(self, Self::Failure(_) | Self::InvalidTx(_))
     }
 
-    /// The receipt's return value, if it returned one.
-    ///
-    /// A receipt that hands its result to another receipt
-    /// ([`SuccessReceiptId`](Self::SuccessReceiptId)) has no value of its own.
-    ///
-    /// # Example
-    ///
-    /// Find the value a specific contract returned anywhere in a transaction:
-    ///
-    /// ```rust
-    /// # use near_kit_primitives::AccountId;
-    /// # use near_kit_primitives::rpc::FinalExecutionOutcome;
-    /// fn returned_by(outcome: &FinalExecutionOutcome, contract: &AccountId) -> Option<Vec<u8>> {
-    ///     outcome
-    ///         .receipts_outcome
-    ///         .iter()
-    ///         .filter(|o| &o.outcome.executor_id == contract)
-    ///         .find_map(|o| o.outcome.status.success_value())
-    ///         .map(<[u8]>::to_vec)
-    /// }
-    /// ```
-    pub fn success_value(&self) -> Option<&[u8]> {
-        match self {
-            Self::SuccessValue(value) => Some(value),
-            _ => None,
-        }
-    }
-
     /// The action error, if the receipt failed.
     pub fn failure(&self) -> Option<&ActionError> {
         match self {
@@ -1252,19 +1030,12 @@ pub struct TransactionView {
     /// Transaction signature.
     pub signature: Signature,
     /// Priority fee (optional, for congestion pricing).
-    #[serde(default)]
     pub priority_fee: Option<u64>,
     /// Nonce index (for gas key multi-nonce support).
-    #[serde(default)]
     pub nonce_index: Option<u16>,
     /// Nonce validation mode (`None` from nodes older than nearcore 2.12; means monotonic).
-    #[serde(default)]
     pub nonce_mode: Option<NonceMode>,
 }
-
-// ============================================================================
-// Global contract identifier view
-// ============================================================================
 
 /// Backward-compatible deserialization helper for `GlobalContractIdentifierView`.
 ///
@@ -1276,17 +1047,11 @@ pub struct TransactionView {
 #[serde(untagged)]
 enum GlobalContractIdCompat {
     CodeHash {
+        #[serde(alias = "CodeHash")]
         hash: CryptoHash,
     },
     AccountId {
-        account_id: AccountId,
-    },
-    LegacyCodeHash {
-        #[serde(rename = "CodeHash")]
-        hash: CryptoHash,
-    },
-    LegacyAccountId {
-        #[serde(rename = "AccountId")]
+        #[serde(alias = "AccountId")]
         account_id: AccountId,
     },
     DeprecatedCodeHash(CryptoHash),
@@ -1311,10 +1076,8 @@ impl From<GlobalContractIdCompat> for GlobalContractIdentifierView {
     fn from(compat: GlobalContractIdCompat) -> Self {
         match compat {
             GlobalContractIdCompat::CodeHash { hash }
-            | GlobalContractIdCompat::LegacyCodeHash { hash }
             | GlobalContractIdCompat::DeprecatedCodeHash(hash) => Self::CodeHash(hash),
             GlobalContractIdCompat::AccountId { account_id }
-            | GlobalContractIdCompat::LegacyAccountId { account_id }
             | GlobalContractIdCompat::DeprecatedAccountId(account_id) => {
                 Self::AccountId(account_id)
             }
@@ -1330,10 +1093,6 @@ impl std::fmt::Display for GlobalContractIdentifierView {
         }
     }
 }
-
-// ============================================================================
-// Action view
-// ============================================================================
 
 /// View of a delegate action in RPC responses.
 ///
@@ -1431,24 +1190,20 @@ pub enum VersionedDelegateActionPayloadView {
 /// [`ActionViewConversionError::DeployCodeUnavailable`]; do not treat the
 /// decoded bytes as WASM, and do not hash them again.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "PascalCase")]
 pub enum ActionView {
     /// Create the receiver account.
     CreateAccount,
     /// Deploy a contract to the account.
-    ///
-    /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
-    /// See [`ActionView::deploy_code_hash`].
     DeployContract {
         /// Base64 of the 32-byte code hash (not the WASM).
-        code: String, // base64 of the 32-byte code hash (NOT the WASM)
+        code: String,
     },
     /// Call a contract method.
     FunctionCall {
         /// The method called.
         method_name: String,
         /// The call's arguments, base64-encoded.
-        args: String, // base64
+        args: String,
         /// Gas attached to the call.
         gas: Gas,
         /// NEAR attached to the call.
@@ -1499,40 +1254,29 @@ pub enum ActionView {
         signature: Signature,
     },
     /// Publish a global contract, identified by its code hash.
-    ///
-    /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
-    /// See [`ActionView::deploy_code_hash`].
-    #[serde(rename = "DeployGlobalContract")]
     DeployGlobalContract {
         /// Base64 of the 32-byte code hash (not the WASM).
-        code: String, // base64 of the 32-byte code hash (NOT the WASM)
+        code: String,
     },
     /// Publish a global contract, identified by the publisher's account ID.
-    ///
-    /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
-    /// See [`ActionView::deploy_code_hash`].
-    #[serde(rename = "DeployGlobalContractByAccountId")]
     DeployGlobalContractByAccountId {
         /// Base64 of the 32-byte code hash (not the WASM).
-        code: String, // base64 of the 32-byte code hash (NOT the WASM)
+        code: String,
     },
     /// Use a global contract published under a code hash as the account's
     /// contract.
-    #[serde(rename = "UseGlobalContract")]
     UseGlobalContract {
         /// The global contract's code hash.
         code_hash: CryptoHash,
     },
     /// Use the global contract published by an account as the account's
     /// contract.
-    #[serde(rename = "UseGlobalContractByAccountId")]
     UseGlobalContractByAccountId {
         /// The publishing account.
         account_id: AccountId,
     },
     /// Initialize an account whose ID is derived from its contract and
     /// initial state (NEP-616).
-    #[serde(rename = "DeterministicStateInit")]
     DeterministicStateInit {
         /// The global contract the account uses.
         code: GlobalContractIdentifierView,
@@ -1564,10 +1308,6 @@ pub enum ActionView {
         deposit: NearToken,
     },
 }
-
-// ============================================================================
-// View -> wire conversions (ActionView -> Action, AccessKey*View -> AccessKey)
-// ============================================================================
 
 impl From<AccessKeyPermissionView> for AccessKeyPermission {
     fn from(view: AccessKeyPermissionView) -> Self {
@@ -1654,11 +1394,9 @@ impl ActionView {
     /// The code hash carried by a `DeployContract` / `DeployGlobalContract` /
     /// `DeployGlobalContractByAccountId` view; `None` for every other variant.
     ///
-    /// The node does not serve the WASM in these views: the `code` field is the
-    /// base64 of the 32-byte SHA-256 hash of the code (see the
-    /// [enum-level note](ActionView#deploy-views-carry-the-code-hash-not-the-wasm)).
-    /// This accessor decodes it into a [`CryptoHash`], failing if `code` is not
-    /// valid base64 or does not decode to exactly 32 bytes.
+    /// Decodes `code` (see the
+    /// [enum-level note](ActionView#deploy-views-carry-the-code-hash-not-the-wasm)),
+    /// failing if it is not valid base64 or not exactly 32 bytes.
     ///
     /// # Example
     ///
@@ -1755,18 +1493,11 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 /// Convert a node-reported action view back into a wire [`Action`], e.g. to
 /// re-sign or replay a transaction fetched with `tx_status`.
 ///
-/// # Deploy actions come back with the code *hash* in `code`
+/// # Errors
 ///
-/// `DeployContract`, `DeployGlobalContract` and `DeployGlobalContractByAccountId`
-/// views carry the base64 of the 32-byte SHA-256 code hash, **not** the WASM
-/// (see [`ActionView`]). Converting any of these views therefore returns
-/// [`ActionViewConversionError::DeployCodeUnavailable`] instead of manufacturing
-/// a deploy action whose `code` is actually the hash. Use
-/// [`ActionView::deploy_code_hash`] to inspect the hash, then fetch the real code
-/// (for example with `view_code` on an archival node) and verify it separately.
-///
-/// # Other errors
-///
+/// * A deploy view, which carries only the code hash (see [`ActionView`]) →
+///   [`ActionViewConversionError::DeployCodeUnavailable`]. Fetch the code
+///   separately, for example with `view_code` on an archival node.
 /// * Invalid base64 in `args`, `code`, `data`, or `state_init` →
 ///   [`ActionViewConversionError::InvalidBase64`].
 /// * A delegate action nested inside a `Delegate` / `DelegateV2` view →
@@ -1980,7 +1711,6 @@ pub struct ExecutionOutcome {
     /// Execution status.
     pub status: ExecutionStatus,
     /// Execution metadata (gas profiling).
-    #[serde(default)]
     pub metadata: Option<ExecutionMetadata>,
 }
 
@@ -1990,7 +1720,6 @@ pub struct ExecutionMetadata {
     /// Metadata version (V1=1, V2=2, V3=3, V4=4).
     pub version: u32,
     /// Gas profile entries.
-    #[serde(default)]
     pub gas_profile: Option<Vec<GasProfileEntry>>,
     /// The contract attached to the receiver account immediately before each
     /// action in the receipt ran — one entry per action, in order
@@ -1999,10 +1728,7 @@ pub struct ExecutionMetadata {
     /// The inner `Option` is `None` (JSON `null`) when the account had no
     /// contract at that point (no code, or it did not yet exist). The outer
     /// `Option` is `None` when the field is absent (older V1–V3 metadata) or
-    /// explicitly `null`. Note this is *wire-format* back-compatibility: adding
-    /// this public field is itself a (minor) Rust API change for code that
-    /// constructs/destructures `ExecutionMetadata`.
-    #[serde(default)]
+    /// explicitly `null`.
     pub contracts: Option<Vec<Option<AccountContractView>>>,
 }
 
@@ -2031,7 +1757,6 @@ pub struct GasProfileEntry {
     /// Cost name.
     pub cost: String,
     /// Gas used for this cost.
-    #[serde(deserialize_with = "gas_dec_format")]
     pub gas_used: Gas,
 }
 
@@ -2074,11 +1799,6 @@ impl<T> ViewFunctionResult<T> {
 }
 
 impl ViewFunctionResult {
-    /// Get the result as raw bytes.
-    pub fn bytes(&self) -> &[u8] {
-        &self.result
-    }
-
     /// The result as UTF-8 text.
     pub fn text(&self) -> Result<String, std::string::FromUtf8Error> {
         String::from_utf8(self.result.clone())
@@ -2139,10 +1859,6 @@ impl ViewFunctionResult {
     }
 }
 
-// ============================================================================
-// Receipt types (for EXPERIMENTAL_tx_status)
-// ============================================================================
-
 /// Receipt from EXPERIMENTAL_tx_status.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Receipt {
@@ -2155,7 +1871,6 @@ pub struct Receipt {
     /// Receipt content (action or data).
     pub receipt: ReceiptContent,
     /// Priority (optional, for congestion pricing).
-    #[serde(default)]
     pub priority: Option<u64>,
 }
 
@@ -2178,7 +1893,6 @@ pub enum ReceiptContent {
         /// Code bytes (base64).
         code: String,
         /// Nonce (present in v2 receipts).
-        #[serde(default)]
         nonce: Option<u64>,
     },
 }
@@ -2210,7 +1924,6 @@ pub struct ActionReceiptData {
     /// Actions in this receipt.
     pub actions: Vec<ActionView>,
     /// Whether this is a promise yield.
-    #[serde(default)]
     pub is_promise_yield: Option<bool>,
 }
 
@@ -2220,13 +1933,8 @@ pub struct DataReceiptData {
     /// Data ID.
     pub data_id: CryptoHash,
     /// Data content (optional).
-    #[serde(default)]
     pub data: Option<String>,
 }
-
-// ============================================================================
-// Node status types
-// ============================================================================
 
 /// Node status response.
 #[derive(Debug, Clone, Deserialize)]
@@ -2240,19 +1948,14 @@ pub struct StatusResponse {
     /// Genesis hash.
     pub genesis_hash: CryptoHash,
     /// RPC address.
-    #[serde(default)]
     pub rpc_addr: Option<String>,
     /// Node public key.
-    #[serde(default)]
     pub node_public_key: Option<String>,
     /// Node key (deprecated).
-    #[serde(default)]
     pub node_key: Option<String>,
     /// Validator account ID (if validating).
-    #[serde(default)]
     pub validator_account_id: Option<AccountId>,
     /// Validator public key (if validating).
-    #[serde(default)]
     pub validator_public_key: Option<PublicKey>,
     /// List of current validators.
     #[serde(default)]
@@ -2262,7 +1965,6 @@ pub struct StatusResponse {
     /// Node version.
     pub version: NodeVersion,
     /// Uptime in seconds.
-    #[serde(default)]
     pub uptime_sec: Option<u64>,
 }
 
@@ -2281,26 +1983,20 @@ pub struct SyncInfo {
     /// Latest block height.
     pub latest_block_height: u64,
     /// Latest state root.
-    #[serde(default)]
     pub latest_state_root: Option<CryptoHash>,
     /// Latest block timestamp.
     pub latest_block_time: String,
     /// Whether the node is syncing.
     pub syncing: bool,
     /// Earliest block hash (if available).
-    #[serde(default)]
     pub earliest_block_hash: Option<CryptoHash>,
     /// Earliest block height (if available).
-    #[serde(default)]
     pub earliest_block_height: Option<u64>,
     /// Earliest block time (if available).
-    #[serde(default)]
     pub earliest_block_time: Option<String>,
     /// Current epoch ID.
-    #[serde(default)]
     pub epoch_id: Option<CryptoHash>,
     /// Epoch start height.
-    #[serde(default)]
     pub epoch_start_height: Option<u64>,
 }
 
@@ -2312,19 +2008,21 @@ pub struct NodeVersion {
     /// Build string.
     pub build: String,
     /// Git commit hash.
-    #[serde(default)]
     pub commit: Option<String>,
     /// Rust compiler version.
-    #[serde(default)]
     pub rustc_version: Option<String>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::AccessKeyPermission;
     use crate::protocol::ActionErrorKind;
     use crate::signer::KeyType;
+
+    const PK: &str = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";
+    const SIG: &str = "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5";
+    const TX_HASH: &str = "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U";
+    const RECEIPT_ID: &str = "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK";
 
     #[test]
     fn test_access_key_list_parses_ml_dsa65_hash_handle() {
@@ -2340,7 +2038,7 @@ mod tests {
                     "access_key": { "nonce": 1u64, "permission": "FullAccess" }
                 },
                 {
-                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                    "public_key": PK,
                     "access_key": { "nonce": 2u64, "permission": "FullAccess" }
                 }
             ],
@@ -2358,10 +2056,7 @@ mod tests {
         // The ed25519 entry is a full, usable key.
         let ed = list.keys[1].public_key.as_full().unwrap();
         assert_eq!(ed.key_type(), KeyType::Ed25519);
-        assert_eq!(
-            ed.to_string(),
-            "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
-        );
+        assert_eq!(ed.to_string(), PK);
         // The cursor round-trips to the exact wire string, so it can be sent
         // back verbatim as `after_key`.
         let last_key = list.last_key.expect("last_key present");
@@ -2381,23 +2076,6 @@ mod tests {
         let list: AccessKeyListView = serde_json::from_value(json).unwrap();
         assert!(list.keys.is_empty());
         assert_eq!(list.last_key, None);
-    }
-
-    #[test]
-    fn test_gas_key_nonces_view_deserialization() {
-        let json = serde_json::json!({
-            "nonces": [7, 11, 42],
-            "block_height": 12345,
-            "block_hash": "11111111111111111111111111111111"
-        });
-
-        let view: GasKeyNoncesView = serde_json::from_value(json).unwrap();
-        assert_eq!(view.nonces, vec![7, 11, 42]);
-        assert_eq!(view.block_height, 12345);
-        assert_eq!(
-            view.block_hash,
-            "11111111111111111111111111111111".parse().unwrap()
-        );
     }
 
     #[test]
@@ -2497,7 +2175,6 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(view.state, AccountState::Initialized);
-        assert!(view.state.is_initialized());
         assert_eq!(view.bootstrap_nonce, None);
     }
 
@@ -2515,7 +2192,6 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(view.state, AccountState::Uninitialized);
-        assert!(!view.state.is_initialized());
         assert_eq!(view.bootstrap_nonce, Some(100_000_000));
     }
 
@@ -2623,21 +2299,40 @@ mod tests {
         assert_eq!(balance.locked, view.locked);
         assert_eq!(balance.storage_cost, view.storage_cost());
         assert_eq!(balance.storage_usage, storage_usage);
-    }
-
-    // ========================================================================
-    // ViewFunctionResult tests
-    // ========================================================================
-
-    fn make_view_result(result: Vec<u8>) -> ViewFunctionResult {
-        ViewFunctionResult::new(result, 12345, CryptoHash::default())
+        // Display shows the spendable amount.
+        assert_eq!(balance.to_string(), view.available().to_string());
     }
 
     #[test]
-    fn test_view_function_result_bytes() {
-        let data = vec![1, 2, 3, 4, 5];
-        let result = make_view_result(data.clone());
-        assert_eq!(result.bytes(), &data[..]);
+    fn test_has_contract_follows_the_code_hash() {
+        let mut view = make_account_view(1, 0, 0);
+        assert!(!view.has_contract());
+        view.code_hash = CryptoHash::hash(b"wasm");
+        assert!(view.has_contract());
+    }
+
+    #[test]
+    fn test_max_nonces_for_gas_key() {
+        // Mirrors nearcore's cap on a gas key's nonce slots.
+        assert_eq!(AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY, 1024);
+    }
+
+    #[test]
+    fn test_receipt_to_tx_response() {
+        let json = serde_json::json!({
+            "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+            "sender_account_id": "alice.near"
+        });
+        let response: ReceiptToTxResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            response.transaction_hash.to_string(),
+            "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+        );
+        assert_eq!(response.sender_account_id.as_str(), "alice.near");
+    }
+
+    fn make_view_result(result: Vec<u8>) -> ViewFunctionResult {
+        ViewFunctionResult::new(result, 12345, CryptoHash::default())
     }
 
     #[test]
@@ -2647,25 +2342,15 @@ mod tests {
     }
 
     #[test]
-    fn test_view_function_result_json() {
-        let result = make_view_result(b"42".to_vec());
-        let value: u64 = result.json().unwrap();
-        assert_eq!(value, 42);
-    }
-
-    #[test]
-    fn test_view_function_result_json_object() {
-        let result = make_view_result(b"{\"count\":123}".to_vec());
-        let value: serde_json::Value = result.json().unwrap();
-        assert_eq!(value["count"], 123);
-    }
-
-    #[test]
-    fn test_view_function_result_json_empty_unit() {
-        // Void view methods return zero bytes; empty should decode as `()`.
-        let result = make_view_result(vec![]);
-        let value: () = result.json().unwrap();
-        assert_eq!(value, ());
+    fn test_view_function_result_borsh() {
+        let result = make_view_result(borsh::to_vec(&42u64).unwrap());
+        assert_eq!(result.borsh::<u64>().unwrap(), 42);
+        // Too short for a u64.
+        let result = make_view_result(vec![1, 2, 3]);
+        assert!(result.borsh::<u64>().is_err());
+        // Trailing bytes are rejected too.
+        let result = make_view_result(vec![0; 9]);
+        assert!(result.borsh::<u64>().is_err());
     }
 
     #[test]
@@ -2685,48 +2370,6 @@ mod tests {
         let opt: Option<u64> = result.json().unwrap();
         assert_eq!(opt, Some(42));
     }
-
-    #[test]
-    fn test_view_function_result_borsh() {
-        // Borsh-encode a u64 value
-        let original: u64 = 42;
-        let encoded = borsh::to_vec(&original).unwrap();
-        let result = make_view_result(encoded);
-
-        let decoded: u64 = result.borsh().unwrap();
-        assert_eq!(decoded, original);
-    }
-
-    #[test]
-    fn test_view_function_result_borsh_struct() {
-        #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, PartialEq, Debug)]
-        struct TestStruct {
-            value: u64,
-            name: String,
-        }
-
-        let original = TestStruct {
-            value: 123,
-            name: "test".to_string(),
-        };
-        let encoded = borsh::to_vec(&original).unwrap();
-        let result = make_view_result(encoded);
-
-        let decoded: TestStruct = result.borsh().unwrap();
-        assert_eq!(decoded, original);
-    }
-
-    #[test]
-    fn test_view_function_result_borsh_error() {
-        // Invalid Borsh data for a u64 (too short)
-        let result = make_view_result(vec![1, 2, 3]);
-        let decoded: Result<u64, _> = result.borsh();
-        assert!(decoded.is_err());
-    }
-
-    // ========================================================================
-    // GasProfileEntry tests
-    // ========================================================================
 
     #[test]
     fn test_gas_profile_entry_string_gas_used() {
@@ -2751,147 +2394,37 @@ mod tests {
     }
 
     #[test]
-    fn test_max_nonces_for_gas_key() {
-        assert_eq!(AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY, 1024);
-    }
+    fn congestion_info_gas_decodes_from_a_decimal_string_or_a_number() {
+        let info: CongestionInfoView = serde_json::from_str(
+            r#"{"delayed_receipts_gas":"340282366920938463463374607431768211455","buffered_receipts_gas":"7","receipt_bytes":3,"allowed_shard":1}"#,
+        )
+        .unwrap();
+        assert_eq!(info.delayed_receipts_gas, u128::MAX);
+        assert_eq!(info.buffered_receipts_gas, 7);
 
-    #[test]
-    fn test_gas_key_function_call_deserialization() {
-        let json = serde_json::json!({
-            "GasKeyFunctionCall": {
-                "balance": "1000000000000000000000000",
-                "num_nonces": 5,
-                "allowance": "500000000000000000000000",
-                "receiver_id": "app.near",
-                "method_names": ["call_method"]
-            }
-        });
-        let perm: AccessKeyPermissionView = serde_json::from_value(json).unwrap();
-        assert!(matches!(
-            perm,
-            AccessKeyPermissionView::GasKeyFunctionCall { .. }
-        ));
-    }
+        let info: CongestionInfoView = serde_json::from_str("{}").unwrap();
+        assert_eq!(info.delayed_receipts_gas, 0);
+        assert_eq!(info.buffered_receipts_gas, 0);
 
-    #[test]
-    fn test_gas_key_full_access_deserialization() {
-        let json = serde_json::json!({
-            "GasKeyFullAccess": {
-                "balance": "1000000000000000000000000",
-                "num_nonces": 10
-            }
-        });
-        let perm: AccessKeyPermissionView = serde_json::from_value(json).unwrap();
-        assert!(matches!(
-            perm,
-            AccessKeyPermissionView::GasKeyFullAccess { .. }
-        ));
-    }
+        // nearcore sends these as strings, but a bare number decodes too.
+        let info: CongestionInfoView =
+            serde_json::from_str(r#"{"delayed_receipts_gas":7,"buffered_receipts_gas":"9"}"#)
+                .unwrap();
+        assert_eq!(info.delayed_receipts_gas, 7);
+        assert_eq!(info.buffered_receipts_gas, 9);
+        let info: CongestionInfoView =
+            serde_json::from_str(r#"{"buffered_receipts_gas":18446744073709551615}"#).unwrap();
+        assert_eq!(info.buffered_receipts_gas, u128::from(u64::MAX));
 
-    #[test]
-    fn test_transfer_to_gas_key_action_view_deserialization() {
-        let json = serde_json::json!({
-            "TransferToGasKey": {
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "deposit": "1000000000000000000000000"
-            }
-        });
-        let action: ActionView = serde_json::from_value(json).unwrap();
-        assert!(matches!(action, ActionView::TransferToGasKey { .. }));
-    }
-
-    #[test]
-    fn test_delegate_action_view_deserialization() {
-        let json = serde_json::json!({
-            "Delegate": {
-                "delegate_action": {
-                    "sender_id": "alice.near",
-                    "receiver_id": "contract.near",
-                    "actions": [
-                        {"FunctionCall": {
-                            "method_name": "do_something",
-                            "args": "e30=",
-                            "gas": 30000000000000_u64,
-                            "deposit": "0"
-                        }}
-                    ],
-                    "nonce": 42,
-                    "max_block_height": 100000,
-                    "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
-                },
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5"
-            }
-        });
-        let action: ActionView = serde_json::from_value(json).unwrap();
-        match action {
-            ActionView::Delegate {
-                delegate_action,
-                signature,
-            } => {
-                assert_eq!(delegate_action.sender_id.as_str(), "alice.near");
-                assert_eq!(delegate_action.receiver_id.as_str(), "contract.near");
-                assert_eq!(delegate_action.nonce, 42);
-                assert_eq!(delegate_action.max_block_height, 100000);
-                assert_eq!(delegate_action.actions.len(), 1);
-                assert!(signature.to_string().starts_with("ed25519:"));
-            }
-            _ => panic!("Expected Delegate action"),
-        }
-    }
-
-    #[test]
-    fn test_withdraw_from_gas_key_action_view_deserialization() {
-        let json = serde_json::json!({
-            "WithdrawFromGasKey": {
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "amount": "500000000000000000000000"
-            }
-        });
-        let action: ActionView = serde_json::from_value(json).unwrap();
-        assert!(matches!(action, ActionView::WithdrawFromGasKey { .. }));
-    }
-
-    #[test]
-    fn test_delegate_v2_action_view_deserialization() {
-        // Matches the node's JSON for Action::DelegateV2: an externally-tagged
-        // `{"V2": ..}` payload whose nonce is an externally-tagged gas-key nonce.
-        let json = serde_json::json!({
-            "DelegateV2": {
-                "delegate_action": {
-                    "V2": {
-                        "sender_id": "alice.near",
-                        "receiver_id": "contract.near",
-                        "actions": [
-                            { "Transfer": { "deposit": "1000000000000000000000000" } }
-                        ],
-                        "nonce": { "GasKeyNonce": { "nonce": 42, "nonce_index": 3 } },
-                        "max_block_height": 100000,
-                        "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
-                    }
-                },
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5"
-            }
-        });
-        let action: ActionView = serde_json::from_value(json).unwrap();
-        match action {
-            ActionView::DelegateV2 {
-                delegate_action: VersionedDelegateActionPayloadView::V2(d),
-                signature,
-            } => {
-                assert_eq!(d.sender_id.as_str(), "alice.near");
-                assert_eq!(d.receiver_id.as_str(), "contract.near");
-                assert_eq!(d.max_block_height, 100000);
-                assert_eq!(d.actions.len(), 1);
-                assert_eq!(
-                    d.nonce,
-                    TransactionNonceView::GasKeyNonce {
-                        nonce: 42,
-                        nonce_index: 3
-                    }
-                );
-                assert!(signature.to_string().starts_with("ed25519:"));
-            }
-            other => panic!("Expected DelegateV2 action, got {other:?}"),
+        for bad in [
+            r#"{"delayed_receipts_gas":"x"}"#,
+            r#"{"delayed_receipts_gas":-1}"#,
+            r#"{"delayed_receipts_gas":1.5}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<CongestionInfoView>(bad).is_err(),
+                "{bad}"
+            );
         }
     }
 
@@ -2907,10 +2440,10 @@ mod tests {
                         "actions": [],
                         "nonce": { "Nonce": { "nonce": 7 } },
                         "max_block_height": 1,
-                        "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+                        "public_key": PK
                     }
                 },
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5"
+                "signature": SIG
             }
         });
         let action: ActionView = serde_json::from_value(json).unwrap();
@@ -2924,132 +2457,96 @@ mod tests {
         assert_eq!(d.nonce, TransactionNonceView::Nonce { nonce: 7 });
     }
 
-    // ========================================================================
-    // FinalExecutionStatus tests
-    // ========================================================================
-
     #[test]
-    fn test_final_execution_status_default() {
-        let status = FinalExecutionStatus::default();
-        assert!(matches!(status, FinalExecutionStatus::NotStarted));
+    fn test_final_execution_status_decodes() {
+        let decode = |json| serde_json::from_value::<FinalExecutionStatus>(json).unwrap();
+        assert!(matches!(
+            decode(serde_json::json!("NotStarted")),
+            FinalExecutionStatus::NotStarted
+        ));
+        assert!(matches!(
+            decode(serde_json::json!("Started")),
+            FinalExecutionStatus::Started
+        ));
+        assert!(matches!(
+            decode(serde_json::json!({"SuccessValue": "aGVsbG8="})),
+            FinalExecutionStatus::SuccessValue(s) if s == "aGVsbG8="
+        ));
+        assert!(matches!(
+            decode(panicked("Smart contract panicked")),
+            FinalExecutionStatus::Failure(_)
+        ));
     }
 
-    #[test]
-    fn test_final_execution_status_not_started() {
-        let json = serde_json::json!("NotStarted");
-        let status: FinalExecutionStatus = serde_json::from_value(json).unwrap();
-        assert!(matches!(status, FinalExecutionStatus::NotStarted));
-    }
-
-    #[test]
-    fn test_final_execution_status_started() {
-        let json = serde_json::json!("Started");
-        let status: FinalExecutionStatus = serde_json::from_value(json).unwrap();
-        assert!(matches!(status, FinalExecutionStatus::Started));
-    }
-
-    #[test]
-    fn test_final_execution_status_success_value() {
-        let json = serde_json::json!({"SuccessValue": "aGVsbG8="});
-        let status: FinalExecutionStatus = serde_json::from_value(json).unwrap();
-        assert!(matches!(status, FinalExecutionStatus::SuccessValue(ref s) if s == "aGVsbG8="));
-    }
-
-    #[test]
-    fn test_final_execution_status_failure() {
-        let json = serde_json::json!({
-            "Failure": {
-                "ActionError": {
-                    "index": 0,
-                    "kind": {
-                        "FunctionCallError": {
-                            "ExecutionError": "Smart contract panicked"
-                        }
-                    }
-                }
-            }
-        });
-        let status: FinalExecutionStatus = serde_json::from_value(json).unwrap();
-        assert!(matches!(status, FinalExecutionStatus::Failure(_)));
-    }
-
-    // ========================================================================
-    // FinalExecutionOutcome helper tests
-    // ========================================================================
-
-    #[test]
-    fn test_final_execution_outcome_logs_in_order() {
-        let outcome = |id: &str, logs: &[&str]| {
+    /// The JSON of an outcome whose top-level status is `status`, with one
+    /// receipt outcome per entry of `receipts` (each a receipt status).
+    /// `logs[0]` holds the transaction outcome's logs and `logs[i + 1]` those
+    /// of receipt `i`; a missing entry logs nothing.
+    fn outcome_json(
+        status: serde_json::Value,
+        receipts: &[serde_json::Value],
+        logs: &[&[&str]],
+    ) -> serde_json::Value {
+        let outcome = |id: &str, status: &serde_json::Value, i: usize| {
             serde_json::json!({
                 "id": id,
                 "outcome": {
                     "executor_id": "alice.near",
                     "gas_burnt": 1,
                     "tokens_burnt": "0",
-                    "logs": logs,
+                    "logs": logs.get(i).copied().unwrap_or_default(),
                     "receipt_ids": [],
-                    "status": {"SuccessValue": ""}
+                    "status": status
                 },
                 "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
                 "proof": []
             })
         };
-        let json = serde_json::json!({
-            "status": {"SuccessValue": ""},
+        let tx_status = serde_json::json!({"SuccessReceiptId": RECEIPT_ID});
+        serde_json::json!({
+            "status": status,
             "transaction": {
                 "signer_id": "alice.near",
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "public_key": PK,
                 "nonce": 1,
                 "receiver_id": "bob.near",
                 "actions": [],
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+                "signature": SIG,
+                "hash": TX_HASH
             },
-            "transaction_outcome": outcome("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U", &["tx"]),
-            "receipts_outcome": [
-                outcome("3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK", &["a", "b"]),
-                outcome("A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo", &[]),
-                outcome("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U", &["c"]),
-            ]
-        });
-        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
-        assert_eq!(outcome.logs().collect::<Vec<_>>(), ["tx", "a", "b", "c"]);
+            "transaction_outcome": outcome(TX_HASH, &tx_status, 0),
+            "receipts_outcome": receipts
+                .iter()
+                .enumerate()
+                .map(|(i, status)| outcome(RECEIPT_ID, status, i + 1))
+                .collect::<Vec<_>>(),
+        })
+    }
+
+    fn outcome_with_receipts(
+        status: serde_json::Value,
+        receipts: &[serde_json::Value],
+    ) -> FinalExecutionOutcome {
+        serde_json::from_value(outcome_json(status, receipts, &[])).unwrap()
+    }
+
+    fn panicked(message: &str) -> serde_json::Value {
+        serde_json::json!({"Failure": {"ActionError": {
+            "index": 0,
+            "kind": {"FunctionCallError": {"ExecutionError": message}}
+        }}})
     }
 
     #[test]
-    fn test_send_tx_response_with_outcome() {
-        let json = serde_json::json!({
-            "final_execution_status": "FINAL",
-            "status": {"SuccessValue": ""},
-            "transaction": {
-                "signer_id": "alice.near",
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "nonce": 1,
-                "receiver_id": "bob.near",
-                "actions": [{"Transfer": {"deposit": "1000000000000000000000000"}}],
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-            },
-            "transaction_outcome": {
-                "id": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-                "outcome": {
-                    "executor_id": "alice.near",
-                    "gas_burnt": 223182562500_i64,
-                    "tokens_burnt": "22318256250000000000",
-                    "logs": [],
-                    "receipt_ids": ["3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"],
-                    "status": {"SuccessReceiptId": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"}
-                },
-                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
-                "proof": []
-            },
-            "receipts_outcome": []
-        });
-        let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
-        assert_eq!(response.final_execution_status, TxExecutionStatus::Final);
-        let outcome = response.outcome.unwrap();
-        assert!(outcome.is_success());
-        assert!(!outcome.is_failure());
+    fn test_final_execution_outcome_logs_in_order() {
+        let ok = serde_json::json!({"SuccessValue": ""});
+        let json = outcome_json(
+            ok.clone(),
+            &[ok.clone(), ok.clone(), ok],
+            &[&["tx"], &["a", "b"], &[], &["c"]],
+        );
+        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+        assert_eq!(outcome.logs().collect::<Vec<_>>(), ["tx", "a", "b", "c"]);
     }
 
     #[test]
@@ -3060,106 +2557,8 @@ mod tests {
         let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
         assert_eq!(response.final_execution_status, TxExecutionStatus::None);
         assert!(response.outcome.is_none());
-        // transaction_hash is serde(skip) — populated by rpc methods, not deserialization
+        // `transaction_hash` isn't in the JSON; the rpc methods fill it in.
         assert!(response.transaction_hash.is_zero());
-    }
-
-    #[test]
-    fn test_final_execution_outcome_failure() {
-        let json = serde_json::json!({
-            "final_execution_status": "EXECUTED_OPTIMISTIC",
-            "status": {
-                "Failure": {
-                    "ActionError": {
-                        "index": 0,
-                        "kind": {
-                            "FunctionCallError": {
-                                "ExecutionError": "Smart contract panicked"
-                            }
-                        }
-                    }
-                }
-            },
-            "transaction": {
-                "signer_id": "alice.near",
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "nonce": 1,
-                "receiver_id": "bob.near",
-                "actions": [],
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-            },
-            "transaction_outcome": {
-                "id": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-                "outcome": {
-                    "executor_id": "alice.near",
-                    "gas_burnt": 0,
-                    "tokens_burnt": "0",
-                    "logs": [],
-                    "receipt_ids": [],
-                    "status": "Unknown"
-                },
-                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
-                "proof": []
-            },
-            "receipts_outcome": []
-        });
-        let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
-        let outcome = response.outcome.unwrap();
-        assert!(outcome.is_failure());
-        assert!(!outcome.is_success());
-        assert!(outcome.failure_message().is_some());
-        assert!(outcome.failure_error().is_some());
-    }
-
-    /// An outcome whose top-level status is `status`, with one receipt
-    /// outcome per entry of `receipts` (each a receipt status).
-    fn outcome_with_receipts(
-        status: serde_json::Value,
-        receipts: &[serde_json::Value],
-    ) -> FinalExecutionOutcome {
-        let outcome = |id: &str, status: &serde_json::Value| {
-            serde_json::json!({
-                "id": id,
-                "outcome": {
-                    "executor_id": "alice.near",
-                    "gas_burnt": 1,
-                    "tokens_burnt": "0",
-                    "logs": [],
-                    "receipt_ids": [],
-                    "status": status
-                },
-                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
-                "proof": []
-            })
-        };
-        let tx_status =
-            serde_json::json!({"SuccessReceiptId": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"});
-        let json = serde_json::json!({
-            "status": status,
-            "transaction": {
-                "signer_id": "relayer.near",
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "nonce": 1,
-                "receiver_id": "alice.near",
-                "actions": [],
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-            },
-            "transaction_outcome": outcome("9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U", &tx_status),
-            "receipts_outcome": receipts
-                .iter()
-                .map(|status| outcome("3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK", status))
-                .collect::<Vec<_>>(),
-        });
-        serde_json::from_value(json).unwrap()
-    }
-
-    fn panicked(message: &str) -> serde_json::Value {
-        serde_json::json!({"Failure": {"ActionError": {
-            "index": 0,
-            "kind": {"FunctionCallError": {"ExecutionError": message}}
-        }}})
     }
 
     /// A relayed transaction whose inner call panicked: the delegate receipt
@@ -3233,39 +2632,11 @@ mod tests {
         assert_eq!(make_success_outcome("").receipt_failures().count(), 0);
     }
 
-    // ========================================================================
-    // FinalExecutionOutcome result/json tests
-    // ========================================================================
-
     fn make_success_outcome(base64_value: &str) -> FinalExecutionOutcome {
-        let json = serde_json::json!({
-            "final_execution_status": "FINAL",
-            "status": {"SuccessValue": base64_value},
-            "transaction": {
-                "signer_id": "alice.near",
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "nonce": 1,
-                "receiver_id": "bob.near",
-                "actions": [],
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-            },
-            "transaction_outcome": {
-                "id": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-                "outcome": {
-                    "executor_id": "alice.near",
-                    "gas_burnt": 223182562500_i64,
-                    "tokens_burnt": "22318256250000000000",
-                    "logs": [],
-                    "receipt_ids": [],
-                    "status": {"SuccessReceiptId": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"}
-                },
-                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
-                "proof": []
-            },
-            "receipts_outcome": []
-        });
+        let mut json = outcome_json(serde_json::json!({"SuccessValue": base64_value}), &[], &[]);
+        json["final_execution_status"] = "FINAL".into();
         let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(response.final_execution_status, TxExecutionStatus::Final);
         response.outcome.unwrap()
     }
 
@@ -3288,14 +2659,6 @@ mod tests {
         let outcome = make_success_outcome("NDI=");
         let val: u64 = outcome.json().unwrap();
         assert_eq!(val, 42);
-    }
-
-    #[test]
-    fn test_outcome_json_empty_unit() {
-        // Void change methods return an empty SuccessValue; empty should decode as `()`.
-        let outcome = make_success_outcome("");
-        let val: () = outcome.json().unwrap();
-        assert_eq!(val, ());
     }
 
     #[test]
@@ -3328,47 +2691,26 @@ mod tests {
 
     #[test]
     fn test_outcome_failure_result_returns_err() {
-        let json = serde_json::json!({
-            "final_execution_status": "FINAL",
-            "status": {"Failure": {"ActionError": {"index": 0, "kind": {"FunctionCallError": {"ExecutionError": "test error"}}}}},
-            "transaction": {
-                "signer_id": "alice.near",
-                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-                "nonce": 1,
-                "receiver_id": "bob.near",
-                "actions": [],
-                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-                "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-            },
-            "transaction_outcome": {
-                "id": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-                "outcome": {
-                    "executor_id": "alice.near",
-                    "gas_burnt": 223182562500_i64,
-                    "tokens_burnt": "22318256250000000000",
-                    "logs": [],
-                    "receipt_ids": [],
-                    "status": {"SuccessReceiptId": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"}
-                },
-                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
-                "proof": []
-            },
-            "receipts_outcome": []
-        });
-        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+        let mut json = outcome_json(panicked("test error"), &[], &[]);
+        json["final_execution_status"] = "EXECUTED_OPTIMISTIC".into();
+        let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
+        let outcome = response.outcome.unwrap();
 
         assert!(outcome.is_failure());
         assert!(!outcome.is_success());
+        let message = outcome.failure_message().unwrap();
+        assert!(message.contains("test error"), "{message}");
+        assert_eq!(message, outcome.failure_error().unwrap().to_string());
         assert!(outcome.result().is_err());
         assert!(outcome.json::<u64>().is_err());
         // Metadata is still accessible
         assert!(!outcome.transaction_hash().is_zero());
         assert!(outcome.total_gas_used().as_gas() > 0);
-    }
 
-    // ========================================================================
-    // ExecutionStatus tests (per-receipt)
-    // ========================================================================
+        let success = make_success_outcome("");
+        assert!(success.is_success() && !success.is_failure());
+        assert_eq!(success.failure_message(), None);
+    }
 
     #[test]
     fn test_execution_status_unknown() {
@@ -3378,57 +2720,17 @@ mod tests {
     }
 
     #[test]
-    fn test_execution_status_success_value() {
-        let json = serde_json::json!({"SuccessValue": "aGVsbG8="});
-        let status: ExecutionStatus = serde_json::from_value(json).unwrap();
-        assert!(matches!(status, ExecutionStatus::SuccessValue(_)));
-    }
-
-    #[test]
-    fn test_execution_status_success_receipt_id() {
-        let json =
-            serde_json::json!({"SuccessReceiptId": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"});
-        let status: ExecutionStatus = serde_json::from_value(json).unwrap();
-        assert!(matches!(status, ExecutionStatus::SuccessReceiptId(_)));
-    }
-
-    #[test]
-    fn test_execution_status_failure_action_error() {
-        let json = serde_json::json!({
-            "Failure": {
-                "ActionError": {
-                    "index": 0,
-                    "kind": {
-                        "FunctionCallError": {
-                            "ExecutionError": "Smart contract panicked"
-                        }
-                    }
-                }
-            }
-        });
-        let status: ExecutionStatus = serde_json::from_value(json).unwrap();
-        match status {
-            ExecutionStatus::Failure(ae) => {
-                assert_eq!(ae.index, Some(0));
-            }
-            other => panic!("expected Failure, got: {other:?}"),
-        }
-    }
-
-    #[test]
     fn test_execution_status_accessors() {
         let value: ExecutionStatus =
             serde_json::from_value(serde_json::json!({"SuccessValue": "aGVsbG8="})).unwrap();
         assert!(value.is_success() && !value.is_failure());
-        assert_eq!(value.success_value(), Some(&b"hello"[..]));
+        assert!(matches!(&value, ExecutionStatus::SuccessValue(v) if v == b"hello"));
         assert!(value.failure().is_none());
 
-        let receipt: ExecutionStatus = serde_json::from_value(
-            serde_json::json!({"SuccessReceiptId": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"}),
-        )
-        .unwrap();
-        assert!(receipt.is_success());
-        assert_eq!(receipt.success_value(), None);
+        let receipt: ExecutionStatus =
+            serde_json::from_value(serde_json::json!({"SuccessReceiptId": TX_HASH})).unwrap();
+        assert!(receipt.is_success() && !receipt.is_failure());
+        assert!(matches!(receipt, ExecutionStatus::SuccessReceiptId(_)));
 
         let failure: ExecutionStatus = serde_json::from_value(serde_json::json!({
             "Failure": {"ActionError": {"index": 0, "kind": {
@@ -3438,7 +2740,6 @@ mod tests {
         .unwrap();
         assert!(failure.is_failure() && !failure.is_success());
         assert_eq!(failure.failure().and_then(|e| e.index), Some(0));
-        assert_eq!(failure.success_value(), None);
 
         assert!(!ExecutionStatus::Unknown.is_success());
         assert!(!ExecutionStatus::Unknown.is_failure());
@@ -3460,64 +2761,29 @@ mod tests {
         assert!(status.failure().is_none());
     }
 
-    // ========================================================================
-    // GlobalContractIdentifierView tests
-    // ========================================================================
-
     #[test]
-    fn test_global_contract_id_view_new_format_hash() {
-        let json = serde_json::json!({"hash": "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K"});
-        let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
-        assert!(matches!(id, GlobalContractIdentifierView::CodeHash(_)));
-    }
-
-    #[test]
-    fn test_global_contract_id_view_new_format_account() {
-        let json = serde_json::json!({"account_id": "alice.near"});
-        let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
-        assert!(matches!(id, GlobalContractIdentifierView::AccountId(_)));
-    }
-
-    #[test]
-    fn test_global_contract_id_view_deprecated_hash() {
-        let json = serde_json::json!("9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K");
-        let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
-        assert!(matches!(id, GlobalContractIdentifierView::CodeHash(_)));
-    }
-
-    #[test]
-    fn test_global_contract_id_view_deprecated_account() {
-        let json = serde_json::json!("alice.near");
-        let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
-        assert!(matches!(id, GlobalContractIdentifierView::AccountId(_)));
-    }
-
-    // ========================================================================
-    // DeterministicStateInit ActionView tests
-    // ========================================================================
-
-    #[test]
-    fn test_action_view_deterministic_state_init() {
-        let json = serde_json::json!({
-            "DeterministicStateInit": {
-                "code": {"hash": "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K"},
-                "data": {"a2V5": "dmFsdWU="},
-                "deposit": "1000000000000000000000000"
-            }
-        });
-        let action: ActionView = serde_json::from_value(json).unwrap();
-        match action {
-            ActionView::DeterministicStateInit {
-                code,
-                data,
-                deposit,
-            } => {
-                assert!(matches!(code, GlobalContractIdentifierView::CodeHash(_)));
-                assert_eq!(data.len(), 1);
-                assert_eq!(data.get("a2V5").unwrap(), "dmFsdWU=");
-                assert_eq!(deposit, NearToken::from_near(1));
-            }
-            _ => panic!("Expected DeterministicStateInit"),
+    fn test_global_contract_id_view_formats() {
+        // The view format, the pre-2.12 identifier format and the bare string.
+        let hash = "9SP8Y3sVADWNN5QoEB5CsvPUE5HT4o8YfBaCnhLss87K";
+        for json in [
+            serde_json::json!({ "hash": hash }),
+            serde_json::json!({ "CodeHash": hash }),
+            serde_json::json!(hash),
+        ] {
+            let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
+            assert!(
+                matches!(id, GlobalContractIdentifierView::CodeHash(h) if h.to_string() == hash)
+            );
+        }
+        for json in [
+            serde_json::json!({ "account_id": "alice.near" }),
+            serde_json::json!({ "AccountId": "alice.near" }),
+            serde_json::json!("alice.near"),
+        ] {
+            let id: GlobalContractIdentifierView = serde_json::from_value(json).unwrap();
+            assert!(
+                matches!(id, GlobalContractIdentifierView::AccountId(a) if a.as_str() == "alice.near")
+            );
         }
     }
 
@@ -3538,10 +2804,6 @@ mod tests {
             _ => panic!("Expected DeterministicStateInit"),
         }
     }
-
-    // ========================================================================
-    // GlobalContractDistribution receipt tests
-    // ========================================================================
 
     #[test]
     fn test_receipt_global_contract_distribution() {
@@ -3593,75 +2855,27 @@ mod tests {
     }
 
     #[test]
-    fn test_gas_profile_entry_deserialization() {
-        let json = serde_json::json!({
-            "cost_category": "WASM_HOST_COST",
-            "cost": "BASE",
-            "gas_used": "2646228750"
-        });
-        let entry: GasProfileEntry = serde_json::from_value(json).unwrap();
-        assert_eq!(entry.cost_category, "WASM_HOST_COST");
-        assert_eq!(entry.cost, "BASE");
-        assert_eq!(entry.gas_used, Gas::from_gas(2646228750));
+    fn test_transaction_view_nonce_mode() {
+        // Nodes older than nearcore 2.12 send no `nonce_mode`.
+        for (nonce_mode, expected) in [(None, None), (Some("strict"), Some(NonceMode::Strict))] {
+            let mut json = serde_json::json!({
+                "signer_id": "alice.near",
+                "public_key": PK,
+                "nonce": 1,
+                "receiver_id": "bob.near",
+                "hash": TX_HASH,
+                "actions": [{"Transfer": {"deposit": "1000000000000000000000000"}}],
+                "signature": SIG
+            });
+            if let Some(mode) = nonce_mode {
+                json["nonce_mode"] = mode.into();
+            }
+            let tx: TransactionView = serde_json::from_value(json).unwrap();
+            assert_eq!(tx.signer_id.as_str(), "alice.near");
+            assert_eq!(tx.signature, SIG.parse().unwrap());
+            assert_eq!(tx.nonce_mode, expected);
+        }
     }
-
-    #[test]
-    fn test_transaction_view_with_signature() {
-        let json = serde_json::json!({
-            "signer_id": "alice.near",
-            "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-            "nonce": 1,
-            "receiver_id": "bob.near",
-            "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-            "actions": [{"Transfer": {"deposit": "1000000000000000000000000"}}],
-            "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5"
-        });
-        let tx: TransactionView = serde_json::from_value(json).unwrap();
-        assert_eq!(tx.signer_id.as_str(), "alice.near");
-        assert!(tx.signature.to_string().starts_with("ed25519:"));
-        // Fixture has no `nonce_mode` (older node); should deserialize to `None`.
-        assert_eq!(tx.nonce_mode, None);
-    }
-
-    #[test]
-    fn test_transaction_view_nonce_mode_strict() {
-        let json = serde_json::json!({
-            "signer_id": "alice.near",
-            "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
-            "nonce": 1,
-            "receiver_id": "bob.near",
-            "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-            "actions": [{"Transfer": {"deposit": "1000000000000000000000000"}}],
-            "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
-            "nonce_mode": "strict"
-        });
-        let tx: TransactionView = serde_json::from_value(json).unwrap();
-        assert_eq!(tx.nonce_mode, Some(NonceMode::Strict));
-    }
-
-    #[test]
-    fn test_receipt_to_tx_response() {
-        let json = serde_json::json!({
-            "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-            "sender_account_id": "alice.near"
-        });
-        let response: ReceiptToTxResponse = serde_json::from_value(json).unwrap();
-        assert_eq!(
-            response.transaction_hash.to_string(),
-            "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-        );
-        assert_eq!(response.sender_account_id.as_str(), "alice.near");
-    }
-}
-
-// Round-trips from the JSON the node returns for an `ActionView` back into the
-// wire `Action`. Kept in its own module so it stays a self-contained block.
-#[cfg(test)]
-mod action_view_conversion_tests {
-    use super::*;
-
-    const PK: &str = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp";
-    const SIG: &str = "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5";
 
     fn pk() -> PublicKey {
         PK.parse().unwrap()
@@ -3794,11 +3008,11 @@ mod action_view_conversion_tests {
             public_key: pk(),
             access_key: AccessKey {
                 nonce: 9,
-                permission: AccessKeyPermission::function_call(
-                    "contract.near".parse().unwrap(),
-                    vec!["a".into(), "b".into()],
-                    Some(NearToken::from_millinear(250)),
-                ),
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance: Some(NearToken::from_millinear(250)),
+                    receiver_id: "contract.near".parse().unwrap(),
+                    method_names: vec!["a".into(), "b".into()],
+                }),
             },
         });
         assert_eq!(convert(json).unwrap(), expected);

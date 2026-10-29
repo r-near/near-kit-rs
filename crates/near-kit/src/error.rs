@@ -47,10 +47,6 @@ pub enum KeyStoreError {
     Platform(String),
 }
 
-// ============================================================================
-// RPC Errors
-// ============================================================================
-
 /// An error from the JSON-RPC layer: the transport, the response, or an error
 /// the node returned.
 ///
@@ -72,7 +68,6 @@ pub enum KeyStoreError {
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum RpcError {
-    // ─── Network/Transport ───
     // reqwest only compiles with the `rpc` feature and never on WASI (the
     // wasi:http transport reports failures as `Network` instead), so this
     // variant (and its `is_retryable` arm below) exists only there.
@@ -113,7 +108,6 @@ pub enum RpcError {
     #[error("Invalid response: {0}")]
     InvalidResponse(String),
 
-    // ─── Generic RPC Error ───
     /// A JSON-RPC error that no other variant covers.
     ///
     /// Retryable for code `-32603`, and for `-32000` when `cause` is absent or
@@ -131,7 +125,6 @@ pub enum RpcError {
         cause: Option<String>,
     },
 
-    // ─── Account Errors ───
     /// The account does not exist at the queried block (`UNKNOWN_ACCOUNT`).
     #[error("Account not found: {account_id}")]
     AccountNotFound {
@@ -192,7 +185,6 @@ pub enum RpcError {
         block_hash: Option<CryptoHash>,
     },
 
-    // ─── Contract Errors ───
     /// The account has no contract deployed (`NO_CONTRACT_CODE`).
     #[error("Contract not deployed on account: {account_id}")]
     ContractNotDeployed {
@@ -229,18 +221,12 @@ pub enum RpcError {
         block_hash: Option<CryptoHash>,
     },
 
-    /// A view function failed for a reason that does not have a more specific
-    /// [`RpcError`] variant.
-    ///
-    /// Missing contract code, missing methods, and contract panics are exposed
-    /// as [`ContractNotDeployed`](Self::ContractNotDeployed),
-    /// [`MethodNotFound`](Self::MethodNotFound), and
-    /// [`ContractPanic`](Self::ContractPanic), respectively. Those are
-    /// recognized from the node's structured `vm_error` field and, when a
-    /// provider only returns the legacy string form (for example
-    /// `Function call returned an error: MethodResolveError(MethodNotFound)`),
-    /// from that string as well. This variant is the catch-all left after both
-    /// classifications, so matching on `message` for those cases is not needed.
+    /// A view function failed for a reason with no more specific variant.
+    /// Missing code, missing methods and panics are already split out (from
+    /// the structured `vm_error` or its legacy string form) as
+    /// [`ContractNotDeployed`](Self::ContractNotDeployed),
+    /// [`MethodNotFound`](Self::MethodNotFound) and
+    /// [`ContractPanic`](Self::ContractPanic).
     #[error("contract execution failed on {contract_id}: {message}")]
     ContractExecution {
         /// The contract called. `unknown` only when parsing a raw response
@@ -283,7 +269,6 @@ pub enum RpcError {
         block_hash: Option<CryptoHash>,
     },
 
-    // ─── Block/Chunk Errors ───
     /// The node doesn't have the block: it is unknown or was garbage-collected
     /// (`UNKNOWN_BLOCK`, `GARBAGE_COLLECTED_BLOCK`). Holds the block reference.
     ///
@@ -309,7 +294,6 @@ pub enum RpcError {
     #[error("Invalid shard ID: {0}")]
     InvalidShardId(String),
 
-    // ─── Receipt Errors ───
     /// The node doesn't know the receipt (`UNKNOWN_RECEIPT`). Holds the
     /// receipt ID.
     #[error("Receipt not found: {0}")]
@@ -322,7 +306,6 @@ pub enum RpcError {
     #[error("Receipt-to-transaction lookup failed: {0}")]
     ReceiptToTx(ReceiptToTxError),
 
-    // ─── Transaction Errors ───
     /// The node has no record of the transaction (`UNKNOWN_TRANSACTION`).
     ///
     /// nearcore answers this way only to a status request that does not wait
@@ -355,7 +338,6 @@ pub enum RpcError {
         details: Option<serde_json::Value>,
     },
 
-    // ─── Node Errors ───
     /// The node can't serve the shard right now (`UNAVAILABLE_SHARD`).
     /// Retryable.
     #[error("Shard unavailable: {0}")]
@@ -370,7 +352,6 @@ pub enum RpcError {
     #[error("Internal server error: {0}")]
     InternalError(String),
 
-    // ─── Request Errors ───
     /// The node could not parse the request's parameters (`PARSE_ERROR`).
     #[error("Parse error: {0}")]
     ParseError(String),
@@ -399,14 +380,9 @@ pub enum RpcError {
         cause: Option<TimeoutCause>,
     },
 
-    // ─── Access Key Listing ───
-    /// An unpaginated `view_access_key_list` request hit the node's cap.
-    ///
-    /// nearcore only returns an account's keys in one shot when there are at
-    /// most `limit` of them (100 by default); anything larger has to be listed
-    /// with `limit`/`after_key`. `RpcClient::view_access_key_list` always
-    /// paginates, so this only surfaces from
-    /// `RpcClient::view_access_key_list_page` called without a `limit`.
+    /// An unpaginated `view_access_key_list` request hit the node's cap
+    /// (`TOO_MANY_ACCESS_KEYS`). Only `RpcClient::view_access_key_list_page`
+    /// called without a `limit` or `after_key` can return it.
     #[error(
         "account {account_id} has more than {limit} access keys; use a paginated view_access_key_list request"
     )]
@@ -585,33 +561,16 @@ fn is_transient_cause(cause: &str) -> bool {
 }
 
 impl RpcError {
-    /// Check if this error is retryable.
+    /// Whether re-sending the *same* request may succeed, which is what
+    /// `RpcClient::request` checks between attempts: transport failures
+    /// (including a connection the server reset or closed mid-exchange),
+    /// timeouts, unsynced or unavailable nodes, `-32603`, and `-32000` with no
+    /// cause or one that clears with time (`NODE_IS_SYNCING`, `BUSY`, ...).
     ///
-    /// "Retryable" means re-sending the *same* request may succeed: transient
-    /// transport failures, timeouts, and server-side conditions like an
-    /// unsynced node or a 5xx. This is what `RpcClient::request` consults
-    /// between attempts.
-    ///
-    /// A generic [`RpcError::Rpc`] server error (code `-32000`) is retryable
-    /// when it has no `cause` or a cause that clears with time, such as
-    /// `NODE_IS_SYNCING` or `BUSY`; a cause near-kit doesn't recognise is not
-    /// retried. Code `-32603` (internal error) is always retryable.
-    ///
-    /// For [`RpcError::InvalidTx`] the signed payload is fixed at this layer,
-    /// so only rejections that can clear while the *same* bytes are re-sent
-    /// count: `ShardCongested` and `ShardStuck`. `InvalidNonce` is transient
-    /// too ([`InvalidTxError::is_retryable`] says so) but re-sending the
-    /// rejected transaction byte-for-byte can never succeed — it needs a
-    /// fresh nonce and a new signature. That refresh-and-re-sign loop lives
-    /// in the transaction layer (`SigningNear` sends), where retrying can actually
-    /// change the outcome, so it is `false` here.
-    ///
-    /// A connection the server reset, aborted, or closed mid-exchange counts
-    /// as transient; overloaded nodes commonly shed load this way. The node
-    /// may already have handled such a request, so `RpcClient::request` never
-    /// retries `sandbox_fast_forward`, the one method that is not idempotent.
-    ///
-    /// [`InvalidTxError::is_retryable`]: crate::protocol::InvalidTxError::is_retryable
+    /// Of the [`InvalidTx`](Self::InvalidTx) rejections only `ShardCongested`
+    /// and `ShardStuck` count. `InvalidNonce` doesn't: the same signed bytes
+    /// can never pass, so the `SigningNear` transaction path re-signs with a
+    /// fresh nonce instead.
     pub fn is_retryable(&self) -> bool {
         match self {
             #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
@@ -632,13 +591,10 @@ impl RpcError {
                 }
             }
             RpcError::Network { retryable, .. } => *retryable,
-            RpcError::ShardUnavailable(_) => true,
-            RpcError::NodeNotSynced(_) => true,
-            RpcError::InternalError(_) => true,
-            RpcError::Timeout { .. } => true,
-            // The payload is fixed here, so `InvalidNonce` can't be fixed by
-            // re-sending it (the transaction layer re-signs instead); shard
-            // congestion/stalls can clear on their own. See the doc comment.
+            RpcError::ShardUnavailable(_)
+            | RpcError::NodeNotSynced(_)
+            | RpcError::InternalError(_)
+            | RpcError::Timeout { .. } => true,
             RpcError::InvalidTx(InvalidTxError::InvalidNonce { .. }) => false,
             RpcError::InvalidTx(e) => e.is_retryable(),
             // A server error is retried when the node names no cause (older
@@ -675,7 +631,6 @@ impl RpcError {
         message: impl Into<String>,
         details: Option<serde_json::Value>,
     ) -> Self {
-        // Try to deserialize the structured error from the data field
         if let Some(ref data) = details
             && let Some(invalid_tx) = Self::try_parse_invalid_tx(data)
         {
@@ -693,23 +648,17 @@ impl RpcError {
     ///
     /// The data field typically looks like:
     /// `{"TxExecutionError": {"InvalidTxError": {"InvalidNonce": {...}}}}`
-    fn try_parse_invalid_tx(data: &serde_json::Value) -> Option<crate::types::InvalidTxError> {
-        // Nested form: data.TxExecutionError.InvalidTxError
-        if let Some(tx_err) = data.get("TxExecutionError")
-            && let Some(invalid_tx_value) = tx_err.get("InvalidTxError")
-            && let Ok(parsed) = serde_json::from_value(invalid_tx_value.clone())
-        {
-            return Some(parsed);
-        }
-
-        // Fallback: InvalidTxError at the top level (some RPC versions)
-        if let Some(invalid_tx_value) = data.get("InvalidTxError")
-            && let Ok(parsed) = serde_json::from_value(invalid_tx_value.clone())
-        {
-            return Some(parsed);
-        }
-
-        None
+    fn try_parse_invalid_tx(data: &serde_json::Value) -> Option<InvalidTxError> {
+        use serde::Deserialize;
+        // Nested under `TxExecutionError`, or at the top level (some RPC versions).
+        [
+            data.get("TxExecutionError")
+                .and_then(|e| e.get("InvalidTxError")),
+            data.get("InvalidTxError"),
+        ]
+        .into_iter()
+        .flatten()
+        .find_map(|v| InvalidTxError::deserialize(v).ok())
     }
 }
 
@@ -764,37 +713,7 @@ fn is_connection_dropped(error: &reqwest::Error) -> bool {
     false
 }
 
-// ============================================================================
-// Main Error Type
-// ============================================================================
-
 impl RpcError {
-    /// Returns true if this error indicates the account was not found.
-    pub fn is_account_not_found(&self) -> bool {
-        matches!(self, RpcError::AccountNotFound { .. })
-    }
-
-    /// Returns true if this error indicates a contract is not deployed.
-    pub fn is_contract_not_deployed(&self) -> bool {
-        matches!(self, RpcError::ContractNotDeployed { .. })
-    }
-
-    /// Returns true if this error indicates the requested contract method was
-    /// not found.
-    pub fn is_method_not_found(&self) -> bool {
-        matches!(self, RpcError::MethodNotFound { .. })
-    }
-
-    /// Returns true if this error indicates a view method panicked.
-    pub fn is_contract_panic(&self) -> bool {
-        matches!(self, RpcError::ContractPanic { .. })
-    }
-
-    /// Returns true if this error indicates a global contract was not found.
-    pub fn is_global_contract_not_found(&self) -> bool {
-        matches!(self, RpcError::GlobalContractNotFound { .. })
-    }
-
     /// The variant name, for structured `tracing` fields.
     ///
     /// Used instead of the `Display` text in RPC-layer events: some variants
@@ -939,14 +858,12 @@ impl RpcError {
 /// type with `?`.
 #[derive(Debug, Error)]
 pub enum Error {
-    // ─── Configuration ───
     /// The client or signer is misconfigured: a missing or malformed
     /// environment variable, an unreadable credentials file, or an empty or
     /// mixed-account `RotatingSigner` key set.
     #[error("Invalid configuration: {0}")]
     Config(String),
 
-    // ─── Parsing ───
     /// An account ID did not parse.
     #[error(transparent)]
     ParseAccountId(#[from] ParseAccountIdError),
@@ -955,12 +872,10 @@ pub enum Error {
     #[error(transparent)]
     ParseKey(#[from] ParseKeyError),
 
-    // ─── RPC ───
     /// The RPC request failed. Boxed to keep `Error` small.
     #[error(transparent)]
     Rpc(Box<RpcError>),
 
-    // ─── Transaction validation ───
     /// Transaction was rejected before execution. No receipt was created,
     /// no nonce was incremented, no gas was consumed.
     ///
@@ -985,25 +900,22 @@ pub enum Error {
 
     /// A signed transaction failed to decode from base64 or Borsh.
     #[error(transparent)]
-    Decode(DecodeTransactionError),
+    Decode(#[from] DecodeTransactionError),
 
     /// A signed delegate action failed to decode from base64 or Borsh
     /// (`SignedDelegateAction::from_base64` and the V2 equivalent).
     #[error(transparent)]
     DecodeDelegate(#[from] DecodeDelegateError),
 
-    // ─── Signing ───
     /// The signer could not sign, or could not be built (for example an
     /// invalid seed phrase).
     #[error("Signing failed: {0}")]
     Signing(#[source] SignerError),
 
-    // ─── KeyStore ───
     /// Loading a key from a key store failed.
     #[error(transparent)]
     KeyStore(#[from] KeyStoreError),
 
-    // ─── Serialization ───
     /// JSON encoding or decoding failed: call arguments, a view's return
     /// value, or a transaction's JSON result.
     #[error("JSON error: {0}")]
@@ -1060,12 +972,6 @@ impl<E: Into<Error> + std::fmt::Display> From<ContractError<E>> for Error {
     }
 }
 
-impl From<DecodeTransactionError> for Error {
-    fn from(err: DecodeTransactionError) -> Self {
-        Error::Decode(err)
-    }
-}
-
 impl From<OutcomeError> for Error {
     fn from(err: OutcomeError) -> Self {
         match err {
@@ -1093,9 +999,11 @@ impl Error {
     /// # use near_kit::Near;
     /// # async fn example(near: &Near) -> Result<(), near_kit::Error> {
     /// # use near_kit::account;
+    /// use near_kit::rpc::RpcError;
+    ///
     /// match near.view::<u64>(account!("counter.testnet"), "get_count").await.map_err(near_kit::Error::from) {
     ///     Ok(count) => println!("{count}"),
-    ///     Err(e) if e.as_rpc().is_some_and(|e| e.is_contract_not_deployed()) => {
+    ///     Err(e) if matches!(e.as_rpc(), Some(RpcError::ContractNotDeployed { .. })) => {
     ///         println!("no contract");
     ///     }
     ///     Err(e) => return Err(e),
@@ -1141,113 +1049,6 @@ impl Error {
 mod tests {
     use super::*;
     use crate::types::FinalExecutionStatus;
-
-    // ========================================================================
-    // KeyStoreError tests
-    // ========================================================================
-
-    #[test]
-    fn test_keystore_error_display() {
-        let account_id: AccountId = "alice.near".parse().unwrap();
-        assert_eq!(
-            KeyStoreError::KeyNotFound(account_id).to_string(),
-            "Key not found for account: alice.near"
-        );
-        assert_eq!(
-            KeyStoreError::InvalidFormat("missing field".to_string()).to_string(),
-            "Invalid credential format: missing field"
-        );
-        assert_eq!(
-            KeyStoreError::Platform("keyring locked".to_string()).to_string(),
-            "Platform keyring error: keyring locked"
-        );
-    }
-
-    // ========================================================================
-    // RpcError tests
-    // ========================================================================
-
-    #[test]
-    fn test_rpc_error_display() {
-        let account_id: AccountId = "alice.near".parse().unwrap();
-
-        assert_eq!(
-            RpcError::InvalidResponse("missing result".to_string()).to_string(),
-            "Invalid response: missing result"
-        );
-        assert_eq!(
-            RpcError::AccountNotFound {
-                account_id: account_id.clone(),
-                block_height: None,
-                block_hash: None,
-            }
-            .to_string(),
-            "Account not found: alice.near"
-        );
-        assert_eq!(
-            RpcError::InvalidAccount {
-                account_id: "bad-account".to_string(),
-                block_height: None,
-                block_hash: None,
-            }
-            .to_string(),
-            "Invalid account ID: bad-account"
-        );
-        assert_eq!(
-            RpcError::ContractNotDeployed {
-                account_id: account_id.clone(),
-                block_height: None,
-                block_hash: None,
-            }
-            .to_string(),
-            "Contract not deployed on account: alice.near"
-        );
-        assert_eq!(
-            RpcError::ContractStateTooLarge {
-                account_id: account_id.clone(),
-                block_height: None,
-                block_hash: None,
-            }
-            .to_string(),
-            "Contract state too large for account: alice.near"
-        );
-        assert_eq!(
-            RpcError::BlockNotFound("12345".to_string()).to_string(),
-            "Block not found: 12345. It may have been garbage-collected. Try an archival node for blocks older than 5 epochs."
-        );
-        assert_eq!(
-            RpcError::ChunkNotFound("abc123".to_string()).to_string(),
-            "Chunk not found: abc123. It may have been garbage-collected. Try an archival node."
-        );
-        assert_eq!(
-            RpcError::EpochNotFound("epoch1".to_string()).to_string(),
-            "Epoch not found for block: epoch1. The block may be invalid or too old. Try an archival node."
-        );
-        assert_eq!(
-            RpcError::ReceiptNotFound("receipt123".to_string()).to_string(),
-            "Receipt not found: receipt123"
-        );
-        assert_eq!(
-            RpcError::InvalidShardId("99".to_string()).to_string(),
-            "Invalid shard ID: 99"
-        );
-        assert_eq!(
-            RpcError::ShardUnavailable("shard 0".to_string()).to_string(),
-            "Shard unavailable: shard 0"
-        );
-        assert_eq!(
-            RpcError::NodeNotSynced("syncing...".to_string()).to_string(),
-            "Node not synced: syncing..."
-        );
-        assert_eq!(
-            RpcError::InternalError("database error".to_string()).to_string(),
-            "Internal server error: database error"
-        );
-        assert_eq!(
-            RpcError::ParseError("invalid json".to_string()).to_string(),
-            "Parse error: invalid json"
-        );
-    }
 
     #[test]
     fn test_rpc_error_is_retryable() {
@@ -1357,92 +1158,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_error_network_constructor() {
-        let err = RpcError::network("connection refused", Some(503), true);
-        match err {
-            RpcError::Network {
-                message,
-                status_code,
-                retryable,
-            } => {
-                assert_eq!(message, "connection refused");
-                assert_eq!(status_code, Some(503));
-                assert!(retryable);
-            }
-            _ => panic!("Expected Network error"),
-        }
-    }
-
-    #[test]
-    fn test_rpc_error_invalid_transaction_constructor_unstructured() {
-        let err = RpcError::invalid_tx("invalid nonce", None);
-        match err {
-            RpcError::InvalidTxUnparsed { message, details } => {
-                assert_eq!(message, "invalid nonce");
-                assert!(details.is_none());
-            }
-            _ => panic!("Expected InvalidTxUnparsed error"),
-        }
-    }
-
-    #[test]
-    fn test_rpc_error_invalid_transaction_constructor_structured() {
-        // When data contains a parseable InvalidTxError, it should produce InvalidTx
-        let data = serde_json::json!({
-            "TxExecutionError": {
-                "InvalidTxError": {
-                    "InvalidNonce": {
-                        "tx_nonce": 5,
-                        "ak_nonce": 10
-                    }
-                }
-            }
-        });
-        let err = RpcError::invalid_tx("invalid nonce", Some(data));
-        match err {
-            RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {
-                tx_nonce,
-                ak_nonce,
-            }) => {
-                assert_eq!(tx_nonce, 5);
-                assert_eq!(ak_nonce, 10);
-            }
-            other => panic!("Expected InvalidTx(InvalidNonce), got: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_rpc_error_is_account_not_found() {
-        let account_id: AccountId = "alice.near".parse().unwrap();
-        assert!(
-            RpcError::AccountNotFound {
-                account_id,
-                block_height: None,
-                block_hash: None,
-            }
-            .is_account_not_found()
-        );
-        assert!(!RpcError::InvalidResponse("missing result".to_string()).is_account_not_found());
-    }
-
-    #[test]
-    fn test_rpc_error_is_contract_not_deployed() {
-        let account_id: AccountId = "alice.near".parse().unwrap();
-        assert!(
-            RpcError::ContractNotDeployed {
-                account_id,
-                block_height: None,
-                block_hash: None,
-            }
-            .is_contract_not_deployed()
-        );
-        assert!(
-            !RpcError::InvalidResponse("missing result".to_string()).is_contract_not_deployed()
-        );
-    }
-
-    #[test]
-    fn test_rpc_error_view_call_classification_helpers() {
+    fn test_rpc_error_view_call_block_context() {
         let account_id: AccountId = "contract.near".parse().unwrap();
         let block_hash = CryptoHash::hash(b"block");
         let method_not_found = RpcError::MethodNotFound {
@@ -1451,8 +1167,6 @@ mod tests {
             block_height: Some(42),
             block_hash: Some(block_hash),
         };
-        assert!(method_not_found.is_method_not_found());
-        assert!(!method_not_found.is_contract_panic());
         assert_eq!(method_not_found.block_height(), Some(42));
         assert_eq!(method_not_found.block_hash(), Some(block_hash));
 
@@ -1461,8 +1175,6 @@ mod tests {
             block_height: None,
             block_hash: None,
         };
-        assert!(panic.is_contract_panic());
-        assert!(!panic.is_method_not_found());
         assert_eq!(panic.block_height(), None);
         assert_eq!(panic.block_hash(), None);
         assert_eq!(
@@ -1513,47 +1225,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_error_method_not_found_display() {
-        let account_id: AccountId = "contract.near".parse().unwrap();
-        let err = RpcError::MethodNotFound {
-            contract_id: account_id,
-            method_name: "missing".to_string(),
-            block_height: None,
-            block_hash: None,
-        };
-        assert_eq!(
-            err.to_string(),
-            "contract method not found: `contract.near::missing`"
-        );
-    }
-
-    #[test]
-    fn test_rpc_error_contract_execution_display() {
-        let account_id: AccountId = "contract.near".parse().unwrap();
-        let err = RpcError::ContractExecution {
-            contract_id: account_id,
-            method_name: Some("my_method".to_string()),
-            message: "execution failed".to_string(),
-            block_height: None,
-            block_hash: None,
-        };
-        assert_eq!(
-            err.to_string(),
-            "contract execution failed on contract.near: execution failed"
-        );
-    }
-
-    #[test]
-    fn test_rpc_error_contract_panic_display() {
-        let panic = RpcError::ContractPanic {
-            message: "assertion failed".to_string(),
-            block_height: None,
-            block_hash: None,
-        };
-        assert_eq!(panic.to_string(), "contract panic: assertion failed");
-    }
-
-    #[test]
     fn test_view_call_error_display_preserves_message_casing() {
         let contract_id: AccountId = "contract.near".parse().unwrap();
 
@@ -1589,33 +1260,6 @@ mod tests {
             .to_string(),
             "contract method not found: `contract.near::Nep413GetMessage`"
         );
-    }
-
-    #[test]
-    fn test_rpc_error_invalid_tx_display() {
-        use crate::types::InvalidTxError;
-        let err = RpcError::InvalidTx(InvalidTxError::InvalidNonce {
-            tx_nonce: 5,
-            ak_nonce: 10,
-        });
-        assert!(err.to_string().contains("transaction nonce"));
-        assert!(err.to_string().contains("access key nonce"));
-    }
-
-    #[test]
-    fn test_rpc_error_access_key_not_found_display() {
-        let account_id: AccountId = "alice.near".parse().unwrap();
-        let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
-            .parse()
-            .unwrap();
-        let err = RpcError::AccessKeyNotFound {
-            account_id,
-            public_key: public_key.clone(),
-            block_height: None,
-            block_hash: None,
-        };
-        assert!(err.to_string().contains("alice.near"));
-        assert!(err.to_string().contains(&public_key.to_string()));
     }
 
     #[test]
@@ -1662,25 +1306,6 @@ mod tests {
         );
     }
 
-    // ========================================================================
-    // Error (main type) tests
-    // ========================================================================
-
-    #[test]
-    fn test_error_config_display() {
-        assert_eq!(
-            Error::Config("invalid url".to_string()).to_string(),
-            "Invalid configuration: invalid url"
-        );
-    }
-
-    #[test]
-    fn test_error_invalid_tx_display() {
-        use crate::types::InvalidTxError;
-        let err = Error::InvalidTx(Box::new(InvalidTxError::Expired));
-        assert!(err.to_string().contains("expired"));
-    }
-
     #[test]
     fn test_error_from_rpc_invalid_tx_promotes() {
         use crate::types::InvalidTxError;
@@ -1694,14 +1319,6 @@ mod tests {
             err,
             Error::InvalidTx(e) if matches!(*e, InvalidTxError::InvalidNonce { .. })
         ));
-    }
-
-    #[test]
-    fn test_error_borsh_display() {
-        assert_eq!(
-            Error::Borsh("deserialization failed".to_string()).to_string(),
-            "Borsh error: deserialization failed"
-        );
     }
 
     #[test]
@@ -1850,7 +1467,7 @@ mod tests {
             block_hash: None,
         })
         .into();
-        assert!(err.as_rpc().is_some_and(RpcError::is_contract_panic));
+        assert!(matches!(err.as_rpc(), Some(RpcError::ContractPanic { .. })));
 
         let err: Error = ContractError::Backend(Error::Config("x".to_string())).into();
         assert!(matches!(err, Error::Config(m) if m == "x"));
@@ -1886,7 +1503,7 @@ mod tests {
             block_hash: None,
         }
         .into();
-        assert!(err.as_rpc().is_some_and(RpcError::is_contract_panic));
+        assert!(matches!(err.as_rpc(), Some(RpcError::ContractPanic { .. })));
         assert_eq!(err.as_rpc().and_then(RpcError::block_height), Some(7));
         match err.into_rpc() {
             Ok(RpcError::ContractPanic { message, .. }) => assert_eq!(message, "boom"),

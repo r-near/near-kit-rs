@@ -13,13 +13,10 @@ use near_kit::transaction::FunctionCall;
 use near_kit::*;
 use near_kit::{signer::*, transaction::Final};
 use tracing::span::Id;
+use tracing::subscriber::DefaultGuard;
 use tracing_subscriber::layer::SubscriberExt;
 
-use super::support::{fungible_token_wasm, unique_account};
-
-// =============================================================================
-// Capturing Layer
-// =============================================================================
+use super::support::{deploy_ft_contract, funded_account, unique_account};
 
 /// A recorded span creation event.
 #[derive(Clone, Debug)]
@@ -37,16 +34,9 @@ struct CapturedSpans {
 }
 
 /// Visitor that collects span fields as strings.
+#[derive(Default)]
 struct FieldVisitor {
     fields: HashMap<&'static str, String>,
-}
-
-impl FieldVisitor {
-    fn new() -> Self {
-        Self {
-            fields: HashMap::new(),
-        }
-    }
 }
 
 impl tracing::field::Visit for FieldVisitor {
@@ -55,18 +45,6 @@ impl tracing::field::Visit for FieldVisitor {
     }
 
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        self.fields.insert(field.name(), value.to_string());
-    }
-
-    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.fields.insert(field.name(), value.to_string());
-    }
-
-    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.fields.insert(field.name(), value.to_string());
-    }
-
-    fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
         self.fields.insert(field.name(), value.to_string());
     }
 }
@@ -93,11 +71,6 @@ impl CapturedSpans {
             })
             .map(|(_, r)| r.name)
             .collect()
-    }
-
-    /// Check if any span with the given name was recorded.
-    fn has_span(&self, name: &str) -> bool {
-        self.spans.lock().unwrap().values().any(|r| r.name == name)
     }
 
     /// Find a span by name and return its fields.
@@ -130,7 +103,7 @@ where
         let parent_id = span.parent().map(|p| p.id());
         let name = span.name();
 
-        let mut visitor = FieldVisitor::new();
+        let mut visitor = FieldVisitor::default();
         attrs.record(&mut visitor);
 
         self.state.spans.lock().unwrap().insert(
@@ -149,7 +122,7 @@ where
         values: &tracing::span::Record<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        let mut visitor = FieldVisitor::new();
+        let mut visitor = FieldVisitor::default();
         values.record(&mut visitor);
 
         if let Some(record) = self.state.spans.lock().unwrap().get_mut(&id.into_u64()) {
@@ -158,45 +131,68 @@ where
     }
 }
 
-// =============================================================================
-// Tests
-// =============================================================================
+/// Global no-op subscriber that keeps callsite interest at `sometimes`.
+///
+/// `tracing` caches each callsite's interest process-wide. While only one
+/// dispatcher is registered, a callsite's first hit takes its interest from
+/// the hitting thread's own dispatcher. If a sibling test with no subscriber
+/// reaches `view_function` first while one capture is live, that pins the
+/// callsite to `never` and the capture loses the span. Holding a second
+/// dispatcher that answers `sometimes` keeps the per-span `enabled` check
+/// going to the thread-local capture. `near-kit`'s `rpc.rs` tests do the same.
+struct KeepAlive;
 
-#[tokio::test(flavor = "current_thread")]
-async fn test_send_transaction_span_hierarchy() {
+impl tracing::Subscriber for KeepAlive {
+    fn register_callsite(
+        &self,
+        _: &'static tracing::Metadata<'static>,
+    ) -> tracing::subscriber::Interest {
+        tracing::subscriber::Interest::sometimes()
+    }
+
+    fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+        false
+    }
+
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> Id {
+        Id::from_u64(1)
+    }
+
+    fn record(&self, _: &Id, _: &tracing::span::Record<'_>) {}
+
+    fn record_follows_from(&self, _: &Id, _: &Id) {}
+
+    fn event(&self, _: &tracing::Event<'_>) {}
+
+    fn enter(&self, _: &Id) {}
+
+    fn exit(&self, _: &Id) {}
+}
+
+/// Install a span-capturing subscriber for the current thread.
+fn capture() -> (CapturedSpans, DefaultGuard) {
+    static KEEP_ALIVE: std::sync::Once = std::sync::Once::new();
+    // Any other global default would do as well, so the error is ignored.
+    KEEP_ALIVE.call_once(|| {
+        let _ = tracing::subscriber::set_global_default(KeepAlive);
+    });
+
     let captured = CapturedSpans::default();
     let layer = CapturingLayer {
         state: captured.clone(),
     };
+    let guard = tracing::subscriber::set_default(tracing_subscriber::registry().with(layer));
+    (captured, guard)
+}
 
-    // Install our capturing subscriber for this test
-    let subscriber = tracing_subscriber::registry().with(layer);
-    let _guard = tracing::subscriber::set_default(subscriber);
+#[tokio::test(flavor = "current_thread")]
+async fn test_send_transaction_span_hierarchy() {
+    let (captured, _guard) = capture();
+    let (sandbox, root_near) = super::support::shared_client().await;
 
-    let (_, root_near) = super::support::shared_client().await;
+    // Creating an account exercises send_transaction + RPC spans
+    funded_account(&root_near, sandbox, "trace", NearToken::from_near(10)).await;
 
-    // Create a test account — this exercises send_transaction + RPC spans
-    let account_key = SecretKey::generate_ed25519();
-    let account_id = unique_account("trace");
-
-    root_near
-        .wait_until::<Final>()
-        .transaction(&account_id)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(10)))
-        .add_action(Action::add_full_access_key(account_key.public_key()))
-        .await
-        .unwrap()
-        .result()
-        .unwrap();
-
-    // Verify send_transaction span was created
-    assert!(
-        captured.has_span("send_transaction"),
-        "expected a 'send_transaction' span"
-    );
-
-    // Verify key child spans are nested under send_transaction
     let children = captured.children_of("send_transaction");
     assert!(
         children.contains(&"send_tx"),
@@ -207,7 +203,6 @@ async fn test_send_transaction_span_hierarchy() {
         "expected 'view_access_key' as child of 'send_transaction', got: {children:?}"
     );
 
-    // Verify enriched span fields
     let fields = captured
         .find_span_fields("send_transaction")
         .expect("send_transaction span should exist");
@@ -216,14 +211,12 @@ async fn test_send_transaction_span_hierarchy() {
         Some("create_account,transfer,add_key"),
         "expected actions summary for create+transfer+add_key transaction"
     );
-
     // No function call → method/gas/deposit should not be recorded
     assert!(
-        !fields.contains_key("method") || fields.get("method").map(|s| s.as_str()) == Some(""),
+        !fields.contains_key("method"),
         "method should not be set for non-function-call transaction"
     );
 
-    // Verify RPC spans have rpc.url field
     let rpc_fields = captured
         .find_span_fields("request")
         .expect("RPC call span should exist");
@@ -235,21 +228,13 @@ async fn test_send_transaction_span_hierarchy() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn test_sign_transaction_span_hierarchy() {
-    let captured = CapturedSpans::default();
-    let layer = CapturingLayer {
-        state: captured.clone(),
-    };
-
-    let subscriber = tracing_subscriber::registry().with(layer);
-    let _guard = tracing::subscriber::set_default(subscriber);
-
+    let (captured, _guard) = capture();
     let (_, root_near) = super::support::shared_client().await;
 
     let account_key = SecretKey::generate_ed25519();
     let account_id = unique_account("trace");
 
-    // Use .sign() to exercise sign_transaction span
-    let _signed = root_near
+    root_near
         .sign(
             &account_id,
             vec![
@@ -261,18 +246,12 @@ async fn test_sign_transaction_span_hierarchy() {
         .await
         .unwrap();
 
-    assert!(
-        captured.has_span("sign_transaction"),
-        "expected a 'sign_transaction' span"
-    );
-
     let children = captured.children_of("sign_transaction");
     assert!(
         children.contains(&"view_access_key"),
         "expected 'view_access_key' as child of 'sign_transaction', got: {children:?}"
     );
 
-    // Verify enriched span fields
     let fields = captured
         .find_span_fields("sign_transaction")
         .expect("sign_transaction span should exist");
@@ -285,73 +264,42 @@ async fn test_sign_transaction_span_hierarchy() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn test_function_call_span_fields() {
-    let captured = CapturedSpans::default();
-    let layer = CapturingLayer {
-        state: captured.clone(),
-    };
+    let (captured, _guard) = capture();
+    let (_, root_near) = super::support::shared_client().await;
 
-    let subscriber = tracing_subscriber::registry().with(layer);
-    let _guard = tracing::subscriber::set_default(subscriber);
-
-    let (sandbox, root_near) = super::support::shared_client().await;
-
-    // Deploy FT contract
-    let ft_key = SecretKey::generate_ed25519();
-    let ft_id = unique_account("trace");
-
-    root_near
-        .wait_until::<Final>()
-        .transaction(&ft_id)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(50)))
-        .add_action(Action::add_full_access_key(ft_key.public_key()))
-        .add_action(Action::deploy_contract(fungible_token_wasm()))
+    let (ft_id, _) = deploy_ft_contract(&root_near, root_near.account_id())
         .await
-        .unwrap()
-        .result()
         .unwrap();
 
     // Clear setup spans — we only care about the function call
     captured.spans.lock().unwrap().clear();
 
-    let ft_near = sandbox
-        .root_account()
-        .near()
-        .with_signer(InMemorySigner::new(&ft_id, ft_key.clone()));
-
-    ft_near
+    root_near
         .wait_until::<Final>()
         .transaction(&ft_id)
-        .add_action(FunctionCall::new("new").args(serde_json::json!({
-            "owner_id": ft_id.to_string(),
-            "total_supply": "1000000000000000000000000",
-            "metadata": {
-                "spec": "ft-1.0.0",
-                "name": "Test Token",
-                "symbol": "TEST",
-                "decimals": 18
-            }
-        })))
+        .add_action(
+            FunctionCall::new("storage_deposit")
+                .args(serde_json::json!({}))
+                .deposit(NearToken::from_millinear(10)),
+        )
         .await
         .unwrap()
         .result()
         .unwrap();
 
-    // Verify send_transaction span has function call fields
     let fields = captured
         .find_span_fields("send_transaction")
         .expect("send_transaction span should exist");
-
     assert_eq!(
         fields.get("actions").map(|s| s.as_str()),
-        Some("function_call(new)"),
+        Some("function_call(storage_deposit)"),
         "expected actions summary for function call transaction"
     );
 
     // Single function call → method, gas, deposit should be recorded as span fields
     assert_eq!(
         fields.get("method").map(|s| s.as_str()),
-        Some("new"),
+        Some("storage_deposit"),
         "expected method field for single function call"
     );
     assert!(
@@ -366,83 +314,17 @@ async fn test_function_call_span_fields() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn test_ft_balance_of_span_hierarchy() {
-    let captured = CapturedSpans::default();
-    let layer = CapturingLayer {
-        state: captured.clone(),
-    };
+    let (captured, _guard) = capture();
+    let (_, root_near) = super::support::shared_client().await;
 
-    let subscriber = tracing_subscriber::registry().with(layer);
-    let _guard = tracing::subscriber::set_default(subscriber);
-
-    let (sandbox, root_near) = super::support::shared_client().await;
-
-    // Deploy an FT contract
-    let ft_key = SecretKey::generate_ed25519();
-    let ft_id = unique_account("trace");
-    let owner_id = unique_account("trace");
-    let owner_key = SecretKey::generate_ed25519();
-
-    // Create owner account
-    root_near
-        .wait_until::<Final>()
-        .transaction(&owner_id)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(50)))
-        .add_action(Action::add_full_access_key(owner_key.public_key()))
-        .await
-        .unwrap()
-        .result()
-        .unwrap();
-
-    // Deploy FT contract
-    let wasm = fungible_token_wasm();
-
-    root_near
-        .wait_until::<Final>()
-        .transaction(&ft_id)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(50)))
-        .add_action(Action::add_full_access_key(ft_key.public_key()))
-        .add_action(Action::deploy_contract(wasm))
-        .await
-        .unwrap()
-        .result()
-        .unwrap();
-
-    let ft_near = sandbox
-        .root_account()
-        .near()
-        .with_signer(InMemorySigner::new(&ft_id, ft_key.clone()));
-
-    ft_near
-        .wait_until::<Final>()
-        .transaction(&ft_id)
-        .add_action(FunctionCall::new("new").args(serde_json::json!({
-            "owner_id": owner_id.to_string(),
-            "total_supply": "1000000000000000000000000",
-            "metadata": {
-                "spec": "ft-1.0.0",
-                "name": "Test Token",
-                "symbol": "TEST",
-                "decimals": 18
-            }
-        })))
-        .await
-        .unwrap()
-        .result()
-        .unwrap();
+    let owner_id = root_near.account_id().clone();
+    let (ft_id, _) = deploy_ft_contract(&root_near, &owner_id).await.unwrap();
 
     // Clear spans from setup, we only care about balance_of
     captured.spans.lock().unwrap().clear();
 
-    let ft = ft_near.contract::<FungibleToken>(&ft_id);
-    let _balance = ft.balance_of(&owner_id).await.unwrap();
-
-    // Verify ft_balance_of span was created
-    assert!(
-        captured.has_span("ft_balance_of"),
-        "expected a 'ft_balance_of' span"
-    );
+    let ft = root_near.contract::<FungibleToken>(&ft_id);
+    ft.balance_of(&owner_id).await.unwrap();
 
     // The view_function RPC call should be a child of ft_balance_of
     let children = captured.children_of("ft_balance_of");

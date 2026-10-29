@@ -12,8 +12,8 @@ pub struct Args {
     pub value: u64,
 }
 
-/// More than seven argument-taking methods: the generated type-mention helpers
-/// must not add up to a function with too many arguments.
+/// Several argument-taking views and calls, so clippy sees every generated
+/// method shape.
 #[near_kit::contract]
 pub trait ManyMethods {
     /// View 1.

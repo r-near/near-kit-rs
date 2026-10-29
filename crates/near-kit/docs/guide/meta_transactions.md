@@ -1,11 +1,10 @@
 # Meta-transactions and relayers
 
-Read this when one account should pay for another account's transaction:
-a user signs actions without holding NEAR for gas, and a relayer submits
-them and pays. NEAR calls this a meta-transaction (NEP-366). The user signs
-a *delegate action* (the receiver, the actions, a nonce and an expiry
-height) and hands it over, usually as base64 in an HTTP request. The
-relayer wraps it in a transaction of its own.
+A meta-transaction (NEP-366) lets one account pay for another's
+transaction. The user signs a *delegate action* (the receiver, the
+actions, a nonce and an expiry height) and hands it over, usually as
+base64 in an HTTP request; the relayer wraps it in a transaction of its
+own and pays the gas.
 
 ## The user side: sign a delegate action
 
@@ -240,23 +239,6 @@ result isn't part of that status. So:
 - `outcome.is_success()` true says only that the inner actions were
   scheduled. Whether they succeeded shows up only in the receipt outcomes.
 
-So for a relayed transaction, `outcome.is_failure()` and `outcome.result()`
-can both look successful while
-[`outcome.receipt_failures()`](crate::rpc::FinalExecutionOutcome::receipt_failures)
-is not empty. A relayer that reports results checks it:
-
-```rust,no_run
-use near_kit::rpc::FinalExecutionOutcome;
-
-/// The first failed receipt in a relayed transaction, if any.
-fn inner_failure(outcome: &FinalExecutionOutcome) -> Option<String> {
-    outcome.receipt_failures().next().map(|error| error.to_string())
-}
-```
-
-When the inner call fails, any deposit attached to it goes back to the
-user, not to the relayer that paid it.
-
 ## Gas-key delegate actions
 
 NEP-611 adds a second delegate action version for gas keys,
@@ -268,14 +250,3 @@ payload yourself with
 [`VersionedDelegateActionPayload::get_hash`](crate::protocol::VersionedDelegateActionPayload::get_hash)
 and `into_signed`. The same receiver rule applies, and near-kit enforces it
 before signing.
-
-## See also
-
-- [`SigningNear::sign_delegate`](crate::SigningNear::sign_delegate),
-  [`DelegateOptions`](crate::transaction::DelegateOptions)
-- [`SignedDelegateAction`](crate::protocol::SignedDelegateAction),
-  [`DelegateAction`](crate::protocol::DelegateAction),
-  [`Action::delegate`](crate::protocol::Action::delegate)
-- [`SignedDelegateAction::verify`](crate::protocol::SignedDelegateAction::verify)
-- [`ActionErrorKind`](crate::protocol::ActionErrorKind) for the delegate
-  failure kinds

@@ -1,28 +1,6 @@
-//! Load an [`InMemorySigner`] from the operating system's credential store
-//! (macOS Keychain, Windows Credential Manager, or Linux Secret Service).
-//!
-//! # Compatibility
-//!
-//! [`from_keyring`] reads keys stored by `near-cli-rs`. If you've imported
-//! keys with `near-cli-rs`, you can use them directly with near-kit.
-//!
-//! # Platform Support
-//!
-//! - **macOS**: Uses Keychain (works out of the box)
-//! - **Windows**: Uses Credential Manager (works out of the box)
-//! - **Linux**: Uses Secret Service D-Bus API (requires `gnome-keyring`, `kwallet`, or similar)
-//!
-//! # Importing Keys
-//!
-//! Use `near-cli-rs` to import keys to the system keyring:
-//!
-//! ```bash
-//! near account import-account using-seed-phrase "your seed phrase here" \
-//!   --seed-phrase-hd-path "m/44'/397'/0'" \
-//!   network-config testnet
-//! ```
+//! Load an [`InMemorySigner`] from the system keyring, where `near-cli-rs` stores keys.
 
-use crate::error::{Error, KeyStoreError, ParseKeyError};
+use crate::error::{Error, KeyStoreError};
 use crate::types::{AccountId, InMemorySigner, PublicKey, SecretKey};
 
 /// Load the key `public_key` of `account_id` on `network` from the system
@@ -34,6 +12,14 @@ use crate::types::{AccountId, InMemorySigner, PublicKey, SecretKey};
 /// are tried, the handle first), so unlike
 /// [`from_credentials`](crate::signer::from_credentials) this needs the
 /// public key. Requires the opt-in `keyring` feature.
+///
+/// To import a key into the keyring with `near-cli-rs`:
+///
+/// ```bash
+/// near account import-account using-seed-phrase "your seed phrase here" \
+///   --seed-phrase-hd-path "m/44'/397'/0'" \
+///   network-config testnet
+/// ```
 ///
 /// # Example
 ///
@@ -106,7 +92,7 @@ pub fn from_keyring(
     let password =
         password.ok_or_else(|| Error::KeyStore(KeyStoreError::KeyNotFound(account_id.clone())))?;
 
-    let secret_key = parse_keyring_credential(&password, &account_id, public_key)?;
+    let secret_key = parse_keyring_credential(&password, &account_id)?;
     if &secret_key.public_key() != public_key {
         return Err(Error::KeyStore(KeyStoreError::InvalidFormat(format!(
             "Public key mismatch: stored key has {}, but requested {}",
@@ -118,67 +104,24 @@ pub fn from_keyring(
     Ok(InMemorySigner::new(account_id, secret_key))
 }
 
-// ============================================================================
-// Credential Parsing
-// ============================================================================
-
-/// Parse a keyring credential JSON into a SecretKey.
-///
-/// Supports two formats used by near-cli-rs:
-///
-/// 1. Full format (from seed phrase import):
-/// ```json
-/// {
-///   "seed_phrase_hd_path": "m/44'/397'/0'",
-///   "master_seed_phrase": "word1 word2 ...",
-///   "implicit_account_id": "...",
-///   "public_key": "ed25519:...",
-///   "private_key": "ed25519:..."
-/// }
-/// ```
-///
-/// 2. Simple format (from private key import):
-/// ```json
-/// {
-///   "public_key": "ed25519:...",
-///   "private_key": "ed25519:..."
-/// }
-/// ```
+/// Parse the `private_key` of a near-cli-rs keyring credential (the other
+/// fields vary by how the key was imported and are ignored).
 fn parse_keyring_credential(
     json_str: &str,
     account_id: &AccountId,
-    _public_key: &PublicKey,
-) -> Result<SecretKey, Error> {
-    // Try to parse as JSON
+) -> Result<SecretKey, KeyStoreError> {
     let value: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
-        Error::KeyStore(KeyStoreError::InvalidFormat(format!(
-            "Invalid JSON in keyring credential for {}: {}",
-            account_id, e
-        )))
+        KeyStoreError::InvalidFormat(format!(
+            "Invalid JSON in keyring credential for {account_id}: {e}"
+        ))
     })?;
-
-    // Extract private_key field (works for both formats)
-    let private_key_str = value
-        .get("private_key")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            Error::KeyStore(KeyStoreError::InvalidFormat(format!(
-                "Missing 'private_key' field in keyring credential for {}",
-                account_id
-            )))
-        })?;
-
-    // Parse the secret key
-    let secret_key: SecretKey = private_key_str
-        .parse()
-        .map_err(|e: ParseKeyError| Error::KeyStore(KeyStoreError::InvalidKey(e)))?;
-
-    Ok(secret_key)
+    let private_key = value["private_key"].as_str().ok_or_else(|| {
+        KeyStoreError::InvalidFormat(format!(
+            "Missing 'private_key' field in keyring credential for {account_id}"
+        ))
+    })?;
+    Ok(private_key.parse()?)
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -186,42 +129,24 @@ mod tests {
     use crate::signer::Signer as _;
 
     #[test]
-    fn test_parse_full_format() {
-        let json = r#"{
+    fn test_parse_full_and_simple_formats() {
+        // From a seed phrase import, then from a private key import.
+        let full = r#"{
             "seed_phrase_hd_path": "m/44'/397'/0'",
             "master_seed_phrase": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
             "implicit_account_id": "c4f5941e81e071c2fd1dae2e71fd3d859d462484391d9a90bf219211dcbb320f",
             "public_key": "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847",
             "private_key": "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
         }"#;
-
-        let account_id: AccountId = "alice.testnet".parse().unwrap();
-        let public_key: PublicKey = "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847"
-            .parse()
-            .unwrap();
-
-        let secret_key = parse_keyring_credential(json, &account_id, &public_key).unwrap();
-
-        // Verify the key was parsed correctly
-        assert!(secret_key.to_string().starts_with("ed25519:"));
-    }
-
-    #[test]
-    fn test_parse_simple_format() {
-        let json = r#"{
+        let simple = r#"{
             "public_key": "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847",
             "private_key": "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
         }"#;
-
         let account_id: AccountId = "alice.testnet".parse().unwrap();
-        let public_key: PublicKey = "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847"
-            .parse()
-            .unwrap();
-
-        let secret_key = parse_keyring_credential(json, &account_id, &public_key).unwrap();
-
-        // Verify the key was parsed correctly
-        assert!(secret_key.to_string().starts_with("ed25519:"));
+        for json in [full, simple] {
+            let secret_key = parse_keyring_credential(json, &account_id).unwrap();
+            assert!(secret_key.to_string().starts_with("ed25519:"));
+        }
     }
 
     #[test]
@@ -231,11 +156,8 @@ mod tests {
         }"#;
 
         let account_id: AccountId = "alice.testnet".parse().unwrap();
-        let public_key: PublicKey = "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847"
-            .parse()
-            .unwrap();
 
-        let result = parse_keyring_credential(json, &account_id, &public_key);
+        let result = parse_keyring_credential(json, &account_id);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -247,11 +169,8 @@ mod tests {
         let json = "not valid json";
 
         let account_id: AccountId = "alice.testnet".parse().unwrap();
-        let public_key: PublicKey = "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847"
-            .parse()
-            .unwrap();
 
-        let result = parse_keyring_credential(json, &account_id, &public_key);
+        let result = parse_keyring_credential(json, &account_id);
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -266,11 +185,8 @@ mod tests {
         }"#;
 
         let account_id: AccountId = "alice.testnet".parse().unwrap();
-        let public_key: PublicKey = "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847"
-            .parse()
-            .unwrap();
 
-        let result = parse_keyring_credential(json, &account_id, &public_key);
+        let result = parse_keyring_credential(json, &account_id);
         assert!(result.is_err());
     }
 

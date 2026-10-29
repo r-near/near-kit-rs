@@ -1,7 +1,7 @@
 # Testing
 
-Read this when you write tests for code that uses near-kit. There are three
-levels, from fastest to most faithful:
+There are three ways to test code that uses near-kit, from fastest to
+most faithful:
 
 - **Mock backends.** Typed contract clients, `View`, `Call` and the token
   clients run on any [`Viewer`](crate::Viewer) or
@@ -184,11 +184,8 @@ assert!(matches!(error, ContractError::Backend(message) if message.contains("tot
 # }
 ```
 
-[`Contract::client`](crate::Contract::client) builds a generated client
-over any backend; `near.contract::<Guestbook>(id)` is the same call with a
-clone of the `Near`. A JSON method without arguments sends `{}`, and a view
-whose reply doesn't decode fails with `ContractError::Codec`, so tests can
-cover both.
+A JSON method without arguments sends `{}`, and a view whose reply
+doesn't decode fails with `ContractError::Codec`, so tests can cover both.
 
 [`View::json`](crate::View::json) works on the same mock for code that
 calls views by name rather than through a typed client:
@@ -311,17 +308,13 @@ To test failure handling, return an error from `send`. The caller sees it as
 `ContractError::Backend(e)` from a typed call, or `e` from
 `TxSender::send`.
 
-## Shared, boxed and borrowed backends
+## Shared and borrowed backends
 
-Both traits are implemented for `&T`, `Box<T>` and `Arc<T>` whenever `T`
-implements them, including unsized `T`. Two consequences:
+Both traits are implemented for `&T` and `Arc<T>` whenever `T` implements
+them, including unsized `T`. Two consequences:
 
 - A backend that isn't `Clone` can back a generated client through
-  `Arc<T>`, or through `&T` for views read with
-  [`View::with_metadata`](crate::View::with_metadata) and calls sent with
-  [`Call::send`](crate::Call::send). Awaiting a `View` or `Call` directly
-  needs a `'static` backend, so a borrowed one only works there if it is
-  `&'static`.
+  `Arc<T>` or `&T` (see the bounds [above](#write-code-against-the-traits)).
 - `Viewer` and `TxSender` have `async` methods, so `dyn TxSender` isn't a
   type. To choose a backend at run time, put a small object-safe trait in
   front of it and implement `TxSender` for that trait object. `Arc<dyn _>`
@@ -385,10 +378,6 @@ let wallet: Arc<dyn Wallet> = Arc::new(alice);
 let token = FungibleToken::client(wallet, account!("usdc.testnet"));
 # }
 ```
-
-`MaybeSend` and `MaybeSync` are `Send` and `Sync` on every target except
-`wasm32-unknown-unknown`, where they are empty. Use them instead of
-`Send + Sync` in bounds on code that should also build for the browser.
 
 ## Canned RPC responses
 
@@ -466,7 +455,7 @@ assert_eq!(balance.total, NearToken::from_near(5));
 // Error mapping: UNKNOWN_ACCOUNT becomes a typed error, and `false` here.
 assert!(!near.account_exists(account!("ghost.testnet")).await?);
 let error = near.rpc().view_account(&account!("ghost.testnet"), near_kit::rpc::Finality::Final).await.unwrap_err();
-assert!(error.is_account_not_found());
+assert!(matches!(error, near_kit::rpc::RpcError::AccountNotFound { .. }));
 
 // Views go through `EXPERIMENTAL_call_function`, with base64 arguments.
 let total: u64 = near.view(account!("guestbook.testnet"), "total_messages").await?;
@@ -503,136 +492,24 @@ Some details that matter when writing replies:
   each test its own genesis hash (or chain ID), or its own account or key,
   so tests running in parallel don't share nonce sequences.
 
-A send through a canned transport needs replies for
-`EXPERIMENTAL_view_access_key` (the nonce and a recent block hash),
-`send_tx` and `status`: a genesis hash, or a "method not found" error
-(code -32601). Any other error fails the send. For testing what is sent, a recording
-`TxSender` is less work. For testing how a send behaves on chain, use the
-sandbox.
+A send through a canned transport also needs replies for
+`EXPERIMENTAL_view_access_key` (the nonce and a recent block hash) and
+`send_tx`. For testing what is sent, a recording `TxSender` is less work;
+for how a send behaves on chain, use the sandbox.
 
 ## The sandbox
 
-`near-kit-sandbox` runs `nearprotocol/sandbox` in Docker through
-testcontainers. Add it as a development dependency:
+[`near-kit-sandbox`](https://docs.rs/near-kit-sandbox) runs
+`nearprotocol/sandbox` in Docker and hands back a `SigningNear` for its root
+account, so a sandbox test reads like production code. Docker must be
+running.
 
 ```sh
 cargo add --dev near-kit-sandbox
-cargo add --dev tokio --features macros,rt-multi-thread
 ```
 
-Docker must be running. If Docker listens on a non-default socket, set
-`DOCKER_HOST` to it before running the tests.
-
-```rust,ignore
-// `ignore`: near-kit-sandbox depends on near-kit, so near-kit's own
-// doctests can't use it. The same code compiles in a crate that has both.
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-use near_kit::protocol::Action;
-use near_kit::signer::{InMemorySigner, SecretKey};
-use near_kit::*;
-use near_kit_sandbox::Sandbox;
-
-/// A new account name under `root` for every call, so tests sharing the
-/// sandbox never create the same account.
-fn unique_account(prefix: &str, root: &AccountId) -> AccountId {
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    format!("{prefix}{n}.{root}").parse().expect("a valid account ID")
-}
-
-#[tokio::test]
-async fn alice_can_send() -> Result<(), Box<dyn std::error::Error>> {
-    let sandbox = Sandbox::builder().shared().await?;
-    let root = sandbox.root_account();
-
-    // The root account is funded at genesis; create a test account under it.
-    let alice_id = unique_account("alice", root.account_id());
-    let alice_key = SecretKey::generate_ed25519();
-    root.transaction(&alice_id)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(10)))
-        .add_action(Action::add_full_access_key(alice_key.public_key()))
-        .await?
-        .result()?;
-
-    let alice = root.near().with_signer(InMemorySigner::new(&alice_id, alice_key));
-    let outcome = alice
-        .transaction(root.account_id())
-        .add_action(Action::transfer(NearToken::from_near(1)))
-        .await?;
-    assert!(outcome.is_success());
-    Ok(())
-}
-```
-
-[`sandbox.root_account()`](https://docs.rs/near-kit-sandbox/latest/near_kit_sandbox/struct.Sandbox.html#method.root_account)
-returns a `SigningNear` for the root account, `sandbox` unless the builder
-names another. Accounts it creates are sub-accounts of it. Reads go through
-`root.near()`, and signing as another account is
-`root.near().with_signer(..)`.
-
-### Shared or fresh
-
-- `Sandbox::builder().shared()` starts one sandbox for the whole test
-  process on first use and returns the same `&'static Sandbox` afterwards.
-  Startup is paid once, but state is shared: give each test its own
-  accounts, as the example does with a counter in the name.
-- `Sandbox::builder().fresh()` starts a new sandbox with clean state, which
-  is stopped when the last clone of the returned `Sandbox` drops. Use it for
-  tests that need a known starting state or change global things.
-
-The builder also takes `.version("..")` for a nearcore version,
-`.root_account(account!(".."))` and `.chain_id("..")`. Settings only apply
-when the shared sandbox is first started. `mainnet` and `testnet` aren't
-accepted as chain IDs, because nearcore reserves them. `NEAR_SANDBOX_IMAGE`
-overrides the Docker image and tag, for a mirror or a custom build.
-
-### Changing state directly
-
-Sandbox-only RPC methods change chain state without transactions:
-
-```rust,ignore
-// `ignore`: needs near-kit-sandbox, which near-kit's doctests can't use.
-use near_kit::*;
-use near_kit_sandbox::Sandbox;
-
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-let sandbox = Sandbox::builder().fresh().await?;
-
-// Waits until the new balance is visible to reads.
-sandbox.set_balance(account!("sandbox"), NearToken::from_near(1_000_000)).await?;
-
-// Raw state records, as `sandbox_patch_state` takes them. Returns once the
-// node accepts the patch; poll before relying on the new state.
-sandbox
-    .patch_state(serde_json::json!([
-        { "Data": { "account_id": "counter.sandbox", "data_key": "U1RBVEU=", "value": "AQAAAA==" } }
-    ]))
-    .await?;
-
-// Produce 1000 blocks at once, for lockups, expiry and epoch changes.
-sandbox.fast_forward(1_000).await?;
-# Ok(())
-# }
-```
-
-`set_balance` polls until the balance changes. `patch_state` sends the
-patch twice, because account patches sometimes only take effect on the
-second send, but it doesn't poll; read the state you wrote in a loop
-before the test depends on it. Data keys and values in a patch are base64
-of the raw bytes the contract stores.
-
-The `near-kit-sandbox` [API documentation](https://docs.rs/near-kit-sandbox)
-covers the rest.
-
-## See also
-
-- [`Viewer`](crate::Viewer), [`TxSender`](crate::TxSender),
-  [`Contract`](crate::Contract), [`View`](crate::View),
-  [`Call`](crate::Call), [`ContractError`](crate::ContractError)
-- [`RpcTransport`](crate::rpc::RpcTransport),
-  [`TransportResponse`](crate::rpc::TransportResponse),
-  [`RetryConfig`](crate::rpc::RetryConfig)
-- The [contracts chapter](crate::guide::contracts_and_tokens) for the
-  `#[contract]` macro
+`Sandbox::builder().shared()` starts one node for the whole test process;
+tests sharing it must use distinct account names, such as a counter in the
+name. `fresh()` starts a node with clean state. The crate docs cover
+creating accounts, patching state, fast-forwarding and choosing a nearcore
+version.

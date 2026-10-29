@@ -64,20 +64,6 @@ async fn main() -> Result<(), Error> {
 - Everything above is written against two traits, `Viewer` and `TxSender`, so it
   also runs on your own backend: a mock, a gateway, or a send queue.
 
-## Guides
-
-- [Clients and networks](https://docs.rs/near-kit/latest/near_kit/guide/clients/index.html)
-- [Keys and signers](https://docs.rs/near-kit/latest/near_kit/guide/keys/index.html)
-- [Transactions and actions](https://docs.rs/near-kit/latest/near_kit/guide/transactions/index.html)
-- [Finality and wait levels](https://docs.rs/near-kit/latest/near_kit/guide/finality/index.html)
-- [Nonces and concurrent sends](https://docs.rs/near-kit/latest/near_kit/guide/nonces/index.html)
-- [Errors and retries](https://docs.rs/near-kit/latest/near_kit/guide/errors/index.html)
-- [Meta-transactions and relayers](https://docs.rs/near-kit/latest/near_kit/guide/meta_transactions/index.html)
-- [Offline signing](https://docs.rs/near-kit/latest/near_kit/guide/offline_signing/index.html)
-- [Typed contracts and tokens](https://docs.rs/near-kit/latest/near_kit/guide/contracts_and_tokens/index.html)
-- [Testing: mocks and the sandbox](https://docs.rs/near-kit/latest/near_kit/guide/testing/index.html)
-- [Platforms: browser, WASI, contracts, tracing](https://docs.rs/near-kit/latest/near_kit/guide/platforms/index.html)
-
 ## Examples
 
 Each example's header says what it shows and how to run it. Sandbox examples
@@ -126,26 +112,11 @@ with `Near::custom`. To send an API key or other headers, build a
 `near_kit::reqwest::Client` with them and pass
 `ReqwestTransport::with_client(client)` to `NearBuilder::transport`.
 
-```rust
-use near_kit::Near;
-
-fn main() {
-    let near = Near::custom("https://rpc.example.com", "mainnet").build();
-    assert_eq!(near.chain_id().as_str(), "mainnet");
-}
-```
-
 ## MSRV and versioning
 
 The minimum supported Rust version is 1.95. Before 1.0, a minor release can
 break the API. near-kit, near-kit-primitives and near-kit-sandbox are released
 together with the same version number; near-kit-macros has its own.
-
-## Upgrading
-
-[MIGRATION.md](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md)
-covers upgrading from 0.20.1: a lookup table from each old item to its
-replacement, then the changes by task. It links the guides for older releases.
 
 ## License
 

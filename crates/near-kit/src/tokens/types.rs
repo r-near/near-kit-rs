@@ -6,10 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::NearToken;
 
-// =============================================================================
-// Fungible Token Types (NEP-141)
-// =============================================================================
-
 /// NEP-141 Fungible Token metadata.
 ///
 /// This is returned by the `ft_metadata` view function on NEP-141 contracts.
@@ -37,10 +33,6 @@ pub struct FtMetadata {
     pub reference_hash: Option<String>,
 }
 
-// =============================================================================
-// Storage Types (NEP-145)
-// =============================================================================
-
 /// Storage balance bounds for a contract.
 ///
 /// Returned by `storage_balance_bounds` view function.
@@ -64,10 +56,6 @@ pub struct StorageBalance {
     /// Available for withdrawal.
     pub available: NearToken,
 }
-
-// =============================================================================
-// Non-Fungible Token Types (NEP-171/177)
-// =============================================================================
 
 /// NEP-177 NFT Contract metadata.
 ///

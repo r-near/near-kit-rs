@@ -28,12 +28,15 @@
 //! cargo run -p near-kit-sandbox --example relayer --features integration-tests
 //! ```
 
+mod common;
+
 use std::collections::HashSet;
 use std::sync::Mutex;
 
+use common::create_account;
 use near_kit::protocol::{Action, SignedDelegateAction};
 use near_kit::rpc::{FinalExecutionOutcome, Finality, OutcomeError, RpcError};
-use near_kit::signer::{InMemorySigner, PublicKey, SecretKey};
+use near_kit::signer::PublicKey;
 use near_kit::transaction::{DelegateOptions, FunctionCall};
 use near_kit::{AccountId, Error, Gas, NearToken, SigningNear, account};
 use near_kit_sandbox::Sandbox;
@@ -243,28 +246,6 @@ async fn relay(
         )));
     }
     Ok(outcome)
-}
-
-/// Create a sub-account of `root` with `balance` and a new key, and return a
-/// client that signs as it.
-async fn create_account(
-    root: &SigningNear,
-    account_id: AccountId,
-    balance: NearToken,
-) -> Result<SigningNear, Box<dyn std::error::Error>> {
-    let key = SecretKey::generate_ed25519();
-    root.transaction(&account_id)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(balance))
-        .add_action(Action::add_full_access_key(key.public_key()))
-        .await?
-        // `?` on the send fails if the transaction didn't run, or if its
-        // outcome is unknown (a timeout); `.result()?` also fails if an
-        // action did.
-        .result()?;
-    Ok(root
-        .near()
-        .with_signer(InMemorySigner::new(account_id, key)))
 }
 
 /// A signed `add_message` request from `user`, as the base64 a relayer receives.

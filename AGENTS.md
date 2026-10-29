@@ -1,29 +1,17 @@
 # Agent Instructions for near-kit-rs
 
-A clean, ergonomic Rust client for NEAR Protocol. Ground-up implementation with hand-rolled types based on actual NEAR RPC responses.
+A Rust client for NEAR Protocol, with protocol types hand-rolled from real RPC responses.
 
 ## Build, Lint, Test Commands
 
 ```bash
-# Build
-cargo build                     # Build all crates
-cargo build -p near-kit         # Build main crate only
-
-# Lint & Format
-cargo fmt                       # Format code
-cargo clippy                    # Run linter (warnings as errors in CI)
-cargo clippy --all-features     # Lint with all features enabled
-
-# Test
-cargo test                      # Run all tests
-cargo test test_name            # Run single test by name
-cargo test test_name -- --exact # Run exact test match
-cargo test -- --nocapture       # Show println! output
-cargo test -p near-kit          # Test main crate only
-
-# Sandbox integration tests (requires Docker)
-cargo test -p near-kit-sandbox --features integration-tests --test integration
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features    # CI denies warnings
+cargo test -p near-kit                                    # add a test name to filter
+cargo test -p near-kit-sandbox --features integration-tests --test integration   # needs Docker
 ```
+
+CI (`.github/workflows/ci.yml`) also checks `--no-default-features` and the wasm targets.
 
 ## Project Structure
 
@@ -76,46 +64,16 @@ use crate::error::ParseKeyError;
 use crate::types::AccountId;
 ```
 
-### Formatting
-
-- Use `rustfmt` defaults (run `cargo fmt`)
-- Max line width: 100 characters
-- Use trailing commas in multi-line constructs
-- Prefer explicit lifetimes over elision when it improves clarity
-
-### Types and Naming
-
-- **Structs**: PascalCase (`NearToken`, `AccountId`, `RpcClient`)
-- **Traits**: PascalCase, often verbs or adjectives (`Signer`, `Contract`)
-- **Functions/methods**: snake_case (`view_account`, `from_yoctonear`)
-- **Constants**: SCREAMING_SNAKE_CASE (`YOCTO_PER_NEAR`, `ONE_TGAS`)
-- **Type aliases**: PascalCase
-- **Modules**: snake_case
-
 ### Error Handling
 
 - Use `thiserror` for all error types
 - Implement `From` conversions for error composition
-- Provide helpful error messages with context
-- Group errors by category (Parse*, Rpc*, Signer*, etc.)
-
-```rust
-#[derive(Debug, Error)]
-pub enum ParseKeyError {
-    #[error("Unknown key type: '{0}'")]
-    UnknownKeyType(String),
-
-    #[error("Invalid base58 encoding: {0}")]
-    InvalidBase58(String),
-}
-```
 
 ### Documentation
 
 - All public items must have doc comments; each crate sets `#![warn(missing_docs)]` and CI denies warnings. Only the nearcore error mirror (`near-kit-primitives` `types/error.rs`) opts out
 - Use `///` for item docs, `//!` for module docs
-- Include examples in doc comments using ```` ```rust ````
-- Use `# Example` sections for longer examples
+- Add an example only where use isn't obvious from the signature; task-level examples go in the guide
 
 ### Key Patterns
 
@@ -125,13 +83,6 @@ pub enum ParseKeyError {
 3. **IntoFuture**: `View`, `Call`, `Tx` and query builders `.await` directly
 4. **Backend traits**: Contract clients are generic over `Viewer`/`TxSender`; a
    `Contract` marker (generated or `FungibleToken`) builds them via `near.contract::<T>(id)`
-5. **Explicit units**: No bare numbers for amounts—require `NearToken::from_near(5)`
-
-```rust
-// Good: explicit units
-let amount = NearToken::from_near(5);
-let gas = Gas::from_tgas(30);
-```
 
 ### Serialization
 
@@ -147,15 +98,6 @@ Anything that needs no RPC client, async runtime, or I/O belongs in
 `near-kit`. Primitives' doctests use `near_kit_primitives::` paths and must work
 offline; examples that need `Near` go in near-kit's facade module docs.
 
-### Feature Flags
-
-- `near-kit/contracts`: Typed contract clients and proc macros
-- `near-kit/keyring`: `signer::from_keyring` (macOS Keychain, etc.)
-- `near-kit/file-signer`: `signer::from_credentials` (`~/.near-credentials`)
-- `near-kit-sandbox/integration-tests`: Docker-backed integration suite
-- `near-kit-primitives/{mnemonic,js,tracing}`: forwarded from the same-named
-  `near-kit` features
-
 ## Git Hooks (Lefthook)
 
 After cloning, run `bunx lefthook install` to set up hooks:
@@ -164,15 +106,7 @@ After cloning, run `bunx lefthook install` to set up hooks:
 
 ## Commit Messages
 
-Use conventional commits:
-
-```
-feat: add FT transfer_call support
-fix: handle UNKNOWN_ACCOUNT RPC errors correctly  
-refactor: simplify Signer trait
-test: add sandbox integration tests
-docs: update README examples
-```
+Use conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`; `!` for breaking).
 
 ## Design Philosophy
 

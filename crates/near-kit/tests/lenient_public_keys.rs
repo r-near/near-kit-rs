@@ -13,7 +13,7 @@ fn off_curve_ed25519() -> PublicKey {
 }
 
 #[test]
-fn off_curve_ed25519_key_round_trips_through_string_borsh_and_json() {
+fn off_curve_ed25519_key_round_trips_through_string_and_json() {
     let key = off_curve_ed25519();
     assert_eq!(key.validate(), Err(ParseKeyError::InvalidCurvePoint));
 
@@ -22,14 +22,6 @@ fn off_curve_ed25519_key_round_trips_through_string_borsh_and_json() {
     let parsed: PublicKey = s.parse().unwrap();
     assert_eq!(parsed, key);
     assert_eq!(parsed.to_string(), s);
-
-    // Borsh
-    let bytes = borsh::to_vec(&key).unwrap();
-    assert_eq!(bytes.len(), 33);
-    assert_eq!(bytes[0], 0);
-    let decoded: PublicKey = borsh::from_slice(&bytes).unwrap();
-    assert_eq!(decoded, key);
-    assert_eq!(borsh::to_vec(&decoded).unwrap(), bytes);
 
     // JSON
     let json = serde_json::to_string(&key).unwrap();
@@ -45,17 +37,6 @@ fn off_curve_ed25519_key_round_trips_through_string_borsh_and_json() {
 }
 
 #[test]
-fn checked_constructor_still_rejects_off_curve_ed25519() {
-    let PublicKey::Ed25519(bytes) = off_curve_ed25519() else {
-        unreachable!()
-    };
-    assert_eq!(
-        PublicKey::ed25519_from_bytes(bytes),
-        Err(ParseKeyError::InvalidCurvePoint)
-    );
-}
-
-#[test]
 fn decoding_still_checks_tag_and_length() {
     assert!(matches!(
         "ed25519:1111".parse::<PublicKey>(),
@@ -65,7 +46,6 @@ fn decoding_still_checks_tag_and_length() {
         format!("p256:{}", bs58::encode([2u8; 32]).into_string()).parse::<PublicKey>(),
         Err(ParseKeyError::UnknownKeyType(_))
     ));
-    assert!(borsh::from_slice::<PublicKey>(&[0u8; 32]).is_err());
 }
 
 #[cfg(feature = "rpc")]

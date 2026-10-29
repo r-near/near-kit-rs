@@ -1,10 +1,7 @@
 # Nonces and concurrency
 
-Read this when you send many transactions at once, from several tasks or
-processes, or run a relayer. For one transaction at a time there is nothing
-to do: near-kit picks the nonce, and re-signs if the node rejects it. With
-concurrency you choose how many keys to sign with, how hard near-kit retries,
-and whether order matters.
+For one transaction at a time there is nothing to do: near-kit picks the
+nonce, and re-signs if the node rejects it.
 
 ## How near-kit picks a nonce
 
@@ -37,15 +34,6 @@ nonce it draws, and keeps it. That means:
 - Any other `status` failure fails that send or signature before a nonce
   is drawn, and the next one asks again.
 - Two processes never share it. Each starts from the chain's view.
-
-```rust
-use near_kit::Near;
-
-// Two endpoints for one network: one shared nonce sequence per key.
-let primary = Near::custom("https://rpc.mainnet.example.com", "mainnet").build();
-let fallback = Near::custom("https://archival.mainnet.example.com", "mainnet").build();
-assert_eq!(primary.chain_id(), fallback.chain_id());
-```
 
 The nonce is taken from the cache when the transaction is signed, so
 `SigningNear::sign` and `SigningNear::sign_delegate` advance the sequence
@@ -83,9 +71,6 @@ let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), key)
 let alice_retrying = alice.clone().max_nonce_retries(50);
 # }
 ```
-
-`SigningNear::from_env` reads the builder setting from
-`NEAR_MAX_NONCE_RETRIES`.
 
 Only sends from a `SigningNear` (a [`Tx`](crate::transaction::Tx), or a
 typed contract call through one) retry like this. `sign`, `sign_delegate`
@@ -260,14 +245,3 @@ Track what you returned early on with
 [finality chapter](crate::guide::finality#fire-and-track)). The
 [meta-transactions chapter](crate::guide::meta_transactions) covers what a
 relayer should check before paying for a user's actions.
-
-## See also
-
-- [`SigningNear::max_nonce_retries`](crate::SigningNear::max_nonce_retries),
-  [`NearBuilder::max_nonce_retries`](crate::NearBuilder::max_nonce_retries)
-- [`RotatingSigner`](crate::signer::RotatingSigner),
-  [`Signer`](crate::signer::Signer)
-- [`Near::custom`](crate::Near::custom),
-  [`NearBuilder::chain_id`](crate::NearBuilder::chain_id)
-- [`InvalidTxError`](crate::protocol::InvalidTxError) for the rejection
-  variants

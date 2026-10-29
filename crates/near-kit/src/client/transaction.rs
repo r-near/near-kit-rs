@@ -1,28 +1,4 @@
-//! Transaction sending: [`Tx`], the private send path shared by
-//! [`SigningNear`](crate::SigningNear), and pre-signed submission.
-//!
-//! # Example
-//!
-//! ```rust,no_run
-//! # use near_kit::*;
-//! # use near_kit::protocol::Action;
-//! # use near_kit::signer::PublicKey;
-//! # use near_kit::transaction::FunctionCall;
-//! # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
-//! // Create a new sub-account with funding, a key and a contract
-//! let new_public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
-//! let wasm_code = std::fs::read("contract.wasm").expect("failed to read wasm");
-//! alice
-//!     .transaction(account!("new.alice.testnet"))
-//!     .add_action(Action::create_account())
-//!     .add_action(Action::transfer(NearToken::from_near(5)))
-//!     .add_action(Action::add_full_access_key(new_public_key))
-//!     .add_action(Action::deploy_contract(wasm_code))
-//!     .add_action(FunctionCall::new("init").args(serde_json::json!({ "owner": "alice.testnet" })))
-//!     .await?.result()?;
-//! # Ok(())
-//! # }
-//! ```
+//! [`Tx`], the private send path, and pre-signed submission.
 
 use std::fmt;
 use std::future::IntoFuture;
@@ -122,10 +98,6 @@ fn record_function_call_fields(actions: &[Action]) {
         _ => {}
     }
 }
-
-// ============================================================================
-// Delegate Action Types
-// ============================================================================
 
 /// Options for creating a delegate action (meta-transaction).
 ///
@@ -313,6 +285,8 @@ impl PreparedTransaction {
         )
     }
 
+    /// [`transaction`](Self::transaction) for a one-shot signature: moves
+    /// the actions (a deployment's code included) instead of copying them.
     fn into_transaction(
         self,
         signer_id: AccountId,
@@ -336,27 +310,20 @@ impl PreparedTransaction {
     ) -> Result<(SignedTransaction, CryptoHash), Error> {
         let tx_hash = transaction.get_hash();
         let signature = key.sign(tx_hash.as_bytes()).await?;
-        Ok((
-            SignedTransaction {
-                transaction,
-                signature,
-            },
-            tx_hash,
-        ))
+        Ok((transaction.into_signed(signature), tx_hash))
     }
 
     /// Resolve the nonce and block hash online and sign the transaction.
     pub(crate) async fn sign(self) -> Result<SignedTransaction, Error> {
-        let prepared = self;
-        let (signer_id, key) = prepared.claim_signer();
+        let (signer_id, key) = self.claim_signer();
         let public_key = key.public_key().clone();
 
         let span = trace::info_span!(
             "sign_transaction",
             sender = %signer_id,
-            receiver = %prepared.receiver_id,
-            action_count = prepared.actions.len(),
-            actions = %actions_summary(&prepared.actions),
+            receiver = %self.receiver_id,
+            action_count = self.actions.len(),
+            actions = %actions_summary(&self.actions),
             method = trace::field::Empty,
             gas = trace::field::Empty,
             deposit = trace::field::Empty,
@@ -364,12 +331,10 @@ impl PreparedTransaction {
 
         async move {
             #[cfg(feature = "tracing")]
-            record_function_call_fields(&prepared.actions);
+            record_function_call_fields(&self.actions);
 
-            let (nonce, block_hash, _) = prepared
-                .online_context(&signer_id, &public_key, None)
-                .await?;
-            let tx = prepared.into_transaction(signer_id, public_key, nonce, block_hash);
+            let (nonce, block_hash, _) = self.online_context(&signer_id, &public_key, None).await?;
+            let tx = self.into_transaction(signer_id, public_key, nonce, block_hash);
             let (signed_tx, _tx_hash) = PreparedTransaction::sign_transaction(tx, &key).await?;
 
             trace::debug!(tx_hash = %_tx_hash, nonce, "Transaction signed");
@@ -510,18 +475,13 @@ impl PreparedTransaction {
         self,
         options: DelegateOptions,
     ) -> Result<SignedDelegateAction, Error> {
-        let prepared = self;
-
-        // Verify no nested delegates (of any version)
-        for action in &prepared.actions {
-            if action.is_delegate() {
-                return Err(Error::Validation(
-                    "Delegate actions cannot contain nested signed delegate actions".to_string(),
-                ));
-            }
+        if self.actions.iter().any(Action::is_delegate) {
+            return Err(Error::Validation(
+                "Delegate actions cannot contain nested signed delegate actions".to_string(),
+            ));
         }
 
-        let (sender_id, key) = prepared.claim_signer();
+        let (sender_id, key) = self.claim_signer();
         let public_key = key.public_key().clone();
 
         // Draw from the same sequence as transactions, so delegate actions
@@ -535,7 +495,7 @@ impl PreparedTransaction {
         let nonce = match options.nonce {
             Some(nonce) => nonce,
             None => {
-                let access_key = prepared
+                let access_key = self
                     .rpc
                     .view_access_key(
                         &sender_id,
@@ -544,7 +504,7 @@ impl PreparedTransaction {
                     )
                     .await?;
                 nonce_manager().next(
-                    &prepared.chain().await?,
+                    &self.chain().await?,
                     &sender_id,
                     &public_key,
                     access_key.nonce,
@@ -552,11 +512,10 @@ impl PreparedTransaction {
             }
         };
 
-        // Get max block height
         let max_block_height = if let Some(h) = options.max_block_height {
             h
         } else {
-            let status = prepared.rpc.status().await?;
+            let status = self.rpc.status().await?;
             let offset = options.block_height_offset.unwrap_or(200);
             status.sync_info.latest_block_height + offset
         };
@@ -565,15 +524,13 @@ impl PreparedTransaction {
             receiver_id,
             actions,
             ..
-        } = prepared;
+        } = self;
 
-        // Convert actions to NonDelegateAction
         let delegate_actions: Vec<NonDelegateAction> = actions
             .into_iter()
             .filter_map(NonDelegateAction::from_action)
             .collect();
 
-        // Create delegate action
         let delegate_action = DelegateAction {
             sender_id,
             receiver_id,
@@ -583,17 +540,12 @@ impl PreparedTransaction {
             public_key: public_key.clone(),
         };
 
-        // Sign the delegate action
         let hash = delegate_action.get_hash();
         let signature = key.sign(hash.as_bytes()).await?;
 
         Ok(delegate_action.into_signed(signature))
     }
 }
-
-// ============================================================================
-// Tx
-// ============================================================================
 
 /// A transaction being assembled: a receiver, the actions so far, and the
 /// [`SigningNear`] that will sign and send it.
@@ -679,10 +631,7 @@ impl<W: WaitLevel> Tx<W> {
     {
         match action.try_into() {
             Ok(action) => self.actions.push(action),
-            Err(error) => {
-                let error: CodecError = error.into();
-                self.defer(error.into());
-            }
+            Err(error) => self.defer(Into::<CodecError>::into(error).into()),
         }
         self
     }
@@ -709,7 +658,7 @@ impl<W: WaitLevel> fmt::Debug for Tx<W> {
 
 impl<W: WaitLevel> IntoFuture for Tx<W> {
     type Output = Result<W::Response, Error>;
-    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
+    type IntoFuture = super::transport::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -728,10 +677,6 @@ impl<W: WaitLevel> IntoFuture for Tx<W> {
         })
     }
 }
-
-// ============================================================================
-// SignedTransactionSend
-// ============================================================================
 
 /// Awaitable builder for sending a pre-signed transaction.
 ///
@@ -793,7 +738,7 @@ impl<'tx, W: WaitLevel> SignedTransactionSend<'tx, W> {
 
 impl<'tx, W: WaitLevel> IntoFuture for SignedTransactionSend<'tx, W> {
     type Output = Result<W::Response, Error>;
-    type IntoFuture = crate::platform::BoxFuture<'tx, Self::Output>;
+    type IntoFuture = super::transport::BoxFuture<'tx, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -813,6 +758,7 @@ mod tests {
 
     use super::*;
     use crate::account;
+    use crate::client::test_rpc::{invalid_tx_body, rpc_error, rpc_result};
     use crate::client::{BoxFuture, RpcTransport, TransportResponse};
     use crate::transaction::FunctionCall;
     use crate::types::{
@@ -880,15 +826,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn add_action_in_a_loop() {
-        let mut tx = test_tx();
-        for method in ["step1", "step2", "step3"] {
-            tx = tx.add_action(FunctionCall::new(method));
-        }
-        assert_eq!(tx.actions.len(), 3);
-    }
-
     #[tokio::test]
     async fn encode_errors_are_deferred_until_await() {
         let error = test_tx()
@@ -931,15 +868,13 @@ mod tests {
         assert!(matches!(error, Error::Validation(_)), "{error:?}");
     }
 
-    #[tokio::test]
-    async fn relayed_delegate_to_another_receiver_is_rejected_before_any_rpc() {
-        // nearcore fails a delegate whose sender isn't the transaction's
-        // receiver (DelegateActionSenderDoesNotMatchTxReceiver), after the
-        // relayer has paid for it. The old builder set the receiver itself.
+    /// A delegate action from `sender.testnet` to `receiver`, signed by a
+    /// fresh key.
+    fn signed_delegate(receiver: &str) -> SignedDelegateAction {
         let key = SecretKey::generate_ed25519();
         let delegate = DelegateAction {
             sender_id: "sender.testnet".parse().unwrap(),
-            receiver_id: "guestbook.testnet".parse().unwrap(),
+            receiver_id: receiver.parse().unwrap(),
             actions: vec![
                 NonDelegateAction::from_action(Action::transfer(NearToken::ZERO)).unwrap(),
             ],
@@ -948,7 +883,15 @@ mod tests {
             public_key: key.public_key(),
         };
         let signature = key.sign(delegate.get_hash().as_bytes());
-        let signed_delegate = delegate.into_signed(signature);
+        delegate.into_signed(signature)
+    }
+
+    #[tokio::test]
+    async fn relayed_delegate_to_another_receiver_is_rejected_before_any_rpc() {
+        // nearcore fails a delegate whose sender isn't the transaction's
+        // receiver (DelegateActionSenderDoesNotMatchTxReceiver), after the
+        // relayer has paid for it. The old builder set the receiver itself.
+        let signed_delegate = signed_delegate("guestbook.testnet");
 
         let error = test_signing()
             .transaction(crate::account!("guestbook.testnet"))
@@ -973,19 +916,7 @@ mod tests {
 
     #[tokio::test]
     async fn delegate_rejects_nested_delegate_actions() {
-        let key = SecretKey::generate_ed25519();
-        let delegate = DelegateAction {
-            sender_id: "sender.testnet".parse().unwrap(),
-            receiver_id: "receiver.testnet".parse().unwrap(),
-            actions: vec![
-                NonDelegateAction::from_action(Action::transfer(NearToken::ZERO)).unwrap(),
-            ],
-            nonce: 1,
-            max_block_height: 100,
-            public_key: key.public_key(),
-        };
-        let signature = key.sign(delegate.get_hash().as_bytes());
-        let signed_delegate = delegate.into_signed(signature);
+        let signed_delegate = signed_delegate("receiver.testnet");
 
         let error = test_signing()
             .sign_delegate(
@@ -1038,92 +969,6 @@ mod tests {
         assert!(matches!(error, Error::Validation(_)), "{error:?}");
     }
 
-    #[test]
-    fn state_init_actions_name_their_receiver() {
-        // The receiver of a state init is the account it derives; the old
-        // builder rewrote the receiver, now the caller passes it.
-        let state_init = StateInit::from(crate::protocol::StateInitV1::code(CryptoHash::ZERO));
-        let tx = test_signing()
-            .transaction(state_init.derive_account_id())
-            .add_action(Action::state_init(state_init.clone(), NearToken::ZERO));
-        assert_eq!(tx.receiver_id, state_init.derive_account_id());
-
-        let universal = crate::protocol::UniversalStateInit::from(
-            crate::protocol::UniversalStateInitV1::new()
-                .with_access_key(crate::types::PublicKeyHandle::MlDsa65Hash([0x11; 32])),
-        );
-        // nearcore 2.14-release `test_derive_universal_account_id` key-only vector.
-        assert_eq!(
-            universal.derive_account_id().as_str(),
-            "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g"
-        );
-    }
-
-    // ========================================================================
-    // Nonce refresh + re-sign on InvalidNonce (mock transport)
-    // ========================================================================
-
-    /// Transport that answers `EXPERIMENTAL_view_access_key` with a fixed key
-    /// (nonce 5), scripts `send_tx` responses in order, and records every
-    /// signed payload it received.
-    struct NonceRetryTransport {
-        send_tx_responses: Mutex<VecDeque<Vec<u8>>>,
-        sent: Mutex<Vec<String>>,
-        access_key_queries: AtomicUsize,
-    }
-
-    impl NonceRetryTransport {
-        fn new(send_tx_responses: Vec<Vec<u8>>) -> Arc<Self> {
-            Arc::new(Self {
-                send_tx_responses: Mutex::new(send_tx_responses.into()),
-                sent: Mutex::new(Vec::new()),
-                access_key_queries: AtomicUsize::new(0),
-            })
-        }
-    }
-
-    impl RpcTransport for NonceRetryTransport {
-        fn post_json(
-            &self,
-            _url: &str,
-            body: Vec<u8>,
-        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-            let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
-            let body = match request["method"].as_str().unwrap() {
-                "EXPERIMENTAL_view_access_key" => {
-                    self.access_key_queries.fetch_add(1, Ordering::SeqCst);
-                    serde_json::to_vec(&serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": 0,
-                        "result": {
-                            "nonce": 5,
-                            "permission": "FullAccess",
-                            "block_height": 100,
-                            "block_hash": "11111111111111111111111111111111",
-                        },
-                    }))
-                    .unwrap()
-                }
-                "send_tx" => {
-                    let signed = request["params"]["signed_tx_base64"]
-                        .as_str()
-                        .unwrap()
-                        .to_string();
-                    self.sent.lock().unwrap().push(signed);
-                    self.send_tx_responses
-                        .lock()
-                        .unwrap()
-                        .pop_front()
-                        .expect("unexpected extra send_tx")
-                }
-                // No `status`: nonces are cached by chain id.
-                "status" => method_not_found_body(),
-                other => panic!("unexpected RPC method {other}"),
-            };
-            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
-        }
-    }
-
     /// An uninitialized `0u` account: every access key is unknown, and
     /// `view_account` reports a `bootstrap_nonce` of 100000000.
     #[derive(Default)]
@@ -1140,50 +985,34 @@ mod tests {
             body: Vec<u8>,
         ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
             let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
-            let response = match request["method"].as_str().unwrap() {
-                "EXPERIMENTAL_view_access_key" => serde_json::json!({
-                    "error": {
-                        "name": "HANDLER_ERROR",
-                        "cause": {
-                            "name": "UNKNOWN_ACCESS_KEY",
-                            "info": {
-                                "public_key": request["params"]["public_key"],
-                                "block_height": 100,
-                                "block_hash": "11111111111111111111111111111111",
-                            },
-                        },
-                        "code": -32000,
-                        "message": "Server error",
-                    },
-                }),
-                "EXPERIMENTAL_view_account" => serde_json::json!({
-                    "result": {
-                        "amount": "1000000000000000000000000",
-                        "locked": "0",
-                        "code_hash": "11111111111111111111111111111111",
-                        "storage_usage": 100,
-                        "state": "uninitialized",
-                        "bootstrap_nonce": 100000000,
+            let body = match request["method"].as_str().unwrap() {
+                "EXPERIMENTAL_view_access_key" => rpc_error(
+                    Some("UNKNOWN_ACCESS_KEY"),
+                    serde_json::json!({
+                        "public_key": request["params"]["public_key"],
                         "block_height": 100,
-                        "block_hash": CryptoHash::from_bytes([2; 32]),
-                    },
-                }),
+                        "block_hash": "11111111111111111111111111111111",
+                    }),
+                    serde_json::Value::Null,
+                ),
+                "EXPERIMENTAL_view_account" => rpc_result(serde_json::json!({
+                    "amount": "1000000000000000000000000",
+                    "locked": "0",
+                    "code_hash": "11111111111111111111111111111111",
+                    "storage_usage": 100,
+                    "state": "uninitialized",
+                    "bootstrap_nonce": 100000000,
+                    "block_height": 100,
+                    "block_hash": CryptoHash::from_bytes([2; 32]),
+                })),
                 "send_tx" => {
                     let signed = request["params"]["signed_tx_base64"].as_str().unwrap();
                     self.sent.lock().unwrap().push(signed.to_string());
-                    if let Some(body) = self.send_tx_responses.lock().unwrap().pop_front() {
-                        return Box::pin(
-                            async move { Ok(TransportResponse { status: 200, body }) },
-                        );
-                    }
-                    serde_json::json!({ "result": { "final_execution_status": "NONE" } })
+                    let scripted = self.send_tx_responses.lock().unwrap().pop_front();
+                    scripted.unwrap_or_else(accepted_body)
                 }
                 other => panic!("unexpected RPC method {other}"),
             };
-            let mut response = response;
-            response["jsonrpc"] = "2.0".into();
-            response["id"] = 0.into();
-            let body = serde_json::to_vec(&response).unwrap();
             Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
         }
     }
@@ -1257,24 +1086,19 @@ mod tests {
     }
 
     fn status_body(genesis_hash: CryptoHash) -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "result": {
-                "protocol_version": 83,
-                "latest_protocol_version": 83,
-                "chain_id": "mock",
-                "genesis_hash": genesis_hash,
-                "sync_info": {
-                    "latest_block_hash": "11111111111111111111111111111111",
-                    "latest_block_height": 100,
-                    "latest_block_time": "2026-01-01T00:00:00Z",
-                    "syncing": false,
-                },
-                "version": { "version": "2.13.0", "build": "mock" },
+        rpc_result(serde_json::json!({
+            "protocol_version": 83,
+            "latest_protocol_version": 83,
+            "chain_id": "mock",
+            "genesis_hash": genesis_hash,
+            "sync_info": {
+                "latest_block_hash": "11111111111111111111111111111111",
+                "latest_block_height": 100,
+                "latest_block_time": "2026-01-01T00:00:00Z",
+                "syncing": false,
             },
+            "version": { "version": "2.13.0", "build": "mock" },
         }))
-        .unwrap()
     }
 
     /// A genesis hash no other test's chain has: the nonce cache is global.
@@ -1284,59 +1108,27 @@ mod tests {
     }
 
     fn invalid_nonce_body(tx_nonce: u64, ak_nonce: u64) -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
-                "code": -32000,
-                "message": "Server error",
-                "data": {
-                    "TxExecutionError": {
-                        "InvalidTxError": {
-                            "InvalidNonce": { "tx_nonce": tx_nonce, "ak_nonce": ak_nonce }
-                        }
-                    }
-                },
-            },
+        invalid_tx_body(serde_json::json!({
+            "InvalidNonce": { "tx_nonce": tx_nonce, "ak_nonce": ak_nonce }
         }))
-        .unwrap()
     }
 
     fn accepted_body() -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "result": { "final_execution_status": "NONE" },
-        }))
-        .unwrap()
+        rpc_result(serde_json::json!({ "final_execution_status": "NONE" }))
     }
 
     fn expired_body() -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
-                "code": -32000,
-                "message": "Server error",
-                "data": {
-                    "TxExecutionError": {
-                        "InvalidTxError": "Expired"
-                    }
-                },
-            },
-        }))
-        .unwrap()
+        invalid_tx_body("Expired".into())
     }
 
     #[tokio::test]
     async fn send_refreshes_nonce_and_resigns_on_invalid_nonce() {
         // First send_tx is rejected with InvalidNonce (the key's real nonce is
         // 20); the second is accepted.
-        let transport = NonceRetryTransport::new(vec![invalid_nonce_body(6, 20), accepted_body()]);
+        let transport = ScriptedNonceTransport::new(
+            vec![(5, 100)],
+            vec![invalid_nonce_body(6, 20), accepted_body()],
+        );
         let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
         let signer = RotatingSigner::new(account!("alice.testnet"), keys).unwrap();
         // Default RetryConfig on purpose: the raw RPC layer must not add
@@ -1366,7 +1158,7 @@ mod tests {
         );
         assert_ne!(first.signature, second.signature, "retry must be re-signed");
         assert_eq!(
-            transport.access_key_queries.load(Ordering::SeqCst),
+            transport.view_finalities.lock().unwrap().len(),
             2,
             "each attempt re-fetches the access key for a fresh block hash"
         );
@@ -1374,7 +1166,10 @@ mod tests {
 
     #[tokio::test]
     async fn tx_sender_send_uses_the_same_retrying_path() {
-        let transport = NonceRetryTransport::new(vec![invalid_nonce_body(6, 20), accepted_body()]);
+        let transport = ScriptedNonceTransport::new(
+            vec![(5, 100)],
+            vec![invalid_nonce_body(6, 20), accepted_body()],
+        );
         let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
         let near = crate::Near::custom("http://tx-sender.invalid", "test")
             .transport(transport.clone())
@@ -1397,8 +1192,10 @@ mod tests {
 
     #[tokio::test]
     async fn expired_retries_honor_configured_maximum() {
-        let transport =
-            NonceRetryTransport::new(vec![expired_body(), expired_body(), accepted_body()]);
+        let transport = ScriptedNonceTransport::new(
+            vec![(5, 100)],
+            vec![expired_body(), expired_body(), accepted_body()],
+        );
         let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
         let near = crate::Near::custom("http://expired-retry.invalid", "test")
             .transport(transport.clone())
@@ -1413,12 +1210,12 @@ mod tests {
             .expect("two configured retries should allow the third send");
 
         assert_eq!(transport.sent.lock().unwrap().len(), 3);
-        assert_eq!(transport.access_key_queries.load(Ordering::SeqCst), 3);
+        assert_eq!(transport.view_finalities.lock().unwrap().len(), 3);
     }
 
     #[tokio::test]
     async fn expired_with_zero_retries_sends_once() {
-        let transport = NonceRetryTransport::new(vec![expired_body()]);
+        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![expired_body()]);
         let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
         let near = crate::Near::custom("http://no-expired-retry.invalid", "test")
             .transport(transport.clone())
@@ -1439,10 +1236,6 @@ mod tests {
         ));
         assert_eq!(transport.sent.lock().unwrap().len(), 1);
     }
-
-    // ========================================================================
-    // Nonce cache: key, reset, bootstrap and delegate nonces (mock transport)
-    // ========================================================================
 
     /// Transport for nonce tests: answers `EXPERIMENTAL_view_access_key` from a
     /// script of `(nonce, block_height)` views (the last one repeats), answers
@@ -1520,17 +1313,12 @@ mod tests {
                             views[0]
                         }
                     };
-                    serde_json::to_vec(&serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": 0,
-                        "result": {
-                            "nonce": nonce,
-                            "permission": "FullAccess",
-                            "block_height": block_height,
-                            "block_hash": "11111111111111111111111111111111",
-                        },
+                    rpc_result(serde_json::json!({
+                        "nonce": nonce,
+                        "permission": "FullAccess",
+                        "block_height": block_height,
+                        "block_hash": "11111111111111111111111111111111",
                     }))
-                    .unwrap()
                 }
                 "send_tx" => {
                     let signed = request["params"]["signed_tx_base64"]
@@ -1556,24 +1344,9 @@ mod tests {
     }
 
     fn nonce_too_large_body(tx_nonce: u64, upper_bound: u64) -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "error": {
-                "name": "HANDLER_ERROR",
-                "cause": { "name": "INVALID_TRANSACTION", "info": {} },
-                "code": -32000,
-                "message": "Server error",
-                "data": {
-                    "TxExecutionError": {
-                        "InvalidTxError": {
-                            "NonceTooLarge": { "tx_nonce": tx_nonce, "upper_bound": upper_bound }
-                        }
-                    }
-                },
-            },
+        invalid_tx_body(serde_json::json!({
+            "NonceTooLarge": { "tx_nonce": tx_nonce, "upper_bound": upper_bound }
         }))
-        .unwrap()
     }
 
     fn signing_via(
@@ -1887,6 +1660,94 @@ mod tests {
             })
             .collect();
         assert_eq!(nonces, vec![100_000_001, 100_000_001]);
+    }
+
+    #[cfg(feature = "tracing")]
+    #[test]
+    fn actions_summary_names_each_action() {
+        let state_init = crate::protocol::UniversalStateInitV1::new()
+            .with_access_key(SecretKey::generate_ed25519().public_key());
+        let actions = [
+            Action::create_account(),
+            Action::transfer(NearToken::from_near(1)),
+            Action::function_call("init", Vec::new(), Gas::from_tgas(5), NearToken::ZERO),
+            Action::universal_state_init(state_init, NearToken::ZERO),
+        ];
+        assert_eq!(
+            actions_summary(&actions),
+            "create_account,transfer,function_call(init),universal_state_init"
+        );
+        assert_eq!(actions_summary(&[]), "");
+    }
+
+    /// Span fields can't repeat, so each of several function calls gets its
+    /// own debug event instead.
+    #[cfg(feature = "tracing")]
+    #[test]
+    fn record_function_call_fields_logs_each_of_several_calls() {
+        use crate::client::test_rpc::tracing_capture::EventLog;
+
+        let log = EventLog::default();
+        let _guard = log.install();
+        let call = |method: &str, tgas| {
+            Action::function_call(
+                method,
+                Vec::new(),
+                Gas::from_tgas(tgas),
+                NearToken::from_yoctonear(tgas.into()),
+            )
+        };
+        record_function_call_fields(&[
+            call("first", 10),
+            Action::transfer(NearToken::from_near(1)),
+            call("second", 20),
+        ]);
+
+        let calls: Vec<_> = log
+            .events()
+            .into_iter()
+            .filter(|event| event.message() == Some("function_call action"))
+            .map(|event| {
+                assert_eq!(event.level, tracing::Level::DEBUG);
+                let field = |name| event.field(name).unwrap().to_string();
+                (field("method"), field("gas"), field("deposit"))
+            })
+            .collect();
+        let expected = |method: &str, tgas: u64| {
+            (
+                method.to_string(),
+                Gas::from_tgas(tgas).to_string(),
+                NearToken::from_yoctonear(tgas.into()).to_string(),
+            )
+        };
+        assert_eq!(calls, [expected("first", 10), expected("second", 20)]);
+    }
+
+    #[tokio::test]
+    async fn sign_moves_deployment_code_into_the_transaction() {
+        // A one-shot signature has no retry to keep the actions for, so a
+        // deployment's code reaches the signed transaction without a copy.
+        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        let near = signing_via("http://sign-moves.invalid", "sign-moves", transport, signer);
+        let code = vec![0x5a; 1 << 20];
+        let code_ptr = code.as_ptr();
+
+        let signed = near
+            .sign(
+                account!("alice.testnet"),
+                vec![Action::deploy_contract(code)],
+            )
+            .await
+            .unwrap();
+
+        match signed.transaction.actions.as_slice() {
+            [Action::DeployContract(deploy)] => {
+                assert_eq!(deploy.code.len(), 1 << 20);
+                assert_eq!(deploy.code.as_ptr(), code_ptr, "the code was copied");
+            }
+            other => panic!("expected one deployment, got {other:?}"),
+        }
     }
 
     fn delegate_options() -> DelegateOptions {

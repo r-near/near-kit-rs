@@ -62,7 +62,7 @@ fn nearcore_sign(secret_key: &SecretKey, data: &[u8; 32]) -> Signature {
     let mut bytes = [0u8; 65];
     bytes[..64].copy_from_slice(&sig);
     bytes[64] = rec_id.to_i32() as u8;
-    Signature::secp256k1_from_bytes(bytes)
+    Signature::Secp256k1(bytes)
 }
 
 fn hash_hex(hash: &CryptoHash) -> String {
@@ -262,7 +262,7 @@ fn high_s_signature_is_rejected() {
         borrow = i16::from(v < 0);
     }
     bytes[64] ^= 1;
-    let high_s = Signature::secp256k1_from_bytes(bytes);
+    let high_s = Signature::Secp256k1(bytes);
 
     assert!(!nearcore_verify(
         &high_s,

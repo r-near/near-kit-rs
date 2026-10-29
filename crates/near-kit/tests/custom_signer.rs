@@ -55,7 +55,6 @@ async fn downstream_can_implement_an_async_signing_backend() {
     };
 
     assert_eq!(signer.public_key(), public_key);
-    assert_eq!(signer.public_key(), public_key);
     assert_eq!(signing_calls.load(Ordering::Relaxed), 0);
 
     let message = b"sign through an external backend";

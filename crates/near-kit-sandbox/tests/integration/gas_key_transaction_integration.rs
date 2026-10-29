@@ -10,8 +10,6 @@
 //! 5. Assert the transfer landed and the gas key's nonce advanced.
 //!
 //! Pins the sandbox to stable `2.13.4`, in a fresh container of its own.
-//!
-//! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
 use near_kit::protocol::Action;
 use near_kit::*;
@@ -42,7 +40,6 @@ async fn test_gas_key_signed_transaction() {
     let sandbox = sandbox_2_13().await;
     let root_near = sandbox.root_account();
 
-    // --- 1. Owner account with an ordinary full-access key. -----------------
     let owner_key = SecretKey::generate_ed25519();
     let owner_id = unique_account("gkowner");
     root_near
@@ -60,7 +57,6 @@ async fn test_gas_key_signed_transaction() {
         .near()
         .with_signer(InMemorySigner::new(owner_id.clone(), owner_key.clone()));
 
-    // --- 2. Add a gas key (GasKeyFullAccess) and fund it. -------------------
     let gas_key = SecretKey::generate_ed25519();
     let gas_pk = gas_key.public_key();
     const NUM_NONCES: u16 = 4;
@@ -90,7 +86,6 @@ async fn test_gas_key_signed_transaction() {
         .result()
         .unwrap();
 
-    // --- 3. Read the gas key's nonce (it is height-derived, not 0). ---------
     let nonces = view_gas_key_nonces(&root_near, &owner_id, &gas_pk).await;
     assert_eq!(
         nonces.len(),
@@ -112,7 +107,6 @@ async fn test_gas_key_signed_transaction() {
         .expect("view gas key access key");
     let block_hash = ak.block_hash;
 
-    // --- 4. Build, sign (with the gas key), and submit a V1 transfer. -------
     let recipient_id = unique_account("gkrecipient");
     let recipient_key = SecretKey::generate_ed25519();
     root_near
@@ -184,7 +178,6 @@ async fn test_gas_key_signed_transaction() {
         );
     }
 
-    // --- 5. Assert effects: recipient credited, gas-key nonce advanced. -----
     let recipient_after = root_near
         .near()
         .balance(&recipient_id)

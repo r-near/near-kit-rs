@@ -17,10 +17,6 @@ use crate::{Contract, TxSender, Viewer};
 use super::types::{FtMetadata, StorageBalance, StorageBalanceBounds};
 use super::{Stringified, read};
 
-// =============================================================================
-// FungibleToken
-// =============================================================================
-
 /// A NEP-141 fungible token contract.
 ///
 /// The marker for [`Near::contract`](crate::Near::contract) and
@@ -62,6 +58,7 @@ pub struct FungibleToken;
 ///
 /// Token metadata and storage bounds are fetched on first use and cached.
 /// Clones share the cache.
+#[derive(Clone)]
 pub struct FungibleTokenClient<C = Near> {
     backend: C,
     contract_id: AccountId,
@@ -88,10 +85,6 @@ impl<C> FungibleTokenClient<C> {
         &self.contract_id
     }
 }
-
-// =============================================================================
-// View Methods
-// =============================================================================
 
 impl<C: Viewer> FungibleTokenClient<C> {
     /// Get token metadata (ft_metadata).
@@ -130,30 +123,23 @@ impl<C: Viewer> FungibleTokenClient<C> {
         let account_id = account_id.into();
         let span = trace::debug_span!("ft_balance_of", contract = %self.contract_id, %account_id);
 
-        async {
-            let Stringified(raw) = read(
-                &self.backend,
-                &self.contract_id,
-                "ft_balance_of",
-                Some(json!({ "account_id": account_id })),
-            )
-            .await?;
-            Ok(raw)
-        }
+        read(
+            &self.backend,
+            &self.contract_id,
+            "ft_balance_of",
+            Some(json!({ "account_id": account_id })),
+        )
         .instrument(span)
         .await
+        .map(|Stringified(raw)| raw)
     }
 
     /// Get total token supply (ft_total_supply), in the token's smallest unit.
     pub async fn total_supply(&self) -> Result<u128, ContractError<C::ViewError>> {
-        let Stringified(raw) =
-            read(&self.backend, &self.contract_id, "ft_total_supply", None).await?;
-        Ok(raw)
+        read(&self.backend, &self.contract_id, "ft_total_supply", None)
+            .await
+            .map(|Stringified(raw)| raw)
     }
-
-    // =========================================================================
-    // Storage Methods (NEP-145)
-    // =========================================================================
 
     /// Check if an account is registered on this token contract.
     ///
@@ -203,10 +189,6 @@ impl<C: Viewer> FungibleTokenClient<C> {
             .await
     }
 }
-
-// =============================================================================
-// Call Methods
-// =============================================================================
 
 impl<C: TxSender + Clone> FungibleTokenClient<C> {
     fn call(&self, function_call: FunctionCall) -> Call<C> {
@@ -354,17 +336,6 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
                 .deposit(NearToken::from_yoctonear(1))
                 .gas(Gas::from_tgas(100)),
         )
-    }
-}
-
-impl<C: Clone> Clone for FungibleTokenClient<C> {
-    fn clone(&self) -> Self {
-        Self {
-            backend: self.backend.clone(),
-            contract_id: self.contract_id.clone(),
-            metadata: self.metadata.clone(),
-            storage_bounds: self.storage_bounds.clone(),
-        }
     }
 }
 

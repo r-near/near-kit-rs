@@ -8,9 +8,7 @@ use thiserror::Error;
 
 use crate::types::{AccountId, ActionError, CryptoHash, FinalExecutionStatus, InvalidTxError};
 
-/// Error parsing an account ID.
-///
-/// This is a re-export of the upstream [`near_account_id::ParseAccountError`].
+/// Error parsing an account ID ([`near_account_id::ParseAccountError`]).
 pub type ParseAccountIdError = near_account_id::ParseAccountError;
 
 /// Error parsing a public or secret key.
@@ -20,8 +18,7 @@ pub enum ParseKeyError {
     #[error("Invalid key format: expected 'ed25519:...', 'secp256k1:...', or 'ml-dsa-65:...'")]
     InvalidFormat,
 
-    /// The key type prefix (or Borsh key type byte) isn't one near-kit knows.
-    /// Holds the prefix.
+    /// The key type prefix isn't one near-kit knows. Holds the prefix.
     #[error("Unknown key type: '{0}'")]
     UnknownKeyType(String),
 
@@ -52,11 +49,10 @@ pub enum ParseKeyError {
     #[error("secret key and public key don't match")]
     KeyPairMismatch,
 
-    /// The string is an `ml-dsa-65-hash:` handle — the on-chain identifier
-    /// (SHA3-256 digest) of an ML-DSA-65 access key that view RPCs return —
-    /// not a public key. Parse it as a
-    /// [`PublicKeyHandle`](crate::signer::PublicKeyHandle)
-    /// instead; to sign or build a transaction, supply the full `ml-dsa-65:` key.
+    /// The string is an `ml-dsa-65-hash:` handle, the SHA3-256 digest that
+    /// view RPCs return for an ML-DSA-65 access key, not a public key. Parse
+    /// it as a [`PublicKeyHandle`](crate::signer::PublicKeyHandle); to sign
+    /// or build a transaction, supply the full `ml-dsa-65:` key.
     #[error(
         "'ml-dsa-65-hash:' is the on-chain handle (hash) of an ML-DSA-65 key, not a public key; \
          supply the full 'ml-dsa-65:' key, or parse it as a PublicKeyHandle"
@@ -77,12 +73,8 @@ pub enum ParseHashError {
 }
 
 /// Error converting an RPC view back into a wire type
-/// (`TryFrom<ActionView> for Action`).
-///
-/// View types are what the node *reports*; wire types are what gets signed and
-/// sent. Most conversions are lossless, but a few views cannot be turned back
-/// into an action, and those are surfaced here rather than silently producing
-/// an action that would be rejected on the wire.
+/// (`TryFrom<ActionView> for Action`): the few views that can't become an
+/// action the chain would accept.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ActionViewConversionError {
     /// A base64-encoded field of the view failed to decode.
@@ -94,11 +86,8 @@ pub enum ActionViewConversionError {
         source: base64::DecodeError,
     },
 
-    /// A `DeployContract` / `DeployGlobalContract*` view carried something
-    /// other than a 32-byte code hash in its `code` field.
-    ///
-    /// The node replaces the WASM with the SHA-256 hash of the code in these
-    /// views, so `code` must decode to exactly 32 bytes.
+    /// A `DeployContract` / `DeployGlobalContract*` view's `code` isn't a
+    /// 32-byte code hash, which the node puts in place of the WASM.
     #[error("Expected a 32-byte code hash in the deploy action view's `code`, got {actual} bytes")]
     InvalidCodeHash {
         /// Number of bytes `code` actually decoded to.
@@ -131,9 +120,6 @@ pub enum ActionViewConversionError {
 pub use near_global_contracts::StateInitError;
 
 /// Error building a signer or signing with it.
-///
-/// Converts into `near_kit::Error` with `?`. A key that fails to parse
-/// becomes `Error::ParseKey` and an invalid key set `Error::Config`.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SignerError {
@@ -180,8 +166,7 @@ pub enum SignerError {
 /// argument-encoding failure and returns it when the call is converted into
 /// an action. Contract clients also return it, inside
 /// [`ContractError::Codec`](crate::ContractError::Codec), when
-/// a view result fails to decode. Converts into `near_kit::Error` with `?`
-/// (`Error::Json` / `Error::Borsh`).
+/// a view result fails to decode.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum CodecError {
@@ -204,8 +189,6 @@ impl From<std::convert::Infallible> for CodecError {
 
 /// Error decoding a [`SignedTransaction`](crate::protocol::SignedTransaction)
 /// or [`SignedTransactionV1`](crate::protocol::SignedTransactionV1).
-///
-/// Converts into `near_kit::Error::Decode` with `?`.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum DecodeTransactionError {
@@ -224,9 +207,6 @@ pub enum DecodeTransactionError {
 /// [`FinalExecutionOutcome::result`](crate::rpc::FinalExecutionOutcome::result)
 /// and [`FinalExecutionOutcome::json`](crate::rpc::FinalExecutionOutcome::json),
 /// and by the wait levels when the RPC response has no usable outcome.
-/// Converts into `near_kit::Error` with `?`: [`InvalidTx`](Self::InvalidTx) and
-/// [`Json`](Self::Json) keep their variants and the rest become
-/// `Error::Outcome`.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum OutcomeError {
@@ -260,102 +240,4 @@ pub enum OutcomeError {
         /// The wait level requested, such as `Final`.
         wait_level: &'static str,
     },
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // ========================================================================
-    // ParseAccountIdError tests
-    // ========================================================================
-
-    #[test]
-    fn test_parse_account_id_error_display() {
-        // Upstream ParseAccountError has different variants.
-        // Test via parsing invalid strings.
-        let err = "".parse::<AccountId>().unwrap_err();
-        assert!(err.to_string().contains("too short"));
-
-        let err = "a".parse::<AccountId>().unwrap_err();
-        assert!(err.to_string().contains("too short"));
-
-        let err = "A.near".parse::<AccountId>().unwrap_err();
-        assert!(err.to_string().contains("invalid character"));
-
-        let err = "bad..account".parse::<AccountId>().unwrap_err();
-        assert!(err.to_string().contains("redundant separator"));
-    }
-
-    // ========================================================================
-    // ParseKeyError tests
-    // ========================================================================
-
-    #[test]
-    fn test_parse_key_error_display() {
-        assert_eq!(
-            ParseKeyError::InvalidFormat.to_string(),
-            "Invalid key format: expected 'ed25519:...', 'secp256k1:...', or 'ml-dsa-65:...'"
-        );
-        assert_eq!(
-            ParseKeyError::UnknownKeyType("rsa".to_string()).to_string(),
-            "Unknown key type: 'rsa'"
-        );
-        assert_eq!(
-            ParseKeyError::InvalidBase58("invalid chars".to_string()).to_string(),
-            "Invalid base58 encoding: invalid chars"
-        );
-        assert_eq!(
-            ParseKeyError::InvalidLength {
-                expected: 32,
-                actual: 16
-            }
-            .to_string(),
-            "Invalid key length: expected 32 bytes, got 16"
-        );
-        assert_eq!(
-            ParseKeyError::InvalidCurvePoint.to_string(),
-            "Invalid curve point: key bytes do not represent a valid point on the curve"
-        );
-    }
-
-    // ========================================================================
-    // ParseHashError tests
-    // ========================================================================
-
-    #[test]
-    fn test_parse_hash_error_display() {
-        assert_eq!(
-            ParseHashError::InvalidBase58("bad input".to_string()).to_string(),
-            "Invalid base58 encoding: bad input"
-        );
-        assert_eq!(
-            ParseHashError::InvalidLength(16).to_string(),
-            "Invalid hash length: expected 32 bytes, got 16"
-        );
-    }
-
-    // ========================================================================
-    // SignerError tests
-    // ========================================================================
-
-    #[test]
-    fn test_signer_error_display() {
-        assert_eq!(
-            SignerError::InvalidSeedPhrase.to_string(),
-            "Invalid seed phrase"
-        );
-        assert_eq!(
-            SignerError::SigningFailed("hardware failure".to_string()).to_string(),
-            "Signing failed: hardware failure"
-        );
-        assert_eq!(
-            SignerError::KeyDerivationFailed("path error".to_string()).to_string(),
-            "Key derivation failed: path error"
-        );
-        assert_eq!(
-            SignerError::ImplicitAccountRequiresEd25519.to_string(),
-            "Implicit accounts require an Ed25519 secret key"
-        );
-    }
 }

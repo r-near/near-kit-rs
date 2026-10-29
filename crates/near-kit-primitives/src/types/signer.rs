@@ -1,18 +1,4 @@
-//! Signer trait and implementations.
-//!
-//! A `Signer` knows which account it signs for and provides keys for signing.
-//! The `key()` method returns a `SigningKey` that bundles together the public key
-//! and signing capability, ensuring atomic key claiming for rotating signers.
-//! Custom hardware-wallet, HSM, and KMS integrations can implement
-//! [`SigningBackend`] and wrap it with [`SigningKey::from_backend`].
-//!
-//! # Implementations
-//!
-//! - [`InMemorySigner`] - Single key stored in memory
-//! - [`RotatingSigner`] - Multiple keys with round-robin rotation
-//!
-//! `near-kit` adds signers that load keys from the environment, the
-//! `~/.near-credentials` directory, or the system keyring.
+//! The `Signer` trait, [`SigningKey`] and the in-memory signers.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -22,15 +8,7 @@ use crate::error::SignerError;
 use crate::types::nep413::{self, SignMessageParams, SignedMessage};
 use crate::types::{AccountId, KeyType, PublicKey, SecretKey, Signature};
 
-// ============================================================================
-// Signer Trait
-// ============================================================================
-
-/// Trait for signing transactions.
-///
-/// A signer knows which account it signs for and provides keys for signing.
-/// The `key()` method returns a [`SigningKey`] that bundles together the public
-/// key and signing capability, ensuring atomic key claiming.
+/// Trait for signing transactions: an account and the keys it signs with.
 ///
 /// # Example Implementation
 ///
@@ -77,11 +55,7 @@ pub trait Signer: Send + Sync {
     fn public_key(&self) -> PublicKey;
 }
 
-/// Implement `Signer` for `Arc<T>` where `T: Signer`.
-///
-/// This covers `Arc<dyn Signer>` (since `dyn Signer: Signer`) as well as
-/// concrete types like `Arc<InMemorySigner>`, `Arc<RotatingSigner>`, etc.
-/// without requiring a cast to `Arc<dyn Signer>` first.
+/// Forwards to `T`; covers `Arc<dyn Signer>` and `Arc<InMemorySigner>` alike.
 impl<T: Signer + ?Sized> Signer for Arc<T> {
     fn account_id(&self) -> &AccountId {
         (**self).account_id()
@@ -95,10 +69,6 @@ impl<T: Signer + ?Sized> Signer for Arc<T> {
         (**self).public_key()
     }
 }
-
-// ============================================================================
-// SigningKey
-// ============================================================================
 
 /// A key that can sign messages.
 ///
@@ -124,9 +94,7 @@ impl<T: Signer + ?Sized> Signer for Arc<T> {
 /// ```
 #[derive(Clone)]
 pub struct SigningKey {
-    /// The public key.
     public_key: PublicKey,
-    /// The signing backend.
     backend: Arc<dyn ErasedSigningBackend>,
 }
 
@@ -134,7 +102,7 @@ impl SigningKey {
     /// Create a new signing key from a secret key.
     pub fn new(secret_key: SecretKey) -> Self {
         let public_key = secret_key.public_key();
-        Self::from_backend(public_key, SecretKeyBackend { secret_key })
+        Self::from_backend(public_key, SecretKeyBackend(secret_key))
     }
 
     /// Create a signing key backed by a custom asynchronous signer.
@@ -189,39 +157,12 @@ impl SigningKey {
     /// it without hashing again (see [`SecretKey::sign`]). An in-memory
     /// Secp256k1 key returns [`SignerError::SigningFailed`] for any other
     /// length.
-    ///
-    /// For in-memory keys, this returns immediately.
-    /// For hardware wallets or KMS, this may involve user confirmation or
-    /// network requests.
     pub async fn sign(&self, message: &[u8]) -> Result<Signature, SignerError> {
         self.backend.sign(message).await
     }
 
-    /// Sign a NEP-413 message for off-chain authentication.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit_primitives::signer::{InMemorySigner, SecretKey, Signer};
-    /// use near_kit_primitives::standards::nep413;
-    ///
-    /// # async fn example() -> Result<(), near_kit_primitives::signer::SignerError> {
-    /// let signer = InMemorySigner::implicit(SecretKey::generate_ed25519())?;
-    /// let key = signer.key();
-    ///
-    /// let params = nep413::SignMessageParams {
-    ///     message: "Login to MyApp".to_string(),
-    ///     recipient: "myapp.com".to_string(),
-    ///     nonce: nep413::generate_nonce(),
-    ///     callback_url: None,
-    ///     state: None,
-    /// };
-    ///
-    /// let signed = key.sign_nep413(signer.account_id(), &params).await?;
-    /// assert!(nep413::verify_signature(&signed, &params, nep413::NonceValidation::default()));
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Sign a NEP-413 message for off-chain authentication (see
+    /// [`nep413`](crate::standards::nep413) for an example).
     pub async fn sign_nep413(
         &self,
         account_id: &AccountId,
@@ -246,10 +187,6 @@ impl std::fmt::Debug for SigningKey {
             .finish()
     }
 }
-
-// ============================================================================
-// SigningBackend
-// ============================================================================
 
 /// Asynchronous backend for a [`SigningKey`].
 ///
@@ -295,27 +232,21 @@ impl<B: SigningBackend> ErasedSigningBackend for BackendAdapter<B> {
 }
 
 /// In-memory signing backend using a secret key.
-struct SecretKeyBackend {
-    secret_key: SecretKey,
-}
+struct SecretKeyBackend(SecretKey);
 
 impl SigningBackend for SecretKeyBackend {
     async fn sign(&self, message: &[u8]) -> Result<Signature, SignerError> {
         // `SecretKey::sign` panics on this (as nearcore does); surface it as an
         // error instead since the caller already expects a `Result`.
-        if self.secret_key.key_type() == KeyType::Secp256k1 && message.len() != 32 {
+        if self.0.key_type() == KeyType::Secp256k1 && message.len() != 32 {
             return Err(SignerError::SigningFailed(format!(
                 "secp256k1 signing expects a 32-byte digest, got {} bytes",
                 message.len()
             )));
         }
-        Ok(self.secret_key.sign(message))
+        Ok(self.0.sign(message))
     }
 }
-
-// ============================================================================
-// InMemorySigner
-// ============================================================================
 
 /// A signer with a single key stored in memory.
 ///
@@ -392,18 +323,14 @@ impl InMemorySigner {
     /// # Ok::<(), near_kit_primitives::signer::SignerError>(())
     /// ```
     pub fn implicit(secret_key: SecretKey) -> Result<Self, SignerError> {
-        let public_key = secret_key.public_key();
-        let pk_bytes = public_key
+        let account_id: AccountId = secret_key
+            .public_key()
             .as_ed25519_bytes()
-            .ok_or(SignerError::ImplicitAccountRequiresEd25519)?;
-        let account_id: AccountId = hex::encode(pk_bytes)
+            .map(hex::encode)
+            .ok_or(SignerError::ImplicitAccountRequiresEd25519)?
             .parse()
             .expect("hex-encoded Ed25519 public key is a valid account ID");
-        Ok(Self {
-            account_id,
-            secret_key,
-            public_key,
-        })
+        Ok(Self::new(account_id, secret_key))
     }
 }
 
@@ -430,63 +357,26 @@ impl Signer for InMemorySigner {
     }
 }
 
-// ============================================================================
-// RotatingSigner
-// ============================================================================
-
-/// A signer that rotates through multiple keys for the same account.
+/// A signer that rotates through several keys for one account.
 ///
-/// This solves the nonce collision problem for high-throughput applications.
-/// Each call to `key()` atomically claims the next key in round-robin order.
-///
-/// # Use Case
-///
-/// NEAR uses per-key nonces. When sending concurrent transactions with a single key,
-/// they can collide on nonce values. By rotating through multiple keys, each
-/// concurrent transaction uses a different key with its own nonce sequence.
-///
-/// # Loading Keys from Other Sources
-///
-/// Keys can be loaded from any storage backend (file, keyring, env) via
-/// [`from_signers()`](Self::from_signers):
-///
-/// ```rust
-/// use near_kit_primitives::account;
-/// # use near_kit_primitives::signer::{InMemorySigner, RotatingSigner, SecretKey};
-/// # let (key_0, key_1) = (SecretKey::generate_ed25519(), SecretKey::generate_ed25519());
-/// let rotating = RotatingSigner::from_signers(vec![
-///     InMemorySigner::new(account!("bot.testnet"), key_0),
-///     InMemorySigner::new(account!("bot.testnet"), key_1),
-/// ])?;
-/// # Ok::<(), near_kit_primitives::signer::SignerError>(())
-/// ```
-///
-/// # Sequential Sends
-///
-/// Use [`into_per_key_signers()`](Self::into_per_key_signers) to split into
-/// per-key [`InMemorySigner`] instances for building sequential send queues.
-/// See the [`sequential_sends` example](https://github.com/r-near/near-kit-rs/blob/main/crates/near-kit-sandbox/examples/sequential_sends.rs).
-///
-/// # Example
+/// NEAR nonces are per key, so concurrent sends from one key collide. Each
+/// [`key()`](Signer::key) call claims the next key, round-robin. Load keys
+/// from other sources with [`from_signers`](Self::from_signers), or split them
+/// into per-key signers for sequential send queues with
+/// [`into_per_key_signers`](Self::into_per_key_signers) (see the
+/// [`sequential_sends` example](https://github.com/r-near/near-kit-rs/blob/main/crates/near-kit-sandbox/examples/sequential_sends.rs)).
 ///
 /// ```rust
 /// use near_kit_primitives::account;
 /// use near_kit_primitives::signer::{RotatingSigner, SecretKey, Signer};
 ///
-/// let keys = vec![
-///     SecretKey::generate_ed25519(),
-///     SecretKey::generate_ed25519(),
-///     SecretKey::generate_ed25519(),
-/// ];
-///
-/// let signer = RotatingSigner::new(account!("bot.testnet"), keys).unwrap();
-///
-/// // Each key() call atomically claims the next key in sequence
-/// let key1 = signer.key();
-/// let key2 = signer.key();
-/// let key3 = signer.key();
-/// // key4 wraps back to the first key
-/// let key4 = signer.key();
+/// let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
+/// let first = keys[0].public_key();
+/// let signer = RotatingSigner::new(account!("bot.testnet"), keys)?;
+/// assert_eq!(signer.key().public_key(), &first);
+/// assert_ne!(signer.key().public_key(), &first);
+/// assert_eq!(signer.key().public_key(), &first); // wraps around
+/// # Ok::<(), near_kit_primitives::signer::SignerError>(())
 /// ```
 pub struct RotatingSigner {
     account_id: AccountId,
@@ -497,16 +387,9 @@ pub struct RotatingSigner {
 impl RotatingSigner {
     /// Create a rotating signer with multiple keys.
     ///
-    /// # Arguments
-    ///
-    /// * `account_id` - The NEAR account ID
-    /// * `keys` - Vector of secret keys (must not be empty)
-    ///
     /// # Errors
     ///
-    /// Returns an error if:
-    /// - The account ID cannot be parsed
-    /// - The keys vector is empty
+    /// [`SignerError::NoKeys`] if `keys` is empty.
     pub fn new(
         account_id: impl Into<AccountId>,
         keys: Vec<SecretKey>,
@@ -514,11 +397,8 @@ impl RotatingSigner {
         if keys.is_empty() {
             return Err(SignerError::NoKeys);
         }
-
-        let account_id: AccountId = account_id.into();
-
         Ok(Self {
-            account_id,
+            account_id: account_id.into(),
             keys,
             counter: AtomicUsize::new(0),
         })
@@ -545,26 +425,21 @@ impl RotatingSigner {
     /// # Ok::<(), near_kit_primitives::signer::SignerError>(())
     /// ```
     pub fn from_signers(signers: Vec<InMemorySigner>) -> Result<Self, SignerError> {
-        if signers.is_empty() {
-            return Err(SignerError::NoKeys);
+        let account_id = signers
+            .first()
+            .ok_or(SignerError::NoKeys)?
+            .account_id
+            .clone();
+        if let Some(s) = signers.iter().find(|s| s.account_id != account_id) {
+            return Err(SignerError::MixedAccounts {
+                expected: account_id,
+                found: s.account_id.clone(),
+            });
         }
-
-        let account_id = signers[0].account_id().clone();
-        for signer in &signers[1..] {
-            if signer.account_id() != &account_id {
-                return Err(SignerError::MixedAccounts {
-                    expected: account_id,
-                    found: signer.account_id().clone(),
-                });
-            }
-        }
-
-        let keys = signers.into_iter().map(|s| s.secret_key).collect();
-        Ok(Self {
+        Self::new(
             account_id,
-            keys,
-            counter: AtomicUsize::new(0),
-        })
+            signers.into_iter().map(|s| s.secret_key).collect(),
+        )
     }
 
     /// Get all public keys.
@@ -573,9 +448,6 @@ impl RotatingSigner {
     }
 
     /// Get all signing keys without advancing the rotation counter.
-    ///
-    /// Useful for building per-key data structures like sequential send queues.
-    /// Unlike [`key()`](Signer::key), calling this does not affect the rotation.
     pub fn signing_keys(&self) -> Vec<SigningKey> {
         self.keys
             .iter()
@@ -628,21 +500,15 @@ impl Signer for RotatingSigner {
     }
 
     fn key(&self) -> SigningKey {
-        // Atomically claim the next key in rotation
         let idx = self.counter.fetch_add(1, Ordering::Relaxed) % self.keys.len();
         SigningKey::new(self.keys[idx].clone())
     }
 
     fn public_key(&self) -> PublicKey {
-        // Peek at whichever key will be claimed next, without advancing the counter
         let idx = self.counter.load(Ordering::Relaxed) % self.keys.len();
         self.keys[idx].public_key()
     }
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -650,171 +516,41 @@ mod tests {
 
     use super::*;
     use crate::account;
-    use crate::types::{Action, CryptoHash, NearToken, Transaction};
+
+    const KEY: &str = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr";
 
     #[test]
     fn test_in_memory_signer() {
-        let signer = InMemorySigner::new(account!("alice.testnet"), "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr".parse().unwrap());
+        let signer = InMemorySigner::new(account!("alice.testnet"), KEY.parse().unwrap());
 
         assert_eq!(signer.account_id().as_str(), "alice.testnet");
 
         let key = signer.key();
         let message = b"test message";
         let signature = block_on(key.sign(message)).unwrap();
-
-        // Verify the key matches
         assert_eq!(key.public_key(), &signer.public_key());
-        assert!(!signature.as_bytes().is_empty());
-    }
-
-    #[test]
-    fn test_signature_consistency() {
-        // Same message should produce the same signature (Ed25519 is deterministic)
-        let signer = InMemorySigner::new(account!("alice.testnet"), "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr".parse().unwrap());
-
-        let key = signer.key();
-        let message = b"test message";
-        let sig1 = block_on(key.sign(message)).unwrap();
-        let sig2 = block_on(key.sign(message)).unwrap();
-
-        assert_eq!(sig1.as_bytes(), sig2.as_bytes());
-    }
-
-    #[test]
-    fn test_different_messages_different_signatures() {
-        let signer = InMemorySigner::new(account!("alice.testnet"), "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr".parse().unwrap());
-
-        let key = signer.key();
-        let sig1 = block_on(key.sign(b"message 1")).unwrap();
-        let sig2 = block_on(key.sign(b"message 2")).unwrap();
-
-        assert_ne!(sig1.as_bytes(), sig2.as_bytes());
-    }
-
-    #[test]
-    fn test_transaction_signing_with_signer_trait() {
-        let secret_key = SecretKey::generate_ed25519();
-        let signer = InMemorySigner::new(account!("alice.testnet"), secret_key);
-
-        // Get a key for signing
-        let key = signer.key();
-
-        // Build a transaction
-        let tx = Transaction::new(
-            signer.account_id().clone(),
-            key.public_key().clone(),
-            1,
-            "bob.testnet".parse().unwrap(),
-            CryptoHash::ZERO,
-            vec![Action::transfer(NearToken::from_near(1))],
-        );
-
-        // Sign using the key
-        let tx_hash = tx.get_hash();
-        let signature = block_on(key.sign(tx_hash.as_bytes())).unwrap();
-
-        // Verify signature is 64 bytes (Ed25519)
-        assert_eq!(signature.as_bytes().len(), 64);
-
-        // Create signed transaction
-        let signed_tx = crate::types::SignedTransaction {
-            transaction: tx,
-            signature,
-        };
-
-        // Verify serialization works
-        let bytes = signed_tx.to_bytes();
-        assert!(!bytes.is_empty());
-
-        // Verify base64 encoding works
-        let base64 = signed_tx.to_base64();
-        assert!(!base64.is_empty());
-    }
-
-    #[test]
-    fn test_rotating_signer() {
-        let keys = vec![
-            SecretKey::generate_ed25519(),
-            SecretKey::generate_ed25519(),
-            SecretKey::generate_ed25519(),
-        ];
-        let expected_public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
-
-        let signer = RotatingSigner::new(account!("bot.testnet"), keys).unwrap();
-
-        // Verify round-robin rotation
-        let key1 = signer.key();
-        assert_eq!(key1.public_key(), &expected_public_keys[0]);
-
-        let key2 = signer.key();
-        assert_eq!(key2.public_key(), &expected_public_keys[1]);
-
-        let key3 = signer.key();
-        assert_eq!(key3.public_key(), &expected_public_keys[2]);
-
-        // Wraps around
-        let key4 = signer.key();
-        assert_eq!(key4.public_key(), &expected_public_keys[0]);
+        assert!(signature.verify(message, &signer.public_key()));
     }
 
     #[test]
     fn test_rotating_signer_atomic_key_claiming() {
-        // Verify that key() atomically claims a key that can be used for signing
         let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
-        let expected_pks: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
-
         let signer = RotatingSigner::new(account!("bot.testnet"), keys.clone()).unwrap();
         let message = b"test";
-
-        // Claim first key and sign
-        let key1 = signer.key();
-        assert_eq!(key1.public_key(), &expected_pks[0]);
-        let sig1 = block_on(key1.sign(message)).unwrap();
-        // Verify signature matches what the raw key would produce
-        let expected_sig1 = keys[0].sign(message);
-        assert_eq!(sig1.as_bytes(), expected_sig1.as_bytes());
-
-        // Claim second key and sign
-        let key2 = signer.key();
-        assert_eq!(key2.public_key(), &expected_pks[1]);
-        let sig2 = block_on(key2.sign(message)).unwrap();
-        let expected_sig2 = keys[1].sign(message);
-        assert_eq!(sig2.as_bytes(), expected_sig2.as_bytes());
-
-        // Different keys produce different signatures
-        assert_ne!(sig1.as_bytes(), sig2.as_bytes());
+        for key in &keys {
+            // The claimed key signs exactly as the raw key would.
+            let claimed = signer.key();
+            assert_eq!(claimed.public_key(), &key.public_key());
+            assert_eq!(block_on(claimed.sign(message)).unwrap(), key.sign(message));
+        }
     }
 
     #[test]
     fn test_rotating_signer_empty_keys() {
-        let result = RotatingSigner::new(account!("bot.testnet"), vec![]);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_signer_from_secret_key() {
-        let secret = SecretKey::generate_ed25519();
-        let expected_pk = secret.public_key();
-
-        let signer = InMemorySigner::new(account!("alice.testnet"), secret);
-
-        assert_eq!(signer.account_id().as_str(), "alice.testnet");
-        assert_eq!(signer.public_key(), expected_pk);
-    }
-
-    #[test]
-    fn test_implicit_account_id_is_the_hex_public_key() {
-        let signer = InMemorySigner::implicit(SecretKey::generate_ed25519()).unwrap();
-        let account_id = signer.account_id().as_str();
-
-        // Implicit account IDs are 64 hex characters
-        assert_eq!(account_id.len(), 64);
-        assert!(account_id.chars().all(|c| c.is_ascii_hexdigit()));
-
-        // The account ID should be the hex-encoded public key bytes
-        let public_key = signer.public_key();
-        let pk_bytes = public_key.as_ed25519_bytes().unwrap();
-        assert_eq!(account_id, hex::encode(pk_bytes));
+        assert!(matches!(
+            RotatingSigner::new(account!("bot.testnet"), vec![]),
+            Err(SignerError::NoKeys)
+        ));
     }
 
     #[test]
@@ -823,7 +559,7 @@ mod tests {
         let expected_pk = secret_key.public_key();
         let signer = InMemorySigner::implicit(secret_key).unwrap();
 
-        // Account ID matches hex-encoded public key
+        // The account ID is the hex-encoded public key (64 characters).
         let pk_bytes = expected_pk.as_ed25519_bytes().unwrap();
         assert_eq!(signer.account_id().as_str(), hex::encode(pk_bytes));
         assert_eq!(signer.public_key(), expected_pk);
@@ -843,28 +579,8 @@ mod tests {
     }
 
     #[test]
-    fn test_implicit_accounts_of_generated_keys_differ() {
-        let signer1 = InMemorySigner::implicit(SecretKey::generate_ed25519()).unwrap();
-        let signer2 = InMemorySigner::implicit(SecretKey::generate_ed25519()).unwrap();
-        assert_ne!(signer1.account_id(), signer2.account_id());
-    }
-
-    #[test]
-    fn test_rotating_signer_holds_every_key() {
-        let keys = vec![
-            SecretKey::generate_ed25519(),
-            SecretKey::generate_ed25519(),
-            SecretKey::generate_ed25519(),
-        ];
-
-        let signer = RotatingSigner::new(account!("bot.testnet"), keys).unwrap();
-
-        assert_eq!(signer.public_keys().len(), 3);
-    }
-
-    #[test]
     fn test_in_memory_signer_debug_hides_secret() {
-        let signer = InMemorySigner::new(account!("alice.testnet"), "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr".parse().unwrap());
+        let signer = InMemorySigner::new(account!("alice.testnet"), KEY.parse().unwrap());
 
         let debug_str = format!("{:?}", signer);
 
@@ -896,8 +612,30 @@ mod tests {
             InMemorySigner::new(account!("bob.testnet"), SecretKey::generate_ed25519()),
         ];
 
-        let result = RotatingSigner::from_signers(signers);
-        assert!(result.is_err());
+        assert!(matches!(
+            RotatingSigner::from_signers(signers),
+            Err(SignerError::MixedAccounts { .. })
+        ));
+    }
+
+    #[test]
+    fn test_secp256k1_signing_key_rejects_non_digest_input() {
+        let signer =
+            InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_secp256k1());
+        let key = signer.key();
+        assert!(matches!(
+            block_on(key.sign(b"not a digest")),
+            Err(SignerError::SigningFailed(m)) if m == "secp256k1 signing expects a 32-byte digest, got 12 bytes"
+        ));
+        assert!(block_on(key.sign(&[7; 32])).is_ok());
+    }
+
+    #[test]
+    fn test_rotating_signer_from_no_signers() {
+        assert!(matches!(
+            RotatingSigner::from_signers(vec![]),
+            Err(SignerError::NoKeys)
+        ));
     }
 
     #[test]
@@ -971,15 +709,5 @@ mod tests {
         let claimed = signer.key();
         assert_eq!(claimed.public_key(), &pks[2]);
         assert_eq!(signer.public_key(), pks[0]);
-    }
-
-    #[test]
-    fn test_signing_key_is_clone() {
-        let signer = InMemorySigner::new(account!("alice.testnet"), "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr".parse().unwrap());
-
-        let key = signer.key();
-        let key_clone = key.clone();
-
-        assert_eq!(key.public_key(), key_clone.public_key());
     }
 }

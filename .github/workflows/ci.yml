@@ -29,7 +29,7 @@ jobs:
       - run: cargo clippy -p near-kit --all-targets
       - run: cargo clippy --workspace --all-targets --all-features
       # Covers the sandbox crate without its optional tracing instrumentation.
-      - run: cargo clippy -p near-kit-sandbox --all-targets --no-default-features --features integration-tests
+      - run: cargo clippy -p near-kit-sandbox --all-targets --features integration-tests
       # `contracts` is independently opt-in and works offline (no `rpc`):
       # the macro then generates only the `FunctionCall` constructors.
       - run: cargo check -p near-kit --all-targets --no-default-features --features contracts
@@ -66,7 +66,6 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           cache-all-crates: "true"
-          workspaces: ". -> target"
       - uses: taiki-e/install-action@cargo-llvm-cov
       - name: Run all-feature tests with coverage
         run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
@@ -74,27 +73,18 @@ jobs:
         run: cargo test -p near-kit --lib
       - name: Run default-feature doctests
         run: cargo test -p near-kit --doc
+      # The sandbox doctests are compile-only (`no_run`): they need Docker to
+      # run, not to build.
       - name: Run all-feature doctests
-        run: cargo test -p near-kit --all-features --doc
-      - name: Run near-kit-primitives all-feature doctests
-        run: cargo test -p near-kit-primitives --all-features --doc
-      # Compile-only (`no_run`): they need Docker to run, not to build.
-      - name: Run near-kit-sandbox doctests
-        run: cargo test -p near-kit-sandbox --features integration-tests --doc
-      - name: Run near-kit-macros doctests
-        run: cargo test -p near-kit-macros --doc
+        run: cargo test --workspace --all-features --doc
       # The offline (no `rpc`) configuration keeps its own doctests compiling;
       # examples that need the RPC layer are cfg_attr'd to `ignore` without it
       - name: Run offline doctests
         run: cargo test -p near-kit --no-default-features --doc
       - name: Run offline mnemonic tests
         run: cargo test -p near-kit --no-default-features --features mnemonic --lib
-      - name: Run near-kit-primitives tests without optional features
-        run: cargo test -p near-kit-primitives --no-default-features
-      - name: Run #[contract] through near-kit-primitives alone
-        run: cargo test -p near-kit-primitives --no-default-features --features contracts --test contract_macro
-      - name: Run contract macro compile tests
-        run: cargo test -p near-kit-macros --test trybuild
+      - name: Run near-kit-primitives tests, with #[contract] through it alone
+        run: cargo test -p near-kit-primitives --no-default-features --features contracts
       - name: Run offline (no rpc) contract macro compile tests
         run: cargo test -p near-kit --no-default-features --features contracts --test contracts_offline
       - uses: codecov/codecov-action@v7
@@ -135,7 +125,6 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
-      - run: cargo check -p near-kit --all-targets
       - run: cargo check --workspace --all-targets --all-features
 
   wasm:
@@ -170,17 +159,16 @@ jobs:
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features rpc,contracts
       # WASI with the built-in wasi:http transport
       - run: cargo check --target wasm32-wasip2 -p near-kit --no-default-features --features wasi-http
-      # near-kit-primitives alone (what wasm contracts depend on): WASI with
-      # native entropy, then JS hosts with the `js` entropy backend
-      - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features
-      - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features --features mnemonic
-      - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features --features contracts
+      # near-kit-primitives alone (what wasm contracts depend on). The near-kit
+      # checks above already build it with the same features on WASI, and with
+      # `js,mnemonic`; near-kit's `js,rpc` pulls in more of the graph than
+      # `js` alone.
+      - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js
       # `#[contract]` expanded for wasm: the macro's test target, where the
-      # library checks above never invoke it
+      # library checks never invoke it (near-kit's `contracts` doesn't forward
+      # to near-kit-primitives')
       - run: cargo check --target wasm32-wasip2 -p near-kit-primitives --no-default-features --features contracts --test contract_macro
       - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js,contracts --test contract_macro
-      - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js
-      - run: cargo check --target wasm32-unknown-unknown -p near-kit-primitives --no-default-features --features js,mnemonic
 
   examples:
     name: Examples
@@ -193,10 +181,8 @@ jobs:
           shared-key: stable
           save-if: false
           cache-on-failure: "true"
-      # Every example must build; `quickstart` reads from testnet, so it is
-      # only built.
-      - run: cargo build -p near-kit --examples --all-features
-      - run: cargo build -p near-kit-sandbox --examples --features integration-tests
+      # Lint and Test build every example; `quickstart` reads from testnet, so
+      # it isn't run here.
       # No network: offline signing builds with no features at all.
       - run: cargo run -p near-kit --example offline_signing --no-default-features
       - run: cargo run -p near-kit --example mock_backend --features contracts

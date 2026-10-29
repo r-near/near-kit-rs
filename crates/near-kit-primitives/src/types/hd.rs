@@ -4,14 +4,11 @@
 //! (<https://github.com/satoshilabs/slips/blob/master/slip-0010.md>) and the
 //! ML-DSA-65 branch of the analogous post-quantum construction from
 //! satoshilabs/slips#1968 (adopted by near/devex#58), specified for NEAR by
-//! NEP-649 (<https://github.com/near/NEPs/pull/649>). Both branches share the
-//! identical SLIP-10 machinery — the same hardened-only child step over
-//! HMAC-SHA512 — and differ *only* in the master HMAC salt: `"ed25519 seed"`
-//! for Ed25519, `"ML-DSA-65 seed"` for ML-DSA-65. As a result the two keys
-//! derived from the same BIP-39 seed are unrelated.
-//!
-//! Only hardened derivation is supported — non-hardened components are rejected
-//! by [`parse_hd_path`].
+//! NEP-649 (<https://github.com/near/NEPs/pull/649>). Both use the same
+//! hardened-only child step over HMAC-SHA512 and differ in the master HMAC
+//! salt (`"ed25519 seed"`, `"ML-DSA-65 seed"`), so the two keys derived from
+//! one BIP-39 seed are unrelated. [`parse_hd_path`] rejects non-hardened
+//! components.
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha512;
@@ -28,30 +25,20 @@ const ED25519_SEED_SALT: &[u8] = b"ed25519 seed";
 const ML_DSA65_SEED_SALT: &[u8] = b"ML-DSA-65 seed";
 
 /// Error parsing a BIP-32 path string for SLIP-10 derivation.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum HdPathError {
     /// A path segment was empty (e.g. `"m//0'"` or a trailing `/`).
+    #[error("empty path segment")]
     EmptySegment,
     /// A segment was not a decimal integer optionally suffixed with `'` or `H`.
+    #[error("invalid path index {0:?}")]
     InvalidIndex(String),
     /// The raw index was ≥ 2^31 (the hardened bit position).
+    #[error("path index out of range {0:?}")]
     IndexOutOfRange(String),
-    /// SLIP-10 (both the Ed25519 and ML-DSA-65 branches) requires every
-    /// component to be hardened (`'` or `H` suffix).
+    /// A component lacks the `'` or `H` hardened suffix.
+    #[error("SLIP-10 requires hardened derivation, got {0:?}")]
     NotHardened(String),
-}
-
-impl std::fmt::Display for HdPathError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EmptySegment => write!(f, "empty path segment"),
-            Self::InvalidIndex(s) => write!(f, "invalid path index {s:?}"),
-            Self::IndexOutOfRange(s) => write!(f, "path index out of range {s:?}"),
-            Self::NotHardened(s) => {
-                write!(f, "SLIP-10 requires hardened derivation, got {s:?}")
-            }
-        }
-    }
 }
 
 /// Parse a BIP-32 path like `m/44'/397'/0'` into a list of hardened indexes
@@ -96,14 +83,9 @@ pub(crate) fn parse_hd_path(path: &str) -> Result<Vec<u32>, HdPathError> {
         .collect()
 }
 
-/// Derive the full 64-byte SLIP-10 node `I = I_L || I_R` (the secret scalar
-/// followed by the chain code) from `seed` along `path`, using `salt` as the
-/// master HMAC key.
-///
-/// This is the shared engine behind [`derive_ed25519_slip10`] and
-/// [`derive_ml_dsa65_slip10`]; the two branches differ only in `salt`. `path`
-/// must be a slice of already-hardened indexes (each with the high bit set).
-/// Use [`parse_hd_path`] to produce one from a string.
+/// Derive the 64-byte SLIP-10 node `I = I_L || I_R` (secret, then chain code)
+/// from `seed` along `path` (already-hardened indexes from [`parse_hd_path`]),
+/// with `salt` as the master HMAC key.
 fn derive_slip10_node(salt: &[u8], seed: &[u8], path: &[u32]) -> [u8; 64] {
     // Master: I = HMAC-SHA512(key=salt, data=seed)
     let mut mac = HmacSha512::new_from_slice(salt).expect("HMAC accepts any key length");
@@ -111,52 +93,30 @@ fn derive_slip10_node(salt: &[u8], seed: &[u8], path: &[u32]) -> [u8; 64] {
     let mut i = mac.finalize().into_bytes();
 
     for &index in path {
-        debug_assert!(
-            index & HARDENED != 0,
-            "SLIP-10 requires hardened indexes; got {index:#x}"
-        );
-        // Hardened child: Data = 0x00 || I_L(parent) || ser32(index)
+        // Hardened child: HMAC-SHA512(key=I_R, data=0x00 || I_L || ser32(index))
         let (il, ir) = i.split_at(32);
-
-        let mut data = [0u8; 1 + 32 + 4];
-        data[0] = 0x00;
-        data[1..33].copy_from_slice(il);
-        data[33..].copy_from_slice(&index.to_be_bytes());
-
         let mut mac = HmacSha512::new_from_slice(ir).expect("HMAC accepts any key length");
-        mac.update(&data);
+        mac.update(&[0]);
+        mac.update(il);
+        mac.update(&index.to_be_bytes());
         i = mac.finalize().into_bytes();
     }
-
-    let mut node = [0u8; 64];
-    node.copy_from_slice(&i);
-    node
+    i.into()
 }
 
-/// Derive a 32-byte Ed25519 secret scalar from `seed` along `path` using
-/// SLIP-10 for the Ed25519 curve (master salt `"ed25519 seed"`).
-///
-/// `path` must be a slice of already-hardened indexes (each with the high
-/// bit set). Use [`parse_hd_path`] to produce one from a string.
+/// The 32-byte Ed25519 secret along `path` (SLIP-10, salt `"ed25519 seed"`).
 pub(crate) fn derive_ed25519_slip10(seed: &[u8], path: &[u32]) -> [u8; 32] {
-    let node = derive_slip10_node(ED25519_SEED_SALT, seed, path);
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&node[..32]);
-    key
+    *derive_slip10_node(ED25519_SEED_SALT, seed, path)
+        .first_chunk()
+        .expect("64-byte node")
 }
 
-/// Derive a 32-byte ML-DSA-65 node secret (the FIPS-204 seed ξ) from `seed`
-/// along `path` using the SLIP-10 construction from satoshilabs/slips#1968,
-/// specified for NEAR by NEP-649 (<https://github.com/near/NEPs/pull/649>)
-/// (master salt `"ML-DSA-65 seed"`). Feed the result to ML-DSA-65 KeyGen.
-///
-/// `path` must be a slice of already-hardened indexes (each with the high
-/// bit set). Use [`parse_hd_path`] to produce one from a string.
+/// The 32-byte ML-DSA-65 node secret (the FIPS-204 seed ξ fed to KeyGen)
+/// along `path` (satoshilabs/slips#1968, salt `"ML-DSA-65 seed"`).
 pub(crate) fn derive_ml_dsa65_slip10(seed: &[u8], path: &[u32]) -> [u8; 32] {
-    let node = derive_slip10_node(ML_DSA65_SEED_SALT, seed, path);
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&node[..32]);
-    key
+    *derive_slip10_node(ML_DSA65_SEED_SALT, seed, path)
+        .first_chunk()
+        .expect("64-byte node")
 }
 
 #[cfg(test)]
@@ -167,104 +127,72 @@ mod tests {
         hex::decode(s).expect("valid hex")
     }
 
-    // ------------------------------------------------------------------------
-    // SLIP-10 official Ed25519 test vectors
-    // https://github.com/satoshilabs/slips/blob/master/slip-0010.md
-    // ------------------------------------------------------------------------
-
+    /// SLIP-10 official Ed25519 test vectors
+    /// (<https://github.com/satoshilabs/slips/blob/master/slip-0010.md>).
     #[test]
-    fn slip10_vec1_ed25519() {
-        let seed = unhex("000102030405060708090a0b0c0d0e0f");
-
-        // Master (chain m)
-        assert_eq!(
-            hex::encode(derive_ed25519_slip10(&seed, &[])),
-            "2b4be7f19ee27bbf30c667b642d5f4aa69fd169872f8fc3059c08ebae2eb19e7"
-        );
-        // m/0'
-        assert_eq!(
-            hex::encode(derive_ed25519_slip10(
-                &seed,
-                &parse_hd_path("m/0'").unwrap()
-            )),
-            "68e0fe46dfb67e368c75379acec591dad19df3cde26e63b93a8e704f1dade7a3"
-        );
-        // m/0'/1'
-        assert_eq!(
-            hex::encode(derive_ed25519_slip10(
-                &seed,
-                &parse_hd_path("m/0'/1'").unwrap()
-            )),
-            "b1d0bad404bf35da785a64ca1ac54b2617211d2777696fbffaf208f746ae84f2"
-        );
-        // m/0'/1'/2'
-        assert_eq!(
-            hex::encode(derive_ed25519_slip10(
-                &seed,
-                &parse_hd_path("m/0'/1'/2'").unwrap()
-            )),
-            "92a5b23c0b8a99e37d07df3fb9966917f5d06e02ddbd909c7e184371463e9fc9"
-        );
-        // m/0'/1'/2'/2'
-        assert_eq!(
-            hex::encode(derive_ed25519_slip10(
-                &seed,
-                &parse_hd_path("m/0'/1'/2'/2'").unwrap()
-            )),
-            "30d1dc7e5fc04c31219ab25a27ae00b50f6fd66622f6e9c913253d6511d1e662"
-        );
-        // m/0'/1'/2'/2'/1000000000'
-        assert_eq!(
-            hex::encode(derive_ed25519_slip10(
-                &seed,
-                &parse_hd_path("m/0'/1'/2'/2'/1000000000'").unwrap()
-            )),
-            "8f94d394a8e8fd6b1bc2f3f49f5c47e385281d5c17e65324b0f62483e37e8793"
-        );
-    }
-
-    #[test]
-    fn slip10_vec2_ed25519() {
-        let seed = unhex(
+    fn slip10_ed25519_vectors() {
+        let seed1 = unhex("000102030405060708090a0b0c0d0e0f");
+        let seed2 = unhex(
             "fffcf9f6f3f0edeae7e4e1dedbd8d5d2cfccc9c6c3c0bdbab7b4b1aeaba8a5a2\
              9f9c999693908d8a8784817e7b7875726f6c696663605d5a5754514e4b484542",
         );
-
-        // Master
-        assert_eq!(
-            hex::encode(derive_ed25519_slip10(&seed, &[])),
-            "171cb88b1b3c1db25add599712e36245d75bc65a1a5c9e18d76f9f2b1eab4012"
-        );
-        // m/0'
-        assert_eq!(
-            hex::encode(derive_ed25519_slip10(
-                &seed,
-                &parse_hd_path("m/0'").unwrap()
-            )),
-            "1559eb2bbec5790b0c65d8693e4d0875b1747f4970ae8b650486ed7470845635"
-        );
-        // m/0'/2147483647'/1'/2147483646'/2'
-        assert_eq!(
-            hex::encode(derive_ed25519_slip10(
-                &seed,
-                &parse_hd_path("m/0'/2147483647'/1'/2147483646'/2'").unwrap()
-            )),
-            "551d333177df541ad876a60ea71f00447931c0a9da16f227c11ea080d7391b8d"
-        );
+        let rows: &[(&[u8], &str, &str)] = &[
+            (
+                &seed1,
+                "m",
+                "2b4be7f19ee27bbf30c667b642d5f4aa69fd169872f8fc3059c08ebae2eb19e7",
+            ),
+            (
+                &seed1,
+                "m/0'",
+                "68e0fe46dfb67e368c75379acec591dad19df3cde26e63b93a8e704f1dade7a3",
+            ),
+            (
+                &seed1,
+                "m/0'/1'",
+                "b1d0bad404bf35da785a64ca1ac54b2617211d2777696fbffaf208f746ae84f2",
+            ),
+            (
+                &seed1,
+                "m/0'/1'/2'",
+                "92a5b23c0b8a99e37d07df3fb9966917f5d06e02ddbd909c7e184371463e9fc9",
+            ),
+            (
+                &seed1,
+                "m/0'/1'/2'/2'",
+                "30d1dc7e5fc04c31219ab25a27ae00b50f6fd66622f6e9c913253d6511d1e662",
+            ),
+            (
+                &seed1,
+                "m/0'/1'/2'/2'/1000000000'",
+                "8f94d394a8e8fd6b1bc2f3f49f5c47e385281d5c17e65324b0f62483e37e8793",
+            ),
+            (
+                &seed2,
+                "m",
+                "171cb88b1b3c1db25add599712e36245d75bc65a1a5c9e18d76f9f2b1eab4012",
+            ),
+            (
+                &seed2,
+                "m/0'",
+                "1559eb2bbec5790b0c65d8693e4d0875b1747f4970ae8b650486ed7470845635",
+            ),
+            (
+                &seed2,
+                "m/0'/2147483647'/1'/2147483646'/2'",
+                "551d333177df541ad876a60ea71f00447931c0a9da16f227c11ea080d7391b8d",
+            ),
+        ];
+        for (seed, path, expected) in rows {
+            let key = derive_ed25519_slip10(seed, &parse_hd_path(path).unwrap());
+            assert_eq!(hex::encode(key), *expected, "{path}");
+        }
     }
 
-    // ------------------------------------------------------------------------
-    // ML-DSA-65 test vectors (satoshilabs/slips#1968, adopted by near/devex#58
-    // and specified for NEAR by NEP-649, https://github.com/near/NEPs/pull/649)
-    //
-    // Same SLIP-10 machinery as the ed25519 vectors above, but with the master
-    // salt "ML-DSA-65 seed"; the 32-byte node secret I_L is the FIPS-204 seed ξ
-    // fed to ML-DSA-65 KeyGen. Each row is [path, chain_code, sha256(pubkey)].
-    // We assert the chain code verbatim and the SHA-256 of the 1952-byte
-    // ML-DSA-65 public key derived from I_L (the raw keys are too large to
-    // inline). These are the verbatim slips#1968 vectors, which are themselves
-    // validated against the NIST ACVP ML-DSA-keyGen-FIPS204 KATs.
-    // ------------------------------------------------------------------------
+    // ML-DSA-65 vectors from satoshilabs/slips#1968 (themselves checked against
+    // the NIST ACVP ML-DSA-keyGen-FIPS204 KATs). Each row is
+    // [path, chain_code, sha256(pubkey)]: the 1952-byte public key derived from
+    // I_L is too large to inline, so its SHA-256 is asserted.
 
     fn assert_ml_dsa65_vectors(seed_hex: &str, rows: &[(&str, &str, &str)]) {
         use sha2::{Digest, Sha256};
@@ -368,10 +296,6 @@ mod tests {
             ],
         );
     }
-
-    // ------------------------------------------------------------------------
-    // Path parser
-    // ------------------------------------------------------------------------
 
     #[test]
     fn parse_accepts_common_forms() {

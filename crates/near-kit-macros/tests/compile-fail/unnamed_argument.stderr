@@ -1,0 +1,11 @@
+error: contract method arguments must be a plain name, like `args: Args` (the generated method takes the argument by that name)
+  --> tests/compile-fail/unnamed_argument.rs:12:23
+   |
+12 |     fn set(&mut self, _: Args);
+   |                       ^
+
+error: contract method arguments must be a plain name, like `args: Args` (the generated method takes the argument by that name)
+  --> tests/compile-fail/unnamed_argument.rs:17:19
+   |
+17 |     fn get(&self, (a, b): (u64, u64)) -> u64;
+   |                   ^^^^^^

@@ -1,46 +1,4 @@
-//! Client module for interacting with NEAR Protocol.
-//!
-//! This module provides the core client infrastructure:
-//!
-//! - [`Near`] — The read-only client: chain reads and pre-signed submission
-//! - [`SigningNear`] — A `Near` plus a signer: sends transactions
-//! - [`NearBuilder`] — Fluent builder for configuring the client
-//! - [`RpcClient`] — Low-level JSON-RPC client with retry logic
-//! - [`RpcTransport`] — Pluggable HTTP layer under [`RpcClient`] (reqwest by
-//!   default; `wasi:http` on `wasm32-wasip2`)
-//!
-//! # Signers
-//!
-//! Signers are used for transaction signing. Two implementations are
-//! available, plus loaders that read a key once into an `InMemorySigner`:
-//!
-//! | Signer or loader | Use Case |
-//! |--------|----------|
-//! | [`InMemorySigner`](crate::signer::InMemorySigner) | One key in memory |
-//! | [`RotatingSigner`](crate::signer::RotatingSigner) | High-throughput with multiple keys (avoids nonce collisions) |
-//! | [`signer::from_env`](crate::signer::from_env) | CI/CD via `NEAR_ACCOUNT_ID` / `NEAR_PRIVATE_KEY` env vars |
-//! | `signer::from_credentials` | `~/.near-credentials` (requires `file-signer`) |
-//! | `signer::from_keyring` | The system keyring (requires `keyring`) |
-//!
-//! # Query Builders
-//!
-//! [`Near`] keeps the reads that add something to the matching
-//! [`RpcClient`] method; each returns an awaitable value with one block
-//! selector, `.at(..)`:
-//!
-//! - [`BalanceQuery`] — Get account balance
-//! - [`AccountExistsQuery`] — Check if account exists
-//! - [`TransactionStatusQuery`] — Poll or wait for transaction progress
-//! - [`View`](crate::View) — Call view functions on contracts
-//!
-//! Every other read (accounts, access keys, contract code, validators, …)
-//! is an [`RpcClient`] method, reached through [`Near::rpc`].
-//!
-//! # Transactions
-//!
-//! - [`Tx`] — A transaction from a [`SigningNear`]: add
-//!   [`Action`](crate::protocol::Action)s, then `.await`
-//! - [`FunctionCall`](crate::transaction::FunctionCall) — Standalone function call for composable transactions
+//! The clients, builders, transports and signer loaders.
 
 // Everything that talks to the network lives behind the `rpc` feature; the
 // signers stay available in offline builds (they only do local cryptography).
@@ -55,6 +13,8 @@ mod rpc;
 mod signer;
 #[cfg(feature = "rpc")]
 mod signing;
+#[cfg(all(test, feature = "rpc"))]
+pub(crate) mod test_rpc;
 #[cfg(feature = "rpc")]
 mod transaction;
 #[cfg(feature = "rpc")]

@@ -1,10 +1,7 @@
 # Finality and wait levels
 
-Read this when you need to choose how current a read is, how long a send
-waits, or why a read right after a write doesn't show it. near-kit's
-defaults are consistent: reads look at the latest final block and sends wait
-for `Final`, so a default read after a default write sees the write. You
-only need this chapter when you change one of them.
+Reads default to the latest final block and sends wait for `Final`, so a
+default read after a default write sees the write.
 
 ## Reading at a block
 
@@ -199,9 +196,6 @@ write another node already confirmed. No finality makes a read wait for a
 height. To see a write through another endpoint, poll the read until it
 shows the new state, or read through the endpoint that confirmed it.
 
-Token views read at `Optimistic`, so on the node that ran the send they see
-a token transfer sent at any executed level.
-
 ## Fire and track
 
 To return as soon as the transaction is in a block and follow it later,
@@ -259,29 +253,7 @@ match near.tx_status(&hash, account!("alice.testnet")).await.map_err(Error::into
 ## `TxExecutionStatus` is not near-kit's default
 
 [`TxExecutionStatus`](crate::rpc::TxExecutionStatus) is the RPC's own enum,
-the `wait_until` value on the wire. Its `Default` is `ExecutedOptimistic`
-because that is the node's default when a request leaves `wait_until` out.
-near-kit always sends the level explicitly, and its defaults are:
-
-| Where | Default |
-|---|---|
-| Reads (`View`, `balance`, `account_exists`) | `Finality::Final` |
-| Sends from a `SigningNear`, `Near::send_signed` | `Final` |
-| `Near::tx_status` | `Submitted` (answer at once) |
-| FT and NFT views | `Finality::Optimistic` |
-
-Each wait-level type maps to its status as the constant
+the `wait_until` value on the wire. Its `Default` is `ExecutedOptimistic`,
+the node's default when a request leaves `wait_until` out; near-kit always
+sends the level explicitly, mapping each wait-level type to its status with
 [`WaitLevel::STATUS`](crate::transaction::WaitLevel::STATUS).
-
-## See also
-
-- [`BlockReference`](crate::rpc::BlockReference),
-  [`Finality`](crate::rpc::Finality), [`View::at`](crate::View::at),
-  [`View::with_metadata`](crate::View::with_metadata)
-- [`WaitLevel`](crate::transaction::WaitLevel),
-  [`SigningNear::wait_until`](crate::SigningNear::wait_until),
-  [`SignedTransactionSend`](crate::transaction::SignedTransactionSend),
-  [`TransactionStatusQuery`](crate::rpc::TransactionStatusQuery)
-- [`SendTxResponse`](crate::rpc::SendTxResponse),
-  [`FinalExecutionOutcome`](crate::rpc::FinalExecutionOutcome)
-- [Timeouts](crate::guide::errors#timeouts) in the errors chapter

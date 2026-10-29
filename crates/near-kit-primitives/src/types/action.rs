@@ -45,8 +45,8 @@ pub enum PublishMode {
     Updatable,
 }
 
-/// NEP-461 domain prefix for V1 delegate actions (meta-transactions, NEP-366).
-/// Value: 2^30 + 366 = 1073742190
+/// NEP-461 domain prefix for V1 delegate actions (meta-transactions, NEP-366):
+/// 2^30 + 366.
 ///
 /// This prefix is prepended to a `DelegateAction` when serializing for signing,
 /// ensuring delegate action signatures are always distinguishable from regular
@@ -54,7 +54,7 @@ pub enum PublishMode {
 pub const DELEGATE_ACTION_PREFIX: u32 = 1_073_742_190;
 
 /// NEP-461 domain prefix for V2 delegate actions (gas-key meta-transactions,
-/// NEP-611). Value: 2^30 + 611 = 1073742435
+/// NEP-611): 2^30 + 611.
 ///
 /// This is a **distinct** signing domain from [`DELEGATE_ACTION_PREFIX`]: a V1
 /// delegate signature is not valid for a V2 action and vice versa. The prefix is
@@ -77,42 +77,22 @@ pub struct GasKeyInfo {
 
 /// Access key permission.
 ///
-/// IMPORTANT: Variant order matters for Borsh serialization!
-/// NEAR Protocol defines: 0 = FunctionCall, 1 = FullAccess,
-/// 2 = GasKeyFunctionCall, 3 = GasKeyFullAccess
+/// Variant order is the borsh tag; never reorder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum AccessKeyPermission {
-    /// Function call access with restrictions. (discriminant = 0)
+    /// Function call access with restrictions.
     FunctionCall(FunctionCallPermission),
-    /// Full access to the account. (discriminant = 1)
+    /// Full access to the account.
     FullAccess,
-    /// Gas key with function call access. (discriminant = 2)
+    /// Gas key with function call access.
     GasKeyFunctionCall(GasKeyInfo, FunctionCallPermission),
-    /// Gas key with full access. (discriminant = 3)
+    /// Gas key with full access.
     GasKeyFullAccess(GasKeyInfo),
 }
 
 impl AccessKeyPermission {
     /// Maximum number of parallel nonces that a gas key may allocate.
     pub const MAX_NONCES_FOR_GAS_KEY: u16 = 1024;
-
-    /// Create a function call permission.
-    pub fn function_call(
-        receiver_id: AccountId,
-        method_names: Vec<String>,
-        allowance: Option<NearToken>,
-    ) -> Self {
-        Self::FunctionCall(FunctionCallPermission {
-            allowance,
-            receiver_id,
-            method_names,
-        })
-    }
-
-    /// Create a full access permission.
-    pub fn full_access() -> Self {
-        Self::FullAccess
-    }
 }
 
 /// Function call access key permission details.
@@ -143,29 +123,11 @@ impl AccessKey {
             permission: AccessKeyPermission::FullAccess,
         }
     }
-
-    /// Create a function call access key.
-    pub fn function_call(
-        receiver_id: AccountId,
-        method_names: Vec<String>,
-        allowance: Option<NearToken>,
-    ) -> Self {
-        Self {
-            nonce: 0,
-            permission: AccessKeyPermission::function_call(receiver_id, method_names, allowance),
-        }
-    }
 }
 
 /// A transaction action.
 ///
-/// IMPORTANT: Variant order matters for Borsh serialization!
-/// The discriminants match NEAR Protocol specification:
-/// 0 = CreateAccount, 1 = DeployContract, 2 = FunctionCall, 3 = Transfer,
-/// 4 = Stake, 5 = AddKey, 6 = DeleteKey, 7 = DeleteAccount, 8 = Delegate,
-/// 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit,
-/// 12 = TransferToGasKey, 13 = WithdrawFromGasKey, 14 = DelegateV2,
-/// 15 = UniversalStateInit
+/// Variant order is the borsh tag (nearcore's); never reorder.
 ///
 /// The serde (JSON) form is nearcore's protocol `Action` JSON, externally
 /// tagged by variant name: `{"CreateAccount": {}}`,
@@ -176,37 +138,37 @@ impl AccessKey {
 /// for a transaction's top-level actions.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum Action {
-    /// Create a new account. (discriminant = 0)
+    /// Create a new account.
     CreateAccount(CreateAccountAction),
-    /// Deploy contract code. (discriminant = 1)
+    /// Deploy contract code.
     DeployContract(DeployContractAction),
-    /// Call a contract function. (discriminant = 2)
+    /// Call a contract function.
     FunctionCall(FunctionCallAction),
-    /// Transfer NEAR tokens. (discriminant = 3)
+    /// Transfer NEAR tokens.
     Transfer(TransferAction),
-    /// Stake NEAR for validation. (discriminant = 4)
+    /// Stake NEAR for validation.
     Stake(StakeAction),
-    /// Add an access key. (discriminant = 5)
+    /// Add an access key.
     AddKey(AddKeyAction),
-    /// Delete an access key. (discriminant = 6)
+    /// Delete an access key.
     DeleteKey(DeleteKeyAction),
-    /// Delete the account. (discriminant = 7)
+    /// Delete the account.
     DeleteAccount(DeleteAccountAction),
-    /// Delegate action (for meta-transactions). (discriminant = 8)
+    /// Delegate action (for meta-transactions).
     Delegate(Box<SignedDelegateAction>),
-    /// Publish a contract to global registry. (discriminant = 9)
+    /// Publish a contract to global registry.
     DeployGlobalContract(DeployGlobalContractAction),
-    /// Deploy from a previously published global contract. (discriminant = 10)
+    /// Deploy from a previously published global contract.
     UseGlobalContract(UseGlobalContractAction),
-    /// NEP-616: Deploy with deterministically derived account ID. (discriminant = 11)
+    /// NEP-616: Deploy with deterministically derived account ID.
     DeterministicStateInit(DeterministicStateInitAction),
-    /// Transfer NEAR to a gas key. (discriminant = 12)
+    /// Transfer NEAR to a gas key.
     TransferToGasKey(TransferToGasKeyAction),
-    /// Withdraw NEAR from a gas key. (discriminant = 13)
+    /// Withdraw NEAR from a gas key.
     WithdrawFromGasKey(WithdrawFromGasKeyAction),
-    /// Gas-key-capable delegate action (meta-transactions, NEP-611). (discriminant = 14)
+    /// Gas-key-capable delegate action (meta-transactions, NEP-611).
     DelegateV2(Box<VersionedSignedDelegateAction>),
-    /// Create a `0u` universal account from its state init. (discriminant = 15)
+    /// Create a `0u` universal account from its state init.
     UniversalStateInit(UniversalStateInitAction),
 }
 
@@ -261,7 +223,7 @@ pub struct FunctionCallAction {
     #[serde_as(as = "Base64")]
     pub args: Vec<u8>,
     /// Gas to attach.
-    #[serde(with = "gas_as_number")]
+    #[serde(serialize_with = "gas_as_number")]
     pub gas: Gas,
     /// NEAR tokens to attach.
     pub deposit: NearToken,
@@ -306,10 +268,6 @@ pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
 }
 
-// ============================================================================
-// Global Contract Actions
-// ============================================================================
-
 /// Publish a contract to the global registry.
 ///
 /// Global contracts are deployed once and can be referenced by multiple accounts,
@@ -335,14 +293,6 @@ pub struct UseGlobalContractAction {
     pub contract_identifier: GlobalContractId,
 }
 
-// ============================================================================
-// NEP-616 Deterministic Account Actions
-// ============================================================================
-//
-// The NEP-616 wire types ([`StateInit`], [`StateInitV1`], [`GlobalContractId`]) live in the
-// upstream `near-global-contracts` crate and are re-exported above. The action wrapper stays in
-// near-kit.
-
 // Allowed by the orphan rule because `CryptoHash` is local. Upstream already
 // converts from `[u8; 32]` and `AccountId`.
 impl From<CryptoHash> for GlobalContractId {
@@ -352,9 +302,6 @@ impl From<CryptoHash> for GlobalContractId {
 }
 
 /// Deploy a contract with a deterministically derived account ID (NEP-616).
-///
-/// This enables creating accounts where the account ID is derived from the
-/// contract code and initial state, making them predictable and reproducible.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub struct DeterministicStateInitAction {
     /// The state initialization data.
@@ -364,33 +311,25 @@ pub struct DeterministicStateInitAction {
 }
 
 impl DeterministicStateInitAction {
-    /// Derive the deterministic account ID for this action.
-    ///
+    /// Derive the deterministic account ID for this action:
     /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`, the same id as
     /// [`StateInit::derive_account_id`] and nearcore's
-    /// `derive_near_deterministic_account_id`. Hashed in pure Rust, so it
-    /// never calls a NEAR host function, whatever features are unified on
-    /// near-global-contracts.
+    /// `derive_near_deterministic_account_id`.
+    ///
+    /// Hashed in pure Rust. near-global-contracts' `StateInit::derive_account_id`
+    /// switches to the `keccak256` host function under its
+    /// `__near-sdk-unit-testing` feature, which `near-sdk/unit-testing` anywhere
+    /// in a workspace turns on, and a test binary that links near-kit but not
+    /// near-sdk then fails to link.
     pub fn derive_account_id(&self) -> AccountId {
-        derive_deterministic_account_id(&self.state_init)
+        use sha3::{Digest as _, Keccak256};
+
+        let bytes = borsh::to_vec(&self.state_init).expect("borsh into a Vec never fails");
+        let hash: [u8; 32] = Keccak256::digest(&bytes).into();
+        format!("0s{}", hex::encode(&hash[12..32]))
+            .parse()
+            .expect("a 0s id is always a valid account id: 42 lowercase hex characters")
     }
-}
-
-/// The `0s` account id of a NEP-616 state init, computed with pure-Rust
-/// Keccak-256.
-///
-/// near-global-contracts' `StateInit::derive_account_id` switches to the
-/// `keccak256` host function under its `__near-sdk-unit-testing` feature,
-/// which `near-sdk/unit-testing` anywhere in a workspace turns on. A test
-/// binary that links near-kit but not near-sdk then fails to link.
-pub(crate) fn derive_deterministic_account_id(state_init: &StateInit) -> AccountId {
-    use sha3::{Digest as _, Keccak256};
-
-    let bytes = borsh::to_vec(state_init).expect("borsh into a Vec never fails");
-    let hash: [u8; 32] = Keccak256::digest(&bytes).into();
-    format!("0s{}", hex::encode(&hash[12..32]))
-        .parse()
-        .expect("a 0s id is always a valid account id: 42 lowercase hex characters")
 }
 
 /// Transfer NEAR to a gas key.
@@ -473,10 +412,6 @@ pub struct SignedDelegateAction {
     pub signature: super::Signature,
 }
 
-// ============================================================================
-// DelegateV2 (gas-key meta-transactions, NEP-611)
-// ============================================================================
-
 /// Delegate action with gas-key support (NEP-611).
 ///
 /// Like the NEP-366 [`DelegateAction`] but its `nonce` is a [`TransactionNonce`]
@@ -509,7 +444,7 @@ pub struct DelegateActionV2 {
 /// Borsh discriminant is significant and must match nearcore: `V2 = 0`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
 pub enum VersionedDelegateActionPayload {
-    /// The V2 (gas-key) delegate action. (discriminant = 0)
+    /// The V2 (gas-key) delegate action.
     V2(DelegateActionV2),
 }
 
@@ -521,13 +456,6 @@ impl VersionedDelegateActionPayload {
         }
     }
 
-    /// The inner actions as plain [`Action`]s.
-    pub fn get_actions(&self) -> Vec<Action> {
-        match self {
-            Self::V2(d) => d.actions.iter().map(|a| a.clone().into()).collect(),
-        }
-    }
-
     /// Serialize this payload for signing under the V2 NEP-461 domain.
     ///
     /// Layout: `DELEGATE_V2_ACTION_PREFIX (u32 LE) ++ borsh(self)`. Because the
@@ -535,14 +463,7 @@ impl VersionedDelegateActionPayload {
     /// *versioned* enum (so it begins with the `0x00` V2 tag), a V1 delegate
     /// signature is never valid for a V2 action.
     pub fn serialize_for_signing(&self) -> Vec<u8> {
-        let prefix_bytes = DELEGATE_V2_ACTION_PREFIX.to_le_bytes();
-        let payload_bytes =
-            borsh::to_vec(self).expect("delegate action serialization should never fail");
-
-        let mut result = Vec::with_capacity(prefix_bytes.len() + payload_bytes.len());
-        result.extend_from_slice(&prefix_bytes);
-        result.extend_from_slice(&payload_bytes);
-        result
+        borsh::to_vec(&(DELEGATE_V2_ACTION_PREFIX, self)).expect("borsh to Vec cannot fail")
     }
 
     /// The NEP-461 hash signed over for this payload (the V2 signing domain).
@@ -600,8 +521,7 @@ impl VersionedSignedDelegateAction {
 
     /// Decode from base64.
     pub fn from_base64(s: &str) -> Result<Self, DecodeError> {
-        let bytes = STANDARD.decode(s).map_err(DecodeError::Base64)?;
-        Self::from_bytes(&bytes).map_err(DecodeError::Borsh)
+        Ok(Self::from_bytes(&STANDARD.decode(s)?)?)
     }
 }
 
@@ -617,19 +537,11 @@ impl From<VersionedSignedDelegateAction> for Action {
 /// `test_non_delegate_rejects_all_delegate_variants`.
 const DELEGATE_VARIANT_DISCRIMINANTS: [u8; 2] = [8, 14];
 
-/// Non-delegate action (for use within a delegate action).
+/// An [`Action`] that is not a delegate (`Delegate` or `DelegateV2`), for use
+/// inside a delegate action, which can't nest another.
 ///
-/// This is a newtype wrapper around [`Action`] that ensures the wrapped action
-/// is not a delegate variant (`Delegate` or `DelegateV2`), since delegate
-/// actions cannot contain nested delegate actions.
-///
-/// The newtype serializes identically to the inner [`Action`], preserving borsh
-/// compatibility with nearcore. Borsh **deserialization** is hand-rolled (rather
-/// than derived) so that nested delegate variants are rejected on the wire, not
-/// just through the typed constructors — matching nearcore's `NonDelegateAction`.
-///
-/// The JSON form is the inner [`Action`]'s; deserializing rejects delegate
-/// variants the same way.
+/// It encodes exactly as the inner [`Action`] in borsh and JSON. Decoding
+/// rejects delegate variants, as nearcore's `NonDelegateAction` does.
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, Serialize)]
 #[serde(transparent)]
 pub struct NonDelegateAction(Action);
@@ -659,7 +571,6 @@ impl BorshDeserialize for NonDelegateAction {
     }
 }
 
-// Helper constructors for actions
 impl Action {
     /// Create a CreateAccount action.
     pub fn create_account() -> Self {
@@ -713,7 +624,14 @@ impl Action {
     ) -> Self {
         Self::AddKey(AddKeyAction {
             public_key,
-            access_key: AccessKey::function_call(receiver_id, method_names, allowance),
+            access_key: AccessKey {
+                nonce: 0,
+                permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                    allowance,
+                    receiver_id,
+                    method_names,
+                }),
+            },
         })
     }
 
@@ -738,15 +656,7 @@ impl Action {
         Self::DelegateV2(Box::new(signed_delegate))
     }
 
-    /// Publish a contract to the global registry.
-    ///
-    /// Global contracts are deployed once and can be referenced by multiple accounts,
-    /// saving storage costs.
-    ///
-    /// # Arguments
-    ///
-    /// * `code` - The WASM code to publish
-    /// * `mode` - Whether the contract is updatable (by publisher) or immutable (by hash)
+    /// Publish a contract to the global registry (see [`DeployGlobalContractAction`]).
     ///
     /// # Example
     ///
@@ -848,8 +758,8 @@ impl Action {
 impl DelegateAction {
     /// Serialize the delegate action for signing.
     ///
-    /// Per NEP-461, this prepends a u32 prefix (2^30 + 366) before the delegate action,
-    /// ensuring signed delegate actions are never identical to signed transactions.
+    /// Per NEP-461 this is [`DELEGATE_ACTION_PREFIX`] (u32 LE) then borsh of the
+    /// action, so a signed delegate action is never a signed transaction.
     ///
     /// # Example
     ///
@@ -867,20 +777,12 @@ impl DelegateAction {
     /// }
     /// ```
     pub fn serialize_for_signing(&self) -> Vec<u8> {
-        let prefix_bytes = DELEGATE_ACTION_PREFIX.to_le_bytes();
-        let action_bytes =
-            borsh::to_vec(self).expect("delegate action serialization should never fail");
-
-        let mut result = Vec::with_capacity(prefix_bytes.len() + action_bytes.len());
-        result.extend_from_slice(&prefix_bytes);
-        result.extend_from_slice(&action_bytes);
-        result
+        borsh::to_vec(&(DELEGATE_ACTION_PREFIX, self)).expect("borsh to Vec cannot fail")
     }
 
     /// Get the hash of this delegate action (for signing).
     pub fn get_hash(&self) -> CryptoHash {
-        let bytes = self.serialize_for_signing();
-        CryptoHash::hash(&bytes)
+        CryptoHash::hash(&self.serialize_for_signing())
     }
 
     /// Attach a signature made over [`get_hash`](Self::get_hash), producing a
@@ -908,8 +810,6 @@ impl SignedDelegateAction {
     }
 
     /// Encode the signed delegate action to base64 for transport.
-    ///
-    /// This is the most common format for sending delegate actions via HTTP/JSON.
     pub fn to_base64(&self) -> String {
         STANDARD.encode(self.to_bytes())
     }
@@ -921,8 +821,7 @@ impl SignedDelegateAction {
 
     /// Decode a signed delegate action from base64.
     pub fn from_base64(s: &str) -> Result<Self, DecodeError> {
-        let bytes = STANDARD.decode(s).map_err(DecodeError::Base64)?;
-        Self::from_bytes(&bytes).map_err(DecodeError::Borsh)
+        Ok(Self::from_bytes(&STANDARD.decode(s)?)?)
     }
 
     /// Get the sender account ID.
@@ -962,11 +861,6 @@ impl NonDelegateAction {
     pub fn inner(&self) -> &Action {
         &self.0
     }
-
-    /// Consume self and return the inner action.
-    pub fn into_inner(self) -> Action {
-        self.0
-    }
 }
 
 impl From<NonDelegateAction> for Action {
@@ -975,29 +869,11 @@ impl From<NonDelegateAction> for Action {
     }
 }
 
-impl TryFrom<Action> for NonDelegateAction {
-    type Error = ();
-
-    fn try_from(action: Action) -> Result<Self, Self::Error> {
-        Self::from_action(action).ok_or(())
-    }
-}
-
 /// nearcore writes an action's gas as a JSON number (its `Gas` keeps the
 /// number form for RPC compatibility); `NearGas` alone would write a string.
 /// Reading accepts both, like `NearGas`.
-mod gas_as_number {
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    use crate::types::Gas;
-
-    pub(super) fn serialize<S: Serializer>(gas: &Gas, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u64(gas.as_gas())
-    }
-
-    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Gas, D::Error> {
-        Gas::deserialize(deserializer)
-    }
+fn gas_as_number<S: serde::Serializer>(gas: &Gas, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_u64(gas.as_gas())
 }
 
 #[cfg(test)]
@@ -1005,15 +881,6 @@ mod tests {
     use super::*;
     use crate::types::{Gas, NearToken, SecretKey};
     use std::collections::BTreeMap;
-
-    #[test]
-    fn global_contract_id_from_crypto_hash_is_the_code_hash() {
-        let hash = CryptoHash::hash(b"code");
-        assert_eq!(
-            GlobalContractId::from(hash),
-            GlobalContractId::CodeHash(*hash.as_bytes())
-        );
-    }
 
     fn create_test_delegate_action() -> DelegateAction {
         let sender_id: AccountId = "alice.testnet".parse().unwrap();
@@ -1038,13 +905,6 @@ mod tests {
     }
 
     #[test]
-    fn test_delegate_action_prefix() {
-        // NEP-461: prefix = 2^30 + 366
-        assert_eq!(DELEGATE_ACTION_PREFIX, 1073742190);
-        assert_eq!(DELEGATE_ACTION_PREFIX, (1 << 30) + 366);
-    }
-
-    #[test]
     fn test_delegate_action_serialize_for_signing() {
         let delegate_action = create_test_delegate_action();
         let bytes = delegate_action.serialize_for_signing();
@@ -1058,17 +918,6 @@ mod tests {
         let action_bytes = &bytes[4..];
         let expected_action_bytes = borsh::to_vec(&delegate_action).unwrap();
         assert_eq!(action_bytes, expected_action_bytes.as_slice());
-    }
-
-    #[test]
-    fn test_delegate_action_get_hash() {
-        let delegate_action = create_test_delegate_action();
-        let hash = delegate_action.get_hash();
-
-        // Hash should be SHA-256 of serialize_for_signing bytes
-        let bytes = delegate_action.serialize_for_signing();
-        let expected_hash = CryptoHash::hash(&bytes);
-        assert_eq!(hash, expected_hash);
     }
 
     #[test]
@@ -1097,161 +946,52 @@ mod tests {
     }
 
     #[test]
-    fn test_signed_delegate_action_roundtrip_bytes() {
+    fn test_signed_delegate_action_roundtrips() {
         let delegate_action = create_test_delegate_action();
-        let secret_key = SecretKey::generate_ed25519();
-        let hash = delegate_action.get_hash();
-        let signature = secret_key.sign(hash.as_bytes());
+        let signature = SecretKey::generate_ed25519().sign(delegate_action.get_hash().as_bytes());
         let signed = delegate_action.into_signed(signature);
 
-        // Roundtrip through bytes
-        let bytes = signed.to_bytes();
-        let decoded = SignedDelegateAction::from_bytes(&bytes).unwrap();
-
-        assert_eq!(decoded.sender_id().as_str(), signed.sender_id().as_str());
         assert_eq!(
-            decoded.receiver_id().as_str(),
-            signed.receiver_id().as_str()
+            SignedDelegateAction::from_bytes(&signed.to_bytes()).unwrap(),
+            signed
         );
-        assert_eq!(decoded.delegate_action.nonce, signed.delegate_action.nonce);
         assert_eq!(
-            decoded.delegate_action.max_block_height,
-            signed.delegate_action.max_block_height
+            SignedDelegateAction::from_base64(&signed.to_base64()).unwrap(),
+            signed
         );
-    }
-
-    #[test]
-    fn test_signed_delegate_action_roundtrip_base64() {
-        let delegate_action = create_test_delegate_action();
-        let secret_key = SecretKey::generate_ed25519();
-        let hash = delegate_action.get_hash();
-        let signature = secret_key.sign(hash.as_bytes());
-        let signed = delegate_action.into_signed(signature);
-
-        // Roundtrip through base64
-        let base64 = signed.to_base64();
-        let decoded = SignedDelegateAction::from_base64(&base64).unwrap();
-
-        assert_eq!(decoded.sender_id().as_str(), signed.sender_id().as_str());
-        assert_eq!(
-            decoded.receiver_id().as_str(),
-            signed.receiver_id().as_str()
-        );
-    }
-
-    #[test]
-    fn test_signed_delegate_action_accessors() {
-        let delegate_action = create_test_delegate_action();
-        let secret_key = SecretKey::generate_ed25519();
-        let hash = delegate_action.get_hash();
-        let signature = secret_key.sign(hash.as_bytes());
-        let signed = delegate_action.into_signed(signature);
-
         assert_eq!(signed.sender_id().as_str(), "alice.testnet");
         assert_eq!(signed.receiver_id().as_str(), "bob.testnet");
     }
 
-    #[test]
-    fn test_non_delegate_action_from_action() {
-        // Transfer should convert
-        let transfer = Action::Transfer(TransferAction {
-            deposit: NearToken::from_near(1),
-        });
-        assert!(NonDelegateAction::from_action(transfer).is_some());
-
-        // FunctionCall should convert
-        let call = Action::FunctionCall(FunctionCallAction {
-            method_name: "test".to_string(),
-            args: vec![],
-            gas: Gas::default(),
-            deposit: NearToken::ZERO,
-        });
-        assert!(NonDelegateAction::from_action(call).is_some());
-
-        // Delegate should NOT convert (returns None)
-        let delegate_action = create_test_delegate_action();
-        let secret_key = SecretKey::generate_ed25519();
-        let hash = delegate_action.get_hash();
-        let signature = secret_key.sign(hash.as_bytes());
-        let signed = delegate_action.into_signed(signature);
-        let delegate = Action::delegate(signed);
-        assert!(NonDelegateAction::from_action(delegate).is_none());
-    }
-
-    #[test]
-    fn test_decode_error_display() {
-        // Test that DecodeError has proper Display impl
-        let base64_err = DecodeError::Base64(base64::DecodeError::InvalidLength(5));
-        assert!(format!("{}", base64_err).contains("base64"));
-
-        // Borsh error is harder to construct, but we tested the variant exists
-    }
-
-    // ========================================================================
-    // Global Contract Action Tests
-    // ========================================================================
-
+    /// Every variant's borsh tag is its nearcore discriminant, and it round-trips.
     #[test]
     fn test_action_discriminants() {
-        // Verify action discriminants match NEAR protocol specification
-        // 0 = CreateAccount, 1 = DeployContract, 2 = FunctionCall, 3 = Transfer,
-        // 4 = Stake, 5 = AddKey, 6 = DeleteKey, 7 = DeleteAccount, 8 = Delegate,
-        // 9 = DeployGlobalContract, 10 = UseGlobalContract, 11 = DeterministicStateInit,
-        // 12 = TransferToGasKey, 13 = WithdrawFromGasKey
-
-        let create_account = Action::create_account();
-        let bytes = borsh::to_vec(&create_account).unwrap();
-        assert_eq!(bytes[0], 0, "CreateAccount should have discriminant 0");
-
-        let deploy = Action::deploy_contract(vec![1, 2, 3]);
-        let bytes = borsh::to_vec(&deploy).unwrap();
-        assert_eq!(bytes[0], 1, "DeployContract should have discriminant 1");
-
-        let transfer = Action::transfer(NearToken::from_near(1));
-        let bytes = borsh::to_vec(&transfer).unwrap();
-        assert_eq!(bytes[0], 3, "Transfer should have discriminant 3");
-
-        // DeployGlobalContract (discriminant = 9)
-        let publish = Action::publish(vec![1, 2, 3], PublishMode::Updatable);
-        let bytes = borsh::to_vec(&publish).unwrap();
-        assert_eq!(
-            bytes[0], 9,
-            "DeployGlobalContract should have discriminant 9"
-        );
-
-        // UseGlobalContract (discriminant = 10)
         let code_hash = CryptoHash::hash(&[1, 2, 3]);
-        let use_global = Action::deploy_from(code_hash);
-        let bytes = borsh::to_vec(&use_global).unwrap();
-        assert_eq!(
-            bytes[0], 10,
-            "UseGlobalContract should have discriminant 10"
-        );
-
-        // DeterministicStateInit (discriminant = 11)
-        let state_init =
-            Action::state_init(StateInitV1::code(code_hash).into(), NearToken::from_near(1));
-        let bytes = borsh::to_vec(&state_init).unwrap();
-        assert_eq!(
-            bytes[0], 11,
-            "DeterministicStateInit should have discriminant 11"
-        );
-
-        // TransferToGasKey (discriminant = 12)
-        let pk: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
-            .parse()
-            .unwrap();
-        let transfer_gas = Action::transfer_to_gas_key(pk.clone(), NearToken::from_near(1));
-        let bytes = borsh::to_vec(&transfer_gas).unwrap();
-        assert_eq!(bytes[0], 12, "TransferToGasKey should have discriminant 12");
-
-        // WithdrawFromGasKey (discriminant = 13)
-        let withdraw_gas = Action::withdraw_from_gas_key(pk, NearToken::from_near(1));
-        let bytes = borsh::to_vec(&withdraw_gas).unwrap();
-        assert_eq!(
-            bytes[0], 13,
-            "WithdrawFromGasKey should have discriminant 13"
-        );
+        let v1 = create_test_delegate_action().into_signed(sig());
+        let v2 = VersionedDelegateActionPayload::from(sample_delegate_v2(pk())).into_signed(sig());
+        let actions = [
+            Action::create_account(),
+            Action::deploy_contract(vec![1, 2, 3]),
+            Action::function_call("m", vec![], Gas::from_gas(1), NearToken::ZERO),
+            Action::transfer(NearToken::from_near(1)),
+            Action::stake(NearToken::from_near(1), pk()),
+            Action::add_full_access_key(pk()),
+            Action::delete_key(pk()),
+            Action::delete_account("b.near".parse().unwrap()),
+            Action::delegate(v1),
+            Action::publish(vec![1, 2, 3], PublishMode::Updatable),
+            Action::deploy_from(code_hash),
+            Action::state_init(StateInitV1::code(code_hash).into(), NearToken::from_near(1)),
+            Action::transfer_to_gas_key(pk(), NearToken::from_near(1)),
+            Action::withdraw_from_gas_key(pk(), NearToken::from_near(1)),
+            Action::delegate_v2(v2),
+            Action::universal_state_init(vec![1, 2, 3], NearToken::from_near(1)),
+        ];
+        for (tag, action) in actions.into_iter().enumerate() {
+            let bytes = borsh::to_vec(&action).unwrap();
+            assert_eq!(usize::from(bytes[0]), tag, "{action:?}");
+            assert_eq!(borsh::from_slice::<Action>(&bytes).unwrap(), action);
+        }
     }
 
     #[test]
@@ -1312,372 +1052,35 @@ mod tests {
 
     #[test]
     fn test_publish_mode_wire_compatibility() {
-        let by_hash = PublishMode::Immutable;
-        let bytes = borsh::to_vec(&by_hash).unwrap();
-        assert_eq!(bytes, vec![0], "CodeHash mode should serialize to 0");
-        assert_eq!(serde_json::to_string(&by_hash).unwrap(), r#""CodeHash""#);
-
-        let by_account = PublishMode::Updatable;
-        let bytes = borsh::to_vec(&by_account).unwrap();
-        assert_eq!(bytes, vec![1], "AccountId mode should serialize to 1");
-        assert_eq!(
-            serde_json::to_string(&by_account).unwrap(),
-            r#""AccountId""#
-        );
-
-        assert_eq!(
-            serde_json::from_str::<PublishMode>(r#""CodeHash""#).unwrap(),
-            PublishMode::Immutable
-        );
-        assert_eq!(
-            serde_json::from_str::<PublishMode>(r#""AccountId""#).unwrap(),
-            PublishMode::Updatable
-        );
-    }
-
-    #[test]
-    fn test_global_contract_identifier_serialization() {
-        // Verify identifier serialization
-        let hash = CryptoHash::hash(&[1, 2, 3]);
-        let by_hash = GlobalContractId::CodeHash(*hash.as_bytes());
-        let bytes = borsh::to_vec(&by_hash).unwrap();
-        assert_eq!(
-            bytes[0], 0,
-            "CodeHash identifier should have discriminant 0"
-        );
-        assert_eq!(
-            bytes.len(),
-            1 + 32,
-            "Should be 1 byte discriminant + 32 byte hash"
-        );
-
-        let account_id: AccountId = "test.near".parse().unwrap();
-        let by_account = GlobalContractId::AccountId(account_id);
-        let bytes = borsh::to_vec(&by_account).unwrap();
-        assert_eq!(
-            bytes[0], 1,
-            "AccountId identifier should have discriminant 1"
-        );
-    }
-
-    #[test]
-    fn test_deploy_global_contract_action_roundtrip() {
-        let code = vec![0, 97, 115, 109]; // WASM magic bytes
-        let action = DeployGlobalContractAction {
-            code: code.clone(),
-            deploy_mode: PublishMode::Immutable,
-        };
-
-        let bytes = borsh::to_vec(&action).unwrap();
-        let decoded: DeployGlobalContractAction = borsh::from_slice(&bytes).unwrap();
-
-        assert_eq!(decoded.code, code);
-        assert_eq!(decoded.deploy_mode, PublishMode::Immutable);
-    }
-
-    #[test]
-    fn test_use_global_contract_action_roundtrip() {
-        let hash = CryptoHash::hash(&[1, 2, 3, 4]);
-        let action = UseGlobalContractAction {
-            contract_identifier: GlobalContractId::CodeHash(*hash.as_bytes()),
-        };
-
-        let bytes = borsh::to_vec(&action).unwrap();
-        let decoded: UseGlobalContractAction = borsh::from_slice(&bytes).unwrap();
-
-        assert_eq!(
-            decoded.contract_identifier,
-            GlobalContractId::CodeHash(*hash.as_bytes())
-        );
-    }
-
-    #[test]
-    fn test_deterministic_state_init_roundtrip() {
-        let hash = CryptoHash::hash(&[1, 2, 3, 4]);
-        let mut data = BTreeMap::new();
-        data.insert(b"key1".to_vec(), b"value1".to_vec());
-        data.insert(b"key2".to_vec(), b"value2".to_vec());
-
-        let action = DeterministicStateInitAction {
-            state_init: StateInit::V1(StateInitV1 {
-                code: GlobalContractId::CodeHash(*hash.as_bytes()),
-                data: data.clone(),
-            }),
-            deposit: NearToken::from_near(5),
-        };
-
-        let bytes = borsh::to_vec(&action).unwrap();
-        let decoded: DeterministicStateInitAction = borsh::from_slice(&bytes).unwrap();
-
-        assert_eq!(decoded.deposit, NearToken::from_near(5));
-        let StateInit::V1(v1) = decoded.state_init;
-        assert_eq!(v1.code, GlobalContractId::CodeHash(*hash.as_bytes()));
-        assert_eq!(v1.data, data);
-    }
-
-    #[test]
-    fn test_action_helper_constructors() {
-        // Test publish
-        let code = vec![1, 2, 3];
-        let action = Action::publish(code.clone(), PublishMode::Immutable);
-        if let Action::DeployGlobalContract(inner) = action {
-            assert_eq!(inner.code, code);
-            assert_eq!(inner.deploy_mode, PublishMode::Immutable);
-        } else {
-            panic!("Expected DeployGlobalContract");
-        }
-
-        let action = Action::publish(code.clone(), PublishMode::Updatable);
-        if let Action::DeployGlobalContract(inner) = action {
-            assert_eq!(inner.deploy_mode, PublishMode::Updatable);
-        } else {
-            panic!("Expected DeployGlobalContract");
-        }
-
-        // Test deploy_from with a code hash
-        let hash = CryptoHash::hash(&code);
-        let action = Action::deploy_from(hash);
-        if let Action::UseGlobalContract(inner) = action {
-            assert_eq!(
-                inner.contract_identifier,
-                GlobalContractId::CodeHash(*hash.as_bytes())
-            );
-        } else {
-            panic!("Expected UseGlobalContract");
-        }
-
-        // Test deploy_from with a publisher account
-        let account_id: AccountId = "publisher.near".parse().unwrap();
-        let action = Action::deploy_from(account_id.clone());
-        if let Action::UseGlobalContract(inner) = action {
-            assert_eq!(
-                inner.contract_identifier,
-                GlobalContractId::AccountId(account_id)
-            );
-        } else {
-            panic!("Expected UseGlobalContract");
-        }
-    }
-
-    #[test]
-    fn test_derive_account_id_format() {
-        // Test that derived account ID has the correct format
-        let state_init = StateInit::V1(StateInitV1 {
-            code: GlobalContractId::CodeHash([0u8; 32]),
-            data: BTreeMap::new(),
-        });
-
-        let account_id = derive_deterministic_account_id(&state_init);
-        let account_str = account_id.as_str();
-
-        // Should start with "0s"
-        assert!(
-            account_str.starts_with("0s"),
-            "Derived account should start with '0s', got: {}",
-            account_str
-        );
-
-        // Should be exactly 42 characters: "0s" + 40 hex chars
-        assert_eq!(
-            account_str.len(),
-            42,
-            "Derived account should be 42 chars, got: {}",
-            account_str.len()
-        );
-
-        // Everything after "0s" should be valid lowercase hex
-        let hex_part = &account_str[2..];
-        assert!(
-            hex_part
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
-            "Hex part should be lowercase hex, got: {}",
-            hex_part
-        );
-    }
-
-    #[test]
-    fn test_derive_account_id_deterministic() {
-        // Same input should produce same output
-        let state_init1 = StateInit::V1(StateInitV1 {
-            code: GlobalContractId::AccountId("publisher.near".parse().unwrap()),
-            data: BTreeMap::new(),
-        });
-
-        let state_init2 = StateInit::V1(StateInitV1 {
-            code: GlobalContractId::AccountId("publisher.near".parse().unwrap()),
-            data: BTreeMap::new(),
-        });
-
-        assert_eq!(
-            derive_deterministic_account_id(&state_init1),
-            derive_deterministic_account_id(&state_init2),
-            "Same input should produce same account ID"
-        );
-    }
-
-    #[test]
-    fn test_derive_account_id_different_inputs() {
-        // Different code references should produce different account IDs
-        let state_init1 = StateInit::V1(StateInitV1 {
-            code: GlobalContractId::AccountId("publisher1.near".parse().unwrap()),
-            data: BTreeMap::new(),
-        });
-
-        let state_init2 = StateInit::V1(StateInitV1 {
-            code: GlobalContractId::AccountId("publisher2.near".parse().unwrap()),
-            data: BTreeMap::new(),
-        });
-
-        assert_ne!(
-            derive_deterministic_account_id(&state_init1),
-            derive_deterministic_account_id(&state_init2),
-            "Different code references should produce different account IDs"
-        );
+        assert_eq!(borsh::to_vec(&PublishMode::Immutable).unwrap(), [0]);
+        assert_eq!(borsh::to_vec(&PublishMode::Updatable).unwrap(), [1]);
     }
 
     #[test]
     fn test_access_key_permission_discriminants() {
-        let fc = AccessKeyPermission::FunctionCall(FunctionCallPermission {
+        let fc = FunctionCallPermission {
             allowance: None,
             receiver_id: "test.near".parse().unwrap(),
             method_names: vec![],
-        });
-        let bytes = borsh::to_vec(&fc).unwrap();
-        assert_eq!(bytes[0], 0, "FunctionCall should have discriminant 0");
-
-        let fa = AccessKeyPermission::FullAccess;
-        let bytes = borsh::to_vec(&fa).unwrap();
-        assert_eq!(bytes[0], 1, "FullAccess should have discriminant 1");
-
-        let gkfc = AccessKeyPermission::GasKeyFunctionCall(
-            GasKeyInfo {
-                balance: NearToken::from_near(1),
-                num_nonces: 5,
-            },
-            FunctionCallPermission {
-                allowance: None,
-                receiver_id: "test.near".parse().unwrap(),
-                method_names: vec![],
-            },
-        );
-        let bytes = borsh::to_vec(&gkfc).unwrap();
-        assert_eq!(bytes[0], 2, "GasKeyFunctionCall should have discriminant 2");
-
-        let gkfa = AccessKeyPermission::GasKeyFullAccess(GasKeyInfo {
+        };
+        let gas_key = GasKeyInfo {
             balance: NearToken::from_near(1),
             num_nonces: 5,
-        });
-        let bytes = borsh::to_vec(&gkfa).unwrap();
-        assert_eq!(bytes[0], 3, "GasKeyFullAccess should have discriminant 3");
-    }
-
-    #[test]
-    fn test_derive_account_id_different_data() {
-        // Different data should produce different account IDs
-        let mut data = BTreeMap::new();
-        data.insert(b"key".to_vec(), b"value".to_vec());
-
-        let state_init1 = StateInit::V1(StateInitV1 {
-            code: GlobalContractId::AccountId("publisher.near".parse().unwrap()),
-            data: BTreeMap::new(),
-        });
-
-        let state_init2 = StateInit::V1(StateInitV1 {
-            code: GlobalContractId::AccountId("publisher.near".parse().unwrap()),
-            data,
-        });
-
-        assert_ne!(
-            derive_deterministic_account_id(&state_init1),
-            derive_deterministic_account_id(&state_init2),
-            "Different data should produce different account IDs"
-        );
-    }
-
-    // ========================================================================
-    // Deterministic Types JSON Serialization Tests
-    // ========================================================================
-
-    #[test]
-    fn test_deterministic_state_init_json_roundtrip() {
-        // Build a StateInit with non-trivial data
-        let hash = CryptoHash::hash(&[1, 2, 3, 4]);
-        let mut data = BTreeMap::new();
-        data.insert(b"key1".to_vec(), b"value1".to_vec());
-        data.insert(b"key2".to_vec(), b"value2".to_vec());
-
-        let state_init = StateInit::V1(StateInitV1 {
-            code: GlobalContractId::CodeHash(*hash.as_bytes()),
-            data: data.clone(),
-        });
-
-        // Serialize to JSON
-        let json = serde_json::to_value(&state_init).unwrap();
-
-        // Verify externally-tagged format: {"V1": {...}} (matching nearcore)
-        assert!(
-            json.get("V1").is_some(),
-            "Expected externally-tagged 'V1' key, got: {json}"
-        );
-        let v1 = json.get("V1").unwrap();
-        assert!(v1.get("code").is_some(), "Expected 'code' field in V1");
-        assert!(v1.get("data").is_some(), "Expected 'data' field in V1");
-
-        // Verify data keys/values are base64-encoded
-        let data_obj = v1.get("data").unwrap().as_object().unwrap();
-        // "key1" in base64 is "a2V5MQ=="
-        assert!(
-            data_obj.contains_key("a2V5MQ=="),
-            "Expected base64-encoded key 'a2V5MQ==', got keys: {:?}",
-            data_obj.keys().collect::<Vec<_>>()
-        );
-
-        // Round-trip back
-        let deserialized: StateInit = serde_json::from_value(json).unwrap();
-        let StateInit::V1(v1_decoded) = deserialized;
-        assert_eq!(
-            v1_decoded.code,
-            GlobalContractId::CodeHash(*hash.as_bytes())
-        );
-        assert_eq!(v1_decoded.data, data);
-    }
-
-    #[test]
-    fn test_global_contract_identifier_json_roundtrip() {
-        // CodeHash variant
-        let hash = CryptoHash::hash(&[1, 2, 3]);
-        let id = GlobalContractId::CodeHash(*hash.as_bytes());
-        let json = serde_json::to_string(&id).unwrap();
-        let decoded: GlobalContractId = serde_json::from_str(&json).unwrap();
-        assert_eq!(decoded, id);
-
-        // AccountId variant
-        let account_id: AccountId = "test.near".parse().unwrap();
-        let id = GlobalContractId::AccountId(account_id);
-        let json = serde_json::to_string(&id).unwrap();
-        let decoded: GlobalContractId = serde_json::from_str(&json).unwrap();
-        assert_eq!(decoded, id);
-    }
-
-    #[test]
-    fn test_deterministic_state_init_action_json_roundtrip() {
-        let action = DeterministicStateInitAction {
-            state_init: StateInit::V1(StateInitV1 {
-                code: GlobalContractId::AccountId("publisher.near".parse().unwrap()),
-                data: BTreeMap::new(),
-            }),
-            deposit: NearToken::from_near(5),
         };
-
-        let json = serde_json::to_string(&action).unwrap();
-        let decoded: DeterministicStateInitAction = serde_json::from_str(&json).unwrap();
-        assert_eq!(decoded, action);
+        let permissions = [
+            AccessKeyPermission::FunctionCall(fc.clone()),
+            AccessKeyPermission::FullAccess,
+            AccessKeyPermission::GasKeyFunctionCall(gas_key.clone(), fc),
+            AccessKeyPermission::GasKeyFullAccess(gas_key),
+        ];
+        for (tag, permission) in permissions.iter().enumerate() {
+            assert_eq!(
+                usize::from(borsh::to_vec(permission).unwrap()[0]),
+                tag,
+                "{permission:?}"
+            );
+        }
     }
-
-    // ========================================================================
-    // DelegateV2 tests
-    // ========================================================================
 
     fn sample_delegate_v2(public_key: PublicKey) -> DelegateActionV2 {
         DelegateActionV2 {
@@ -1695,30 +1098,6 @@ mod tests {
         }
     }
 
-    /// The V2 domain prefix must be NEP-611 (2^30 + 611) and distinct from V1.
-    #[test]
-    fn test_delegate_v2_prefix() {
-        assert_eq!(DELEGATE_V2_ACTION_PREFIX, 1073742435);
-        assert_eq!(DELEGATE_V2_ACTION_PREFIX, (1 << 30) + 611);
-        assert_ne!(DELEGATE_V2_ACTION_PREFIX, DELEGATE_ACTION_PREFIX);
-    }
-
-    /// `Action::DelegateV2` must have borsh discriminant 14, and round-trip.
-    #[test]
-    fn test_delegate_v2_action_discriminant_and_roundtrip() {
-        let secret = SecretKey::generate_ed25519();
-        let payload: VersionedDelegateActionPayload =
-            sample_delegate_v2(secret.public_key()).into();
-        let sig = secret.sign(payload.get_hash().as_bytes());
-        let action = Action::delegate_v2(payload.into_signed(sig));
-
-        let bytes = borsh::to_vec(&action).unwrap();
-        assert_eq!(bytes[0], 14, "DelegateV2 must have discriminant 14");
-
-        let decoded: Action = borsh::from_slice(&bytes).unwrap();
-        assert_eq!(decoded, action);
-    }
-
     /// `VersionedDelegateActionPayload::V2` must have borsh discriminant 0, and
     /// the signing bytes must be `prefix_le ++ [0x00] ++ borsh(DelegateActionV2)`.
     #[test]
@@ -1734,6 +1113,11 @@ mod tests {
             payload_bytes[0], 0,
             "VersionedDelegateActionPayload::V2 must be discriminant 0"
         );
+
+        // NEP-461 prefix for the V2 delegate payload, distinct from V1's.
+        assert_eq!(DELEGATE_V2_ACTION_PREFIX, 1_073_742_435);
+        assert_eq!(DELEGATE_V2_ACTION_PREFIX, (1 << 30) + 611);
+        assert_ne!(DELEGATE_V2_ACTION_PREFIX, DELEGATE_ACTION_PREFIX);
 
         let signing = payload.serialize_for_signing();
         assert_eq!(
@@ -1815,40 +1199,9 @@ mod tests {
         assert!(valid.verify());
     }
 
-    /// `Action::is_delegate` must be true for both delegate variants and false
-    /// for everything else. Kept in sync with `DELEGATE_VARIANT_DISCRIMINANTS`.
-    #[test]
-    fn test_is_delegate() {
-        let secret = SecretKey::generate_ed25519();
-        let v1 = Action::delegate(
-            create_test_delegate_action()
-                .into_signed(secret.sign(create_test_delegate_action().get_hash().as_bytes())),
-        );
-        let payload: VersionedDelegateActionPayload =
-            sample_delegate_v2(secret.public_key()).into();
-        let v2 = Action::delegate_v2(
-            payload
-                .clone()
-                .into_signed(secret.sign(payload.get_hash().as_bytes())),
-        );
-
-        assert!(v1.is_delegate());
-        assert!(v2.is_delegate());
-        assert!(!Action::transfer(NearToken::from_near(1)).is_delegate());
-
-        // Cross-check the borsh discriminants match DELEGATE_VARIANT_DISCRIMINANTS.
-        assert_eq!(
-            borsh::to_vec(&v1).unwrap()[0],
-            DELEGATE_VARIANT_DISCRIMINANTS[0]
-        );
-        assert_eq!(
-            borsh::to_vec(&v2).unwrap()[0],
-            DELEGATE_VARIANT_DISCRIMINANTS[1]
-        );
-    }
-
-    /// `NonDelegateAction` must reject BOTH delegate variants, via the typed
-    /// constructor AND on the wire (borsh), matching nearcore.
+    /// Both delegate variants are delegates, and `NonDelegateAction` rejects
+    /// them through the typed constructor and on the wire (borsh), as nearcore
+    /// does.
     #[test]
     fn test_non_delegate_rejects_all_delegate_variants() {
         let secret = SecretKey::generate_ed25519();
@@ -1865,28 +1218,28 @@ mod tests {
                 .into_signed(secret.sign(payload.get_hash().as_bytes())),
         );
 
-        for action in [v1, v2] {
+        for (action, tag) in [v1, v2].into_iter().zip(DELEGATE_VARIANT_DISCRIMINANTS) {
+            assert!(action.is_delegate());
             // Typed path rejects.
             assert!(NonDelegateAction::from_action(action.clone()).is_none());
-            assert!(NonDelegateAction::try_from(action.clone()).is_err());
 
             // Borsh path rejects (the bytes of a delegate action embedded where a
             // NonDelegateAction is expected).
             let bytes = borsh::to_vec(&action).unwrap();
+            assert_eq!(bytes[0], tag);
             let err = NonDelegateAction::try_from_slice(&bytes).unwrap_err();
             assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
         }
 
         // A non-delegate action is accepted on both paths.
         let transfer = Action::transfer(NearToken::from_near(1));
+        assert!(!transfer.is_delegate());
         assert!(NonDelegateAction::from_action(transfer.clone()).is_some());
         let bytes = borsh::to_vec(&transfer).unwrap();
         assert!(NonDelegateAction::try_from_slice(&bytes).is_ok());
     }
 
-    // ------------------------------------------------------------------------
     // JSON: nearcore's protocol `Action` shape (core/primitives/src/action)
-    // ------------------------------------------------------------------------
 
     const PK: &str = "ed25519:A435yoEuewCD9sg3rjdsUSmkcJkUaHvjEV5CHddog2NK";
 
@@ -1895,7 +1248,7 @@ mod tests {
     }
 
     fn sig() -> Signature {
-        Signature::ed25519_from_bytes([7; 64])
+        Signature::Ed25519([7; 64])
     }
 
     fn assert_json(action: Action, json: serde_json::Value) {
@@ -2017,15 +1370,11 @@ mod tests {
                 json!({"DeployGlobalContract": {"code": "AGFzbQ==", "deploy_mode": "CodeHash"}}),
             ),
             (
-                Action::UseGlobalContract(UseGlobalContractAction {
-                    contract_identifier: GlobalContractId::from(hash),
-                }),
+                Action::deploy_from(hash),
                 json!({"UseGlobalContract": {"contract_identifier": {"hash": hash.to_string()}}}),
             ),
             (
-                Action::UseGlobalContract(UseGlobalContractAction {
-                    contract_identifier: GlobalContractId::AccountId("p.near".parse().unwrap()),
-                }),
+                Action::deploy_from("p.near".parse::<AccountId>().unwrap()),
                 json!({"UseGlobalContract": {"contract_identifier": {"account_id": "p.near"}}}),
             ),
             (
@@ -2135,11 +1484,8 @@ mod tests {
         assert!(serde_json::from_value::<Action>(nested.clone()).is_ok());
         let err = serde_json::from_value::<NonDelegateAction>(nested).unwrap_err();
         assert!(err.to_string().contains("nested delegate"), "{err}");
-        assert_eq!(
-            serde_json::from_value::<NonDelegateAction>(serde_json::json!({"CreateAccount": {}}))
-                .unwrap()
-                .into_inner(),
-            Action::create_account()
-        );
+        let inner: NonDelegateAction =
+            serde_json::from_value(serde_json::json!({"CreateAccount": {}})).unwrap();
+        assert_eq!(Action::from(inner), Action::create_account());
     }
 }

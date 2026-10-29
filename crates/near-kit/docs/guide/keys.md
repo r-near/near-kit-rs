@@ -1,12 +1,9 @@
 # Keys and signers
 
-Read this when you load, generate, store or convert keys: which string
-forms near-kit reads and writes, how to load a key from the environment, a
-near-cli credentials file, the system keyring or a seed phrase, and how to
-sign with a key near-kit never sees. A [`SecretKey`](crate::signer::SecretKey)
-is a key; a [`Signer`](crate::signer::Signer) is an account plus the key or
-keys it signs with, and is what
-[`Near::with_signer`](crate::Near::with_signer) takes.
+A [`SecretKey`](crate::signer::SecretKey) is a key; a
+[`Signer`](crate::signer::Signer) is an account plus the key or keys it
+signs with, and is what [`Near::with_signer`](crate::Near::with_signer)
+takes.
 
 ## Key types and string forms
 
@@ -282,12 +279,8 @@ Only ed25519 keys have implicit accounts; others fail with
 ## Several keys for one account
 
 [`RotatingSigner`](crate::signer::RotatingSigner) holds several keys of one
-account and hands out the next one for each transaction, so concurrent
-sends don't contend for one nonce. Build it from keys
-(`RotatingSigner::new(account, keys)`) or from loaded signers
-(`RotatingSigner::from_signers(vec![..])`, which requires them all to be for
-the same account). The [nonces chapter](crate::guide::nonces) covers when
-it helps and how to add the keys.
+account for concurrent sends; the
+[nonces chapter](crate::guide::nonces#several-keys-for-one-account) covers it.
 
 ## Keys near-kit can't see
 
@@ -314,7 +307,7 @@ impl SigningBackend for RemoteKey {
         let bytes = request_signature(&self.key_id, message)
             .await
             .map_err(SignerError::SigningFailed)?;
-        Ok(Signature::ed25519_from_bytes(bytes))
+        Ok(Signature::Ed25519(bytes))
     }
 }
 
@@ -354,19 +347,3 @@ key's public key for the nonce, the transaction and the signature, so a
 signer that rotates keys can return a different `SigningKey` from each
 call. `public_key` reports the key the next `key` call would return, and
 must have no side effects: no I/O, no prompt, no rotation.
-
-## See also
-
-- [`SecretKey`](crate::signer::SecretKey),
-  [`PublicKey`](crate::signer::PublicKey),
-  [`PublicKeyHandle`](crate::signer::PublicKeyHandle),
-  [`Signature`](crate::signer::Signature),
-  [`ParseKeyError`](crate::signer::ParseKeyError)
-- [`Signer`](crate::signer::Signer),
-  [`InMemorySigner`](crate::signer::InMemorySigner),
-  [`RotatingSigner`](crate::signer::RotatingSigner),
-  [`SigningKey`](crate::signer::SigningKey),
-  [`SigningBackend`](crate::signer::SigningBackend)
-- The loaders in [`signer`](crate::signer)
-- The [offline signing chapter](crate::guide::offline_signing) for signing
-  without a client, and NEP-413 messages

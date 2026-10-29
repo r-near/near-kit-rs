@@ -1,34 +1,10 @@
-//! Pluggable HTTP transport for the JSON-RPC client.
-//!
-//! [`RpcClient`](super::rpc::RpcClient) never talks to an HTTP library
-//! directly — it drives an [`RpcTransport`] trait object. The built-in
-//! implementation is chosen by target:
-//!
-//! - **Every target except WASI** (native + `wasm32-unknown-unknown`):
-//!   [`ReqwestTransport`]. reqwest's fetch backend covers browsers/JS hosts;
-//!   its native stack covers everything else.
-//! - **`wasm32-wasip2`** with the opt-in `wasi-http` feature:
-//!   `WasiHttpTransport` (only nameable there), which speaks
-//!   `wasi:http/outgoing-handler` through the `wasi` crate's raw bindings.
-//!   reqwest has no WASI support (its native stack drags in an `aws-lc-sys` C
-//!   cross-compile and hyper's tokio `net`, neither of which builds for wasm),
-//!   so a wasip2 component needs a `wasi:http`-native client instead.
-//! - **WASI without `wasi-http`**: an erroring fallback makes client
-//!   construction infallible while keeping `wasi:http` imports out of the
-//!   component. Inject a different transport to make RPC calls operational (or
-//!   build near-kit without `rpc`).
-//!
-//! Custom implementations plug in via
-//! [`NearBuilder::transport`](super::NearBuilder::transport) (or
-//! [`RpcClient::with_transport_and_retry_config`](super::RpcClient::with_transport_and_retry_config)) —
-//! for example a host-call transport on a platform whose runtime proxies RPC
-//! traffic instead of exposing raw HTTP.
+//! The [`RpcTransport`] trait and the built-in transport for each target.
 
 use std::sync::Arc;
 
 use crate::error::RpcError;
-pub use crate::platform::BoxFuture;
-use crate::platform::{MaybeSend, MaybeSync};
+use crate::{MaybeSend, MaybeSync};
+pub use near_kit_primitives::__private::BoxFuture;
 
 // The built-in WASI transport speaks the `wasi:http` component-model
 // interface, which only exists on WASI Preview 2. On earlier WASI targets,
@@ -141,53 +117,50 @@ impl<T: RpcTransport + ?Sized> RpcTransport for Arc<T> {
         not(all(feature = "wasi-http", target_env = "p2"))
     )
 ))]
-#[derive(Clone, Debug, Default)]
-struct MissingWasiHttpTransport;
+mod missing_wasi_http {
+    use super::{BoxFuture, RpcError, RpcTransport, TransportResponse};
 
-#[cfg(any(
-    test,
-    all(
-        target_arch = "wasm32",
-        target_os = "wasi",
-        not(all(feature = "wasi-http", target_env = "p2"))
-    )
-))]
-impl RpcTransport for MissingWasiHttpTransport {
-    fn post_json(
-        &self,
-        _url: &str,
-        _body: Vec<u8>,
-    ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-        Box::pin(async {
-            Err(RpcError::network(
-                "no HTTP transport is available on WASI without the `wasi-http` feature; \
-                 supply one with `NearBuilder::transport`",
-                None,
-                false,
-            ))
-        })
+    /// The erroring transport for WASI builds without `wasi-http`.
+    #[derive(Clone, Debug, Default)]
+    pub(super) struct MissingWasiHttpTransport;
+
+    impl RpcTransport for MissingWasiHttpTransport {
+        fn post_json(
+            &self,
+            _url: &str,
+            _body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            Box::pin(async {
+                Err(RpcError::network(
+                    "no HTTP transport is available on WASI without the `wasi-http` feature; \
+                     supply one with `NearBuilder::transport`",
+                    None,
+                    false,
+                ))
+            })
+        }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    #[cfg(test)]
+    mod tests {
+        use super::*;
 
-    #[test]
-    fn missing_wasi_http_transport_returns_typed_non_retryable_error() {
-        let error = futures::executor::block_on(
-            MissingWasiHttpTransport.post_json("https://rpc.testnet.near.org", Vec::new()),
-        )
-        .unwrap_err();
+        #[test]
+        fn missing_wasi_http_transport_returns_typed_non_retryable_error() {
+            let error = futures::executor::block_on(
+                MissingWasiHttpTransport.post_json("https://rpc.testnet.near.org", Vec::new()),
+            )
+            .unwrap_err();
 
-        assert!(matches!(
-            error,
-            RpcError::Network {
-                status_code: None,
-                retryable: false,
-                ..
-            }
-        ));
+            assert!(matches!(
+                error,
+                RpcError::Network {
+                    status_code: None,
+                    retryable: false,
+                    ..
+                }
+            ));
+        }
     }
 }
 
@@ -217,129 +190,84 @@ pub(crate) fn default_transport() -> Arc<dyn RpcTransport> {
         not(all(feature = "wasi-http", target_env = "p2"))
     ))]
     {
-        Arc::new(MissingWasiHttpTransport)
-    }
-}
-
-// ============================================================================
-// Off-WASI: reqwest (native + wasm32-unknown-unknown)
-// ============================================================================
-
-/// The default [`RpcTransport`] on every target except WASI, backed by
-/// [`reqwest::Client`].
-///
-/// Wrap a preconfigured client (default headers, proxies, TLS, timeouts, ...)
-/// with [`ReqwestTransport::with_client`] and pass it to
-/// [`NearBuilder::transport`](super::NearBuilder::transport). Build it with
-/// [`near_kit::reqwest`](crate::reqwest), the reqwest near-kit is built
-/// with, so the versions match.
-#[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
-#[derive(Clone, Default)]
-pub struct ReqwestTransport {
-    client: reqwest::Client,
-}
-
-#[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
-impl ReqwestTransport {
-    /// Create a transport with a default `reqwest::Client`.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Wrap a preconfigured `reqwest::Client`.
-    pub fn with_client(client: reqwest::Client) -> Self {
-        Self { client }
-    }
-}
-
-// Manual impl: `reqwest::Client`'s Debug prints its full config, including
-// default headers, which may hold API keys.
-#[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
-impl std::fmt::Debug for ReqwestTransport {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReqwestTransport").finish_non_exhaustive()
+        Arc::new(missing_wasi_http::MissingWasiHttpTransport)
     }
 }
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
-impl RpcTransport for ReqwestTransport {
-    fn post_json(
-        &self,
-        url: &str,
-        body: Vec<u8>,
-    ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-        let request = self
-            .client
-            .post(url)
-            .header("Content-Type", "application/json")
-            .body(body);
-        Box::pin(async move {
-            // Failures pass through as `RpcError::Http`, keeping reqwest's
-            // retryability classification (`is_timeout`/`is_connect`) exactly
-            // as it was before the transport seam existed. The `From` impl
-            // drops the URL, which may carry an API key.
-            let response = request.send().await?;
-            let status = response.status().as_u16();
-            let body = response.bytes().await?.to_vec();
-            Ok(TransportResponse { status, body })
-        })
+pub use reqwest_backend::ReqwestTransport;
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
+mod reqwest_backend {
+    use super::{BoxFuture, RpcError, RpcTransport, TransportResponse};
+
+    /// The default [`RpcTransport`] on every target except WASI, backed by
+    /// [`reqwest::Client`].
+    ///
+    /// Wrap a preconfigured client (default headers, proxies, TLS, timeouts, ...)
+    /// with [`ReqwestTransport::with_client`] and pass it to
+    /// [`NearBuilder::transport`](crate::NearBuilder::transport). Build it with
+    /// [`near_kit::reqwest`](crate::reqwest), the reqwest near-kit is built
+    /// with, so the versions match.
+    #[derive(Clone, Default)]
+    pub struct ReqwestTransport {
+        client: reqwest::Client,
+    }
+
+    impl ReqwestTransport {
+        /// Create a transport with a default `reqwest::Client`.
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        /// Wrap a preconfigured `reqwest::Client`.
+        pub fn with_client(client: reqwest::Client) -> Self {
+            Self { client }
+        }
+    }
+
+    // Manual impl: `reqwest::Client`'s Debug prints its full config, including
+    // default headers, which may hold API keys.
+    impl std::fmt::Debug for ReqwestTransport {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("ReqwestTransport").finish_non_exhaustive()
+        }
+    }
+
+    impl RpcTransport for ReqwestTransport {
+        fn post_json(
+            &self,
+            url: &str,
+            body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            let request = self
+                .client
+                .post(url)
+                .header("Content-Type", "application/json")
+                .body(body);
+            Box::pin(async move {
+                // Failures pass through as `RpcError::Http`, keeping reqwest's
+                // retryability classification (`is_timeout`/`is_connect`) exactly
+                // as it was before the transport seam existed. The `From` impl
+                // drops the URL, which may carry an API key.
+                let response = request.send().await?;
+                let status = response.status().as_u16();
+                let body = response.bytes().await?.to_vec();
+                Ok(TransportResponse { status, body })
+            })
+        }
     }
 }
 
-// ============================================================================
-// WASI (wasm32-wasip2, `wasi-http` feature): wasi:http/outgoing-handler
-// ============================================================================
-
-/// The built-in [`RpcTransport`] on `wasm32-wasip2` (behind the opt-in
-/// `wasi-http` feature), backed by `wasi:http/outgoing-handler`.
-///
-/// The host must provide the `wasi:http` interface — e.g. `wasmtime run -S
-/// http`, or any runtime targeting the `wasi:http/proxy` world. For WASI
-/// hosts *without* `wasi:http`, disable the `wasi-http` feature (keeping
-/// `rpc`) and inject the platform's transport via
-/// [`NearBuilder::transport`](super::NearBuilder::transport) instead.
-///
-/// The exchange is *blocking*: the guest parks on a wasi pollable until the
-/// response arrives, so exactly one request is in flight at a time. That is
-/// the natural shape for a single-threaded component; concurrent RPC calls
-/// from the same guest serialize rather than interleave.
+// reqwest doesn't build for WASI (its native stack needs aws-lc-sys and
+// tokio's `net`), so wasip2 components speak `wasi:http` directly.
 #[cfg(all(
     feature = "wasi-http",
     target_arch = "wasm32",
     target_os = "wasi",
     target_env = "p2"
 ))]
-#[derive(Clone, Debug, Default)]
-pub struct WasiHttpTransport;
-
-#[cfg(all(
-    feature = "wasi-http",
-    target_arch = "wasm32",
-    target_os = "wasi",
-    target_env = "p2"
-))]
-impl WasiHttpTransport {
-    /// Create a new wasi:http transport.
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-#[cfg(all(
-    feature = "wasi-http",
-    target_arch = "wasm32",
-    target_os = "wasi",
-    target_env = "p2"
-))]
-impl RpcTransport for WasiHttpTransport {
-    fn post_json(
-        &self,
-        url: &str,
-        body: Vec<u8>,
-    ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-        Box::pin(wasi_http::Exchange::new(url, body))
-    }
-}
+pub use wasi_http::WasiHttpTransport;
 
 #[cfg(all(
     feature = "wasi-http",
@@ -348,10 +276,6 @@ impl RpcTransport for WasiHttpTransport {
     target_env = "p2"
 ))]
 mod wasi_http {
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
-
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use wasi::http::outgoing_handler;
     use wasi::http::types::{
@@ -359,45 +283,46 @@ mod wasi_http {
     };
     use wasi::io::streams::StreamError;
 
-    use super::TransportResponse;
-    use crate::error::RpcError;
+    use super::{BoxFuture, RpcError, RpcTransport, TransportResponse};
 
     /// `wasi:io` streams cap a single `blocking-write-and-flush` at 4096 bytes.
     const WRITE_CHUNK: usize = 4096;
     /// Bytes to request per `blocking-read` while draining the response body.
     const READ_CHUNK: u64 = 16 * 1024;
 
-    /// A future that runs the whole blocking `wasi:http` exchange inside a
-    /// single `poll` and returns `Ready`.
+    /// The built-in [`RpcTransport`] on `wasm32-wasip2` (behind the opt-in
+    /// `wasi-http` feature), backed by `wasi:http/outgoing-handler`.
     ///
-    /// Send-safety: `BoxFuture` requires `Send` on this target (only
-    /// `wasm32-unknown-unknown` relaxes it), but every `wasi` resource handle
-    /// (`OutgoingRequest`, streams, pollables) is `!Send`. Doing the exchange —
-    /// dispatch, pollable block, body drain — synchronously inside one `poll`
-    /// means those handles live and die in a single stack frame and are never
-    /// stored in the future. `Exchange` itself holds only a `String` and a
-    /// `Vec<u8>`, so it is `Send` by construction, with no `unsafe`.
-    pub(super) struct Exchange {
-        request: Option<(String, Vec<u8>)>,
-    }
+    /// The host must provide the `wasi:http` interface — e.g. `wasmtime run -S
+    /// http`, or any runtime targeting the `wasi:http/proxy` world. For WASI
+    /// hosts *without* `wasi:http`, disable the `wasi-http` feature (keeping
+    /// `rpc`) and inject the platform's transport via
+    /// [`NearBuilder::transport`](crate::NearBuilder::transport) instead.
+    ///
+    /// The exchange is *blocking*: the guest parks on a wasi pollable until the
+    /// response arrives, so exactly one request is in flight at a time. That is
+    /// the natural shape for a single-threaded component; concurrent RPC calls
+    /// from the same guest serialize rather than interleave.
+    #[derive(Clone, Debug, Default)]
+    pub struct WasiHttpTransport;
 
-    impl Exchange {
-        pub(super) fn new(url: &str, body: Vec<u8>) -> Self {
-            Self {
-                request: Some((url.to_string(), body)),
-            }
+    impl WasiHttpTransport {
+        /// Create a new wasi:http transport.
+        pub fn new() -> Self {
+            Self
         }
     }
 
-    impl Future for Exchange {
-        type Output = Result<TransportResponse, RpcError>;
-
-        fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-            let (url, body) = self
-                .request
-                .take()
-                .expect("Exchange future polled after completion");
-            Poll::Ready(exchange(&url, &body))
+    impl RpcTransport for WasiHttpTransport {
+        fn post_json(
+            &self,
+            url: &str,
+            body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            // `exchange` never awaits, so the `!Send` wasi handles it creates
+            // never live across a yield and the future stays `Send`.
+            let url = url.to_owned();
+            Box::pin(async move { exchange(&url, &body) })
         }
     }
 

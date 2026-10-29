@@ -1,0 +1,29 @@
+error: #[near_kit::contract] does not support unsafe traits
+ --> tests/compile-fail/unsupported_trait_forms.rs:5:5
+  |
+5 | pub unsafe trait Unsafe {
+  |     ^^^^^^
+
+error: #[near_kit::contract] does not support auto traits
+  --> tests/compile-fail/unsupported_trait_forms.rs:10:5
+   |
+10 | pub auto trait Auto {}
+   |     ^^^^
+
+error: #[near_kit::contract] does not support generic parameters
+  --> tests/compile-fail/unsupported_trait_forms.rs:13:18
+   |
+13 | pub trait Generic<T> {
+   |                  ^
+
+error: #[near_kit::contract] does not support where clauses
+  --> tests/compile-fail/unsupported_trait_forms.rs:19:1
+   |
+19 | where
+   | ^^^^^
+
+error: #[near_kit::contract] does not support supertraits
+  --> tests/compile-fail/unsupported_trait_forms.rs:26:20
+   |
+26 | pub trait Extends: Clone {
+   |                    ^^^^^

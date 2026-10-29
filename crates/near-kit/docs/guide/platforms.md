@@ -1,9 +1,6 @@
 # Platforms and features
 
-Read this when near-kit runs somewhere other than a native server or CLI:
-in a browser, in a WASI component, inside a smart contract, or in a build
-with no network stack. Each of these is a combination of a target and
-Cargo features, and a few behave differently at run time.
+Each place near-kit runs is a target plus Cargo features:
 
 | Where | Target | Features |
 |---|---|---|
@@ -265,13 +262,3 @@ tracing_subscriber::fmt()
 
 The feature works on every target; in the browser, use a subscriber that
 writes to the console.
-
-## See also
-
-- [`RpcTransport`](crate::rpc::RpcTransport),
-  [`TransportResponse`](crate::rpc::TransportResponse),
-  [`NearBuilder::transport`](crate::NearBuilder::transport)
-- [`MaybeSend`](crate::MaybeSend), [`MaybeSync`](crate::MaybeSync)
-- [`near-kit-primitives`](https://docs.rs/near-kit-primitives)
-- The [testing chapter](crate::guide::testing) for transports that answer
-  from a test

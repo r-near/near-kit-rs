@@ -7,10 +7,6 @@ use serde::Deserialize;
 use super::rpc::ValidatorStakeView;
 use super::{AccountId, NearToken, PublicKey};
 
-// ============================================================================
-// Validators / Epoch types
-// ============================================================================
-
 /// Epoch validator info from `validators` RPC.
 #[derive(Debug, Clone, Deserialize)]
 pub struct EpochValidatorInfo {
@@ -114,7 +110,6 @@ pub struct ValidatorKickoutView {
 #[derive(Debug, Clone, Deserialize)]
 pub enum ValidatorKickoutReason {
     /// Slashed (deprecated, unused).
-    #[serde(rename = "Slashed")]
     Slashed,
     /// Not enough blocks produced.
     NotEnoughBlocks {
@@ -163,35 +158,22 @@ mod tests {
 
     #[test]
     fn test_epoch_validator_info_validator_reward_paid_prev_epoch() {
-        let json = serde_json::json!({
-            "current_validators": [],
-            "next_validators": [],
-            "epoch_start_height": 100,
-            "epoch_height": 10,
-            "validator_reward_paid_prev_epoch": {
-                "alice.near": "1000000000000000000000000"
-            }
-        });
-        let info: EpochValidatorInfo = serde_json::from_value(json).unwrap();
-        assert_eq!(info.validator_reward_paid_prev_epoch.len(), 1);
-        let alice: AccountId = "alice.near".parse().unwrap();
-        assert_eq!(
-            info.validator_reward_paid_prev_epoch.get(&alice),
-            Some(&NearToken::from_yoctonear(
-                1_000_000_000_000_000_000_000_000
-            ))
-        );
-    }
-
-    #[test]
-    fn test_epoch_validator_info_validator_reward_paid_prev_epoch_default_empty() {
-        let json = serde_json::json!({
+        let mut json = serde_json::json!({
             "current_validators": [],
             "next_validators": [],
             "epoch_start_height": 100,
             "epoch_height": 10
         });
-        let info: EpochValidatorInfo = serde_json::from_value(json).unwrap();
+        let info: EpochValidatorInfo = serde_json::from_value(json.clone()).unwrap();
         assert!(info.validator_reward_paid_prev_epoch.is_empty());
+
+        json["validator_reward_paid_prev_epoch"] =
+            serde_json::json!({ "alice.near": "1000000000000000000000000" });
+        let info: EpochValidatorInfo = serde_json::from_value(json).unwrap();
+        let alice: AccountId = "alice.near".parse().unwrap();
+        assert_eq!(
+            info.validator_reward_paid_prev_epoch,
+            HashMap::from([(alice, NearToken::from_near(1))])
+        );
     }
 }

@@ -55,8 +55,8 @@ pub use near_kit_primitives::rpc::{
     RpcTransactionResponse, STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator,
     StateChangeKindView, StateItem, StatusResponse, SyncCheckpoint, SyncInfo, TransactionNonceView,
     TransactionView, TrieSplit, TxExecutionStatus, ValidatorInfo, ValidatorKickoutReason,
-    ValidatorKickoutView, ValidatorStakeView, ValidatorStakeViewV1,
-    VersionedDelegateActionPayloadView, ViewFunctionResult, ViewStateAllResult, ViewStateResult,
+    ValidatorKickoutView, ValidatorStakeView, VersionedDelegateActionPayloadView,
+    ViewFunctionResult, ViewStateAllResult, ViewStateResult,
 };
 
 #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]

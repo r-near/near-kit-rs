@@ -1,11 +1,4 @@
-//! Load an [`InMemorySigner`] from the environment or a near-cli credentials
-//! file.
-//!
-//! These read once and return a plain [`InMemorySigner`]; nothing is re-read
-//! when signing. The [`Signer`](crate::signer::Signer) trait, [`SigningKey`]
-//! and the in-memory and rotating signers live in `near-kit-primitives`.
-//!
-//! [`SigningKey`]: crate::signer::SigningKey
+//! Load an [`InMemorySigner`] from the environment or a near-cli credentials file.
 
 #[cfg(feature = "file-signer")]
 use std::path::Path;
@@ -182,24 +175,15 @@ mod tests {
     #[cfg(feature = "file-signer")]
     #[test]
     fn credentials_files_load_a_plain_in_memory_signer() {
-        use crate::signer::Signer;
+        use crate::signer::{SecretKey, Signer};
 
-        let path = std::env::temp_dir().join(format!(
-            "near-kit-credentials-test-{}.json",
-            std::process::id()
-        ));
-        std::fs::write(
-            &path,
-            r#"{"account_id":"alice.testnet","private_key":"ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"}"#,
-        )
-        .unwrap();
-        let signer = from_credentials_file(&path, crate::account!("alice.testnet")).unwrap();
-        std::fs::remove_file(&path).unwrap();
-
+        let key = SecretKey::ed25519_from_bytes([20; 32]);
+        let contents = serde_json::json!({
+            "account_id": "alice.testnet",
+            "private_key": key.to_string(),
+        });
+        let signer = load_credentials("plain", &contents.to_string()).unwrap();
         assert_eq!(signer.account_id().as_str(), "alice.testnet");
-        let key: crate::signer::SecretKey = "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
-            .parse()
-            .unwrap();
         assert_eq!(signer.public_key(), key.public_key());
     }
 

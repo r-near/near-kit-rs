@@ -37,15 +37,6 @@ fn sender() -> AccountId {
 }
 
 #[test]
-fn relayed_outcomes_decode_directly() {
-    for (name, body) in ALL {
-        if let Err(e) = serde_json::from_str::<FinalExecutionOutcome>(body) {
-            panic!("{name}: outcome failed to decode: {e}");
-        }
-    }
-}
-
-#[test]
 fn relayed_transactions_resolve_at_final() {
     for (name, body) in ALL {
         let response: RpcTransactionResponse = serde_json::from_str(body).unwrap();

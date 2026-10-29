@@ -1,21 +1,10 @@
 //! The OS CSPRNG, adapted to `rand_core` 0.10's infallible traits.
 //!
-//! [`SysRng`] is fallible: it implements only [`TryRng`]/[`TryCryptoRng`], not the
-//! infallible [`Rng`]/[`CryptoRng`] that `SigningKey::generate` and
-//! `k256::SecretKey::generate_from_rng` require. Every near-kit caller is an infallible
-//! `pub fn` returning a key, a seed phrase, or a nonce — not a `Result` — so
-//! there is nowhere to report an entropy failure without breaking the public
-//! API.
+//! [`SysRng`] only implements the fallible `TryRng`/`TryCryptoRng`, and every
+//! caller is an infallible `pub fn` with nowhere to report an entropy failure.
+//! So a failing OS source panics (as `rand` 0.8's `OsRng` did) rather than
+//! falling back to a weaker one.
 //!
-//! [`UnwrapErr`] is therefore a deliberate choice, not an oversight: a failing
-//! OS entropy source panics here, which is exactly what `rand` 0.8's `OsRng`
-//! and `ed25519_dalek::SigningKey::generate` did before this bump. The failure
-//! is never swallowed and never falls back to a weaker source.
-//!
-//! [`Rng`]: getrandom::rand_core::Rng
-//! [`CryptoRng`]: getrandom::rand_core::CryptoRng
-//! [`TryRng`]: getrandom::rand_core::TryRng
-//! [`TryCryptoRng`]: getrandom::rand_core::TryCryptoRng
 //! [`SysRng`]: getrandom::SysRng
 
 use getrandom::SysRng;

@@ -1,11 +1,9 @@
 # Clients and networks
 
-Read this first if you're setting near-kit up in an application: which
-client type to hold, which endpoint it talks to, and which settings live on
-the client rather than on each call. There are two client types.
-[`Near`](crate::Near) reads chain state and submits transactions that are
-already signed. [`SigningNear`](crate::SigningNear) is a `Near` plus a
-signer for one account, and it also builds, signs and sends transactions.
+There are two client types. [`Near`](crate::Near) reads chain state and
+submits transactions that are already signed. [`SigningNear`](crate::SigningNear)
+is a `Near` plus a signer for one account, and it also builds, signs and
+sends transactions.
 
 ## Reading and sending
 
@@ -92,10 +90,8 @@ assert!(near.chain_id().is_mainnet());
 assert_eq!(near.rpc().url(), "https://rpc.mainnet.example.com");
 ```
 
-Use the network's real chain ID (`mainnet`, `testnet`, or your network's).
-Cached nonces don't depend on it when the node reports its genesis hash,
-which keys them; only a backend that can't report one keys them by chain ID. The
-[nonces chapter](crate::guide::nonces) explains.
+Use the network's real chain ID (`mainnet`, `testnet`, or your network's);
+the [nonces chapter](crate::guide::nonces) explains why.
 
 ### Headers, API keys, proxies and timeouts
 
@@ -152,16 +148,6 @@ every call through a client:
 | [`max_nonce_retries`](crate::NearBuilder::max_nonce_retries) | 3 | Re-signing a send after a nonce or expiry rejection |
 | [`chain_id`](crate::NearBuilder::chain_id) | From the preset or `Near::custom` | `Near::chain_id`; the nonce cache key for a backend that can't report its genesis hash |
 
-```rust
-use near_kit::Near;
-use near_kit::rpc::RetryConfig;
-
-let near = Near::testnet()
-    .retry_config(RetryConfig { max_retries: 5, initial_delay_ms: 250, max_delay_ms: 4_000 })
-    .max_nonce_retries(10)
-    .build();
-```
-
 The [errors chapter](crate::guide::errors#retries) explains what each kind
 of retry covers.
 
@@ -173,17 +159,6 @@ on a `SigningNear`, returning a new one for the same account:
   [finality chapter](crate::guide::finality).
 - [`max_nonce_retries(n)`](crate::SigningNear::max_nonce_retries) overrides
   the builder's value for this sender.
-
-```rust,no_run
-use near_kit::transaction::Included;
-use near_kit::*;
-
-# fn example(relayer: SigningNear) {
-// The same account and connection: returns once a send is in a block,
-// and retries nonce conflicts without limit.
-let relayer = relayer.max_nonce_retries(u32::MAX).wait_until::<Included>();
-# }
-```
 
 ## Other RPC methods
 
@@ -223,13 +198,3 @@ let genesis: serde_json::Value = near
 # Ok(())
 # }
 ```
-
-## See also
-
-- [`Near`](crate::Near), [`NearBuilder`](crate::NearBuilder),
-  [`SigningNear`](crate::SigningNear)
-- [`RpcClient`](crate::rpc::RpcClient),
-  [`RetryConfig`](crate::rpc::RetryConfig),
-  [`ReqwestTransport`](crate::rpc::ReqwestTransport),
-  [`RpcTransport`](crate::rpc::RpcTransport)
-- The [keys chapter](crate::guide::keys) for loading signers
