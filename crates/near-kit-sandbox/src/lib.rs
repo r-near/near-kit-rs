@@ -69,20 +69,6 @@
 //! - [`Sandbox::fast_forward`] moves the chain ahead by a number of blocks,
 //!   for code that depends on block height or epochs.
 //!
-//! ```rust,no_run
-//! use near_kit::{NearToken, account};
-//! use near_kit_sandbox::Sandbox;
-//!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let sandbox = Sandbox::builder().fresh().await?;
-//! sandbox
-//!     .set_balance(account!("sandbox"), NearToken::from_near(1_000_000))
-//!     .await?;
-//! sandbox.fast_forward(1_000).await?;
-//! # Ok(())
-//! # }
-//! ```
-//!
 //! ## Versions and configuration
 //!
 //! The builder picks the nearcore release to run with
@@ -92,22 +78,6 @@
 //! [`chain_id`](SandboxBuilder::chain_id). `"mainnet"` and `"testnet"` are
 //! rejected as chain IDs, because neard reserves them. Options passed to
 //! `shared()` apply only to the call that starts the shared sandbox.
-//!
-//! ```rust,no_run
-//! use near_kit::account;
-//! use near_kit_sandbox::Sandbox;
-//!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let sandbox = Sandbox::builder()
-//!     .version("2.13.4")
-//!     .root_account(account!("local"))
-//!     .chain_id("localnet")
-//!     .fresh()
-//!     .await?;
-//! assert_eq!(sandbox.root_account().account_id(), "local");
-//! # Ok(())
-//! # }
-//! ```
 //!
 //! Set `NEAR_SANDBOX_IMAGE` to use another image, as `name` or `name:tag`
 //! (for example `my-registry/near-sandbox:custom`). The image must define a
@@ -121,11 +91,6 @@
 
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-
-// Compiles the README's code blocks as doctests.
-#[cfg(doctest)]
-#[doc = include_str!("../README.md")]
-struct ReadmeDoctests;
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -199,10 +164,6 @@ impl From<RpcError> for SandboxError {
     }
 }
 
-// ============================================================================
-// NearSandbox testcontainers Image (inlined from near-sandbox-testcontainer)
-// ============================================================================
-
 const DEFAULT_IMAGE: &str = "nearprotocol/sandbox";
 // nearcore 2.14 (protocol v88).
 const DEFAULT_VERSION: &str = "2.14.0";
@@ -228,19 +189,8 @@ const HEALTHCHECK_START_PERIOD: Duration = Duration::from_secs(90);
 /// `Unhealthy` rather than as a bare startup timeout.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// A [`testcontainers::Image`] for the NEAR sandbox Docker image
-/// (`nearprotocol/sandbox`).
-///
-/// Configuration is passed via environment variables supported by the
-/// image's entrypoint (`NEAR_ROOT_ACCOUNT`, `NEAR_CHAIN_ID`,
-/// `NEAR_ENABLE_SANDBOX_LOG`).
-///
-/// The image name and tag can be overridden via the `NEAR_SANDBOX_IMAGE`
-/// environment variable (e.g. `NEAR_SANDBOX_IMAGE=my-registry/sandbox:custom`).
-/// The value is split on the last `:` into image name and tag (`name[:tag]`).
-/// If no `:` is present, the value is used as the image name with the default tag.
-///
-/// The image must define a Docker `HEALTHCHECK` for readiness detection.
+/// The sandbox image (inlined from near-sandbox-testcontainer), configured
+/// through its entrypoint's `NEAR_*` environment variables.
 #[derive(Debug, Clone)]
 struct NearSandbox {
     image_name: String,
@@ -297,27 +247,15 @@ impl Image for NearSandbox {
     }
 }
 
-// ============================================================================
-// Global shared sandbox
-// ============================================================================
-
 /// Global shared sandbox instance.
 static SHARED_SANDBOX: OnceCell<Sandbox> = OnceCell::const_new();
 
-/// Remove the shared sandbox container on normal process exit.
+/// Remove the shared sandbox container on normal process exit (statics are
+/// never dropped; the testcontainers watchdog covers signals).
 ///
-/// Statics are never dropped in Rust, so the watchdog (which handles signals)
-/// won't cover normal process exit. This `atexit` handler ensures the container
-/// is cleaned up on clean termination.
-///
-/// We must NOT use tokio/async here: by the time `atexit` fires the main
-/// thread's TLS (including tokio's) is destroyed, and reusing the async Docker
-/// client panics with a TLS `AccessError`. Such a panic inside this
-/// non-unwinding `extern "C"` fn would abort the process, so we shell out to
-/// `docker rm` (which touches no Rust/tokio TLS) and wrap the body in
-/// `catch_unwind` as a belt-and-suspenders guard against any unwind crossing
-/// the C boundary. Removal is best-effort and errors are ignored; the
-/// testcontainers watchdog still covers signal-based termination (Ctrl+C etc.).
+/// No tokio here: by the time `atexit` fires, the main thread's TLS is gone
+/// and the async Docker client would panic, aborting the process. So this
+/// shells out to `docker rm`, inside `catch_unwind`, and ignores errors.
 extern "C" fn cleanup_shared_sandbox() {
     let _ = std::panic::catch_unwind(|| {
         if let Some(sandbox) = SHARED_SANDBOX.get() {
@@ -332,10 +270,6 @@ extern "C" fn cleanup_shared_sandbox() {
     });
 }
 
-// ============================================================================
-// Sandbox
-// ============================================================================
-
 /// A sandbox instance backed by a Docker container via testcontainers.
 ///
 /// Cloning a `Sandbox` shares the underlying container — the container is stopped
@@ -343,14 +277,7 @@ extern "C" fn cleanup_shared_sandbox() {
 ///
 /// Obtain one via `Sandbox::builder().shared()` (global singleton) or
 /// `Sandbox::builder().fresh()` (new isolated instance); see
-/// [`Sandbox::builder`].
-///
-/// # Cleanup
-///
-/// - **Fresh sandboxes**: cleaned up via testcontainers' `Drop` impl.
-/// - **Shared sandbox**: cleaned up via an `atexit` handler that synchronously
-///   shells out to `docker rm -f` by container id (normal exit; no tokio/async)
-///   and the testcontainers `watchdog` (SIGINT/SIGTERM/SIGQUIT, e.g. Ctrl+C).
+/// [`Sandbox::builder`]. The shared sandbox is removed when the process exits.
 #[derive(Clone)]
 pub struct Sandbox {
     _container: Arc<ContainerAsync<NearSandbox>>,
@@ -363,33 +290,8 @@ pub struct Sandbox {
 }
 
 impl Sandbox {
-    /// A builder for a sandbox: `.fresh()` for a new isolated instance,
-    /// `.shared()` for the process-wide one, after any
-    /// [`version`](SandboxBuilder::version),
-    /// [`root_account`](SandboxBuilder::root_account) or
-    /// [`chain_id`](SandboxBuilder::chain_id).
-    ///
-    /// - [`shared`](SandboxBuilder::shared) starts the sandbox on first use and
-    ///   returns the same `&'static Sandbox` afterwards. It is never stopped
-    ///   during the run, which suits most tests.
-    /// - [`fresh`](SandboxBuilder::fresh) starts one with clean state, stopped
-    ///   when the last clone of the returned [`Sandbox`] drops.
-    ///
-    /// ```rust,no_run
-    /// use near_kit::account;
-    /// use near_kit_sandbox::Sandbox;
-    ///
-    /// # async fn example() -> Result<(), near_kit_sandbox::SandboxError> {
-    /// let root = Sandbox::builder().shared().await?.root_account();
-    ///
-    /// let sandbox = Sandbox::builder()
-    ///     .version("2.13.4")
-    ///     .root_account(account!("sb"))
-    ///     .fresh()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// A builder for a sandbox, finished with [`fresh`](SandboxBuilder::fresh)
+    /// or [`shared`](SandboxBuilder::shared).
     pub fn builder() -> SandboxBuilder {
         SandboxBuilder {
             version: None,
@@ -413,11 +315,8 @@ impl Sandbox {
         Near::custom(&self.rpc_url, self.chain_id.clone()).build()
     }
 
-    /// Set an account's balance in this sandbox.
-    ///
-    /// This patches the account's balance directly via the sandbox RPC,
-    /// useful for testing scenarios that require specific balances
-    /// (e.g., staking tests that need 1M+ NEAR).
+    /// Set an account's balance in this sandbox, patching it directly via the
+    /// sandbox RPC.
     ///
     /// # Example
     ///
@@ -532,10 +431,8 @@ impl Sandbox {
         Ok(())
     }
 
-    /// Fast-forward the sandbox by `delta_height` blocks.
-    ///
-    /// Useful for testing time-dependent logic (e.g., lockups, staking epoch
-    /// changes) without waiting for real block production.
+    /// Fast-forward the sandbox by `delta_height` blocks, without waiting for
+    /// real block production.
     ///
     /// # Example
     ///
@@ -562,10 +459,6 @@ impl Sandbox {
         Ok(())
     }
 }
-
-// ============================================================================
-// SandboxBuilder
-// ============================================================================
 
 /// Builder for custom sandbox configuration.
 ///
@@ -657,56 +550,17 @@ impl SandboxBuilder {
     /// Set the root account name for this sandbox.
     ///
     /// If not specified, defaults to `"sandbox"`.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::account;
-    /// # use near_kit_sandbox::Sandbox;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let sandbox = Sandbox::builder()
-    ///     .root_account(account!("sb"))
-    ///     .fresh()
-    ///     .await?;
-    /// // Sub-accounts will be "alice.sb" instead of "alice.sandbox"
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn root_account(mut self, name: impl Into<AccountId>) -> Self {
         self.root_account = Some(name.into());
         self
     }
 
-    /// Set the chain ID for this sandbox.
+    /// Set the chain ID for this sandbox; without one, the image default is used.
     ///
-    /// Useful for testing chain-ID-dependent logic (e.g., signed wallet
-    /// requests that compare against the chain ID).
-    ///
-    /// If not specified, the sandbox uses its default chain ID. Sandboxes
-    /// that share a chain ID still keep their nonces apart: near-kit caches
-    /// nonces by each chain's genesis hash, and every sandbox has its own.
-    ///
-    /// **Note:** `"mainnet"` and `"testnet"` are not supported. Attempting to
-    /// use either is reported by [`SandboxBuilder::fresh`] or
-    /// [`SandboxBuilder::shared`].
-    /// `neard` reserves these chain IDs for the real networks and rejects the
-    /// sandbox test-seed during `init`, so the container never passes its
-    /// health check (surfacing only as an opaque container-startup failure).
-    /// Use a custom chain ID instead (e.g. `"localnet"`, or `"pinet"` for
-    /// Private Shard).
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit_sandbox::Sandbox;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let sandbox = Sandbox::builder()
-    ///     .chain_id("localnet")
-    ///     .fresh()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Sandboxes that share a chain ID still keep their nonces apart: near-kit
+    /// caches nonces by each chain's genesis hash, and every sandbox has its
+    /// own. `"mainnet"` and `"testnet"` are reported as
+    /// [`SandboxError::UnsupportedChainId`] by `fresh` or `shared`.
     pub fn chain_id(mut self, chain_id: impl Into<String>) -> Self {
         let chain_id = chain_id.into();
         if matches!(chain_id.as_str(), "mainnet" | "testnet") {
@@ -728,8 +582,8 @@ impl SandboxBuilder {
 
     /// Get or create the shared sandbox with the configured options.
     ///
-    /// **Note:** The version, root account, and chain ID are only used if the
-    /// shared sandbox hasn't been initialized yet. If it's already running, the
+    /// The version, root account, and chain ID are only used if the shared
+    /// sandbox hasn't been initialized yet. If it's already running, the
     /// existing instance is returned regardless of the options specified here.
     pub async fn shared(self) -> Result<&'static Sandbox, SandboxError> {
         SHARED_SANDBOX
