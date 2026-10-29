@@ -4,8 +4,9 @@
 //! from `near-kit-primitives`; `verify()` (feature `rpc`) additionally checks key ownership
 //! over RPC.
 //!
-//! NEP-413 enables users to sign messages for authentication and ownership verification
-//! without gas fees or blockchain transactions.
+//! [NEP-413](https://github.com/near/NEPs/blob/master/neps/nep-0413.md) enables users to
+//! sign messages for authentication and ownership verification without gas fees or
+//! blockchain transactions.
 //!
 //! # Example
 //!
@@ -53,8 +54,6 @@
 //! [`NonceValidation::None`] to skip the timestamp interpretation — you are then responsible
 //! for replay protection yourself (e.g. tracking used nonces or validating your own embedded
 //! structure).
-//!
-//! @see <https://github.com/near/NEPs/blob/master/neps/nep-0413.md>
 
 #[doc(inline)]
 pub use near_kit_primitives::standards::nep413::{
@@ -78,12 +77,7 @@ use crate::types::{AccessKeyPermissionView, BlockReference};
 /// - The public key belongs to the claimed account (via RPC)
 /// - The key has full access permission (not a function call key)
 ///
-/// # Arguments
-///
-/// * `signed` - The signed message to verify
-/// * `params` - Original message parameters (must match what was signed)
-/// * `near` - Near client for RPC verification
-/// * `options` - Verification options
+/// `params` must be the parameters that were signed.
 ///
 /// # Example
 ///
@@ -101,9 +95,8 @@ use crate::types::{AccessKeyPermissionView, BlockReference};
 /// # }
 /// ```
 ///
-/// For messages that use a custom nonce scheme (NEP-413 nonces are arbitrary 32 bytes;
-/// the timestamp layout is a near-kit convention), disable nonce interpretation and
-/// handle replay protection yourself:
+/// For messages with their own nonce scheme (see [Nonces](crate::standards::nep413#nonces)),
+/// disable nonce interpretation and handle replay protection yourself:
 ///
 /// ```rust,no_run
 /// use near_kit::Near;
