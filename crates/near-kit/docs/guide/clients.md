@@ -146,7 +146,7 @@ every call through a client:
 | [`transport`](crate::NearBuilder::transport) | reqwest (`wasi:http` on WASI with `wasi-http`) | How HTTP requests are made |
 | [`retry_config`](crate::NearBuilder::retry_config) | 3 retries, 500 ms doubling | Re-sending a request after a transient failure |
 | [`max_nonce_retries`](crate::NearBuilder::max_nonce_retries) | 3 | Re-signing a send after a nonce or expiry rejection |
-| [`chain_id`](crate::NearBuilder::chain_id) | From the preset or `Near::custom` | `Near::chain_id`; the nonce cache key for a backend that can't report its genesis hash |
+| Chain ID, read with [`Near::chain_id`](crate::Near::chain_id) | From the preset, or the second argument of [`Near::custom`](crate::Near::custom) | The nonce cache key for a backend that can't report its genesis hash |
 
 The [errors chapter](crate::guide::errors#retries) explains what each kind
 of retry covers.

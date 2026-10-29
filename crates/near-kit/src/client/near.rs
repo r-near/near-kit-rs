@@ -413,14 +413,12 @@ impl NearBuilder {
         }
     }
 
-    /// Set the chain ID.
-    ///
-    /// Overrides the chain ID the builder was created with, such as a
-    /// `mainnet()` or `testnet()` preset's. Cached nonces are keyed by the
-    /// node's genesis hash, and by chain ID only for a backend that can't
-    /// report one (see [`Near::custom`]).
-    pub fn chain_id(mut self, chain_id: impl Into<String>) -> Self {
-        self.chain_id = ChainId::new(chain_id);
+    /// Override the chain ID the builder was created with, such as a
+    /// `mainnet()` or `testnet()` preset's. Only `SigningNear::from_env` does
+    /// this, for `NEAR_CHAIN_ID`; everyone else passes the chain ID to
+    /// [`Near::custom`].
+    pub(crate) fn chain_id(mut self, chain_id: impl Into<ChainId>) -> Self {
+        self.chain_id = chain_id.into();
         self
     }
 

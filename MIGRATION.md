@@ -33,6 +33,7 @@ after the table cover each one.
 | `NearBuilder::credentials(key, id)`, `NearBuilder::signer(s)` | `near.with_signer(InMemorySigner::new(id, key.parse()?))` after `build()` |
 | `Near::from_env()` | `SigningNear::from_env()`; with a URL in `NEAR_NETWORK` it also needs `NEAR_CHAIN_ID` |
 | `Near::from_rpc(rpc, chain_id)` | `Near::custom(url, chain_id).transport(t).retry_config(c).build()` |
+| `NearBuilder::chain_id(id)` | `Near::custom(url, id)`; a preset's chain ID is fixed, and `near.chain_id()` reads it |
 | `NearBuilder::http_client(client)` | `.transport(ReqwestTransport::with_client(client))`, with `client` built from `near_kit::reqwest` |
 | `Near::sandbox(&sandbox)`, `rpc::SandboxNetwork` | `sandbox.root_account()` |
 | `Near::account_id()`, `Near::try_account_id()` | `alice.account_id()`; a `Near` has no account |
