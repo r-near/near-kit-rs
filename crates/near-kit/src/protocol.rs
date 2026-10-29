@@ -8,18 +8,17 @@
 #[doc(inline)]
 pub use near_kit_primitives::protocol::{
     AccessKey, AccessKeyPermission, Action, ActionError, ActionErrorKind, ActionsValidationError,
-    AddKeyAction, CompilationError, CreateAccountAction, DELEGATE_ACTION_PREFIX,
-    DELEGATE_V2_ACTION_PREFIX, DecodeDelegateError, DelegateAction, DelegateActionV2,
-    DeleteAccountAction, DeleteKeyAction, DeployContractAction, DeployGlobalContractAction,
-    DepositCostFailureReason, DeterministicStateInitAction, FunctionCallAction, FunctionCallError,
-    FunctionCallPermission, GasKeyInfo, GlobalContractId, HostError, InvalidAccessKeyError,
-    InvalidTxError, MethodResolveError, NonDelegateAction, Nonce, NonceIndex, NonceMode,
-    PrepareError, PublishMode, ReceiptValidationError, SignedDelegateAction, SignedTransaction,
-    SignedTransactionV1, StakeAction, StateInit, StateInitV1, StorageError, Transaction,
-    TransactionNonce, TransactionV1, TransferAction, TransferToGasKeyAction, TxExecutionError,
-    UniversalStateInit, UniversalStateInitAction, UniversalStateInitV1, UnknownError,
-    UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
-    VersionedTransaction, WasmTrap, WithdrawFromGasKeyAction,
+    AddKeyAction, CompilationError, CreateAccountAction, DecodeDelegateError, DelegateAction,
+    DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
+    DeployGlobalContractAction, DepositCostFailureReason, DeterministicStateInitAction,
+    FunctionCallAction, FunctionCallError, FunctionCallPermission, GasKeyInfo, GlobalContractId,
+    HostError, InvalidAccessKeyError, InvalidTxError, MethodResolveError, NonDelegateAction, Nonce,
+    NonceIndex, NonceMode, PrepareError, PublishMode, ReceiptValidationError, SignedDelegateAction,
+    SignedTransaction, SignedTransactionV1, StakeAction, StateInit, StateInitV1, StorageError,
+    Transaction, TransactionNonce, TransactionV1, TransferAction, TransferToGasKeyAction,
+    TxExecutionError, UniversalStateInit, UniversalStateInitAction, UniversalStateInitV1,
+    UnknownError, UseGlobalContractAction, VersionedDelegateActionPayload,
+    VersionedSignedDelegateAction, VersionedTransaction, WasmTrap, WithdrawFromGasKeyAction,
 };
 #[doc(inline)]
 pub use near_kit_primitives::protocol::{

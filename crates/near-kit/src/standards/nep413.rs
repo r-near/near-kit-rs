@@ -57,8 +57,8 @@
 
 #[doc(inline)]
 pub use near_kit_primitives::standards::nep413::{
-    AuthPayload, DEFAULT_MAX_AGE, NEP413_TAG, NonceValidation, SignMessageParams, SignedMessage,
-    VerifyOptions, extract_timestamp_from_nonce, generate_nonce, hash_message, verify_signature,
+    AuthPayload, DEFAULT_MAX_AGE, NonceValidation, SignMessageParams, SignedMessage, VerifyOptions,
+    extract_timestamp_from_nonce, generate_nonce, hash_message, verify_signature,
 };
 
 #[cfg(feature = "rpc")]

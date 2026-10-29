@@ -70,9 +70,9 @@ impl From<UniversalStateInitV1> for RawStateInit {
 /// struct per version): universal accounts and the canonical-encoding rule
 /// both arrive at protocol 88 (nearcore 2.14), so no stable protocol has
 /// accepted any other encoding. [`UniversalStateInit::from_raw`] enforces that
-/// rule, so each logical value built here has exactly one id, while
-/// [`UniversalStateInit::from_raw_lenient`] decodes any well-formed borsh, for
-/// inspecting bytes without judging them.
+/// rule, so each logical value built here has exactly one id, while its
+/// lenient [`BorshDeserialize`] (`borsh::from_slice`) decodes any well-formed
+/// borsh, for inspecting bytes without judging them.
 ///
 /// This type is borsh-only; convert through [`RawStateInit`] (see there for
 /// near-global-contracts' same-named types). `Action::universal_state_init`
@@ -85,7 +85,8 @@ impl From<UniversalStateInitV1> for RawStateInit {
 ///
 /// Its [`BorshSerialize`] output is always the canonical encoding, so
 /// `borsh::to_vec(&state_init)` equals [`to_raw`](Self::to_raw). Its
-/// [`BorshDeserialize`] is lenient, like [`from_raw_lenient`](Self::from_raw_lenient).
+/// [`BorshDeserialize`] is lenient: it accepts any well-formed encoding,
+/// canonical or not, and re-encoding the result can change its account id.
 ///
 /// # Example
 ///
@@ -215,7 +216,7 @@ impl UniversalStateInit {
     ///
     /// For inspecting bytes only: no stable protocol accepts a non-canonical
     /// state init, and re-encoding the result can change its account id.
-    pub fn from_raw_lenient(raw: &RawStateInit) -> Result<Self, StateInitError> {
+    fn from_raw_lenient(raw: &RawStateInit) -> Result<Self, StateInitError> {
         decode_lenient(&raw.0)
     }
 
@@ -292,7 +293,7 @@ impl BorshDeserialize for UniversalStateInit {
 }
 
 /// Lenient decode of state init bytes; shared by
-/// [`UniversalStateInit::from_raw_lenient`] and the `UniversalStateInit` action.
+/// [`UniversalStateInit::from_raw`] and the `UniversalStateInit` action.
 pub(crate) fn decode_lenient(bytes: &[u8]) -> Result<UniversalStateInit, StateInitError> {
     borsh::from_slice(bytes).map_err(|_| StateInitError::Malformed)
 }

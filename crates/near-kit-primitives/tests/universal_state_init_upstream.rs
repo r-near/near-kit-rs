@@ -209,7 +209,7 @@ fn canonicality_vectors_match_upstream() {
         assert_eq!(Err(ours), raw.try_derive_account_id(), "{name}");
         // The lenient decode agrees on what is merely non-canonical.
         assert_eq!(
-            UniversalStateInit::from_raw_lenient(&raw).is_ok(),
+            borsh::from_slice::<UniversalStateInit>(raw.as_ref()).is_ok(),
             ours == StateInitError::NonCanonical,
             "{name}"
         );

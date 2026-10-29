@@ -51,16 +51,16 @@ pub enum PublishMode {
 /// This prefix is prepended to a `DelegateAction` when serializing for signing,
 /// ensuring delegate action signatures are always distinguishable from regular
 /// transaction signatures.
-pub const DELEGATE_ACTION_PREFIX: u32 = 1_073_742_190;
+pub(crate) const DELEGATE_ACTION_PREFIX: u32 = 1_073_742_190;
 
 /// NEP-461 domain prefix for V2 delegate actions (gas-key meta-transactions,
 /// NEP-611): 2^30 + 611.
 ///
-/// This is a **distinct** signing domain from [`DELEGATE_ACTION_PREFIX`]: a V1
+/// This is a **distinct** signing domain from `DELEGATE_ACTION_PREFIX`: a V1
 /// delegate signature is not valid for a V2 action and vice versa. The prefix is
 /// prepended to a borsh-encoded [`VersionedDelegateActionPayload`] (not a bare
 /// `DelegateActionV2`) when serializing for signing.
-pub const DELEGATE_V2_ACTION_PREFIX: u32 = 1_073_742_435;
+pub(crate) const DELEGATE_V2_ACTION_PREFIX: u32 = 1_073_742_435;
 
 /// Gas key information.
 ///
@@ -380,7 +380,8 @@ impl UniversalStateInitAction {
         super::universal_state_init::derive_universal_account_id(&self.state_init)
     }
 
-    /// Decode the carried bytes leniently; see [`UniversalStateInit::from_raw_lenient`].
+    /// Decode the carried bytes leniently, accepting any well-formed encoding,
+    /// canonical or not; [`UniversalStateInit::from_raw`] is the strict decode.
     pub fn decode_state_init(&self) -> Result<UniversalStateInit, StateInitError> {
         super::universal_state_init::decode_lenient(&self.state_init)
     }
@@ -458,8 +459,8 @@ impl VersionedDelegateActionPayload {
 
     /// Serialize this payload for signing under the V2 NEP-461 domain.
     ///
-    /// Layout: `DELEGATE_V2_ACTION_PREFIX (u32 LE) ++ borsh(self)`. Because the
-    /// prefix differs from [`DELEGATE_ACTION_PREFIX`] and the payload is the
+    /// Layout: the V2 prefix 2^30 + 611 (u32 LE) `++ borsh(self)`. Because the
+    /// prefix differs from V1's 2^30 + 366 and the payload is the
     /// *versioned* enum (so it begins with the `0x00` V2 tag), a V1 delegate
     /// signature is never valid for a V2 action.
     pub fn serialize_for_signing(&self) -> Vec<u8> {
@@ -761,7 +762,7 @@ impl Action {
 impl DelegateAction {
     /// Serialize the delegate action for signing.
     ///
-    /// Per NEP-461 this is [`DELEGATE_ACTION_PREFIX`] (u32 LE) then borsh of the
+    /// Per NEP-461 this is the prefix 2^30 + 366 (u32 LE) then borsh of the
     /// action, so a signed delegate action is never a signed transaction.
     ///
     /// # Example

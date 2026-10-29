@@ -60,7 +60,7 @@ use crate::types::{AccountId, CryptoHash, PublicKey, Signature};
 ///
 /// This prefix ensures that signed messages cannot be confused with valid transactions.
 /// The tag makes the message too long to be a valid signer account ID.
-pub const NEP413_TAG: u32 = (1 << 31) + 413;
+pub(crate) const NEP413_TAG: u32 = (1 << 31) + 413;
 
 /// Default maximum age for signature validity (5 minutes).
 pub const DEFAULT_MAX_AGE: Duration = Duration::from_secs(5 * 60);
@@ -287,8 +287,8 @@ pub fn extract_timestamp_from_nonce(nonce: &[u8; 32]) -> u64 {
     u64::from_be_bytes(nonce[..8].try_into().unwrap())
 }
 
-/// Hash a NEP-413 message, ready for signing: SHA-256 of borsh [`NEP413_TAG`]
-/// (u32 LE) then borsh `{message, nonce, recipient, callback_url}`.
+/// Hash a NEP-413 message, ready for signing: SHA-256 of the borsh tag
+/// 2^31 + 413 (u32 LE) then borsh `{message, nonce, recipient, callback_url}`.
 pub fn hash_message(p: &SignMessageParams) -> CryptoHash {
     let payload = (
         NEP413_TAG,
@@ -377,7 +377,7 @@ where
 
 /// Build a signature from raw bytes, choosing the key type by length.
 fn signature_from_unprefixed_bytes(bytes: &[u8]) -> Option<Signature> {
-    use crate::types::ML_DSA_65_SIGNATURE_LENGTH;
+    use crate::types::key::ML_DSA_65_SIGNATURE_LENGTH;
 
     match bytes.len() {
         64 => bytes.try_into().ok().map(Signature::Ed25519),

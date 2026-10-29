@@ -22,16 +22,16 @@ use crate::error::ParseKeyError;
 use crate::error::SignerError;
 
 /// ML-DSA-65 public key length in bytes (FIPS 204).
-pub const ML_DSA_65_PUBLIC_KEY_LENGTH: usize = 1952;
+pub(crate) const ML_DSA_65_PUBLIC_KEY_LENGTH: usize = 1952;
 /// ML-DSA-65 seed length in bytes (the 32-byte FIPS-204 ξ).
-pub const ML_DSA_65_SEED_LENGTH: usize = 32;
+pub(crate) const ML_DSA_65_SEED_LENGTH: usize = 32;
 /// ML-DSA-65 expanded private key length in bytes (FIPS-204 `skEncode`). This is
 /// the form nearcore/NEAR tooling exports under the `ml-dsa-65:` prefix.
-pub const ML_DSA_65_SECRET_KEY_LENGTH: usize = 4032;
+pub(crate) const ML_DSA_65_SECRET_KEY_LENGTH: usize = 4032;
 /// ML-DSA-65 signature length in bytes (FIPS 204).
-pub const ML_DSA_65_SIGNATURE_LENGTH: usize = 3309;
+pub(crate) const ML_DSA_65_SIGNATURE_LENGTH: usize = 3309;
 /// Length of the on-trie ML-DSA-65 access-key identifier (a SHA3-256 digest).
-pub const ML_DSA_65_HASH_LENGTH: usize = 32;
+pub(crate) const ML_DSA_65_HASH_LENGTH: usize = 32;
 
 /// Domain-separation tag nearcore prepends before hashing an ML-DSA-65 public
 /// key into its on-trie handle (`core/crypto/src/hash_domain.rs`).
@@ -60,7 +60,7 @@ impl KeyType {
     }
 
     /// Get the expected public key length in bytes.
-    pub fn public_key_len(&self) -> usize {
+    pub(crate) fn public_key_len(&self) -> usize {
         match self {
             KeyType::Ed25519 => 32,
             KeyType::Secp256k1 => 64, // Uncompressed, no prefix, as in nearcore
@@ -69,7 +69,7 @@ impl KeyType {
     }
 
     /// Get the expected signature length in bytes.
-    pub fn signature_len(&self) -> usize {
+    pub(crate) fn signature_len(&self) -> usize {
         match self {
             KeyType::Ed25519 => 64,
             KeyType::Secp256k1 => 65,

@@ -447,14 +447,6 @@ impl RotatingSigner {
         self.keys.iter().map(|sk| sk.public_key()).collect()
     }
 
-    /// Get all signing keys without advancing the rotation counter.
-    pub fn signing_keys(&self) -> Vec<SigningKey> {
-        self.keys
-            .iter()
-            .map(|sk| SigningKey::new(sk.clone()))
-            .collect()
-    }
-
     /// Split into per-key [`InMemorySigner`] instances.
     ///
     /// Each signer uses a single key from the rotation pool, allowing
@@ -636,30 +628,6 @@ mod tests {
             RotatingSigner::from_signers(vec![]),
             Err(SignerError::NoKeys)
         ));
-    }
-
-    #[test]
-    fn test_rotating_signer_signing_keys() {
-        let keys = vec![
-            SecretKey::generate_ed25519(),
-            SecretKey::generate_ed25519(),
-            SecretKey::generate_ed25519(),
-        ];
-        let expected_public_keys: Vec<_> = keys.iter().map(|k| k.public_key()).collect();
-
-        let signer = RotatingSigner::new(account!("bot.testnet"), keys).unwrap();
-
-        // signing_keys() should not advance the counter
-        let counter_before = signer.counter.load(Ordering::Relaxed);
-        let signing_keys = signer.signing_keys();
-        let counter_after = signer.counter.load(Ordering::Relaxed);
-        assert_eq!(counter_before, counter_after);
-
-        // Should return all keys with matching public keys
-        assert_eq!(signing_keys.len(), 3);
-        for (sk, expected_pk) in signing_keys.iter().zip(&expected_public_keys) {
-            assert_eq!(sk.public_key(), expected_pk);
-        }
     }
 
     #[test]

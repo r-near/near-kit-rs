@@ -37,11 +37,7 @@ pub use near_kit_primitives::signer::{
     InMemorySigner, ParseKeyError, RotatingSigner, Signer, SignerError, SigningBackend, SigningKey,
 };
 #[doc(inline)]
-pub use near_kit_primitives::signer::{
-    KeyType, ML_DSA_65_HASH_LENGTH, ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SECRET_KEY_LENGTH,
-    ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH, PublicKey, PublicKeyHandle, SecretKey,
-    Signature,
-};
+pub use near_kit_primitives::signer::{KeyType, PublicKey, PublicKeyHandle, SecretKey, Signature};
 
 #[cfg(feature = "keyring")]
 pub use crate::client::from_keyring;

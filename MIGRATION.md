@@ -80,6 +80,7 @@ after the table cover each one.
 | `DelegateOptions::with_offset(n)`, `DelegateOptions::with_max_height(h)` | `DelegateOptions { block_height_offset: Some(n), ..Default::default() }`, `max_block_height: Some(h)` |
 | `TransactionBuilder::signed_delegate_action(signed)` | `relayer.transaction(signed.sender_id()).add_action(Action::delegate(signed))` |
 | `DelegateAction::sign(sig)`, `VersionedDelegateActionPayload::sign(sig)` | `into_signed(sig)` |
+| `protocol::DELEGATE_ACTION_PREFIX`, `protocol::DELEGATE_V2_ACTION_PREFIX` | Crate-private (2^30 + 366 and 2^30 + 611); `DelegateAction::serialize_for_signing()` and `VersionedDelegateActionPayload::serialize_for_signing()` prepend them |
 | `protocol::DelegateDecodeError` | `protocol::DecodeDelegateError`, now `#[non_exhaustive]` (a `match` needs a `_` arm); `Base64` holds the message as a `String` |
 | `DelegateActionView::actions`, `DelegateActionV2View::actions` as `Vec<ActionView>` | `Vec<Action>` |
 
@@ -155,6 +156,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `FungibleToken::fmt`, `NonFungibleToken::fmt` (`Debug` on the clients) | `Debug` on `FungibleTokenClient`, `NonFungibleTokenClient` |
 | `standards::FtAmount` (and `From<FtAmount> for u128`) | Removed: amounts are `u128`; format with `metadata().await?.decimals` |
 | `standards::nep413::serialize_message(&params)` | `standards::nep413::hash_message(&params)` |
+| `standards::nep413::NEP413_TAG` | Crate-private (2^31 + 413); `standards::nep413::hash_message(&params)` prepends it |
 | `Viewer` and `TxSender` for `Box<T>` | `Arc<T>`, or the backend itself |
 
 ### Keys and signers
@@ -171,6 +173,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `signer::DEFAULT_HD_PATH`, `signer::DEFAULT_WORD_COUNT`, `signer::DEFAULT_ML_DSA_65_WORD_COUNT` | Removed; pass `None` |
 | `RotatingSigner::from_key_strings(id, &keys)` | `RotatingSigner::new(id, keys.iter().map(|k| k.parse()).collect::<Result<_, _>>()?)` |
 | `RotatingSigner::key_count()` | `public_keys().len()` |
+| `RotatingSigner::signing_keys()` | Removed: `public_keys()` lists the keys, `into_per_key_signers()` gives a signer for each |
 | `signer::EnvSigner` (`new()`, `from_env_vars(a, k)`) | `signer::from_env()`, `signer::from_env_vars(a, k)`, returning an `InMemorySigner` |
 | `signer::FileSigner` (`new(network, id)`, `from_file(path, id)`) | `signer::from_credentials(network, id)`, `signer::from_credentials_file(path, id)` |
 | `signer::KeyringSigner::new(network, id, "ed25519:...")` | `signer::from_keyring(network, id, &public_key)` with a parsed `PublicKey` |
@@ -180,6 +183,8 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `PublicKey::ml_dsa65_from_bytes(bytes)` | `PublicKey::MlDsa65(bytes)` |
 | `Signature::ed25519_from_bytes(b)`, `Signature::secp256k1_from_bytes(b)`, `Signature::ml_dsa65_from_bytes(b)` | `Signature::Ed25519(b)`, `Signature::Secp256k1(b)`, `Signature::MlDsa65(b)` |
 | `KeyType::try_from(u8)` | Match the byte yourself; `key_type as u8` gives the tag |
+| `KeyType::public_key_len()`, `KeyType::signature_len()` | Crate-private: public keys are 32 (Ed25519), 64 (secp256k1) and 1952 (ML-DSA-65) bytes, signatures 64, 65 and 3309 |
+| `signer::ML_DSA_65_PUBLIC_KEY_LENGTH`, `ML_DSA_65_SEED_LENGTH`, `ML_DSA_65_SECRET_KEY_LENGTH`, `ML_DSA_65_SIGNATURE_LENGTH`, `ML_DSA_65_HASH_LENGTH` | Crate-private (1952, 32, 4032, 3309 and 32); the array types of `PublicKey::MlDsa65`, `PublicKeyHandle::MlDsa65Hash`, `Signature::MlDsa65`, `SecretKey::ml_dsa65_from_seed` and `SecretKey::to_ml_dsa65_expanded_bytes` carry them |
 
 ### Error variants
 
@@ -214,6 +219,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `AccessKeyPermission::function_call(rx, methods, allowance)`, `AccessKeyPermission::full_access()`, `AccessKey::function_call(..)` | `AccessKeyPermission::FunctionCall(FunctionCallPermission { allowance, receiver_id, method_names })`, `AccessKeyPermission::FullAccess`, `AccessKey { nonce: 0, permission }`; or `Action::add_function_call_key(..)` |
 | `VersionedDelegateActionPayload::get_actions()` | `let VersionedDelegateActionPayload::V2(d) = payload;` then `d.actions.iter().cloned().map(Action::from)` |
 | `NonDelegateAction::into_inner()`, `NonDelegateAction::try_from(action)` (`Error = ()`) | `Action::from(non_delegate)`; `NonDelegateAction::from_action(action)`, which returns an `Option` |
+| `UniversalStateInit::from_raw_lenient(raw)` | `UniversalStateInit::from_raw(raw)`, which rejects a non-canonical encoding as nearcore does; to inspect such bytes, `borsh::from_slice::<UniversalStateInit>(raw.as_ref())` |
 | `Transaction::get_hash_and_size()` | `tx.get_hash()`; `borsh::to_vec(&tx)?.len()` for the size |
 
 ### Sandbox (near-kit-sandbox)

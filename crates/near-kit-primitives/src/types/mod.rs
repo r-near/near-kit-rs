@@ -22,13 +22,13 @@ mod wait_level;
 pub use account::{AccountId, AccountIdRef};
 pub use action::{
     AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction,
-    DELEGATE_ACTION_PREFIX, DELEGATE_V2_ACTION_PREFIX, DecodeError as DecodeDelegateError,
-    DelegateAction, DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
-    DeployGlobalContractAction, DeterministicStateInitAction, FunctionCallAction,
-    FunctionCallPermission, GasKeyInfo, GlobalContractId, NonDelegateAction, PublishMode,
-    SignedDelegateAction, StakeAction, StateInit, StateInitV1, TransferAction,
-    TransferToGasKeyAction, UniversalStateInitAction, UseGlobalContractAction,
-    VersionedDelegateActionPayload, VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
+    DecodeError as DecodeDelegateError, DelegateAction, DelegateActionV2, DeleteAccountAction,
+    DeleteKeyAction, DeployContractAction, DeployGlobalContractAction,
+    DeterministicStateInitAction, FunctionCallAction, FunctionCallPermission, GasKeyInfo,
+    GlobalContractId, NonDelegateAction, PublishMode, SignedDelegateAction, StakeAction, StateInit,
+    StateInitV1, TransferAction, TransferToGasKeyAction, UniversalStateInitAction,
+    UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
+    WithdrawFromGasKeyAction,
 };
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{
@@ -38,11 +38,7 @@ pub use error::{
     UnknownError, WasmTrap,
 };
 pub use hash::CryptoHash;
-pub use key::{
-    KeyType, ML_DSA_65_HASH_LENGTH, ML_DSA_65_PUBLIC_KEY_LENGTH, ML_DSA_65_SECRET_KEY_LENGTH,
-    ML_DSA_65_SEED_LENGTH, ML_DSA_65_SIGNATURE_LENGTH, PublicKey, PublicKeyHandle, SecretKey,
-    Signature,
-};
+pub use key::{KeyType, PublicKey, PublicKeyHandle, SecretKey, Signature};
 pub use network::ChainId;
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
