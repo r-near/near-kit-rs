@@ -465,7 +465,7 @@ impl Signer for InMemorySigner {
 ///
 /// Use [`into_per_key_signers()`](Self::into_per_key_signers) to split into
 /// per-key [`InMemorySigner`] instances for building sequential send queues.
-/// See the `sequential_sends` example.
+/// See the [`sequential_sends` example](https://github.com/r-near/near-kit-rs/blob/main/crates/near-kit-sandbox/examples/sequential_sends.rs).
 ///
 /// # Example
 ///

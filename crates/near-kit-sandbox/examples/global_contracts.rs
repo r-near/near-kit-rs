@@ -1,180 +1,131 @@
-//! Global Contracts: Publish and Deploy-From
+//! Global contracts: publish code once, deploy it to many accounts.
 //!
-//! Demonstrates the global contract workflow:
-//! 1. Publish a contract to the global registry
-//! 2. Deploy it to another account with `Action::deploy_from`, by publisher account or by code hash
-//! 3. Call methods on the deployed contract
+//! A global contract is code stored on chain under a publisher account or its
+//! code hash. Other accounts then use it with `Action::deploy_from` instead of
+//! uploading the wasm themselves.
 //!
-//! Run: cargo run -p near-kit-sandbox --example global_contracts --features integration-tests
+//! What it shows:
 //!
-//! This example starts a local NEAR node through Docker.
+//! - `Action::publish(code, PublishMode::Updatable)`: identified by the
+//!   publisher's account, which can publish new code under it later.
+//! - `Action::publish(code, PublishMode::Immutable)`: identified by the code
+//!   hash, which never changes.
+//! - `Action::deploy_from(account_id)` and `Action::deploy_from(code_hash)`,
+//!   then a call and a view on each deployed account.
+//!
+//! Run it (needs Docker; starts a fresh sandbox and stops it on exit):
+//!
+//! ```text
+//! cargo run -p near-kit-sandbox --example global_contracts --features integration-tests
+//! ```
 
-use near_kit::protocol::Action;
-use near_kit::transaction::FunctionCall;
-use near_kit::*;
-
-use near_kit::protocol::PublishMode;
+use near_kit::protocol::{Action, PublishMode};
 use near_kit::signer::{InMemorySigner, SecretKey};
-use near_kit::transaction::Final;
-
+use near_kit::transaction::FunctionCall;
+use near_kit::{AccountId, CryptoHash, Gas, NearToken, SigningNear, account};
 use near_kit_sandbox::Sandbox;
 
-async fn global_contracts_example() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Starting local sandbox...\n");
-    let sandbox: Sandbox = Sandbox::builder().fresh().await?;
+const GUESTBOOK_WASM: &[u8] = include_bytes!("../tests/contracts/guestbook.wasm");
 
-    let root_near = sandbox.root_account();
-    let root_account = root_near.account_id().to_string();
-
-    // --- Create a publisher account ---
-    let publisher_key = SecretKey::generate_ed25519();
-    let publisher_account: AccountId = format!("publisher.{root_account}").parse()?;
-
-    root_near
-        .transaction(&publisher_account)
+/// Create a sub-account of `root` with `balance` and a new key, and return a
+/// client that signs as it.
+async fn create_account(
+    root: &SigningNear,
+    account_id: AccountId,
+    balance: NearToken,
+) -> Result<SigningNear, Box<dyn std::error::Error>> {
+    let key = SecretKey::generate_ed25519();
+    root.transaction(&account_id)
         .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(50)))
-        .add_action(Action::add_full_access_key(publisher_key.public_key()))
+        .add_action(Action::transfer(balance))
+        .add_action(Action::add_full_access_key(key.public_key()))
         .await?
+        // `?` on the send fails if the transaction didn't run, or if its
+        // outcome is unknown (a timeout); `.result()?` also fails if an
+        // action did.
         .result()?;
-
-    let publisher_near = sandbox
-        .root_account()
+    Ok(root
         .near()
-        .with_signer(InMemorySigner::new(&publisher_account, publisher_key));
+        .with_signer(InMemorySigner::new(account_id, key)))
+}
 
-    println!("Created publisher: {publisher_account}");
-
-    // --- Publish a contract (updatable mode) ---
-    let wasm_code = include_bytes!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/contracts/guestbook.wasm"
-    ))
-    .to_vec();
-
-    publisher_near
-        .wait_until::<Final>()
-        .transaction(publisher_near.account_id())
-        .add_action(Action::publish(wasm_code.clone(), PublishMode::Updatable))
-        .await?
-        .result()?;
-
-    println!("Published guestbook contract (updatable)\n");
-
-    // --- Create a user account and deploy from the publisher ---
-    let user_key = SecretKey::generate_ed25519();
-    let user_account: AccountId = format!("app.{root_account}").parse()?;
-
-    root_near
-        .transaction(&user_account)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(10)))
-        .add_action(Action::add_full_access_key(user_key.public_key()))
-        .await?
-        .result()?;
-
-    let user_near = sandbox
-        .root_account()
-        .near()
-        .with_signer(InMemorySigner::new(&user_account, user_key));
-
-    // Deploy from the publisher's global contract
-    user_near
-        .wait_until::<Final>()
-        .transaction(user_near.account_id())
-        .add_action(Action::deploy_from(publisher_account.clone()))
-        .await?
-        .result()?;
-
-    println!("Deployed to {user_account} from publisher\n");
-
-    // --- Interact with the deployed contract ---
-    user_near
-        .wait_until::<Final>()
-        .transaction(&user_account)
+/// Add a message to the guestbook deployed on `app`, then read them back.
+async fn try_guestbook(app: &SigningNear) -> Result<usize, Box<dyn std::error::Error>> {
+    app.transaction(app.account_id())
         .add_action(
             FunctionCall::new("add_message")
-                .args(serde_json::json!({ "text": "Hello from a global contract!" }))
-                .gas(Gas::from_tgas(30))
-                .deposit(NearToken::ZERO),
+                .args(serde_json::json!({ "text": "Hello from a global contract" }))
+                .gas(Gas::from_tgas(30)),
         )
         .await?
         .result()?;
 
-    let messages: Vec<serde_json::Value> = root_near
+    let messages: Vec<serde_json::Value> = app
         .near()
-        .view(&user_account, "get_messages")
+        .view(app.account_id(), "get_messages")
         .args(serde_json::json!({}))
         .await?;
-
-    println!("Messages on {user_account}:");
-    for msg in &messages {
-        println!("  - {}", msg["text"]);
-    }
-
-    // --- Also deploy from a code hash (Action::deploy_from with a CryptoHash) ---
-    let code_hash = CryptoHash::hash(&wasm_code);
-    println!("\nContract code hash: {code_hash}");
-
-    // Publish the same contract immutably (by hash)
-    publisher_near
-        .wait_until::<Final>()
-        .transaction(publisher_near.account_id())
-        .add_action(Action::publish(wasm_code, PublishMode::Immutable))
-        .await?
-        .result()?;
-
-    println!("Published same contract (immutable)\n");
-
-    // Deploy to a second account using the hash
-    let user2_key = SecretKey::generate_ed25519();
-    let user2_account: AccountId = format!("app2.{root_account}").parse()?;
-
-    root_near
-        .transaction(&user2_account)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(10)))
-        .add_action(Action::add_full_access_key(user2_key.public_key()))
-        .await?
-        .result()?;
-
-    let user2_near = sandbox
-        .root_account()
-        .near()
-        .with_signer(InMemorySigner::new(&user2_account, user2_key));
-
-    // Deploy from hash (type dispatches on CryptoHash)
-    user2_near
-        .wait_until::<Final>()
-        .transaction(user2_near.account_id())
-        .add_action(Action::deploy_from(code_hash))
-        .await?
-        .result()?;
-
-    println!("Deployed to {user2_account} from code hash");
-
-    // Verify it works
-    let messages: Vec<serde_json::Value> = root_near
-        .near()
-        .view(&user2_account, "get_messages")
-        .args(serde_json::json!({}))
-        .await?;
-
-    println!(
-        "Messages on {user2_account}: {} (empty as expected)",
-        messages.len()
-    );
-
-    println!("\nDone.");
-    Ok(())
+    Ok(messages.len())
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Global Contracts Example\n");
-    println!("Demonstrates publishing contracts to the global registry and deploying from them.\n");
+    let sandbox = Sandbox::builder().fresh().await?;
+    let root = sandbox.root_account();
 
-    global_contracts_example().await?;
+    // Publishing pays for the code's storage, so the publisher needs a balance.
+    let publisher = create_account(
+        &root,
+        account!("publisher.sandbox"),
+        NearToken::from_near(50),
+    )
+    .await?;
 
+    // --- By publisher account (updatable) ---
+    publisher
+        .transaction(publisher.account_id())
+        .add_action(Action::publish(GUESTBOOK_WASM, PublishMode::Updatable))
+        .await?
+        .result()?;
+    println!("published the guestbook under {}", publisher.account_id());
+
+    let app = create_account(&root, account!("app.sandbox"), NearToken::from_near(10)).await?;
+    app.transaction(app.account_id())
+        .add_action(Action::deploy_from(publisher.account_id().clone()))
+        .await?
+        .result()?;
+    println!(
+        "deployed to {} from {}",
+        app.account_id(),
+        publisher.account_id()
+    );
+
+    let count = try_guestbook(&app).await?;
+    println!("{} has {count} message", app.account_id());
+    assert_eq!(count, 1);
+
+    // --- By code hash (immutable) ---
+    let code_hash = CryptoHash::hash(GUESTBOOK_WASM);
+    publisher
+        .transaction(publisher.account_id())
+        .add_action(Action::publish(GUESTBOOK_WASM, PublishMode::Immutable))
+        .await?
+        .result()?;
+    println!("published the guestbook as {code_hash}");
+
+    // `deploy_from` takes an account id or a code hash.
+    let app2 = create_account(&root, account!("app2.sandbox"), NearToken::from_near(10)).await?;
+    app2.transaction(app2.account_id())
+        .add_action(Action::deploy_from(code_hash))
+        .await?
+        .result()?;
+    println!("deployed to {} from {code_hash}", app2.account_id());
+
+    // Each account has its own state; only the code is shared.
+    let count = try_guestbook(&app2).await?;
+    println!("{} has {count} message", app2.account_id());
+    assert_eq!(count, 1);
+
+    println!("done");
     Ok(())
 }

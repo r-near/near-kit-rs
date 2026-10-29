@@ -1,250 +1,139 @@
-//! Quickstart - Essential NEAR operations
+//! Quickstart: read from testnet, then write if you give it an account.
 //!
-//! Covers: balance, view, call, transfer, multi-action transactions
+//! What it shows:
 //!
-//! Run: cargo run --example quickstart
+//! - A read-only `Near` client: `balance`, `account_exists`, and a contract
+//!   view with `view(..).args(..)`, read at `Final` (the default) and at
+//!   `Optimistic` with `.at(..)`.
+//! - A `SigningNear` from `SigningNear::from_env()`, and one transaction with
+//!   several actions: it creates a sub-account of your account, funds it and
+//!   gives it a key; a second transaction deletes it and returns what's left
+//!   to you. Nothing is sent to any other account.
+//! - A failed action is `Ok(outcome)` with `outcome.is_failure()`; `Err`
+//!   means the transaction didn't run, or (after a timeout) that near-kit
+//!   couldn't tell whether it did.
 //!
-//! Set environment variables for write operations:
-//!   NEAR_ACCOUNT_ID=your-account.testnet
-//!   NEAR_PRIVATE_KEY=ed25519:...
+//! Reads only (no account needed):
+//!
+//! ```text
+//! cargo run -p near-kit --example quickstart
+//! ```
+//!
+//! With writes, as your testnet account (costs a little gas):
+//!
+//! ```text
+//! NEAR_ACCOUNT_ID=<you>.testnet NEAR_PRIVATE_KEY=ed25519:... \
+//!     cargo run -p near-kit --example quickstart
+//! ```
+//!
+//! To get a testnet account, near-cli-rs can create one paid for by the
+//! faucet (`near account create-account sponsor-by-faucet-service
+//! <you>.testnet autogenerate-new-keypair save-to-keychain network-config
+//! testnet create`), and print its private key (`near account export-account
+//! <you>.testnet using-private-key network-config testnet`).
+//!
+//! `Near::testnet()` uses FastNEAR's free, rate-limited RPC endpoint. Set
+//! `NEAR_NETWORK` to `mainnet`, or to an RPC URL together with `NEAR_CHAIN_ID`
+//! (required with a URL), to point the writes elsewhere.
 
-use near_kit::AccountIdRef;
 use near_kit::protocol::Action;
+use near_kit::rpc::Finality;
 use near_kit::signer::{InMemorySigner, SecretKey};
-use near_kit::transaction::FunctionCall;
-use near_kit::*;
+use near_kit::{AccountId, Error, Near, NearToken, SigningNear, account};
 
-// ============================================================================
-// 1. View blockchain data (read-only, no credentials needed)
-// ============================================================================
-
-async fn view_example() -> Result<(), Error> {
-    println!("=== View Example ===\n");
-
-    let near = Near::testnet().build();
-
-    // Check an account balance
-    let balance = near.balance(account!("alice.testnet")).await?;
-    println!("Alice's balance: {}", balance.available);
-
-    // Call a view function on a contract
-    let messages: Vec<serde_json::Value> = near
-        .view(account!("guestbook.near-examples.testnet"), "get_messages")
-        .args(serde_json::json!({ "from_index": "0", "limit": "5" }))
+async fn reads(near: &Near) -> Result<(), Error> {
+    // Balances come back as `NearToken`s; `available` excludes what's
+    // locked for storage.
+    let balance = near
+        .balance(account!("guestbook.near-examples.testnet"))
         .await?;
-
-    println!("Guestbook has {} messages", messages.len());
-
-    // Check if an account exists
-    let exists = near.account_exists(account!("alice.testnet")).await?;
-    println!("alice.testnet exists: {exists}");
-
-    Ok(())
-}
-
-// ============================================================================
-// 2. Call contract methods (requires credentials)
-// ============================================================================
-
-async fn call_example(me: &SigningNear) -> Result<(), Error> {
-    println!("\n=== Call Example ===\n");
-
-    // Simple function call
-    let outcome = me
-        .transaction(GUESTBOOK)
-        .add_action(
-            FunctionCall::new("add_message")
-                .args(serde_json::json!({ "text": "Hello from near-kit-rs!" }))
-                .gas(Gas::from_tgas(30)),
-        )
-        .await?;
-
-    println!("Transaction: {:?}", outcome.transaction_hash());
-
-    Ok(())
-}
-
-// ============================================================================
-// 3. Transfer NEAR tokens
-// ============================================================================
-
-async fn transfer_example(me: &SigningNear) -> Result<(), Error> {
-    println!("\n=== Transfer Example ===\n");
-
-    // Transfer using typed amount
-    let outcome = me
-        .transaction(account!("friend.testnet"))
-        .add_action(Action::transfer(NearToken::from_millinear(100)))
-        .await?;
-
-    println!("Sent 0.1 NEAR: {:?}", outcome.transaction_hash());
-
-    Ok(())
-}
-
-// ============================================================================
-// 4. Multi-action transactions
-// ============================================================================
-
-async fn transaction_example(me: &SigningNear, new_account: AccountId) -> Result<(), Error> {
-    println!("\n=== Transaction Builder Example ===\n");
-
-    // Generate a new key for the sub-account
-    let secret_key = SecretKey::generate_ed25519();
-    let public_key = secret_key.public_key();
-
-    println!("Creating sub-account: {new_account}");
-    println!("With public key: {public_key}");
-
-    // Create account, fund it, and add a key - all in one atomic transaction
-    let outcome = me
-        .transaction(new_account)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(1)))
-        .add_action(Action::add_full_access_key(public_key))
-        .await?;
-
-    println!("Transaction: {:?}", outcome.transaction_hash());
-
-    Ok(())
-}
-
-// ============================================================================
-// 5. Typed contract interface
-// ============================================================================
-
-#[near_kit::contract]
-pub trait Guestbook {
-    fn get_messages(&self, args: GetMessagesArgs) -> Vec<Message>;
-    fn total_messages(&self) -> u32;
-
-    #[call]
-    fn add_message(&mut self, args: AddMessageArgs);
-}
-
-// Note: The guestbook contract uses string types for pagination
-#[derive(serde::Serialize)]
-pub struct GetMessagesArgs {
-    pub from_index: String,
-    pub limit: String,
-}
-
-#[derive(serde::Serialize)]
-pub struct AddMessageArgs {
-    pub text: String,
-}
-
-#[derive(serde::Deserialize, Debug)]
-pub struct Message {
-    pub sender: String,
-    pub text: String,
-}
-
-// A compile-time-checked account ID literal.
-const GUESTBOOK: &AccountIdRef = AccountIdRef::new_or_panic("guestbook.near-examples.testnet");
-
-async fn typed_contract_example(me: &SigningNear) -> Result<(), Error> {
-    println!("\n=== Typed Contract Example ===\n");
-
-    // Views work on a read-only `Near` too; calls need a signing client.
-    let guestbook = me.contract::<Guestbook>(GUESTBOOK);
-
-    // View call with full type safety
-    let total = guestbook.total_messages().await?;
-    println!("Total messages: {total}");
-
-    let messages = guestbook
-        .get_messages(GetMessagesArgs {
-            from_index: "0".to_string(),
-            limit: "3".to_string(),
-        })
-        .await?;
-
-    for msg in &messages {
-        println!("  {} says: {}", msg.sender, msg.text);
-    }
-
-    // Change call with type safety
-    guestbook
-        .add_message(AddMessageArgs {
-            text: "Type-safe message!".to_string(),
-        })
-        .gas(Gas::from_tgas(30))
-        .await?
-        .result()?;
-
-    println!("Added message via typed interface");
-
-    Ok(())
-}
-
-// ============================================================================
-// 6. Multiple accounts (shared connection, different signers)
-// ============================================================================
-
-async fn multi_account_example(me: &SigningNear) -> Result<(), Error> {
-    println!("\n=== Multi-Account Example ===\n");
-
-    // Derive a second signing context from the same connection.
-    // In a real app, this would be a different account's key.
-    let second = me.near().with_signer(InMemorySigner::new(
-        me.account_id(),
-        std::env::var("NEAR_PRIVATE_KEY").unwrap().parse()?,
-    ));
-
-    // Both clients share the same RPC connection (no extra overhead)
-    println!("Original signer: {}", me.account_id());
-    println!("Derived signer: {}", second.account_id());
     println!(
-        "Same RPC endpoint: {}",
-        me.near().rpc().url() == second.near().rpc().url()
+        "guestbook balance: {} ({} available)",
+        balance.total, balance.available
     );
 
+    let exists = near
+        .account_exists(account!("no-such-account.testnet"))
+        .await?;
+    println!("no-such-account.testnet exists: {exists}");
+
+    // A contract view: JSON arguments in, a JSON result decoded into `T`.
+    let total: u64 = near
+        .view(
+            account!("guestbook.near-examples.testnet"),
+            "total_messages",
+        )
+        .await?;
+    let latest: Vec<serde_json::Value> = near
+        .view(account!("guestbook.near-examples.testnet"), "get_messages")
+        .args(
+            serde_json::json!({ "from_index": total.saturating_sub(3).to_string(), "limit": "3" }),
+        )
+        // Reads default to `Final`; `Optimistic` is newer but can still change.
+        .at(Finality::Optimistic)
+        .await?;
+    println!("guestbook has {total} messages; the latest:");
+    for message in &latest {
+        println!("  {}: {}", message["sender"], message["text"]);
+    }
     Ok(())
 }
 
-// ============================================================================
-// Main
-// ============================================================================
+async fn writes(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
+    // A fresh name for each run.
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let sub_id: AccountId = format!("quickstart-{seconds}.{}", alice.account_id()).parse()?;
+    let sub_key = SecretKey::generate_ed25519();
+
+    // Several actions, one transaction: they all apply or none do.
+    let outcome = alice
+        .transaction(&sub_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_millinear(10)))
+        .add_action(Action::add_full_access_key(sub_key.public_key()))
+        .await?;
+    // Past the `?`, the transaction ran, but an action can still have
+    // failed (an existing account, too little balance): check.
+    if outcome.is_failure() {
+        return Err(format!(
+            "creating {sub_id} failed: {}",
+            outcome.failure_message().unwrap_or_default()
+        )
+        .into());
+    }
+    println!("created {sub_id} in {}", outcome.transaction_hash());
+
+    // Sign as the new account over the same connection, and delete it,
+    // sending its balance back. `.result()?` turns a failed action into an
+    // error.
+    let sub = alice
+        .near()
+        .with_signer(InMemorySigner::new(sub_id.clone(), sub_key));
+    let outcome = sub
+        .transaction(&sub_id)
+        .add_action(Action::delete_account(alice.account_id().clone()))
+        .await?;
+    outcome.result()?;
+    println!("deleted {sub_id} in {}", outcome.transaction_hash());
+
+    // Sends wait for `Final` by default, so this read already sees both.
+    let balance = alice.near().balance(alice.account_id()).await?;
+    println!("{} now has {}", alice.account_id(), balance.total);
+    Ok(())
+}
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
-    println!("near-kit-rs Quickstart Examples\n");
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let near = Near::testnet().build();
+    reads(&near).await?;
 
-    // View examples work without credentials
-    view_example().await?;
-
-    // Check for credentials for write examples
-    let account_id = std::env::var("NEAR_ACCOUNT_ID").ok();
-    let private_key = std::env::var("NEAR_PRIVATE_KEY").ok();
-
-    match (account_id, private_key) {
-        (Some(account), Some(key)) => {
-            let me = Near::testnet().build().with_signer(InMemorySigner::new(
-                account.parse::<AccountId>()?,
-                key.parse()?,
-            ));
-
-            call_example(&me).await?;
-            transfer_example(&me).await?;
-
-            // Create a unique sub-account name
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-            let new_account: AccountId = format!("sub{timestamp}.{account}").parse()?;
-            transaction_example(&me, new_account).await?;
-
-            typed_contract_example(&me).await?;
-            multi_account_example(&me).await?;
-        }
-        _ => {
-            println!("\n---");
-            println!("Set NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY to run write examples.");
-            println!("Get a testnet account at: https://testnet.mynearwallet.com/");
-        }
+    // `from_env` reads NEAR_ACCOUNT_ID and NEAR_PRIVATE_KEY, and optionally
+    // NEAR_NETWORK and NEAR_CHAIN_ID (required when NEAR_NETWORK is a URL).
+    match SigningNear::from_env() {
+        Ok(alice) => writes(&alice).await?,
+        Err(error) => println!("\nskipping writes: {error}"),
     }
-
     Ok(())
 }

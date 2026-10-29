@@ -37,8 +37,14 @@ name = "integration"
 path = "tests/integration/main.rs"
 required-features = ["integration-tests"]
 
+# Each example starts its own sandbox in Docker, so they need the
+# `integration-tests` feature (which also turns on near-kit's `contracts`).
 [[example]]
 name = "global_contracts"
+required-features = ["integration-tests"]
+
+[[example]]
+name = "relayer"
 required-features = ["integration-tests"]
 
 [[example]]
@@ -47,6 +53,14 @@ required-features = ["integration-tests"]
 
 [[example]]
 name = "sequential_sends"
+required-features = ["integration-tests"]
+
+[[example]]
+name = "tokens"
+required-features = ["integration-tests"]
+
+[[example]]
+name = "typed_contract"
 required-features = ["integration-tests"]
 
 [dev-dependencies]
