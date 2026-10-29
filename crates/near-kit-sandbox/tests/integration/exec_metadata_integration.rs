@@ -42,25 +42,16 @@ async fn test_v4_execution_metadata_parses_through_send() {
         .expect("transaction outcome should carry metadata");
     assert!(tx_meta.version >= 1);
 
-    // On a protocol-v85+ node the receipt outcomes carry V4 metadata, whose
-    // typed `contracts` field must be exposed (one entry per action).
-    let protocol = root
-        .near()
-        .rpc()
-        .status()
-        .await
-        .expect("status")
-        .protocol_version;
-    if protocol >= 85 {
-        let v4 = outcome
-            .receipts_outcome
-            .iter()
-            .filter_map(|r| r.outcome.metadata.as_ref())
-            .find(|m| m.version >= 4);
-        let v4 = v4.expect("expected a V4 ExecutionMetadata on a v85+ node");
-        assert!(
-            v4.contracts.is_some(),
-            "V4 metadata must expose the typed `contracts` field"
-        );
-    }
+    // The default sandbox is past protocol v85, so the receipt outcomes carry
+    // V4 metadata, whose typed `contracts` field must be exposed.
+    let v4 = outcome
+        .receipts_outcome
+        .iter()
+        .filter_map(|r| r.outcome.metadata.as_ref())
+        .find(|m| m.version >= 4)
+        .expect("expected a V4 ExecutionMetadata on a v85+ node");
+    assert!(
+        v4.contracts.is_some(),
+        "V4 metadata must expose the typed `contracts` field"
+    );
 }

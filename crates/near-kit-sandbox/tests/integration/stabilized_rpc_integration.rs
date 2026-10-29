@@ -65,16 +65,6 @@ async fn test_block_effects_returns_changes_for_block() {
         !effects.changes.is_empty(),
         "a block that created an account should report touched state"
     );
-    // Every change kind exposes the account it touched.
-    for change in &effects.changes {
-        let touched = match change {
-            StateChangeKindView::AccountTouched { account_id }
-            | StateChangeKindView::AccessKeyTouched { account_id }
-            | StateChangeKindView::DataTouched { account_id }
-            | StateChangeKindView::ContractCodeTouched { account_id } => account_id,
-        };
-        let _ = touched;
-    }
 }
 
 #[tokio::test]
