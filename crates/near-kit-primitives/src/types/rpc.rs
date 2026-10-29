@@ -86,13 +86,6 @@ pub enum AccountState {
     Uninitialized,
 }
 
-impl AccountState {
-    /// Whether the account's state has been installed.
-    pub fn is_initialized(self) -> bool {
-        self == Self::Initialized
-    }
-}
-
 impl AccountView {
     /// Calculate the total NEAR required for storage.
     fn storage_required(&self) -> NearToken {
@@ -2447,7 +2440,6 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(view.state, AccountState::Initialized);
-        assert!(view.state.is_initialized());
         assert_eq!(view.bootstrap_nonce, None);
     }
 
@@ -2465,7 +2457,6 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(view.state, AccountState::Uninitialized);
-        assert!(!view.state.is_initialized());
         assert_eq!(view.bootstrap_nonce, Some(100_000_000));
     }
 

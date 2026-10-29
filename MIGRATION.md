@@ -106,6 +106,7 @@ after the table cover each one.
 | `PartialOrd for rpc::TxExecutionStatus` (`<`, `partial_cmp`) | `matches!` on the levels you accept, as in the row above |
 | `ViewFunctionResult::bytes()` | The `result` field: `&view.result` |
 | `ViewStateAllResult::into_values()` | The `values` field: `all.values` |
+| `AccountState::is_initialized()` | `view.state == AccountState::Initialized` |
 
 ### RPC client
 
