@@ -2244,38 +2244,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_near_builder_uses_a_configured_reqwest_client() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let (request_tx, request_rx) = mpsc::channel();
-
-        let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = Vec::new();
-            let mut buffer = [0u8; 1024];
-            loop {
-                let read = stream.read(&mut buffer).unwrap();
-                if read == 0 {
-                    break;
-                }
-                request.extend_from_slice(&buffer[..read]);
-                if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                    break;
-                }
-            }
-            request_tx
-                .send(String::from_utf8(request).unwrap())
-                .unwrap();
-
-            let body = r#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#;
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body,
-            )
-            .unwrap();
-        });
-
+        let (url, server, heads) = scripted_server(vec![Conn::Respond]);
         let secret = "test-provider-secret";
         let mut headers = HeaderMap::new();
         let mut api_key = HeaderValue::from_static(secret);
@@ -2285,7 +2254,7 @@ mod tests {
             .default_headers(headers)
             .build()
             .unwrap();
-        let near = crate::Near::custom(format!("http://{address}"), "test")
+        let near = crate::Near::custom(url, "test")
             .transport(transport::ReqwestTransport::with_client(http_client))
             .build();
         let debug = format!("{:?}", near.rpc());
@@ -2294,7 +2263,7 @@ mod tests {
         let response: serde_json::Value = near.rpc().request("status", ()).await.unwrap();
         assert_eq!(response, serde_json::json!({ "ok": true }));
 
-        let request = request_rx.recv().unwrap().to_ascii_lowercase();
+        let request = heads.recv().unwrap();
         assert!(request.contains(&format!("x-api-key: {secret}")));
         server.join().unwrap();
     }
@@ -2312,11 +2281,14 @@ mod tests {
     }
 
     /// Serve one connection per `script` entry, in order, then stop
-    /// listening. Returns the server's URL.
-    fn scripted_server(script: Vec<Conn>) -> (String, std::thread::JoinHandle<()>) {
+    /// listening. Returns the server's URL and a channel of the lowercased
+    /// head of each request it read.
+    fn scripted_server(
+        script: Vec<Conn>,
+    ) -> (String, std::thread::JoinHandle<()>, mpsc::Receiver<String>) {
         /// Read the request head, then its `Content-Length` body, so closing
         /// the socket afterwards sends a FIN rather than a reset.
-        fn read_request(stream: &mut std::net::TcpStream) {
+        fn read_request(stream: &mut std::net::TcpStream) -> String {
             let mut request = Vec::new();
             let mut buffer = [0u8; 1024];
             let head_len = loop {
@@ -2337,10 +2309,12 @@ mod tests {
                 .unwrap();
             let mut rest = vec![0u8; content_length - (request.len() - head_len)];
             stream.read_exact(&mut rest).unwrap();
+            head
         }
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
+        let (heads_tx, heads) = mpsc::channel();
         let server = std::thread::spawn(move || {
             for conn in script {
                 let (mut stream, _) = listener.accept().unwrap();
@@ -2350,11 +2324,11 @@ mod tests {
                         std::thread::sleep(Duration::from_millis(50));
                     }
                     Conn::Close => {
-                        read_request(&mut stream);
+                        let _ = heads_tx.send(read_request(&mut stream));
                         stream.shutdown(std::net::Shutdown::Both).unwrap();
                     }
                     Conn::Respond => {
-                        read_request(&mut stream);
+                        let _ = heads_tx.send(read_request(&mut stream));
                         let body = r#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#;
                         write!(
                             stream,
@@ -2367,7 +2341,7 @@ mod tests {
                 }
             }
         });
-        (url, server)
+        (url, server, heads)
     }
 
     /// Whether `error` is hyper's "connection closed before message completed".
@@ -2419,7 +2393,7 @@ mod tests {
     /// and a retrying client gets through.
     #[tokio::test]
     async fn test_connection_reset_is_retried() {
-        let (url, server) = scripted_server(vec![Conn::Reset, Conn::Reset, Conn::Respond]);
+        let (url, server, _) = scripted_server(vec![Conn::Reset, Conn::Reset, Conn::Respond]);
 
         let error = test_client(&url, RetryConfig::none())
             .request::<_, serde_json::Value>("status", ())
@@ -2441,7 +2415,7 @@ mod tests {
     /// client gets through.
     #[tokio::test]
     async fn test_connection_closed_before_response_is_retried() {
-        let (url, server) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
+        let (url, server, _) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
 
         let error = test_client(&url, RetryConfig::none())
             .request::<_, serde_json::Value>("status", ())
@@ -2465,7 +2439,7 @@ mod tests {
     async fn test_dropped_connection_is_not_retried_for_sandbox_fast_forward() {
         // If fast_forward were retried, it would consume all three
         // connections and succeed.
-        let (url, server) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
+        let (url, server, _) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
         let client = test_client(&url, fast_retries(2));
 
         let error = client
