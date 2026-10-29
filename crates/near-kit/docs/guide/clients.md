@@ -1,11 +1,9 @@
 # Clients and networks
 
-Read this first if you're setting near-kit up in an application: which
-client type to hold, which endpoint it talks to, and which settings live on
-the client rather than on each call. There are two client types.
-[`Near`](crate::Near) reads chain state and submits transactions that are
-already signed. [`SigningNear`](crate::SigningNear) is a `Near` plus a
-signer for one account, and it also builds, signs and sends transactions.
+There are two client types. [`Near`](crate::Near) reads chain state and
+submits transactions that are already signed. [`SigningNear`](crate::SigningNear)
+is a `Near` plus a signer for one account, and it also builds, signs and
+sends transactions.
 
 ## Reading and sending
 

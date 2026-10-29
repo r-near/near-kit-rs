@@ -1,12 +1,5 @@
 # Errors and retries
 
-Read this when you handle the result of a send or a read: to tell a contract
-that panicked from a transaction the node refused, to decide what is worth
-retrying, or to fit near-kit's errors into your own error type. The short
-version: a transaction whose action failed still comes back as
-`Ok(outcome)`, and `Err` means the transaction didn't run, or that near-kit
-couldn't find out whether it did.
-
 ## What a send returns
 
 Awaiting a [`Tx`](crate::transaction::Tx) (or a typed contract call) has

@@ -1,9 +1,6 @@
 # Platforms and features
 
-Read this when near-kit runs somewhere other than a native server or CLI:
-in a browser, in a WASI component, inside a smart contract, or in a build
-with no network stack. Each of these is a combination of a target and
-Cargo features, and a few behave differently at run time.
+Each place near-kit runs is a target plus Cargo features:
 
 | Where | Target | Features |
 |---|---|---|

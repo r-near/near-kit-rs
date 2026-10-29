@@ -1,12 +1,10 @@
 # Typed contracts and tokens
 
-Read this when you call the same contract from many places and want the
-compiler to check method names and argument types, or when you work with
-fungible (NEP-141) or non-fungible (NEP-171) tokens. `#[near_kit::contract]`
-turns a Rust trait that describes a contract's interface into a client, and
-near-kit ships two such clients for the token standards. The macro needs
-the `contracts` feature; the token clients need only `rpc`, which is on by
-default.
+`#[near_kit::contract]` turns a Rust trait that describes a contract's
+interface into a client, and near-kit ships two such clients for the
+fungible (NEP-141) and non-fungible (NEP-171) token standards. The macro
+needs the `contracts` feature; the token clients need only `rpc`, which is
+on by default.
 
 ## Declaring a contract
 

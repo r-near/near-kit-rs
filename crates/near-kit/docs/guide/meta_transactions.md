@@ -1,11 +1,10 @@
 # Meta-transactions and relayers
 
-Read this when one account should pay for another account's transaction:
-a user signs actions without holding NEAR for gas, and a relayer submits
-them and pays. NEAR calls this a meta-transaction (NEP-366). The user signs
-a *delegate action* (the receiver, the actions, a nonce and an expiry
-height) and hands it over, usually as base64 in an HTTP request. The
-relayer wraps it in a transaction of its own.
+A meta-transaction (NEP-366) lets one account pay for another's
+transaction. The user signs a *delegate action* (the receiver, the
+actions, a nonce and an expiry height) and hands it over, usually as
+base64 in an HTTP request; the relayer wraps it in a transaction of its
+own and pays the gas.
 
 ## The user side: sign a delegate action
 

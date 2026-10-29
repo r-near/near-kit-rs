@@ -1,10 +1,7 @@
 # Finality and wait levels
 
-Read this when you need to choose how current a read is, how long a send
-waits, or why a read right after a write doesn't show it. near-kit's
-defaults are consistent: reads look at the latest final block and sends wait
-for `Final`, so a default read after a default write sees the write. You
-only need this chapter when you change one of them.
+Reads default to the latest final block and sends wait for `Final`, so a
+default read after a default write sees the write.
 
 ## Reading at a block
 

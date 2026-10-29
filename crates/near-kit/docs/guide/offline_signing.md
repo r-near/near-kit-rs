@@ -1,10 +1,5 @@
 # Offline signing
 
-Read this when signing and sending happen at different times or on
-different machines: a signed transaction that another service submits, a
-cold key on a machine without network access, a hardware or remote signer,
-or a login flow that signs a message instead of a transaction (NEP-413).
-
 A NEAR transaction needs two values from the chain before it can be
 signed: a nonce for the access key, and the hash of a recent block. Every
 path in this chapter is about where those two values come from.

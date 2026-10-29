@@ -1,10 +1,7 @@
 # Nonces and concurrency
 
-Read this when you send many transactions at once, from several tasks or
-processes, or run a relayer. For one transaction at a time there is nothing
-to do: near-kit picks the nonce, and re-signs if the node rejects it. With
-concurrency you choose how many keys to sign with, how hard near-kit retries,
-and whether order matters.
+For one transaction at a time there is nothing to do: near-kit picks the
+nonce, and re-signs if the node rejects it.
 
 ## How near-kit picks a nonce
 

@@ -1,7 +1,7 @@
 # Testing
 
-Read this when you write tests for code that uses near-kit. There are three
-levels, from fastest to most faithful:
+There are three ways to test code that uses near-kit, from fastest to
+most faithful:
 
 - **Mock backends.** Typed contract clients, `View`, `Call` and the token
   clients run on any [`Viewer`](crate::Viewer) or

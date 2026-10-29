@@ -1,12 +1,9 @@
 # Keys and signers
 
-Read this when you load, generate, store or convert keys: which string
-forms near-kit reads and writes, how to load a key from the environment, a
-near-cli credentials file, the system keyring or a seed phrase, and how to
-sign with a key near-kit never sees. A [`SecretKey`](crate::signer::SecretKey)
-is a key; a [`Signer`](crate::signer::Signer) is an account plus the key or
-keys it signs with, and is what
-[`Near::with_signer`](crate::Near::with_signer) takes.
+A [`SecretKey`](crate::signer::SecretKey) is a key; a
+[`Signer`](crate::signer::Signer) is an account plus the key or keys it
+signs with, and is what [`Near::with_signer`](crate::Near::with_signer)
+takes.
 
 ## Key types and string forms
 

@@ -1,12 +1,5 @@
 # Transactions
 
-Read this when you send anything more than a single transfer or call:
-several actions in one transaction, account and key management, deploying
-contracts, global contracts, or deterministic and universal accounts. A
-transaction is a receiver plus a list of [`Action`](crate::protocol::Action)s,
-signed by one account. In near-kit that is
-`alice.transaction(receiver).add_action(..)`, then `.await`.
-
 ## Building and sending
 
 [`SigningNear::transaction`](crate::SigningNear::transaction) starts a
