@@ -709,7 +709,7 @@ impl<W: WaitLevel> fmt::Debug for Tx<W> {
 
 impl<W: WaitLevel> IntoFuture for Tx<W> {
     type Output = Result<W::Response, Error>;
-    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
+    type IntoFuture = super::transport::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
@@ -793,7 +793,7 @@ impl<'tx, W: WaitLevel> SignedTransactionSend<'tx, W> {
 
 impl<'tx, W: WaitLevel> IntoFuture for SignedTransactionSend<'tx, W> {
     type Output = Result<W::Response, Error>;
-    type IntoFuture = crate::platform::BoxFuture<'tx, Self::Output>;
+    type IntoFuture = super::transport::BoxFuture<'tx, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {

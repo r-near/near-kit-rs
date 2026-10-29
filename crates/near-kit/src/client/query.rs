@@ -80,7 +80,7 @@ impl BalanceQuery {
 
 impl IntoFuture for BalanceQuery {
     type Output = Result<AccountBalance, Error>;
-    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
+    type IntoFuture = super::transport::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         let AccountRead {
@@ -138,7 +138,7 @@ impl AccountExistsQuery {
 
 impl IntoFuture for AccountExistsQuery {
     type Output = Result<bool, Error>;
-    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
+    type IntoFuture = super::transport::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         let AccountRead {
@@ -238,7 +238,7 @@ impl<W: WaitLevel> TransactionStatusQuery<W> {
 
 impl<W: WaitLevel> IntoFuture for TransactionStatusQuery<W> {
     type Output = Result<W::Response, Error>;
-    type IntoFuture = crate::platform::BoxFuture<'static, Self::Output>;
+    type IntoFuture = super::transport::BoxFuture<'static, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {

@@ -3,8 +3,8 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use crate::MaybeSend;
 use crate::error::RpcError;
-use crate::platform::MaybeSend;
 use serde::de::DeserializeOwned;
 
 use crate::View;

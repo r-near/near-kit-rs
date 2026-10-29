@@ -5,8 +5,8 @@ use std::future::{Future, IntoFuture};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use crate::MaybeSend;
 use crate::error::{Error, RpcError};
-use crate::platform::MaybeSend;
 use crate::types::{
     AccountId, Action, BlockReference, Final, SignedDelegateAction, SignedTransaction, Signer,
     ViewFunctionResult, WaitLevel,

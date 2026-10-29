@@ -27,8 +27,8 @@
 use std::sync::Arc;
 
 use crate::error::RpcError;
-pub use crate::platform::BoxFuture;
-use crate::platform::{MaybeSend, MaybeSync};
+use crate::{MaybeSend, MaybeSync};
+pub use near_kit_primitives::__private::BoxFuture;
 
 // The built-in WASI transport speaks the `wasi:http` component-model
 // interface, which only exists on WASI Preview 2. On earlier WASI targets,

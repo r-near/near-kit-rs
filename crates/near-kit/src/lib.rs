@@ -107,8 +107,6 @@ extern crate self as near_kit;
 mod client;
 mod error;
 #[cfg(feature = "rpc")]
-mod platform;
-#[cfg(feature = "rpc")]
 mod tokens;
 mod trace;
 mod types;
