@@ -1561,12 +1561,6 @@ impl std::fmt::Debug for RpcClient {
 // Helper functions
 // ============================================================================
 
-/// Convert a [`BlockReference`] to a `block_id` value for RPC methods that
-/// accept only positional `block_id` or `null` (e.g. `validators`,
-/// `EXPERIMENTAL_validators_ordered`).
-///
-/// Height and hash variants are forwarded as-is; finality and sync-checkpoint
-/// variants become `null` (latest).
 /// The JSON-RPC parameters that select `block`.
 fn block_params(block: &BlockReference) -> serde_json::Value {
     match block {
@@ -1583,6 +1577,8 @@ fn block_params(block: &BlockReference) -> serde_json::Value {
     }
 }
 
+/// The positional `block_id` for methods that take only a height, a hash or
+/// `null` (latest), such as `validators`. Other references become `null`.
 fn block_id_or_null(block: Option<&BlockReference>) -> serde_json::Value {
     match block {
         Some(BlockReference::Height(h)) => serde_json::json!(*h),
