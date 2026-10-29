@@ -13,11 +13,11 @@
 //!
 //! [`VersionedTransaction`] wraps both and implements the discriminating borsh
 //! codec; [`SignedTransactionV1`] is the signed envelope for the versioned form.
-//! The existing [`SignedTransaction`] (which always carries a V0 [`Transaction`])
-//! is left untouched so all existing call sites keep working.
+//! [`SignedTransaction`] always carries a V0 [`Transaction`].
 
 use std::io::{Read, Write};
 
+use base64::prelude::*;
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use super::{AccountId, Action, CryptoHash, PublicKey, SecretKey, Signature};
@@ -136,13 +136,10 @@ impl SignedTransaction {
 
     /// Serialize to base64 for RPC submission.
     pub fn to_base64(&self) -> String {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
-        STANDARD.encode(self.to_bytes())
+        BASE64_STANDARD.encode(self.to_bytes())
     }
 
-    /// Deserialize from bytes.
-    ///
-    /// Use this to reconstruct a signed transaction that was serialized with [`to_bytes`](Self::to_bytes).
+    /// Deserialize from bytes (round-trips [`to_bytes`](Self::to_bytes)).
     ///
     /// # Example
     ///
@@ -172,30 +169,14 @@ impl SignedTransaction {
         borsh::from_slice(bytes).map_err(DecodeTransactionError::Borsh)
     }
 
-    /// Deserialize from base64.
-    ///
-    /// Use this to reconstruct a signed transaction that was serialized with [`to_base64`](Self::to_base64).
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit_primitives::protocol::SignedTransaction;
-    /// let base64_str = "AgAAAGFsaWNlLnRlc3RuZXQ...";
-    /// let signed_tx = SignedTransaction::from_base64(base64_str)?;
-    /// # Ok::<(), near_kit_primitives::protocol::DecodeTransactionError>(())
-    /// ```
+    /// Deserialize from base64 (round-trips [`to_base64`](Self::to_base64)).
     pub fn from_base64(s: &str) -> Result<Self, DecodeTransactionError> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
-        let bytes = STANDARD
+        let bytes = BASE64_STANDARD
             .decode(s)
             .map_err(|e| DecodeTransactionError::Base64(e.to_string()))?;
         Self::from_bytes(&bytes)
     }
 }
-
-// ============================================================================
-// Versioned transactions (protocol 2.13 — gas keys + strict nonce)
-// ============================================================================
 
 /// Tag byte prepended to a borsh-serialized [`TransactionV1`].
 ///
@@ -203,7 +184,7 @@ impl SignedTransaction {
 /// [`VersionedTransaction`]'s borsh impl for how the two are discriminated.
 const V1_TAG: u8 = 1;
 
-/// The nonce carried by a [`TransactionV1`] (and, in RS-3, a `DelegateActionV2`).
+/// The nonce carried by a [`TransactionV1`].
 ///
 /// Mirrors nearcore's `TransactionNonce` (`core/primitives/src/transaction.rs`):
 /// variant 0 is a plain nonce used by ordinary access keys; variant 1 carries a
@@ -326,9 +307,9 @@ impl TransactionV1 {
     /// The hash is taken over the *versioned* borsh encoding (i.e. including the
     /// `0x01` tag byte), exactly as a node hashes it.
     pub fn get_hash(&self) -> CryptoHash {
-        let bytes = borsh::to_vec(&VersionedTransactionRef::V1(self))
-            .expect("transaction serialization should never fail");
-        CryptoHash::hash(&bytes)
+        CryptoHash::hash(
+            &borsh::to_vec(&(V1_TAG, self)).expect("transaction serialization should never fail"),
+        )
     }
 
     /// Sign this transaction with a secret key.
@@ -341,10 +322,7 @@ impl TransactionV1 {
         }
     }
 
-    /// Attach an externally produced signature, giving the signed transaction.
-    ///
-    /// Use this for hardware wallet, MPC, or HSM signing workflows where you sign
-    /// the transaction hash externally and then reconstruct the signed transaction.
+    /// Attach an externally produced signature, as [`Transaction::into_signed`].
     pub fn into_signed(self, signature: Signature) -> SignedTransactionV1 {
         SignedTransactionV1 {
             transaction: VersionedTransaction::V1(self),
@@ -407,31 +385,11 @@ pub enum VersionedTransaction {
     V1(TransactionV1),
 }
 
-/// Borrowed counterpart of [`VersionedTransaction`], so a [`TransactionV1`] hash
-/// can be computed without cloning. Shares the exact same borsh encoding.
-enum VersionedTransactionRef<'a> {
-    #[allow(dead_code)]
-    V0(&'a Transaction),
-    V1(&'a TransactionV1),
-}
-
-impl BorshSerialize for VersionedTransactionRef<'_> {
-    fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        match self {
-            Self::V0(tx) => tx.serialize(writer),
-            Self::V1(tx) => {
-                V1_TAG.serialize(writer)?;
-                tx.serialize(writer)
-            }
-        }
-    }
-}
-
 impl BorshSerialize for VersionedTransaction {
     fn serialize<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         match self {
-            Self::V0(tx) => VersionedTransactionRef::V0(tx).serialize(writer),
-            Self::V1(tx) => VersionedTransactionRef::V1(tx).serialize(writer),
+            Self::V0(tx) => tx.serialize(writer),
+            Self::V1(tx) => (V1_TAG, tx).serialize(writer),
         }
     }
 }
@@ -562,8 +520,7 @@ impl SignedTransactionV1 {
 
     /// Serialize to base64 for RPC submission.
     pub fn to_base64(&self) -> String {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
-        STANDARD.encode(self.to_bytes())
+        BASE64_STANDARD.encode(self.to_bytes())
     }
 
     /// Deserialize from bytes (round-trips [`to_bytes`](Self::to_bytes)).
@@ -573,8 +530,7 @@ impl SignedTransactionV1 {
 
     /// Deserialize from base64 (round-trips [`to_base64`](Self::to_base64)).
     pub fn from_base64(s: &str) -> Result<Self, DecodeTransactionError> {
-        use base64::{Engine as _, engine::general_purpose::STANDARD};
-        let bytes = STANDARD
+        let bytes = BASE64_STANDARD
             .decode(s)
             .map_err(|e| DecodeTransactionError::Base64(e.to_string()))?;
         Self::from_bytes(&bytes)
@@ -595,77 +551,21 @@ impl From<SignedTransaction> for SignedTransactionV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_transaction_hash() {
-        let secret = SecretKey::generate_ed25519();
-        let public = secret.public_key();
-
-        let tx = Transaction::new(
-            "alice.testnet".parse().unwrap(),
-            public,
-            1,
-            "bob.testnet".parse().unwrap(),
-            CryptoHash::ZERO,
-            vec![],
-        );
-
-        let hash = tx.get_hash();
-        assert!(!hash.is_zero());
-    }
-
-    #[test]
-    fn test_sign_transaction() {
-        let secret = SecretKey::generate_ed25519();
-        let public = secret.public_key();
-
-        let tx = Transaction::new(
-            "alice.testnet".parse().unwrap(),
-            public,
-            1,
-            "bob.testnet".parse().unwrap(),
-            CryptoHash::ZERO,
-            vec![],
-        );
-
-        let signed = tx.sign(&secret);
-        assert!(!signed.to_bytes().is_empty());
-    }
+    use crate::types::NearToken;
 
     #[test]
     fn test_into_signed_matches_sign() {
         let secret = SecretKey::generate_ed25519();
-        let public = secret.public_key();
+        let tx = sample_v0();
 
-        let tx1 = Transaction::new(
-            "alice.testnet".parse().unwrap(),
-            public.clone(),
-            1,
-            "bob.testnet".parse().unwrap(),
-            CryptoHash::ZERO,
-            vec![],
-        );
-
-        let tx2 = tx1.clone();
-
-        // Sign via the normal path
-        let signed_normal = tx1.sign(&secret);
-
-        // Sign manually via into_signed()
-        let hash = tx2.get_hash();
-        let signature = secret.sign(hash.as_bytes());
-        let signed_detached = tx2.into_signed(signature);
+        let signed_normal = tx.clone().sign(&secret);
+        let signature = secret.sign(tx.get_hash().as_bytes());
+        let signed_detached = tx.into_signed(signature);
 
         assert_eq!(signed_normal.get_hash(), signed_detached.get_hash());
         assert_eq!(signed_normal.signature, signed_detached.signature);
         assert_eq!(signed_normal.to_bytes(), signed_detached.to_bytes());
     }
-
-    // ========================================================================
-    // Versioned transaction (V0/V1) tests
-    // ========================================================================
-
-    use crate::types::NearToken;
 
     fn sample_v0() -> Transaction {
         let public: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
@@ -724,15 +624,7 @@ mod tests {
     #[test]
     fn test_signed_v0_byte_identical_to_legacy() {
         let secret = SecretKey::generate_ed25519();
-        let tx = Transaction::new(
-            "alice.testnet".parse().unwrap(),
-            secret.public_key(),
-            7,
-            "bob.testnet".parse().unwrap(),
-            CryptoHash::ZERO,
-            vec![Action::transfer(NearToken::from_near(1))],
-        );
-        let legacy = tx.clone().sign(&secret);
+        let legacy = sample_v0().sign(&secret);
         let versioned: SignedTransactionV1 = legacy.clone().into();
 
         assert_eq!(legacy.to_bytes(), versioned.to_bytes());
@@ -805,22 +697,13 @@ mod tests {
         assert_eq!(borsh::to_vec(&NonceMode::Strict).unwrap(), vec![1]);
         assert_eq!(NonceMode::default(), NonceMode::Monotonic);
 
-        assert_eq!(
-            serde_json::to_string(&NonceMode::Monotonic).unwrap(),
-            r#""monotonic""#
-        );
-        assert_eq!(
-            serde_json::to_string(&NonceMode::Strict).unwrap(),
-            r#""strict""#
-        );
-        assert_eq!(
-            serde_json::from_str::<NonceMode>(r#""monotonic""#).unwrap(),
-            NonceMode::Monotonic
-        );
-        assert_eq!(
-            serde_json::from_str::<NonceMode>(r#""strict""#).unwrap(),
-            NonceMode::Strict
-        );
+        for (mode, json) in [
+            (NonceMode::Monotonic, "\"monotonic\""),
+            (NonceMode::Strict, "\"strict\""),
+        ] {
+            assert_eq!(serde_json::to_string(&mode).unwrap(), json);
+            assert_eq!(serde_json::from_str::<NonceMode>(json).unwrap(), mode);
+        }
     }
 
     /// `into_gas_key_v1` moves the V0 nonce into a `GasKeyNonce` with the index.
