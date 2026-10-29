@@ -85,13 +85,6 @@ async fn included_transaction_returns_progress(
 }
 
 #[allow(dead_code)]
-async fn final_transaction_returns_execution_outcome(
-    transaction: Tx<Final>,
-) -> Result<FinalExecutionOutcome, Error> {
-    transaction.await
-}
-
-#[allow(dead_code)]
 async fn default_transaction_send_returns_execution_outcome(
     transaction: Tx,
 ) -> Result<FinalExecutionOutcome, Error> {
