@@ -114,7 +114,6 @@ pub struct ValidatorKickoutView {
 #[derive(Debug, Clone, Deserialize)]
 pub enum ValidatorKickoutReason {
     /// Slashed (deprecated, unused).
-    #[serde(rename = "Slashed")]
     Slashed,
     /// Not enough blocks produced.
     NotEnoughBlocks {

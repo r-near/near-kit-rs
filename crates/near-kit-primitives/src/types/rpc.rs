@@ -55,17 +55,14 @@ pub struct AccountView {
     #[serde(default)]
     pub storage_paid_at: u64,
     /// Global contract code hash (if using a global contract).
-    #[serde(default)]
     pub global_contract_hash: Option<CryptoHash>,
     /// Global contract account ID (if using a global contract by account).
-    #[serde(default)]
     pub global_contract_account_id: Option<AccountId>,
     /// Whether the account's state is installed (see [`AccountState`]).
     #[serde(default)]
     pub state: AccountState,
     /// Last used nonce of an uninitialized universal account (`None` once
     /// initialized). The state init transaction must use `bootstrap_nonce + 1`.
-    #[serde(default)]
     pub bootstrap_nonce: Option<u64>,
     /// Block height of the query.
     pub block_height: u64,
@@ -190,7 +187,6 @@ pub struct AccessKeyDetails {
 
 /// Access key permission from RPC.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "PascalCase")]
 pub enum AccessKeyPermissionView {
     /// Full access.
     FullAccess,
@@ -240,7 +236,6 @@ pub struct AccessKeyListView {
     /// Pagination cursor. `Some` means this page was truncated: pass it as
     /// `after_key` to fetch the keys after it. `None` means this was the last
     /// page (or the full list).
-    #[serde(default)]
     pub last_key: Option<PublicKeyHandle>,
     /// Block height of the query.
     pub block_height: u64,
@@ -463,7 +458,6 @@ pub struct BlockHeaderView {
     /// Block height.
     pub height: u64,
     /// Previous block height (may be None for genesis).
-    #[serde(default)]
     pub prev_height: Option<u64>,
     /// Block hash.
     pub hash: CryptoHash,
@@ -498,7 +492,6 @@ pub struct BlockHeaderView {
     /// Gas price for this block.
     pub gas_price: NearToken,
     /// Block ordinal (may be None).
-    #[serde(default)]
     pub block_ordinal: Option<u64>,
     /// Total supply of NEAR tokens.
     pub total_supply: NearToken,
@@ -518,10 +511,8 @@ pub struct BlockHeaderView {
     /// Block merkle root.
     pub block_merkle_root: CryptoHash,
     /// Epoch sync data hash (optional).
-    #[serde(default)]
     pub epoch_sync_data_hash: Option<CryptoHash>,
     /// Block body hash (optional, added in later protocol versions).
-    #[serde(default)]
     pub block_body_hash: Option<CryptoHash>,
     /// Block approvals (nullable signatures).
     #[serde(default)]
@@ -531,16 +522,12 @@ pub struct BlockHeaderView {
     /// Latest protocol version.
     pub latest_protocol_version: u32,
     /// Rent paid (deprecated; when present, always 0).
-    #[serde(default)]
     pub rent_paid: Option<NearToken>,
     /// Validator reward (deprecated; when present, always 0).
-    #[serde(default)]
     pub validator_reward: Option<NearToken>,
     /// Chunk endorsements (optional).
-    #[serde(default)]
     pub chunk_endorsements: Option<Vec<Vec<u8>>>,
     /// Shard split info (optional).
-    #[serde(default)]
     pub shard_split: Option<(u64, AccountId)>,
 }
 
@@ -602,13 +589,10 @@ pub struct ChunkHeaderView {
     #[serde(default)]
     pub validator_proposals: Vec<ValidatorStakeView>,
     /// Congestion info (optional, added in later protocol versions).
-    #[serde(default)]
     pub congestion_info: Option<CongestionInfoView>,
     /// Bandwidth requests (optional, added in later protocol versions).
-    #[serde(default)]
     pub bandwidth_requests: Option<BandwidthRequests>,
     /// Rent paid (deprecated; when present, always 0).
-    #[serde(default)]
     pub rent_paid: Option<NearToken>,
     /// Proposed trie split for resharding (`None` when absent or `null`).
     pub proposed_split: Option<TrieSplit>,
@@ -1171,13 +1155,10 @@ pub struct TransactionView {
     /// Transaction signature.
     pub signature: Signature,
     /// Priority fee (optional, for congestion pricing).
-    #[serde(default)]
     pub priority_fee: Option<u64>,
     /// Nonce index (for gas key multi-nonce support).
-    #[serde(default)]
     pub nonce_index: Option<u16>,
     /// Nonce validation mode (`None` from nodes older than nearcore 2.12; means monotonic).
-    #[serde(default)]
     pub nonce_mode: Option<NonceMode>,
 }
 
@@ -1350,7 +1331,6 @@ pub enum VersionedDelegateActionPayloadView {
 /// [`ActionViewConversionError::DeployCodeUnavailable`]; do not treat the
 /// decoded bytes as WASM, and do not hash them again.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "PascalCase")]
 pub enum ActionView {
     /// Create the receiver account.
     CreateAccount,
@@ -1421,7 +1401,6 @@ pub enum ActionView {
     ///
     /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
     /// See [`ActionView::deploy_code_hash`].
-    #[serde(rename = "DeployGlobalContract")]
     DeployGlobalContract {
         /// Base64 of the 32-byte code hash (not the WASM).
         code: String, // base64 of the 32-byte code hash (NOT the WASM)
@@ -1430,28 +1409,24 @@ pub enum ActionView {
     ///
     /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
     /// See [`ActionView::deploy_code_hash`].
-    #[serde(rename = "DeployGlobalContractByAccountId")]
     DeployGlobalContractByAccountId {
         /// Base64 of the 32-byte code hash (not the WASM).
         code: String, // base64 of the 32-byte code hash (NOT the WASM)
     },
     /// Use a global contract published under a code hash as the account's
     /// contract.
-    #[serde(rename = "UseGlobalContract")]
     UseGlobalContract {
         /// The global contract's code hash.
         code_hash: CryptoHash,
     },
     /// Use the global contract published by an account as the account's
     /// contract.
-    #[serde(rename = "UseGlobalContractByAccountId")]
     UseGlobalContractByAccountId {
         /// The publishing account.
         account_id: AccountId,
     },
     /// Initialize an account whose ID is derived from its contract and
     /// initial state (NEP-616).
-    #[serde(rename = "DeterministicStateInit")]
     DeterministicStateInit {
         /// The global contract the account uses.
         code: GlobalContractIdentifierView,
@@ -1899,7 +1874,6 @@ pub struct ExecutionOutcome {
     /// Execution status.
     pub status: ExecutionStatus,
     /// Execution metadata (gas profiling).
-    #[serde(default)]
     pub metadata: Option<ExecutionMetadata>,
 }
 
@@ -1909,7 +1883,6 @@ pub struct ExecutionMetadata {
     /// Metadata version (V1=1, V2=2, V3=3, V4=4).
     pub version: u32,
     /// Gas profile entries.
-    #[serde(default)]
     pub gas_profile: Option<Vec<GasProfileEntry>>,
     /// The contract attached to the receiver account immediately before each
     /// action in the receipt ran — one entry per action, in order
@@ -1921,7 +1894,6 @@ pub struct ExecutionMetadata {
     /// explicitly `null`. Note this is *wire-format* back-compatibility: adding
     /// this public field is itself a (minor) Rust API change for code that
     /// constructs/destructures `ExecutionMetadata`.
-    #[serde(default)]
     pub contracts: Option<Vec<Option<AccountContractView>>>,
 }
 
@@ -2069,7 +2041,6 @@ pub struct Receipt {
     /// Receipt content (action or data).
     pub receipt: ReceiptContent,
     /// Priority (optional, for congestion pricing).
-    #[serde(default)]
     pub priority: Option<u64>,
 }
 
@@ -2092,7 +2063,6 @@ pub enum ReceiptContent {
         /// Code bytes (base64).
         code: String,
         /// Nonce (present in v2 receipts).
-        #[serde(default)]
         nonce: Option<u64>,
     },
 }
@@ -2124,7 +2094,6 @@ pub struct ActionReceiptData {
     /// Actions in this receipt.
     pub actions: Vec<ActionView>,
     /// Whether this is a promise yield.
-    #[serde(default)]
     pub is_promise_yield: Option<bool>,
 }
 
@@ -2134,7 +2103,6 @@ pub struct DataReceiptData {
     /// Data ID.
     pub data_id: CryptoHash,
     /// Data content (optional).
-    #[serde(default)]
     pub data: Option<String>,
 }
 
@@ -2154,19 +2122,14 @@ pub struct StatusResponse {
     /// Genesis hash.
     pub genesis_hash: CryptoHash,
     /// RPC address.
-    #[serde(default)]
     pub rpc_addr: Option<String>,
     /// Node public key.
-    #[serde(default)]
     pub node_public_key: Option<String>,
     /// Node key (deprecated).
-    #[serde(default)]
     pub node_key: Option<String>,
     /// Validator account ID (if validating).
-    #[serde(default)]
     pub validator_account_id: Option<AccountId>,
     /// Validator public key (if validating).
-    #[serde(default)]
     pub validator_public_key: Option<PublicKey>,
     /// List of current validators.
     #[serde(default)]
@@ -2176,7 +2139,6 @@ pub struct StatusResponse {
     /// Node version.
     pub version: NodeVersion,
     /// Uptime in seconds.
-    #[serde(default)]
     pub uptime_sec: Option<u64>,
 }
 
@@ -2195,26 +2157,20 @@ pub struct SyncInfo {
     /// Latest block height.
     pub latest_block_height: u64,
     /// Latest state root.
-    #[serde(default)]
     pub latest_state_root: Option<CryptoHash>,
     /// Latest block timestamp.
     pub latest_block_time: String,
     /// Whether the node is syncing.
     pub syncing: bool,
     /// Earliest block hash (if available).
-    #[serde(default)]
     pub earliest_block_hash: Option<CryptoHash>,
     /// Earliest block height (if available).
-    #[serde(default)]
     pub earliest_block_height: Option<u64>,
     /// Earliest block time (if available).
-    #[serde(default)]
     pub earliest_block_time: Option<String>,
     /// Current epoch ID.
-    #[serde(default)]
     pub epoch_id: Option<CryptoHash>,
     /// Epoch start height.
-    #[serde(default)]
     pub epoch_start_height: Option<u64>,
 }
 
@@ -2226,10 +2182,8 @@ pub struct NodeVersion {
     /// Build string.
     pub build: String,
     /// Git commit hash.
-    #[serde(default)]
     pub commit: Option<String>,
     /// Rust compiler version.
-    #[serde(default)]
     pub rustc_version: Option<String>,
 }
 
