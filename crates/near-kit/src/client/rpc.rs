@@ -53,22 +53,6 @@ async fn async_sleep(duration: Duration) {
     }
 }
 
-/// Network configuration presets.
-pub struct NetworkConfig {
-    /// The RPC URL for this network.
-    pub rpc_url: &'static str,
-}
-
-/// Mainnet configuration.
-pub const MAINNET: NetworkConfig = NetworkConfig {
-    rpc_url: "https://free.rpc.fastnear.com",
-};
-
-/// Testnet configuration.
-pub const TESTNET: NetworkConfig = NetworkConfig {
-    rpc_url: "https://test.rpc.fastnear.com",
-};
-
 /// Retry configuration for RPC calls.
 ///
 /// Governs how [`RpcClient::request`] retries transient failures (transport
@@ -3233,20 +3217,6 @@ mod tests {
         let data = serde_json::json!({ "SomeOtherError": {} });
         let err = RpcError::invalid_tx("some error", Some(data));
         assert!(matches!(err, RpcError::InvalidTxUnparsed { .. }));
-    }
-
-    // ========================================================================
-    // NetworkConfig tests
-    // ========================================================================
-
-    #[test]
-    fn test_mainnet_config() {
-        assert!(MAINNET.rpc_url.contains("fastnear"));
-    }
-
-    #[test]
-    fn test_testnet_config() {
-        assert!(TESTNET.rpc_url.contains("fastnear") || TESTNET.rpc_url.contains("test"));
     }
 
     // ========================================================================

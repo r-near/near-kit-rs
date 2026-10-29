@@ -12,7 +12,7 @@ use crate::types::{AccountId, BlockReference, ChainId, ViewFunctionResult};
 
 use super::nonce_manager::GenesisHash;
 use super::query::{AccountExistsQuery, BalanceQuery, TransactionStatusQuery};
-use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
+use super::rpc::{RetryConfig, RpcClient};
 use super::signing::SigningNear;
 use super::transaction::SignedTransactionSend;
 use super::transport::{self, RpcTransport};
@@ -64,12 +64,12 @@ pub struct Near {
 impl Near {
     /// Create a builder for mainnet.
     pub fn mainnet() -> NearBuilder {
-        NearBuilder::new(MAINNET.rpc_url, ChainId::mainnet())
+        NearBuilder::new("https://free.rpc.fastnear.com", ChainId::mainnet())
     }
 
     /// Create a builder for testnet.
     pub fn testnet() -> NearBuilder {
-        NearBuilder::new(TESTNET.rpc_url, ChainId::testnet())
+        NearBuilder::new("https://test.rpc.fastnear.com", ChainId::testnet())
     }
 
     /// Create a builder with a custom RPC URL and chain ID.
