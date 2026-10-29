@@ -9,7 +9,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
-use super::transport::RpcTransport;
+use super::transport::{RpcTransport, redact_url};
 // The module itself is only referenced for `default_transport`, which doesn't
 // exist on WASI builds without the `wasi-http` feature (no built-in transport).
 #[cfg(any(
@@ -776,7 +776,7 @@ impl RpcClient {
     /// Transient failures ([`RpcError::is_retryable`]) are retried according
     /// to the client's [`RetryConfig`]. `sandbox_fast_forward` is never
     /// retried, since it is not idempotent.
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %sanitize_url(&self.url))))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %redact_url(&self.url))))]
     pub async fn request<P: Serialize, R: DeserializeOwned>(
         &self,
         method: &str,
@@ -1449,7 +1449,8 @@ impl Clone for RpcClient {
 impl std::fmt::Debug for RpcClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RpcClient")
-            .field("url", &self.url)
+            // The URL may carry an API key (query) or credentials (userinfo).
+            .field("url", &redact_url(&self.url))
             .field("retry_config", &self.retry_config)
             .finish()
     }
@@ -1487,16 +1488,6 @@ fn block_id_or_null(block: Option<&BlockReference>) -> serde_json::Value {
         Some(BlockReference::Hash(h)) => serde_json::json!(h.to_string()),
         _ => serde_json::Value::Null,
     }
-}
-
-/// Cut a URL at its query string or fragment before it goes into a tracing
-/// span, since RPC providers often put API keys in query parameters. Userinfo
-/// and path segments are kept as they are.
-// Without `tracing`, only the unit tests reference this.
-#[cfg_attr(not(feature = "tracing"), allow(dead_code))]
-fn sanitize_url(url: &str) -> &str {
-    let end = url.find('?').or_else(|| url.find('#')).unwrap_or(url.len());
-    &url[..end]
 }
 
 /// Delay before retry number `retry` (0-based): `initial_delay_ms` doubled
@@ -2403,6 +2394,41 @@ mod tests {
         server.join().unwrap();
     }
 
+    /// `Debug` output (an app's `#[derive(Debug)]` state, `?client` in a log)
+    /// never shows the URL's API key or credentials, or the transport's
+    /// default headers.
+    #[test]
+    fn test_debug_output_hides_url_secrets_and_headers() {
+        let near = crate::Near::custom(
+            "https://user:PASSWORD@rpc.example.com/?apikey=SECRET",
+            "mainnet",
+        )
+        .build();
+        let signing = near.clone().with_signer(crate::types::InMemorySigner::new(
+            crate::account!("alice.near"),
+            crate::types::SecretKey::generate_ed25519(),
+        ));
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", HeaderValue::from_static("HEADERKEY"));
+        let client = crate::reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .unwrap();
+        let transport = transport::ReqwestTransport::with_client(client);
+
+        for shown in [
+            format!("{near:?}"),
+            format!("{signing:?}"),
+            format!("{:?}", near.rpc()),
+            format!("{transport:?}"),
+        ] {
+            for secret in ["SECRET", "PASSWORD", "user", "HEADERKEY"] {
+                assert!(!shown.contains(secret), "{secret} in {shown}");
+            }
+        }
+        assert!(format!("{near:?}").contains("https://rpc.example.com/"));
+    }
+
     /// The node may have handled a request whose connection dropped, so only
     /// idempotent methods are re-sent: `sandbox_fast_forward` (relative, would
     /// advance twice) fails after one attempt, while a query is retried.
@@ -2841,11 +2867,25 @@ mod tests {
     }
 
     #[test]
-    fn test_sanitize_url_strips_query_and_fragment() {
+    fn test_redact_url_strips_query_fragment_and_userinfo() {
         for (url, shown) in [
             (
                 "https://rpc.mainnet.near.org",
                 "https://rpc.mainnet.near.org",
+            ),
+            (
+                "https://user:secret@rpc.provider.com/v1",
+                "https://rpc.provider.com/v1",
+            ),
+            (
+                "https://user:p@ss@rpc.provider.com:3030?api_key=secret123",
+                "https://rpc.provider.com:3030",
+            ),
+            ("http://token@127.0.0.1:3030/", "http://127.0.0.1:3030/"),
+            // An `@` in the path is not userinfo.
+            (
+                "https://rpc.provider.com/v1/@scope",
+                "https://rpc.provider.com/v1/@scope",
             ),
             (
                 "https://rpc.provider.com/v1?api_key=secret123",
@@ -2860,7 +2900,7 @@ mod tests {
                 "https://rpc.provider.com/v1",
             ),
         ] {
-            assert_eq!(sanitize_url(url), shown);
+            assert_eq!(redact_url(url), shown);
         }
     }
 
