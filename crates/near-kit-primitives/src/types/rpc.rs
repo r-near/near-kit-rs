@@ -625,13 +625,8 @@ pub struct ChunkHeaderView {
     /// Rent paid (deprecated; when present, always 0).
     #[serde(default)]
     pub rent_paid: Option<NearToken>,
-    /// Proposed trie split for resharding.
-    ///
-    /// - `None` — field absent (older protocol versions)
-    /// - `Some(None)` — field present as JSON `null` (no split proposed)
-    /// - `Some(Some(split))` — active split proposal
-    #[serde(default)]
-    pub proposed_split: Option<Option<TrieSplit>>,
+    /// Proposed trie split for resharding (`None` when absent or `null`).
+    pub proposed_split: Option<TrieSplit>,
     /// Chunk signature.
     pub signature: Signature,
 }
