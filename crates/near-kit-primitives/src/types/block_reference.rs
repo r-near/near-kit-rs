@@ -123,56 +123,6 @@ impl TxExecutionStatus {
     }
 }
 
-/// Partial ordering for `TxExecutionStatus` forms a diamond lattice:
-///
-/// ```text
-///         None
-///          |
-///       Included
-///       /      \
-/// ExecutedOptimistic  IncludedFinal
-///       \      /
-///       Executed
-///          |
-///        Final
-/// ```
-///
-/// `ExecutedOptimistic` and `IncludedFinal` are **incomparable** because they
-/// represent progress on orthogonal axes (execution vs block finality).
-impl PartialOrd for TxExecutionStatus {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        use TxExecutionStatus::*;
-        use std::cmp::Ordering::*;
-
-        if self == other {
-            return Some(Equal);
-        }
-
-        // Assign each variant a position in the lattice.
-        // Returns (execution_level, finality_level).
-        fn axes(s: &TxExecutionStatus) -> (u8, u8) {
-            match s {
-                None => (0, 0),
-                Included => (1, 1),
-                ExecutedOptimistic => (2, 1),
-                IncludedFinal => (1, 2),
-                Executed => (2, 2),
-                Final => (3, 3),
-            }
-        }
-
-        let (ex_a, fin_a) = axes(self);
-        let (ex_b, fin_b) = axes(other);
-
-        match (ex_a.cmp(&ex_b), fin_a.cmp(&fin_b)) {
-            (Equal, Equal) => Some(Equal),
-            (Less | Equal, Less | Equal) => Some(Less),
-            (Greater | Equal, Greater | Equal) => Some(Greater),
-            _ => Option::None, // incomparable
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,42 +251,5 @@ mod tests {
             let parsed: SyncCheckpoint = serde_json::from_str(&json).unwrap();
             assert_eq!(cp, parsed);
         }
-    }
-
-    #[test]
-    fn test_tx_execution_status_partial_ord_linear() {
-        // Linear chain: None < Included < Executed < Final
-        assert!(TxExecutionStatus::None < TxExecutionStatus::Included);
-        assert!(TxExecutionStatus::Included < TxExecutionStatus::Executed);
-        assert!(TxExecutionStatus::Executed < TxExecutionStatus::Final);
-        assert!(TxExecutionStatus::None < TxExecutionStatus::Final);
-    }
-
-    #[test]
-    fn test_tx_execution_status_partial_ord_branches() {
-        // Both branches are greater than Included
-        assert!(TxExecutionStatus::ExecutedOptimistic > TxExecutionStatus::Included);
-        assert!(TxExecutionStatus::IncludedFinal > TxExecutionStatus::Included);
-        // Both branches are less than Executed
-        assert!(TxExecutionStatus::ExecutedOptimistic < TxExecutionStatus::Executed);
-        assert!(TxExecutionStatus::IncludedFinal < TxExecutionStatus::Executed);
-    }
-
-    #[test]
-    fn test_tx_execution_status_partial_ord_incomparable() {
-        // ExecutedOptimistic and IncludedFinal are incomparable
-        assert_eq!(
-            TxExecutionStatus::ExecutedOptimistic.partial_cmp(&TxExecutionStatus::IncludedFinal),
-            Option::None,
-        );
-        assert_eq!(
-            TxExecutionStatus::IncludedFinal.partial_cmp(&TxExecutionStatus::ExecutedOptimistic),
-            Option::None,
-        );
-        // Neither is >, <, ==
-        assert_ne!(
-            TxExecutionStatus::ExecutedOptimistic,
-            TxExecutionStatus::IncludedFinal
-        );
     }
 }

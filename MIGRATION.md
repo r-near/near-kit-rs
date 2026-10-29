@@ -103,6 +103,7 @@ after the table cover each one.
 | `rpc::ValidatorStakeView` (an enum with one `V1` variant: `into_v1()`, `account_id()`, `stake()`), `rpc::ValidatorStakeViewV1` | `rpc::ValidatorStakeView`, now the struct: read `.account_id`, `.public_key` and `.stake` |
 | `ChunkHeaderView::proposed_split: Option<Option<TrieSplit>>` | `Option<TrieSplit>`: the inner `None` never occurred (a JSON `null` decoded as the outer `None`) |
 | `rpc::TxExecutionStatus::is_executed()`, `is_block_final()`, `is_final()` | `matches!(s, ExecutedOptimistic \| Executed \| Final)`, `matches!(s, IncludedFinal \| Executed \| Final)`, `s == TxExecutionStatus::Final` |
+| `PartialOrd for rpc::TxExecutionStatus` (`<`, `partial_cmp`) | `matches!` on the levels you accept, as in the row above |
 
 ### RPC client
 
