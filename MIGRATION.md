@@ -166,6 +166,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `signer::SignerError` (exhaustive) | `#[non_exhaustive]`, with new `InvalidKey`, `NoKeys` and `MixedAccounts` variants |
 | `PublicKey::ml_dsa65_from_bytes(bytes)` | `PublicKey::MlDsa65(bytes)` |
 | `Signature::ed25519_from_bytes(b)`, `Signature::secp256k1_from_bytes(b)`, `Signature::ml_dsa65_from_bytes(b)` | `Signature::Ed25519(b)`, `Signature::Secp256k1(b)`, `Signature::MlDsa65(b)` |
+| `KeyType::try_from(u8)` | Match the byte yourself; `key_type as u8` gives the tag |
 
 ### Error variants
 

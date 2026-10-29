@@ -78,19 +78,6 @@ impl KeyType {
     }
 }
 
-impl TryFrom<u8> for KeyType {
-    type Error = ParseKeyError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(KeyType::Ed25519),
-            1 => Ok(KeyType::Secp256k1),
-            2 => Ok(KeyType::MlDsa65),
-            _ => Err(ParseKeyError::UnknownKeyType(value.to_string())),
-        }
-    }
-}
-
 /// A NEAR public key.
 ///
 /// Stored as fixed-size arrays matching nearcore's representation:
