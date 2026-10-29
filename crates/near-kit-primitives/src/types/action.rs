@@ -456,13 +456,6 @@ impl VersionedDelegateActionPayload {
         }
     }
 
-    /// The inner actions as plain [`Action`]s.
-    pub fn get_actions(&self) -> Vec<Action> {
-        match self {
-            Self::V2(d) => d.actions.iter().map(|a| a.clone().into()).collect(),
-        }
-    }
-
     /// Serialize this payload for signing under the V2 NEP-461 domain.
     ///
     /// Layout: `DELEGATE_V2_ACTION_PREFIX (u32 LE) ++ borsh(self)`. Because the
