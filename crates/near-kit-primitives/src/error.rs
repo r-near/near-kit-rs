@@ -20,8 +20,7 @@ pub enum ParseKeyError {
     #[error("Invalid key format: expected 'ed25519:...', 'secp256k1:...', or 'ml-dsa-65:...'")]
     InvalidFormat,
 
-    /// The key type prefix (or Borsh key type byte) isn't one near-kit knows.
-    /// Holds the prefix.
+    /// The key type prefix isn't one near-kit knows. Holds the prefix.
     #[error("Unknown key type: '{0}'")]
     UnknownKeyType(String),
 

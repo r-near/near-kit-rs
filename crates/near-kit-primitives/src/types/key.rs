@@ -136,7 +136,18 @@ impl TryFrom<u8> for KeyType {
 /// returns `false`). If you need to reject such keys up front, use
 /// [`PublicKey::validate`], or the checked constructors
 /// [`PublicKey::ed25519_from_bytes`] and [`PublicKey::secp256k1_from_bytes`].
-#[derive(Clone, PartialEq, Eq, Hash, SerializeDisplay, DeserializeFromStr)]
+///
+/// Borsh is the [`KeyType`] tag byte, then the raw bytes.
+#[derive(
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    SerializeDisplay,
+    DeserializeFromStr,
+    BorshSerialize,
+    BorshDeserialize,
+)]
 pub enum PublicKey {
     /// Ed25519 public key (32 bytes).
     Ed25519([u8; 32]),
@@ -336,45 +347,6 @@ impl Debug for PublicKey {
         match self {
             Self::MlDsa65(_) => write!(f, "PublicKey(ml-dsa-65:<1952 bytes>)"),
             _ => write!(f, "PublicKey({})", self),
-        }
-    }
-}
-
-impl BorshSerialize for PublicKey {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        borsh::BorshSerialize::serialize(&(self.key_type() as u8), writer)?;
-        writer.write_all(self.as_bytes())?;
-        Ok(())
-    }
-}
-
-impl BorshDeserialize for PublicKey {
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let key_type_byte = u8::deserialize_reader(reader)?;
-        let key_type = KeyType::try_from(key_type_byte)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-        match key_type {
-            // As in nearcore, only the tag and length are checked; see
-            // `PublicKey::validate` for curve-point validation.
-            KeyType::Ed25519 => {
-                let mut bytes = [0u8; 32];
-                reader.read_exact(&mut bytes)?;
-                Ok(Self::Ed25519(bytes))
-            }
-            KeyType::Secp256k1 => {
-                let mut bytes = [0u8; 64];
-                reader.read_exact(&mut bytes)?;
-                Ok(Self::Secp256k1(bytes))
-            }
-            KeyType::MlDsa65 => {
-                // The wire form of an ML-DSA-65 `PublicKey` is always the full
-                // 1952-byte key (`[2][1952]`); the 32-byte handle
-                // (`PublicKeyHandle`) never appears in borsh, only in view JSON.
-                let mut bytes = Box::new([0u8; ML_DSA_65_PUBLIC_KEY_LENGTH]);
-                reader.read_exact(bytes.as_mut_slice())?;
-                Ok(Self::ml_dsa65_from_bytes(bytes))
-            }
         }
     }
 }
@@ -1072,7 +1044,11 @@ impl Debug for SecretKey {
 }
 
 /// Cryptographic signature.
-#[derive(Clone, PartialEq, Eq, SerializeDisplay, DeserializeFromStr)]
+///
+/// Borsh is the [`KeyType`] tag byte, then the raw bytes.
+#[derive(
+    Clone, PartialEq, Eq, SerializeDisplay, DeserializeFromStr, BorshSerialize, BorshDeserialize,
+)]
 pub enum Signature {
     /// Ed25519 signature (64 bytes).
     Ed25519([u8; 64]),
@@ -1210,40 +1186,6 @@ impl Debug for Signature {
         match self {
             Self::MlDsa65(_) => write!(f, "Signature(ml-dsa-65:<3309 bytes>)"),
             _ => write!(f, "Signature({})", self),
-        }
-    }
-}
-
-impl BorshSerialize for Signature {
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        borsh::BorshSerialize::serialize(&(self.key_type() as u8), writer)?;
-        writer.write_all(self.as_bytes())?;
-        Ok(())
-    }
-}
-
-impl BorshDeserialize for Signature {
-    fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let key_type_byte = u8::deserialize_reader(reader)?;
-        let key_type = KeyType::try_from(key_type_byte)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-        match key_type {
-            KeyType::Ed25519 => {
-                let mut bytes = [0u8; 64];
-                reader.read_exact(&mut bytes)?;
-                Ok(Self::Ed25519(bytes))
-            }
-            KeyType::Secp256k1 => {
-                let mut bytes = [0u8; 65];
-                reader.read_exact(&mut bytes)?;
-                Ok(Self::Secp256k1(bytes))
-            }
-            KeyType::MlDsa65 => {
-                let mut bytes = Box::new([0u8; ML_DSA_65_SIGNATURE_LENGTH]);
-                reader.read_exact(bytes.as_mut_slice())?;
-                Ok(Self::MlDsa65(bytes))
-            }
         }
     }
 }
