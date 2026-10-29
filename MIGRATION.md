@@ -167,6 +167,19 @@ me.transaction(account!("sub.me.testnet"))
     .await?;
 ```
 
+### Nonces
+
+Cached nonces are now shared per chain ID, account and key rather than per
+RPC URL, so every client for one network shares one sequence whatever its
+endpoint. Give clients for one network the same chain ID (`Near::custom`'s
+second argument), and distinct networks distinct ones. A `NonceTooLarge`
+rejection is now retried like `Expired`, from a fresh view.
+
+`sign_delegate` without `DelegateOptions::nonce` draws its nonce from that
+same sequence (0.20's `delegate` used the access key's nonce + 1), so
+delegate actions signed before relaying, or while a transaction from the
+same key is pending, no longer share a nonce.
+
 ### Wait levels
 
 The wait level is now part of the signing client's type, set once with

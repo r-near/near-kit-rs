@@ -10,6 +10,7 @@ use serde::de::DeserializeOwned;
 use crate::View;
 use crate::types::{AccountId, BlockReference, ChainId, ViewFunctionResult};
 
+use super::nonce_manager::GenesisHash;
 use super::query::{AccountExistsQuery, BalanceQuery, TransactionStatusQuery};
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
 use super::signing::SigningNear;
@@ -55,6 +56,9 @@ pub struct Near {
     pub(super) rpc: Arc<RpcClient>,
     chain_id: ChainId,
     pub(super) max_nonce_retries: u32,
+    /// The node's genesis hash, which keys cached nonces; fetched on the first
+    /// nonce draw and shared by clones.
+    pub(super) genesis: Arc<GenesisHash>,
 }
 
 impl Near {
@@ -69,6 +73,16 @@ impl Near {
     }
 
     /// Create a builder with a custom RPC URL and chain ID.
+    ///
+    /// Signing clients cache nonces per chain, account and key, and tell
+    /// chains apart by the genesis hash their node reports: each client asks
+    /// for it (`status`) before the first nonce it draws, and keeps it. So
+    /// clients for one network share a sequence whatever their RPC URLs or
+    /// chain IDs, and two networks with one chain ID (two local sandboxes)
+    /// don't. A backend that can't report its genesis hash (no `status`
+    /// method) shares nonces by chain ID, so still pass the network's real
+    /// chain ID. Any other `status` failure fails that send or signature, and
+    /// the next one asks again.
     ///
     /// # Example
     ///
@@ -404,7 +418,8 @@ impl NearBuilder {
     /// Set the chain ID.
     ///
     /// This is useful for custom networks where the default chain ID
-    /// (e.g., `"custom"`) should be overridden.
+    /// (e.g., `"custom"`) should be overridden. Cached nonces are shared per
+    /// chain ID (see [`Near::custom`]).
     pub fn chain_id(mut self, chain_id: impl Into<String>) -> Self {
         self.chain_id = ChainId::new(chain_id);
         self
@@ -453,7 +468,9 @@ impl NearBuilder {
     /// Set the maximum number of transaction send attempts on `InvalidNonce` errors.
     ///
     /// When a transaction fails with `InvalidNonce`, the client automatically
-    /// retries with the corrected nonce from the error response.
+    /// retries with the corrected nonce from the error response. `Expired` and
+    /// `NonceTooLarge` rejections are retried the same way, from a fresh view
+    /// of the access key.
     ///
     /// `0` means no retries (send once), `1` means one retry, etc. Defaults to `3`.
     /// For high-contention relayer scenarios, consider setting
@@ -479,6 +496,7 @@ impl NearBuilder {
             )),
             chain_id: self.chain_id,
             max_nonce_retries: self.max_nonce_retries,
+            genesis: Arc::default(),
         }
     }
 }

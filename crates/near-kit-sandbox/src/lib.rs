@@ -682,7 +682,9 @@ impl SandboxBuilder {
     /// Useful for testing chain-ID-dependent logic (e.g., signed wallet
     /// requests that compare against the chain ID).
     ///
-    /// If not specified, the sandbox uses its default chain ID.
+    /// If not specified, the sandbox uses its default chain ID. Sandboxes
+    /// that share a chain ID still keep their nonces apart: near-kit caches
+    /// nonces by each chain's genesis hash, and every sandbox has its own.
     ///
     /// **Note:** `"mainnet"` and `"testnet"` are not supported. Attempting to
     /// use either is reported by [`SandboxBuilder::fresh`] or
