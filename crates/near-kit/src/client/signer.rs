@@ -62,9 +62,34 @@ struct CredentialFile {
     public_key: Option<String>,
 }
 
-/// Load the key for `account_id` from
-/// `~/.near-credentials/{network}/{account_id}.json`, the file near-cli and
-/// near-cli-rs write.
+/// Load the key for `account_id` from `~/.near-credentials/{network}/`, where
+/// near-cli and near-cli-rs save keys.
+///
+/// Both write `{account_id}.json`. near-cli-rs also writes every key it
+/// saves to `{account_id}/{public_key}.json` (with the `:` of the key
+/// written as `_`), and never overwrites `{account_id}.json`, so that file
+/// keeps the first key it saved for the account. This function reads:
+///
+/// 1. `{account_id}.json`, if it exists;
+/// 2. otherwise the one `.json` file in `{account_id}/`, if there is one;
+/// 3. otherwise it returns an error, naming the files in `{account_id}/` if
+///    there are several.
+///
+/// near-cli-rs picks among the keys in `{account_id}/` by asking the chain
+/// which of them are full-access keys; this function makes no network
+/// call. To sign with a key other than the first, load its file with
+/// [`from_credentials_file`]:
+///
+/// ```rust,no_run
+/// use near_kit::{account, signer};
+///
+/// let home = std::env::home_dir().expect("a home directory");
+/// let signer = signer::from_credentials_file(
+///     home.join(".near-credentials/testnet/alice.testnet/ed25519_<public key>.json"),
+///     account!("alice.testnet"),
+/// )?;
+/// # Ok::<(), near_kit::Error>(())
+/// ```
 ///
 /// Requires the opt-in `file-signer` feature and is not usable on
 /// `wasm32-unknown-unknown`, which has no filesystem.
@@ -81,21 +106,61 @@ struct CredentialFile {
 ///
 /// # Errors
 ///
-/// [`Error::Config`] if the home directory can't be determined or the file
-/// can't be read or parsed, and a parse error for an invalid key.
+/// [`Error::Config`] if the home directory can't be determined, no key file
+/// is found, `{account_id}.json` is missing and `{account_id}/` holds
+/// several keys, or the file can't be read or parsed; a parse error for an
+/// invalid key.
 #[cfg(feature = "file-signer")]
 pub fn from_credentials(
     network: &str,
     account_id: impl Into<AccountId>,
 ) -> Result<InMemorySigner, Error> {
-    let account_id: AccountId = account_id.into();
     let home = dirs::home_dir()
         .ok_or_else(|| Error::Config("Could not determine home directory".to_string()))?;
-    let path = home
-        .join(".near-credentials")
-        .join(network)
-        .join(format!("{account_id}.json"));
-    from_credentials_file(&path, account_id)
+    from_credentials_in(&home.join(".near-credentials"), network, account_id.into())
+}
+
+/// [`from_credentials`] with the credentials directory given.
+#[cfg(feature = "file-signer")]
+fn from_credentials_in(
+    credentials_dir: &Path,
+    network: &str,
+    account_id: AccountId,
+) -> Result<InMemorySigner, Error> {
+    let network_dir = credentials_dir.join(network);
+    let account_file = network_dir.join(format!("{account_id}.json"));
+    if account_file.exists() {
+        return from_credentials_file(&account_file, account_id);
+    }
+    let key_dir = network_dir.join(account_id.as_str());
+    let mut key_files: Vec<std::path::PathBuf> = std::fs::read_dir(&key_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    key_files.sort();
+    match key_files.as_slice() {
+        // Report the file near-cli and near-cli-rs always write.
+        [] => from_credentials_file(&account_file, account_id),
+        [only] => from_credentials_file(only, account_id),
+        several => {
+            let names: Vec<_> = several
+                .iter()
+                .filter_map(|path| path.file_name())
+                .map(|name| name.to_string_lossy())
+                .collect();
+            Err(Error::Config(format!(
+                "There is no {}, and {} holds {} keys ({}); load one with \
+                 signer::from_credentials_file",
+                account_file.display(),
+                key_dir.display(),
+                several.len(),
+                names.join(", ")
+            )))
+        }
+    }
 }
 
 /// Load the key for `account_id` from a near-cli credentials file at `path`.
@@ -199,6 +264,120 @@ mod tests {
         let result = from_credentials_file(&path, crate::account!("alice.testnet"));
         std::fs::remove_file(&path).unwrap();
         result
+    }
+
+    /// A fresh `<dir>/testnet/` for one test, removed by [`TempCredentials::drop`].
+    #[cfg(feature = "file-signer")]
+    struct TempCredentials(std::path::PathBuf);
+
+    #[cfg(feature = "file-signer")]
+    impl TempCredentials {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "near-kit-credentials-dir-{name}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(dir.join("testnet")).unwrap();
+            Self(dir)
+        }
+
+        /// Write `key` to `testnet/<relative>`, in near-cli-rs's format.
+        fn write(&self, relative: &str, key: &crate::signer::SecretKey) {
+            let path = self.0.join("testnet").join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let contents = serde_json::json!({
+                "account_id": "alice.testnet",
+                "public_key": key.public_key().to_string(),
+                "private_key": key.to_string(),
+            });
+            std::fs::write(path, contents.to_string()).unwrap();
+        }
+
+        /// near-cli-rs's name for a key's file in `<account>/`.
+        fn key_file(key: &crate::signer::SecretKey) -> String {
+            format!(
+                "alice.testnet/{}.json",
+                key.public_key().to_string().replace(':', "_")
+            )
+        }
+
+        fn load(&self) -> Result<InMemorySigner, Error> {
+            from_credentials_in(&self.0, "testnet", crate::account!("alice.testnet"))
+        }
+    }
+
+    #[cfg(feature = "file-signer")]
+    impl Drop for TempCredentials {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// near-cli-rs keeps the first key it saved in `<account>.json` and
+    /// every key in `<account>/`; `from_credentials` takes `<account>.json`.
+    #[cfg(feature = "file-signer")]
+    #[test]
+    fn credentials_dir_prefers_the_account_file() {
+        use crate::signer::{SecretKey, Signer};
+
+        let dir = TempCredentials::new("account-file");
+        let first = SecretKey::ed25519_from_bytes([30; 32]);
+        let second = SecretKey::ed25519_from_bytes([31; 32]);
+        dir.write("alice.testnet.json", &first);
+        dir.write(&TempCredentials::key_file(&first), &first);
+        dir.write(&TempCredentials::key_file(&second), &second);
+
+        assert_eq!(dir.load().unwrap().public_key(), first.public_key());
+    }
+
+    /// Without `<account>.json`, the one key in `<account>/` is used.
+    #[cfg(feature = "file-signer")]
+    #[test]
+    fn credentials_dir_with_one_key_file_loads_it() {
+        use crate::signer::{SecretKey, Signer};
+
+        let dir = TempCredentials::new("one-key");
+        let key = SecretKey::ed25519_from_bytes([32; 32]);
+        dir.write(&TempCredentials::key_file(&key), &key);
+
+        let signer = dir.load().unwrap();
+        assert_eq!(signer.account_id().as_str(), "alice.testnet");
+        assert_eq!(signer.public_key(), key.public_key());
+    }
+
+    /// Without `<account>.json`, several keys in `<account>/` are an error
+    /// that names each file.
+    #[cfg(feature = "file-signer")]
+    #[test]
+    fn credentials_dir_with_several_key_files_is_an_error() {
+        use crate::signer::SecretKey;
+
+        let dir = TempCredentials::new("several-keys");
+        let keys = [
+            SecretKey::ed25519_from_bytes([33; 32]),
+            SecretKey::ed25519_from_bytes([34; 32]),
+        ];
+        for key in &keys {
+            dir.write(&TempCredentials::key_file(key), key);
+        }
+
+        let message = dir.load().unwrap_err().to_string();
+        for key in &keys {
+            let file = TempCredentials::key_file(key);
+            let file = file.trim_start_matches("alice.testnet/");
+            assert!(message.contains(file), "{file} missing from: {message}");
+        }
+        assert!(message.contains("from_credentials_file"), "{message}");
+    }
+
+    /// With neither, the error names the file it looked for.
+    #[cfg(feature = "file-signer")]
+    #[test]
+    fn credentials_dir_without_keys_names_the_account_file() {
+        let dir = TempCredentials::new("no-keys");
+        let message = dir.load().unwrap_err().to_string();
+        assert!(message.contains("alice.testnet.json"), "{message}");
     }
 
     /// near-cli-rs writes ML-DSA-65 keys in nearcore's 4032-byte expanded form.
