@@ -9,6 +9,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+exclude = ["clippy.toml"]
 
 # `js` is left out: it only selects an entropy backend on wasm32-unknown-unknown.
 [package.metadata.docs.rs]
