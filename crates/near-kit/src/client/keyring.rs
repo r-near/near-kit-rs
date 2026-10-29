@@ -151,36 +151,24 @@ mod tests {
     use crate::signer::Signer as _;
 
     #[test]
-    fn test_parse_full_format() {
-        let json = r#"{
+    fn test_parse_full_and_simple_formats() {
+        // From a seed phrase import, then from a private key import.
+        let full = r#"{
             "seed_phrase_hd_path": "m/44'/397'/0'",
             "master_seed_phrase": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
             "implicit_account_id": "c4f5941e81e071c2fd1dae2e71fd3d859d462484391d9a90bf219211dcbb320f",
             "public_key": "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847",
             "private_key": "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
         }"#;
-
-        let account_id: AccountId = "alice.testnet".parse().unwrap();
-
-        let secret_key = parse_keyring_credential(json, &account_id).unwrap();
-
-        // Verify the key was parsed correctly
-        assert!(secret_key.to_string().starts_with("ed25519:"));
-    }
-
-    #[test]
-    fn test_parse_simple_format() {
-        let json = r#"{
+        let simple = r#"{
             "public_key": "ed25519:DcA2MzgpJbrUATQLLceocVckhhAqrkingax4oJ9kZ847",
             "private_key": "ed25519:3D4YudUahN1nawWogh8pAKSj92sUNMdbZGjn7kERKzYoTy8tnFQuwoGUC51DowKqorvkr2pytJSnwuSbsNVfqygr"
         }"#;
-
         let account_id: AccountId = "alice.testnet".parse().unwrap();
-
-        let secret_key = parse_keyring_credential(json, &account_id).unwrap();
-
-        // Verify the key was parsed correctly
-        assert!(secret_key.to_string().starts_with("ed25519:"));
+        for json in [full, simple] {
+            let secret_key = parse_keyring_credential(json, &account_id).unwrap();
+            assert!(secret_key.to_string().starts_with("ed25519:"));
+        }
     }
 
     #[test]

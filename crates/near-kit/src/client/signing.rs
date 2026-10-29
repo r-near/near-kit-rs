@@ -535,12 +535,13 @@ mod tests {
                 std::env::remove_var("NEAR_MAX_NONCE_RETRIES");
             }
         }
-        fn set_credentials() {
+        fn set(key: &str, value: &str) {
             // SAFETY: as above
-            unsafe {
-                std::env::set_var("NEAR_ACCOUNT_ID", "alice.testnet");
-                std::env::set_var("NEAR_PRIVATE_KEY", ALICE_KEY);
-            }
+            unsafe { std::env::set_var(key, value) }
+        }
+        fn set_credentials() {
+            set("NEAR_ACCOUNT_ID", "alice.testnet");
+            set("NEAR_PRIVATE_KEY", ALICE_KEY);
         }
         fn expect_error_mentioning(needle: &str) {
             let err = SigningNear::from_env().expect_err("expected an error");
@@ -570,9 +571,7 @@ mod tests {
         // Mainnet network
         clear_env();
         set_credentials();
-        unsafe {
-            std::env::set_var("NEAR_NETWORK", "mainnet");
-        }
+        set("NEAR_NETWORK", "mainnet");
         {
             let near = SigningNear::from_env().unwrap();
             assert!(near.near().chain_id().is_mainnet());
@@ -581,9 +580,7 @@ mod tests {
         // Custom URL without NEAR_CHAIN_ID: a config error, no "custom" default
         clear_env();
         set_credentials();
-        unsafe {
-            std::env::set_var("NEAR_NETWORK", "https://custom-rpc.example.com");
-        }
+        set("NEAR_NETWORK", "https://custom-rpc.example.com");
         {
             let err = SigningNear::from_env().expect_err("expected an error");
             assert!(
@@ -594,33 +591,25 @@ mod tests {
 
         // Account without key
         clear_env();
-        unsafe {
-            std::env::set_var("NEAR_ACCOUNT_ID", "alice.testnet");
-        }
+        set("NEAR_ACCOUNT_ID", "alice.testnet");
         expect_error_mentioning("NEAR_PRIVATE_KEY");
 
         // Key without account
         clear_env();
-        unsafe {
-            std::env::set_var("NEAR_PRIVATE_KEY", ALICE_KEY);
-        }
+        set("NEAR_PRIVATE_KEY", ALICE_KEY);
         expect_error_mentioning("NEAR_ACCOUNT_ID");
 
         // Invalid key
         clear_env();
         set_credentials();
-        unsafe {
-            std::env::set_var("NEAR_PRIVATE_KEY", "not-a-key");
-        }
+        set("NEAR_PRIVATE_KEY", "not-a-key");
         assert!(SigningNear::from_env().is_err());
 
         // Custom max_nonce_retries, including zero
         for (value, expected) in [("10", 10), ("0", 0)] {
             clear_env();
             set_credentials();
-            unsafe {
-                std::env::set_var("NEAR_MAX_NONCE_RETRIES", value);
-            }
+            set("NEAR_MAX_NONCE_RETRIES", value);
             let near = SigningNear::from_env().unwrap();
             assert_eq!(near.near().max_nonce_retries, expected);
         }
@@ -628,18 +617,14 @@ mod tests {
         // Invalid max_nonce_retries
         clear_env();
         set_credentials();
-        unsafe {
-            std::env::set_var("NEAR_MAX_NONCE_RETRIES", "abc");
-        }
+        set("NEAR_MAX_NONCE_RETRIES", "abc");
         expect_error_mentioning("NEAR_MAX_NONCE_RETRIES");
 
         // NEAR_CHAIN_ID overrides chain_id for a custom network
         clear_env();
         set_credentials();
-        unsafe {
-            std::env::set_var("NEAR_NETWORK", "https://rpc.pinet.near.org");
-            std::env::set_var("NEAR_CHAIN_ID", "pinet");
-        }
+        set("NEAR_NETWORK", "https://rpc.pinet.near.org");
+        set("NEAR_CHAIN_ID", "pinet");
         {
             let near = SigningNear::from_env().unwrap();
             assert_eq!(near.near().rpc().url(), "https://rpc.pinet.near.org");
@@ -649,9 +634,7 @@ mod tests {
         // NEAR_CHAIN_ID without NEAR_NETWORK keeps the testnet RPC
         clear_env();
         set_credentials();
-        unsafe {
-            std::env::set_var("NEAR_CHAIN_ID", "my-chain");
-        }
+        set("NEAR_CHAIN_ID", "my-chain");
         {
             let near = SigningNear::from_env().unwrap();
             assert!(

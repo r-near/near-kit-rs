@@ -889,15 +889,13 @@ mod tests {
         assert!(matches!(error, Error::Validation(_)), "{error:?}");
     }
 
-    #[tokio::test]
-    async fn relayed_delegate_to_another_receiver_is_rejected_before_any_rpc() {
-        // nearcore fails a delegate whose sender isn't the transaction's
-        // receiver (DelegateActionSenderDoesNotMatchTxReceiver), after the
-        // relayer has paid for it. The old builder set the receiver itself.
+    /// A delegate action from `sender.testnet` to `receiver`, signed by a
+    /// fresh key.
+    fn signed_delegate(receiver: &str) -> SignedDelegateAction {
         let key = SecretKey::generate_ed25519();
         let delegate = DelegateAction {
             sender_id: "sender.testnet".parse().unwrap(),
-            receiver_id: "guestbook.testnet".parse().unwrap(),
+            receiver_id: receiver.parse().unwrap(),
             actions: vec![
                 NonDelegateAction::from_action(Action::transfer(NearToken::ZERO)).unwrap(),
             ],
@@ -906,7 +904,15 @@ mod tests {
             public_key: key.public_key(),
         };
         let signature = key.sign(delegate.get_hash().as_bytes());
-        let signed_delegate = delegate.into_signed(signature);
+        delegate.into_signed(signature)
+    }
+
+    #[tokio::test]
+    async fn relayed_delegate_to_another_receiver_is_rejected_before_any_rpc() {
+        // nearcore fails a delegate whose sender isn't the transaction's
+        // receiver (DelegateActionSenderDoesNotMatchTxReceiver), after the
+        // relayer has paid for it. The old builder set the receiver itself.
+        let signed_delegate = signed_delegate("guestbook.testnet");
 
         let error = test_signing()
             .transaction(crate::account!("guestbook.testnet"))
@@ -931,19 +937,7 @@ mod tests {
 
     #[tokio::test]
     async fn delegate_rejects_nested_delegate_actions() {
-        let key = SecretKey::generate_ed25519();
-        let delegate = DelegateAction {
-            sender_id: "sender.testnet".parse().unwrap(),
-            receiver_id: "receiver.testnet".parse().unwrap(),
-            actions: vec![
-                NonDelegateAction::from_action(Action::transfer(NearToken::ZERO)).unwrap(),
-            ],
-            nonce: 1,
-            max_block_height: 100,
-            public_key: key.public_key(),
-        };
-        let signature = key.sign(delegate.get_hash().as_bytes());
-        let signed_delegate = delegate.into_signed(signature);
+        let signed_delegate = signed_delegate("receiver.testnet");
 
         let error = test_signing()
             .sign_delegate(
