@@ -1016,7 +1016,7 @@ mod tests {
                 }
                 other => panic!("unexpected RPC method {other}"),
             };
-            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+            Box::pin(async move { Ok(TransportResponse::new(200, body)) })
         }
     }
 
@@ -1353,7 +1353,7 @@ mod tests {
                 }
                 other => panic!("unexpected RPC method {other}"),
             };
-            Box::pin(async move { Ok(TransportResponse { status, body }) })
+            Box::pin(async move { Ok(TransportResponse::new(status, body)) })
         }
     }
 
@@ -1885,7 +1885,7 @@ mod tests {
                     })),
                     other => panic!("unexpected RPC method {other}"),
                 };
-                Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+                Box::pin(async move { Ok(TransportResponse::new(200, body)) })
             }
         }
 

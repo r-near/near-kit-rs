@@ -65,7 +65,7 @@ mod rpc {
             _body: Vec<u8>,
         ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
             let body = self.0.clone();
-            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+            Box::pin(async move { Ok(TransportResponse::new(200, body)) })
         }
     }
 

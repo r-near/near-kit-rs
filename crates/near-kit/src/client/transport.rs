@@ -42,12 +42,24 @@ pub(crate) fn redact_url(url: &str) -> String {
 /// and keeping the trait encoding-agnostic means transports never have to
 /// know that NEAR's JSON-RPC happens to be UTF-8 text. The RPC layer owns the
 /// (lossy) UTF-8 decode, exactly as it did when reqwest's `text()` did it.
+///
+/// Build one with [`new`](Self::new): the struct is `#[non_exhaustive]`, so
+/// fields (such as response headers) can be added later without breaking
+/// transports.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct TransportResponse {
     /// The HTTP status code (e.g. `200`).
     pub status: u16,
     /// The complete response body.
     pub body: Vec<u8>,
+}
+
+impl TransportResponse {
+    /// A response with HTTP status `status` and the complete `body`.
+    pub fn new(status: u16, body: Vec<u8>) -> Self {
+        Self { status, body }
+    }
 }
 
 /// The HTTP layer under [`RpcClient`](super::rpc::RpcClient).
@@ -90,7 +102,7 @@ pub struct TransportResponse {
 ///     ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
 ///         // Copy what the future needs; it may borrow `self` only.
 ///         let body = self.0.as_bytes().to_vec();
-///         Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+///         Box::pin(async move { Ok(TransportResponse::new(200, body)) })
 ///     }
 /// }
 ///
@@ -267,7 +279,7 @@ mod reqwest_backend {
                 let response = request.send().await?;
                 let status = response.status().as_u16();
                 let body = response.bytes().await?.to_vec();
-                Ok(TransportResponse { status, body })
+                Ok(TransportResponse::new(status, body))
             })
         }
     }
@@ -485,7 +497,7 @@ mod wasi_http {
         // Finish the incoming body (drops the trailers future we never read).
         let _ = IncomingBody::finish(incoming_body);
 
-        Ok(TransportResponse { status, body: buf })
+        Ok(TransportResponse::new(status, buf))
     }
 
     /// The `wasi:http` request parts extracted from an RPC endpoint URL.

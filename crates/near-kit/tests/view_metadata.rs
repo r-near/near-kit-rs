@@ -26,7 +26,7 @@ impl RpcTransport for ResponseTransport {
             .unwrap()
             .push(serde_json::from_slice(&body).unwrap());
         let body = self.response.clone();
-        Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+        Box::pin(async move { Ok(TransportResponse::new(200, body)) })
     }
 }
 

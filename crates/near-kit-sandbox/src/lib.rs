@@ -760,7 +760,7 @@ mod tests {
                 .unwrap()
                 .push(serde_json::from_slice(&body).unwrap());
             let body = br#"{"jsonrpc":"2.0","id":0,"result":{}}"#.to_vec();
-            Box::pin(async move { Ok(near_kit::rpc::TransportResponse { status: 200, body }) })
+            Box::pin(async move { Ok(near_kit::rpc::TransportResponse::new(200, body)) })
         }
     }
 

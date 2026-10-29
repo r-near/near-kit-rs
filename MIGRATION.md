@@ -123,6 +123,7 @@ after the table cover each one.
 | `RpcClient::block_effects(block)`, `RpcClient::maintenance_windows(id)`, `rpc::BlockEffects`, `rpc::StateChangeKindView`, `rpc::MaintenanceWindow` | `rpc.request::<_, serde_json::Value>("block_effects", serde_json::json!({ "block_id": hash }))` (or `{ "finality": "final" }`), `rpc.request::<_, serde_json::Value>("maintenance_windows", serde_json::json!({ "account_id": id }))`, or your own serde type in place of `Value` |
 | `RpcClient::with_retry_config(url, c)` | `RpcClient::with_transport_and_retry_config(url, Arc::new(ReqwestTransport::default()), c)`, or `Near::custom(url, id).retry_config(c)` |
 | `RpcClient::sandbox_fast_forward(n)`, `RpcClient::sandbox_patch_state(records)` | `sandbox.fast_forward(n)`, `sandbox.patch_state(records)`; for a sandbox node you started yourself, `near_kit_sandbox::fast_forward(&rpc, n)`, `near_kit_sandbox::patch_state(&rpc, records)` (sends the patch twice, as 0.20.1 did) |
+| `TransportResponse { status, body }` (a struct literal in a custom `RpcTransport`) | `TransportResponse::new(status, body)`: the struct is `#[non_exhaustive]`; its fields stay readable |
 | `RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`, `RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE` | Crate-private (10,000 and 100) |
 | `rpc::RawTransactionResponse` (hidden) | `rpc::RpcTransactionResponse`, documented; `send_tx` and `tx_status` return it |
 

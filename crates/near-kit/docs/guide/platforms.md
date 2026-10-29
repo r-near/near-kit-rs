@@ -133,7 +133,7 @@ impl RpcTransport for HostHttp {
                 status_code: None,
                 retryable: true,
             })?;
-            Ok(TransportResponse { status, body })
+            Ok(TransportResponse::new(status, body))
         })
     }
 }

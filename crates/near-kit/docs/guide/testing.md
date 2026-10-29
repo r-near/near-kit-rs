@@ -410,7 +410,7 @@ impl RpcTransport for Canned {
         reply["id"] = request["id"].clone();
         self.requests.lock().unwrap().push(request);
         let body = serde_json::to_vec(&reply).unwrap();
-        Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+        Box::pin(async move { Ok(TransportResponse::new(200, body)) })
     }
 }
 

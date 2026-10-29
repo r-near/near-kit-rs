@@ -1757,7 +1757,7 @@ mod tests {
             } else {
                 responses[0].clone()
             };
-            Box::pin(async move { Ok(TransportResponse { status, body }) })
+            Box::pin(async move { Ok(TransportResponse::new(status, body)) })
         }
     }
 

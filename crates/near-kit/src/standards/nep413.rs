@@ -169,7 +169,7 @@ mod tests {
             assert_eq!(request["params"]["finality"], "optimistic");
             self.calls.fetch_add(1, Ordering::Relaxed);
             let body = self.body.clone();
-            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+            Box::pin(async move { Ok(TransportResponse::new(200, body)) })
         }
     }
 
