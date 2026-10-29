@@ -7,10 +7,6 @@ use serde::Deserialize;
 use super::rpc::ValidatorStakeView;
 use super::{AccountId, NearToken, PublicKey};
 
-// ============================================================================
-// Validators / Epoch types
-// ============================================================================
-
 /// Epoch validator info from `validators` RPC.
 #[derive(Debug, Clone, Deserialize)]
 pub struct EpochValidatorInfo {

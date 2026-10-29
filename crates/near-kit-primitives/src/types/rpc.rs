@@ -23,22 +23,10 @@ use super::transaction::{NonceMode, TransactionNonce};
 use super::{AccountId, CryptoHash, Gas, NearToken, Nonce, PublicKey, PublicKeyHandle, Signature};
 use crate::error::ActionViewConversionError;
 
-// ============================================================================
-// Constants
-// ============================================================================
-
-/// Cost per byte of storage in yoctoNEAR.
-///
-/// This is a protocol constant (10^19 yoctoNEAR per byte = 0.00001 NEAR/byte).
-/// It has remained unchanged since NEAR genesis and would require a hard fork
-/// to modify. Used for calculating available balance.
-///
-/// See: <https://docs.near.org/concepts/storage/storage-staking>
-pub const STORAGE_AMOUNT_PER_BYTE: u128 = 10_000_000_000_000_000_000; // 10^19 yoctoNEAR
-
-// ============================================================================
-// Account types
-// ============================================================================
+/// Cost per byte of storage in yoctoNEAR (0.00001 NEAR), a protocol constant
+/// used for the available balance. See
+/// <https://docs.near.org/concepts/storage/storage-staking>.
+pub const STORAGE_AMOUNT_PER_BYTE: u128 = 10_000_000_000_000_000_000;
 
 /// Account information from view_account RPC.
 #[derive(Debug, Clone, Deserialize)]
@@ -243,10 +231,6 @@ pub struct GasKeyNoncesView {
     pub block_hash: CryptoHash,
 }
 
-// ============================================================================
-// view_state
-// ============================================================================
-
 /// A single contract state entry (key/value), as returned by `view_state`.
 ///
 /// `key` and `value` are raw bytes; they are base64-encoded on the wire.
@@ -331,10 +315,6 @@ impl<'a> IntoIterator for &'a ViewStateAllResult {
     }
 }
 
-// ============================================================================
-// view_code / view_global_contract_code
-// ============================================================================
-
 /// A contract's WASM code and its hash, as returned by `view_code` and
 /// `view_global_contract_code` queries.
 ///
@@ -355,10 +335,6 @@ pub struct ContractCodeView {
     /// Block hash of the query.
     pub block_hash: CryptoHash,
 }
-
-// ============================================================================
-// Stabilized RPC method responses (protocol 2.13)
-// ============================================================================
 
 /// One entry in a [`BlockEffects`] response: which kind of state was touched
 /// for an account in the block.
@@ -411,10 +387,6 @@ pub struct MaintenanceWindow {
     /// Block height the window ends at (exclusive).
     pub end: u64,
 }
-
-// ============================================================================
-// Block types
-// ============================================================================
 
 /// Block information from block RPC.
 #[derive(Debug, Clone, Deserialize)]
@@ -643,10 +615,6 @@ pub struct GasPrice {
     pub gas_price: NearToken,
 }
 
-// ============================================================================
-// Transaction outcome types
-// ============================================================================
-
 /// Overall transaction execution status.
 ///
 /// Represents the final result of a transaction, matching nearcore's `FinalExecutionStatus`.
@@ -663,60 +631,31 @@ pub enum FinalExecutionStatus {
     SuccessValue(String),
 }
 
-/// Response returned for non-executed wait levels.
-///
-/// When you use a non-executed wait level ([`Submitted`](crate::transaction::Submitted),
-/// [`Included`](crate::transaction::Included), [`IncludedFinal`](crate::transaction::IncludedFinal)),
-/// the transaction hasn't finished executing, so this type carries the
-/// information needed to poll for the final result later via
-/// `Near::tx_status`.
-///
-/// # The `outcome` field
-///
-/// The node returns the transaction's execution outcome as soon as it has
-/// one, on both paths. By wait level:
-///
-/// - [`Submitted`](crate::transaction::Submitted): the node doesn't wait for
-///   the transaction, so a sent transaction gets no outcome; `tx_status`
-///   returns whatever outcome the node already has.
-/// - [`Included`](crate::transaction::Included): the node answers once the
-///   transaction is in a block, often before it has stored the outcome, so
-///   `outcome` may be [`None`].
-/// - [`IncludedFinal`](crate::transaction::IncludedFinal): the node reports
-///   this level from the outcome, so `outcome` is present.
-///
-/// What it carries depends on the RPC:
-///
-/// - Via a sent transaction or `Near::send_signed` (the `send_tx` RPC): the
-///   outcome has `receipts_outcome` (per-receipt status) but no `receipts`.
-/// - Via `Near::tx_status` (the `EXPERIMENTAL_tx_status` RPC): it also has
-///   `receipts`, so a receiver_id can be mapped to a UI stage.
-///
-/// The outcome is *partial* while the transaction is still running and
-/// *complete* once it has finished (e.g. when polling a tx that already
-/// settled). This is what lets a frontend poll `tx_status` at an early wait
-/// level to drive a progressive UI without blocking for finality.
-///
-/// The outcome is exposed as-is (not validated); inspect
-/// [`FinalExecutionOutcome::status`] to see how far execution has progressed.
-/// See `near-kit`'s `rpc` module docs for polling with `tx_status` at an early
-/// wait level.
+/// Response returned for non-executed wait levels
+/// ([`Submitted`](crate::transaction::Submitted),
+/// [`Included`](crate::transaction::Included),
+/// [`IncludedFinal`](crate::transaction::IncludedFinal)): enough to poll for
+/// the final result later via `Near::tx_status`.
 #[derive(Debug, Clone)]
 pub struct SendTxResponse {
     /// Hash of the submitted transaction.
     pub transaction_hash: CryptoHash,
     /// Account ID of the transaction signer.
     pub sender_id: AccountId,
-    /// Execution outcome, when the RPC returned one.
+    /// The execution outcome, once the node has one, exposed as-is (not
+    /// validated): partial while the transaction runs, complete once it has
+    /// finished. Check [`FinalExecutionOutcome::status`] for how far it got.
     ///
-    /// May be partial (while the transaction is still executing) or complete
-    /// (when polling a tx that has already finished). [`None`] for a
-    /// transaction sent at [`Submitted`](crate::transaction::Submitted), and
-    /// while the node has no outcome yet, which can happen at `Submitted` or
-    /// [`Included`](crate::transaction::Included); the node returns one from
-    /// [`IncludedFinal`](crate::transaction::IncludedFinal). `receipts` is
-    /// only filled in when this response comes from `Near::tx_status`. See the
-    /// [type-level docs](SendTxResponse) for details.
+    /// - [`Submitted`](crate::transaction::Submitted): a sent transaction gets
+    ///   none; `tx_status` returns whatever the node already has.
+    /// - [`Included`](crate::transaction::Included): often [`None`], as the
+    ///   node answers before it has stored the outcome.
+    /// - [`IncludedFinal`](crate::transaction::IncludedFinal): present.
+    ///
+    /// Its `receipts` are filled in only by `Near::tx_status`
+    /// (`EXPERIMENTAL_tx_status`), which lets a frontend poll at an early wait
+    /// level to drive a progressive UI; from a send (`send_tx`) only
+    /// `receipts_outcome` is.
     pub outcome: Option<FinalExecutionOutcome>,
 }
 
@@ -737,11 +676,7 @@ pub struct ReceiptToTxResponse {
 /// response of its [`WaitLevel`](crate::transaction::WaitLevel)
 /// ([`FinalExecutionOutcome`] or [`SendTxResponse`]), built from this.
 ///
-/// `outcome` is `None` until the node has the transaction's outcome: always
-/// when sending at `wait_until: NONE`, and possibly at `NONE` or `INCLUDED`
-/// otherwise; from `INCLUDED_FINAL` it is present, and partial until the
-/// transaction has executed. Only
-/// `EXPERIMENTAL_tx_status` fills in its `receipts`.
+/// `outcome` follows the rules of [`SendTxResponse::outcome`].
 ///
 /// Deserializing fails if the JSON carries an outcome that does not decode
 /// (or only some of its fields); `outcome` is `None` only when the JSON has
@@ -818,14 +753,8 @@ impl<'de> Deserialize<'de> for RpcTransactionResponse {
 
 /// Final execution outcome from a NEAR transaction.
 ///
-/// Returned by both `send_tx` and `EXPERIMENTAL_tx_status` RPC methods.
-/// All fields are required — this type only appears when a transaction has
-/// actually been executed (not for non-executed wait levels).
-///
-/// The `receipts` field contains full receipt details when the outcome comes
-/// from `EXPERIMENTAL_tx_status` (i.e. `near.tx_status()`). When the outcome
-/// comes from `send_tx` (every send: `alice.transaction(..)` and
-/// `Near::send_signed`), this field is an empty `Vec`.
+/// Returned by both `send_tx` and `EXPERIMENTAL_tx_status` once the
+/// transaction has executed.
 ///
 /// A failed action still arrives as `Ok(outcome)`, so the type is
 /// `#[must_use]`: check [`is_failure`](Self::is_failure) or
@@ -1108,10 +1037,6 @@ pub struct TransactionView {
     pub nonce_mode: Option<NonceMode>,
 }
 
-// ============================================================================
-// Global contract identifier view
-// ============================================================================
-
 /// Backward-compatible deserialization helper for `GlobalContractIdentifierView`.
 ///
 /// Handles the view format (`{"hash": "<base58>"}` / `{"account_id": "alice.near"}`),
@@ -1168,10 +1093,6 @@ impl std::fmt::Display for GlobalContractIdentifierView {
         }
     }
 }
-
-// ============================================================================
-// Action view
-// ============================================================================
 
 /// View of a delegate action in RPC responses.
 ///
@@ -1273,19 +1194,16 @@ pub enum ActionView {
     /// Create the receiver account.
     CreateAccount,
     /// Deploy a contract to the account.
-    ///
-    /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
-    /// See [`ActionView::deploy_code_hash`].
     DeployContract {
         /// Base64 of the 32-byte code hash (not the WASM).
-        code: String, // base64 of the 32-byte code hash (NOT the WASM)
+        code: String,
     },
     /// Call a contract method.
     FunctionCall {
         /// The method called.
         method_name: String,
         /// The call's arguments, base64-encoded.
-        args: String, // base64
+        args: String,
         /// Gas attached to the call.
         gas: Gas,
         /// NEAR attached to the call.
@@ -1336,20 +1254,14 @@ pub enum ActionView {
         signature: Signature,
     },
     /// Publish a global contract, identified by its code hash.
-    ///
-    /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
-    /// See [`ActionView::deploy_code_hash`].
     DeployGlobalContract {
         /// Base64 of the 32-byte code hash (not the WASM).
-        code: String, // base64 of the 32-byte code hash (NOT the WASM)
+        code: String,
     },
     /// Publish a global contract, identified by the publisher's account ID.
-    ///
-    /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
-    /// See [`ActionView::deploy_code_hash`].
     DeployGlobalContractByAccountId {
         /// Base64 of the 32-byte code hash (not the WASM).
-        code: String, // base64 of the 32-byte code hash (NOT the WASM)
+        code: String,
     },
     /// Use a global contract published under a code hash as the account's
     /// contract.
@@ -1396,10 +1308,6 @@ pub enum ActionView {
         deposit: NearToken,
     },
 }
-
-// ============================================================================
-// View -> wire conversions (ActionView -> Action, AccessKey*View -> AccessKey)
-// ============================================================================
 
 impl From<AccessKeyPermissionView> for AccessKeyPermission {
     fn from(view: AccessKeyPermissionView) -> Self {
@@ -1486,11 +1394,9 @@ impl ActionView {
     /// The code hash carried by a `DeployContract` / `DeployGlobalContract` /
     /// `DeployGlobalContractByAccountId` view; `None` for every other variant.
     ///
-    /// The node does not serve the WASM in these views: the `code` field is the
-    /// base64 of the 32-byte SHA-256 hash of the code (see the
-    /// [enum-level note](ActionView#deploy-views-carry-the-code-hash-not-the-wasm)).
-    /// This accessor decodes it into a [`CryptoHash`], failing if `code` is not
-    /// valid base64 or does not decode to exactly 32 bytes.
+    /// Decodes `code` (see the
+    /// [enum-level note](ActionView#deploy-views-carry-the-code-hash-not-the-wasm)),
+    /// failing if it is not valid base64 or not exactly 32 bytes.
     ///
     /// # Example
     ///
@@ -1587,18 +1493,11 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 /// Convert a node-reported action view back into a wire [`Action`], e.g. to
 /// re-sign or replay a transaction fetched with `tx_status`.
 ///
-/// # Deploy actions come back with the code *hash* in `code`
+/// # Errors
 ///
-/// `DeployContract`, `DeployGlobalContract` and `DeployGlobalContractByAccountId`
-/// views carry the base64 of the 32-byte SHA-256 code hash, **not** the WASM
-/// (see [`ActionView`]). Converting any of these views therefore returns
-/// [`ActionViewConversionError::DeployCodeUnavailable`] instead of manufacturing
-/// a deploy action whose `code` is actually the hash. Use
-/// [`ActionView::deploy_code_hash`] to inspect the hash, then fetch the real code
-/// (for example with `view_code` on an archival node) and verify it separately.
-///
-/// # Other errors
-///
+/// * A deploy view, which carries only the code hash (see [`ActionView`]) →
+///   [`ActionViewConversionError::DeployCodeUnavailable`]. Fetch the code
+///   separately, for example with `view_code` on an archival node.
 /// * Invalid base64 in `args`, `code`, `data`, or `state_init` →
 ///   [`ActionViewConversionError::InvalidBase64`].
 /// * A delegate action nested inside a `Delegate` / `DelegateV2` view →
@@ -1829,9 +1728,7 @@ pub struct ExecutionMetadata {
     /// The inner `Option` is `None` (JSON `null`) when the account had no
     /// contract at that point (no code, or it did not yet exist). The outer
     /// `Option` is `None` when the field is absent (older V1–V3 metadata) or
-    /// explicitly `null`. Note this is *wire-format* back-compatibility: adding
-    /// this public field is itself a (minor) Rust API change for code that
-    /// constructs/destructures `ExecutionMetadata`.
+    /// explicitly `null`.
     pub contracts: Option<Vec<Option<AccountContractView>>>,
 }
 
@@ -1962,10 +1859,6 @@ impl ViewFunctionResult {
     }
 }
 
-// ============================================================================
-// Receipt types (for EXPERIMENTAL_tx_status)
-// ============================================================================
-
 /// Receipt from EXPERIMENTAL_tx_status.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Receipt {
@@ -2042,10 +1935,6 @@ pub struct DataReceiptData {
     /// Data content (optional).
     pub data: Option<String>,
 }
-
-// ============================================================================
-// Node status types
-// ============================================================================
 
 /// Node status response.
 #[derive(Debug, Clone, Deserialize)]
@@ -2412,10 +2301,6 @@ mod tests {
         assert_eq!(balance.storage_usage, storage_usage);
     }
 
-    // ========================================================================
-    // ViewFunctionResult tests
-    // ========================================================================
-
     fn make_view_result(result: Vec<u8>) -> ViewFunctionResult {
         ViewFunctionResult::new(result, 12345, CryptoHash::default())
     }
@@ -2443,10 +2328,6 @@ mod tests {
         let opt: Option<u64> = result.json().unwrap();
         assert_eq!(opt, Some(42));
     }
-
-    // ========================================================================
-    // GasProfileEntry tests
-    // ========================================================================
 
     #[test]
     fn test_gas_profile_entry_string_gas_used() {
@@ -2524,10 +2405,6 @@ mod tests {
         assert_eq!(d.nonce, TransactionNonceView::Nonce { nonce: 7 });
     }
 
-    // ========================================================================
-    // FinalExecutionStatus tests
-    // ========================================================================
-
     #[test]
     fn test_final_execution_status_decodes() {
         let decode = |json| serde_json::from_value::<FinalExecutionStatus>(json).unwrap();
@@ -2548,10 +2425,6 @@ mod tests {
             FinalExecutionStatus::Failure(_)
         ));
     }
-
-    // ========================================================================
-    // FinalExecutionOutcome helper tests
-    // ========================================================================
 
     /// The JSON of an outcome whose top-level status is `status`, with one
     /// receipt outcome per entry of `receipts` (each a receipt status).
@@ -2707,10 +2580,6 @@ mod tests {
         assert_eq!(make_success_outcome("").receipt_failures().count(), 0);
     }
 
-    // ========================================================================
-    // FinalExecutionOutcome result/json tests
-    // ========================================================================
-
     fn make_success_outcome(base64_value: &str) -> FinalExecutionOutcome {
         let mut json = outcome_json(serde_json::json!({"SuccessValue": base64_value}), &[], &[]);
         json["final_execution_status"] = "FINAL".into();
@@ -2789,10 +2658,6 @@ mod tests {
         assert!(success.is_success() && !success.is_failure());
     }
 
-    // ========================================================================
-    // ExecutionStatus tests (per-receipt)
-    // ========================================================================
-
     #[test]
     fn test_execution_status_unknown() {
         let json = serde_json::json!("Unknown");
@@ -2842,10 +2707,6 @@ mod tests {
         assert!(status.failure().is_none());
     }
 
-    // ========================================================================
-    // GlobalContractIdentifierView tests
-    // ========================================================================
-
     #[test]
     fn test_global_contract_id_view_formats() {
         // The view format, the pre-2.12 identifier format and the bare string.
@@ -2872,10 +2733,6 @@ mod tests {
         }
     }
 
-    // ========================================================================
-    // DeterministicStateInit ActionView tests
-    // ========================================================================
-
     #[test]
     fn test_action_view_deterministic_state_init_empty_data() {
         let json = serde_json::json!({
@@ -2893,10 +2750,6 @@ mod tests {
             _ => panic!("Expected DeterministicStateInit"),
         }
     }
-
-    // ========================================================================
-    // GlobalContractDistribution receipt tests
-    // ========================================================================
 
     #[test]
     fn test_receipt_global_contract_distribution() {
