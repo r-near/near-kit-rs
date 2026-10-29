@@ -2487,8 +2487,9 @@ mod tests {
         assert!(format!("{near:?}").contains("https://rpc.example.com"));
     }
 
-    /// Providers that put the API key in the path (`/v3/<key>`) or that get
-    /// an unencoded `?` in a password still show only the scheme and host.
+    /// A provider that puts the API key in the path (`/v3/<key>`) shows only
+    /// the scheme and host; an unencoded `?` in a password shows neither the
+    /// user name nor any of the password.
     #[test]
     fn test_debug_output_hides_path_keys_and_odd_userinfo() {
         for (url, host) in [
@@ -2496,10 +2497,7 @@ mod tests {
                 "https://mainnet.infura.io/v3/PATHKEY",
                 "\"https://mainnet.infura.io\"",
             ),
-            (
-                "https://USER:P?SS@rpc.example.com/",
-                "\"https://rpc.example.com\"",
-            ),
+            ("https://USER:P?SS@rpc.example.com/", "\"https://…\""),
         ] {
             let shown = format!("{:?}", RpcClient::new(url));
             for secret in ["PATHKEY", "/v3", "USER", "P?SS"] {
@@ -2991,23 +2989,18 @@ mod tests {
                 "https://rpc.provider.com/v1?key=val#frag",
                 "https://rpc.provider.com",
             ),
-            // An unencoded `?` or `#` in the userinfo is still userinfo.
-            (
-                "https://user:p?ss@rpc.provider.com/",
-                "https://rpc.provider.com",
-            ),
-            (
-                "https://user:p#ss@rpc.provider.com",
-                "https://rpc.provider.com",
-            ),
+            // An unencoded `?` or `#` in the password leaves no valid host
+            // before it, and can't be told apart from a bad port followed by
+            // a query, so neither side is shown.
+            ("https://user:p?ss@rpc.provider.com/", "https://…"),
+            ("https://user:p#ss@rpc.provider.com", "https://…"),
             (
                 "https://user:p?ss@rpc.provider.com:3030?api_key=secret123",
-                "https://rpc.provider.com:3030",
+                "https://…",
             ),
-            (
-                "https://user:p?s@s@rpc.provider.com/?k=a@b",
-                "https://rpc.provider.com",
-            ),
+            ("https://rpc.provider.com:bad?k=a@SECRET", "https://…"),
+            ("https://user:p?apikey=a@SECRET", "https://…"),
+            ("https://user:SECRET?", "https://…"),
             // An `@` in the query or fragment is not userinfo.
             (
                 "https://rpc.provider.com?email=foo@bar&api_key=SECRET",
@@ -3026,8 +3019,6 @@ mod tests {
                 "rpc.provider.com?apikey=SECRET&redirect=https://other.example",
                 "rpc.provider.com",
             ),
-            // No valid host anywhere: only the scheme.
-            ("https://user:SECRET?", "https://…"),
         ] {
             assert_eq!(redact_url(url), shown, "{url}");
         }
@@ -4947,7 +4938,7 @@ mod tests {
             let _guard = log.install();
 
             let client = RpcClient::with_transport_and_retry_config(
-                "https://USER:P?SS@rpc.example.com/v3/PATHKEY?apikey=QUERYKEY",
+                "https://USER:PASSWORD@rpc.example.com/v3/PATHKEY?apikey=QUERYKEY",
                 CountingTransport::results([serde_json::json!({ "ok": true })]),
                 RetryConfig::none(),
             );

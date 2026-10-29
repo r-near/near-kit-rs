@@ -29,10 +29,11 @@ compile_error!(
 ///
 /// The host is the one an HTTP client connects to: the authority ends at the
 /// first `/`, `?` or `#`, so an `@` in the query is never read as the end of
-/// userinfo. Only when that authority is not a valid `host[:port]`, as with
-/// an unencoded `?` or `#` in a password (`https://user:p?ss@host/`, which
-/// clients reject), is the host taken from after an `@` further on. If no
-/// valid host is found, only the scheme is shown.
+/// userinfo. When that authority is not a valid `host[:port]`, only the
+/// scheme is shown (`https://…`). That covers an unencoded `?` or `#` in a
+/// password: `https://user:p?ss@host/` reads as host `user` with port `p`,
+/// which HTTP clients reject, and from the text alone it can't be told apart
+/// from `https://host:p?key=a@SECRET`, so neither side of the `?` is shown.
 pub(crate) fn redact_url(url: &str) -> String {
     let scheme_len = url
         .find("://")
@@ -44,19 +45,10 @@ pub(crate) fn redact_url(url: &str) -> String {
         .rfind('@')
         .map_or(authority, |at| &authority[at + 1..]);
     if is_host_and_port(host) {
-        return format!("{scheme}{host}");
+        format!("{scheme}{host}")
+    } else {
+        format!("{scheme}…")
     }
-    // The authority isn't a host: the userinfo may hold a `?` or `#`. Take
-    // the first `@` before the path that a valid host follows.
-    let before_path = &rest[..rest.find(['/', '\\']).unwrap_or(rest.len())];
-    before_path
-        .match_indices('@')
-        .map(|(at, _)| {
-            let host = &before_path[at + 1..];
-            &host[..host.find(['?', '#']).unwrap_or(host.len())]
-        })
-        .find(|host| is_host_and_port(host))
-        .map_or_else(|| format!("{scheme}…"), |host| format!("{scheme}{host}"))
 }
 
 /// A URL scheme: a letter, then letters, digits, `+`, `-` or `.`.
