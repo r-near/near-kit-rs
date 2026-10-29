@@ -151,7 +151,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `FungibleToken::with_signer(s)`, `NonFungibleToken::with_signer(s)` | `near.with_signer(s).contract::<FungibleToken>(id)` |
 | `FungibleToken::fmt`, `NonFungibleToken::fmt` (`Debug` on the clients) | `Debug` on `FungibleTokenClient`, `NonFungibleTokenClient` |
 | `standards::FtAmount` (and `From<FtAmount> for u128`) | Removed: amounts are `u128`; format with `metadata().await?.decimals` |
-| `standards::nep413::serialize_message(params)` | `nep413::hash_message(params)` |
+| `standards::nep413::serialize_message(&params)` | `standards::nep413::hash_message(&params)` |
 | `Viewer` and `TxSender` for `Box<T>` | `Arc<T>`, or the backend itself |
 
 ### Keys and signers
@@ -235,7 +235,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 block with one method, `.at(..)`.
 
 `RpcClient` reads take the account as `&AccountIdRef` (so `&AccountId` and
-`account!(..)` both work) and the block as `impl Into<BlockReference>`. Pass
+`&account!(..)` both work) and the block as `impl Into<BlockReference>`. Pass
 the value itself, such as `Finality::Final`. Writing `.into()` or
 `Default::default()` there no longer compiles: with a generic parameter rustc
 can't infer the target and reports "type annotations needed".

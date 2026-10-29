@@ -30,7 +30,10 @@
 //! [`Sandbox::root_account`] is a `SigningNear` for the root account
 //! (`sandbox` unless [`root_account`](SandboxBuilder::root_account) sets
 //! another), funded at genesis. Sign as another account with
-//! `root.near().with_signer(signer)`, which reuses the connection.
+//! `root.near().with_signer(signer)`, which reuses the connection. For code
+//! configured with an RPC URL and chain ID (such as
+//! `SigningNear::from_env`, through `NEAR_NETWORK` and `NEAR_CHAIN_ID`), the
+//! sandbox's are `root.near().rpc().url()` and `root.near().chain_id()`.
 //!
 //! ```rust,no_run
 //! use near_kit::protocol::Action;
