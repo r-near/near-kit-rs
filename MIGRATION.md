@@ -117,7 +117,7 @@ after the table cover each one.
 | `RpcClient::call(method, params)` | `RpcClient::request(method, params)` |
 | `RpcClient::genesis_config()` | `rpc.request::<_, serde_json::Value>("genesis_config", serde_json::json!([]))` |
 | `RpcClient::with_retry_config(url, c)` | `RpcClient::with_transport_and_retry_config(url, Arc::new(ReqwestTransport::default()), c)`, or `Near::custom(url, id).retry_config(c)` |
-| `RpcClient::sandbox_fast_forward(n)`, `RpcClient::sandbox_patch_state(records)` | `sandbox.fast_forward(n)`, `sandbox.patch_state(records)` |
+| `RpcClient::sandbox_fast_forward(n)`, `RpcClient::sandbox_patch_state(records)` | `sandbox.fast_forward(n)`, `sandbox.patch_state(records)`; for a sandbox node you started yourself, `near_kit_sandbox::fast_forward(&rpc, n)`, `near_kit_sandbox::patch_state(&rpc, records)` (sends the patch twice, as 0.20.1 did) |
 | `RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`, `RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE` | Crate-private (10,000 and 100) |
 | `rpc::RawTransactionResponse` (hidden) | `rpc::RpcTransactionResponse`, documented; `send_tx` and `tx_status` return it |
 

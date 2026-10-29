@@ -69,6 +69,10 @@
 //! - [`Sandbox::fast_forward`] moves the chain ahead by a number of blocks,
 //!   for code that depends on block height or epochs.
 //!
+//! For a sandbox node this crate didn't start (one a test launched itself and
+//! reaches by URL), the free functions [`patch_state`] and [`fast_forward`]
+//! do the same through a `near_kit::rpc::RpcClient`.
+//!
 //! ## Versions and configuration
 //!
 //! The builder picks the nearcore release to run with
@@ -98,7 +102,7 @@ use std::time::Duration;
 
 use near_kit::AccountIdRef;
 use near_kit::protocol::ChainId;
-use near_kit::rpc::RpcError;
+use near_kit::rpc::{RpcClient, RpcError};
 use near_kit::signer::{InMemorySigner, SecretKey, Signer};
 use near_kit::{AccountId, Error, Near, NearToken, SigningNear};
 use testcontainers::{
@@ -393,12 +397,10 @@ impl Sandbox {
     /// Write raw state records (accounts, access keys, contract code or data)
     /// straight into the sandbox with `sandbox_patch_state`.
     ///
-    /// `records` is the JSON array the RPC method takes. The patch is sent
-    /// twice, because patching account state sometimes only takes effect
-    /// reliably on the second send (see
-    /// <https://github.com/near/near-workspaces-rs/commit/2b72b9b8491c3140ff2d30b0c45d09b200cb027b>).
-    /// It applies asynchronously: poll for the state you wrote before relying
-    /// on it, as [`set_balance`](Self::set_balance) does.
+    /// `records` is the JSON array the RPC method takes. This is
+    /// [`patch_state`] on this sandbox's RPC client, so the
+    /// patch is sent twice and applies asynchronously: poll for the state you
+    /// wrote before relying on it, as [`set_balance`](Self::set_balance) does.
     ///
     /// # Example
     ///
@@ -416,21 +418,14 @@ impl Sandbox {
     /// # }
     /// ```
     pub async fn patch_state(&self, records: serde_json::Value) -> Result<(), SandboxError> {
-        let near = self.near();
-        for _ in 0..2 {
-            let _: serde_json::Value = near
-                .rpc()
-                .request(
-                    "sandbox_patch_state",
-                    serde_json::json!({ "records": records }),
-                )
-                .await?;
-        }
-        Ok(())
+        crate::patch_state(self.near().rpc(), records).await
     }
 
     /// Fast-forward the sandbox by `delta_height` blocks, without waiting for
     /// real block production.
+    ///
+    /// This is [`fast_forward`] on this sandbox's RPC
+    /// client.
     ///
     /// # Example
     ///
@@ -444,18 +439,78 @@ impl Sandbox {
     /// # }
     /// ```
     pub async fn fast_forward(&self, delta_height: u64) -> Result<(), SandboxError> {
-        // Sent once: `RpcClient::request` never retries this method, because a
-        // retry after a lost response could advance the chain twice.
-        let _: serde_json::Value = self
-            .near()
-            .rpc()
-            .request(
-                "sandbox_fast_forward",
-                serde_json::json!({ "delta_height": delta_height }),
-            )
-            .await?;
-        Ok(())
+        crate::fast_forward(self.near().rpc(), delta_height).await
     }
+}
+
+/// Write raw state records (accounts, access keys, contract code or data)
+/// into a sandbox node with `sandbox_patch_state`.
+///
+/// Use this for a sandbox node this crate didn't start, such as one a test
+/// launched itself and reaches by URL; on a [`Sandbox`], call
+/// [`Sandbox::patch_state`]. `records` is the JSON array the RPC method takes.
+///
+/// The patch is sent twice, because patching account state sometimes only
+/// takes effect reliably on the second send (see
+/// <https://github.com/near/near-workspaces-rs/commit/2b72b9b8491c3140ff2d30b0c45d09b200cb027b>).
+/// It applies asynchronously: poll for the state you wrote before relying on
+/// it.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use near_kit::rpc::RpcClient;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let rpc = RpcClient::new("http://127.0.0.1:3030");
+/// near_kit_sandbox::patch_state(
+///     &rpc,
+///     serde_json::json!([
+///         { "Data": { "account_id": "counter.sandbox", "data_key": "U1RBVEU=", "value": "AQAAAA==" } }
+///     ]),
+/// )
+/// .await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn patch_state(rpc: &RpcClient, records: serde_json::Value) -> Result<(), SandboxError> {
+    let params = serde_json::json!({ "records": records });
+    for _ in 0..2 {
+        let _: serde_json::Value = rpc.request("sandbox_patch_state", &params).await?;
+    }
+    Ok(())
+}
+
+/// Fast-forward a sandbox node by `delta_height` blocks with
+/// `sandbox_fast_forward`, without waiting for real block production.
+///
+/// Use this for a sandbox node this crate didn't start, such as one a test
+/// launched itself and reaches by URL; on a [`Sandbox`], call
+/// [`Sandbox::fast_forward`].
+///
+/// The request is sent once: [`RpcClient::request`] never retries this
+/// method, because a retry after a lost response could advance the chain
+/// twice.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use near_kit::rpc::RpcClient;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let rpc = RpcClient::new("http://127.0.0.1:3030");
+/// near_kit_sandbox::fast_forward(&rpc, 1000).await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn fast_forward(rpc: &RpcClient, delta_height: u64) -> Result<(), SandboxError> {
+    let _: serde_json::Value = rpc
+        .request(
+            "sandbox_fast_forward",
+            serde_json::json!({ "delta_height": delta_height }),
+        )
+        .await?;
+    Ok(())
 }
 
 /// `account` (a raw `view_account` result) with its `amount` set to `balance`.
@@ -673,6 +728,67 @@ mod tests {
         assert_eq!(
             builder.chain_id.as_ref().map(ChainId::as_str),
             Some("localnet")
+        );
+    }
+
+    /// Records every JSON-RPC request and answers each with `{}`, as the
+    /// sandbox methods do.
+    #[derive(Default)]
+    struct Recorder(std::sync::Mutex<Vec<serde_json::Value>>);
+
+    impl near_kit::rpc::RpcTransport for Recorder {
+        fn post_json(
+            &self,
+            _url: &str,
+            body: Vec<u8>,
+        ) -> near_kit::rpc::BoxFuture<'_, Result<near_kit::rpc::TransportResponse, RpcError>>
+        {
+            self.0
+                .lock()
+                .unwrap()
+                .push(serde_json::from_slice(&body).unwrap());
+            let body = br#"{"jsonrpc":"2.0","id":0,"result":{}}"#.to_vec();
+            Box::pin(async move { Ok(near_kit::rpc::TransportResponse { status: 200, body }) })
+        }
+    }
+
+    fn recording_rpc() -> (RpcClient, Arc<Recorder>) {
+        let recorder = Arc::new(Recorder::default());
+        let rpc = RpcClient::with_transport_and_retry_config(
+            "http://127.0.0.1:3030",
+            recorder.clone(),
+            near_kit::rpc::RetryConfig::none(),
+        );
+        (rpc, recorder)
+    }
+
+    #[tokio::test]
+    async fn patch_state_sends_the_records_twice() {
+        let (rpc, recorder) = recording_rpc();
+        let records = serde_json::json!([
+            { "Data": { "account_id": "counter.sandbox", "data_key": "U1RBVEU=", "value": "AQAAAA==" } }
+        ]);
+        patch_state(&rpc, records.clone()).await.unwrap();
+
+        let requests = recorder.0.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        for request in requests.iter() {
+            assert_eq!(request["method"], "sandbox_patch_state");
+            assert_eq!(request["params"], serde_json::json!({ "records": records }));
+        }
+    }
+
+    #[tokio::test]
+    async fn fast_forward_sends_delta_height_once() {
+        let (rpc, recorder) = recording_rpc();
+        fast_forward(&rpc, 205).await.unwrap();
+
+        let requests = recorder.0.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["method"], "sandbox_fast_forward");
+        assert_eq!(
+            requests[0]["params"],
+            serde_json::json!({ "delta_height": 205 })
         );
     }
 
