@@ -82,12 +82,11 @@ use syn::{
     FnArg, Ident, ItemTrait, Pat, ReceiverKind, ReturnType, TraitItem, TraitItemFn, Type,
     ext::IdentExt,
     parse::{Parse, ParseStream},
-    parse_macro_input,
+    parse_macro_input, parse_quote,
     spanned::Spanned,
 };
 
-/// Serialization format for contract methods.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Default)]
 enum SerializationFormat {
     #[default]
     Json,
@@ -123,36 +122,24 @@ fn near_kit_path() -> TokenStream2 {
         .unwrap_or_else(|| quote!(::near_kit))
 }
 
-/// Arguments to the `#[contract]` attribute.
-#[derive(Debug, Default)]
-struct ContractArgs {
-    format: SerializationFormat,
-}
-
-impl Parse for ContractArgs {
+/// The `#[contract]` attribute's argument: the contract's default format.
+impl Parse for SerializationFormat {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         if input.is_empty() {
             return Ok(Self::default());
         }
-
         let ident: Ident = input.parse()?;
-        let format = match ident.to_string().as_str() {
-            "json" => SerializationFormat::Json,
-            "borsh" => SerializationFormat::Borsh,
-            other => {
-                return Err(syn::Error::new(
-                    ident.span(),
-                    format!("unknown format '{}', expected 'json' or 'borsh'", other),
-                ));
-            }
-        };
-
-        Ok(Self { format })
+        match ident.to_string().as_str() {
+            "json" => Ok(Self::Json),
+            "borsh" => Ok(Self::Borsh),
+            other => Err(syn::Error::new(
+                ident.span(),
+                format!("unknown format '{other}', expected 'json' or 'borsh'"),
+            )),
+        }
     }
 }
 
-/// Information about a parsed method.
-#[derive(Debug)]
 struct MethodInfo {
     name: Ident,
     /// The method's `#[doc]` attributes, copied onto the generated methods.
@@ -161,14 +148,12 @@ struct MethodInfo {
     /// item generated for it.
     cfgs: Vec<syn::Attribute>,
     is_view: bool,
-    /// Per-method format override (if specified via #[json] or #[borsh])
+    /// Set by `#[json]` or `#[borsh]`.
     format_override: Option<SerializationFormat>,
-    arg_name: Option<Ident>,
-    arg_type: Option<Type>,
-    return_type: Option<Type>,
+    arg: Option<(Ident, Type)>,
+    return_type: Type,
 }
 
-/// Parse a method from a trait item.
 fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
     let name = method.sig.ident.clone();
     let unraw_name = name.unraw().to_string();
@@ -242,15 +227,9 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         }
     }
 
-    // Check receiver type
-    let receiver = method.sig.receiver();
-    let (is_view, is_mut) = match receiver {
-        // Note: for reference receivers, syn stores the `mut` inside
-        // `ReceiverKind::Reference` rather than in `Receiver::mutability`.
+    let is_view = match method.sig.receiver() {
         Some(recv) => match &recv.kind {
-            ReceiverKind::Reference(_, _, mutability) => {
-                (mutability.is_none(), mutability.is_some())
-            }
+            ReceiverKind::Reference(_, _, mutability) => mutability.is_none(),
             _ => {
                 return Err(syn::Error::new(
                     recv.span(),
@@ -266,7 +245,6 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         }
     };
 
-    // Check for #[call] attribute
     let mut is_call = false;
     for attr in method
         .attrs
@@ -282,7 +260,6 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         }
     }
 
-    // Check for a #[json] or #[borsh] format override.
     let mut format_override = None;
     for attr in method
         .attrs
@@ -319,7 +296,6 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         }
     }
 
-    // Validate: view methods should not have #[call]
     if is_view && is_call {
         return Err(syn::Error::new(
             method.sig.span(),
@@ -327,54 +303,46 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         ));
     }
 
-    // Validate: call methods must have #[call]
-    if is_mut && !is_call {
+    if !is_view && !is_call {
         return Err(syn::Error::new(
             method.sig.span(),
             "call methods (&mut self) must have #[call] attribute",
         ));
     }
 
-    // Parse arguments (excluding self)
-    let mut arg_name = None;
-    let mut arg_type = None;
-    let mut arg_count = 0;
-
-    for arg in &method.sig.inputs {
-        if let FnArg::Typed(pat_type) = arg {
-            arg_count += 1;
-            if arg_count > 1 {
+    let mut typed = method.sig.inputs.iter().filter_map(|arg| match arg {
+        FnArg::Typed(pat_type) => Some(pat_type),
+        FnArg::Receiver(_) => None,
+    });
+    // The name becomes the generated method's parameter, so it must be a
+    // plain identifier (`args`, `mut args`).
+    let arg = match typed.next() {
+        None => None,
+        Some(pat_type) => match pat_type.pat.as_ref() {
+            Pat::Ident(pat_ident) if pat_ident.by_ref.is_none() && pat_ident.subpat.is_none() => {
+                Some((pat_ident.ident.clone(), (*pat_type.ty).clone()))
+            }
+            other => {
                 return Err(syn::Error::new(
-                    pat_type.span(),
-                    "contract methods can have at most one argument (use a struct for multiple parameters)",
+                    other.span(),
+                    "contract method arguments must be a plain name, like `args: Args` \
+                     (the generated method takes the argument by that name)",
                 ));
             }
-
-            // The name becomes the generated method's parameter, so it must
-            // be a plain identifier (`args`, `mut args`).
-            match pat_type.pat.as_ref() {
-                Pat::Ident(pat_ident)
-                    if pat_ident.by_ref.is_none() && pat_ident.subpat.is_none() =>
-                {
-                    arg_name = Some(pat_ident.ident.clone());
-                }
-                other => {
-                    return Err(syn::Error::new(
-                        other.span(),
-                        "contract method arguments must be a plain name, like `args: Args` \
-                         (the generated method takes the argument by that name)",
-                    ));
-                }
-            }
-            arg_type = Some((*pat_type.ty).clone());
-        }
+        },
+    };
+    if let Some(second) = typed.next() {
+        return Err(syn::Error::new(
+            second.span(),
+            "contract methods can have at most one argument (use a struct for multiple parameters)",
+        ));
     }
 
-    // Parse return type. A `#[call]` resolves to the sender's
-    // `TxSender::Output`, so a declared return type would be silently
-    // ignored; reject it so it can be given a meaning later.
+    // A `#[call]` resolves to the sender's `TxSender::Output`, so a declared
+    // return type would be silently ignored; reject it so it can be given a
+    // meaning later.
     let return_type = match &method.sig.output {
-        ReturnType::Default => None,
+        ReturnType::Default => parse_quote!(()),
         ReturnType::Type(_, ty) if is_call => {
             return Err(syn::Error::new(
                 ty.span(),
@@ -382,7 +350,7 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
                  remove the return type",
             ));
         }
-        ReturnType::Type(_, ty) => Some((**ty).clone()),
+        ReturnType::Type(_, ty) => (**ty).clone(),
     };
 
     let docs = method
@@ -404,8 +372,7 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         cfgs,
         is_view,
         format_override,
-        arg_name,
-        arg_type,
+        arg,
         return_type,
     })
 }
@@ -437,22 +404,19 @@ fn conditional_marker(cfg_attr: &syn::MetaList) -> Option<syn::Path> {
 /// trait's `on_unimplemented` text (E0277) instead of "method not found"
 /// (E0599). `Clone` comes after the trait so that error is reported first.
 /// The view gets its own clone of the backend, so it can outlive `&self`.
-fn generate_view_method(method: &MethodInfo, contract_format: SerializationFormat) -> TokenStream2 {
-    let near_kit = near_kit_path();
+fn generate_view_method(
+    method: &MethodInfo,
+    contract_format: SerializationFormat,
+    near_kit: &TokenStream2,
+    backend: &Ident,
+) -> TokenStream2 {
     let method_name = &method.name;
     // `fn r#type` is the contract method `type`.
     let method_name_str = method_name.unraw().to_string();
     let docs = &method.docs;
     let cfgs = &method.cfgs;
-    let backend = backend_param();
-
+    let return_type = &method.return_type;
     let format = method.format_override.unwrap_or(contract_format);
-
-    let return_type = method
-        .return_type
-        .as_ref()
-        .map(|t| quote! { #t })
-        .unwrap_or_else(|| quote! { () });
 
     let constructor = match format {
         SerializationFormat::Json => quote! { #near_kit::__private::view_json },
@@ -461,17 +425,17 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
 
     // Arguments are encoded now, so borrowed argument types never enter the
     // future. Without arguments, JSON views send `{}` and Borsh views nothing.
-    let (params, args) = match (&method.arg_name, &method.arg_type, format) {
-        (Some(arg_name), Some(arg_type), SerializationFormat::Json) => (
+    let (params, args) = match (&method.arg, format) {
+        (Some((arg_name, arg_type)), SerializationFormat::Json) => (
             quote! { #arg_name: #arg_type },
             quote! { #near_kit::__private::json_args(&#arg_name) },
         ),
-        (Some(arg_name), Some(arg_type), SerializationFormat::Borsh) => (
+        (Some((arg_name, arg_type)), SerializationFormat::Borsh) => (
             quote! { #arg_name: #arg_type },
             quote! { #near_kit::__private::borsh_args(&#arg_name) },
         ),
-        (_, _, SerializationFormat::Json) => (quote! {}, quote! { Ok(b"{}".to_vec()) }),
-        (_, _, SerializationFormat::Borsh) => (quote! {}, quote! { Ok(::std::vec::Vec::new()) }),
+        (None, SerializationFormat::Json) => (quote! {}, quote! { Ok(b"{}".to_vec()) }),
+        (None, SerializationFormat::Borsh) => (quote! {}, quote! { Ok(::std::vec::Vec::new()) }),
     };
 
     quote! {
@@ -491,20 +455,29 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
     }
 }
 
+/// The `name: Type` parameter and the bare `name` for a method's argument,
+/// or nothing for a method without one.
+fn arg_tokens(method: &MethodInfo) -> (Option<TokenStream2>, Option<&Ident>) {
+    method
+        .arg
+        .as_ref()
+        .map(|(name, ty)| (quote! { #name: #ty }, name))
+        .unzip()
+}
+
 /// Generate the client method for a call function, on top of the static
 /// `FunctionCall` constructor. Bounded at the method for the same reason as
 /// views.
-fn generate_call_method(method: &MethodInfo, trait_name: &Ident) -> TokenStream2 {
-    let near_kit = near_kit_path();
+fn generate_call_method(
+    method: &MethodInfo,
+    trait_name: &Ident,
+    near_kit: &TokenStream2,
+    backend: &Ident,
+) -> TokenStream2 {
     let method_name = &method.name;
     let docs = &method.docs;
     let cfgs = &method.cfgs;
-    let backend = backend_param();
-
-    let (params, args) = match (&method.arg_name, &method.arg_type) {
-        (Some(arg_name), Some(arg_type)) => (quote! { #arg_name: #arg_type }, quote! { #arg_name }),
-        _ => (quote! {}, quote! {}),
-    };
+    let (params, args) = arg_tokens(method);
 
     quote! {
         #(#cfgs)*
@@ -533,51 +506,26 @@ fn generate_call_method(method: &MethodInfo, trait_name: &Ident) -> TokenStream2
 fn generate_function_call_method(
     method: &MethodInfo,
     contract_format: SerializationFormat,
+    near_kit: &TokenStream2,
 ) -> TokenStream2 {
-    let near_kit = near_kit_path();
     let method_name = &method.name;
     let method_name_str = method_name.unraw().to_string();
-
-    let format = method.format_override.unwrap_or(contract_format);
     let docs = &method.docs;
     let cfgs = &method.cfgs;
+    let (params, arg) = arg_tokens(method);
 
-    if let (Some(arg_name), Some(arg_type)) = (&method.arg_name, &method.arg_type) {
-        let args_method = match format {
-            SerializationFormat::Json => quote! { .args(#arg_name) },
-            SerializationFormat::Borsh => quote! { .args_borsh(#arg_name) },
-        };
+    let args_call = match (arg, method.format_override.unwrap_or(contract_format)) {
+        (Some(arg), SerializationFormat::Json) => quote! { .args(#arg) },
+        (Some(arg), SerializationFormat::Borsh) => quote! { .args_borsh(#arg) },
+        (None, SerializationFormat::Json) => quote! { .args_raw(b"{}".to_vec()) },
+        (None, SerializationFormat::Borsh) => quote! {},
+    };
 
-        quote! {
-            #(#cfgs)*
-            #(#docs)*
-            pub fn #method_name(#arg_name: #arg_type) -> #near_kit::transaction::FunctionCall {
-                #near_kit::transaction::FunctionCall::new(#method_name_str)
-                    #args_method
-            }
-        }
-    } else {
-        match format {
-            SerializationFormat::Json => {
-                // Use args_raw to avoid depending on serde_json in expanded code
-                quote! {
-                    #(#cfgs)*
-                    #(#docs)*
-                    pub fn #method_name() -> #near_kit::transaction::FunctionCall {
-                        #near_kit::transaction::FunctionCall::new(#method_name_str)
-                            .args_raw(b"{}".to_vec())
-                    }
-                }
-            }
-            SerializationFormat::Borsh => {
-                quote! {
-                    #(#cfgs)*
-                    #(#docs)*
-                    pub fn #method_name() -> #near_kit::transaction::FunctionCall {
-                        #near_kit::transaction::FunctionCall::new(#method_name_str)
-                    }
-                }
-            }
+    quote! {
+        #(#cfgs)*
+        #(#docs)*
+        pub fn #method_name(#params) -> #near_kit::transaction::FunctionCall {
+            #near_kit::transaction::FunctionCall::new(#method_name_str) #args_call
         }
     }
 }
@@ -614,17 +562,18 @@ fn generate_function_call_method(
 /// RPC client (e.g. in contracts built for wasm).
 #[proc_macro_attribute]
 pub fn contract(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(attr as ContractArgs);
+    let format = parse_macro_input!(attr as SerializationFormat);
     let input = parse_macro_input!(item as ItemTrait);
 
-    match contract_impl(args, input) {
+    match contract_impl(format, input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
 
-fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStream2> {
+fn contract_impl(format: SerializationFormat, input: ItemTrait) -> syn::Result<TokenStream2> {
     let near_kit = near_kit_path();
+    let backend = backend_param();
     let trait_name = &input.ident;
     let client_name = format_ident!("{}Client", trait_name);
     let vis = &input.vis;
@@ -655,7 +604,6 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         ));
     }
 
-    // Parse all methods, reject non-method items
     let mut methods = Vec::new();
     for item in &input.items {
         match item {
@@ -682,23 +630,20 @@ fn contract_impl(args: ContractArgs, input: ItemTrait) -> syn::Result<TokenStrea
         .iter()
         .map(|m| {
             if m.is_view {
-                generate_view_method(m, args.format)
+                generate_view_method(m, format, &near_kit, &backend)
             } else {
-                generate_call_method(m, trait_name)
+                generate_call_method(m, trait_name, &near_kit, &backend)
             }
         })
         .collect();
 
-    // Generate FunctionCall constructors for call methods only
     let function_call_methods: Vec<TokenStream2> = methods
         .iter()
         .filter(|m| !m.is_view)
-        .map(|m| generate_function_call_method(m, args.format))
+        .map(|m| generate_function_call_method(m, format, &near_kit))
         .collect();
 
-    // Propagate trait-level attributes (doc comments, #[cfg], etc.) to the struct
     let trait_attrs = &input.attrs;
-    let backend = backend_param();
 
     let client_doc = format!(
         " Client for the [`{trait_name}`] contract, sending through a backend.\n\n \
