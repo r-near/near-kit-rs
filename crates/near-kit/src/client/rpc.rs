@@ -61,10 +61,9 @@ async fn async_sleep(duration: Duration) {
 /// [`RpcError::is_retryable`] is `true`). Delays grow exponentially from
 /// `initial_delay_ms`, capped at `max_delay_ms`.
 ///
-/// A transaction rejected with `InvalidNonce` is never retried here —
-/// re-sending the same signed bytes can't change the outcome. Nonce refresh
-/// and re-signing happen one layer up, in the `SigningNear` transaction path
-/// (see `NearBuilder::max_nonce_retries`).
+/// An `InvalidNonce` rejection is not retried here (see
+/// [`RpcError::is_retryable`]); the `SigningNear` transaction path re-signs
+/// instead (see `NearBuilder::max_nonce_retries`).
 ///
 /// Use [`RetryConfig::none()`] to disable retries entirely, e.g. when the
 /// caller runs its own retry loop.
@@ -631,11 +630,8 @@ fn parse_rpc_error(error: &JsonRpcError) -> RpcError {
                 return RpcError::InternalError(error.message.clone());
             }
             "TOO_MANY_ACCESS_KEYS" => {
-                // nearcore's `RpcQueryError::TooManyAccessKeys`: an
-                // unpaginated `view_access_key_list` on an account with
-                // more than `limit` keys. Both identifying fields are
-                // required; without them fall through to the generic error
-                // rather than inventing an account id or cap.
+                // Both fields are required; without them fall through to the
+                // generic error rather than inventing an account id or cap.
                 let account_id = info_str("requested_account_id").and_then(|a| a.parse().ok());
                 let limit = info
                     .and_then(|i| i.get("limit"))
@@ -771,11 +767,8 @@ impl RpcClient {
     /// Make a raw RPC call with retries.
     ///
     /// Transient failures ([`RpcError::is_retryable`]) are retried according
-    /// to the client's [`RetryConfig`]. An `InvalidNonce` rejection is
-    /// terminal here: the node has rejected this exact signed payload, so it
-    /// is returned after a single attempt without retrying (the transaction
-    /// layer re-signs with a fresh nonce instead). `sandbox_fast_forward` is
-    /// never retried, since it is not idempotent.
+    /// to the client's [`RetryConfig`]. `sandbox_fast_forward` is never
+    /// retried, since it is not idempotent.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %sanitize_url(&self.url))))]
     pub async fn request<P: Serialize, R: DeserializeOwned>(
         &self,
@@ -948,13 +941,10 @@ impl RpcClient {
 
     /// View all access keys for an account, transparently following pagination.
     ///
-    /// nearcore caps how many keys one `view_access_key_list` response carries
-    /// (100 by default) and rejects an *unpaginated* request for a larger
-    /// account with [`RpcError::TooManyAccessKeys`]. This helper is cap-safe by
-    /// construction: every request carries
-    /// `limit = 100` (nearcore's default `view_access_keys_limit`)
-    /// and it follows the [`last_key`](AccessKeyListView::last_key) cursor with
-    /// `after_key` until the node reports no more keys.
+    /// Every request sends a `limit` of 100, so it never hits the node's
+    /// [`RpcError::TooManyAccessKeys`] cap, and it follows the
+    /// [`last_key`](AccessKeyListView::last_key) cursor with `after_key` until
+    /// the node reports no more keys.
     ///
     /// The first page is read at `block`; every later page is pinned to that
     /// page's `block_hash`, so a moving reference (`Final`/`Optimistic`) cannot
@@ -1248,11 +1238,9 @@ impl RpcClient {
     /// `page_size` of `0` means the default page size, 10,000 entries
     /// (nearcore's `MAX_VIEW_STATE_PAGE_ITEMS`).
     ///
-    /// Every request carries a positive `limit`, so the node treats it as
-    /// paginated and does not reject large states with
-    /// [`RpcError::ContractStateTooLarge`] — that gate only applies to
-    /// unpaginated single-shot queries. Use [`RpcClient::view_state`] with
-    /// `limit: None` if you want that one-shot behavior.
+    /// Every request sends a positive `limit`, so large states don't fail
+    /// with [`RpcError::ContractStateTooLarge`]. Use [`RpcClient::view_state`]
+    /// with `limit: None` for the unpaginated one-shot query.
     ///
     /// The first page is read at `block`; every later page is pinned to the
     /// `block_hash` that first page reports, so the result is a consistent
@@ -1268,9 +1256,6 @@ impl RpcClient {
         block: impl Into<BlockReference>,
     ) -> Result<ViewStateAllResult, RpcError> {
         let block = block.into();
-        // Always send a positive limit: an omitted `limit` on the first page
-        // would make the node treat that request as unpaginated and apply
-        // its `TOO_LARGE_CONTRACT_STATE` size gate.
         let limit = if page_size > 0 {
             page_size
         } else {
@@ -1643,24 +1628,10 @@ fn with_timeout_tx_hash(mut err: RpcError, tx_hash: CryptoHash) -> RpcError {
     err
 }
 
-/// When a non-2xx response is decoded via `parse_rpc_error`, HTTP status is
-/// ground truth for retryability: a 4xx response is a deterministic client-side
-/// failure and must not retry, regardless of what the JSON-RPC body claims.
-///
-/// `parse_rpc_error` returns one of two shapes:
-///   1. A typed handler variant (Block/Chunk/EpochNotFound, Timeout,
-///      NodeNotSynced/…). These have well-understood retry semantics already
-///      encoded in `RpcError::is_retryable` and should pass through unchanged.
-///   2. The catch-all `RpcError::Rpc { code, .. }` (unrecognized or missing
-///      `cause.name`). For code `-32000` with no cause or a transient one,
-///      `is_retryable` returns `true`, which is appropriate for 5xx
-///      (server-side) but *wrong* for 4xx — retrying a deterministic client
-///      error wastes time and hides the original failure.
-///
-/// For case (2) on a 4xx status, downgrade to `RpcError::Network` with
-/// `retryable: false` so unrecognized handler causes on 4xx preserve the
-/// pre-decode behavior (matches the HTML-body fallback path). On 5xx the
-/// error is left as-is, and `is_retryable` decides from its cause.
+/// A 4xx is a deterministic client error, so a catch-all [`RpcError::Rpc`]
+/// decoded from a 4xx body becomes a non-retryable `Network` error (as an
+/// undecodable 4xx body would). Typed variants and 5xx errors pass through
+/// for `is_retryable` to judge.
 fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) -> RpcError {
     match err {
         RpcError::Rpc { .. } if (400..500).contains(&status) => {

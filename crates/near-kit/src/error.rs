@@ -386,13 +386,9 @@ pub enum RpcError {
         cause: Option<TimeoutCause>,
     },
 
-    /// An unpaginated `view_access_key_list` request hit the node's cap.
-    ///
-    /// nearcore only returns an account's keys in one shot when there are at
-    /// most `limit` of them (100 by default); anything larger has to be listed
-    /// with `limit`/`after_key`. `RpcClient::view_access_key_list` always
-    /// paginates, so this only surfaces from
-    /// `RpcClient::view_access_key_list_page` called without a `limit`.
+    /// An unpaginated `view_access_key_list` request hit the node's cap
+    /// (`TOO_MANY_ACCESS_KEYS`). Only `RpcClient::view_access_key_list_page`
+    /// called without a `limit` or `after_key` can return it.
     #[error(
         "account {account_id} has more than {limit} access keys; use a paginated view_access_key_list request"
     )]
@@ -622,9 +618,6 @@ impl RpcError {
             | RpcError::NodeNotSynced(_)
             | RpcError::InternalError(_)
             | RpcError::Timeout { .. } => true,
-            // The payload is fixed here, so `InvalidNonce` can't be fixed by
-            // re-sending it (the transaction layer re-signs instead); shard
-            // congestion/stalls can clear on their own. See the doc comment.
             RpcError::InvalidTx(InvalidTxError::InvalidNonce { .. }) => false,
             RpcError::InvalidTx(e) => e.is_retryable(),
             // A server error is retried when the node names no cause (older
