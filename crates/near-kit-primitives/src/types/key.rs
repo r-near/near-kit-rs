@@ -178,11 +178,6 @@ impl PublicKey {
         Ok(Self::Secp256k1(bytes))
     }
 
-    /// Create an ML-DSA-65 public key from raw 1952 bytes.
-    pub fn ml_dsa65_from_bytes(bytes: Box<[u8; ML_DSA_65_PUBLIC_KEY_LENGTH]>) -> Self {
-        Self::MlDsa65(bytes)
-    }
-
     /// Check that the key bytes are a valid point on the key's curve.
     ///
     /// Decoding doesn't run this check. ML-DSA-65 keys always pass.

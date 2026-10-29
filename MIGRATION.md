@@ -164,6 +164,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `.into_inner()` on those signers | Not needed: the loaders return the `InMemorySigner` |
 | `PublicKeyHandle::full_pubkey()` | `PublicKeyHandle::as_full()` |
 | `signer::SignerError` (exhaustive) | `#[non_exhaustive]`, with new `InvalidKey`, `NoKeys` and `MixedAccounts` variants |
+| `PublicKey::ml_dsa65_from_bytes(bytes)` | `PublicKey::MlDsa65(bytes)` |
 
 ### Error variants
 
