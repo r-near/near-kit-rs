@@ -8,63 +8,69 @@
 //!
 //! The relay test pins `2.13.4` (DelegateV2 exists only at protocol 85-86);
 //! the rejection test runs on the default 2.14 sandbox.
-//!
-//! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
 use near_kit::protocol::Action;
 use near_kit::*;
 use near_kit::{protocol::*, rpc::*, signer::*, transaction::Final};
 
-use super::support::{funded_account, sandbox_2_13, shared_client, unique_account};
+use super::support::{funded_account, sandbox_2_13, shared_client};
 
 /// Protocol version at which nearcore 2.14 rejects `Action::DelegateV2`
 /// (`ProtocolFeature::RejectDelegateV2`).
 const REJECT_DELEGATE_V2_PROTOCOL_VERSION: u32 = 87;
+
+/// A `DelegateActionV2` transferring `amount` from `sender` to `receiver`,
+/// signed with `key`'s next plain nonce.
+async fn sign_delegate_v2(
+    near: &Near,
+    key: &SecretKey,
+    sender: &AccountId,
+    receiver: &AccountId,
+    amount: NearToken,
+    max_block_height: u64,
+) -> VersionedSignedDelegateAction {
+    let ak = near
+        .rpc()
+        .view_access_key(
+            sender,
+            &key.public_key(),
+            BlockReference::Finality(Finality::Final),
+        )
+        .await
+        .expect("view sender access key");
+    let delegate_v2 = DelegateActionV2 {
+        sender_id: sender.clone(),
+        receiver_id: receiver.clone(),
+        actions: vec![
+            NonDelegateAction::from_action(Action::transfer(amount))
+                .expect("transfer is not a delegate"),
+        ],
+        // Ordinary full-access key → plain nonce (ak.nonce + 1).
+        nonce: TransactionNonce::from_nonce(ak.nonce + 1),
+        max_block_height,
+        public_key: key.public_key(),
+    };
+    let payload: VersionedDelegateActionPayload = delegate_v2.into();
+    let signature = key.sign(payload.get_hash().as_bytes());
+    payload.into_signed(signature)
+}
 
 #[tokio::test]
 async fn test_delegate_v2_relay() {
     let sandbox = sandbox_2_13().await;
     let root_near = sandbox.root_account();
 
-    // --- Accounts: sender (signs the meta-tx), relayer (pays gas), recipient.
-    let sender_key = SecretKey::generate_ed25519();
-    let sender_id = unique_account("dv2sender");
-    root_near
-        .wait_until::<Final>()
-        .transaction(&sender_id)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(10)))
-        .add_action(Action::add_full_access_key(sender_key.public_key()))
-        .await
-        .expect("create sender")
-        .result()
-        .unwrap();
-
-    let relayer_key = SecretKey::generate_ed25519();
-    let relayer_id = unique_account("dv2relayer");
-    root_near
-        .wait_until::<Final>()
-        .transaction(&relayer_id)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(10)))
-        .add_action(Action::add_full_access_key(relayer_key.public_key()))
-        .await
-        .expect("create relayer")
-        .result()
-        .unwrap();
-
-    let recipient_key = SecretKey::generate_ed25519();
-    let recipient_id = unique_account("dv2recipient");
-    root_near
-        .wait_until::<Final>()
-        .transaction(&recipient_id)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(1)))
-        .add_action(Action::add_full_access_key(recipient_key.public_key()))
-        .await
-        .expect("create recipient")
-        .result()
-        .unwrap();
+    let (_, sender_id, sender_key) =
+        funded_account(&root_near, &sandbox, "dv2sender", NearToken::from_near(10)).await;
+    let (relayer_near, _, _) =
+        funded_account(&root_near, &sandbox, "dv2relayer", NearToken::from_near(10)).await;
+    let (_, recipient_id, _) = funded_account(
+        &root_near,
+        &sandbox,
+        "dv2recipient",
+        NearToken::from_near(1),
+    )
+    .await;
 
     let recipient_before = root_near
         .near()
@@ -73,36 +79,17 @@ async fn test_delegate_v2_relay() {
         .expect("recipient balance before")
         .total;
 
-    // --- SENDER: build + sign a DelegateActionV2 (transfer to recipient). ----
-    let ak = root_near
-        .near()
-        .rpc()
-        .view_access_key(
-            &sender_id,
-            &sender_key.public_key(),
-            BlockReference::Finality(Finality::Final),
-        )
-        .await
-        .expect("view sender access key");
     let status = root_near.near().rpc().status().await.expect("status");
-    let max_block_height = status.sync_info.latest_block_height + 200;
-
     let transfer_amount = NearToken::from_near(2);
-    let delegate_v2 = DelegateActionV2 {
-        sender_id: sender_id.clone(),
-        receiver_id: recipient_id.clone(),
-        actions: vec![
-            NonDelegateAction::from_action(Action::transfer(transfer_amount))
-                .expect("transfer is not a delegate"),
-        ],
-        // Ordinary full-access key → plain nonce (ak.nonce + 1).
-        nonce: TransactionNonce::from_nonce(ak.nonce + 1),
-        max_block_height,
-        public_key: sender_key.public_key(),
-    };
-    let payload: VersionedDelegateActionPayload = delegate_v2.into();
-    let signature = sender_key.sign(payload.get_hash().as_bytes());
-    let signed = payload.into_signed(signature);
+    let signed = sign_delegate_v2(
+        root_near.near(),
+        &sender_key,
+        &sender_id,
+        &recipient_id,
+        transfer_amount,
+        status.sync_info.latest_block_height + 200,
+    )
+    .await;
 
     // The signature verifies under the V2 domain before we even send it.
     assert!(signed.verify(), "V2 delegate signature must verify locally");
@@ -112,52 +99,16 @@ async fn test_delegate_v2_relay() {
         .expect("relayer decodes payload");
     assert_eq!(received, signed);
 
-    // --- RELAYER: wrap in Action::DelegateV2 and submit, paying gas. ---------
-    let relayer_near = root_near
-        .near()
-        .with_signer(InMemorySigner::new(relayer_id.clone(), relayer_key.clone()));
-
-    // Sign the outer relay tx and submit it. We submit via the generic
-    // `send_tx` RPC and inspect the raw response: the high-level
-    // `FinalExecutionOutcome` parser lives in the RPC track's `rpc.rs` and does
-    // not yet model the v4 execution metadata these receipts carry, so the raw
-    // path is what definitively proves on-chain acceptance here.
-    let signed_outer = relayer_near
-        // The outer receiver must be the meta-tx sender.
-        .sign(&sender_id, vec![Action::delegate_v2(received)])
+    // The outer receiver must be the meta-tx sender.
+    relayer_near
+        .wait_until::<Final>()
+        .transaction(&sender_id)
+        .add_action(Action::delegate_v2(received))
         .await
-        .expect("sign outer relay tx");
-    let raw: serde_json::Value = root_near
-        .near()
-        .rpc()
-        .request(
-            "send_tx",
-            serde_json::json!({
-                "signed_tx_base64": signed_outer.to_base64(),
-                "wait_until": "FINAL",
-            }),
-        )
-        .await
-        .expect("relay DelegateV2 via send_tx");
+        .expect("relay DelegateV2")
+        .result()
+        .expect("DelegateV2 relay must succeed on-chain");
 
-    // The outer transaction (the DelegateV2 action) must not have failed, and
-    // every receipt outcome must be a success.
-    assert!(
-        raw["status"].get("Failure").is_none(),
-        "DelegateV2 relay transaction failed on-chain: {raw}"
-    );
-    let receipts = raw["receipts_outcome"]
-        .as_array()
-        .expect("receipts_outcome array");
-    assert!(!receipts.is_empty(), "expected receipt outcomes: {raw}");
-    for r in receipts {
-        assert!(
-            r["outcome"]["status"].get("Failure").is_none(),
-            "a DelegateV2 receipt failed: {r}"
-        );
-    }
-
-    // --- VERIFY the transfer landed. ----------------------------------------
     let recipient_after = root_near
         .near()
         .balance(&recipient_id)
@@ -196,30 +147,15 @@ async fn test_delegate_v2_rejected_as_removed_protocol_feature() {
 
     // A well-formed, correctly signed DelegateActionV2: the only reason for the
     // node to reject it is that the action itself was removed.
-    let ak = root_near
-        .near()
-        .rpc()
-        .view_access_key(
-            &sender_id,
-            &sender_key.public_key(),
-            BlockReference::Finality(Finality::Final),
-        )
-        .await
-        .expect("view sender access key");
-    let delegate_v2 = DelegateActionV2 {
-        sender_id: sender_id.clone(),
-        receiver_id: relayer_id.clone(),
-        actions: vec![
-            NonDelegateAction::from_action(Action::transfer(NearToken::from_near(1)))
-                .expect("transfer is not a delegate"),
-        ],
-        nonce: TransactionNonce::from_nonce(ak.nonce + 1),
-        max_block_height: status.sync_info.latest_block_height + 200,
-        public_key: sender_key.public_key(),
-    };
-    let payload: VersionedDelegateActionPayload = delegate_v2.into();
-    let signature = sender_key.sign(payload.get_hash().as_bytes());
-    let signed = payload.into_signed(signature);
+    let signed = sign_delegate_v2(
+        root_near.near(),
+        &sender_key,
+        &sender_id,
+        &relayer_id,
+        NearToken::from_near(1),
+        status.sync_info.latest_block_height + 200,
+    )
+    .await;
 
     let error = relayer_near
         .wait_until::<Final>()
