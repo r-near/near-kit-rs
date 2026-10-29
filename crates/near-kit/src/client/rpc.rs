@@ -1638,14 +1638,22 @@ fn with_timeout_tx_hash(mut err: RpcError, tx_hash: CryptoHash) -> RpcError {
 /// decoded from a 4xx body becomes a non-retryable `Network` error (as an
 /// undecodable 4xx body would). Typed variants and 5xx errors pass through
 /// for `is_retryable` to judge.
+///
+/// JSON-RPC "method not found" (`-32601`) stays an `Rpc` error at any status
+/// (nearcore sends it with HTTP 400, JSON-RPC-over-HTTP with 404), so a
+/// backend without `status` still caches nonces by chain id. It is never
+/// retried either way.
 fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) -> RpcError {
     match err {
-        RpcError::Rpc { .. } if (400..500).contains(&status) => {
+        RpcError::Rpc { code, .. } if code != METHOD_NOT_FOUND && (400..500).contains(&status) => {
             RpcError::network(format!("HTTP {}: {}", status, body), Some(status), false)
         }
         other => other,
     }
 }
+
+/// JSON-RPC's "method not found" error code.
+pub(super) const METHOD_NOT_FOUND: i64 = -32601;
 
 #[cfg(test)]
 mod tests {
@@ -4320,8 +4328,9 @@ mod tests {
 
     /// Non-2xx responses through the real `request` path: nearcore's typed
     /// errors come through, a 4xx whose cause near-kit doesn't know stays a
-    /// non-retryable `Network` error (#189), and a 5xx keeps the body's own
-    /// retry classification.
+    /// non-retryable `Network` error (#189), a "method not found" stays an
+    /// `Rpc` error at any status, and a 5xx keeps the body's own retry
+    /// classification.
     #[tokio::test]
     async fn test_non_2xx_responses_decode_and_keep_http_retry_classification() {
         let handler = |cause, info, data: &str| rpc_error(Some(cause), info, data.into());
@@ -4330,7 +4339,20 @@ mod tests {
         }
         type Check = fn(&RpcError) -> bool;
         // `(status, body, attempts with 2 retries allowed, expected error)`
-        let cases: [(u16, Vec<u8>, usize, Check); 10] = [
+        // nearcore's "method not found", which it sends with HTTP 400.
+        let method_not_found = serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": {
+                "name": "REQUEST_VALIDATION_ERROR",
+                "cause": { "name": "METHOD_NOT_FOUND", "info": { "method_name": "block" } },
+                "code": -32601,
+                "message": "Method not found",
+                "data": "block",
+            },
+        }))
+        .unwrap();
+        let cases: [(u16, Vec<u8>, usize, Check); 12] = [
             (
                 422,
                 handler(
@@ -4406,6 +4428,14 @@ mod tests {
                 3,
                 |e| matches!(e, RpcError::Rpc { .. }),
             ),
+            // "Method not found" stays itself, so the nonce cache can fall
+            // back to the chain id; it is never retried.
+            (400, method_not_found.clone(), 1, |e| {
+                matches!(e, RpcError::Rpc { code: -32601, .. }) && !e.is_retryable()
+            }),
+            (404, method_not_found, 1, |e| {
+                matches!(e, RpcError::Rpc { code: -32601, .. }) && !e.is_retryable()
+            }),
             (
                 422,
                 b"<html><body><h1>422 Unprocessable Entity</h1></body></html>".to_vec(),

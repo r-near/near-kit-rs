@@ -1075,12 +1075,18 @@ mod tests {
         );
     }
 
-    /// A node's answer to a method it doesn't serve.
+    /// nearcore's answer to a method it doesn't serve (sent with HTTP 400).
     fn method_not_found_body() -> Vec<u8> {
         serde_json::to_vec(&serde_json::json!({
             "jsonrpc": "2.0",
             "id": 0,
-            "error": { "code": -32601, "message": "Method not found" },
+            "error": {
+                "name": "REQUEST_VALIDATION_ERROR",
+                "cause": { "name": "METHOD_NOT_FOUND", "info": { "method_name": "status" } },
+                "code": -32601,
+                "message": "Method not found",
+                "data": "status",
+            },
         }))
         .unwrap()
     }
@@ -1248,8 +1254,9 @@ mod tests {
         /// The `finality` of each access key view, in order.
         view_finalities: Mutex<Vec<serde_json::Value>>,
         genesis_hash: CryptoHash,
-        /// Replies to the first `status` calls; then the genesis hash.
-        status_replies: Mutex<VecDeque<Vec<u8>>>,
+        /// Replies (HTTP status, body) to the first `status` calls; then the
+        /// genesis hash.
+        status_replies: Mutex<VecDeque<(u16, Vec<u8>)>>,
         status_calls: AtomicUsize,
     }
 
@@ -1299,6 +1306,7 @@ mod tests {
             body: Vec<u8>,
         ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
             let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            let mut status = 200;
             let body = match request["method"].as_str().unwrap() {
                 "EXPERIMENTAL_view_access_key" => {
                     self.view_finalities
@@ -1335,11 +1343,14 @@ mod tests {
                 "status" => {
                     self.status_calls.fetch_add(1, Ordering::SeqCst);
                     let reply = self.status_replies.lock().unwrap().pop_front();
-                    reply.unwrap_or_else(|| status_body(self.genesis_hash))
+                    let (http, body) =
+                        reply.unwrap_or_else(|| (200, status_body(self.genesis_hash)));
+                    status = http;
+                    body
                 }
                 other => panic!("unexpected RPC method {other}"),
             };
-            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+            Box::pin(async move { Ok(TransportResponse { status, body }) })
         }
     }
 
@@ -1441,7 +1452,7 @@ mod tests {
             .status_replies
             .lock()
             .unwrap()
-            .push_back(internal_error_body());
+            .push_back((200, internal_error_body()));
         let near = crate::Near::custom("http://status-fails.invalid", "status-fails")
             .transport(transport.clone())
             .retry_config(crate::rpc::RetryConfig::none())
@@ -1479,36 +1490,47 @@ mod tests {
 
     #[tokio::test]
     async fn a_backend_without_status_shares_nonces_by_chain_id() {
-        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
-        let without_status = |url| {
-            let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
-            transport
-                .status_replies
-                .lock()
-                .unwrap()
-                .push_back(method_not_found_body());
-            (
-                signing_via(url, "no-status", transport.clone(), signer.clone()),
-                transport,
-            )
-        };
-        let (first, first_transport) = without_status("http://no-status-a.invalid");
-        let (second, _) = without_status("http://no-status-b.invalid");
-
-        let mut nonces = Vec::new();
-        for near in [&first, &second, &first] {
-            nonces.push(
-                near.sign(account!("bob.testnet"), transfer())
-                    .await
+        // "Method not found" arrives with HTTP 200, with nearcore's 400, or
+        // with JSON-RPC-over-HTTP's 404: each falls back to the chain id.
+        for http in [200, 400, 404] {
+            let chain_id = format!("no-status-{http}");
+            let signer =
+                InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+            let without_status = |url| {
+                let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+                transport
+                    .status_replies
+                    .lock()
                     .unwrap()
-                    .transaction
-                    .nonce,
+                    .push_back((http, method_not_found_body()));
+                (
+                    signing_via(url, &chain_id, transport.clone(), signer.clone()),
+                    transport,
+                )
+            };
+            let (first, first_transport) = without_status("http://no-status-a.invalid");
+            let (second, _) = without_status("http://no-status-b.invalid");
+
+            let mut nonces = Vec::new();
+            for near in [&first, &second, &first] {
+                let signed = near.sign(account!("bob.testnet"), transfer()).await;
+                nonces.push(
+                    signed
+                        .unwrap_or_else(|e| panic!("HTTP {http}: {e}"))
+                        .transaction
+                        .nonce,
+                );
+            }
+            // One sequence by chain id, and the answer is kept: `status`
+            // isn't asked again, though the transport would now report a
+            // genesis hash.
+            assert_eq!(nonces, vec![6, 7, 8], "HTTP {http}");
+            assert_eq!(
+                first_transport.status_calls.load(Ordering::SeqCst),
+                1,
+                "HTTP {http}"
             );
         }
-        // One sequence by chain id, and the answer is kept: `status` isn't
-        // asked again, though the transport would now report a genesis hash.
-        assert_eq!(nonces, vec![6, 7, 8]);
-        assert_eq!(first_transport.status_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
