@@ -107,7 +107,7 @@ pub enum RpcError {
     // variant (and its `is_retryable` arm below) exists only there.
     #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
     #[error("HTTP error: {0}")]
-    Http(#[from] reqwest::Error),
+    Http(#[source] reqwest::Error),
 
     #[error("Network error: {message}")]
     Network {
@@ -128,6 +128,9 @@ pub enum RpcError {
         code: i64,
         message: String,
         data: Option<serde_json::Value>,
+        /// The name of the node's error cause (`error.cause.name`, such as
+        /// `NODE_IS_SYNCING`), when the response has one.
+        cause: Option<String>,
     },
 
     // ─── Account Errors ───
@@ -265,7 +268,28 @@ pub enum RpcError {
     #[error("Receipt not found: {0}")]
     ReceiptNotFound(String),
 
+    /// `EXPERIMENTAL_receipt_to_tx` could not resolve the receipt for a reason
+    /// other than the node not knowing it (that is
+    /// [`ReceiptNotFound`](Self::ReceiptNotFound)). Asking the same node again
+    /// gives the same answer.
+    #[error("Receipt-to-transaction lookup failed: {0}")]
+    ReceiptToTx(ReceiptToTxError),
+
     // ─── Transaction Errors ───
+    /// The node has no record of the transaction (`UNKNOWN_TRANSACTION`).
+    ///
+    /// nearcore answers this way only to a status request that does not wait
+    /// (`wait_until: NONE`, near-kit's `Submitted`, the default for
+    /// `Near::tx_status`). The transaction may not have reached the node yet:
+    /// poll again later, or wait at a later level.
+    #[error("Transaction not found: {0}")]
+    TransactionNotFound(CryptoHash),
+
+    /// The node does not track the transaction's shard, so it cannot answer
+    /// (`DOES_NOT_TRACK_SHARD`). Use an RPC node that tracks every shard.
+    #[error("Node does not track the transaction's shard")]
+    ShardNotTracked,
+
     /// Structured transaction validation error, parsed from nearcore's
     /// `TxExecutionError::InvalidTxError`. Prefer matching on
     /// [`Error::InvalidTx`] instead — this variant only appears when using
@@ -394,6 +418,58 @@ pub enum TimeoutCause {
     Unknown(serde_json::Value),
 }
 
+/// Why `EXPERIMENTAL_receipt_to_tx` could not resolve a receipt.
+///
+/// Carried by [`RpcError::ReceiptToTx`]. Mirrors nearcore's
+/// `RpcReceiptToTxError` causes other than `UNKNOWN_RECEIPT` and
+/// `INTERNAL_ERROR`.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum ReceiptToTxError {
+    /// The receipt's chain back to its transaction is longer than the node
+    /// follows (`DEPTH_EXCEEDED`).
+    #[error("depth limit {limit} exceeded when resolving receipt {receipt_id}")]
+    DepthExceeded {
+        /// The receipt being resolved.
+        receipt_id: CryptoHash,
+        /// The node's depth limit.
+        limit: u32,
+    },
+    /// The node does not support the lookup (`UNSUPPORTED`).
+    #[error("node does not support receipt-to-transaction lookup: {message}")]
+    Unsupported {
+        /// The node's explanation.
+        message: String,
+    },
+    /// The node does not store execution outcomes (`OUTCOMES_NOT_STORED`).
+    #[error("node does not store execution outcomes")]
+    OutcomesNotStored,
+    /// The requested search window is larger than the node allows
+    /// (`WINDOW_TOO_LARGE`).
+    #[error("requested window {requested} exceeds maximum {maximum}")]
+    WindowTooLarge {
+        /// The requested window, in blocks.
+        requested: u64,
+        /// The node's maximum, in blocks.
+        maximum: u64,
+    },
+    /// The lookup hint is malformed (`MALFORMED_HINT`).
+    #[error("malformed hint: {message}")]
+    MalformedHint {
+        /// The node's explanation.
+        message: String,
+    },
+    /// The node scanned more outcomes than its budget allows
+    /// (`BUDGET_EXCEEDED`).
+    #[error("hint scan budget exceeded: {scanned} outcomes scanned, limit {limit}")]
+    BudgetExceeded {
+        /// Outcomes scanned.
+        scanned: u64,
+        /// The node's limit.
+        limit: u64,
+    },
+}
+
 impl std::fmt::Display for TimeoutCause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -415,6 +491,39 @@ impl std::fmt::Display for TimeoutCause {
     }
 }
 
+/// Whether a `-32000` error cause names a condition that clears with time, so
+/// that re-sending the same request to the same node can succeed.
+///
+/// From nearcore 2.14's `chain/jsonrpc-primitives/src/types/`:
+///
+/// - `NODE_IS_SYNCING`, `NO_NEW_BLOCKS` (`status.rs`): the node is catching up
+///   or briefly stalled.
+/// - `BUSY` (`indexer.rs`): the indexer endpoints' concurrency limit.
+/// - `NOT_CONFIRMED`, `CHUNK_NOT_CERTIFIED` (`light_client.rs`): the outcome
+///   or chunk isn't final yet; a later block confirms or certifies it.
+///
+/// `INTERNAL_ERROR`, `TIMEOUT_ERROR`, `UNAVAILABLE_SHARD`, `NOT_SYNCED_YET`
+/// and `NO_SYNCED_BLOCKS` are transient too, but `RpcClient` maps them to
+/// their own variants, so they never reach [`RpcError::Rpc`]; they are listed
+/// for errors built by hand. Every other cause depends on the request, the
+/// node's configuration or data it doesn't have (`REQUEST_ROUTED`, for
+/// instance, routes the same transaction again), and is not retried.
+fn is_transient_cause(cause: &str) -> bool {
+    matches!(
+        cause,
+        "NODE_IS_SYNCING"
+            | "NO_NEW_BLOCKS"
+            | "BUSY"
+            | "NOT_CONFIRMED"
+            | "CHUNK_NOT_CERTIFIED"
+            | "INTERNAL_ERROR"
+            | "TIMEOUT_ERROR"
+            | "UNAVAILABLE_SHARD"
+            | "NOT_SYNCED_YET"
+            | "NO_SYNCED_BLOCKS"
+    )
+}
+
 impl RpcError {
     /// Check if this error is retryable.
     ///
@@ -422,6 +531,11 @@ impl RpcError {
     /// transport failures, timeouts, and server-side conditions like an
     /// unsynced node or a 5xx. This is what `RpcClient::request` consults
     /// between attempts.
+    ///
+    /// A generic [`RpcError::Rpc`] server error (code `-32000`) is retryable
+    /// when it has no `cause` or a cause that clears with time, such as
+    /// `NODE_IS_SYNCING` or `BUSY`; a cause near-kit doesn't recognise is not
+    /// retried. Code `-32603` (internal error) is always retryable.
     ///
     /// For [`RpcError::InvalidTx`] the signed payload is fixed at this layer,
     /// so only rejections that can clear while the *same* bytes are re-sent
@@ -467,10 +581,15 @@ impl RpcError {
             // congestion/stalls can clear on their own. See the doc comment.
             RpcError::InvalidTx(InvalidTxError::InvalidNonce { .. }) => false,
             RpcError::InvalidTx(e) => e.is_retryable(),
-            RpcError::Rpc { code, .. } => {
-                // Retry on server errors
-                *code == -32000 || *code == -32603
-            }
+            // A server error is retried when the node names no cause (older
+            // nodes and proxies) or a cause that clears with time; a cause
+            // near-kit doesn't know may be deterministic.
+            RpcError::Rpc {
+                code: -32000,
+                cause,
+                ..
+            } => cause.as_deref().is_none_or(is_transient_cause),
+            RpcError::Rpc { code: -32603, .. } => true,
             _ => false,
         }
     }
@@ -531,6 +650,15 @@ impl RpcError {
         }
 
         None
+    }
+}
+
+/// Drops the request URL from the error: RPC providers often put an API key
+/// in it (`?apikey=...`), and reqwest would print it in `Display` and `Debug`.
+#[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
+impl From<reqwest::Error> for RpcError {
+    fn from(error: reqwest::Error) -> Self {
+        RpcError::Http(error.without_url())
     }
 }
 
@@ -639,6 +767,9 @@ impl RpcError {
             RpcError::EpochNotFound(_) => "EpochNotFound",
             RpcError::InvalidShardId(_) => "InvalidShardId",
             RpcError::ReceiptNotFound(_) => "ReceiptNotFound",
+            RpcError::ReceiptToTx(_) => "ReceiptToTx",
+            RpcError::TransactionNotFound(_) => "TransactionNotFound",
+            RpcError::ShardNotTracked => "ShardNotTracked",
             RpcError::InvalidTx(_) => "InvalidTx",
             RpcError::InvalidTxUnparsed { .. } => "InvalidTxUnparsed",
             RpcError::ShardUnavailable(_) => "ShardUnavailable",
@@ -1025,14 +1156,18 @@ mod tests {
             }
             .is_retryable()
         );
-        assert!(
-            RpcError::Rpc {
-                code: -32000,
-                message: "server error".to_string(),
-                data: None,
-            }
-            .is_retryable()
-        );
+        let server_error = |cause: Option<&str>| RpcError::Rpc {
+            code: -32000,
+            message: "server error".to_string(),
+            data: None,
+            cause: cause.map(str::to_string),
+        };
+        assert!(server_error(None).is_retryable());
+        assert!(server_error(Some("NODE_IS_SYNCING")).is_retryable());
+        assert!(server_error(Some("NOT_CONFIRMED")).is_retryable());
+        // A cause near-kit doesn't know isn't retried.
+        assert!(!server_error(Some("FUTURE_HANDLER_ERROR")).is_retryable());
+        assert!(!server_error(Some("SHARD_NOT_TRACKED")).is_retryable());
 
         // Non-retryable errors
         let account_id: AccountId = "alice.near".parse().unwrap();

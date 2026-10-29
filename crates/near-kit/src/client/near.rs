@@ -280,9 +280,8 @@ impl Near {
     ///   [`Included`](crate::transaction::Included), [`IncludedFinal`](crate::transaction::IncludedFinal))
     ///   → [`SendTxResponse`](crate::rpc::SendTxResponse), whose
     ///   [`outcome`](crate::rpc::SendTxResponse::outcome) carries the *partial*
-    ///   execution outcome (`receipts_outcome`/`receipts`) as soon as the node
-    ///   has it. Unlike `send_tx`, `EXPERIMENTAL_tx_status` returns receipt data
-    ///   even at these early levels, so a frontend can poll here to drive a
+    ///   execution outcome as soon as the node has it, with `receipts` filled in
+    ///   (`send_tx` leaves them out). A frontend can poll here to drive a
     ///   progressive UI without blocking for finality.
     ///
     /// # Example

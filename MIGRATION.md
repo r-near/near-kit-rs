@@ -512,6 +512,45 @@ These had no producer or only an internal use, and are gone:
 | `RpcError::network(..)`, `RpcError::invalid_transaction(..)` | Crate-private. Build the variant (`RpcError::Network { .. }`) in a custom transport. |
 | `RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`, `DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE` | Crate-private (10,000 and 100) |
 
+## Transaction responses and RPC errors
+
+- **A delegate's inner actions are `Action`s.** `DelegateActionView::actions`
+  and `DelegateActionV2View::actions` are `Vec<Action>` (were
+  `Vec<ActionView>`), because the node sends them in the protocol `Action`
+  JSON. A relayed state init or `UseGlobalContract` used to be reported as
+  "no execution outcome" although it ran; it now decodes. An inner
+  `DeployContract` or `DeployGlobalContract` carries the WASM, not a hash.
+  `Action` and its payload types implement `Serialize`/`Deserialize` in
+  nearcore's JSON shape; byte fields such as `DeployGlobalContractAction::code`
+  are base64 strings in JSON (were arrays of numbers).
+- **An outcome that fails to decode is an error.** `RpcTransactionResponse`
+  used to read such an outcome as `outcome: None`, which surfaced as "no
+  execution outcome" or as a `SendTxResponse` without an outcome. Decoding
+  the response now fails instead: `RpcClient::send_tx`/`tx_status`, sends and
+  `Near::tx_status` return `RpcError::Json`. `outcome` is `None` only when the
+  node sent no outcome.
+- **`ExecutionStatus::InvalidTx(InvalidTxError)` is new.** A transaction that
+  was included in a chunk but rejected when the chunk was applied has an
+  outcome with this status. It used to fail to decode and be reported as "no
+  execution outcome"; it now resolves to `Error::InvalidTx` (or
+  `OutcomeError::InvalidTx`). Exhaustive matches on `ExecutionStatus` need an
+  arm for it. `is_failure()` is true for it; `failure()` still returns only an
+  `ActionError`.
+- **Unknown transactions and receipt lookups have typed errors.**
+  `RpcError::TransactionNotFound(hash)` (`UNKNOWN_TRANSACTION`, from
+  `tx_status` at the default `Submitted` level), `RpcError::ShardNotTracked`
+  (`DOES_NOT_TRACK_SHARD`) and `RpcError::ReceiptToTx(ReceiptToTxError)` (the
+  other `receipt_to_tx` causes) used to be a generic `RpcError::Rpc` with code
+  `-32000` that was retried (about 3.5 s with the default `RetryConfig`) and
+  reported `is_retryable() == true`. They are returned after one attempt and
+  are not retryable.
+- **`RpcError::Rpc` has a `cause` field.** It holds the node's error cause
+  name (`error.cause.name`) when the response has one. A `-32000` server
+  error is now retried (and `is_retryable()`) only when it has no cause or a
+  cause that clears with time, such as `NODE_IS_SYNCING` or `BUSY`; 0.20
+  retried every `-32000` error, including deterministic ones near-kit has no
+  variant for. Struct patterns and literals without `..` need the new field.
+
 ## Sandbox
 
 | 0.20 | 0.21 |

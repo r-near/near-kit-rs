@@ -429,9 +429,8 @@ impl PreparedTransaction {
                         // W::convert handles the response appropriately:
                         // - Executed levels: extract outcome, check for InvalidTxError
                         // - Non-executed levels: build SendTxResponse (hash + sender,
-                        //   plus SendTxResponse::outcome). On this send_tx path the
-                        //   node returns no outcome at early levels, so it stays None;
-                        //   the tx_status path is where outcome can be Some.
+                        //   plus the outcome, which the node returns from
+                        //   IncludedFinal and possibly at Included).
                         return Ok(W::convert(response, &signer_id)?);
                     }
                     Err(RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {

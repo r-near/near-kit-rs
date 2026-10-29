@@ -435,6 +435,33 @@ async fn test_tx_status_with_receipts() {
     }
 }
 
+/// A status lookup of a hash the node has never seen is a typed,
+/// non-retryable error at the default (`Submitted`) level. That it is sent
+/// only once is checked against a counting transport, in near-kit's
+/// `test_deterministic_lookup_errors_are_not_retried`.
+#[tokio::test]
+async fn test_tx_status_unknown_transaction() {
+    let (_, near) = super::support::shared_client().await;
+    let unknown = CryptoHash::hash(b"never sent");
+
+    let err = near
+        .near()
+        .tx_status(&unknown, SANDBOX_ROOT_ACCOUNT)
+        .await
+        .unwrap_err();
+
+    match &err {
+        Error::Rpc(rpc) => {
+            assert!(
+                matches!(**rpc, RpcError::TransactionNotFound(hash) if hash == unknown),
+                "{rpc:?}"
+            );
+            assert!(!rpc.is_retryable());
+        }
+        other => panic!("expected Error::Rpc, got {other:?}"),
+    }
+}
+
 /// At an early wait level, `tx_status` must surface the partial execution
 /// outcome (receipts_outcome/receipts) instead of dropping it.
 ///

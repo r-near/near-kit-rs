@@ -18,7 +18,7 @@ use super::action::{
     VersionedDelegateActionPayload, VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
 };
 use super::block_reference::TxExecutionStatus;
-use super::error::{ActionError, TxExecutionError};
+use super::error::{ActionError, InvalidTxError, TxExecutionError};
 use super::transaction::{NonceMode, TransactionNonce};
 use super::{AccountId, CryptoHash, Gas, NearToken, Nonce, PublicKey, PublicKeyHandle, Signature};
 use crate::error::ActionViewConversionError;
@@ -793,20 +793,29 @@ pub enum FinalExecutionStatus {
 ///
 /// # The `outcome` field
 ///
-/// Whether a (partial) execution outcome is available depends on which RPC
-/// produced the response, not on the wait level alone:
+/// The node returns the transaction's execution outcome as soon as it has
+/// one, on both paths. By wait level:
+///
+/// - [`Submitted`](crate::transaction::Submitted): the node doesn't wait for
+///   the transaction, so a sent transaction gets no outcome; `tx_status`
+///   returns whatever outcome the node already has.
+/// - [`Included`](crate::transaction::Included): the node answers once the
+///   transaction is in a block, often before it has stored the outcome, so
+///   `outcome` may be [`None`].
+/// - [`IncludedFinal`](crate::transaction::IncludedFinal): the node reports
+///   this level from the outcome, so `outcome` is present.
+///
+/// What it carries depends on the RPC:
 ///
 /// - Via a sent transaction or `Near::send_signed` (the `send_tx` RPC): the
-///   node returns no execution outcome at these early levels, so `outcome` is
-///   [`None`].
-/// - Via `Near::tx_status` (the `EXPERIMENTAL_tx_status`
-///   RPC): the node returns the execution outcome as soon as it has one — its
-///   `receipts_outcome` (per-receipt status) and `receipts` (so a receiver_id
-///   can be mapped to a UI stage) — even at `Submitted`/`Included`. `outcome` is
-///   [`Some`] once that data exists. It is *partial* while the transaction is
-///   still running and *complete* once it has finished (e.g. when polling a tx
-///   that already settled). This is what lets a frontend poll `tx_status` at an
-///   early wait level to drive a progressive UI without blocking for finality.
+///   outcome has `receipts_outcome` (per-receipt status) but no `receipts`.
+/// - Via `Near::tx_status` (the `EXPERIMENTAL_tx_status` RPC): it also has
+///   `receipts`, so a receiver_id can be mapped to a UI stage.
+///
+/// The outcome is *partial* while the transaction is still running and
+/// *complete* once it has finished (e.g. when polling a tx that already
+/// settled). This is what lets a frontend poll `tx_status` at an early wait
+/// level to drive a progressive UI without blocking for finality.
 ///
 /// The outcome is exposed as-is (not validated); inspect
 /// [`FinalExecutionOutcome::status`] to see how far execution has progressed.
@@ -821,11 +830,13 @@ pub struct SendTxResponse {
     /// Execution outcome, when the RPC returned one.
     ///
     /// May be partial (while the transaction is still executing) or complete
-    /// (when polling a tx that has already finished). Populated (with
-    /// `receipts_outcome`/`receipts`) when this response comes from
-    /// `Near::tx_status` and the node already has
-    /// outcome data; [`None`] for the `send_tx` path at these early wait levels.
-    /// See the [type-level docs](SendTxResponse) for details.
+    /// (when polling a tx that has already finished). [`None`] for a
+    /// transaction sent at [`Submitted`](crate::transaction::Submitted), and
+    /// while the node has no outcome yet, which can happen at `Submitted` or
+    /// [`Included`](crate::transaction::Included); the node returns one from
+    /// [`IncludedFinal`](crate::transaction::IncludedFinal). `receipts` is
+    /// only filled in when this response comes from `Near::tx_status`. See the
+    /// [type-level docs](SendTxResponse) for details.
     pub outcome: Option<FinalExecutionOutcome>,
 }
 
@@ -846,21 +857,83 @@ pub struct ReceiptToTxResponse {
 /// response of its [`WaitLevel`](crate::transaction::WaitLevel)
 /// ([`FinalExecutionOutcome`] or [`SendTxResponse`]), built from this.
 ///
-/// `outcome` is `None` from `send_tx` until the transaction has executed.
-/// `EXPERIMENTAL_tx_status` can return a partial outcome at earlier levels.
-#[derive(Debug, Clone, Deserialize)]
+/// `outcome` is `None` until the node has the transaction's outcome: always
+/// when sending at `wait_until: NONE`, and possibly at `NONE` or `INCLUDED`
+/// otherwise; from `INCLUDED_FINAL` it is present, and partial until the
+/// transaction has executed. Only
+/// `EXPERIMENTAL_tx_status` fills in its `receipts`.
+///
+/// Deserializing fails if the JSON carries an outcome that does not decode
+/// (or only some of its fields); `outcome` is `None` only when the JSON has
+/// no outcome fields at all.
+#[derive(Debug, Clone)]
 pub struct RpcTransactionResponse {
     /// Hash of the transaction. Not part of the JSON: `send_tx` fills it in
     /// from the signed transaction and `tx_status` from the outcome or the
     /// requested hash, so it is all zeros when you deserialize the JSON
     /// yourself.
-    #[serde(skip)]
     pub transaction_hash: CryptoHash,
     /// The wait level that was reached.
     pub final_execution_status: TxExecutionStatus,
     /// The execution outcome, present when the transaction has been executed.
-    #[serde(flatten)]
     pub outcome: Option<FinalExecutionOutcome>,
+}
+
+// nearcore flattens an `Option<FinalExecutionOutcomeViewEnum>` into the
+// response. A derived `#[serde(flatten)] Option<_>` would turn any decode
+// error inside the outcome into `None`, so decode the outcome fields
+// individually and require all or none of them.
+impl<'de> Deserialize<'de> for RpcTransactionResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Wire {
+            final_execution_status: TxExecutionStatus,
+            status: Option<FinalExecutionStatus>,
+            transaction: Option<TransactionView>,
+            transaction_outcome: Option<ExecutionOutcomeWithId>,
+            receipts_outcome: Option<Vec<ExecutionOutcomeWithId>>,
+            receipts: Option<Vec<Receipt>>,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        let outcome = match (
+            wire.status,
+            wire.transaction,
+            wire.transaction_outcome,
+            wire.receipts_outcome,
+        ) {
+            (
+                Some(status),
+                Some(transaction),
+                Some(transaction_outcome),
+                Some(receipts_outcome),
+            ) => Some(FinalExecutionOutcome {
+                status,
+                transaction,
+                transaction_outcome,
+                receipts_outcome,
+                receipts: wire.receipts.unwrap_or_default(),
+            }),
+            (None, None, None, None) if wire.receipts.is_none() => None,
+            (status, transaction, transaction_outcome, receipts_outcome) => {
+                let missing = [
+                    ("status", status.is_none()),
+                    ("transaction", transaction.is_none()),
+                    ("transaction_outcome", transaction_outcome.is_none()),
+                    ("receipts_outcome", receipts_outcome.is_none()),
+                ]
+                .into_iter()
+                .find_map(|(field, missing)| missing.then_some(field))
+                .unwrap_or("status");
+                return Err(serde::de::Error::missing_field(missing));
+            }
+        };
+        Ok(Self {
+            transaction_hash: CryptoHash::default(),
+            final_execution_status: wire.final_execution_status,
+            outcome,
+        })
+    }
 }
 
 /// Final execution outcome from a NEAR transaction.
@@ -1054,19 +1127,23 @@ impl FinalExecutionOutcome {
 ///
 /// Matches nearcore's `ExecutionStatusView`. Used in [`ExecutionOutcome`].
 ///
-/// The `Failure` variant contains an [`ActionError`] rather than
-/// [`TxExecutionError`] because receipt execution outcomes can only fail with
-/// action errors. Transaction-validation errors (`InvalidTxError`) are caught
-/// earlier in the send path and surfaced as `near_kit::Error::InvalidTx`.
+/// A receipt fails with an action error ([`Failure`](Self::Failure)). A
+/// transaction outcome can also fail with an [`InvalidTxError`]
+/// ([`InvalidTx`](Self::InvalidTx)) when the transaction was included in a
+/// chunk but rejected when the chunk was applied; such a transaction resolves
+/// to `OutcomeError::InvalidTx` (`near_kit::Error::InvalidTx`).
 ///
-/// The NEAR RPC serialises the failure as `{"Failure": {"ActionError": {…}}}`.
-/// A custom [`Deserialize`] impl unwraps the outer `TxExecutionError` envelope.
+/// The NEAR RPC serialises a failure as `{"Failure": {"ActionError": {…}}}` or
+/// `{"Failure": {"InvalidTxError": {…}}}`. A custom [`Deserialize`] impl
+/// unwraps the outer `TxExecutionError` envelope.
 #[derive(Debug, Clone)]
 pub enum ExecutionStatus {
     /// The execution is pending or unknown.
     Unknown,
     /// Execution failed with an action error.
     Failure(ActionError),
+    /// The transaction was rejected when its chunk was applied.
+    InvalidTx(InvalidTxError),
     /// Execution succeeded with a return value.
     SuccessValue(Vec<u8>),
     /// Execution succeeded, producing a receipt.
@@ -1079,9 +1156,10 @@ impl ExecutionStatus {
         matches!(self, Self::SuccessValue(_) | Self::SuccessReceiptId(_))
     }
 
-    /// Whether the receipt failed.
+    /// Whether the execution failed, with an action error or an
+    /// [`InvalidTx`](Self::InvalidTx) rejection.
     pub fn is_failure(&self) -> bool {
-        matches!(self, Self::Failure(_))
+        matches!(self, Self::Failure(_) | Self::InvalidTx(_))
     }
 
     /// The receipt's return value, if it returned one.
@@ -1136,9 +1214,7 @@ impl<'de> serde::Deserialize<'de> for ExecutionStatus {
         match Raw::deserialize(deserializer)? {
             Raw::Unknown => Ok(Self::Unknown),
             Raw::Failure(TxExecutionError::ActionError(e)) => Ok(Self::Failure(e)),
-            Raw::Failure(TxExecutionError::InvalidTxError(e)) => Err(serde::de::Error::custom(
-                format!("unexpected InvalidTxError in receipt execution status: {e}"),
-            )),
+            Raw::Failure(TxExecutionError::InvalidTxError(e)) => Ok(Self::InvalidTx(e)),
             Raw::SuccessValue(v) => Ok(Self::SuccessValue(v)),
             Raw::SuccessReceiptId(h) => Ok(Self::SuccessReceiptId(h)),
         }
@@ -1248,14 +1324,17 @@ impl std::fmt::Display for GlobalContractIdentifierView {
 // ============================================================================
 
 /// View of a delegate action in RPC responses.
+///
+/// The node renders the inner actions as protocol [`Action`]s, not as
+/// [`ActionView`]s: an inner deploy carries the full WASM, not its hash.
 #[derive(Debug, Clone, Deserialize)]
 pub struct DelegateActionView {
     /// The account that signed the delegate action.
     pub sender_id: AccountId,
     /// The intended receiver of the inner actions.
     pub receiver_id: AccountId,
-    /// The actions to execute.
-    pub actions: Vec<ActionView>,
+    /// The actions to execute, in the node's protocol [`Action`] JSON.
+    pub actions: Vec<Action>,
     /// Nonce for replay protection.
     pub nonce: u64,
     /// Maximum block height before this delegate action expires.
@@ -1295,8 +1374,8 @@ pub struct DelegateActionV2View {
     pub sender_id: AccountId,
     /// The intended receiver of the inner actions.
     pub receiver_id: AccountId,
-    /// The actions to execute.
-    pub actions: Vec<ActionView>,
+    /// The actions to execute, in the node's protocol [`Action`] JSON.
+    pub actions: Vec<Action>,
     /// Nonce for replay protection (gas-key capable).
     pub nonce: TransactionNonceView,
     /// Maximum block height before this delegate action expires.
@@ -1322,6 +1401,10 @@ pub enum VersionedDelegateActionPayloadView {
 /// Non-deploy variants can be turned back into an [`Action`] with
 /// [`TryFrom<ActionView>`](Action#impl-TryFrom<ActionView>-for-Action). Deploy
 /// variants are rejected because the view omits the contract code.
+///
+/// The inner actions of a [`Delegate`](Self::Delegate) or
+/// [`DelegateV2`](Self::DelegateV2) view are not `ActionView`s: the node sends
+/// them as protocol [`Action`]s (see [`DelegateActionView`]).
 ///
 /// # Deploy views carry the code *hash*, not the WASM
 ///
@@ -1559,11 +1642,16 @@ fn decode_code_hash(code: &str) -> Result<CryptoHash, ActionViewConversionError>
     })
 }
 
-/// Convert the inner actions of a delegate view, rejecting nested delegates.
+/// Wrap the inner actions of a delegate view, rejecting nested delegates.
 fn non_delegate_actions(
-    views: Vec<ActionView>,
+    actions: Vec<Action>,
 ) -> Result<Vec<NonDelegateAction>, ActionViewConversionError> {
-    views.into_iter().map(NonDelegateAction::try_from).collect()
+    actions
+        .into_iter()
+        .map(|action| {
+            NonDelegateAction::from_action(action).ok_or(ActionViewConversionError::NestedDelegate)
+        })
+        .collect()
 }
 
 impl TryFrom<DelegateActionView> for DelegateAction {
@@ -3276,19 +3364,19 @@ mod tests {
     }
 
     #[test]
-    fn test_execution_status_failure_invalid_tx_error_rejected() {
+    fn test_execution_status_failure_invalid_tx_error() {
         let json = serde_json::json!({
             "Failure": {
                 "InvalidTxError": "InvalidSignature"
             }
         });
-        let err = serde_json::from_value::<ExecutionStatus>(json)
-            .expect_err("InvalidTxError should be rejected in receipt execution status");
-        let msg = err.to_string();
-        assert!(
-            msg.contains("unexpected InvalidTxError"),
-            "Expected descriptive error containing \"unexpected InvalidTxError\", got: {msg}"
-        );
+        let status = serde_json::from_value::<ExecutionStatus>(json).unwrap();
+        assert!(matches!(
+            status,
+            ExecutionStatus::InvalidTx(InvalidTxError::InvalidSignature)
+        ));
+        assert!(status.is_failure() && !status.is_success());
+        assert!(status.failure().is_none());
     }
 
     // ========================================================================

@@ -16,7 +16,7 @@ use super::transport::RpcTransport;
     all(feature = "wasi-http", target_env = "p2")
 ))]
 use super::transport;
-use crate::error::{RpcError, TimeoutCause};
+use crate::error::{ReceiptToTxError, RpcError, TimeoutCause};
 use crate::trace;
 use crate::types::RpcTransactionResponse;
 use crate::types::{
@@ -498,9 +498,10 @@ impl RpcClient {
         method: &str,
         params: P,
     ) -> Result<R, RpcError> {
-        let total_attempts = self.retry_config.max_retries + 1;
+        let max_retries = self.retry_config.max_retries;
+        let mut retry: u32 = 0;
 
-        for attempt in 0..total_attempts {
+        loop {
             let request_id = self.request_id.fetch_add(1, Ordering::Relaxed);
 
             let request = JsonRpcRequest {
@@ -512,26 +513,20 @@ impl RpcClient {
 
             match self.try_request::<R>(&request).await {
                 Ok(result) => return Ok(result),
-                Err(e)
-                    if is_idempotent(method)
-                        && e.is_retryable()
-                        && attempt < total_attempts - 1 =>
-                {
-                    let delay = std::cmp::min(
-                        self.retry_config.initial_delay_ms * 2u64.pow(attempt),
-                        self.retry_config.max_delay_ms,
-                    );
+                Err(e) if is_idempotent(method) && e.is_retryable() && retry < max_retries => {
+                    let delay = retry_delay_ms(&self.retry_config, retry);
                     // DEBUG, not WARN: the retry is routine and the caller
                     // sees the final outcome either way. Retryable variants
                     // are never enriched downstream, so `Display` is accurate.
                     trace::debug!(
-                        attempt = attempt + 1,
-                        max_attempts = total_attempts,
+                        attempt = u64::from(retry) + 1,
+                        max_attempts = u64::from(max_retries) + 1,
                         delay_ms = delay,
                         error = %e,
                         "RPC request failed, retrying"
                     );
                     async_sleep(Duration::from_millis(delay)).await;
+                    retry += 1;
                     continue;
                 }
                 Err(e) => {
@@ -545,8 +540,6 @@ impl RpcClient {
                 }
             }
         }
-
-        unreachable!("all loop iterations return")
     }
 
     /// Single attempt to make an RPC call.
@@ -582,7 +575,7 @@ impl RpcClient {
             if let Ok(parsed) = serde_json::from_str::<JsonRpcResponse>(&body)
                 && let Some(error) = parsed.error
             {
-                let parsed_err = self.parse_rpc_error(&error);
+                let parsed_err = self.parse_method_rpc_error(request.method, &error);
                 return Err(preserve_http_retry_classification(
                     parsed_err, status, &body,
                 ));
@@ -598,7 +591,7 @@ impl RpcClient {
         let rpc_response: JsonRpcResponse = serde_json::from_str(&body).map_err(RpcError::Json)?;
 
         if let Some(error) = rpc_response.error {
-            return Err(self.parse_rpc_error(&error));
+            return Err(self.parse_method_rpc_error(request.method, &error));
         }
 
         let result_value = rpc_response
@@ -625,6 +618,20 @@ impl RpcClient {
         }
 
         serde_json::from_value(result_value).map_err(RpcError::Json)
+    }
+
+    /// Parse an RPC error returned by `method`. Causes whose meaning depends
+    /// on the method are mapped here; the rest by [`parse_rpc_error`](Self::parse_rpc_error).
+    fn parse_method_rpc_error(&self, method: &str, error: &JsonRpcError) -> RpcError {
+        // `UNSUPPORTED` is also an indexer cause, so only read these causes
+        // as `RpcReceiptToTxError` on `EXPERIMENTAL_receipt_to_tx`.
+        if method == "EXPERIMENTAL_receipt_to_tx"
+            && let Some(cause) = &error.cause
+            && let Some(receipt_to_tx) = parse_receipt_to_tx_error(&cause.name, cause.info.as_ref())
+        {
+            return RpcError::ReceiptToTx(receipt_to_tx);
+        }
+        self.parse_rpc_error(error)
     }
 
     /// Parse an RPC error into a specific error type.
@@ -733,6 +740,21 @@ impl RpcClient {
                         .and_then(|d| d.as_str())
                         .unwrap_or(&error.message);
                     return RpcError::EpochNotFound(block_ref.to_string());
+                }
+                "UNKNOWN_TRANSACTION" => {
+                    // `RpcTransactionError::UnknownTransaction`. Without a
+                    // hash, fall through to the generic error rather than
+                    // inventing one.
+                    if let Some(hash) = info
+                        .and_then(|i| i.get("requested_transaction_hash"))
+                        .and_then(|h| h.as_str())
+                        .and_then(|h| h.parse().ok())
+                    {
+                        return RpcError::TransactionNotFound(hash);
+                    }
+                }
+                "DOES_NOT_TRACK_SHARD" => {
+                    return RpcError::ShardNotTracked;
                 }
                 "UNKNOWN_RECEIPT" => {
                     let receipt_id = info
@@ -949,6 +971,7 @@ impl RpcClient {
             code: error.code,
             message: error.message.clone(),
             data: error.data.clone(),
+            cause: error.cause.as_ref().map(|cause| cause.name.clone()),
         }
     }
 
@@ -1484,6 +1507,11 @@ impl RpcClient {
     /// Uses `EXPERIMENTAL_tx_status` which returns complete receipt information.
     /// When the transaction has been executed, the outcome's `receipts` field
     /// will be populated (unlike `send_tx` which leaves it empty).
+    ///
+    /// With `wait_until: None` the node answers at once, with
+    /// [`RpcError::TransactionNotFound`] if it has no record of the
+    /// transaction yet; neither that nor [`RpcError::ShardNotTracked`] is
+    /// retried.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%tx_hash, sender = %sender_id, ?wait_until)))]
     pub async fn tx_status(
         &self,
@@ -1512,7 +1540,8 @@ impl RpcClient {
     ///
     /// Uses `EXPERIMENTAL_receipt_to_tx`, available on nodes running
     /// nearcore 2.12 or later. Returns [`RpcError::ReceiptNotFound`] if the
-    /// node does not know the receipt.
+    /// node does not know the receipt, and [`RpcError::ReceiptToTx`] if it
+    /// cannot resolve it for another reason (neither is retried).
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%receipt_id)))]
     pub async fn receipt_to_tx(
         &self,
@@ -1598,6 +1627,17 @@ fn sanitize_url(url: &str) -> &str {
     &url[..end]
 }
 
+/// Delay before retry number `retry` (0-based): `initial_delay_ms` doubled
+/// `retry` times, capped at `max_delay_ms`. Saturates instead of overflowing,
+/// so any `RetryConfig` is safe.
+fn retry_delay_ms(config: &RetryConfig, retry: u32) -> u64 {
+    let factor = 1u64.checked_shl(retry).unwrap_or(u64::MAX);
+    config
+        .initial_delay_ms
+        .saturating_mul(factor)
+        .min(config.max_delay_ms)
+}
+
 /// Whether `method` is safe to send again when the node may already have
 /// handled the first attempt (a dropped connection, a timeout, a 5xx).
 ///
@@ -1656,6 +1696,61 @@ fn parse_timeout_cause(info: &serde_json::Value) -> Option<TimeoutCause> {
     Some(cause)
 }
 
+/// Read one of nearcore's `RpcReceiptToTxError` causes (other than
+/// `UNKNOWN_RECEIPT` and `INTERNAL_ERROR`, which have their own variants).
+/// `None` for any other cause, or when the payload doesn't match.
+fn parse_receipt_to_tx_error(
+    cause: &str,
+    info: Option<&serde_json::Value>,
+) -> Option<ReceiptToTxError> {
+    #[derive(serde::Deserialize)]
+    struct DepthExceeded {
+        receipt_id: CryptoHash,
+        limit: u32,
+    }
+    #[derive(serde::Deserialize)]
+    struct Message {
+        error_message: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct WindowTooLarge {
+        requested: u64,
+        maximum: u64,
+    }
+    #[derive(serde::Deserialize)]
+    struct BudgetExceeded {
+        scanned: u64,
+        limit: u64,
+    }
+
+    fn info_as<T: serde::de::DeserializeOwned>(info: Option<&serde_json::Value>) -> Option<T> {
+        T::deserialize(info?).ok()
+    }
+
+    Some(match cause {
+        "DEPTH_EXCEEDED" => {
+            let DepthExceeded { receipt_id, limit } = info_as(info)?;
+            ReceiptToTxError::DepthExceeded { receipt_id, limit }
+        }
+        "UNSUPPORTED" => ReceiptToTxError::Unsupported {
+            message: info_as::<Message>(info)?.error_message,
+        },
+        "OUTCOMES_NOT_STORED" => ReceiptToTxError::OutcomesNotStored,
+        "WINDOW_TOO_LARGE" => {
+            let WindowTooLarge { requested, maximum } = info_as(info)?;
+            ReceiptToTxError::WindowTooLarge { requested, maximum }
+        }
+        "MALFORMED_HINT" => ReceiptToTxError::MalformedHint {
+            message: info_as::<Message>(info)?.error_message,
+        },
+        "BUDGET_EXCEEDED" => {
+            let BudgetExceeded { scanned, limit } = info_as(info)?;
+            ReceiptToTxError::BudgetExceeded { scanned, limit }
+        }
+        _ => return None,
+    })
+}
+
 /// Fill in the caller-known transaction hash on a timeout.
 ///
 /// nearcore's `TIMEOUT_ERROR` payload never carries the hash, but the caller
@@ -1681,15 +1776,15 @@ fn with_timeout_tx_hash(err: RpcError, tx_hash: CryptoHash) -> RpcError {
 ///      NodeNotSynced/…). These have well-understood retry semantics already
 ///      encoded in `RpcError::is_retryable` and should pass through unchanged.
 ///   2. The catch-all `RpcError::Rpc { code, .. }` (unrecognized or missing
-///      `cause.name`). For code `-32000`, `is_retryable` returns `true`, which
-///      is appropriate for 5xx (server-side) but *wrong* for 4xx — retrying a
-///      deterministic client error wastes time and hides the original failure.
+///      `cause.name`). For code `-32000` with no cause or a transient one,
+///      `is_retryable` returns `true`, which is appropriate for 5xx
+///      (server-side) but *wrong* for 4xx — retrying a deterministic client
+///      error wastes time and hides the original failure.
 ///
 /// For case (2) on a 4xx status, downgrade to `RpcError::Network` with
 /// `retryable: false` so unrecognized handler causes on 4xx preserve the
-/// pre-decode behavior (matches the HTML-body fallback path). 5xx with
-/// unknown cause is left as-is — a server-side issue with an unmapped name is
-/// plausibly transient and the existing retry semantics are reasonable.
+/// pre-decode behavior (matches the HTML-body fallback path). On 5xx the
+/// error is left as-is, and `is_retryable` decides from its cause.
 fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) -> RpcError {
     match err {
         RpcError::Rpc { .. } if (400..500).contains(&status) => {
@@ -2005,6 +2100,53 @@ mod tests {
         assert_eq!(transport.calls(), 3, "1 attempt + 2 retries");
     }
 
+    /// A `-32000` handler error with `cause` (`None` omits the field).
+    fn server_error_body(cause: Option<&str>) -> Vec<u8> {
+        let mut error = serde_json::json!({
+            "name": "HANDLER_ERROR",
+            "code": -32000,
+            "message": "Server error",
+            "data": "details",
+        });
+        if let Some(cause) = cause {
+            error["cause"] = serde_json::json!({ "name": cause, "info": {} });
+        }
+        serde_json::to_vec(&serde_json::json!({ "jsonrpc": "2.0", "id": 0, "error": error }))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_call_retries_server_error_only_without_cause_or_with_a_transient_one() {
+        // `(cause, expected attempts)` with 2 retries allowed.
+        let cases = [
+            // A named cause near-kit doesn't know may well be deterministic.
+            (Some("FUTURE_HANDLER_ERROR"), 1),
+            (Some("REQUEST_ROUTED"), 1),
+            // Older nodes and proxies send no cause.
+            (None, 3),
+            // Known-transient causes nearcore names.
+            (Some("NODE_IS_SYNCING"), 3),
+            (Some("BUSY"), 3),
+        ];
+        for (cause, attempts) in cases {
+            let transport = CountingTransport::new(200, server_error_body(cause));
+            let client = RpcClient::with_transport_and_retry_config(
+                "https://example.com",
+                transport.clone(),
+                fast_retries(2),
+            );
+            let err = client
+                .request::<_, serde_json::Value>("status", serde_json::json!([]))
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(err, RpcError::Rpc { code: -32000, .. }),
+                "{cause:?}: {err:?}"
+            );
+            assert_eq!(transport.calls(), attempts, "{cause:?}");
+        }
+    }
+
     #[tokio::test]
     async fn test_call_retries_transient_transport_errors() {
         // A retryable transport failure (5xx) is retried `max_retries` times.
@@ -2052,6 +2194,91 @@ mod tests {
 
         assert!(err.is_retryable(), "503 is retryable in principle: {err:?}");
         assert_eq!(transport.calls(), 1);
+    }
+
+    #[test]
+    fn test_retry_delay_saturates_at_the_cap() {
+        let config = RetryConfig::default(); // 500 ms doubling, 5 s cap
+        let delays: Vec<u64> = [0, 1, 2, 3, 4, 55, 56, 57, 62, 63, 64, 65, u32::MAX - 1]
+            .into_iter()
+            .map(|retry| retry_delay_ms(&config, retry))
+            .collect();
+        assert_eq!(
+            delays,
+            [
+                500, 1000, 2000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000
+            ]
+        );
+
+        let uncapped = RetryConfig {
+            max_retries: u32::MAX,
+            initial_delay_ms: 3,
+            max_delay_ms: u64::MAX,
+        };
+        assert_eq!(retry_delay_ms(&uncapped, 62), 3 << 62);
+        assert_eq!(retry_delay_ms(&uncapped, 63), u64::MAX);
+        assert_eq!(retry_delay_ms(&uncapped, u32::MAX - 1), u64::MAX);
+        let zero = RetryConfig {
+            initial_delay_ms: 0,
+            ..uncapped
+        };
+        assert_eq!(retry_delay_ms(&zero, 100), 0);
+    }
+
+    #[tokio::test]
+    async fn test_retry_forever_config_succeeds() {
+        // `u32::MAX` ("retry forever") on a call that succeeds at once.
+        let transport =
+            CountingTransport::new(200, r#"{"jsonrpc":"2.0","id":0,"result":{"ok":true}}"#);
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            RetryConfig {
+                max_retries: u32::MAX,
+                ..RetryConfig::default()
+            },
+        );
+
+        let result = client
+            .request::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
+            .await
+            .unwrap();
+
+        assert_eq!(result, serde_json::json!({ "ok": true }));
+        assert_eq!(transport.calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_long_retry_runs_return_the_last_error() {
+        // Past 64 retries the doubling factor no longer fits in a u64; the
+        // backoff must stay at the cap and the last error must come back.
+        let transport = CountingTransport::new(503, "service unavailable");
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            RetryConfig {
+                max_retries: 66,
+                initial_delay_ms: 1,
+                max_delay_ms: 1,
+            },
+        );
+
+        let err = client
+            .request::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                RpcError::Network {
+                    status_code: Some(503),
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+        assert_eq!(transport.calls(), 67, "1 attempt + 66 retries");
     }
 
     // ========================================================================
@@ -2355,6 +2582,36 @@ mod tests {
             source = err.source();
         }
         false
+    }
+
+    /// A transport failure doesn't print the request URL, which may carry an
+    /// API key, in `Display`, `Debug` or any source; it stays retryable.
+    #[tokio::test]
+    async fn test_http_error_omits_url_with_api_key() {
+        let port = {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+        let url = format!("http://127.0.0.1:{port}/?apikey=SECRET");
+
+        let error = test_client(&url, RetryConfig::none())
+            .request::<_, serde_json::Value>("status", ())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, RpcError::Http(_)), "{error:?}");
+        assert!(error.is_retryable(), "{error:?}");
+
+        let error = crate::Error::from(error);
+        let mut shown = vec![error.to_string(), format!("{error:?}")];
+        let mut source = std::error::Error::source(&error);
+        while let Some(err) = source {
+            shown.push(err.to_string());
+            shown.push(format!("{err:?}"));
+            source = err.source();
+        }
+        for text in shown {
+            assert!(!text.contains("SECRET"), "{text}");
+        }
     }
 
     /// A node that resets the connection under load: the error is retryable,
@@ -3361,6 +3618,204 @@ mod tests {
         };
         let result = client.parse_rpc_error(&error);
         assert!(matches!(result, RpcError::ReceiptNotFound(_)));
+    }
+
+    /// nearcore's `send_tx`/`tx_status`/`receipt_to_tx` handler errors that
+    /// re-sending the same request can't change, as (cause, info, data).
+    fn deterministic_lookup_errors() -> Vec<(&'static str, Option<serde_json::Value>, &'static str)>
+    {
+        let hash = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj";
+        vec![
+            (
+                "UNKNOWN_TRANSACTION",
+                Some(serde_json::json!({ "requested_transaction_hash": hash })),
+                "Transaction H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj doesn't exist",
+            ),
+            (
+                "DOES_NOT_TRACK_SHARD",
+                None,
+                "Node doesn't track this shard. Cannot determine whether the transaction is valid",
+            ),
+            (
+                "DEPTH_EXCEEDED",
+                Some(serde_json::json!({ "receipt_id": hash, "limit": 32 })),
+                "depth limit 32 exceeded",
+            ),
+            (
+                "UNSUPPORTED",
+                Some(serde_json::json!({ "error_message": "archival only" })),
+                "this node does not support receipt-to-tx lookup: archival only",
+            ),
+            (
+                "OUTCOMES_NOT_STORED",
+                None,
+                "execution outcomes are not stored on this node (save_tx_outcomes=false)",
+            ),
+            (
+                "WINDOW_TOO_LARGE",
+                Some(serde_json::json!({ "requested": 5000, "maximum": 1000 })),
+                "requested window 5000 exceeds maximum 1000",
+            ),
+            (
+                "MALFORMED_HINT",
+                Some(serde_json::json!({ "error_message": "bad hint" })),
+                "malformed hint: bad hint",
+            ),
+            (
+                "BUDGET_EXCEEDED",
+                Some(serde_json::json!({ "scanned": 10, "limit": 5 })),
+                "hint-scan budget exceeded: 10 outcomes scanned, limit 5",
+            ),
+        ]
+    }
+
+    fn handler_error_body(
+        cause: &str,
+        info: Option<serde_json::Value>,
+        data: &str,
+    ) -> serde_json::Value {
+        let mut cause = serde_json::json!({ "name": cause });
+        if let Some(info) = info {
+            cause["info"] = info;
+        }
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": {
+                "name": "HANDLER_ERROR",
+                "cause": cause,
+                "code": -32000,
+                "message": "Server error",
+                "data": data,
+            },
+        })
+    }
+
+    #[tokio::test]
+    async fn test_deterministic_lookup_errors_are_not_retried() {
+        for (cause, info, data) in deterministic_lookup_errors() {
+            let err = lookup_error(cause, info, data, 1).await;
+            assert!(!err.is_retryable(), "{cause}: {err:?}");
+        }
+    }
+
+    /// The error a `tx_status` (or, for receipt-to-tx causes,
+    /// `receipt_to_tx`) call returns for this handler error, asserting the
+    /// number of attempts it took.
+    async fn lookup_error(
+        cause: &str,
+        info: Option<serde_json::Value>,
+        data: &str,
+        expected_calls: usize,
+    ) -> RpcError {
+        let body = handler_error_body(cause, info, data);
+        let transport = CountingTransport::new(200, serde_json::to_vec(&body).unwrap());
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(3),
+        );
+        let hash: CryptoHash = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+            .parse()
+            .unwrap();
+        let err = if matches!(cause, "UNKNOWN_TRANSACTION" | "DOES_NOT_TRACK_SHARD") {
+            let sender: AccountId = "alice.near".parse().unwrap();
+            client
+                .tx_status(&hash, &sender, TxExecutionStatus::None)
+                .await
+                .unwrap_err()
+        } else {
+            client.receipt_to_tx(&hash).await.unwrap_err()
+        };
+        assert_eq!(transport.calls(), expected_calls, "{cause}: {err:?}");
+        err
+    }
+
+    #[tokio::test]
+    async fn test_deterministic_lookup_errors_are_typed() {
+        let hash: CryptoHash = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+            .parse()
+            .unwrap();
+        let errors = deterministic_lookup_errors();
+        let mut typed = Vec::new();
+        for (cause, info, data) in errors {
+            typed.push(lookup_error(cause, info, data, 1).await);
+        }
+        let [
+            unknown_tx,
+            not_tracked,
+            depth,
+            unsupported,
+            not_stored,
+            window,
+            hint,
+            budget,
+        ] = &typed[..]
+        else {
+            panic!("{typed:?}");
+        };
+        assert!(matches!(unknown_tx, RpcError::TransactionNotFound(h) if *h == hash));
+        assert!(matches!(not_tracked, RpcError::ShardNotTracked));
+        assert!(matches!(
+            depth,
+            RpcError::ReceiptToTx(ReceiptToTxError::DepthExceeded { receipt_id, limit: 32 })
+                if *receipt_id == hash
+        ));
+        assert!(matches!(
+            unsupported,
+            RpcError::ReceiptToTx(ReceiptToTxError::Unsupported { message })
+                if message == "archival only"
+        ));
+        assert!(matches!(
+            not_stored,
+            RpcError::ReceiptToTx(ReceiptToTxError::OutcomesNotStored)
+        ));
+        assert!(matches!(
+            window,
+            RpcError::ReceiptToTx(ReceiptToTxError::WindowTooLarge {
+                requested: 5000,
+                maximum: 1000
+            })
+        ));
+        assert!(matches!(
+            hint,
+            RpcError::ReceiptToTx(ReceiptToTxError::MalformedHint { message })
+                if message == "bad hint"
+        ));
+        assert!(matches!(
+            budget,
+            RpcError::ReceiptToTx(ReceiptToTxError::BudgetExceeded {
+                scanned: 10,
+                limit: 5
+            })
+        ));
+        assert_eq!(
+            unknown_tx.to_string(),
+            "Transaction not found: H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
+        );
+    }
+
+    #[test]
+    fn test_receipt_to_tx_causes_are_specific_to_that_method() {
+        // The indexer also sends `UNSUPPORTED`; it is not a receipt-to-tx error.
+        let client = RpcClient::new("https://example.com");
+        let error: JsonRpcError = serde_json::from_value(
+            handler_error_body(
+                "UNSUPPORTED",
+                Some(serde_json::json!({ "error_message": "no indexer" })),
+                "unsupported indexer request: no indexer",
+            )["error"]
+                .clone(),
+        )
+        .unwrap();
+        assert!(matches!(
+            client.parse_method_rpc_error("EXPERIMENTAL_indexer_block", &error),
+            RpcError::Rpc { .. }
+        ));
+        assert!(matches!(
+            client.parse_method_rpc_error("EXPERIMENTAL_receipt_to_tx", &error),
+            RpcError::ReceiptToTx(ReceiptToTxError::Unsupported { .. })
+        ));
     }
 
     // ========================================================================
