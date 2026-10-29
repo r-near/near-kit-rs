@@ -575,8 +575,11 @@ pub use client::{Near, NearBuilder};
 pub use near_kit_macros::{borsh, call, contract, json};
 
 /// Support code for the `#[near_kit::contract]` expansion. Not public API.
+///
+/// Present without the `contracts` feature too: a crate that enables the
+/// macro through near-kit-primitives but also depends on near-kit gets
+/// expansions that name near-kit.
 #[doc(hidden)]
-#[cfg(feature = "contracts")]
 pub mod __private {
     // A `cfg` in proc-macro output is evaluated against the *calling* crate's
     // features, not near-kit's. So the macro wraps its `Near`-backed client
@@ -593,7 +596,7 @@ macro_rules! __near_kit_rpc_only {
 }
 
 #[doc(hidden)]
-#[cfg(all(feature = "contracts", not(feature = "rpc")))]
+#[cfg(not(all(feature = "contracts", feature = "rpc")))]
 #[macro_export]
 macro_rules! __near_kit_rpc_only {
     ($($tokens:tt)*) => {};

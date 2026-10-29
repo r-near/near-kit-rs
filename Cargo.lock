@@ -1942,6 +1942,7 @@ dependencies = [
  "near-account-id",
  "near-gas",
  "near-global-contracts",
+ "near-kit-macros",
  "near-token",
  "serde",
  "serde_json",

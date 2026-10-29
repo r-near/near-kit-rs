@@ -63,18 +63,28 @@ enum SerializationFormat {
     Borsh,
 }
 
+/// The crate the expansion names for its runtime support.
+///
+/// near-kit when the caller depends on it, since only near-kit has the
+/// `Near`-backed client. Otherwise near-kit-primitives, which has everything
+/// the offline half needs (`transaction::FunctionCall` and a `__private`
+/// whose `rpc_only!` drops the client half), so crates that can't take the
+/// RPC client, such as contracts built for wasm, can still use the macro.
 fn near_kit_path() -> TokenStream2 {
-    match crate_name("near-kit") {
-        // near-kit declares `extern crate self as near_kit`, so this path also
-        // resolves inside near-kit and in its own examples, tests and doctests
-        // (which are separate crates).
-        Ok(FoundCrate::Itself) => quote!(::near_kit),
+    let found = |name: &str, itself: TokenStream2| match crate_name(name) {
+        Ok(FoundCrate::Itself) => Some(itself),
         Ok(FoundCrate::Name(name)) => {
             let ident = format_ident!("{name}");
-            quote!(::#ident)
+            Some(quote!(::#ident))
         }
-        Err(_) => quote!(::near_kit),
-    }
+        Err(_) => None,
+    };
+    // near-kit declares `extern crate self as near_kit`, so `::near_kit` also
+    // resolves inside near-kit and in its own examples, tests and doctests
+    // (which are separate crates). The same goes for near-kit-primitives.
+    found("near-kit", quote!(::near_kit))
+        .or_else(|| found("near-kit-primitives", quote!(::near_kit_primitives)))
+        .unwrap_or_else(|| quote!(::near_kit))
 }
 
 /// Arguments to the `#[contract]` attribute.

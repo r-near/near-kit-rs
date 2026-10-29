@@ -48,6 +48,7 @@ let bytes = tx.sign(&secret).to_bytes();
 | Feature | Default | Description |
 |---------|---------|-------------|
 | `mnemonic` | No | BIP-39 seed phrases and SLIP-10 hierarchical key derivation |
+| `contracts` | No | The `#[contract]` macro, generating offline `FunctionCall` constructors (the `Near`-backed client needs `near-kit`) |
 | `js` | No | JS-host entropy backend (`getrandom`'s `wasm_js`) for `wasm32-unknown-unknown` |
 | `tracing` | No | `tracing` events (a WARN for unrecognized RPC error variants) |
 
