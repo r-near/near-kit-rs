@@ -239,23 +239,6 @@ result isn't part of that status. So:
 - `outcome.is_success()` true says only that the inner actions were
   scheduled. Whether they succeeded shows up only in the receipt outcomes.
 
-So for a relayed transaction, `outcome.is_failure()` and `outcome.result()`
-can both look successful while
-[`outcome.receipt_failures()`](crate::rpc::FinalExecutionOutcome::receipt_failures)
-is not empty. A relayer that reports results checks it:
-
-```rust,no_run
-use near_kit::rpc::FinalExecutionOutcome;
-
-/// The first failed receipt in a relayed transaction, if any.
-fn inner_failure(outcome: &FinalExecutionOutcome) -> Option<String> {
-    outcome.receipt_failures().next().map(|error| error.to_string())
-}
-```
-
-When the inner call fails, any deposit attached to it goes back to the
-user, not to the relayer that paid it.
-
 ## Gas-key delegate actions
 
 NEP-611 adds a second delegate action version for gas keys,

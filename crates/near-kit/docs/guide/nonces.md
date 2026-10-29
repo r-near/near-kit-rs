@@ -35,15 +35,6 @@ nonce it draws, and keeps it. That means:
   is drawn, and the next one asks again.
 - Two processes never share it. Each starts from the chain's view.
 
-```rust
-use near_kit::Near;
-
-// Two endpoints for one network: one shared nonce sequence per key.
-let primary = Near::custom("https://rpc.mainnet.example.com", "mainnet").build();
-let fallback = Near::custom("https://archival.mainnet.example.com", "mainnet").build();
-assert_eq!(primary.chain_id(), fallback.chain_id());
-```
-
 The nonce is taken from the cache when the transaction is signed, so
 `SigningNear::sign` and `SigningNear::sign_delegate` advance the sequence
 too. A nonce that is never used leaves a gap, which the chain doesn't mind.
@@ -80,9 +71,6 @@ let alice = near.with_signer(InMemorySigner::new(account!("alice.testnet"), key)
 let alice_retrying = alice.clone().max_nonce_retries(50);
 # }
 ```
-
-`SigningNear::from_env` reads the builder setting from
-`NEAR_MAX_NONCE_RETRIES`.
 
 Only sends from a `SigningNear` (a [`Tx`](crate::transaction::Tx), or a
 typed contract call through one) retry like this. `sign`, `sign_delegate`

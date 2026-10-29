@@ -279,12 +279,8 @@ Only ed25519 keys have implicit accounts; others fail with
 ## Several keys for one account
 
 [`RotatingSigner`](crate::signer::RotatingSigner) holds several keys of one
-account and hands out the next one for each transaction, so concurrent
-sends don't contend for one nonce. Build it from keys
-(`RotatingSigner::new(account, keys)`) or from loaded signers
-(`RotatingSigner::from_signers(vec![..])`, which requires them all to be for
-the same account). The [nonces chapter](crate::guide::nonces) covers when
-it helps and how to add the keys.
+account for concurrent sends; the
+[nonces chapter](crate::guide::nonces#several-keys-for-one-account) covers it.
 
 ## Keys near-kit can't see
 

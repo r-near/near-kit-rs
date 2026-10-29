@@ -120,27 +120,7 @@ alice
 
 Typed calls batch the same way. A call from a typed contract client or a
 token client is a [`Call`](crate::Call); `FunctionCall::from(call)` keeps
-its method, arguments, gas and deposit, and drops the client:
-
-```rust,no_run
-use near_kit::protocol::Action;
-use near_kit::standards::FungibleToken;
-use near_kit::transaction::FunctionCall;
-use near_kit::*;
-
-# async fn example(alice: &SigningNear) -> Result<(), Error> {
-let wrap = account!("wrap.testnet");
-let token = alice.contract::<FungibleToken>(&wrap);
-
-// Wrap 1 NEAR and send it to bob, in one transaction to the token contract.
-alice
-    .transaction(&wrap)
-    .add_action(FunctionCall::new("near_deposit").deposit(NearToken::from_near(1)))
-    .add_action(FunctionCall::from(token.transfer(account!("bob.testnet"), 10_u128.pow(24), None)))
-    .await?.result()?;
-# Ok(())
-# }
-```
+its method, arguments, gas and deposit, and drops the client.
 
 A `#[near_kit::contract]` trait also generates a `FunctionCall`
 constructor for each `#[call]` method, such as `Counter::add(args)`; see

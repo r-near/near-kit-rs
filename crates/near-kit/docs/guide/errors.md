@@ -13,34 +13,10 @@ five kinds of result:
 | `Err(Error::Validation(msg))` | near-kit refused to sign it: no actions, or a receiver that can't be right | Nothing was sent |
 | any other `Err` | RPC, signing or encoding failure | Usually nothing ran; after a [timeout](#timeouts) it may still run |
 
-The second row is the one that surprises people. NEAR executes a
-transaction by turning it into receipts, and a receipt can fail after the
-transaction was accepted and paid for. near-kit reports that as a
-successful call to the node that returned a failed outcome, so check the
-outcome:
-
-```rust,no_run
-use near_kit::protocol::Action;
-use near_kit::transaction::FunctionCall;
-use near_kit::*;
-
-# async fn example(alice: &SigningNear) -> Result<(), Error> {
-let outcome = alice
-    .transaction(account!("counter.testnet"))
-    .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
-    .await?;
-
-if outcome.is_failure() {
-    // Executed but failed: the message names the action and the cause,
-    // such as "smart contract panicked: ...".
-    eprintln!("increment failed: {:?}", outcome.failure_message());
-    eprintln!("gas burnt anyway: {}", outcome.total_gas_used());
-}
-# Ok(())
-# }
-```
-
-To handle every case in one place, match on the result:
+The second row is a receipt that failed after the transaction was accepted
+and paid for. near-kit reports it as a successful call that returned a
+failed outcome, so check the outcome, or match on the result to handle
+every case in one place:
 
 ```rust,no_run
 use near_kit::protocol::{Action, InvalidTxError};
@@ -104,14 +80,7 @@ meta-transaction (see the [meta-transactions
 chapter](crate::guide::meta_transactions#reading-the-result)), leaves
 `is_failure()` false and `result()` `Ok`. When that matters,
 [`receipt_failures`](crate::rpc::FinalExecutionOutcome::receipt_failures)
-lists every failed receipt's action error, in RPC order:
-
-```rust,no_run
-# use near_kit::rpc::FinalExecutionOutcome;
-fn failed_receipts(outcome: &FinalExecutionOutcome) -> Vec<String> {
-    outcome.receipt_failures().map(|error| error.to_string()).collect()
-}
-```
+lists every failed receipt's action error, in RPC order.
 
 ## Which call returns which error
 
@@ -164,13 +133,8 @@ before you see them (see [Retries](#retries)); the rest, like
 `NotEnoughBalance` or `InvalidAccessKeyError`, won't change on a second try.
 
 [`Error::Validation`](crate::Error::Validation) is near-kit's own check
-before signing, so nothing reached the network. It covers:
-
-- a transaction or delegate action with no actions;
-- an `Action::state_init` or `Action::universal_state_init` sent to a
-  receiver other than the account it derives;
-- an `Action::delegate` sent to a receiver other than the delegate's sender;
-- a delegate action inside a delegate action, in `sign_delegate`.
+before signing, so nothing reached the network; the
+[transactions chapter](crate::guide::transactions#checks-before-signing) lists the checks.
 
 [`Error::Rpc`](crate::Error::Rpc) boxes an [`RpcError`](crate::rpc::RpcError):
 the network failed, the node returned an error, or the response didn't
@@ -231,12 +195,9 @@ because the node recognises its hash and reports its status rather than
 running it twice. `sandbox_fast_forward` is the one method never retried.
 
 **The transaction layer** re-signs. When the node rejects a send with
-`InvalidNonce`, `NonceTooLarge` or `Expired`, a `Tx` fetches a fresh nonce or
-block hash, signs again and sends again, up to
-[`max_nonce_retries`](crate::SigningNear::max_nonce_retries) times (3 by
-default). This applies to sends from a `SigningNear` only; `sign`,
-`sign_delegate` and `Near::send_signed` never re-sign. The
-[nonces chapter](crate::guide::nonces) covers it in detail.
+`InvalidNonce`, `NonceTooLarge` or `Expired`, a `Tx` signs again with a
+fresh nonce or block hash, up to `max_nonce_retries` times; see the
+[nonces chapter](crate::guide::nonces#nonce-retries).
 
 ### Configuring RPC retries
 
