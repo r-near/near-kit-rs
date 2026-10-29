@@ -421,6 +421,13 @@ mod wasi_http {
             })?;
             for chunk in body.chunks(WRITE_CHUNK) {
                 if let Err(e) = stream.blocking_write_and_flush(chunk) {
+                    let write_error = stream_err(e);
+                    // Drop the stream and the unfinished body first, which
+                    // aborts the request: a host that resolves the response
+                    // only once the body is finished or dropped would
+                    // otherwise block below forever.
+                    drop(stream);
+                    drop(out_body);
                     // The host closes the body stream when the request itself
                     // failed (connection refused, DNS, TLS, ...). That cause
                     // is in the response future, so report it when it's there.
@@ -430,7 +437,7 @@ mod wasi_http {
                     return Err(match future_response.get() {
                         Some(Ok(Err(code))) => request_failed(&code),
                         _ => RpcError::network(
-                            format!("wasi:http request body write failed: {}", stream_err(e)),
+                            format!("wasi:http request body write failed: {write_error}"),
                             None,
                             true,
                         ),
