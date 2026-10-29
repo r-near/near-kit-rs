@@ -35,15 +35,20 @@ impl std::fmt::Display for UnknownError {
 }
 
 /// Error returned by NEAR RPC when a transaction or receipt fails.
+///
+/// Displays as the inner error, as nearcore's does.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
 pub enum TxExecutionError {
-    #[error("ActionError: {0}")]
+    #[error("{0}")]
     ActionError(ActionError),
-    #[error("InvalidTxError: {0}")]
+    #[error("{0}")]
     InvalidTxError(InvalidTxError),
 }
 
 /// An error that occurred during action execution.
+///
+/// Displays as `Action #<index>: <kind>`, like nearcore's, or as the kind
+/// alone when there is no index (nearcore prints `#0` then).
 #[derive(Debug, Clone, Deserialize)]
 pub struct ActionError {
     /// Index of the failed action in the transaction.
@@ -56,7 +61,7 @@ pub struct ActionError {
 impl std::fmt::Display for ActionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.index {
-            Some(i) => write!(f, "action #{i}: {}", self.kind),
+            Some(i) => write!(f, "Action #{i}: {}", self.kind),
             None => write!(f, "{}", self.kind),
         }
     }

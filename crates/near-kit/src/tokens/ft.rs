@@ -248,7 +248,7 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
     /// let token = alice.contract::<FungibleToken>(account!("wrap.near"));
     ///
-    /// token.transfer(account!("bob.near"), 1_500_000_u128, None).await?.result()?;
+    /// token.transfer(account!("bob.near"), 1_500_000, None).await?.result()?;
     ///
     /// // Or send a whole balance, with a memo
     /// let balance = token.balance_of(account!("alice.near")).await?;
@@ -261,7 +261,7 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     pub fn transfer(
         &self,
         receiver_id: impl Into<AccountId>,
-        amount: impl Into<u128>,
+        amount: u128,
         memo: Option<String>,
     ) -> Call<C> {
         let receiver_id = receiver_id.into();
@@ -269,7 +269,7 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
 
         let mut args = json!({
             "receiver_id": receiver_id,
-            "amount": amount.into().to_string(),
+            "amount": amount.to_string(),
         });
         if let Some(memo) = memo {
             args["memo"] = memo.into();
@@ -306,7 +306,7 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     /// let token = alice.contract::<FungibleToken>(account!("wrap.near"));
     ///
     /// let outcome = token
-    ///     .transfer_call(account!("defi.near"), 1_000_000_u128, r#"{"action":"deposit"}"#)
+    ///     .transfer_call(account!("defi.near"), 1_000_000, r#"{"action":"deposit"}"#)
     ///     .await?;
     /// // The amount the receiver kept, as a JSON string.
     /// let used: u128 = outcome.json::<String>()?.parse()?;
@@ -320,7 +320,7 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     pub fn transfer_call(
         &self,
         receiver_id: impl Into<AccountId>,
-        amount: impl Into<u128>,
+        amount: u128,
         msg: impl Into<String>,
     ) -> Call<C> {
         let receiver_id = receiver_id.into();
@@ -330,7 +330,7 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
             FunctionCall::new("ft_transfer_call")
                 .args(json!({
                     "receiver_id": receiver_id,
-                    "amount": amount.into().to_string(),
+                    "amount": amount.to_string(),
                     "msg": msg.into(),
                 }))
                 .deposit(NearToken::from_yoctonear(1))
@@ -467,7 +467,7 @@ mod tests {
         assert_eq!(
             sent_call(
                 token
-                    .transfer(account!("alice.near"), 7_u128, None)
+                    .transfer(account!("alice.near"), 7, None)
                     .await
                     .unwrap()
             ),
@@ -481,7 +481,7 @@ mod tests {
         assert_eq!(
             sent_call(
                 token
-                    .transfer(account!("alice.near"), 7_u128, Some("memo".into()))
+                    .transfer(account!("alice.near"), 7, Some("memo".into()))
                     .await
                     .unwrap()
             )
@@ -491,7 +491,7 @@ mod tests {
         assert_eq!(
             sent_call(
                 token
-                    .transfer_call(account!("defi.near"), 3_u128, "msg")
+                    .transfer_call(account!("defi.near"), 3, "msg")
                     .await
                     .unwrap()
             ),

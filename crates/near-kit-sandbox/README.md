@@ -10,8 +10,21 @@ cargo add --dev near-kit near-kit-sandbox
 cargo add --dev tokio --features macros,rt-multi-thread
 ```
 
-Docker must be running. The API docs cover starting a sandbox, creating
-accounts, changing chain state, and choosing a nearcore version or image.
+Docker must be running. When it listens somewhere other than the default
+socket (Colima, Rancher Desktop and similar setups), point `DOCKER_HOST` at
+the active context's endpoint:
+
+```sh
+export DOCKER_HOST="$(docker context inspect --format '{{.Endpoints.docker.Host}}')"
+```
+
+For code that is configured with an RPC URL and chain ID (such as
+`SigningNear::from_env`, through `NEAR_NETWORK` and `NEAR_CHAIN_ID`), the
+sandbox's are `sandbox.root_account().near().rpc().url()` and
+`sandbox.root_account().near().chain_id()`.
+
+The API docs cover starting a sandbox, creating accounts, changing chain
+state, and choosing a nearcore version or image.
 
 ## License
 

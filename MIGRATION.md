@@ -33,6 +33,7 @@ after the table cover each one.
 | `NearBuilder::credentials(key, id)`, `NearBuilder::signer(s)` | `near.with_signer(InMemorySigner::new(id, key.parse()?))` after `build()` |
 | `Near::from_env()` | `SigningNear::from_env()`; with a URL in `NEAR_NETWORK` it also needs `NEAR_CHAIN_ID` |
 | `Near::from_rpc(rpc, chain_id)` | `Near::custom(url, chain_id).transport(t).retry_config(c).build()` |
+| `NearBuilder::chain_id(id)` | `Near::custom(url, id)`; a preset's chain ID is fixed, and `near.chain_id()` reads it |
 | `NearBuilder::http_client(client)` | `.transport(ReqwestTransport::with_client(client))`, with `client` built from `near_kit::reqwest` |
 | `Near::sandbox(&sandbox)`, `rpc::SandboxNetwork` | `sandbox.root_account()` |
 | `Near::account_id()`, `Near::try_account_id()` | `alice.account_id()`; a `Near` has no account |
@@ -79,7 +80,8 @@ after the table cover each one.
 | `DelegateOptions::with_offset(n)`, `DelegateOptions::with_max_height(h)` | `DelegateOptions { block_height_offset: Some(n), ..Default::default() }`, `max_block_height: Some(h)` |
 | `TransactionBuilder::signed_delegate_action(signed)` | `relayer.transaction(signed.sender_id()).add_action(Action::delegate(signed))` |
 | `DelegateAction::sign(sig)`, `VersionedDelegateActionPayload::sign(sig)` | `into_signed(sig)` |
-| `protocol::DelegateDecodeError` | `protocol::DecodeDelegateError` |
+| `protocol::DELEGATE_ACTION_PREFIX`, `protocol::DELEGATE_V2_ACTION_PREFIX` | Crate-private (2^30 + 366 and 2^30 + 611); `DelegateAction::serialize_for_signing()` and `VersionedDelegateActionPayload::serialize_for_signing()` prepend them |
+| `protocol::DelegateDecodeError` | `protocol::DecodeDelegateError`, now `#[non_exhaustive]` (a `match` needs a `_` arm); `Base64` holds the message as a `String` |
 | `DelegateActionView::actions`, `DelegateActionV2View::actions` as `Vec<ActionView>` | `Vec<Action>` |
 
 ### Reads and blocks
@@ -105,7 +107,9 @@ after the table cover each one.
 | `rpc::TxExecutionStatus::is_executed()`, `is_block_final()`, `is_final()` | `matches!(s, ExecutedOptimistic \| Executed \| Final)`, `matches!(s, IncludedFinal \| Executed \| Final)`, `s == TxExecutionStatus::Final` |
 | `PartialOrd for rpc::TxExecutionStatus` (`<`, `partial_cmp`) | `matches!` on the levels you accept, as in the row above |
 | `ViewFunctionResult::bytes()` | The `result` field: `&view.result` |
+| `ViewFunctionResult { result, logs, block_height, block_hash }` (a struct literal) | `ViewFunctionResult::new(result, block_height, block_hash).with_logs(logs)`: the struct is `#[non_exhaustive]`; its fields stay readable |
 | `ViewStateAllResult::into_values()` | The `values` field: `all.values` |
+| `Deref<Target = [StateItem]>` for `ViewStateAllResult` (`all.len()`, `all.iter()`, `all[0]`) | The `values` field: `all.values.len()`, `all.values[0]`; `for item in &all` still works |
 | `AccountState::is_initialized()` | `view.state == AccountState::Initialized` |
 | `ExecutionStatus::success_value()` | `match status { ExecutionStatus::SuccessValue(v) => Some(v), _ => None }` |
 | `FinalExecutionStatus::default()` | `FinalExecutionStatus::NotStarted` |
@@ -116,8 +120,10 @@ after the table cover each one.
 |---|---|
 | `RpcClient::call(method, params)` | `RpcClient::request(method, params)` |
 | `RpcClient::genesis_config()` | `rpc.request::<_, serde_json::Value>("genesis_config", serde_json::json!([]))` |
+| `RpcClient::block_effects(block)`, `RpcClient::maintenance_windows(id)`, `rpc::BlockEffects`, `rpc::StateChangeKindView`, `rpc::MaintenanceWindow` | `rpc.request::<_, serde_json::Value>("block_effects", serde_json::json!({ "block_id": hash }))` (or `{ "finality": "final" }`), `rpc.request::<_, serde_json::Value>("maintenance_windows", serde_json::json!({ "account_id": id }))`, or your own serde type in place of `Value` |
 | `RpcClient::with_retry_config(url, c)` | `RpcClient::with_transport_and_retry_config(url, Arc::new(ReqwestTransport::default()), c)`, or `Near::custom(url, id).retry_config(c)` |
-| `RpcClient::sandbox_fast_forward(n)`, `RpcClient::sandbox_patch_state(records)` | `sandbox.fast_forward(n)`, `sandbox.patch_state(records)` |
+| `RpcClient::sandbox_fast_forward(n)`, `RpcClient::sandbox_patch_state(records)` | `sandbox.fast_forward(n)`, `sandbox.patch_state(records)`; for a sandbox node you started yourself, `near_kit_sandbox::fast_forward(&rpc, n)`, `near_kit_sandbox::patch_state(&rpc, records)` (sends the patch twice, as 0.20.1 did) |
+| `TransportResponse { status, body }` (a struct literal in a custom `RpcTransport`) | `TransportResponse::new(status, body)`: the struct is `#[non_exhaustive]`; its fields stay readable |
 | `RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`, `RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE` | Crate-private (10,000 and 100) |
 | `rpc::RawTransactionResponse` (hidden) | `rpc::RpcTransactionResponse`, documented; `send_tx` and `tx_status` return it |
 
@@ -145,13 +151,15 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `standards::FungibleToken`, `standards::NonFungibleToken` (the clients) | `FungibleTokenClient<C = Near>`, `NonFungibleTokenClient<C = Near>`; `FungibleToken` and `NonFungibleToken` are now `Contract` markers |
 | `Near::ft(id)`, `Near::nft(id)` | `near.contract::<FungibleToken>(id)`, `near.contract::<NonFungibleToken>(id)` |
 | `FungibleToken::contract_id`, `is_registered`, `metadata`, `storage_balance_bounds`, `storage_balance_of`, `storage_deposit`, `transfer`, `transfer_call` | Same methods on `FungibleTokenClient<C>`; `transfer` takes a memo `Option` |
+| `FungibleToken::transfer(to, amount)`, `transfer_call(to, amount, msg)` with `amount: impl Into<u128>` | `amount: u128`, so an integer literal needs no `_u128` suffix; pass a smaller integer type with `.into()` |
 | `FungibleToken::balance_of`, `FungibleToken::total_supply` returning `FtAmount` | Same methods, returning `u128` |
 | `FungibleToken::transfer_with_memo(to, amount, memo)`, `NonFungibleToken::transfer_with_memo(..)` | `transfer(to, amount, Some(memo))` |
 | `NonFungibleToken::contract_id`, `metadata`, `token`, `tokens_for_owner`, `supply_for_owner`, `total_supply`, `transfer`, `transfer_call`, `transfer_with_approval` | Same methods on `NonFungibleTokenClient<C>`; `transfer` takes a memo `Option` |
 | `FungibleToken::with_signer(s)`, `NonFungibleToken::with_signer(s)` | `near.with_signer(s).contract::<FungibleToken>(id)` |
 | `FungibleToken::fmt`, `NonFungibleToken::fmt` (`Debug` on the clients) | `Debug` on `FungibleTokenClient`, `NonFungibleTokenClient` |
 | `standards::FtAmount` (and `From<FtAmount> for u128`) | Removed: amounts are `u128`; format with `metadata().await?.decimals` |
-| `standards::nep413::serialize_message(params)` | `nep413::hash_message(params)` |
+| `standards::nep413::serialize_message(&params)` | `standards::nep413::hash_message(&params)` |
+| `standards::nep413::NEP413_TAG` | Crate-private (2^31 + 413); `standards::nep413::hash_message(&params)` prepends it |
 | `Viewer` and `TxSender` for `Box<T>` | `Arc<T>`, or the backend itself |
 
 ### Keys and signers
@@ -168,6 +176,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `signer::DEFAULT_HD_PATH`, `signer::DEFAULT_WORD_COUNT`, `signer::DEFAULT_ML_DSA_65_WORD_COUNT` | Removed; pass `None` |
 | `RotatingSigner::from_key_strings(id, &keys)` | `RotatingSigner::new(id, keys.iter().map(|k| k.parse()).collect::<Result<_, _>>()?)` |
 | `RotatingSigner::key_count()` | `public_keys().len()` |
+| `RotatingSigner::signing_keys()` | Removed: `public_keys()` lists the keys, `into_per_key_signers()` gives a signer for each |
 | `signer::EnvSigner` (`new()`, `from_env_vars(a, k)`) | `signer::from_env()`, `signer::from_env_vars(a, k)`, returning an `InMemorySigner` |
 | `signer::FileSigner` (`new(network, id)`, `from_file(path, id)`) | `signer::from_credentials(network, id)`, `signer::from_credentials_file(path, id)` |
 | `signer::KeyringSigner::new(network, id, "ed25519:...")` | `signer::from_keyring(network, id, &public_key)` with a parsed `PublicKey` |
@@ -177,12 +186,15 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `PublicKey::ml_dsa65_from_bytes(bytes)` | `PublicKey::MlDsa65(bytes)` |
 | `Signature::ed25519_from_bytes(b)`, `Signature::secp256k1_from_bytes(b)`, `Signature::ml_dsa65_from_bytes(b)` | `Signature::Ed25519(b)`, `Signature::Secp256k1(b)`, `Signature::MlDsa65(b)` |
 | `KeyType::try_from(u8)` | Match the byte yourself; `key_type as u8` gives the tag |
+| `KeyType::public_key_len()`, `KeyType::signature_len()` | Crate-private: public keys are 32 (Ed25519), 64 (secp256k1) and 1952 (ML-DSA-65) bytes, signatures 64, 65 and 3309 |
+| `signer::ML_DSA_65_PUBLIC_KEY_LENGTH`, `ML_DSA_65_SEED_LENGTH`, `ML_DSA_65_SECRET_KEY_LENGTH`, `ML_DSA_65_SIGNATURE_LENGTH`, `ML_DSA_65_HASH_LENGTH` | Crate-private (1952, 32, 4032, 3309 and 32); the array types of `PublicKey::MlDsa65`, `PublicKeyHandle::MlDsa65Hash`, `Signature::MlDsa65`, `SecretKey::ml_dsa65_from_seed` and `SecretKey::to_ml_dsa65_expanded_bytes` carry them |
 
 ### Error variants
 
 | 0.20.1 | This release |
 |---|---|
 | `Error::NoSigner` | Removed: sending from a `Near` is a compile error |
+| `Error`, `KeyStoreError` (exhaustive) | `#[non_exhaustive]`: a `match` on either needs a `_` arm |
 | `Error::InvalidTransaction(String)` | `Error::Validation(String)` for local checks before sending; `Error::Outcome(OutcomeError)` for an outcome with no usable result; `Error::Decode(DecodeTransactionError)` for a signed transaction that fails to decode |
 | `Error::DelegateDecode` | `Error::DecodeDelegate`; `?` on `SignedDelegateAction::from_base64` converts into it |
 | `KeyStoreError::Io`, `Json`, `PathError` | Removed: nothing returned them |
@@ -194,6 +206,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `RpcError::Timeout(u32)` | Removed: nothing returned it |
 | `RpcError::InvalidTransaction { message, details }` | `RpcError::InvalidTxUnparsed { message, details }` |
 | `RpcError::network(..)`, `RpcError::invalid_transaction(..)` | Crate-private; build the variant (`RpcError::Network { .. }`) in a custom transport |
+| `ActionViewConversionError::InvalidBase64 { field, source: base64::DecodeError }` | `InvalidBase64 { field, message: String }`, with the same `Display` text |
 | `protocol::UniversalStateInitError` | `protocol::StateInitError` (from near-global-contracts): same `Malformed` and `NonCanonical` variants, different `Display` text |
 
 ### Protocol types
@@ -205,10 +218,12 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `protocol::StateInitExt` (`StateInit::by_hash(hash, data)`, `StateInit::by_publisher(id, data)`) | `StateInitV1::code(hash_or_id).with_data_entry(k, v).into()`, or `StateInit::V1(StateInitV1 { code: hash_or_id.into(), data })` |
 | `protocol::MAX_NONCES_FOR_GAS_KEY` | `AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY` |
 | `CryptoHash::to_vec()`, `From<&CryptoHash> for [u8; 32]` | `hash.as_bytes().to_vec()`; `<[u8; 32]>::from(hash)` (`CryptoHash` is `Copy`) |
+| `ChainId::default()` (mainnet) | `ChainId::mainnet()` |
 | `ChainId::from_str(s)` (`s.parse::<ChainId>()`), `AsRef<str> for ChainId` | `ChainId::from(s)` or `ChainId::new(s)`; `chain_id.as_str()` |
 | `AccessKeyPermission::function_call(rx, methods, allowance)`, `AccessKeyPermission::full_access()`, `AccessKey::function_call(..)` | `AccessKeyPermission::FunctionCall(FunctionCallPermission { allowance, receiver_id, method_names })`, `AccessKeyPermission::FullAccess`, `AccessKey { nonce: 0, permission }`; or `Action::add_function_call_key(..)` |
 | `VersionedDelegateActionPayload::get_actions()` | `let VersionedDelegateActionPayload::V2(d) = payload;` then `d.actions.iter().cloned().map(Action::from)` |
 | `NonDelegateAction::into_inner()`, `NonDelegateAction::try_from(action)` (`Error = ()`) | `Action::from(non_delegate)`; `NonDelegateAction::from_action(action)`, which returns an `Option` |
+| `UniversalStateInit::from_raw_lenient(raw)` | `UniversalStateInit::from_raw(raw)`, which rejects a non-canonical encoding as nearcore does; to inspect such bytes, `borsh::from_slice::<UniversalStateInit>(raw.as_ref())` |
 | `Transaction::get_hash_and_size()` | `tx.get_hash()`; `borsh::to_vec(&tx)?.len()` for the size |
 
 ### Sandbox (near-kit-sandbox)
@@ -223,6 +238,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `Sandbox::root_signer()` | `sandbox.root_account().signer().clone()` |
 | `SandboxError::InvalidRootAccount`, `SandboxError::InvalidAccount` | Removed: account IDs are typed |
 | `SandboxError::RootSigner` | Nothing; the root key is a valid constant |
+| `SandboxError` (exhaustive) | `#[non_exhaustive]`: a `match` needs a `_` arm |
 | `SandboxBuilder::root_account("x")`, `Sandbox::set_balance("x", amount)` | Take `impl Into<AccountId>`: `account!("x")` |
 | `SANDBOX_ROOT_ACCOUNT: &str` | `&AccountIdRef` |
 
@@ -235,7 +251,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 block with one method, `.at(..)`.
 
 `RpcClient` reads take the account as `&AccountIdRef` (so `&AccountId` and
-`account!(..)` both work) and the block as `impl Into<BlockReference>`. Pass
+`&account!(..)` both work) and the block as `impl Into<BlockReference>`. Pass
 the value itself, such as `Finality::Final`. Writing `.into()` or
 `Default::default()` there no longer compiles: with a generic parameter rustc
 can't infer the target and reports "type annotations needed".
@@ -504,7 +520,7 @@ use near_kit::standards::FungibleToken;
 
 alice
     .contract::<FungibleToken>(account!("wrap.near"))
-    .transfer(account!("bob.near"), 1_000_u128, Some("rent".to_owned()))
+    .transfer(account!("bob.near"), 1_000, Some("rent".to_owned()))
     .await?
     .result()?;
 ```
@@ -623,7 +639,7 @@ with `?`. See [errors](https://docs.rs/near-kit/latest/near_kit/guide/errors/ind
 | API | Now returns |
 |---|---|
 | `SignedTransaction(V1)::from_bytes` / `from_base64` | `DecodeTransactionError` (becomes `Error::Decode`) |
-| `SignedDelegateAction::from_base64`, `VersionedSignedDelegateAction::from_base64` | `DecodeDelegateError` (becomes `Error::DecodeDelegate`) |
+| `SignedDelegateAction::from_bytes` / `from_base64`, `VersionedSignedDelegateAction::from_bytes` / `from_base64` | `DecodeDelegateError` (becomes `Error::DecodeDelegate`); `from_bytes` returned `borsh::io::Error` |
 | `FinalExecutionOutcome::result` / `json` | `OutcomeError` (becomes `Error::InvalidTx`, `Error::Json` or `Error::Outcome`) |
 | `FunctionCall::into_action`, `TryFrom<FunctionCall> for Action` | `CodecError` |
 | `InMemorySigner::implicit`, `SecretKey::from_seed_phrase` / `generate_with_seed_phrase`, `RotatingSigner::new` / `from_signers` | `SignerError` |

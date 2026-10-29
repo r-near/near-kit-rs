@@ -116,7 +116,10 @@ They don't necessarily land in the order you started them. If the
 transaction with nonce 12 reaches a validator before the one with nonce 11,
 nonce 11 is now too low: the node rejects it with `InvalidNonce`, and
 near-kit re-signs it with nonce 13. With many sends in flight on one key,
-some can run out of retries. Three ways to handle that, from simplest:
+some can run out of retries. That is most likely on a network of several
+nodes, where transactions reach validators out of order; on a single node,
+such as the sandbox, it takes a send that is overtaken on every attempt.
+Three ways to handle that, from simplest:
 
 - **Send in order.** If transaction B must follow A, await A before sending
   B. At the default `Final` level the next send starts only after the

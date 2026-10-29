@@ -57,8 +57,8 @@
 
 #[doc(inline)]
 pub use near_kit_primitives::standards::nep413::{
-    AuthPayload, DEFAULT_MAX_AGE, NEP413_TAG, NonceValidation, SignMessageParams, SignedMessage,
-    VerifyOptions, extract_timestamp_from_nonce, generate_nonce, hash_message, verify_signature,
+    AuthPayload, DEFAULT_MAX_AGE, NonceValidation, SignMessageParams, SignedMessage, VerifyOptions,
+    extract_timestamp_from_nonce, generate_nonce, hash_message, verify_signature,
 };
 
 #[cfg(feature = "rpc")]
@@ -169,7 +169,7 @@ mod tests {
             assert_eq!(request["params"]["finality"], "optimistic");
             self.calls.fetch_add(1, Ordering::Relaxed);
             let body = self.body.clone();
-            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+            Box::pin(async move { Ok(TransportResponse::new(200, body)) })
         }
     }
 

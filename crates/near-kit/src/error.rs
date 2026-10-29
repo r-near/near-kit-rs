@@ -27,6 +27,7 @@ pub(crate) use near_kit_primitives::transaction::CodecError;
 /// environment and credentials-file loaders report problems as
 /// [`Error::Config`] or a parse error instead.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum KeyStoreError {
     /// The store has no key for this account and public key.
     #[error("Key not found for account: {0}")]
@@ -857,6 +858,7 @@ impl RpcError {
 /// [`OutcomeError`](crate::rpc::OutcomeError), and others) convert into this
 /// type with `?`.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// The client or signer is misconfigured: a missing or malformed
     /// environment variable, an unreadable credentials file, or an empty or
@@ -888,7 +890,7 @@ pub enum Error {
     /// actions, a state init or delegate action whose required receiver
     /// isn't the transaction's receiver, or a nested delegate action. Not a
     /// nearcore error; nothing reached the network.
-    #[error("Invalid transaction: {0}")]
+    #[error("Refused before signing: {0}")]
     Validation(String),
 
     /// A transaction's outcome had no usable result: an action failed, it
@@ -1401,6 +1403,22 @@ mod tests {
             .unwrap_err()
             .into();
         assert!(matches!(err, Error::DecodeDelegate(_)), "{err:?}");
+
+        // `from_bytes` returns the same error type, so `?` converts it too.
+        let err: Error = crate::protocol::SignedDelegateAction::from_bytes(&[1, 2, 3])
+            .unwrap_err()
+            .into();
+        assert!(
+            matches!(&err, Error::DecodeDelegate(DecodeDelegateError::Borsh(_))),
+            "{err:?}"
+        );
+        let err: Error = crate::protocol::VersionedSignedDelegateAction::from_bytes(&[1, 2, 3])
+            .unwrap_err()
+            .into();
+        assert!(
+            matches!(&err, Error::DecodeDelegate(DecodeDelegateError::Borsh(_))),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -1517,5 +1535,18 @@ mod tests {
         // Structured tx validation errors are promoted out of `Error::Rpc`.
         let err: Error = RpcError::InvalidTx(InvalidTxError::Expired).into();
         assert!(err.as_rpc().is_none());
+    }
+
+    /// A local refusal and a node's rejection read differently in logs.
+    #[test]
+    fn validation_and_invalid_tx_display_apart() {
+        assert_eq!(
+            Error::Validation("transaction must have at least one action".to_string()).to_string(),
+            "Refused before signing: transaction must have at least one action"
+        );
+        assert_eq!(
+            Error::InvalidTx(Box::new(InvalidTxError::Expired)).to_string(),
+            "Invalid transaction: transaction has expired"
+        );
     }
 }

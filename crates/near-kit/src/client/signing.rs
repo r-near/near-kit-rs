@@ -330,7 +330,7 @@ impl<W: WaitLevel> SigningNear<W> {
             self.signer.clone(),
             receiver_id.into(),
             actions,
-            "Transaction must have at least one action",
+            "transaction must have at least one action",
         )?
         .sign()
         .await
@@ -398,7 +398,7 @@ impl<W: WaitLevel> SigningNear<W> {
             self.signer.clone(),
             receiver_id.into(),
             actions,
-            "Delegate action requires at least one action",
+            "delegate action requires at least one action",
         )?
         .delegate(options)
         .await

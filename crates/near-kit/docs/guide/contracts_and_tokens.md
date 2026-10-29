@@ -9,6 +9,7 @@ on by default.
 ## Declaring a contract
 
 ```rust
+use near_kit::AccountId;
 use serde::{Deserialize, Serialize};
 
 #[near_kit::contract]
@@ -16,7 +17,7 @@ pub trait Guestbook {
     /// The newest messages.
     fn get_messages(&self, args: GetMessages) -> Vec<Message>;
 
-    fn total_messages(&self) -> u64;
+    fn total_messages(&self) -> u32;
 
     #[call]
     fn add_message(&mut self, args: AddMessage);
@@ -37,7 +38,7 @@ pub struct AddMessage {
 #[derive(Debug, Deserialize)]
 pub struct Message {
     pub premium: bool,
-    pub sender: String,
+    pub sender: AccountId,
     pub text: String,
 }
 ```
@@ -61,7 +62,7 @@ generates:
 # #[near_kit::contract]
 # pub trait Guestbook {
 #     fn get_messages(&self, args: GetMessages) -> Vec<Message>;
-#     fn total_messages(&self) -> u64;
+#     fn total_messages(&self) -> u32;
 #     #[call]
 #     fn add_message(&mut self, args: AddMessage);
 # }
@@ -70,7 +71,7 @@ generates:
 # #[derive(Serialize)]
 # pub struct AddMessage { pub text: String }
 # #[derive(Debug, Deserialize)]
-# pub struct Message { pub premium: bool, pub sender: String, pub text: String }
+# pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 use near_kit::rpc::Finality;
 use near_kit::*;
 
@@ -220,7 +221,7 @@ The client is generic over its backend: views need
 
 ```rust
 # #[near_kit::contract]
-# pub trait Guestbook { fn total_messages(&self) -> u64; }
+# pub trait Guestbook { fn total_messages(&self) -> u32; }
 use near_kit::{Contract, Near, account};
 
 let guestbook = Guestbook::client(Near::testnet().build(), account!("guestbook.testnet"));
@@ -295,7 +296,7 @@ use near_kit::*;
 # async fn example(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
 let usdc = alice.contract::<FungibleToken>(account!("usdc.testnet"));
 let outcome = usdc
-    .transfer_call(account!("dex.testnet"), 1_000_000_u128, r#"{"action":"deposit"}"#)
+    .transfer_call(account!("dex.testnet"), 1_000_000, r#"{"action":"deposit"}"#)
     .await?;
 let used: u128 = outcome.json::<String>()?.parse()?;
 if used < 1_000_000 {

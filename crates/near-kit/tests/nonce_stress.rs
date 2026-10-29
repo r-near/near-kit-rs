@@ -220,7 +220,7 @@ impl RpcTransport for Node {
             response["jsonrpc"] = "2.0".into();
             response["id"] = 0.into();
             let body = serde_json::to_vec(&response).unwrap();
-            Ok(TransportResponse { status: 200, body })
+            Ok(TransportResponse::new(200, body))
         })
     }
 }

@@ -31,7 +31,7 @@ client over a mock:
 # #[near_kit::contract]
 # pub trait Guestbook {
 #     fn get_messages(&self, args: GetMessages) -> Vec<Message>;
-#     fn total_messages(&self) -> u64;
+#     fn total_messages(&self) -> u32;
 #     #[call]
 #     fn add_message(&mut self, args: AddMessage);
 # }
@@ -40,7 +40,7 @@ client over a mock:
 # #[derive(Serialize)]
 # pub struct AddMessage { pub text: String }
 # #[derive(Debug, Deserialize)]
-# pub struct Message { pub premium: bool, pub sender: String, pub text: String }
+# pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 use near_kit::*;
 
 /// How many of the latest 100 messages are premium.
@@ -104,7 +104,7 @@ generated client, and the clones share the record:
 # #[near_kit::contract]
 # pub trait Guestbook {
 #     fn get_messages(&self, args: GetMessages) -> Vec<Message>;
-#     fn total_messages(&self) -> u64;
+#     fn total_messages(&self) -> u32;
 #     #[call]
 #     fn add_message(&mut self, args: AddMessage);
 # }
@@ -113,7 +113,7 @@ generated client, and the clones share the record:
 # #[derive(Serialize)]
 # pub struct AddMessage { pub text: String }
 # #[derive(Debug, Deserialize)]
-# pub struct Message { pub premium: bool, pub sender: String, pub text: String }
+# pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 # async fn premium_count<C>(guestbook: &GuestbookClient<C>) -> Result<usize, ContractError<C::ViewError>>
 # where C: Viewer + Clone + 'static, C::ViewError: 'static {
 #     let messages = guestbook.get_messages(GetMessages { from_index: "0".into(), limit: "100".into() }).await?;
@@ -204,7 +204,7 @@ calls views by name rather than through a typed client:
 # }
 # #[tokio::main(flavor = "current_thread")]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-let total: u64 = View::json(MockViewer, account!("guestbook.testnet"), "total_messages").await?;
+let total: u32 = View::json(MockViewer, account!("guestbook.testnet"), "total_messages").await?;
 assert_eq!(total, 3);
 # Ok(())
 # }
@@ -221,7 +221,7 @@ the receiver and actions of each transaction for the test to inspect:
 # #[near_kit::contract]
 # pub trait Guestbook {
 #     fn get_messages(&self, args: GetMessages) -> Vec<Message>;
-#     fn total_messages(&self) -> u64;
+#     fn total_messages(&self) -> u32;
 #     #[call]
 #     fn add_message(&mut self, args: AddMessage);
 # }
@@ -230,7 +230,7 @@ the receiver and actions of each transaction for the test to inspect:
 # #[derive(Serialize)]
 # pub struct AddMessage { pub text: String }
 # #[derive(Debug, Deserialize)]
-# pub struct Message { pub premium: bool, pub sender: String, pub text: String }
+# pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 use std::sync::{Arc, Mutex};
 
 use near_kit::protocol::Action;
@@ -273,7 +273,7 @@ impl TxSender for Recorder {
 let alice = Recorder::new(account!("alice.testnet"));
 
 FungibleToken::client(alice.clone(), account!("usdc.testnet"))
-    .transfer(account!("bob.testnet"), 1_500_000_u128, None)
+    .transfer(account!("bob.testnet"), 1_500_000, None)
     .await?;
 Guestbook::client(alice.clone(), account!("guestbook.testnet"))
     .add_message(AddMessage { text: "hi".into() })
@@ -410,7 +410,7 @@ impl RpcTransport for Canned {
         reply["id"] = request["id"].clone();
         self.requests.lock().unwrap().push(request);
         let body = serde_json::to_vec(&reply).unwrap();
-        Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+        Box::pin(async move { Ok(TransportResponse::new(200, body)) })
     }
 }
 
@@ -458,7 +458,7 @@ let error = near.rpc().view_account(&account!("ghost.testnet"), near_kit::rpc::F
 assert!(matches!(error, near_kit::rpc::RpcError::AccountNotFound { .. }));
 
 // Views go through `EXPERIMENTAL_call_function`, with base64 arguments.
-let total: u64 = near.view(account!("guestbook.testnet"), "total_messages").await?;
+let total: u32 = near.view(account!("guestbook.testnet"), "total_messages").await?;
 assert_eq!(total, 3);
 let requests = transport.requests.lock().unwrap();
 assert_eq!(requests.last().unwrap()["params"]["method_name"], "total_messages");

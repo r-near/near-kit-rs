@@ -46,7 +46,7 @@ use near_kit::*;
 
 # async fn example(alice: &SigningNear) -> Result<(), Error> {
 let wrap = account!("wrap.testnet");
-let transfer = alice.contract::<FungibleToken>(&wrap).transfer(account!("bob.testnet"), 1_000_u128, None);
+let transfer = alice.contract::<FungibleToken>(&wrap).transfer(account!("bob.testnet"), 1_000, None);
 let signed = alice
     .sign_delegate(&wrap, vec![FunctionCall::from(transfer).try_into()?], Default::default())
     .await?;
