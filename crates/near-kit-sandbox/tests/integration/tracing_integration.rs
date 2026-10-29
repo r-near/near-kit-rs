@@ -131,8 +131,52 @@ where
     }
 }
 
+/// Global no-op subscriber that keeps callsite interest at `sometimes`.
+///
+/// `tracing` caches each callsite's interest process-wide. While only one
+/// dispatcher is registered, a callsite's first hit takes its interest from
+/// the hitting thread's own dispatcher. If a sibling test with no subscriber
+/// reaches `view_function` first while one capture is live, that pins the
+/// callsite to `never` and the capture loses the span. Holding a second
+/// dispatcher that answers `sometimes` keeps the per-span `enabled` check
+/// going to the thread-local capture. `near-kit`'s `rpc.rs` tests do the same.
+struct KeepAlive;
+
+impl tracing::Subscriber for KeepAlive {
+    fn register_callsite(
+        &self,
+        _: &'static tracing::Metadata<'static>,
+    ) -> tracing::subscriber::Interest {
+        tracing::subscriber::Interest::sometimes()
+    }
+
+    fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+        false
+    }
+
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> Id {
+        Id::from_u64(1)
+    }
+
+    fn record(&self, _: &Id, _: &tracing::span::Record<'_>) {}
+
+    fn record_follows_from(&self, _: &Id, _: &Id) {}
+
+    fn event(&self, _: &tracing::Event<'_>) {}
+
+    fn enter(&self, _: &Id) {}
+
+    fn exit(&self, _: &Id) {}
+}
+
 /// Install a span-capturing subscriber for the current thread.
 fn capture() -> (CapturedSpans, DefaultGuard) {
+    static KEEP_ALIVE: std::sync::Once = std::sync::Once::new();
+    // Any other global default would do as well, so the error is ignored.
+    KEEP_ALIVE.call_once(|| {
+        let _ = tracing::subscriber::set_global_default(KeepAlive);
+    });
+
     let captured = CapturedSpans::default();
     let layer = CapturingLayer {
         state: captured.clone(),
