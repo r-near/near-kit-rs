@@ -714,32 +714,6 @@ fn is_connection_dropped(error: &reqwest::Error) -> bool {
 }
 
 impl RpcError {
-    /// Returns true if this error indicates the account was not found.
-    pub fn is_account_not_found(&self) -> bool {
-        matches!(self, RpcError::AccountNotFound { .. })
-    }
-
-    /// Returns true if this error indicates a contract is not deployed.
-    pub fn is_contract_not_deployed(&self) -> bool {
-        matches!(self, RpcError::ContractNotDeployed { .. })
-    }
-
-    /// Returns true if this error indicates the requested contract method was
-    /// not found.
-    pub fn is_method_not_found(&self) -> bool {
-        matches!(self, RpcError::MethodNotFound { .. })
-    }
-
-    /// Returns true if this error indicates a view method panicked.
-    pub fn is_contract_panic(&self) -> bool {
-        matches!(self, RpcError::ContractPanic { .. })
-    }
-
-    /// Returns true if this error indicates a global contract was not found.
-    pub fn is_global_contract_not_found(&self) -> bool {
-        matches!(self, RpcError::GlobalContractNotFound { .. })
-    }
-
     /// The variant name, for structured `tracing` fields.
     ///
     /// Used instead of the `Display` text in RPC-layer events: some variants
@@ -1025,9 +999,11 @@ impl Error {
     /// # use near_kit::Near;
     /// # async fn example(near: &Near) -> Result<(), near_kit::Error> {
     /// # use near_kit::account;
+    /// use near_kit::rpc::RpcError;
+    ///
     /// match near.view::<u64>(account!("counter.testnet"), "get_count").await.map_err(near_kit::Error::from) {
     ///     Ok(count) => println!("{count}"),
-    ///     Err(e) if e.as_rpc().is_some_and(|e| e.is_contract_not_deployed()) => {
+    ///     Err(e) if matches!(e.as_rpc(), Some(RpcError::ContractNotDeployed { .. })) => {
     ///         println!("no contract");
     ///     }
     ///     Err(e) => return Err(e),
@@ -1182,37 +1158,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_error_is_account_not_found() {
-        let account_id: AccountId = "alice.near".parse().unwrap();
-        assert!(
-            RpcError::AccountNotFound {
-                account_id,
-                block_height: None,
-                block_hash: None,
-            }
-            .is_account_not_found()
-        );
-        assert!(!RpcError::InvalidResponse("missing result".to_string()).is_account_not_found());
-    }
-
-    #[test]
-    fn test_rpc_error_is_contract_not_deployed() {
-        let account_id: AccountId = "alice.near".parse().unwrap();
-        assert!(
-            RpcError::ContractNotDeployed {
-                account_id,
-                block_height: None,
-                block_hash: None,
-            }
-            .is_contract_not_deployed()
-        );
-        assert!(
-            !RpcError::InvalidResponse("missing result".to_string()).is_contract_not_deployed()
-        );
-    }
-
-    #[test]
-    fn test_rpc_error_view_call_classification_helpers() {
+    fn test_rpc_error_view_call_block_context() {
         let account_id: AccountId = "contract.near".parse().unwrap();
         let block_hash = CryptoHash::hash(b"block");
         let method_not_found = RpcError::MethodNotFound {
@@ -1221,8 +1167,6 @@ mod tests {
             block_height: Some(42),
             block_hash: Some(block_hash),
         };
-        assert!(method_not_found.is_method_not_found());
-        assert!(!method_not_found.is_contract_panic());
         assert_eq!(method_not_found.block_height(), Some(42));
         assert_eq!(method_not_found.block_hash(), Some(block_hash));
 
@@ -1231,8 +1175,6 @@ mod tests {
             block_height: None,
             block_hash: None,
         };
-        assert!(panic.is_contract_panic());
-        assert!(!panic.is_method_not_found());
         assert_eq!(panic.block_height(), None);
         assert_eq!(panic.block_hash(), None);
         assert_eq!(
@@ -1525,7 +1467,7 @@ mod tests {
             block_hash: None,
         })
         .into();
-        assert!(err.as_rpc().is_some_and(RpcError::is_contract_panic));
+        assert!(matches!(err.as_rpc(), Some(RpcError::ContractPanic { .. })));
 
         let err: Error = ContractError::Backend(Error::Config("x".to_string())).into();
         assert!(matches!(err, Error::Config(m) if m == "x"));
@@ -1561,7 +1503,7 @@ mod tests {
             block_hash: None,
         }
         .into();
-        assert!(err.as_rpc().is_some_and(RpcError::is_contract_panic));
+        assert!(matches!(err.as_rpc(), Some(RpcError::ContractPanic { .. })));
         assert_eq!(err.as_rpc().and_then(RpcError::block_height), Some(7));
         match err.into_rpc() {
             Ok(RpcError::ContractPanic { message, .. }) => assert_eq!(message, "boom"),

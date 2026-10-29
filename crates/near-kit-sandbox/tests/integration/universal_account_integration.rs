@@ -210,7 +210,7 @@ async fn test_transfer_to_universal_account() {
             .await
             .expect_err("0u account must not exist before the transfer");
         assert!(
-            missing.is_account_not_found(),
+            matches!(missing, RpcError::AccountNotFound { .. }),
             "expected AccountNotFound before the transfer, got {missing:?}"
         );
 

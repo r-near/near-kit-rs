@@ -455,7 +455,7 @@ assert_eq!(balance.total, NearToken::from_near(5));
 // Error mapping: UNKNOWN_ACCOUNT becomes a typed error, and `false` here.
 assert!(!near.account_exists(account!("ghost.testnet")).await?);
 let error = near.rpc().view_account(&account!("ghost.testnet"), near_kit::rpc::Finality::Final).await.unwrap_err();
-assert!(error.is_account_not_found());
+assert!(matches!(error, near_kit::rpc::RpcError::AccountNotFound { .. }));
 
 // Views go through `EXPERIMENTAL_call_function`, with base64 arguments.
 let total: u64 = near.view(account!("guestbook.testnet"), "total_messages").await?;

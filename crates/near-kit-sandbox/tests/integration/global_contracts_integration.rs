@@ -9,7 +9,7 @@
 use near_kit::protocol::Action;
 use near_kit::transaction::FunctionCall;
 use near_kit::*;
-use near_kit::{protocol::*, signer::*, transaction::Final};
+use near_kit::{protocol::*, rpc::RpcError, signer::*, transaction::Final};
 use std::collections::BTreeMap;
 
 use super::support::{funded_account, guestbook_wasm, unique_account};
@@ -63,7 +63,7 @@ async fn global_contract_exists(near: &Near, id: &GlobalContractId) -> bool {
         .await
     {
         Ok(_) => true,
-        Err(e) if e.is_global_contract_not_found() || e.is_account_not_found() => false,
+        Err(RpcError::GlobalContractNotFound { .. } | RpcError::AccountNotFound { .. }) => false,
         Err(e) => panic!("unexpected error: {e:?}"),
     }
 }
@@ -704,7 +704,7 @@ async fn test_global_contract_query_not_found() {
         .await
         .unwrap_err();
     assert!(
-        err.is_global_contract_not_found(),
+        matches!(err, RpcError::GlobalContractNotFound { .. }),
         "unexpected error: {err:?}"
     );
     assert!(!global_contract_exists(root_near.near(), &unpublished).await);
@@ -735,7 +735,10 @@ async fn test_contract_code_query() {
         .view_code(&account_id, near_kit::rpc::Finality::Final)
         .await
         .unwrap_err();
-    assert!(err.is_contract_not_deployed(), "unexpected error: {err:?}");
+    assert!(
+        matches!(err, RpcError::ContractNotDeployed { .. }),
+        "unexpected error: {err:?}"
+    );
 
     let wasm_code = load_test_contract();
     account_near

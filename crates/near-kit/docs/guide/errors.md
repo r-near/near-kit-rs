@@ -140,7 +140,7 @@ before signing, so nothing reached the network; the
 the network failed, the node returned an error, or the response didn't
 parse. Reach it with [`as_rpc`](crate::Error::as_rpc) or
 [`into_rpc`](crate::Error::into_rpc) rather than matching through the box.
-Common read errors have helpers:
+Common read errors are variants you can match:
 
 ```rust,no_run
 use near_kit::*;
@@ -149,7 +149,9 @@ use near_kit::*;
 async fn has_contract(near: &Near, account_id: &AccountId) -> Result<bool, Error> {
     match near.rpc().view_code(account_id, rpc::Finality::Final).await {
         Ok(_) => Ok(true),
-        Err(e) if e.is_contract_not_deployed() || e.is_account_not_found() => Ok(false),
+        Err(rpc::RpcError::ContractNotDeployed { .. } | rpc::RpcError::AccountNotFound { .. }) => {
+            Ok(false)
+        }
         Err(e) => Err(e.into()),
     }
 }

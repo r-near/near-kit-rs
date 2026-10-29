@@ -93,8 +93,8 @@ after the table cover each one.
 | `ViewCall::borsh()` | `View::<_, T>::borsh(near.clone(), id, m)` |
 | `Near::account(id)`, `AccountQuery` | `near.rpc().view_account(&id, block)` |
 | `Near::access_keys(id)`, `AccessKeysQuery`, `AccessKeysQuery::page(..)` | `near.rpc().view_access_key_list(&id, block)`, `view_access_key_list_page(..)` |
-| `Near::contract_code(id)`, `ContractCodeQuery`, `ContractCodeQuery::exists()` | `near.rpc().view_code(&id, block)`; for `exists`, treat `is_contract_not_deployed()` and `is_account_not_found()` as `false` |
-| `Near::global_contract(id)`, `GlobalContractQuery`, `GlobalContractQuery::exists()` | `near.rpc().view_global_contract_code(id, block)`; for `exists`, treat `is_global_contract_not_found()` as `false` |
+| `Near::contract_code(id)`, `ContractCodeQuery`, `ContractCodeQuery::exists()` | `near.rpc().view_code(&id, block)`; for `exists`, treat `RpcError::ContractNotDeployed` and `RpcError::AccountNotFound` as `false` |
+| `Near::global_contract(id)`, `GlobalContractQuery`, `GlobalContractQuery::exists()` | `near.rpc().view_global_contract_code(id, block)`; for `exists`, treat `RpcError::GlobalContractNotFound` as `false` |
 | `Near::validators()` | `near.rpc().validators(None)` |
 | `ViewFunctionResult::as_string()` | `ViewFunctionResult::text()` |
 | `GasPrice::as_u128()` | `gas_price.gas_price.as_yoctonear()` |
@@ -173,6 +173,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `Error::DelegateDecode` | `Error::DecodeDelegate`; `?` on `SignedDelegateAction::from_base64` converts into it |
 | `KeyStoreError::Io`, `Json`, `PathError` | Removed: nothing returned them |
 | `Error::is_invalid_tx()` | `matches!(e, Error::InvalidTx(_))` |
+| `RpcError::is_account_not_found()`, `is_contract_not_deployed()`, `is_method_not_found()`, `is_contract_panic()`, `is_global_contract_not_found()` | Match the variant: `matches!(e, RpcError::AccountNotFound { .. })` and so on |
 | `From<Infallible> for Error` | Removed |
 | `RpcError::UnknownBlock`, `UnknownChunk`, `UnknownEpoch`, `UnknownReceipt` | `RpcError::BlockNotFound`, `ChunkNotFound`, `EpochNotFound`, `ReceiptNotFound` |
 | `RpcError::RequestTimeout { .. }` | `RpcError::Timeout { .. }` |
