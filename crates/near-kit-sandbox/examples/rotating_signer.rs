@@ -18,35 +18,16 @@
 //! cargo run -p near-kit-sandbox --example rotating_signer --features integration-tests
 //! ```
 
+mod common;
+
+use common::create_account;
 use near_kit::protocol::Action;
 use near_kit::signer::{InMemorySigner, RotatingSigner, SecretKey};
-use near_kit::{AccountId, NearToken, SigningNear, account};
+use near_kit::{NearToken, account};
 use near_kit_sandbox::Sandbox;
 
 const KEYS: usize = 5;
 const TRANSFERS: u128 = 20;
-
-/// Create a sub-account of `root` with `balance` and a new key, and return a
-/// client that signs as it.
-async fn create_account(
-    root: &SigningNear,
-    account_id: AccountId,
-    balance: NearToken,
-) -> Result<SigningNear, Box<dyn std::error::Error>> {
-    let key = SecretKey::generate_ed25519();
-    root.transaction(&account_id)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(balance))
-        .add_action(Action::add_full_access_key(key.public_key()))
-        .await?
-        // `?` on the send fails if the transaction didn't run, or if its
-        // outcome is unknown (a timeout); `.result()?` also fails if an
-        // action did.
-        .result()?;
-    Ok(root
-        .near()
-        .with_signer(InMemorySigner::new(account_id, key)))
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
