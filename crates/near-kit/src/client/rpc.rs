@@ -425,7 +425,7 @@ impl RpcClient {
     /// `limit` or `after_key` is present, and an unpaginated request for an
     /// account with more keys than the cap fails with
     /// [`RpcError::TooManyAccessKeys`] instead of returning the list.
-    pub(crate) const DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE: u32 = 100;
+    pub(crate) const DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE: NonZeroU32 = NonZeroU32::new(100).unwrap();
 
     /// Create a new RPC client with the given URL.
     ///
@@ -978,8 +978,7 @@ impl RpcClient {
         block: impl Into<BlockReference>,
     ) -> Result<AccessKeyListView, RpcError> {
         let block = block.into();
-        let limit = NonZeroU32::new(Self::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE)
-            .expect("DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE is non-zero");
+        let limit = Self::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE;
         let mut list = self
             .view_access_key_list_page(account_id, None, Some(limit), block)
             .await?;
@@ -1356,10 +1355,7 @@ impl RpcClient {
     /// Get current gas price.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub async fn gas_price(&self, block_hash: Option<&CryptoHash>) -> Result<GasPrice, RpcError> {
-        let params = match block_hash {
-            Some(hash) => serde_json::json!([hash.to_string()]),
-            None => serde_json::json!([serde_json::Value::Null]),
-        };
+        let params = serde_json::json!([block_hash.map(ToString::to_string)]);
         self.request("gas_price", params).await
     }
 
@@ -1548,11 +1544,7 @@ fn is_idempotent(method: &str) -> bool {
 
 /// Check if an HTTP status code is retryable.
 fn is_retryable_status(status: u16) -> bool {
-    // 408 Request Timeout - retryable
-    // 429 Too Many Requests - retryable (rate limiting)
-    // 503 Service Unavailable - retryable
-    // 5xx Server Errors - retryable
-    status == 408 || status == 429 || status == 503 || (500..600).contains(&status)
+    matches!(status, 408 | 429 | 500..=599)
 }
 
 /// Decode nearcore 2.14's `TimeoutErrorCause` from a `TIMEOUT_ERROR` payload.
@@ -2853,7 +2845,7 @@ mod tests {
         // request as unpaginated and fail past 100 keys.
         assert_eq!(
             params[0]["limit"],
-            RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE
+            RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE.get()
         );
         assert_eq!(params[0]["limit"], 100);
         assert!(
@@ -2893,7 +2885,7 @@ mod tests {
         assert!(params[1].get("finality").is_none());
         assert_eq!(
             params[1]["limit"],
-            RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE
+            RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE.get()
         );
     }
 
@@ -2952,6 +2944,23 @@ mod tests {
         let params = transport.params();
         assert!(params[0].get("after_key").is_none());
         assert!(params[0].get("limit").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_gas_price_sends_the_hash_or_null() {
+        let price = serde_json::json!({ "gas_price": "100000000" });
+        let transport = RecordingTransport::new([price.clone(), price]);
+        let client = transport.client();
+        let hash = CryptoHash::hash(b"block");
+        client.gas_price(Some(&hash)).await.unwrap();
+        client.gas_price(None).await.unwrap();
+        assert_eq!(
+            transport.params(),
+            [
+                serde_json::json!([hash.to_string()]),
+                serde_json::json!([null])
+            ]
+        );
     }
 
     #[test]
