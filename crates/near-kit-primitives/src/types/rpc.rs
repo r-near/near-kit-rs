@@ -559,48 +559,16 @@ pub struct BlockHeaderView {
     pub shard_split: Option<(u64, AccountId)>,
 }
 
-/// Validator stake (versioned).
-///
-/// Used for validator proposals in block/chunk headers.
+/// Validator stake, as listed in validator proposals in block and chunk
+/// headers.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-pub enum ValidatorStakeView {
-    /// Version 1 (current).
-    V1(ValidatorStakeViewV1),
-}
-
-/// Validator stake data.
-#[derive(Debug, Clone, Deserialize)]
-pub struct ValidatorStakeViewV1 {
+pub struct ValidatorStakeView {
     /// Validator account ID.
     pub account_id: AccountId,
     /// Public key.
     pub public_key: PublicKey,
     /// Stake amount.
     pub stake: NearToken,
-}
-
-impl ValidatorStakeView {
-    /// Get the inner V1 data.
-    pub fn into_v1(self) -> ValidatorStakeViewV1 {
-        match self {
-            Self::V1(v) => v,
-        }
-    }
-
-    /// Get the account ID.
-    pub fn account_id(&self) -> &AccountId {
-        match self {
-            Self::V1(v) => &v.account_id,
-        }
-    }
-
-    /// Get the stake amount.
-    pub fn stake(&self) -> NearToken {
-        match self {
-            Self::V1(v) => v.stake,
-        }
-    }
 }
 
 /// Slashed validator from challenge results.

@@ -100,6 +100,7 @@ after the table cover each one.
 | `ViewFunctionResult::as_string()` | `ViewFunctionResult::text()` |
 | `GasPrice::as_u128()` | `gas_price.gas_price.as_yoctonear()` |
 | `rpc::LightClientBlockView`, `LightClientBlockLiteView`, `BlockHeaderInnerLiteView`, `StateChangeWithCauseView`, `StateChangeCauseView`, `StateChangeValueView` | Removed: no method returned them. Use `near.rpc().request::<_, serde_json::Value>(method, params)` or your own serde type |
+| `rpc::ValidatorStakeView` (an enum with one `V1` variant: `into_v1()`, `account_id()`, `stake()`), `rpc::ValidatorStakeViewV1` | `rpc::ValidatorStakeView`, now the struct: read `.account_id`, `.public_key` and `.stake` |
 
 ### RPC client
 
