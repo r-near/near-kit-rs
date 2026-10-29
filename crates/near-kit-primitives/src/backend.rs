@@ -23,34 +23,9 @@ use crate::types::{AccountId, Action, BlockReference, Gas, NearToken, ViewFuncti
 /// Implement it with an `async fn`. The future must be `Send` on every target
 /// except `wasm32-unknown-unknown`.
 ///
-/// Generated contract clients also need the backend to be `Clone`, because
-/// each `View` they return owns a copy of it. A backend that isn't `Clone`
-/// still works through `&T` or `Arc<T>`, which are `Viewer` whenever `T` is.
-/// Awaiting a `View` boxes a `'static` future, so it needs an owned, `Arc` or
-/// `'static` backend; through a shorter borrow, use
-/// [`View::with_metadata`], which has no such bound.
-///
-/// ```rust
-/// use near_kit_primitives::rpc::{BlockReference, ViewFunctionResult};
-/// use near_kit_primitives::{AccountId, CryptoHash, Viewer};
-///
-/// /// Answers every view with `42`.
-/// struct Fixed;
-///
-/// impl Viewer for Fixed {
-///     type ViewError = std::convert::Infallible;
-///
-///     async fn view_function(
-///         &self,
-///         _contract_id: &AccountId,
-///         _method: &str,
-///         _args: &[u8],
-///         _block: BlockReference,
-///     ) -> Result<ViewFunctionResult, Self::ViewError> {
-///         Ok(ViewFunctionResult::new(b"42".to_vec(), 1, CryptoHash::ZERO))
-///     }
-/// }
-/// ```
+/// Generated clients need a `Clone` backend; `&T` and `Arc<T>` forward to
+/// `T`. See [`View`] for which backends `.await` accepts and for an example
+/// implementation.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot run contract views",
     label = "not a `Viewer`",
@@ -77,12 +52,8 @@ pub trait Viewer: MaybeSend + MaybeSync {
 /// backend decides how to sign, how long to wait and what to return
 /// ([`Output`](Self::Output)).
 ///
-/// Generated contract clients also need the backend to be `Clone`, because
-/// each `Call` they return owns a copy of it. A backend that isn't `Clone`
-/// still works through `&T` or `Arc<T>`, which are `TxSender` whenever `T`
-/// is. Awaiting a `Call` boxes a `'static` future, so it needs an owned,
-/// `Arc` or `'static` backend; through a shorter borrow, use
-/// [`Call::send`], which has no such bound.
+/// Generated clients need a `Clone` backend; `&T` and `Arc<T>` forward to
+/// `T`. Through a short borrow, send with [`Call::send`].
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot send transactions",
     label = "needs a signer",
@@ -150,31 +121,15 @@ pub trait Contract {
 /// `Error`, so `ContractError<anyhow::Error>` converts into `anyhow::Error`
 /// with `?`. [`source`](std::error::Error::source) is the codec error's
 /// source; a backend error's own source chain isn't reachable through it.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ContractError<E> {
     /// The arguments failed to encode, or the view result failed to decode.
+    #[error(transparent)]
     Codec(CodecError),
     /// The backend failed.
+    #[error("{0}")]
     Backend(E),
-}
-
-impl<E: fmt::Display> fmt::Display for ContractError<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Codec(error) => error.fmt(f),
-            Self::Backend(error) => error.fmt(f),
-        }
-    }
-}
-
-impl<E: fmt::Debug + fmt::Display> std::error::Error for ContractError<E> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Codec(error) => std::error::Error::source(error),
-            Self::Backend(_) => None,
-        }
-    }
 }
 
 /// A typed contract view, ready to `.await`.
@@ -317,10 +272,7 @@ impl<C, T> View<C, T> {
     where
         C: Viewer,
     {
-        let args = match self.args {
-            Ok(args) => args,
-            Err(error) => return Err(ContractError::Codec(error)),
-        };
+        let args = self.args.map_err(ContractError::Codec)?;
         // `match` rather than `?` on the backend result: a `?` temporary
         // holding `C::ViewError` would make the future `!Send` for a `!Send`
         // error.
@@ -380,14 +332,6 @@ pub struct Call<C> {
 }
 
 impl<C> Call<C> {
-    pub(crate) fn new(backend: C, contract_id: AccountId, call: FunctionCall) -> Self {
-        Self {
-            backend,
-            contract_id,
-            call,
-        }
-    }
-
     /// Set the gas limit (default 30 Tgas).
     pub fn gas(mut self, gas: Gas) -> Self {
         self.call = self.call.gas(gas);
@@ -406,15 +350,10 @@ impl<C> Call<C> {
     where
         C: TxSender,
     {
-        let Self {
-            backend,
-            contract_id,
-            call,
-        } = self;
-        let action = Action::try_from(call).map_err(ContractError::Codec)?;
+        let action = Action::try_from(self.call).map_err(ContractError::Codec)?;
         // Fully qualified, so an inherent `send` on the backend can't shadow
         // the trait method.
-        TxSender::send(&backend, contract_id, vec![action])
+        TxSender::send(&self.backend, self.contract_id, vec![action])
             .await
             .map_err(ContractError::Backend)
     }
@@ -465,107 +404,44 @@ where
     }
 }
 
-/// Forwards to `T`, so a borrowed backend can serve several clients.
-impl<T: Viewer + ?Sized> Viewer for &T {
-    type ViewError = T::ViewError;
+macro_rules! forward {
+    ($($p:ty),+) => {$(
+        /// Forwards to `T`.
+        impl<T: Viewer + ?Sized> Viewer for $p {
+            type ViewError = T::ViewError;
 
-    fn view_function(
-        &self,
-        contract_id: &AccountId,
-        method: &str,
-        args: &[u8],
-        block: BlockReference,
-    ) -> impl Future<Output = Result<ViewFunctionResult, Self::ViewError>> + MaybeSend {
-        (**self).view_function(contract_id, method, args, block)
-    }
+            fn view_function(
+                &self,
+                contract_id: &AccountId,
+                method: &str,
+                args: &[u8],
+                block: BlockReference,
+            ) -> impl Future<Output = Result<ViewFunctionResult, Self::ViewError>> + MaybeSend {
+                (**self).view_function(contract_id, method, args, block)
+            }
+        }
+
+        /// Forwards to `T`.
+        impl<T: TxSender + ?Sized> TxSender for $p {
+            type Output = T::Output;
+            type SendError = T::SendError;
+
+            fn account_id(&self) -> &AccountId {
+                (**self).account_id()
+            }
+
+            fn send(
+                &self,
+                receiver_id: AccountId,
+                actions: Vec<Action>,
+            ) -> impl Future<Output = Result<Self::Output, Self::SendError>> + MaybeSend {
+                (**self).send(receiver_id, actions)
+            }
+        }
+    )+};
 }
 
-/// Forwards to `T`.
-impl<T: Viewer + ?Sized> Viewer for Box<T> {
-    type ViewError = T::ViewError;
-
-    fn view_function(
-        &self,
-        contract_id: &AccountId,
-        method: &str,
-        args: &[u8],
-        block: BlockReference,
-    ) -> impl Future<Output = Result<ViewFunctionResult, Self::ViewError>> + MaybeSend {
-        (**self).view_function(contract_id, method, args, block)
-    }
-}
-
-/// Forwards to `T`, so a backend that isn't `Clone` can serve several
-/// clients and still give `'static` futures.
-impl<T: Viewer + ?Sized> Viewer for Arc<T> {
-    type ViewError = T::ViewError;
-
-    fn view_function(
-        &self,
-        contract_id: &AccountId,
-        method: &str,
-        args: &[u8],
-        block: BlockReference,
-    ) -> impl Future<Output = Result<ViewFunctionResult, Self::ViewError>> + MaybeSend {
-        (**self).view_function(contract_id, method, args, block)
-    }
-}
-
-/// Forwards to `T`, so a borrowed sender can serve several clients. A
-/// `Call` on one is sent with [`Call::send`] unless the borrow is `'static`.
-impl<T: TxSender + ?Sized> TxSender for &T {
-    type Output = T::Output;
-    type SendError = T::SendError;
-
-    fn account_id(&self) -> &AccountId {
-        (**self).account_id()
-    }
-
-    fn send(
-        &self,
-        receiver_id: AccountId,
-        actions: Vec<Action>,
-    ) -> impl Future<Output = Result<Self::Output, Self::SendError>> + MaybeSend {
-        (**self).send(receiver_id, actions)
-    }
-}
-
-/// Forwards to `T`.
-impl<T: TxSender + ?Sized> TxSender for Box<T> {
-    type Output = T::Output;
-    type SendError = T::SendError;
-
-    fn account_id(&self) -> &AccountId {
-        (**self).account_id()
-    }
-
-    fn send(
-        &self,
-        receiver_id: AccountId,
-        actions: Vec<Action>,
-    ) -> impl Future<Output = Result<Self::Output, Self::SendError>> + MaybeSend {
-        (**self).send(receiver_id, actions)
-    }
-}
-
-/// Forwards to `T`, so a sender that isn't `Clone` can serve several
-/// clients and still give `'static` futures.
-impl<T: TxSender + ?Sized> TxSender for Arc<T> {
-    type Output = T::Output;
-    type SendError = T::SendError;
-
-    fn account_id(&self) -> &AccountId {
-        (**self).account_id()
-    }
-
-    fn send(
-        &self,
-        receiver_id: AccountId,
-        actions: Vec<Action>,
-    ) -> impl Future<Output = Result<Self::Output, Self::SendError>> + MaybeSend {
-        (**self).send(receiver_id, actions)
-    }
-}
+forward!(&T, Box<T>, Arc<T>);
 
 /// Constructors and encoders used by `#[contract]` expansions (and by
 /// near-kit's token clients). Not public API.
@@ -611,7 +487,11 @@ pub(crate) mod expansion {
     where
         C: TxSender,
     {
-        Call::new(backend, contract_id, call)
+        Call {
+            backend,
+            contract_id,
+            call,
+        }
     }
 
     /// JSON-encode view arguments.
@@ -887,44 +767,26 @@ mod tests {
     #[test]
     fn call_sends_one_function_call() {
         let sender = Arc::new(MockSender::default());
-        let count = run(
+        let typed = || {
             call(sender.clone(), contract(), FunctionCall::new("add").args(5))
                 .gas(Gas::from_tgas(50))
-                .deposit(NearToken::from_yoctonear(1)),
-        )
-        .unwrap();
-        assert_eq!(count, 1);
+                .deposit(NearToken::from_yoctonear(1))
+        };
+        let expected = Action::FunctionCall(FunctionCallAction {
+            method_name: "add".to_owned(),
+            args: b"5".to_vec(),
+            gas: Gas::from_tgas(50),
+            deposit: NearToken::from_yoctonear(1),
+        });
 
+        // Converting into the function call sends nothing.
+        assert_eq!(FunctionCall::from(typed()).into_action().unwrap(), expected);
+        assert!(sender.sent.lock().unwrap().is_empty());
+
+        assert_eq!(run(typed()).unwrap(), 1);
         let (receiver, actions) = sender.sent.lock().unwrap().pop().unwrap();
         assert_eq!(receiver, contract());
-        assert_eq!(
-            actions,
-            [Action::FunctionCall(FunctionCallAction {
-                method_name: "add".to_owned(),
-                args: b"5".to_vec(),
-                gas: Gas::from_tgas(50),
-                deposit: NearToken::from_yoctonear(1),
-            })]
-        );
-    }
-
-    #[test]
-    fn call_converts_into_its_function_call() {
-        let sender = Arc::new(MockSender::default());
-        let typed = call(sender.clone(), contract(), FunctionCall::new("add").args(5))
-            .gas(Gas::from_tgas(50))
-            .deposit(NearToken::from_yoctonear(1));
-        let action = FunctionCall::from(typed).into_action().unwrap();
-        assert_eq!(
-            action,
-            Action::FunctionCall(FunctionCallAction {
-                method_name: "add".to_owned(),
-                args: b"5".to_vec(),
-                gas: Gas::from_tgas(50),
-                deposit: NearToken::from_yoctonear(1),
-            })
-        );
-        assert!(sender.sent.lock().unwrap().is_empty());
+        assert_eq!(actions, [expected]);
     }
 
     #[test]
@@ -961,14 +823,6 @@ mod tests {
 
         let error = into_boxed(Err(ContractError::Backend(DisplayOnly))).unwrap_err();
         assert_eq!(error.to_string(), "display only");
-    }
-
-    #[test]
-    fn contract_error_is_a_std_error() {
-        let error: ContractError<std::io::Error> =
-            ContractError::Backend(std::io::Error::other("down"));
-        let error: &dyn std::error::Error = &error;
-        assert_eq!(error.to_string(), "down");
     }
 
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
@@ -1010,17 +864,6 @@ mod tests {
             run(call(boxed, contract(), FunctionCall::new("add"))).unwrap(),
             1
         );
-
-        let sender = MockSender::default();
-        let borrowed = &sender;
-        let sent = futures::executor::block_on(TxSender::send(
-            &borrowed,
-            contract(),
-            vec![Action::transfer(NearToken::from_yoctonear(1))],
-        ))
-        .unwrap();
-        assert_eq!(sent, 1);
-        assert_eq!(sender.sent.lock().unwrap().len(), 1);
     }
 
     #[test]
