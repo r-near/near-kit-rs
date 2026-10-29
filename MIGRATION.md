@@ -191,6 +191,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `protocol::RawStateInit` (near-kit's own) | Same path, now near-global-contracts' `RawStateInit` (base64 in JSON): `as_bytes()` → `as_ref()`, `into_bytes()` → `Vec::from(raw)`, `derive_account_id()` → `try_derive_account_id()?` |
 | `protocol::StateInitExt` (`StateInit::by_hash(hash, data)`, `StateInit::by_publisher(id, data)`) | `StateInitV1::code(hash_or_id).with_data_entry(k, v).into()`, or `StateInit::V1(StateInitV1 { code: hash_or_id.into(), data })` |
 | `protocol::MAX_NONCES_FOR_GAS_KEY` | `AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY` |
+| `CryptoHash::to_vec()`, `From<&CryptoHash> for [u8; 32]` | `hash.as_bytes().to_vec()`; `<[u8; 32]>::from(hash)` (`CryptoHash` is `Copy`) |
 
 ### Sandbox (near-kit-sandbox)
 

@@ -59,11 +59,6 @@ impl CryptoHash {
         &self.0
     }
 
-    /// Convert to a `Vec<u8>`.
-    pub fn to_vec(&self) -> Vec<u8> {
-        self.0.to_vec()
-    }
-
     /// Check if this is the zero hash.
     pub fn is_zero(&self) -> bool {
         self.0 == [0u8; 32]
@@ -108,12 +103,6 @@ impl From<[u8; 32]> for CryptoHash {
 
 impl From<CryptoHash> for [u8; 32] {
     fn from(hash: CryptoHash) -> Self {
-        hash.0
-    }
-}
-
-impl From<&CryptoHash> for [u8; 32] {
-    fn from(hash: &CryptoHash) -> Self {
         hash.0
     }
 }
