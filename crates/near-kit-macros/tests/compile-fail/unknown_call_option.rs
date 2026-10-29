@@ -1,8 +1,7 @@
-//! Test: #[call] does not accept options
+//! Test: #[call] accepts only the `gas` and `deposit` options
 
 #[near_kit::contract]
 pub trait BadContract {
-    #[call]
     #[call(payable)]
     fn do_something(&mut self);
 }

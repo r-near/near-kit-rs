@@ -1,0 +1,29 @@
+error[E0308]: mismatched types
+ --> tests/compile-fail/call_option_type.rs:7:18
+  |
+5 | #[near_kit::contract]
+  | --------------------- arguments to this method are incorrect
+6 | pub trait BadContract {
+7 |     #[call(gas = NearToken::from_yoctonear(1), deposit = Gas::from_tgas(100))]
+  |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Gas`, found `NearToken`
+  |
+note: method defined here
+ --> $WORKSPACE/crates/near-kit-primitives/src/transaction/function_call.rs
+  |
+  |     pub fn gas(mut self, gas: Gas) -> Self {
+  |            ^^^
+
+error[E0308]: mismatched types
+ --> tests/compile-fail/call_option_type.rs:7:58
+  |
+5 | #[near_kit::contract]
+  | --------------------- arguments to this method are incorrect
+6 | pub trait BadContract {
+7 |     #[call(gas = NearToken::from_yoctonear(1), deposit = Gas::from_tgas(100))]
+  |                                                          ^^^^^^^^^^^^^^^^^^^ expected `NearToken`, found `Gas`
+  |
+note: method defined here
+ --> $WORKSPACE/crates/near-kit-primitives/src/transaction/function_call.rs
+  |
+  |     pub fn deposit(mut self, deposit: NearToken) -> Self {
+  |            ^^^^^^^

@@ -1,0 +1,5 @@
+error: `gas` is specified more than once
+ --> tests/compile-fail/duplicate_call_option.rs:5:49
+  |
+5 |     #[call(gas = near_kit::Gas::from_tgas(100), gas = near_kit::Gas::from_tgas(200))]
+  |                                                 ^^^

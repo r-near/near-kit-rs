@@ -102,7 +102,9 @@ Views return a [`View`](crate::View), the same type as
 [`Near::view`](crate::Near::view): `.at(..)` picks the block (final by
 default), `.with_metadata()` also returns the block height and hash.
 Calls return a [`Call`](crate::Call): `.gas(..)` (30 Tgas by default) and
-`.deposit(..)` (zero by default), then `.await`. A call resolves to the
+`.deposit(..)` (zero by default), then `.await`. A method can declare its
+own defaults instead, so callers don't have to remember them (see
+[below](#default-gas-and-deposit)). A call resolves to the
 backend's [`Output`](crate::TxSender::Output): for a `SigningNear` at the
 default level that is a [`FinalExecutionOutcome`](crate::rpc::FinalExecutionOutcome),
 which can hold a failed action, as with any send (see the
@@ -114,6 +116,59 @@ saying the backend "cannot send transactions". For another wait level, build
 the client from a re-leveled sender:
 `alice.wait_until::<Included>().contract::<Guestbook>(&id)`.
 
+## Default gas and deposit
+
+Most token methods require exactly 1 yoctoNEAR attached, and a call that
+fans out to other contracts needs more than 30 Tgas. Setting those at every
+call site is easy to get wrong: a forgotten `.deposit(..)` fails on chain,
+and a forgotten `.gas(..)` compiles and quietly sends 30 Tgas.
+`#[call(gas = .., deposit = ..)]` declares them once, on the method. Take
+NEP-245 multi-tokens:
+
+```rust,no_run
+# use serde::Serialize;
+# #[derive(Serialize)]
+# pub struct MtTransfer { pub receiver_id: String, pub token_id: String, pub amount: String }
+# #[derive(Serialize)]
+# pub struct MtTransferCall { pub receiver_id: String, pub token_ids: Vec<String>, pub amounts: Vec<String>, pub msg: String }
+use near_kit::*;
+
+/// Gas for `mt_transfer_call`, which calls the receiver and then resolves.
+const TRANSFER_CALL_GAS: Gas = Gas::from_tgas(300);
+
+#[near_kit::contract]
+pub trait MultiToken {
+    #[call(deposit = NearToken::from_yoctonear(1))]
+    fn mt_transfer(&mut self, args: MtTransfer);
+
+    #[call(gas = TRANSFER_CALL_GAS, deposit = NearToken::from_yoctonear(1))]
+    fn mt_transfer_call(&mut self, args: MtTransferCall);
+}
+
+# fn transfer() -> MtTransfer { todo!() }
+# async fn example(alice: &SigningNear) -> Result<(), Error> {
+let mt = alice.contract::<MultiToken>(account!("mt.testnet"));
+// 30 Tgas and 1 yoctoNEAR, with nothing set here.
+mt.mt_transfer(transfer()).await?.result()?;
+// The call site still overrides either one.
+mt.mt_transfer(transfer()).gas(Gas::from_tgas(50)).await?.result()?;
+# Ok(())
+# }
+```
+
+Either key can be left out, and a plain `#[call]` keeps 30 Tgas and no
+deposit. Each value is any Rust expression of the right type (`Gas` for
+`gas`, `NearToken` for `deposit`): a `const`, `Gas::from_tgas(300)` or a
+function call. Its names resolve where the trait is declared, and it's
+evaluated each time a call is built. It can't use the method's argument:
+when gas depends on the arguments, set `.gas(..)` at the call site. Options
+on a view, unknown or repeated keys, and a second `#[call]` are compile
+errors.
+
+The defaults go into the `FunctionCall` constructor too, so a batched call
+carries them, and `.gas(..)`/`.deposit(..)` on the `FunctionCall` override
+them there (next section).
+
 ## Batching typed calls
 
 The generated constructors return a
@@ -122,20 +177,26 @@ typed call can share a transaction with other actions:
 
 ```rust,no_run
 # use serde::Serialize;
-# #[near_kit::contract]
-# pub trait Guestbook {
-#     #[call]
-#     fn add_message(&mut self, args: AddMessage);
-# }
 # #[derive(Serialize)]
 # pub struct AddMessage { pub text: String }
 use near_kit::*;
 
+#[near_kit::contract]
+pub trait Guestbook {
+    #[call(gas = Gas::from_tgas(10))]
+    fn add_message(&mut self, args: AddMessage);
+}
+
 # async fn example(alice: &SigningNear) -> Result<(), Error> {
 alice
     .transaction(account!("guestbook.testnet"))
-    .add_action(Guestbook::add_message(AddMessage { text: "one".into() }).gas(Gas::from_tgas(10)))
-    .add_action(Guestbook::add_message(AddMessage { text: "two".into() }).gas(Gas::from_tgas(10)))
+    // 10 Tgas each, from the declaration.
+    .add_action(Guestbook::add_message(AddMessage { text: "one".into() }))
+    // `.gas(..)` and `.deposit(..)` on the `FunctionCall` override it.
+    .add_action(
+        Guestbook::add_message(AddMessage { text: "two".into() })
+            .deposit(NearToken::from_millinear(10)),
+    )
     .await?.result()?;
 # Ok(())
 # }

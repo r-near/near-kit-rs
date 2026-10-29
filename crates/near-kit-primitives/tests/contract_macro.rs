@@ -31,6 +31,45 @@ pub trait Counter {
     fn reset(&mut self);
 }
 
+/// `#[call(..)]` defaults, named through near-kit-primitives alone: one by
+/// its imported name, one by full path.
+#[near_kit_primitives::contract]
+pub trait Vault {
+    #[call(deposit = NearToken::from_yoctonear(1))]
+    fn withdraw(&mut self, args: AddArgs);
+
+    #[call(gas = near_kit_primitives::Gas::from_tgas(100))]
+    fn sweep(&mut self);
+}
+
+#[test]
+fn call_options_resolve_through_primitives() {
+    let gas_and_deposit = |action: Action| match action {
+        Action::FunctionCall(call) => (call.gas, call.deposit),
+        other => panic!("expected a function call, got {other:?}"),
+    };
+    let withdraw = Vault::withdraw(AddArgs { amount: 1 })
+        .into_action()
+        .unwrap();
+    assert_eq!(
+        gas_and_deposit(withdraw),
+        (Gas::from_tgas(30), NearToken::from_yoctonear(1))
+    );
+    let sweep = Vault::sweep().into_action().unwrap();
+    assert_eq!(
+        gas_and_deposit(sweep),
+        (Gas::from_tgas(100), NearToken::ZERO)
+    );
+
+    let backend = Backend::default();
+    run(Vault::client(backend.clone(), account!("v.near")).sweep()).unwrap();
+    let sent = backend.sent.lock().unwrap().pop().unwrap().1;
+    assert_eq!(
+        gas_and_deposit(sent.into_iter().next().unwrap()),
+        (Gas::from_tgas(100), NearToken::ZERO)
+    );
+}
+
 #[test]
 fn offline_constructors_build_actions() {
     let action = Counter::add(AddArgs { amount: 5 })
