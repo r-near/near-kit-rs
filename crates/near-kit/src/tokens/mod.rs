@@ -17,7 +17,7 @@ use crate::types::{AccountId, Finality};
 use crate::{ContractError, View};
 
 /// Run a JSON view of `method` through a borrowed backend at optimistic
-/// finality, sending `args` if there are any.
+/// finality, sending `args` if there are any and `{}` otherwise.
 async fn read<C, T>(
     backend: &C,
     contract_id: &AccountId,

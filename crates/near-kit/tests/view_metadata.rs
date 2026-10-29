@@ -165,6 +165,26 @@ async fn invalid_arguments_fail_before_sending_a_request() {
 }
 
 #[tokio::test]
+async fn no_argument_json_views_send_an_empty_object_and_borsh_views_nothing() {
+    let (near, requests) = client(b"null".to_vec());
+    let _: Option<u64> = near
+        .view(account!("counter.testnet"), "get_count")
+        .await
+        .unwrap();
+    let (near, borsh_requests) = client(vec![0]);
+    let _: Option<u64> = View::borsh(near, account!("counter.testnet"), "get_count")
+        .await
+        .unwrap();
+
+    // `e30=` is base64 for `{}`.
+    assert_eq!(requests.lock().unwrap()[0]["params"]["args_base64"], "e30=");
+    assert_eq!(
+        borsh_requests.lock().unwrap()[0]["params"]["args_base64"],
+        ""
+    );
+}
+
+#[tokio::test]
 async fn views_accept_a_block_reference() {
     use near_kit::rpc::{BlockReference, Finality, SyncCheckpoint};
 

@@ -2,12 +2,12 @@
 
 use near_kit::ContractError;
 use near_kit::protocol::Action;
-use near_kit::transaction::{CodecError, Final};
+use near_kit::transaction::{CodecError, Final, FunctionCall};
 use near_kit::{AccountId, Gas, Near, NearToken, SigningNear};
 use near_kit_sandbox::Sandbox;
 use serde::{Deserialize, Serialize};
 
-use super::support::{funded_account, guestbook_wasm, shared_client};
+use super::support::{deploy_ft_contract, funded_account, guestbook_wasm, shared_client};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GuestbookMessage {
@@ -113,4 +113,69 @@ async fn typed_views_preserve_decode_and_block_errors() {
         guestbook.total_messages().at(999_999_999_u64).await,
         Err(ContractError::Backend(_))
     ));
+}
+
+/// Every way of making a JSON view or call without arguments sends `{}`. A
+/// near-sdk method whose parameters are all `Option` (the guestbook's
+/// `get_messages(from_index, limit)`, the token's `storage_withdraw(amount)`)
+/// parses that object; empty bytes fail to parse.
+#[tokio::test]
+async fn no_argument_views_and_calls_send_an_empty_json_object() {
+    let (_, near, contract_id) = deploy_guestbook("noargs").await;
+    let reader = near.near();
+    let guestbook = near.contract::<Guestbook>(&contract_id);
+    guestbook
+        .add_message(AddMessageArgs {
+            text: "hello".to_owned(),
+        })
+        .await
+        .expect("typed call")
+        .result()
+        .unwrap();
+
+    let typed = guestbook.get_messages().await.expect("typed view");
+    let untyped: Vec<GuestbookMessage> = reader
+        .view(&contract_id, "get_messages")
+        .await
+        .expect("near.view without arguments");
+    assert_eq!(typed, untyped);
+    assert_eq!(untyped.len(), 1);
+    // A method without parameters doesn't read its input, so `{}` is fine.
+    let total: u32 = reader.view(&contract_id, "total_messages").await.unwrap();
+    assert_eq!(total, 1);
+
+    let empty = reader
+        .view::<Vec<GuestbookMessage>>(&contract_id, "get_messages")
+        .args_raw(Vec::new())
+        .await
+        .expect_err("empty bytes aren't a JSON object");
+    assert!(
+        format!("{empty:?}").contains("Failed to deserialize input from JSON"),
+        "{empty:?}"
+    );
+
+    // The token registers its owner, so the owner can withdraw (nothing).
+    let (_, root) = shared_client().await;
+    let root = root.wait_until::<Final>();
+    let (ft_id, _) = deploy_ft_contract(&root, root.account_id())
+        .await
+        .expect("token deployment");
+    let withdraw = || FunctionCall::new("storage_withdraw").deposit(NearToken::from_yoctonear(1));
+    root.transaction(&ft_id)
+        .add_action(withdraw())
+        .await
+        .expect("storage_withdraw without arguments")
+        .result()
+        .expect("`{}` parses as all-`None` arguments");
+    let failed = root
+        .transaction(&ft_id)
+        .add_action(withdraw().args_raw(Vec::new()))
+        .await
+        .expect("sent")
+        .result()
+        .expect_err("empty bytes aren't a JSON object");
+    assert!(
+        format!("{failed:?}").contains("Failed to deserialize input from JSON"),
+        "{failed:?}"
+    );
 }

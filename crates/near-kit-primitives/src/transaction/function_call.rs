@@ -44,10 +44,16 @@ impl fmt::Debug for FunctionCall {
 
 impl FunctionCall {
     /// Create a new function call for the given method name.
+    ///
+    /// Until [`args`](Self::args), [`args_borsh`](Self::args_borsh) or
+    /// [`args_raw`](Self::args_raw) sets other arguments, it sends the empty
+    /// JSON object `{}`, as a `#[contract]` call without arguments does. A
+    /// method whose parameters are all `Option` needs that object; empty
+    /// bytes fail to parse. To send no bytes at all, use `.args_raw(Vec::new())`.
     pub fn new(method: impl Into<String>) -> Self {
         Self {
             method: method.into(),
-            args: Vec::new(),
+            args: b"{}".to_vec(),
             gas: Gas::from_tgas(30),
             deposit: NearToken::ZERO,
             construction_error: None,
@@ -188,7 +194,7 @@ mod tests {
         match &action {
             Action::FunctionCall(fc) => {
                 assert_eq!(fc.method_name, "method");
-                assert!(fc.args.is_empty());
+                assert_eq!(fc.args, b"{}");
                 assert_eq!(fc.gas, Gas::from_tgas(30));
                 assert_eq!(fc.deposit, NearToken::ZERO);
             }
