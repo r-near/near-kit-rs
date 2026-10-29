@@ -2037,11 +2037,6 @@ impl<T> ViewFunctionResult<T> {
 }
 
 impl ViewFunctionResult {
-    /// Get the result as raw bytes.
-    pub fn bytes(&self) -> &[u8] {
-        &self.result
-    }
-
     /// The result as UTF-8 text.
     pub fn text(&self) -> Result<String, std::string::FromUtf8Error> {
         String::from_utf8(self.result.clone())
@@ -2594,13 +2589,6 @@ mod tests {
 
     fn make_view_result(result: Vec<u8>) -> ViewFunctionResult {
         ViewFunctionResult::new(result, 12345, CryptoHash::default())
-    }
-
-    #[test]
-    fn test_view_function_result_bytes() {
-        let data = vec![1, 2, 3, 4, 5];
-        let result = make_view_result(data.clone());
-        assert_eq!(result.bytes(), &data[..]);
     }
 
     #[test]

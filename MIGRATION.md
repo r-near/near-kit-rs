@@ -104,6 +104,7 @@ after the table cover each one.
 | `ChunkHeaderView::proposed_split: Option<Option<TrieSplit>>` | `Option<TrieSplit>`: the inner `None` never occurred (a JSON `null` decoded as the outer `None`) |
 | `rpc::TxExecutionStatus::is_executed()`, `is_block_final()`, `is_final()` | `matches!(s, ExecutedOptimistic \| Executed \| Final)`, `matches!(s, IncludedFinal \| Executed \| Final)`, `s == TxExecutionStatus::Final` |
 | `PartialOrd for rpc::TxExecutionStatus` (`<`, `partial_cmp`) | `matches!` on the levels you accept, as in the row above |
+| `ViewFunctionResult::bytes()` | The `result` field: `&view.result` |
 
 ### RPC client
 
