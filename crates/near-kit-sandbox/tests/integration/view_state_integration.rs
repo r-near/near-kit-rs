@@ -105,9 +105,9 @@ async fn test_view_state_pagination_reads_all_entries() {
         "small-page and node-default-page reads must collect the same entries"
     );
     assert!(
-        all_small_pages.len() >= N,
+        all_small_pages.values.len() >= N,
         "expected at least {N} state entries, got {}",
-        all_small_pages.len()
+        all_small_pages.values.len()
     );
     // The paginated read reports the block it was pinned to, like every other
     // typed view. The two reads resolved `final` separately so their blocks
@@ -122,13 +122,18 @@ async fn test_view_state_pagination_reads_all_entries() {
     assert_eq!(pinned.header.height, all_small_pages.block_height);
 
     // Prefix filtering: every returned key must start with the requested prefix.
-    let prefix = &all_small_pages[0].key[..1];
+    let prefix = &all_small_pages.values[0].key[..1];
     let filtered = near
         .near()
         .rpc()
         .view_state_all(&contract, prefix, 0, BlockReference::default())
         .await
         .expect("view_state_all prefix");
-    assert!(!filtered.is_empty());
-    assert!(filtered.iter().all(|item| item.key.starts_with(prefix)));
+    assert!(!filtered.values.is_empty());
+    assert!(
+        filtered
+            .values
+            .iter()
+            .all(|item| item.key.starts_with(prefix))
+    );
 }

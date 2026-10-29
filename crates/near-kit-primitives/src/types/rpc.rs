@@ -1,7 +1,6 @@
 //! RPC response types.
 
 use std::collections::BTreeMap;
-use std::ops::Deref;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
@@ -275,9 +274,8 @@ pub struct ViewStateResult {
 /// requested against that same `block_hash`, so the whole result is a
 /// consistent snapshot of one block.
 ///
-/// The type derefs to `[StateItem]` and iterates over its entries, so
-/// `result.len()`, `result.iter()`, `&result[0]` and `for item in result` all
-/// work directly.
+/// It iterates over its entries, so `for item in &result` and
+/// `for item in result` work directly; `result.values` is the `Vec` itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViewStateAllResult {
     /// Every contract state entry matching the prefix, in trie order.
@@ -287,14 +285,6 @@ pub struct ViewStateAllResult {
     /// Block hash the state was read at (taken from the first page); every
     /// page was read against this hash.
     pub block_hash: CryptoHash,
-}
-
-impl Deref for ViewStateAllResult {
-    type Target = [StateItem];
-
-    fn deref(&self) -> &Self::Target {
-        &self.values
-    }
 }
 
 impl IntoIterator for ViewStateAllResult {
@@ -334,58 +324,6 @@ pub struct ContractCodeView {
     pub block_height: u64,
     /// Block hash of the query.
     pub block_hash: CryptoHash,
-}
-
-/// One entry in a [`BlockEffects`] response: which kind of state was touched
-/// for an account in the block.
-///
-/// `block_effects` reports only the *kind* of change per account, with no
-/// cause or value.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "type")]
-pub enum StateChangeKindView {
-    /// The account itself (balance, etc.) was touched.
-    AccountTouched {
-        /// The account that was touched.
-        account_id: AccountId,
-    },
-    /// One of the account's access keys was touched.
-    AccessKeyTouched {
-        /// The account that was touched.
-        account_id: AccountId,
-    },
-    /// The account's contract data (storage) was touched.
-    DataTouched {
-        /// The account that was touched.
-        account_id: AccountId,
-    },
-    /// The account's contract code was touched.
-    ContractCodeTouched {
-        /// The account that was touched.
-        account_id: AccountId,
-    },
-}
-
-/// All state changes within a single block, from the `block_effects` RPC
-/// (stabilized name for `EXPERIMENTAL_changes_in_block`).
-#[derive(Debug, Clone, Deserialize)]
-pub struct BlockEffects {
-    /// Hash of the block these changes belong to.
-    pub block_hash: CryptoHash,
-    /// The kinds of state change applied in this block (one entry per touched
-    /// account/state-kind).
-    pub changes: Vec<StateChangeKindView>,
-}
-
-/// A single maintenance window — a half-open block-height range
-/// `[start, end)` during which a validator has no chunk/block production
-/// duties. Returned by the `maintenance_windows` RPC.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub struct MaintenanceWindow {
-    /// First block height of the window (inclusive).
-    pub start: u64,
-    /// Block height the window ends at (exclusive).
-    pub end: u64,
 }
 
 /// Block information from block RPC.

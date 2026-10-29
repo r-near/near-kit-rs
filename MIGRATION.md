@@ -109,6 +109,7 @@ after the table cover each one.
 | `ViewFunctionResult::bytes()` | The `result` field: `&view.result` |
 | `ViewFunctionResult { result, logs, block_height, block_hash }` (a struct literal) | `ViewFunctionResult::new(result, block_height, block_hash).with_logs(logs)`: the struct is `#[non_exhaustive]`; its fields stay readable |
 | `ViewStateAllResult::into_values()` | The `values` field: `all.values` |
+| `Deref<Target = [StateItem]>` for `ViewStateAllResult` (`all.len()`, `all.iter()`, `all[0]`) | The `values` field: `all.values.len()`, `all.values[0]`; `for item in &all` still works |
 | `AccountState::is_initialized()` | `view.state == AccountState::Initialized` |
 | `ExecutionStatus::success_value()` | `match status { ExecutionStatus::SuccessValue(v) => Some(v), _ => None }` |
 | `FinalExecutionStatus::default()` | `FinalExecutionStatus::NotStarted` |
@@ -119,6 +120,7 @@ after the table cover each one.
 |---|---|
 | `RpcClient::call(method, params)` | `RpcClient::request(method, params)` |
 | `RpcClient::genesis_config()` | `rpc.request::<_, serde_json::Value>("genesis_config", serde_json::json!([]))` |
+| `RpcClient::block_effects(block)`, `RpcClient::maintenance_windows(id)`, `rpc::BlockEffects`, `rpc::StateChangeKindView`, `rpc::MaintenanceWindow` | `rpc.request::<_, serde_json::Value>("block_effects", serde_json::json!({ "block_id": hash }))` (or `{ "finality": "final" }`), `rpc.request::<_, serde_json::Value>("maintenance_windows", serde_json::json!({ "account_id": id }))`, or your own serde type in place of `Value` |
 | `RpcClient::with_retry_config(url, c)` | `RpcClient::with_transport_and_retry_config(url, Arc::new(ReqwestTransport::default()), c)`, or `Near::custom(url, id).retry_config(c)` |
 | `RpcClient::sandbox_fast_forward(n)`, `RpcClient::sandbox_patch_state(records)` | `sandbox.fast_forward(n)`, `sandbox.patch_state(records)`; for a sandbox node you started yourself, `near_kit_sandbox::fast_forward(&rpc, n)`, `near_kit_sandbox::patch_state(&rpc, records)` (sends the patch twice, as 0.20.1 did) |
 | `RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`, `RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE` | Crate-private (10,000 and 100) |
@@ -215,6 +217,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `protocol::StateInitExt` (`StateInit::by_hash(hash, data)`, `StateInit::by_publisher(id, data)`) | `StateInitV1::code(hash_or_id).with_data_entry(k, v).into()`, or `StateInit::V1(StateInitV1 { code: hash_or_id.into(), data })` |
 | `protocol::MAX_NONCES_FOR_GAS_KEY` | `AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY` |
 | `CryptoHash::to_vec()`, `From<&CryptoHash> for [u8; 32]` | `hash.as_bytes().to_vec()`; `<[u8; 32]>::from(hash)` (`CryptoHash` is `Copy`) |
+| `ChainId::default()` (mainnet) | `ChainId::mainnet()` |
 | `ChainId::from_str(s)` (`s.parse::<ChainId>()`), `AsRef<str> for ChainId` | `ChainId::from(s)` or `ChainId::new(s)`; `chain_id.as_str()` |
 | `AccessKeyPermission::function_call(rx, methods, allowance)`, `AccessKeyPermission::full_access()`, `AccessKey::function_call(..)` | `AccessKeyPermission::FunctionCall(FunctionCallPermission { allowance, receiver_id, method_names })`, `AccessKeyPermission::FullAccess`, `AccessKey { nonce: 0, permission }`; or `Action::add_function_call_key(..)` |
 | `VersionedDelegateActionPayload::get_actions()` | `let VersionedDelegateActionPayload::V2(d) = payload;` then `d.actions.iter().cloned().map(Action::from)` |

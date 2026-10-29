@@ -21,12 +21,12 @@ use crate::error::{ReceiptToTxError, RpcError, TimeoutCause};
 use crate::trace;
 use crate::types::RpcTransactionResponse;
 use crate::types::{
-    AccessKeyListView, AccessKeyView, AccountId, AccountIdRef, AccountView, BlockEffects,
-    BlockReference, BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
+    AccessKeyListView, AccessKeyView, AccountId, AccountIdRef, AccountView, BlockReference,
+    BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
     FunctionCallError, GasKeyNoncesView, GasPrice, GlobalContractId, GlobalContractIdentifierView,
-    HostError, MaintenanceWindow, MethodResolveError, PublicKey, PublicKeyHandle,
-    ReceiptToTxResponse, SignedTransaction, StatusResponse, SyncCheckpoint, TxExecutionStatus,
-    ViewFunctionResult, ViewStateAllResult, ViewStateResult,
+    HostError, MethodResolveError, PublicKey, PublicKeyHandle, ReceiptToTxResponse,
+    SignedTransaction, StatusResponse, SyncCheckpoint, TxExecutionStatus, ViewFunctionResult,
+    ViewStateAllResult, ViewStateResult,
 };
 
 /// Platform-appropriate async sleep, used for retry backoff.
@@ -1304,33 +1304,6 @@ impl RpcClient {
         self.request("block", block_params(&block.into())).await
     }
 
-    /// Get all state changes that occurred in a block.
-    ///
-    /// Uses the stabilized `block_effects` method (protocol 2.13), the new name
-    /// for `EXPERIMENTAL_changes_in_block`.
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block)))]
-    pub async fn block_effects(
-        &self,
-        block: impl Into<BlockReference>,
-    ) -> Result<BlockEffects, RpcError> {
-        self.request("block_effects", block_params(&block.into()))
-            .await
-    }
-
-    /// Get the upcoming maintenance windows for a validator account.
-    ///
-    /// Each window is a half-open block-height range during which the validator
-    /// has no block/chunk production duties. Uses the stabilized
-    /// `maintenance_windows` method (protocol 2.13).
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%account_id)))]
-    pub async fn maintenance_windows(
-        &self,
-        account_id: &AccountIdRef,
-    ) -> Result<Vec<MaintenanceWindow>, RpcError> {
-        let params = serde_json::json!({ "account_id": account_id.to_string() });
-        self.request("maintenance_windows", params).await
-    }
-
     /// Get node status.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub async fn status(&self) -> Result<StatusResponse, RpcError> {
@@ -2583,7 +2556,7 @@ mod tests {
             .view_state_all(&account, b"se", 0, BlockReference::Height(1))
             .await
             .unwrap();
-        let keys: Vec<&[u8]> = all.iter().map(|item| item.key.as_slice()).collect();
+        let keys: Vec<&[u8]> = all.values.iter().map(|item| item.key.as_slice()).collect();
         assert_eq!(keys, [b"sea", b"seb", b"sec"]);
         // The block fields come from the first page (all pages are pinned to it).
         assert_eq!(all.block_height, 9);
@@ -2630,7 +2603,7 @@ mod tests {
             .view_state_all(&account, b"", 1, BlockReference::Finality(Finality::Final))
             .await
             .unwrap();
-        assert_eq!(all.len(), 2);
+        assert_eq!(all.values.len(), 2);
         assert_eq!(all.block_height, 9);
 
         let params = transport.params();
@@ -2682,7 +2655,7 @@ mod tests {
             .view_state_all(&account, b"", 25, BlockReference::Height(1))
             .await
             .unwrap();
-        assert_eq!(all.len(), 1);
+        assert_eq!(all.values.len(), 1);
         assert_eq!(all.block_height, 9);
 
         let params = transport.params();
@@ -2692,8 +2665,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_view_state_all_result_is_ergonomic() {
-        // `ViewStateAllResult` derefs to `[StateItem]` and iterates by value
-        // and by reference.
+        // `ViewStateAllResult` holds its entries in `values` and iterates by
+        // value and by reference.
         let transport = CountingTransport::results([
             view_state_page(&[b"a"], Some(b"a")),
             view_state_page(&[b"b"], None),
@@ -2705,9 +2678,9 @@ mod tests {
             .view_state_all(&account, b"", 1, BlockReference::Height(1))
             .await
             .unwrap();
-        assert_eq!(all.len(), 2);
-        assert_eq!(all[0].key, b"a");
-        assert!(all.iter().all(|item| item.value == b"v"));
+        assert_eq!(all.values.len(), 2);
+        assert_eq!(all.values[0].key, b"a");
+        assert!(all.values.iter().all(|item| item.value == b"v"));
         let by_ref: Vec<&crate::types::StateItem> = (&all).into_iter().collect();
         assert_eq!(by_ref.len(), 2);
         let mut by_value = Vec::new();

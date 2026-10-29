@@ -54,12 +54,6 @@ impl ChainId {
     }
 }
 
-impl Default for ChainId {
-    fn default() -> Self {
-        Self::mainnet()
-    }
-}
-
 impl fmt::Display for ChainId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
@@ -84,7 +78,6 @@ mod tests {
 
     #[test]
     fn test_chain_id() {
-        assert_eq!(ChainId::default(), ChainId::mainnet());
         assert_eq!(ChainId::mainnet().to_string(), "mainnet");
         assert!(ChainId::mainnet().is_mainnet() && !ChainId::mainnet().is_testnet());
         assert!(ChainId::testnet().is_testnet() && !ChainId::testnet().is_mainnet());

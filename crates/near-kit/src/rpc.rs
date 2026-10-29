@@ -44,19 +44,18 @@ pub use near_kit_primitives::rpc::OutcomeError;
 pub use near_kit_primitives::rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountContractView, AccountState, AccountView, ActionReceiptData, ActionView,
-    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1, BlockEffects,
+    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
     BlockHeaderView, BlockReference, BlockView, ChunkHeaderView, CongestionInfoView,
     ContractCodeView, CurrentEpochValidatorInfo, DataReceiptData, DataReceiverView,
     DelegateActionV2View, DelegateActionView, EpochValidatorInfo, ExecutionMetadata,
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
     FinalExecutionStatus, Finality, GasKeyNoncesView, GasPrice, GasProfileEntry,
-    GlobalContractIdentifierView, MaintenanceWindow, MerkleDirection, MerklePathItem,
-    NextEpochValidatorInfo, NodeVersion, Receipt, ReceiptContent, ReceiptToTxResponse,
-    RpcTransactionResponse, STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator,
-    StateChangeKindView, StateItem, StatusResponse, SyncCheckpoint, SyncInfo, TransactionNonceView,
-    TransactionView, TrieSplit, TxExecutionStatus, ValidatorInfo, ValidatorKickoutReason,
-    ValidatorKickoutView, ValidatorStakeView, VersionedDelegateActionPayloadView,
-    ViewFunctionResult, ViewStateAllResult, ViewStateResult,
+    GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NextEpochValidatorInfo,
+    NodeVersion, Receipt, ReceiptContent, ReceiptToTxResponse, RpcTransactionResponse,
+    STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator, StateItem, StatusResponse,
+    SyncCheckpoint, SyncInfo, TransactionNonceView, TransactionView, TrieSplit, TxExecutionStatus,
+    ValidatorInfo, ValidatorKickoutReason, ValidatorKickoutView, ValidatorStakeView,
+    VersionedDelegateActionPayloadView, ViewFunctionResult, ViewStateAllResult, ViewStateResult,
 };
 
 #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]

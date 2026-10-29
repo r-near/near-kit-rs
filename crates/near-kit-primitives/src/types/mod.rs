@@ -43,15 +43,15 @@ pub use network::ChainId;
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountContractView, AccountState, AccountView, ActionReceiptData, ActionView,
-    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1, BlockEffects,
+    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
     BlockHeaderView, BlockView, ChunkHeaderView, CongestionInfoView, ContractCodeView,
     DataReceiptData, DataReceiverView, DelegateActionV2View, DelegateActionView, ExecutionMetadata,
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
     FinalExecutionStatus, GasKeyNoncesView, GasPrice, GasProfileEntry,
-    GlobalContractIdentifierView, MaintenanceWindow, MerkleDirection, MerklePathItem, NodeVersion,
-    Receipt, ReceiptContent, ReceiptToTxResponse, RpcTransactionResponse, STORAGE_AMOUNT_PER_BYTE,
-    SendTxResponse, SlashedValidator, StateChangeKindView, StateItem, StatusResponse, SyncInfo,
-    TransactionNonceView, TransactionView, TrieSplit, ValidatorInfo, ValidatorStakeView,
+    GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NodeVersion, Receipt,
+    ReceiptContent, ReceiptToTxResponse, RpcTransactionResponse, STORAGE_AMOUNT_PER_BYTE,
+    SendTxResponse, SlashedValidator, StateItem, StatusResponse, SyncInfo, TransactionNonceView,
+    TransactionView, TrieSplit, ValidatorInfo, ValidatorStakeView,
     VersionedDelegateActionPayloadView, ViewFunctionResult, ViewStateAllResult, ViewStateResult,
 };
 pub use rpc_extra::{

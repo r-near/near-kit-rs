@@ -1,13 +1,5 @@
-//! Integration tests for the stabilized 2.13 RPC methods: the
-//! `block_effects` and `maintenance_windows` wrappers, and `genesis_config`
-//! through the raw `RpcClient::request`.
-
-use near_kit::protocol::Action;
-use near_kit::*;
-use near_kit::{rpc::*, signer::SecretKey, transaction::Final};
-use near_kit_sandbox::SANDBOX_ROOT_ACCOUNT;
-
-use super::support::unique_account;
+//! Integration tests for the stabilized 2.13 RPC methods without a typed
+//! wrapper, called through the raw `RpcClient::request`.
 
 #[tokio::test]
 async fn test_genesis_config_returns_chain_config() {
@@ -31,57 +23,4 @@ async fn test_genesis_config_returns_chain_config() {
             .is_some(),
         "genesis_config should include a numeric protocol_version, got: {config}"
     );
-}
-
-#[tokio::test]
-async fn test_block_effects_returns_changes_for_block() {
-    let (_, near) = super::support::shared_client().await;
-
-    // Produce a block we know contains state changes: create an account. Then
-    // query that exact block's effects by hash (a fixed block, not the moving
-    // `final` reference) and assert the kind-changes parse — this exercises the
-    // non-empty path that an idle `final` block would not.
-    let key = SecretKey::generate_ed25519();
-    let account_id = unique_account("blockfx");
-    let outcome = near
-        .wait_until::<Final>()
-        .transaction(&account_id)
-        .add_action(Action::create_account())
-        .add_action(Action::transfer(NearToken::from_near(3)))
-        .add_action(Action::add_full_access_key(key.public_key()))
-        .await
-        .expect("create_account must execute");
-
-    let block_hash = outcome.transaction_outcome.block_hash;
-    let effects = near
-        .near()
-        .rpc()
-        .block_effects(BlockReference::Hash(block_hash))
-        .await
-        .expect("block_effects must parse");
-
-    assert_eq!(effects.block_hash, block_hash);
-    assert!(
-        !effects.changes.is_empty(),
-        "a block that created an account should report touched state"
-    );
-}
-
-#[tokio::test]
-async fn test_maintenance_windows_for_account() {
-    let (_, near) = super::support::shared_client().await;
-
-    let account: AccountId = SANDBOX_ROOT_ACCOUNT.into();
-    // The root account is the sandbox's sole validator, so this must not error.
-    // Windows may be empty depending on the epoch; the call succeeding and the
-    // ranges being well-formed (start <= end) is the contract under test.
-    let windows = near
-        .near()
-        .rpc()
-        .maintenance_windows(&account)
-        .await
-        .expect("maintenance_windows");
-    for w in &windows {
-        assert!(w.start <= w.end, "window range must be well-formed: {w:?}");
-    }
 }
