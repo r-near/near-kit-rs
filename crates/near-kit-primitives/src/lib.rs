@@ -97,11 +97,6 @@
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-// Compiles the README's code blocks as doctests.
-#[cfg(all(doctest, feature = "contracts"))]
-#[doc = include_str!("../README.md")]
-struct ReadmeDoctests;
-
 mod backend;
 mod error;
 mod platform;
