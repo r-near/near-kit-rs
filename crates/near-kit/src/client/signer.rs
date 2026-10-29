@@ -67,7 +67,8 @@ struct CredentialFile {
 ///
 /// Both write `{account_id}.json`. near-cli-rs also writes every key it
 /// saves to `{account_id}/{public_key}.json` (with the `:` of the key
-/// written as `_`), and never overwrites `{account_id}.json`, so that file
+/// written as `_`; for an ML-DSA-65 key, the name is its hash handle instead
+/// of the public key), and never overwrites `{account_id}.json`, so that file
 /// keeps the first key it saved for the account. This function reads:
 ///
 /// 1. `{account_id}.json`, if it exists;

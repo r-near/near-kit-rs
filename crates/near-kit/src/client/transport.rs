@@ -22,18 +22,74 @@ compile_error!(
      `NearBuilder::transport` instead"
 );
 
-/// `url` as it may be shown in logs, errors and `Debug` output: cut at the
-/// query string or fragment, and with any `user:pass@` userinfo removed, since
-/// RPC providers put API keys and credentials in both. The path is kept.
+/// `url` as it may be shown in logs, errors and `Debug` output: only
+/// `scheme://host[:port]`. RPC providers put API keys in the query string
+/// (`?apikey=...`), in the path (`/v3/<key>`, `/<token>/`) and in `user:pass@`
+/// userinfo, so all of those are left out.
+///
+/// The host is the one an HTTP client connects to: the authority ends at the
+/// first `/`, `?` or `#`, so an `@` in the query is never read as the end of
+/// userinfo. When that authority is not a valid `host[:port]`, only the
+/// scheme is shown (`https://…`). That covers an unencoded `?` or `#` in a
+/// password: `https://user:p?ss@host/` reads as host `user` with port `p`,
+/// which HTTP clients reject, and from the text alone it can't be told apart
+/// from `https://host:p?key=a@SECRET`, so neither side of the `?` is shown.
 pub(crate) fn redact_url(url: &str) -> String {
-    let url = &url[..url.find(['?', '#']).unwrap_or(url.len())];
-    let authority_start = url.find("://").map_or(0, |i| i + 3);
-    let rest = &url[authority_start..];
-    let authority = &rest[..rest.find('/').unwrap_or(rest.len())];
-    match authority.rfind('@') {
-        Some(at) => format!("{}{}", &url[..authority_start], &rest[at + 1..]),
-        None => url.to_string(),
+    let scheme_len = url
+        .find("://")
+        .filter(|&i| is_scheme(&url[..i]))
+        .map_or(0, |i| i + 3);
+    let (scheme, rest) = url.split_at(scheme_len);
+    let authority = &rest[..rest.find(['/', '\\', '?', '#']).unwrap_or(rest.len())];
+    let host = authority
+        .rfind('@')
+        .map_or(authority, |at| &authority[at + 1..]);
+    if is_host_and_port(host) {
+        format!("{scheme}{host}")
+    } else {
+        format!("{scheme}…")
     }
+}
+
+/// A URL scheme: a letter, then letters, digits, `+`, `-` or `.`.
+fn is_scheme(s: &str) -> bool {
+    s.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+}
+
+/// A host name, IPv4 address or bracketed IPv6 address, with an optional
+/// numeric port.
+fn is_host_and_port(s: &str) -> bool {
+    let (host_ok, port) = match s.strip_prefix('[') {
+        Some(v6) => match v6.split_once(']') {
+            Some((addr, port)) => (
+                !addr.is_empty()
+                    && addr
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() || matches!(b, b':' | b'.')),
+                port,
+            ),
+            None => return false,
+        },
+        None => {
+            let (host, port) = s.split_at(s.find(':').unwrap_or(s.len()));
+            (
+                !host.is_empty()
+                    && host.bytes().all(|b| {
+                        b.is_ascii_alphanumeric()
+                            || matches!(b, b'-' | b'.' | b'_')
+                            || !b.is_ascii()
+                    }),
+                port,
+            )
+        }
+    };
+    host_ok
+        && (port.is_empty()
+            || port
+                .strip_prefix(':')
+                .is_some_and(|port| port.bytes().all(|b| b.is_ascii_digit())))
 }
 
 /// A raw HTTP response handed back from an [`RpcTransport`].
@@ -416,6 +472,13 @@ mod wasi_http {
             })?;
             for chunk in body.chunks(WRITE_CHUNK) {
                 if let Err(e) = stream.blocking_write_and_flush(chunk) {
+                    let write_error = stream_err(e);
+                    // Drop the stream and the unfinished body first, which
+                    // aborts the request: a host that resolves the response
+                    // only once the body is finished or dropped would
+                    // otherwise block below forever.
+                    drop(stream);
+                    drop(out_body);
                     // The host closes the body stream when the request itself
                     // failed (connection refused, DNS, TLS, ...). That cause
                     // is in the response future, so report it when it's there.
@@ -425,7 +488,7 @@ mod wasi_http {
                     return Err(match future_response.get() {
                         Some(Ok(Err(code))) => request_failed(&code),
                         _ => RpcError::network(
-                            format!("wasi:http request body write failed: {}", stream_err(e)),
+                            format!("wasi:http request body write failed: {write_error}"),
                             None,
                             true,
                         ),
@@ -607,8 +670,8 @@ mod wasi_http {
         out
     }
 
-    /// A malformed URL is deterministic — never retryable. The message leaves
-    /// out the query, fragment and userinfo, which may carry an API key.
+    /// A malformed URL is deterministic — never retryable. The message shows
+    /// only the scheme and host, since the rest may carry an API key.
     fn invalid_url(url: &str, reason: &str) -> RpcError {
         let shown = super::redact_url(url);
         RpcError::network(format!("invalid RPC URL `{shown}`: {reason}"), None, false)

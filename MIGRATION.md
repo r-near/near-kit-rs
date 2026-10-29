@@ -197,6 +197,9 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `Error`, `KeyStoreError` (exhaustive) | `#[non_exhaustive]`: a `match` on either needs a `_` arm |
 | `Error::InvalidTransaction(String)` | `Error::Validation(String)` for local checks before sending; `Error::Outcome(OutcomeError)` for an outcome with no usable result; `Error::Decode(DecodeTransactionError)` for a signed transaction that fails to decode |
 | `Error::DelegateDecode` | `Error::DecodeDelegate`; `?` on `SignedDelegateAction::from_base64` converts into it |
+| `Error::InvalidTransaction` text for a local check: `Invalid transaction: …` | `Error::Validation` text: `Refused before signing: …` |
+| `TxExecutionError` text (also `failure_message()`): `ActionError: action #0: …`, `InvalidTxError: …` | `Action #0: …`, and the `InvalidTxError` text alone, as nearcore prints them |
+| `FinalExecutionOutcome::result()` text for a failed action: `Invalid transaction: Action error: action #0: …` | `OutcomeError::ActionFailed` text: `Action #0: …` |
 | `KeyStoreError::Io`, `Json`, `PathError` | Removed: nothing returned them |
 | `Error::is_invalid_tx()` | `matches!(e, Error::InvalidTx(_))` |
 | `RpcError::is_account_not_found()`, `is_contract_not_deployed()`, `is_method_not_found()`, `is_contract_panic()`, `is_global_contract_not_found()` | Match the variant: `matches!(e, RpcError::AccountNotFound { .. })` and so on |

@@ -140,10 +140,11 @@ pub enum SandboxError {
     #[error("sandbox chain ID {0:?} is reserved by neard; use a custom ID such as \"localnet\"")]
     UnsupportedChainId(String),
 
-    /// Docker or testcontainers failed while preparing the sandbox.
+    /// Docker, testcontainers or the HTTP client failed while preparing the
+    /// sandbox.
     #[error("sandbox container {operation} failed: {message}")]
     Container {
-        /// The container operation that failed.
+        /// The operation that failed.
         operation: &'static str,
         /// The underlying error message.
         message: String,
@@ -559,6 +560,20 @@ impl SandboxBuilder {
             .expect("SANDBOX_ROOT_SECRET_KEY is a valid ed25519 key");
         let root_signer = Arc::new(InMemorySigner::new(&root_account, root_key));
         let image = NearSandbox::new(&version, &root_account, chain_id.as_ref());
+        // No idle connections are kept, so each request opens its connection
+        // on the calling tokio runtime. A pooled connection is driven by a task
+        // on the runtime that opened it, and the shared sandbox serves tests
+        // that each run their own runtime: a request reusing another test's
+        // connection would fail once that test ends and its runtime drops.
+        // Built before the container starts, so a failure leaves nothing
+        // running.
+        let client = near_kit::reqwest::Client::builder()
+            .pool_max_idle_per_host(0)
+            .build()
+            .map_err(|error| SandboxError::Container {
+                operation: "build HTTP client",
+                message: error.to_string(),
+            })?;
         let container_err = |operation| {
             move |error: TestcontainersError| SandboxError::Container {
                 operation,
@@ -584,15 +599,6 @@ impl SandboxBuilder {
 
         info!(rpc_url = %rpc_url, "Sandbox container ready");
 
-        // No idle connections are kept, so each request opens its connection
-        // on the calling tokio runtime. A pooled connection is driven by a task
-        // on the runtime that opened it, and the shared sandbox serves tests
-        // that each run their own runtime: a request reusing another test's
-        // connection would fail once that test ends and its runtime drops.
-        let client = near_kit::reqwest::Client::builder()
-            .pool_max_idle_per_host(0)
-            .build()
-            .expect("the HTTP client's TLS backend initializes");
         let near = Near::custom(rpc_url, chain_id.unwrap_or_else(|| ChainId::new("sandbox")))
             .transport(ReqwestTransport::with_client(client))
             .build();

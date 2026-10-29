@@ -80,15 +80,28 @@ pub(crate) mod tracing_capture {
         }
     }
 
+    /// Captured events, and separately the fields each new span opened with.
     #[derive(Clone, Default)]
-    pub(crate) struct EventLog(Arc<Mutex<Vec<CapturedEvent>>>);
+    pub(crate) struct EventLog {
+        events: Arc<Mutex<Vec<CapturedEvent>>>,
+        spans: Arc<Mutex<Vec<CapturedEvent>>>,
+    }
 
     impl<S: Subscriber> Layer<S> for EventLog {
         fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
             let mut fields = Vec::new();
             event.record(&mut FieldVisitor(&mut fields));
-            self.0.lock().unwrap().push(CapturedEvent {
+            self.events.lock().unwrap().push(CapturedEvent {
                 level: *event.metadata().level(),
+                fields,
+            });
+        }
+
+        fn on_new_span(&self, attrs: &span::Attributes<'_>, _id: &span::Id, _ctx: Context<'_, S>) {
+            let mut fields = Vec::new();
+            attrs.record(&mut FieldVisitor(&mut fields));
+            self.spans.lock().unwrap().push(CapturedEvent {
+                level: *attrs.metadata().level(),
                 fields,
             });
         }
@@ -145,7 +158,12 @@ pub(crate) mod tracing_capture {
         }
 
         pub(crate) fn events(&self) -> Vec<CapturedEvent> {
-            self.0.lock().unwrap().clone()
+            self.events.lock().unwrap().clone()
+        }
+
+        /// The fields of every span opened while installed.
+        pub(crate) fn spans(&self) -> Vec<CapturedEvent> {
+            self.spans.lock().unwrap().clone()
         }
     }
 }
