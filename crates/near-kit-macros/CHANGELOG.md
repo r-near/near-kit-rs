@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0-rc.1...near-kit-macros-v0.15.0-rc.2) - 2026-10-29
+
+### Added
+
+- *(macros)* declare a call's default gas and deposit in #[contract] ([#389](https://github.com/r-near/near-kit-rs/pull/389))
+
+### Fixed
+
+- send `{}` from every JSON view and call without arguments ([#388](https://github.com/r-near/near-kit-rs/pull/388))
+
 ## [0.15.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.14.0...near-kit-macros-v0.15.0-rc.1) - 2026-10-29
 
 Use this crate through `near-kit` or `near-kit-primitives` with the `contracts`

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.1...near-kit-v0.30.0-rc.2) - 2026-10-29
+
+### Added
+
+- *(macros)* declare a call's default gas and deposit in #[contract] ([#389](https://github.com/r-near/near-kit-rs/pull/389))
+
+### Fixed
+
+- send `{}` from every JSON view and call without arguments ([#388](https://github.com/r-near/near-kit-rs/pull/388))
+
+### Other
+
+- use US English spelling throughout ([#386](https://github.com/r-near/near-kit-rs/pull/386))
+
 ## [0.30.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.20.1...near-kit-v0.30.0-rc.1) - 2026-10-29
 
 This release changes the whole API in one go and keeps no deprecated aliases.

@@ -4,6 +4,16 @@ All notable changes to `near-kit-sandbox` are documented in this file.
 
 ## [Unreleased]
 
+## [0.30.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.30.0-rc.1...near-kit-sandbox-v0.30.0-rc.2) - 2026-10-29
+
+### Added
+
+- *(macros)* declare a call's default gas and deposit in #[contract] ([#389](https://github.com/r-near/near-kit-rs/pull/389))
+
+### Fixed
+
+- send `{}` from every JSON view and call without arguments ([#388](https://github.com/r-near/near-kit-rs/pull/388))
+
 ## [0.30.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.20.1...near-kit-sandbox-v0.30.0-rc.1) - 2026-10-29
 
 Depends on near-kit 0.30.0-rc.1. See
