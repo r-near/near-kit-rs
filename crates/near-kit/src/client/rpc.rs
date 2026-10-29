@@ -1686,7 +1686,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Mutex, mpsc};
 
-    use reqwest::header::{HeaderMap, HeaderValue};
+    use crate::reqwest::header::{HeaderMap, HeaderValue};
 
     use super::*;
     use crate::client::{BoxFuture, TransportResponse};
@@ -2377,7 +2377,7 @@ mod tests {
         let mut api_key = HeaderValue::from_static(secret);
         api_key.set_sensitive(true);
         headers.insert("x-api-key", api_key);
-        let http_client = reqwest::Client::builder()
+        let http_client = crate::reqwest::Client::builder()
             .default_headers(headers)
             .build()
             .unwrap();
