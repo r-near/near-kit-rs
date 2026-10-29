@@ -81,8 +81,10 @@ impl Near {
     /// chain IDs, and two networks with one chain ID (two local sandboxes)
     /// don't. A backend that can't report its genesis hash (no `status`
     /// method) shares nonces by chain ID, so still pass the network's real
-    /// chain ID. Any other `status` failure fails that send or signature, and
-    /// the next one asks again.
+    /// chain ID; that sequence is separate from the genesis-keyed one, so
+    /// don't use one key through both kinds of backend at once. Any other
+    /// `status` failure fails that send or signature, and the next one asks
+    /// again.
     ///
     /// # Example
     ///
