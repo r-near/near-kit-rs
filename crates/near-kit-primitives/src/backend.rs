@@ -441,7 +441,7 @@ macro_rules! forward {
     )+};
 }
 
-forward!(&T, Box<T>, Arc<T>);
+forward!(&T, Arc<T>);
 
 /// Constructors and encoders used by `#[contract]` expansions (and by
 /// near-kit's token clients). Not public API.
@@ -843,14 +843,10 @@ mod tests {
             assert_spawnable(call(sender, contract(), FunctionCall::new("add")).into_future());
         }
         generic(MockViewer::new(b"1"), Arc::new(MockSender::default()));
-        generic(
-            Box::new(MockViewer::new(b"1")),
-            Box::new(MockSender::default()),
-        );
     }
 
     #[test]
-    fn borrowed_and_boxed_backends_forward() {
+    fn borrowed_backends_forward() {
         let viewer = MockViewer::new(b"5");
         let by_ref: u64 = futures::executor::block_on(
             view_json::<_, u64>(&*viewer, contract(), "get", Ok(Vec::new())).with_metadata(),
@@ -858,12 +854,6 @@ mod tests {
         .unwrap()
         .result;
         assert_eq!(by_ref, 5);
-
-        let boxed: Box<MockSender> = Box::default();
-        assert_eq!(
-            run(call(boxed, contract(), FunctionCall::new("add"))).unwrap(),
-            1
-        );
     }
 
     #[test]

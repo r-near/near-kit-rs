@@ -152,6 +152,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `FungibleToken::fmt`, `NonFungibleToken::fmt` (`Debug` on the clients) | `Debug` on `FungibleTokenClient`, `NonFungibleTokenClient` |
 | `standards::FtAmount` (and `From<FtAmount> for u128`) | Removed: amounts are `u128`; format with `metadata().await?.decimals` |
 | `standards::nep413::serialize_message(params)` | `nep413::hash_message(params)` |
+| `Viewer` and `TxSender` for `Box<T>` | `Arc<T>`, or the backend itself |
 
 ### Keys and signers
 
@@ -476,7 +477,7 @@ The macro now rejects declarations it used to compile into something wrong:
 Implement `Viewer`, `TxSender` or both, and typed contract clients, `View`,
 `Call` and the token clients run on your type. Build the view result with
 `ViewFunctionResult::new(bytes, block_height, block_hash)`. Both traits are
-implemented for `&T`, `Box<T>` and `Arc<T>` (with `T: ?Sized`), so
+implemented for `&T` and `Arc<T>` (with `T: ?Sized`), so
 `Arc<dyn MySender>` works once you implement `TxSender for dyn MySender`.
 Awaiting a `View` or `Call` needs a `'static` backend; through a shorter
 `&T` borrow, use `.with_metadata()` on a view and `.send()` on a call.
