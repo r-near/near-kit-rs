@@ -341,7 +341,7 @@ impl Sandbox {
         let account_id = account_id.into();
 
         // Fetch raw account data from RPC - this includes all fields the sandbox expects
-        let mut account_response: serde_json::Value = near
+        let account_response: serde_json::Value = near
             .rpc()
             .request(
                 "query",
@@ -353,13 +353,11 @@ impl Sandbox {
             )
             .await?;
 
-        account_response["amount"] = balance.as_yoctonear().to_string().into();
-
         let records = serde_json::json!([
             {
                 "Account": {
                     "account_id": account_id.to_string(),
-                    "account": account_response
+                    "account": with_amount(account_response, balance)
                 }
             }
         ]);
@@ -458,6 +456,20 @@ impl Sandbox {
             .await?;
         Ok(())
     }
+}
+
+/// `account` (a raw `view_account` result) with its `amount` set to `balance`.
+///
+/// A result that isn't a JSON object is passed through unchanged, so the
+/// patch or the balance check reports the failure instead of a panic.
+fn with_amount(mut account: serde_json::Value, balance: NearToken) -> serde_json::Value {
+    if let Some(fields) = account.as_object_mut() {
+        fields.insert(
+            "amount".to_string(),
+            serde_json::Value::String(balance.as_yoctonear().to_string()),
+        );
+    }
+    account
 }
 
 /// Builder for custom sandbox configuration.
@@ -634,6 +646,24 @@ mod tests {
             shared,
             Err(SandboxError::UnsupportedChainId(chain_id)) if chain_id == "mainnet"
         ));
+    }
+
+    #[test]
+    fn with_amount_sets_the_amount_of_an_account_object_only() {
+        let balance = NearToken::from_near(5);
+        let account = serde_json::json!({ "amount": "1", "locked": "0" });
+        assert_eq!(
+            with_amount(account, balance),
+            serde_json::json!({ "amount": balance.as_yoctonear().to_string(), "locked": "0" })
+        );
+        for other in [
+            serde_json::json!(null),
+            serde_json::json!([1, 2]),
+            serde_json::json!("account"),
+            serde_json::json!(7),
+        ] {
+            assert_eq!(with_amount(other.clone(), balance), other);
+        }
     }
 
     #[test]
