@@ -9,7 +9,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
-use super::transport::RpcTransport;
+use super::transport::{RpcTransport, redact_url};
 // The module itself is only referenced for `default_transport`, which doesn't
 // exist on WASI builds without the `wasi-http` feature (no built-in transport).
 #[cfg(any(
@@ -776,7 +776,7 @@ impl RpcClient {
     /// Transient failures ([`RpcError::is_retryable`]) are retried according
     /// to the client's [`RetryConfig`]. `sandbox_fast_forward` is never
     /// retried, since it is not idempotent.
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %sanitize_url(&self.url))))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %redact_url(&self.url))))]
     pub async fn request<P: Serialize, R: DeserializeOwned>(
         &self,
         method: &str,
@@ -1449,7 +1449,8 @@ impl Clone for RpcClient {
 impl std::fmt::Debug for RpcClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RpcClient")
-            .field("url", &self.url)
+            // The URL may carry an API key (query) or credentials (userinfo).
+            .field("url", &redact_url(&self.url))
             .field("retry_config", &self.retry_config)
             .finish()
     }
@@ -1487,16 +1488,6 @@ fn block_id_or_null(block: Option<&BlockReference>) -> serde_json::Value {
         Some(BlockReference::Hash(h)) => serde_json::json!(h.to_string()),
         _ => serde_json::Value::Null,
     }
-}
-
-/// Cut a URL at its query string or fragment before it goes into a tracing
-/// span, since RPC providers often put API keys in query parameters. Userinfo
-/// and path segments are kept as they are.
-// Without `tracing`, only the unit tests reference this.
-#[cfg_attr(not(feature = "tracing"), allow(dead_code))]
-fn sanitize_url(url: &str) -> &str {
-    let end = url.find('?').or_else(|| url.find('#')).unwrap_or(url.len());
-    &url[..end]
 }
 
 /// Delay before retry number `retry` (0-based): `initial_delay_ms` doubled
@@ -1634,18 +1625,31 @@ fn with_timeout_tx_hash(mut err: RpcError, tx_hash: CryptoHash) -> RpcError {
     err
 }
 
-/// A 4xx is a deterministic client error, so a catch-all [`RpcError::Rpc`]
-/// decoded from a 4xx body becomes a non-retryable `Network` error (as an
-/// undecodable 4xx body would). Typed variants and 5xx errors pass through
-/// for `is_retryable` to judge.
+/// A catch-all [`RpcError::Rpc`] decoded from a 4xx body becomes a `Network`
+/// error that keeps the status's own retry classification (as an undecodable
+/// 4xx body would): a 408 or 429 is retried, any other 4xx is a deterministic
+/// client error. Typed variants and 5xx errors pass through for
+/// `is_retryable` to judge.
+///
+/// JSON-RPC "method not found" (`-32601`) stays an `Rpc` error at any status
+/// (nearcore sends it with HTTP 400, JSON-RPC-over-HTTP with 404), so a
+/// backend without `status` still caches nonces by chain id. It is never
+/// retried either way.
 fn preserve_http_retry_classification(err: RpcError, status: u16, body: &str) -> RpcError {
     match err {
-        RpcError::Rpc { .. } if (400..500).contains(&status) => {
-            RpcError::network(format!("HTTP {}: {}", status, body), Some(status), false)
+        RpcError::Rpc { code, .. } if code != METHOD_NOT_FOUND && (400..500).contains(&status) => {
+            RpcError::network(
+                format!("HTTP {}: {}", status, body),
+                Some(status),
+                is_retryable_status(status),
+            )
         }
         other => other,
     }
 }
+
+/// JSON-RPC's "method not found" error code.
+pub(super) const METHOD_NOT_FOUND: i64 = -32601;
 
 #[cfg(test)]
 mod tests {
@@ -2236,6 +2240,8 @@ mod tests {
         Close,
         /// Read the whole request and answer `{"ok": true}`.
         Respond,
+        /// Read the whole request and answer with bytes that aren't HTTP.
+        Garbage,
     }
 
     /// Serve one connection per `script` entry, in order, then stop
@@ -2295,6 +2301,10 @@ mod tests {
                             body,
                         )
                         .unwrap();
+                    }
+                    Conn::Garbage => {
+                        let _ = heads_tx.send(read_request(&mut stream));
+                        stream.write_all(b"NOT HTTP AT ALL\r\n\r\n").unwrap();
                     }
                 }
             }
@@ -2388,6 +2398,119 @@ mod tests {
             .unwrap();
         assert_eq!(response, serde_json::json!({ "ok": true }));
         server.join().unwrap();
+    }
+
+    /// A transport failure that isn't a refused, dropped or timed-out
+    /// connection (here a reply that isn't HTTP) is deterministic: returned
+    /// after one attempt.
+    #[tokio::test]
+    async fn test_malformed_http_response_is_not_retried() {
+        // A retry would find the listener gone and fail to connect, which
+        // *is* retryable, so a wrong classification shows up either way.
+        let (url, server, heads) = scripted_server(vec![Conn::Garbage]);
+
+        let error = test_client(&url, fast_retries(2))
+            .request::<_, serde_json::Value>("status", ())
+            .await
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(
+            matches!(&error, RpcError::Http(e) if !e.is_connect()),
+            "{error:?}"
+        );
+        assert!(!error.is_retryable(), "{error:?}");
+        assert_eq!(heads.try_iter().count(), 1);
+    }
+
+    /// The testing guide promises that a `-32603` internal error is re-sent.
+    #[tokio::test]
+    async fn test_internal_error_code_is_retried() {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": { "code": -32603, "message": "Internal error" },
+        }))
+        .unwrap();
+        let transport = CountingTransport::new(200, body);
+        let error = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(2),
+        )
+        .request::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(error, RpcError::Rpc { code: -32603, .. }),
+            "{error:?}"
+        );
+        assert_eq!(transport.calls(), 3);
+    }
+
+    /// The `query` endpoint can report an error inside `result`; only a
+    /// `query` reads it as one, and it isn't retried.
+    #[tokio::test]
+    async fn test_query_error_inside_result_is_an_error_for_query_only() {
+        let body = rpc_result(serde_json::json!({
+            "error": "access key ed25519:11111111111111111111111111111111 does not exist while viewing",
+            "logs": [],
+            "block_height": 1,
+            "block_hash": "11111111111111111111111111111111",
+        }));
+        let transport = CountingTransport::new(200, body.clone());
+        let error = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(2),
+        )
+        .request::<_, serde_json::Value>("query", serde_json::json!({}))
+        .await
+        .unwrap_err();
+        assert!(!error.is_retryable(), "{error:?}");
+        assert!(error.to_string().contains("does not exist"), "{error}");
+        assert_eq!(transport.calls(), 1);
+
+        let result: serde_json::Value = CountingTransport::new(200, body)
+            .client()
+            .request("block", serde_json::json!({}))
+            .await
+            .unwrap();
+        assert!(result["error"].is_string());
+    }
+
+    /// `Debug` output (an app's `#[derive(Debug)]` state, `?client` in a log)
+    /// never shows the URL's API key or credentials, or the transport's
+    /// default headers.
+    #[test]
+    fn test_debug_output_hides_url_secrets_and_headers() {
+        let near = crate::Near::custom(
+            "https://user:PASSWORD@rpc.example.com/?apikey=SECRET",
+            "mainnet",
+        )
+        .build();
+        let signing = near.clone().with_signer(crate::types::InMemorySigner::new(
+            crate::account!("alice.near"),
+            crate::types::SecretKey::generate_ed25519(),
+        ));
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", HeaderValue::from_static("HEADERKEY"));
+        let client = crate::reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .unwrap();
+        let transport = transport::ReqwestTransport::with_client(client);
+
+        for shown in [
+            format!("{near:?}"),
+            format!("{signing:?}"),
+            format!("{:?}", near.rpc()),
+            format!("{transport:?}"),
+        ] {
+            for secret in ["SECRET", "PASSWORD", "user", "HEADERKEY"] {
+                assert!(!shown.contains(secret), "{secret} in {shown}");
+            }
+        }
+        assert!(format!("{near:?}").contains("https://rpc.example.com/"));
     }
 
     /// The node may have handled a request whose connection dropped, so only
@@ -2828,11 +2951,25 @@ mod tests {
     }
 
     #[test]
-    fn test_sanitize_url_strips_query_and_fragment() {
+    fn test_redact_url_strips_query_fragment_and_userinfo() {
         for (url, shown) in [
             (
                 "https://rpc.mainnet.near.org",
                 "https://rpc.mainnet.near.org",
+            ),
+            (
+                "https://user:secret@rpc.provider.com/v1",
+                "https://rpc.provider.com/v1",
+            ),
+            (
+                "https://user:p@ss@rpc.provider.com:3030?api_key=secret123",
+                "https://rpc.provider.com:3030",
+            ),
+            ("http://token@127.0.0.1:3030/", "http://127.0.0.1:3030/"),
+            // An `@` in the path is not userinfo.
+            (
+                "https://rpc.provider.com/v1/@scope",
+                "https://rpc.provider.com/v1/@scope",
             ),
             (
                 "https://rpc.provider.com/v1?api_key=secret123",
@@ -2847,7 +2984,7 @@ mod tests {
                 "https://rpc.provider.com/v1",
             ),
         ] {
-            assert_eq!(sanitize_url(url), shown);
+            assert_eq!(redact_url(url), shown);
         }
     }
 
@@ -4319,9 +4456,10 @@ mod tests {
     }
 
     /// Non-2xx responses through the real `request` path: nearcore's typed
-    /// errors come through, a 4xx whose cause near-kit doesn't know stays a
-    /// non-retryable `Network` error (#189), and a 5xx keeps the body's own
-    /// retry classification.
+    /// errors come through, a 4xx whose cause near-kit doesn't know becomes a
+    /// `Network` error with the status's retry classification (#189), a
+    /// "method not found" stays an `Rpc` error at any status, and a 5xx keeps
+    /// the body's own retry classification.
     #[tokio::test]
     async fn test_non_2xx_responses_decode_and_keep_http_retry_classification() {
         let handler = |cause, info, data: &str| rpc_error(Some(cause), info, data.into());
@@ -4330,7 +4468,20 @@ mod tests {
         }
         type Check = fn(&RpcError) -> bool;
         // `(status, body, attempts with 2 retries allowed, expected error)`
-        let cases: [(u16, Vec<u8>, usize, Check); 10] = [
+        // nearcore's "method not found", which it sends with HTTP 400.
+        let method_not_found = serde_json::to_vec(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "error": {
+                "name": "REQUEST_VALIDATION_ERROR",
+                "cause": { "name": "METHOD_NOT_FOUND", "info": { "method_name": "block" } },
+                "code": -32601,
+                "message": "Method not found",
+                "data": "block",
+            },
+        }))
+        .unwrap();
+        let cases: [(u16, Vec<u8>, usize, Check); 15] = [
             (
                 422,
                 handler(
@@ -4406,6 +4557,66 @@ mod tests {
                 3,
                 |e| matches!(e, RpcError::Rpc { .. }),
             ),
+            // A rate limiter or gateway timeout that speaks JSON-RPC keeps
+            // its status's retry classification.
+            (
+                429,
+                rpc_error(None, serde_json::json!({}), "Too many requests".into()),
+                3,
+                |e| {
+                    matches!(
+                        e,
+                        RpcError::Network {
+                            status_code: Some(429),
+                            retryable: true,
+                            ..
+                        }
+                    )
+                },
+            ),
+            (
+                429,
+                br#"{"jsonrpc":"2.0","id":0,"error":{"code":-32005,"message":"rate limited"}}"#
+                    .to_vec(),
+                3,
+                |e| {
+                    matches!(
+                        e,
+                        RpcError::Network {
+                            status_code: Some(429),
+                            retryable: true,
+                            ..
+                        }
+                    )
+                },
+            ),
+            (
+                408,
+                rpc_error(
+                    Some("SOME_UNMAPPED_CAUSE"),
+                    serde_json::json!({}),
+                    "details".into(),
+                ),
+                3,
+                |e| {
+                    matches!(
+                        e,
+                        RpcError::Network {
+                            status_code: Some(408),
+                            retryable: true,
+                            ..
+                        }
+                    )
+                },
+            ),
+            // "Method not found" stays itself, so the nonce cache can fall
+            // back to the chain id; it is never retried.
+            (400, method_not_found.clone(), 1, |e| {
+                matches!(e, RpcError::Rpc { code: -32601, .. }) && !e.is_retryable()
+            }),
+            (404, method_not_found, 1, |e| {
+                matches!(e, RpcError::Rpc { code: -32601, .. }) && !e.is_retryable()
+            }),
             (
                 422,
                 b"<html><body><h1>422 Unprocessable Entity</h1></body></html>".to_vec(),

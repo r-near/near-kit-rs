@@ -179,7 +179,8 @@ the first attempt, waiting 500 ms, 1 s and 2 s. A request is retried when
 
 - transport failures: connection refused, reset or dropped mid-response, and
   client timeouts;
-- HTTP 408, 429 and 5xx responses that don't carry a JSON-RPC error;
+- HTTP 408, 429 and 5xx responses that don't carry a JSON-RPC error, and
+  408 and 429 responses whose JSON-RPC error has no variant of its own;
 - `ShardUnavailable`, `NodeNotSynced`, `InternalError` and `Timeout`;
 - `InvalidTx` with `ShardCongested` or `ShardStuck`;
 - `RpcError::Rpc` with code `-32603`, and `RpcError::Rpc` with code

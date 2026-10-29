@@ -50,6 +50,19 @@ fn matches_upstream_vectors() {
 }
 
 #[test]
+fn matches_nearcore_vector() {
+    // nearcore 2.14 `runtime/runtime/src/action_validation.rs`.
+    let state_init = StateInit::V1(StateInitV1 {
+        code: GlobalContractId::AccountId("ft.near".parse().unwrap()),
+        data: BTreeMap::new(),
+    });
+    assert_eq!(
+        kit_id(&state_init).as_str(),
+        "0s69284a5453e7be5632b28b6a01baecf6c12c156d"
+    );
+}
+
+#[test]
 fn matches_upstream_on_samples() {
     let mut big = BTreeMap::new();
     for i in 0u8..40 {

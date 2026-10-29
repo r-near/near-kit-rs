@@ -1,4 +1,9 @@
 [workspace]
+# Publish only when the release PR merges. By default release-plz publishes
+# any workspace crate whose version isn't on crates.io on every push to main,
+# so a version bump merged outside the release PR would go out mid-change.
+release_always = false
+
 # Enable changelog updates
 changelog_update = true
 

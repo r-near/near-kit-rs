@@ -10,7 +10,7 @@ use crate::error::{Error, RpcError};
 use crate::trace;
 use crate::types::{AccountId, ChainId, CryptoHash, PublicKey};
 
-use super::rpc::RpcClient;
+use super::rpc::{METHOD_NOT_FOUND, RpcClient};
 
 /// The chain a client draws nonces for: its configured chain id, and the
 /// genesis hash its node reported, if it can report one.
@@ -85,9 +85,6 @@ impl GenesisHash {
         })
     }
 }
-
-/// JSON-RPC's "method not found" error code.
-const METHOD_NOT_FOUND: i64 = -32601;
 
 /// Which chain an entry belongs to.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

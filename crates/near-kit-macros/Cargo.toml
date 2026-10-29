@@ -9,6 +9,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+# The compile tests need near-kit from this workspace (a path dev-dependency,
+# stripped on publish), so they can't run from the package.
+exclude = ["tests"]
 
 [lib]
 proc-macro = true

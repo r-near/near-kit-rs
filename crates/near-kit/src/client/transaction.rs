@@ -111,6 +111,7 @@ pub struct DelegateOptions {
 
     /// Number of blocks after the current height when the delegate action should expire.
     /// Defaults to 200 blocks if neither this nor `max_block_height` is provided.
+    /// The sum saturates, so `Some(u64::MAX)` never expires.
     pub block_height_offset: Option<u64>,
 
     /// Override nonce to use for the delegate action. If omitted, the next
@@ -517,7 +518,9 @@ impl PreparedTransaction {
         } else {
             let status = self.rpc.status().await?;
             let offset = options.block_height_offset.unwrap_or(200);
-            status.sync_info.latest_block_height + offset
+            // A huge offset ("never expire") must not wrap to a height
+            // that has already passed.
+            status.sync_info.latest_block_height.saturating_add(offset)
         };
 
         let PreparedTransaction {
@@ -1075,12 +1078,18 @@ mod tests {
         );
     }
 
-    /// A node's answer to a method it doesn't serve.
+    /// nearcore's answer to a method it doesn't serve (sent with HTTP 400).
     fn method_not_found_body() -> Vec<u8> {
         serde_json::to_vec(&serde_json::json!({
             "jsonrpc": "2.0",
             "id": 0,
-            "error": { "code": -32601, "message": "Method not found" },
+            "error": {
+                "name": "REQUEST_VALIDATION_ERROR",
+                "cause": { "name": "METHOD_NOT_FOUND", "info": { "method_name": "status" } },
+                "code": -32601,
+                "message": "Method not found",
+                "data": "status",
+            },
         }))
         .unwrap()
     }
@@ -1248,8 +1257,9 @@ mod tests {
         /// The `finality` of each access key view, in order.
         view_finalities: Mutex<Vec<serde_json::Value>>,
         genesis_hash: CryptoHash,
-        /// Replies to the first `status` calls; then the genesis hash.
-        status_replies: Mutex<VecDeque<Vec<u8>>>,
+        /// Replies (HTTP status, body) to the first `status` calls; then the
+        /// genesis hash.
+        status_replies: Mutex<VecDeque<(u16, Vec<u8>)>>,
         status_calls: AtomicUsize,
     }
 
@@ -1299,6 +1309,7 @@ mod tests {
             body: Vec<u8>,
         ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
             let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            let mut status = 200;
             let body = match request["method"].as_str().unwrap() {
                 "EXPERIMENTAL_view_access_key" => {
                     self.view_finalities
@@ -1335,11 +1346,14 @@ mod tests {
                 "status" => {
                     self.status_calls.fetch_add(1, Ordering::SeqCst);
                     let reply = self.status_replies.lock().unwrap().pop_front();
-                    reply.unwrap_or_else(|| status_body(self.genesis_hash))
+                    let (http, body) =
+                        reply.unwrap_or_else(|| (200, status_body(self.genesis_hash)));
+                    status = http;
+                    body
                 }
                 other => panic!("unexpected RPC method {other}"),
             };
-            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+            Box::pin(async move { Ok(TransportResponse { status, body }) })
         }
     }
 
@@ -1441,7 +1455,7 @@ mod tests {
             .status_replies
             .lock()
             .unwrap()
-            .push_back(internal_error_body());
+            .push_back((200, internal_error_body()));
         let near = crate::Near::custom("http://status-fails.invalid", "status-fails")
             .transport(transport.clone())
             .retry_config(crate::rpc::RetryConfig::none())
@@ -1479,36 +1493,47 @@ mod tests {
 
     #[tokio::test]
     async fn a_backend_without_status_shares_nonces_by_chain_id() {
-        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
-        let without_status = |url| {
-            let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
-            transport
-                .status_replies
-                .lock()
-                .unwrap()
-                .push_back(method_not_found_body());
-            (
-                signing_via(url, "no-status", transport.clone(), signer.clone()),
-                transport,
-            )
-        };
-        let (first, first_transport) = without_status("http://no-status-a.invalid");
-        let (second, _) = without_status("http://no-status-b.invalid");
-
-        let mut nonces = Vec::new();
-        for near in [&first, &second, &first] {
-            nonces.push(
-                near.sign(account!("bob.testnet"), transfer())
-                    .await
+        // "Method not found" arrives with HTTP 200, with nearcore's 400, or
+        // with JSON-RPC-over-HTTP's 404: each falls back to the chain id.
+        for http in [200, 400, 404] {
+            let chain_id = format!("no-status-{http}");
+            let signer =
+                InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+            let without_status = |url| {
+                let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+                transport
+                    .status_replies
+                    .lock()
                     .unwrap()
-                    .transaction
-                    .nonce,
+                    .push_back((http, method_not_found_body()));
+                (
+                    signing_via(url, &chain_id, transport.clone(), signer.clone()),
+                    transport,
+                )
+            };
+            let (first, first_transport) = without_status("http://no-status-a.invalid");
+            let (second, _) = without_status("http://no-status-b.invalid");
+
+            let mut nonces = Vec::new();
+            for near in [&first, &second, &first] {
+                let signed = near.sign(account!("bob.testnet"), transfer()).await;
+                nonces.push(
+                    signed
+                        .unwrap_or_else(|e| panic!("HTTP {http}: {e}"))
+                        .transaction
+                        .nonce,
+                );
+            }
+            // One sequence by chain id, and the answer is kept: `status`
+            // isn't asked again, though the transport would now report a
+            // genesis hash.
+            assert_eq!(nonces, vec![6, 7, 8], "HTTP {http}");
+            assert_eq!(
+                first_transport.status_calls.load(Ordering::SeqCst),
+                1,
+                "HTTP {http}"
             );
         }
-        // One sequence by chain id, and the answer is kept: `status` isn't
-        // asked again, though the transport would now report a genesis hash.
-        assert_eq!(nonces, vec![6, 7, 8]);
-        assert_eq!(first_transport.status_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -1755,6 +1780,136 @@ mod tests {
             max_block_height: Some(1000),
             ..Default::default()
         }
+    }
+
+    #[tokio::test]
+    async fn max_nonce_retries_bounds_every_retried_rejection() {
+        // Each rejection the send loop retries is sent at most
+        // `max_nonce_retries + 1` times ("0 sends once"), then returned.
+        type Rejection = fn() -> Vec<u8>;
+        let rejections: [(&str, Rejection); 3] = [
+            ("InvalidNonce", || invalid_nonce_body(6, 5)),
+            ("Expired", expired_body),
+            ("NonceTooLarge", || nonce_too_large_body(6, 6)),
+        ];
+        for (name, rejection) in rejections {
+            for retries in [0, 1, 3] {
+                // More rejections than the budget allows, so an off-by-one
+                // or an unbounded loop shows up as an extra send.
+                let replies = (0..retries + 3).map(|_| rejection()).collect();
+                let transport = ScriptedNonceTransport::new(vec![(5, 100)], replies);
+                let near = crate::Near::custom("http://budget.invalid", "budget")
+                    .transport(transport.clone())
+                    .retry_config(crate::rpc::RetryConfig::none())
+                    .max_nonce_retries(retries)
+                    .build()
+                    .with_signer(InMemorySigner::new(
+                        account!("alice.testnet"),
+                        SecretKey::generate_ed25519(),
+                    ));
+
+                let error = near
+                    .wait_until::<Submitted>()
+                    .transaction(account!("bob.testnet"))
+                    .add_action(Action::transfer(NearToken::from_yoctonear(1)))
+                    .await
+                    .expect_err("every attempt is rejected");
+
+                let sends = transport.sent.lock().unwrap().len();
+                assert_eq!(sends, retries as usize + 1, "{name}, {retries} retries");
+                assert!(
+                    matches!(&error, Error::InvalidTx(e) if format!("{e:?}").starts_with(name)),
+                    "{name}, {retries} retries: {error:?}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn sign_delegate_expires_200_blocks_ahead_by_default() {
+        // The mock node is at height 100.
+        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        let near = signing_via("http://expiry.invalid", "expiry", transport, signer);
+        let expiry = |options| {
+            let near = near.clone();
+            async move {
+                near.sign_delegate(account!("bob.testnet"), transfer(), options)
+                    .await
+                    .unwrap()
+                    .delegate_action
+                    .max_block_height
+            }
+        };
+
+        assert_eq!(expiry(DelegateOptions::default()).await, 300);
+        let offset = |offset| DelegateOptions {
+            block_height_offset: Some(offset),
+            ..Default::default()
+        };
+        assert_eq!(expiry(offset(5)).await, 105);
+        // "Never expire" saturates; it must not wrap below the current height.
+        assert_eq!(expiry(offset(u64::MAX)).await, u64::MAX);
+    }
+
+    #[tokio::test]
+    async fn a_bootstrap_without_bootstrap_nonce_keeps_the_access_key_error() {
+        // The key view misses the key, but the account view shows an
+        // initialized account (no `bootstrap_nonce`): the state init was
+        // already applied, so the original error stands.
+        struct InitializedAccount;
+        impl RpcTransport for InitializedAccount {
+            fn post_json(
+                &self,
+                _url: &str,
+                body: Vec<u8>,
+            ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+                let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                let body = match request["method"].as_str().unwrap() {
+                    "EXPERIMENTAL_view_access_key" => rpc_error(
+                        Some("UNKNOWN_ACCESS_KEY"),
+                        serde_json::json!({
+                            "public_key": request["params"]["public_key"],
+                            "block_height": 100,
+                            "block_hash": "11111111111111111111111111111111",
+                        }),
+                        serde_json::Value::Null,
+                    ),
+                    "EXPERIMENTAL_view_account" => rpc_result(serde_json::json!({
+                        "amount": "1000000000000000000000000",
+                        "locked": "0",
+                        "code_hash": "11111111111111111111111111111111",
+                        "storage_usage": 100,
+                        "block_height": 100,
+                        "block_hash": CryptoHash::from_bytes([2; 32]),
+                    })),
+                    other => panic!("unexpected RPC method {other}"),
+                };
+                Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+            }
+        }
+
+        let key = SecretKey::generate_ed25519();
+        let state_init =
+            crate::protocol::UniversalStateInitV1::new().with_access_key(key.public_key());
+        let account_id =
+            crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
+        let near = crate::Near::custom("http://initialized.invalid", "test")
+            .transport(InitializedAccount)
+            .build()
+            .with_signer(InMemorySigner::new(account_id.clone(), key));
+
+        let error = near
+            .sign(
+                &account_id,
+                vec![Action::universal_state_init(state_init, NearToken::ZERO)],
+            )
+            .await
+            .expect_err("no bootstrap nonce, no nonce");
+        assert!(
+            matches!(&error, Error::Rpc(e) if matches!(**e, RpcError::AccessKeyNotFound { .. })),
+            "{error:?}"
+        );
     }
 
     #[tokio::test]

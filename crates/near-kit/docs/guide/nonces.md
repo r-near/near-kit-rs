@@ -30,7 +30,9 @@ nonce it draws, and keeps it. That means:
 - A backend that can't report its genesis hash (it answers `status` with
   "method not found", as a canned test transport might) shares nonces by
   chain ID instead. So with [`Near::custom`](crate::Near::custom), still
-  pass the network's real chain ID, not a label per endpoint.
+  pass the network's real chain ID, not a label per endpoint. That sequence
+  is separate from the one clients whose node reports the genesis hash
+  draw from, so don't use one key through both kinds of backend at once.
 - Any other `status` failure fails that send or signature before a nonce
   is drawn, and the next one asks again.
 - Two processes never share it. Each starts from the chain's view.

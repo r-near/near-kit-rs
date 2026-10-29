@@ -22,6 +22,20 @@ compile_error!(
      `NearBuilder::transport` instead"
 );
 
+/// `url` as it may be shown in logs, errors and `Debug` output: cut at the
+/// query string or fragment, and with any `user:pass@` userinfo removed, since
+/// RPC providers put API keys and credentials in both. The path is kept.
+pub(crate) fn redact_url(url: &str) -> String {
+    let url = &url[..url.find(['?', '#']).unwrap_or(url.len())];
+    let authority_start = url.find("://").map_or(0, |i| i + 3);
+    let rest = &url[authority_start..];
+    let authority = &rest[..rest.find('/').unwrap_or(rest.len())];
+    match authority.rfind('@') {
+        Some(at) => format!("{}{}", &url[..authority_start], &rest[at + 1..]),
+        None => url.to_string(),
+    }
+}
+
 /// A raw HTTP response handed back from an [`RpcTransport`].
 ///
 /// The body is raw bytes, not a `String`: HTTP bodies are bytes on the wire,
@@ -389,13 +403,22 @@ mod wasi_http {
                 RpcError::network("wasi:http request body stream unavailable", None, false)
             })?;
             for chunk in body.chunks(WRITE_CHUNK) {
-                stream.blocking_write_and_flush(chunk).map_err(|e| {
-                    RpcError::network(
-                        format!("wasi:http request body write failed: {}", stream_err(e)),
-                        None,
-                        true,
-                    )
-                })?;
+                if let Err(e) = stream.blocking_write_and_flush(chunk) {
+                    // The host closes the body stream when the request itself
+                    // failed (connection refused, DNS, TLS, ...). That cause
+                    // is in the response future, so report it when it's there.
+                    let pollable = future_response.subscribe();
+                    pollable.block();
+                    drop(pollable);
+                    return Err(match future_response.get() {
+                        Some(Ok(Err(code))) => request_failed(&code),
+                        _ => RpcError::network(
+                            format!("wasi:http request body write failed: {}", stream_err(e)),
+                            None,
+                            true,
+                        ),
+                    });
+                }
             }
         }
         OutgoingBody::finish(out_body, None).map_err(|code| {
@@ -415,13 +438,7 @@ mod wasi_http {
             Some(Ok(Ok(response))) => response,
             // The host-reported failure (DNS, connect, TLS, ...) — the
             // wasi:http analogue of a reqwest connect error.
-            Some(Ok(Err(code))) => {
-                return Err(RpcError::network(
-                    format!("wasi:http request failed: {code:?}"),
-                    None,
-                    is_retryable_error_code(&code),
-                ));
-            }
+            Some(Ok(Err(code))) => return Err(request_failed(&code)),
             Some(Err(())) => {
                 return Err(RpcError::network(
                     "wasi:http response consumed twice",
@@ -579,10 +596,19 @@ mod wasi_http {
     }
 
     /// A malformed URL is deterministic — never retryable. The message leaves
-    /// out the query and fragment, which may carry an API key.
+    /// out the query, fragment and userinfo, which may carry an API key.
     fn invalid_url(url: &str, reason: &str) -> RpcError {
-        let shown = &url[..url.find(['?', '#']).unwrap_or(url.len())];
+        let shown = super::redact_url(url);
         RpcError::network(format!("invalid RPC URL `{shown}`: {reason}"), None, false)
+    }
+
+    /// The host-reported failure of a request (DNS, connect, TLS, ...).
+    fn request_failed(code: &ErrorCode) -> RpcError {
+        RpcError::network(
+            format!("wasi:http request failed: {code:?}"),
+            None,
+            is_retryable_error_code(code),
+        )
     }
 
     fn stream_err(e: StreamError) -> String {
