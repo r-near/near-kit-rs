@@ -137,7 +137,7 @@ use near_kit::rpc::RpcError;
 use near_kit::signer::{InMemorySigner, SecretKey, Signer};
 use near_kit::{AccountId, Error, Near, NearToken, SigningNear};
 use testcontainers::{
-    ContainerAsync, CopyToContainer, Healthcheck, Image, ImageExt,
+    ContainerAsync, Healthcheck, Image, ImageExt, TestcontainersError,
     core::{ContainerPort, WaitFor},
     runners::AsyncRunner,
 };
@@ -246,7 +246,6 @@ struct NearSandbox {
     image_name: String,
     tag: String,
     env_vars: Vec<(String, String)>,
-    copy_to_sources: Vec<CopyToContainer>,
 }
 
 impl NearSandbox {
@@ -280,7 +279,6 @@ impl NearSandbox {
                 // Enable sandbox logging for easier debugging
                 ("NEAR_ENABLE_SANDBOX_LOG".to_owned(), "1".to_owned()),
             ],
-            copy_to_sources: Vec::new(),
         }
     }
 
@@ -320,10 +318,6 @@ impl Image for NearSandbox {
         &self,
     ) -> impl IntoIterator<Item = (impl Into<Cow<'_, str>>, impl Into<Cow<'_, str>>)> {
         self.env_vars.iter().map(|(k, v)| (k.as_str(), v.as_str()))
-    }
-
-    fn copy_to_sources(&self) -> impl IntoIterator<Item = &CopyToContainer> {
-        &self.copy_to_sources
     }
 
     fn expose_ports(&self) -> &[ContainerPort] {
@@ -366,13 +360,6 @@ extern "C" fn cleanup_shared_sandbox() {
     });
 }
 
-/// Register atexit handler for shared sandbox cleanup.
-fn register_shared_cleanup() {
-    unsafe {
-        libc::atexit(cleanup_shared_sandbox);
-    }
-}
-
 // ============================================================================
 // Sandbox
 // ============================================================================
@@ -394,8 +381,7 @@ fn register_shared_cleanup() {
 ///   and the testcontainers `watchdog` (SIGINT/SIGTERM/SIGQUIT, e.g. Ctrl+C).
 #[derive(Clone)]
 pub struct Sandbox {
-    #[allow(dead_code)]
-    container: Arc<ContainerAsync<NearSandbox>>,
+    _container: Arc<ContainerAsync<NearSandbox>>,
     /// Docker container id, captured at start so the `atexit` handler can remove
     /// the shared container synchronously without touching the async client.
     container_id: String,
@@ -425,39 +411,33 @@ impl Sandbox {
         if let Some(ref id) = chain_id {
             image = image.with_chain_id(id.to_string());
         }
+        let container_err = |operation| {
+            move |error: TestcontainersError| SandboxError::Container {
+                operation,
+                message: error.to_string(),
+            }
+        };
         let container = image
             .with_health_check(Healthcheck::empty().with_start_period(HEALTHCHECK_START_PERIOD))
             .with_startup_timeout(STARTUP_TIMEOUT)
             .start()
             .await
-            .map_err(|error| SandboxError::Container {
-                operation: "start",
-                message: error.to_string(),
-            })?;
+            .map_err(container_err("start"))?;
         let container_id = container.id().to_string();
-
         let host = container
             .get_host()
             .await
-            .map_err(|error| SandboxError::Container {
-                operation: "host discovery",
-                message: error.to_string(),
-            })?;
-
+            .map_err(container_err("host discovery"))?;
         let host_port = container
             .get_host_port_ipv4(RPC_PORT)
             .await
-            .map_err(|error| SandboxError::Container {
-                operation: "RPC port discovery",
-                message: error.to_string(),
-            })?;
-
-        let rpc_url = format!("http://{}:{}", host, host_port);
+            .map_err(container_err("RPC port discovery"))?;
+        let rpc_url = format!("http://{host}:{host_port}");
 
         info!(rpc_url = %rpc_url, "Sandbox container ready");
 
         Ok(Self {
-            container: Arc::new(container),
+            _container: Arc::new(container),
             container_id,
             rpc_url,
             chain_id: chain_id.unwrap_or_else(|| ChainId::new("sandbox")),
@@ -551,13 +531,7 @@ impl Sandbox {
             )
             .await?;
 
-        // Modify the amount field in the response
-        if let Some(obj) = account_response.as_object_mut() {
-            obj.insert(
-                "amount".to_string(),
-                serde_json::Value::String(balance.as_yoctonear().to_string()),
-            );
-        }
+        account_response["amount"] = balance.as_yoctonear().to_string().into();
 
         let records = serde_json::json!([
             {
@@ -586,7 +560,7 @@ impl Sandbox {
                 Ok(_) => {}
                 Err(error) => last_error = Some(Box::new(error.into())),
             }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         Err(SandboxError::PatchTimeout {
@@ -817,7 +791,9 @@ impl SandboxBuilder {
             .get_or_try_init(|| async move {
                 let sandbox =
                     Sandbox::start(&config.version, config.root_account, config.chain_id).await?;
-                register_shared_cleanup();
+                // SAFETY: `cleanup_shared_sandbox` is a plain `extern "C" fn`
+                // that never unwinds across the C boundary.
+                unsafe { libc::atexit(cleanup_shared_sandbox) };
                 Ok(sandbox)
             })
             .await
