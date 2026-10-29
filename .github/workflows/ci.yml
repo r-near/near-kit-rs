@@ -76,6 +76,13 @@ jobs:
         run: cargo test -p near-kit --doc
       - name: Run all-feature doctests
         run: cargo test -p near-kit --all-features --doc
+      - name: Run near-kit-primitives all-feature doctests
+        run: cargo test -p near-kit-primitives --all-features --doc
+      # Compile-only (`no_run`): they need Docker to run, not to build.
+      - name: Run near-kit-sandbox doctests
+        run: cargo test -p near-kit-sandbox --features integration-tests --doc
+      - name: Run near-kit-macros doctests
+        run: cargo test -p near-kit-macros --doc
       # The offline (no `rpc`) configuration keeps its own doctests compiling;
       # examples that need the RPC layer are cfg_attr'd to `ignore` without it
       - name: Run offline doctests
@@ -94,6 +101,29 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: stable
+          save-if: false
+          cache-on-failure: "true"
+      # What a default-feature build documents (broken intra-doc links to
+      # feature-gated items show up here).
+      - run: cargo doc --workspace --no-deps
+      # The feature sets docs.rs builds; keep in step with each crate's
+      # [package.metadata.docs.rs]. (`--cfg docsrs` needs nightly, so it is
+      # left out here.)
+      - run: cargo doc -p near-kit --no-deps --features contracts,file-signer,keyring,mnemonic,tracing
+      - run: cargo doc -p near-kit-primitives --no-deps --features contracts,mnemonic,tracing
+      - run: cargo doc -p near-kit-sandbox --no-deps --features tracing
 
   msrv:
     name: MSRV (1.95)

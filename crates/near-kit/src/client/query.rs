@@ -51,8 +51,10 @@ impl AccountRead {
 ///
 /// let balance = near.balance(account!("alice.testnet")).await?;
 ///
-/// // At a block height, or with another finality
-/// let balance = near.balance(account!("alice.testnet")).at(100_000_000).await?;
+/// // At a block height (a recent one: the default endpoints aren't
+/// // archival), or with another finality
+/// let height = near.rpc().block(Finality::Final).await?.header.height;
+/// let balance = near.balance(account!("alice.testnet")).at(height).await?;
 /// let balance = near.balance(account!("alice.testnet")).at(Finality::Optimistic).await?;
 /// # Ok(())
 /// # }
@@ -184,6 +186,7 @@ impl IntoFuture for AccountExistsQuery {
 ///     .tx_status(tx_hash, sender_id)
 ///     .wait_until::<Final>()
 ///     .await?;
+/// outcome.result()?;
 /// # Ok(())
 /// # }
 /// ```

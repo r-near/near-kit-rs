@@ -237,7 +237,7 @@ pub enum AccessKeyPermissionView {
 /// One page of an account's access keys. The node caps how many keys a single
 /// response carries (100 by default), so a listing can be truncated:
 /// [`last_key`](Self::last_key) is then the continuation cursor. The fetch-all
-/// helper (`RpcClient::view_access_key_list`, `Near::access_keys`) follows that
+/// helper (`RpcClient::view_access_key_list`) follows that
 /// cursor for you and always returns `last_key: None`; only
 /// `RpcClient::view_access_key_list_page` hands it back for manual paging.
 #[derive(Debug, Clone, Deserialize)]
@@ -944,7 +944,8 @@ impl<'de> Deserialize<'de> for RpcTransactionResponse {
 ///
 /// The `receipts` field contains full receipt details when the outcome comes
 /// from `EXPERIMENTAL_tx_status` (i.e. `near.tx_status()`). When the outcome
-/// comes from `send_tx` (i.e. `near.send()`), this field is an empty `Vec`.
+/// comes from `send_tx` (every send: `alice.transaction(..)` and
+/// `Near::send_signed`), this field is an empty `Vec`.
 ///
 /// A failed action still arrives as `Ok(outcome)`, so the type is
 /// `#[must_use]`: check [`is_failure`](Self::is_failure) or
@@ -993,12 +994,22 @@ pub struct FinalExecutionOutcome {
 struct FinalExecutionOutcomeMustUse;
 
 impl FinalExecutionOutcome {
-    /// Check if the transaction succeeded.
+    /// Whether the transaction's top-level [`status`](Self::status) is a
+    /// success.
+    ///
+    /// This reads the main chain of receipts only. A receipt that fails off
+    /// that chain, such as the user's inner call in a relayed transaction,
+    /// leaves it `true`: see [`receipt_failures`](Self::receipt_failures).
     pub fn is_success(&self) -> bool {
         matches!(&self.status, FinalExecutionStatus::SuccessValue(_))
     }
 
-    /// Check if the transaction failed.
+    /// Whether the transaction's top-level [`status`](Self::status) is a
+    /// failure: an action on the main chain of receipts failed, or the
+    /// transaction was rejected when its chunk was applied.
+    ///
+    /// Like [`is_success`](Self::is_success), this doesn't see receipts that
+    /// fail off the main chain; see [`receipt_failures`](Self::receipt_failures).
     pub fn is_failure(&self) -> bool {
         matches!(&self.status, FinalExecutionStatus::Failure(_))
     }
@@ -1084,18 +1095,19 @@ impl FinalExecutionOutcome {
         Gas::from_gas(tx_gas + receipt_gas)
     }
 
-    /// Get the return value as raw bytes (base64-decoded).
+    /// The return value as raw bytes, or the failure as an `Err`.
     ///
-    /// Returns `Err` if the execution status is not `SuccessValue` (including
-    /// transaction validation or action failures), or if the value is not
-    /// valid base64.
+    /// A send returns `Ok(outcome)` even when an action failed, so
+    /// `.await?.result()?` is the usual way to make a failed action an error:
+    /// [`OutcomeError::ActionFailed`] (or `InvalidTx` for a transaction
+    /// rejected when its chunk was applied). It is also `Err` if the status
+    /// is not a finished `SuccessValue`, or the value is not valid base64. A
+    /// method that returns nothing gives an empty `Vec`.
     ///
-    /// Note: When using the high-level transaction API, only transaction
-    /// *validation* failures return `Err(Error::InvalidTx(..))` from the
-    /// send call. On-chain action failures are returned as `Ok(outcome)`
-    /// with `outcome.is_failure() == true`. This method is primarily useful
-    /// when working with the low-level `rpc().send_tx()` API or when you
-    /// already have an outcome and want to decode its return value.
+    /// Like [`is_failure`](Self::is_failure), it reads the top-level
+    /// [`status`](Self::status) only; check
+    /// [`receipt_failures`](Self::receipt_failures) for receipts that fail
+    /// off the main chain, such as a relayed inner call.
     pub fn result(&self) -> Result<Vec<u8>, OutcomeError> {
         match &self.status {
             FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
@@ -1421,43 +1433,69 @@ pub enum VersionedDelegateActionPayloadView {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum ActionView {
+    /// Create the receiver account.
     CreateAccount,
     /// Deploy a contract to the account.
     ///
     /// **`code` is the base64 of the 32-byte SHA-256 code hash, not the WASM.**
     /// See [`ActionView::deploy_code_hash`].
     DeployContract {
+        /// Base64 of the 32-byte code hash (not the WASM).
         code: String, // base64 of the 32-byte code hash (NOT the WASM)
     },
+    /// Call a contract method.
     FunctionCall {
+        /// The method called.
         method_name: String,
+        /// The call's arguments, base64-encoded.
         args: String, // base64
+        /// Gas attached to the call.
         gas: Gas,
+        /// NEAR attached to the call.
         deposit: NearToken,
     },
+    /// Transfer NEAR to the receiver.
     Transfer {
+        /// The amount transferred.
         deposit: NearToken,
     },
+    /// Stake NEAR as a validator.
     Stake {
+        /// The total amount to stake.
         stake: NearToken,
+        /// The validator key.
         public_key: PublicKey,
     },
+    /// Add an access key to the account.
     AddKey {
+        /// The key added.
         public_key: PublicKey,
+        /// Its nonce and permission.
         access_key: AccessKeyDetails,
     },
+    /// Delete an access key from the account.
     DeleteKey {
+        /// The key deleted.
         public_key: PublicKey,
     },
+    /// Delete the account and send its balance to `beneficiary_id`.
     DeleteAccount {
+        /// The account that receives the remaining balance.
         beneficiary_id: AccountId,
     },
+    /// A signed delegate action (NEP-366 meta-transaction) submitted by a
+    /// relayer.
     Delegate {
+        /// The delegate action.
         delegate_action: DelegateActionView,
+        /// The delegate's signature over it.
         signature: Signature,
     },
+    /// A versioned signed delegate action.
     DelegateV2 {
+        /// The versioned delegate action payload.
         delegate_action: VersionedDelegateActionPayloadView,
+        /// The delegate's signature over it.
         signature: Signature,
     },
     /// Publish a global contract, identified by its code hash.
@@ -1466,6 +1504,7 @@ pub enum ActionView {
     /// See [`ActionView::deploy_code_hash`].
     #[serde(rename = "DeployGlobalContract")]
     DeployGlobalContract {
+        /// Base64 of the 32-byte code hash (not the WASM).
         code: String, // base64 of the 32-byte code hash (NOT the WASM)
     },
     /// Publish a global contract, identified by the publisher's account ID.
@@ -1474,35 +1513,54 @@ pub enum ActionView {
     /// See [`ActionView::deploy_code_hash`].
     #[serde(rename = "DeployGlobalContractByAccountId")]
     DeployGlobalContractByAccountId {
+        /// Base64 of the 32-byte code hash (not the WASM).
         code: String, // base64 of the 32-byte code hash (NOT the WASM)
     },
+    /// Use a global contract published under a code hash as the account's
+    /// contract.
     #[serde(rename = "UseGlobalContract")]
     UseGlobalContract {
+        /// The global contract's code hash.
         code_hash: CryptoHash,
     },
+    /// Use the global contract published by an account as the account's
+    /// contract.
     #[serde(rename = "UseGlobalContractByAccountId")]
     UseGlobalContractByAccountId {
+        /// The publishing account.
         account_id: AccountId,
     },
+    /// Initialize an account whose ID is derived from its contract and
+    /// initial state (NEP-616).
     #[serde(rename = "DeterministicStateInit")]
     DeterministicStateInit {
+        /// The global contract the account uses.
         code: GlobalContractIdentifierView,
+        /// Initial storage entries, base64 key to base64 value.
         #[serde(default)]
         data: BTreeMap<String, String>,
+        /// NEAR attached to the account.
         deposit: NearToken,
     },
+    /// Transfer NEAR to a gas key.
     TransferToGasKey {
+        /// The gas key funded.
         public_key: PublicKey,
+        /// The amount transferred.
         deposit: NearToken,
     },
+    /// Withdraw NEAR from a gas key.
     WithdrawFromGasKey {
+        /// The gas key withdrawn from.
         public_key: PublicKey,
+        /// The amount withdrawn.
         amount: NearToken,
     },
     /// Create a `0u` universal account from its state init.
     UniversalStateInit {
         /// Base64 of the borsh-encoded `UniversalStateInit` bytes.
         state_init: String,
+        /// NEAR attached to the account.
         deposit: NearToken,
     },
 }
@@ -1746,16 +1804,16 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 ///
-/// With a live `near-kit` client:
+/// From a full outcome, such as the one near-kit's
+/// `near.tx_status(&tx_hash, sender).wait_until::<Final>().await?` returns:
 ///
-/// ```rust,ignore
-/// let outcome = near.tx_status(&tx_hash, account!("alice.near")).wait_until::<Final>().await?;
-/// let actions = outcome
-///     .transaction
-///     .actions
-///     .into_iter()
-///     .map(Action::try_from)
-///     .collect::<Result<Vec<_>, _>>()?;
+/// ```rust
+/// use near_kit_primitives::protocol::{Action, ActionViewConversionError};
+/// use near_kit_primitives::rpc::FinalExecutionOutcome;
+///
+/// fn actions_of(outcome: FinalExecutionOutcome) -> Result<Vec<Action>, ActionViewConversionError> {
+///     outcome.transaction.actions.into_iter().map(Action::try_from).collect()
+/// }
 /// ```
 impl TryFrom<ActionView> for Action {
     type Error = ActionViewConversionError;
@@ -1886,7 +1944,9 @@ pub struct MerklePathItem {
 /// Direction in merkle path.
 #[derive(Debug, Clone, Deserialize)]
 pub enum MerkleDirection {
+    /// The sibling hash is on the left.
     Left,
+    /// The sibling hash is on the right.
     Right,
 }
 
@@ -2028,9 +2088,24 @@ impl ViewFunctionResult {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// let result = rpc.view_function(&contract, "get_data", &[], block).await?;
-    /// let data: MyData = result.json()?;
+    /// ```rust
+    /// use near_kit_primitives::CryptoHash;
+    /// use near_kit_primitives::rpc::ViewFunctionResult;
+    ///
+    /// #[derive(serde::Deserialize)]
+    /// struct Stats {
+    ///     count: u64,
+    /// }
+    ///
+    /// // A view's raw result, as a `Viewer` returns it.
+    /// let result = ViewFunctionResult::new(br#"{"count":3}"#.to_vec(), 1, CryptoHash::ZERO);
+    /// let stats: Stats = result.json()?;
+    /// assert_eq!(stats.count, 3);
+    ///
+    /// // A method that returns nothing decodes as `()`.
+    /// let empty = ViewFunctionResult::new(Vec::new(), 1, CryptoHash::ZERO);
+    /// let () = empty.json()?;
+    /// # Ok::<(), serde_json::Error>(())
     /// ```
     pub fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
         // NEAR returns zero bytes for `()`-returning (void) methods; map empty -> null so
@@ -2049,9 +2124,15 @@ impl ViewFunctionResult {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// let result = rpc.view_function(&contract, "get_state", &args, block).await?;
-    /// let state: ContractState = result.borsh()?;
+    /// ```rust
+    /// use near_kit_primitives::CryptoHash;
+    /// use near_kit_primitives::rpc::ViewFunctionResult;
+    ///
+    /// let bytes = borsh::to_vec(&(7u32, true))?;
+    /// let result = ViewFunctionResult::new(bytes, 1, CryptoHash::ZERO);
+    /// let state: (u32, bool) = result.borsh()?;
+    /// assert_eq!(state, (7, true));
+    /// # Ok::<(), borsh::io::Error>(())
     /// ```
     pub fn borsh<T: borsh::BorshDeserialize>(&self) -> Result<T, borsh::io::Error> {
         borsh::from_slice(&self.result)

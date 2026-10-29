@@ -853,10 +853,18 @@ impl DelegateAction {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
-    /// let bytes = delegate_action.serialize_for_signing();
-    /// let hash = CryptoHash::hash(&bytes);
-    /// let signature = signer.sign(hash.as_bytes()).await?;
+    /// ```rust
+    /// use near_kit_primitives::CryptoHash;
+    /// use near_kit_primitives::protocol::{DelegateAction, SignedDelegateAction};
+    /// use near_kit_primitives::signer::SecretKey;
+    ///
+    /// // What `get_hash` and a signer do for you.
+    /// fn sign(delegate_action: DelegateAction, key: &SecretKey) -> SignedDelegateAction {
+    ///     let bytes = delegate_action.serialize_for_signing();
+    ///     let hash = CryptoHash::hash(&bytes);
+    ///     let signature = key.sign(hash.as_bytes());
+    ///     delegate_action.into_signed(signature)
+    /// }
     /// ```
     pub fn serialize_for_signing(&self) -> Vec<u8> {
         let prefix_bytes = DELEGATE_ACTION_PREFIX.to_le_bytes();

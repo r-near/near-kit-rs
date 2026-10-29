@@ -86,7 +86,7 @@ impl Near {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// use near_kit::Near;
     ///
     /// // Private mainnet RPC
@@ -162,8 +162,10 @@ impl Near {
     /// let balance = near.balance(account!("alice.testnet")).await?;
     /// println!("Available: {}", balance.available);
     ///
-    /// // At a specific block height, or with another finality
-    /// let balance = near.balance(account!("alice.testnet")).at(100_000_000).await?;
+    /// // At a block height (a recent one: the default endpoints aren't
+    /// // archival), or with another finality
+    /// let height = near.rpc().block(Finality::Final).await?.header.height;
+    /// let balance = near.balance(account!("alice.testnet")).at(height).await?;
     /// let balance = near.balance(account!("alice.testnet")).at(Finality::Optimistic).await?;
     /// # Ok(())
     /// # }
@@ -253,6 +255,7 @@ impl Near {
     /// // Send later. Like a `Tx`, it waits for `Final` unless you pick
     /// // another level with `.wait_until::<W>()`.
     /// let outcome: FinalExecutionOutcome = alice.near().send_signed(&signed).await?;
+    /// outcome.result()?;
     /// # Ok(())
     /// # }
     /// ```
@@ -341,7 +344,8 @@ impl Near {
     /// async fn example(near: &Near) -> Result<(), near_kit::Error> {
     ///     let counter = near.contract::<Counter>(account!("counter.testnet"));
     ///     let count = counter.get_count().await?;
-    ///     let earlier = counter.get_count().at(180_000_000).await?;
+    ///     let block = near.rpc().block(near_kit::rpc::Finality::Final).await?;
+    ///     let earlier = counter.get_count().at(block.header.prev_hash).await?;
     ///     Ok(())
     /// }
     /// ```
@@ -384,8 +388,8 @@ impl std::fmt::Debug for Near {
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use near_kit::*;
+/// ```rust
+/// use near_kit::Near;
 ///
 /// let near = Near::testnet()
 ///     .max_nonce_retries(10)
@@ -416,9 +420,10 @@ impl NearBuilder {
 
     /// Set the chain ID.
     ///
-    /// This is useful for custom networks where the default chain ID
-    /// (e.g., `"custom"`) should be overridden. Cached nonces are shared per
-    /// chain ID (see [`Near::custom`]).
+    /// Overrides the chain ID the builder was created with, such as a
+    /// `mainnet()` or `testnet()` preset's. Cached nonces are keyed by the
+    /// node's genesis hash, and by chain ID only for a backend that can't
+    /// report one (see [`Near::custom`]).
     pub fn chain_id(mut self, chain_id: impl Into<String>) -> Self {
         self.chain_id = ChainId::new(chain_id);
         self

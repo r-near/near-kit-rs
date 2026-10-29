@@ -59,7 +59,7 @@ pub struct NonFungibleToken;
 /// Views need `C: Viewer` and read at optimistic finality; calls need
 /// `C: TxSender + Clone` and return a [`Call`] that sends one transaction
 /// when awaited. `near.contract::<NonFungibleToken>(id)` gives a read-only
-/// client and `signing.contract::<NonFungibleToken>(id)` one that can also
+/// client and `alice.contract::<NonFungibleToken>(id)` one that can also
 /// send.
 ///
 /// # Caching
@@ -236,8 +236,8 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # use near_kit::standards::NonFungibleToken;
-    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let nft = near.contract::<NonFungibleToken>(account!("nft-contract.near"));
+    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+    /// let nft = alice.contract::<NonFungibleToken>(account!("nft-contract.near"));
     ///
     /// nft.transfer(account!("bob.near"), "token-123", None).await?.result()?;
     /// nft.transfer(account!("bob.near"), "token-456", Some("gift".into()))
@@ -300,20 +300,36 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
     ///
     /// This calls `nft_on_transfer` on the receiver contract.
     ///
+    /// `.result()?` doesn't tell you the receiver kept the token: if
+    /// `nft_on_transfer` fails, the contract's `nft_resolve_transfer`
+    /// callback handles the failure and tries to return the token to the
+    /// sender, so the transaction still succeeds. It can't return a token the
+    /// receiver already moved, so check the `bool` the call returns: `false`
+    /// means the token went back to the sender;
+    /// [`receipt_failures`](crate::rpc::FinalExecutionOutcome::receipt_failures)
+    /// shows why `nft_on_transfer` failed.
+    ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # use near_kit::standards::NonFungibleToken;
-    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let nft = near.contract::<NonFungibleToken>(account!("nft-contract.near"));
+    /// # async fn example(alice: SigningNear) -> Result<(), Box<dyn std::error::Error>> {
+    /// let nft = alice.contract::<NonFungibleToken>(account!("nft-contract.near"));
     ///
-    /// nft.transfer_call(
-    ///     account!("marketplace.near"),
-    ///     "token-123",
-    ///     r#"{"action":"list","price":"10"}"#,
-    /// )
-    /// .await?.result()?;
+    /// let outcome = nft
+    ///     .transfer_call(
+    ///         account!("marketplace.near"),
+    ///         "token-123",
+    ///         r#"{"action":"list","price":"10"}"#,
+    ///     )
+    ///     .await?;
+    /// // `false` if the token went back to the sender.
+    /// let transferred: bool = outcome.json()?;
+    /// if !transferred {
+    ///     let reason = outcome.receipt_failures().next().map(|e| e.to_string());
+    ///     return Err(format!("the token came back ({reason:?})").into());
+    /// }
     /// # Ok(())
     /// # }
     /// ```

@@ -345,7 +345,14 @@ impl InMemorySigner {
     /// A signer for `account_id` with `secret_key`.
     ///
     /// Parse a key string with `"ed25519:...".parse::<SecretKey>()?`, and
-    /// derive one from a seed phrase with [`SecretKey::from_seed_phrase`].
+    #[cfg_attr(
+        feature = "mnemonic",
+        doc = "derive one from a seed phrase with [`SecretKey::from_seed_phrase`]."
+    )]
+    #[cfg_attr(
+        not(feature = "mnemonic"),
+        doc = "derive one from a seed phrase with `SecretKey::from_seed_phrase` (`mnemonic` feature)."
+    )]
     ///
     /// # Example
     ///

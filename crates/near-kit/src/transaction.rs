@@ -9,9 +9,9 @@
 //! # Wait levels
 //!
 //! Instead of using a runtime enum, each wait level is its own type with an
-//! associated `Response` type. A [`SigningNear`](crate::SigningNear) carries
+//! associated `Response` type. A [`SigningNear`][signing-near] carries
 //! its level as a type parameter, set once with
-//! [`wait_until`](crate::SigningNear::wait_until), so the compiler knows what
+//! [`wait_until`][wait-until], so the compiler knows what
 //! each transaction resolves to:
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
@@ -40,6 +40,18 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+#![cfg_attr(
+    feature = "rpc",
+    doc = "[signing-near]: crate::SigningNear
+[wait-until]: crate::SigningNear::wait_until"
+)]
+#![cfg_attr(
+    not(feature = "rpc"),
+    doc = "[`Tx`]: https://docs.rs/near-kit/latest/near_kit/transaction/struct.Tx.html
+[signing-near]: https://docs.rs/near-kit/latest/near_kit/struct.SigningNear.html
+[wait-until]: https://docs.rs/near-kit/latest/near_kit/struct.SigningNear.html#method.wait_until"
+)]
 
 #[doc(inline)]
 pub use near_kit_primitives::transaction::{CodecError, FunctionCall};

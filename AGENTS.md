@@ -112,7 +112,7 @@ pub enum ParseKeyError {
 
 ### Documentation
 
-- All public items must have doc comments
+- All public items must have doc comments; each crate sets `#![warn(missing_docs)]` and CI denies warnings. Only the nearcore error mirror (`near-kit-primitives` `types/error.rs`) opts out
 - Use `///` for item docs, `//!` for module docs
 - Include examples in doc comments using ```` ```rust ````
 - Use `# Example` sections for longer examples
@@ -180,7 +180,7 @@ docs: update README examples
 2. **Configure once**: Network on `Near`, account and wait level on `SigningNear<W>`
 3. **One way to do each thing**: Typed values in, no duplicate shortcuts
 4. **Explicit units**: Must specify `NEAR`, `yocto`, `Tgas`, etc.
-5. **Minimal dependencies**: No NEAR official crates—hand-roll everything
+5. **Minimal dependencies**: hand-roll the protocol types; the only NEAR crates used are the small shared value types (`near-account-id`, `near-token`, `near-gas`, `near-global-contracts`). See below
 
 ## Dependencies Policy
 
@@ -189,6 +189,10 @@ well-maintained cryptographic *primitive* crates for the curves/hashes NEAR
 uses — e.g. ed25519-dalek, k256 (secp256k1), sha2, sha3, ml-dsa (FIPS-204
 ML-DSA-65), bip39, hmac. The bar for a new crypto dependency is that it
 implements a standard primitive the protocol requires and is auditable.
+
+Also allowed: the NEAR value-type crates `near-account-id`, `near-token`,
+`near-gas` and `near-global-contracts`, re-exported as-is rather than
+newtyped.
 
 Also allowed: *platform bindings* for wasm targets, when they are the
 canonical thin binding to a host interface and are declared only in that

@@ -10,6 +10,11 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+# `js` is left out: it only selects an entropy backend on wasm32-unknown-unknown.
+[package.metadata.docs.rs]
+features = ["contracts", "mnemonic", "tracing"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 # Everything here works offline: no async runtime, no HTTP client. `near-kit`
 # depends on this crate and re-exports it at its original paths. CI asserts
 # that tokio, reqwest and hyper never enter the normal dependency tree.

@@ -64,6 +64,9 @@
 //! otherwise; WASI targets need neither. See the `near-kit` crate docs for the
 //! custom-backend setup.
 
+#![warn(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod backend;
 mod error;
 mod platform;

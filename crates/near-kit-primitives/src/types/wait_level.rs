@@ -1,8 +1,9 @@
 //! Type-safe wait levels for transaction submission.
 //!
 //! Instead of using a runtime enum, each wait level is its own type with an
-//! associated `Response` type. This lets the compiler determine the return type
-//! of `send().wait_until::<W>()` from the selected type:
+//! associated `Response` type. In near-kit the level is a type parameter of the
+//! signing client, `SigningNear<W>`, so the compiler knows what
+//! `alice.wait_until::<W>().transaction(..).await` returns:
 //!
 //! ```rust
 //! use near_kit_primitives::rpc::TxExecutionStatus;
@@ -19,8 +20,9 @@
 //! }
 //! ```
 //!
-//! See `near-kit`'s `transaction` module for these levels in use with
-//! `send().wait_until::<W>()`.
+//! A `SigningNear` sends at [`Final`] unless `wait_until::<W>()` picks another
+//! level. See near-kit's `transaction` module for the levels in use, including
+//! polling an earlier send with `near.tx_status(..).wait_until::<W>()`.
 
 use crate::error::OutcomeError;
 use crate::types::AccountId;
@@ -37,7 +39,8 @@ mod sealed {
 /// Each wait level is a zero-sized marker type that defines:
 /// - The [`TxExecutionStatus`] to send to the RPC
 /// - An associated [`Response`](WaitLevel::Response) type that determines
-///   what `send().wait_until::<W>()` returns
+///   what a transaction sent at this level (`alice.wait_until::<W>()`)
+///   returns
 ///
 /// This trait is sealed and cannot be implemented outside this crate.
 pub trait WaitLevel: sealed::Sealed + Send + Sync + 'static {
@@ -172,8 +175,10 @@ fn extract_outcome(
 
 /// Wait for execution (optimistic, not yet finalized).
 ///
-/// Returns [`FinalExecutionOutcome`]. This is the default when using
-/// `.send().await` without specifying a wait level.
+/// Returns [`FinalExecutionOutcome`]. Faster than [`Final`], but the blocks
+/// may not be final yet, so a read at the default (final) block right after
+/// can still miss the change. It is the RPC's own default `wait_until`;
+/// near-kit's default is [`Final`].
 #[derive(Clone, Copy, Debug)]
 pub struct ExecutedOptimistic;
 
@@ -211,7 +216,9 @@ impl WaitLevel for Executed {
 
 /// Wait for full finality (all receipts executed, all blocks finalized).
 ///
-/// Returns [`FinalExecutionOutcome`].
+/// Returns [`FinalExecutionOutcome`]. This is the default level: a
+/// `SigningNear` sends at `Final` unless `wait_until::<W>()` says otherwise,
+/// so a read at the default finality right after sees the change.
 #[derive(Clone, Copy, Debug)]
 pub struct Final;
 

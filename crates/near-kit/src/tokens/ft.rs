@@ -55,7 +55,7 @@ pub struct FungibleToken;
 /// Views need `C: Viewer` and read at optimistic finality; calls need
 /// `C: TxSender + Clone` and return a [`Call`] that sends one transaction
 /// when awaited. `near.contract::<FungibleToken>(id)` gives a read-only
-/// client and `signing.contract::<FungibleToken>(id)` one that can also
+/// client and `alice.contract::<FungibleToken>(id)` one that can also
 /// send.
 ///
 /// # Caching
@@ -224,8 +224,8 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # use near_kit::standards::FungibleToken;
-    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let token = near.contract::<FungibleToken>(account!("wrap.near"));
+    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+    /// let token = alice.contract::<FungibleToken>(account!("wrap.near"));
     ///
     /// // Register bob with the contract's minimum deposit
     /// let bounds = token.storage_balance_bounds().await?;
@@ -263,8 +263,8 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # use near_kit::standards::FungibleToken;
-    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let token = near.contract::<FungibleToken>(account!("wrap.near"));
+    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+    /// let token = alice.contract::<FungibleToken>(account!("wrap.near"));
     ///
     /// token.transfer(account!("bob.near"), 1_500_000_u128, None).await?.result()?;
     ///
@@ -307,17 +307,31 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     ///
     /// The receiver can return unused tokens, which will be refunded to the sender.
     ///
+    /// `.result()?` doesn't tell you the receiver took the tokens: if
+    /// `ft_on_transfer` fails, the token's `ft_resolve_transfer` callback
+    /// handles the failure and tries to refund the sender, so the transaction
+    /// still succeeds. The refund is capped at what the receiver still holds,
+    /// so check the amount the call returns, which is what the receiver
+    /// kept; [`receipt_failures`](crate::rpc::FinalExecutionOutcome::receipt_failures)
+    /// shows why `ft_on_transfer` failed.
+    ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
     /// # use near_kit::standards::FungibleToken;
-    /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
-    /// let token = near.contract::<FungibleToken>(account!("wrap.near"));
+    /// # async fn example(alice: SigningNear) -> Result<(), Box<dyn std::error::Error>> {
+    /// let token = alice.contract::<FungibleToken>(account!("wrap.near"));
     ///
-    /// token
+    /// let outcome = token
     ///     .transfer_call(account!("defi.near"), 1_000_000_u128, r#"{"action":"deposit"}"#)
-    ///     .await?.result()?;
+    ///     .await?;
+    /// // The amount the receiver kept, as a JSON string.
+    /// let used: u128 = outcome.json::<String>()?.parse()?;
+    /// if used < 1_000_000 {
+    ///     let reason = outcome.receipt_failures().next().map(|e| e.to_string());
+    ///     return Err(format!("the receiver kept only {used} ({reason:?})").into());
+    /// }
     /// # Ok(())
     /// # }
     /// ```

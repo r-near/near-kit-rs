@@ -114,11 +114,25 @@ pub trait TxSender: MaybeSend + MaybeSync {
 /// calls [`client`](Self::client) with a clone of the client; any other
 /// backend can call it directly:
 ///
-/// ```rust,ignore
-/// use near_kit_primitives::Contract;
+#[cfg_attr(feature = "contracts", doc = "```rust")]
+#[cfg_attr(not(feature = "contracts"), doc = "```rust,ignore")]
+/// use near_kit_primitives::{AccountId, Contract, ContractError, Viewer};
 ///
-/// let counter = Counter::client(my_backend, account_id);
+/// #[near_kit_primitives::contract]
+/// pub trait Counter {
+///     fn get_count(&self) -> u64;
+/// }
+///
+/// # async fn count<V>(backend: V, contract_id: AccountId) -> Result<u64, ContractError<V::ViewError>>
+/// # where
+/// #     V: Viewer + Clone + 'static,
+/// #     V::ViewError: 'static,
+/// # {
+/// // `backend` is any `Viewer` (and `TxSender`, for `#[call]` methods).
+/// let counter = Counter::client(backend, contract_id);
 /// let count = counter.get_count().await?;
+/// # Ok(count)
+/// # }
 /// ```
 pub trait Contract {
     /// The generated client, generic over its backend.

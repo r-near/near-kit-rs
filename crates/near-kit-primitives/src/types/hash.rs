@@ -17,9 +17,11 @@ use crate::error::ParseHashError;
 /// in either direction is just `.into()`, zero-cost and with no near-sdk
 /// dependency:
 ///
-/// ```rust,ignore
+/// ```rust
+/// # let sdk_hash: [u8; 32] = [7; 32];
 /// let kit: near_kit_primitives::CryptoHash = sdk_hash.into(); // [u8; 32] -> CryptoHash
 /// let sdk: [u8; 32] = kit.into();                  // CryptoHash -> [u8; 32]
+/// # assert_eq!(sdk, sdk_hash);
 /// ```
 ///
 /// near-sdk's JSON-facing `Base58CryptoHash` is a separate newtype; convert it
@@ -27,6 +29,7 @@ use crate::error::ParseHashError;
 /// `From<[u8; 32]>` upstream):
 ///
 /// ```rust,ignore
+/// // Not compiled: needs near-sdk, which this crate doesn't depend on.
 /// let kit: near_kit_primitives::CryptoHash = <[u8; 32]>::from(base58_hash).into();
 /// let base58 = Base58CryptoHash::from(<[u8; 32]>::from(kit));
 /// ```

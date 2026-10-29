@@ -3,7 +3,7 @@
 //! [`FungibleToken`] and [`NonFungibleToken`] implement
 //! [`Contract`](crate::Contract) like the markers `#[contract]` generates, so
 //! `near.contract::<FungibleToken>(id)` gives a read-only
-//! [`FungibleTokenClient`] and `signing.contract::<FungibleToken>(id)` one
+//! [`FungibleTokenClient`] and `alice.contract::<FungibleToken>(id)` one
 //! that can also send. Views need `C: Viewer` and calls
 //! `C: TxSender + Clone`; any other backend works through
 //! [`Contract::client`](crate::Contract::client).

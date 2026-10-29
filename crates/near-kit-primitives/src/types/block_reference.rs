@@ -29,6 +29,8 @@ pub enum BlockReference {
     SyncCheckpoint(SyncCheckpoint),
 }
 
+/// The latest final block ([`Finality::Final`]). `View`s and `Near` reads use
+/// it unless `.at(..)` says otherwise.
 impl Default for BlockReference {
     fn default() -> Self {
         Self::Finality(Finality::Final)
@@ -85,6 +87,10 @@ impl Finality {
 }
 
 /// Transaction execution status for send_tx wait_until parameter.
+///
+/// This mirrors the RPC's values, and its `Default` (`ExecutedOptimistic`) is
+/// the RPC's default when a request names none. near-kit's sends default to
+/// `Final` instead (see `near_kit::transaction::Final`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {
