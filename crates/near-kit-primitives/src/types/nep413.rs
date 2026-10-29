@@ -393,14 +393,21 @@ fn signature_from_unprefixed_bytes(bytes: &[u8]) -> Option<Signature> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::SecretKey;
+
+    fn sign(secret: &SecretKey, params: &SignMessageParams) -> SignedMessage {
+        SignedMessage {
+            account_id: "alice.near".parse().unwrap(),
+            public_key: secret.public_key(),
+            signature: secret.sign(hash_message(params).as_bytes()),
+            state: params.state.clone(),
+        }
+    }
 
     #[test]
     fn test_generate_nonce() {
         let nonce1 = generate_nonce();
         let nonce2 = generate_nonce();
-
-        assert_eq!(nonce1.len(), 32);
-        assert_eq!(nonce2.len(), 32);
 
         // Nonces should be different (random part)
         assert_ne!(nonce1, nonce2);
@@ -415,89 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn test_hash_message() {
-        let params = SignMessageParams {
-            message: "Hello NEAR!".to_string(),
-            recipient: "example.near".to_string(),
-            nonce: [0u8; 32],
-            callback_url: None,
-            state: None,
-        };
-
-        let hash = hash_message(&params);
-
-        // Should produce a valid 32-byte hash
-        assert_eq!(hash.as_bytes().len(), 32);
-
-        // Same input should produce same hash
-        let hash2 = hash_message(&params);
-        assert_eq!(hash, hash2);
-
-        // Different input should produce different hash
-        let params2 = SignMessageParams {
-            message: "Hello NEAR!".to_string(),
-            recipient: "other.near".to_string(),
-            nonce: [0u8; 32],
-            callback_url: None,
-            state: None,
-        };
-        let hash3 = hash_message(&params2);
-        assert_ne!(hash, hash3);
-    }
-
-    #[test]
-    fn test_signed_message_json_roundtrip() {
-        use crate::types::SecretKey;
-
-        let secret = SecretKey::generate_ed25519();
-        let params = SignMessageParams {
-            message: "Test".to_string(),
-            recipient: "app.near".to_string(),
-            nonce: generate_nonce(),
-            callback_url: None,
-            state: Some("csrf_token".to_string()),
-        };
-
-        let hash = hash_message(&params);
-        let signature = secret.sign(hash.as_bytes());
-
-        let signed = SignedMessage {
-            account_id: "alice.near".parse().unwrap(),
-            public_key: secret.public_key(),
-            signature,
-            state: params.state.clone(),
-        };
-
-        // Serialize to JSON
-        let json = serde_json::to_string(&signed).unwrap();
-
-        // The signature should be base64, not ed25519:base58 format
-        // Note: public_key still uses ed25519: prefix (that's correct per NEAR format)
-        // We check that the signature field specifically is base64 by parsing
-        let json_value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        let sig_str = json_value["signature"].as_str().unwrap();
-        // Base64 signatures should not have a colon (ed25519: prefix would have one)
-        assert!(
-            !sig_str.contains(':'),
-            "Signature should be base64, not prefixed format: {}",
-            sig_str
-        );
-
-        // Deserialize back
-        let deserialized: SignedMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(signed.account_id, deserialized.account_id);
-        assert_eq!(signed.public_key, deserialized.public_key);
-        assert_eq!(
-            signed.signature.as_bytes(),
-            deserialized.signature.as_bytes()
-        );
-        assert_eq!(signed.state, deserialized.state);
-    }
-
-    #[test]
     fn test_verify_signature_basic() {
-        use crate::types::SecretKey;
-
         let secret = SecretKey::generate_ed25519();
         let params = SignMessageParams {
             message: "Test message".to_string(),
@@ -507,15 +432,7 @@ mod tests {
             state: None,
         };
 
-        let hash = hash_message(&params);
-        let signature = secret.sign(hash.as_bytes());
-
-        let signed = SignedMessage {
-            account_id: "alice.near".parse().unwrap(),
-            public_key: secret.public_key(),
-            signature,
-            state: None,
-        };
+        let signed = sign(&secret, &params);
 
         // Should verify successfully
         assert!(verify_signature(&signed, &params, DEFAULT_MAX_AGE));
@@ -538,8 +455,6 @@ mod tests {
 
     #[test]
     fn test_verify_signature_expiration() {
-        use crate::types::SecretKey;
-
         let secret = SecretKey::generate_ed25519();
 
         // Create a nonce with an old timestamp (10 minutes ago)
@@ -559,15 +474,7 @@ mod tests {
             state: None,
         };
 
-        let hash = hash_message(&params);
-        let signature = secret.sign(hash.as_bytes());
-
-        let signed = SignedMessage {
-            account_id: "alice.near".parse().unwrap(),
-            public_key: secret.public_key(),
-            signature,
-            state: None,
-        };
+        let signed = sign(&secret, &params);
 
         // Should fail with default max age (5 minutes)
         assert!(!verify_signature(&signed, &params, DEFAULT_MAX_AGE));
@@ -585,8 +492,6 @@ mod tests {
 
     #[test]
     fn test_verify_signature_custom_nonce_scheme() {
-        use crate::types::SecretKey;
-
         let secret = SecretKey::generate_ed25519();
 
         // A custom nonce that does NOT follow the near-kit timestamp convention:
@@ -602,15 +507,7 @@ mod tests {
             state: None,
         };
 
-        let hash = hash_message(&params);
-        let signature = secret.sign(hash.as_bytes());
-
-        let signed = SignedMessage {
-            account_id: "alice.near".parse().unwrap(),
-            public_key: secret.public_key(),
-            signature,
-            state: None,
-        };
+        let signed = sign(&secret, &params);
 
         // Fails with the default timestamp validation (first 8 bytes look like a
         // far-future timestamp)
@@ -662,160 +559,47 @@ mod tests {
     /// (Meteor Wallet, MyNearWallet) in near-api-rs.
     #[test]
     fn test_typescript_interoperability() {
-        use base64::prelude::*;
-
-        // Test vector from near-api-rs, verified against Meteor wallet
-        // Seed phrase: "fatal edge jacket cash hard pass gallery fabric whisper size rain biology"
-        // HD path: m/44'/397'/0'
-        // This produces public key: ed25519:2RM3EotCzEiVobm6aMjaup43k8cFffR4KHFtrqbZ79Qy
-
-        let nonce_base64 = "KNV0cOpvJ50D5vfF9pqWom8wo2sliQ4W+Wa7uZ3Uk6Y=";
-        let nonce_bytes = BASE64_STANDARD.decode(nonce_base64).unwrap();
-        let nonce: [u8; 32] = nonce_bytes.try_into().unwrap();
-
-        // Test WITHOUT callback_url (Meteor wallet style)
-        let params_no_callback = SignMessageParams {
-            message: "Hello NEAR!".to_string(),
-            recipient: "example.near".to_string(),
-            nonce,
-            callback_url: None,
-            state: None,
-        };
-
-        let expected_sig_no_callback = "NnJgPU1Ql7ccRTITIoOVsIfElmvH1RV7QAT4a9Vh6ShCOnjIzRwxqX54JzoQ/nK02p7VBMI2vJn48rpImIJwAw==";
-
-        // Verify our serialization produces the same hash that the TS impl would sign
-        let hash = hash_message(&params_no_callback);
-
-        // The public key from the seed phrase (derived with m/44'/397'/0')
+        // Seed phrase "fatal edge jacket cash hard pass gallery fabric whisper size
+        // rain biology" at m/44'/397'/0'; Meteor wallet signs without a
+        // callback_url, MyNearWallet with one.
         let public_key: crate::types::PublicKey =
             "ed25519:2RM3EotCzEiVobm6aMjaup43k8cFffR4KHFtrqbZ79Qy"
                 .parse()
                 .unwrap();
-
-        // Decode the expected signature
-        let sig_bytes = BASE64_STANDARD.decode(expected_sig_no_callback).unwrap();
-        let signature = crate::types::Signature::Ed25519(
-            sig_bytes.try_into().expect("signature should be 64 bytes"),
-        );
-
-        // Verify the signature is valid for our computed hash
-        assert!(
-            signature.verify(hash.as_bytes(), &public_key),
-            "Signature verification failed - serialization mismatch with TypeScript"
-        );
-
-        // Test WITH callback_url (MyNearWallet style)
-        let params_with_callback = SignMessageParams {
-            message: "Hello NEAR!".to_string(),
-            recipient: "example.near".to_string(),
-            nonce,
-            callback_url: Some("http://localhost:3000".to_string()),
-            state: None,
-        };
-
-        let expected_sig_with_callback = "zzZQ/GwAjrZVrTIFlvmmQbDQHllfzrr8urVWHaRt5cPfcXaCSZo35c5LDpPpTKivR6BxLyb3lcPM0FfCW5lcBQ==";
-
-        let hash = hash_message(&params_with_callback);
-        let sig_bytes = BASE64_STANDARD.decode(expected_sig_with_callback).unwrap();
-        let signature = crate::types::Signature::Ed25519(
-            sig_bytes.try_into().expect("signature should be 64 bytes"),
-        );
-
-        assert!(
-            signature.verify(hash.as_bytes(), &public_key),
-            "Signature verification with callback_url failed - serialization mismatch"
-        );
-    }
-
-    /// Test that we can deserialize a SignedMessage JSON from TypeScript.
-    #[test]
-    fn test_deserialize_typescript_signed_message() {
-        // Simulated JSON from TypeScript near-kit
-        // Using the correct public key derived from seed phrase
-        let ts_json = r#"{
-            "accountId": "alice.testnet",
-            "publicKey": "ed25519:2RM3EotCzEiVobm6aMjaup43k8cFffR4KHFtrqbZ79Qy",
-            "signature": "NnJgPU1Ql7ccRTITIoOVsIfElmvH1RV7QAT4a9Vh6ShCOnjIzRwxqX54JzoQ/nK02p7VBMI2vJn48rpImIJwAw=="
-        }"#;
-
-        // Should deserialize successfully
-        let signed: SignedMessage = serde_json::from_str(ts_json).unwrap();
-
-        assert_eq!(signed.account_id.as_str(), "alice.testnet");
-        assert_eq!(
-            signed.public_key.to_string(),
-            "ed25519:2RM3EotCzEiVobm6aMjaup43k8cFffR4KHFtrqbZ79Qy"
-        );
-        assert_eq!(signed.signature.as_bytes().len(), 64);
-        assert!(signed.state.is_none());
-    }
-
-    /// Test that we can deserialize legacy ed25519:base58 signature format.
-    #[test]
-    fn test_deserialize_legacy_base58_signature() {
-        // Some older implementations might send signatures in ed25519:base58 format
-        let legacy_json = r#"{
-            "accountId": "alice.testnet",
-            "publicKey": "ed25519:HeEp8gQPzs6rMPRN1hijJ7dXFmZLu3FPNKeLDpmLfFBT",
-            "signature": "ed25519:2DzVcjvceXbR6n9ot4C9xA8gVPrZRq8NqJj4b3DaLBmVk1TqXwK8yHcL6M6ezQD4HxXHhZQPbgjdNW7Tx8sjxSFe"
-        }"#;
-
-        // Should deserialize successfully (backwards compatibility)
-        let signed: SignedMessage = serde_json::from_str(legacy_json).unwrap();
-
-        assert_eq!(signed.account_id.as_str(), "alice.testnet");
-        assert_eq!(signed.signature.as_bytes().len(), 64);
-    }
-
-    /// Test roundtrip: Rust -> JSON -> TypeScript-compatible -> JSON -> Rust
-    #[test]
-    fn test_rust_to_typescript_roundtrip() {
-        use crate::types::SecretKey;
-
-        let secret = SecretKey::generate_ed25519();
-        let params = SignMessageParams {
-            message: "Cross-platform test".to_string(),
-            recipient: "myapp.com".to_string(),
-            nonce: generate_nonce(),
-            callback_url: None,
-            state: Some("session123".to_string()),
-        };
-
-        let hash = hash_message(&params);
-        let signature = secret.sign(hash.as_bytes());
-
-        let signed = SignedMessage {
-            account_id: "alice.near".parse().unwrap(),
-            public_key: secret.public_key(),
-            signature,
-            state: params.state.clone(),
-        };
-
-        // Serialize to JSON (as if sending to TypeScript)
-        let json = serde_json::to_string(&signed).unwrap();
-
-        // Parse as generic JSON to inspect the format
-        let json_value: serde_json::Value = serde_json::from_str(&json).unwrap();
-
-        // Verify field names are camelCase (TypeScript compatible)
-        assert!(json_value.get("accountId").is_some());
-        assert!(json_value.get("publicKey").is_some());
-        assert!(json_value.get("signature").is_some());
-
-        // Verify signature is base64 (no colon = not prefixed format)
-        let sig_str = json_value["signature"].as_str().unwrap();
-        assert!(!sig_str.contains(':'));
-
-        // Deserialize back (as if receiving from TypeScript)
-        let roundtrip: SignedMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(signed.account_id, roundtrip.account_id);
-        assert_eq!(signed.public_key, roundtrip.public_key);
-        assert_eq!(signed.signature.as_bytes(), roundtrip.signature.as_bytes());
-        assert_eq!(signed.state, roundtrip.state);
-
-        // Verify signature still works after roundtrip
-        assert!(verify_signature(&roundtrip, &params, Duration::MAX));
+        let nonce = BASE64_STANDARD
+            .decode("KNV0cOpvJ50D5vfF9pqWom8wo2sliQ4W+Wa7uZ3Uk6Y=")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        for (callback_url, signature) in [
+            (
+                None,
+                "NnJgPU1Ql7ccRTITIoOVsIfElmvH1RV7QAT4a9Vh6ShCOnjIzRwxqX54JzoQ/nK02p7VBMI2vJn48rpImIJwAw==",
+            ),
+            (
+                Some("http://localhost:3000"),
+                "zzZQ/GwAjrZVrTIFlvmmQbDQHllfzrr8urVWHaRt5cPfcXaCSZo35c5LDpPpTKivR6BxLyb3lcPM0FfCW5lcBQ==",
+            ),
+        ] {
+            let params = SignMessageParams {
+                message: "Hello NEAR!".to_string(),
+                recipient: "example.near".to_string(),
+                nonce,
+                callback_url: callback_url.map(String::from),
+                state: None,
+            };
+            let signature = crate::types::Signature::Ed25519(
+                BASE64_STANDARD
+                    .decode(signature)
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            );
+            assert!(
+                signature.verify(hash_message(&params).as_bytes(), &public_key),
+                "callback_url {callback_url:?}: hash differs from the wallets'"
+            );
+        }
     }
 
     /// Test deserializing the full HTTP authentication payload from TypeScript.
@@ -855,112 +639,22 @@ mod tests {
         ));
     }
 
-    /// Test the complete authentication flow: TS client -> JSON -> Rust server
-    #[test]
-    fn test_full_auth_flow_interop() {
-        // Simulate what a real HTTP request body would look like from near-kit TS
-        // Nonce is hex encoded (64 chars for 32 bytes)
-        let http_body = r#"{
-            "signedMessage": {
-                "accountId": "alice.testnet",
-                "publicKey": "ed25519:2RM3EotCzEiVobm6aMjaup43k8cFffR4KHFtrqbZ79Qy",
-                "signature": "NnJgPU1Ql7ccRTITIoOVsIfElmvH1RV7QAT4a9Vh6ShCOnjIzRwxqX54JzoQ/nK02p7VBMI2vJn48rpImIJwAw=="
-            },
-            "nonce": "28d57470ea6f279d03e6f7c5f69a96a26f30a36b25890e16f966bbb99dd493a6",
-            "message": "Hello NEAR!",
-            "recipient": "example.near"
-        }"#;
-
-        // Parse as AuthPayload
-        let payload: AuthPayload = serde_json::from_str(http_body).unwrap();
-
-        // Verify the signature
-        let params = payload.to_params();
-        let is_valid = verify_signature(&payload.signed_message, &params, Duration::MAX);
-
-        assert!(is_valid, "Signature should be valid");
-        assert_eq!(payload.signed_message.account_id.as_str(), "alice.testnet");
-    }
-
-    /// Test generating AuthPayload from Rust and serializing to JSON
-    #[test]
-    fn test_generate_auth_payload_from_rust() {
-        use crate::types::SecretKey;
-
-        let secret = SecretKey::generate_ed25519();
-        let params = SignMessageParams {
-            message: "Sign in to My App".to_string(),
-            recipient: "myapp.com".to_string(),
-            nonce: generate_nonce(),
-            callback_url: None,
-            state: None,
-        };
-
-        let hash = hash_message(&params);
-        let signature = secret.sign(hash.as_bytes());
-
-        let signed = SignedMessage {
-            account_id: "alice.near".parse().unwrap(),
-            public_key: secret.public_key(),
-            signature,
-            state: None,
-        };
-
-        // Create AuthPayload (what would be sent over HTTP)
-        let payload = AuthPayload::from_signed(signed.clone(), &params);
-
-        // Serialize to JSON
-        let json = serde_json::to_string(&payload).unwrap();
-
-        // Verify nonce is hex (not an array)
-        let json_value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        let nonce_str = json_value["nonce"].as_str().unwrap();
-        assert!(
-            nonce_str.len() == 64, // Hex of 32 bytes = 64 chars
-            "Nonce should be hex encoded, got: {}",
-            nonce_str
-        );
-
-        // Deserialize back and verify
-        let roundtrip: AuthPayload = serde_json::from_str(&json).unwrap();
-        assert_eq!(payload.nonce, roundtrip.nonce);
-        assert_eq!(payload.message, roundtrip.message);
-
-        // Verify signature still works
-        let roundtrip_params = roundtrip.to_params();
-        assert!(verify_signature(
-            &roundtrip.signed_message,
-            &roundtrip_params,
-            Duration::MAX
-        ));
-    }
-
     /// One key of each type, with a signed message for fixed params.
     fn signed_by_every_key_type() -> Vec<(SignedMessage, SignMessageParams)> {
-        use crate::types::SecretKey;
-
         let params = SignMessageParams {
             message: "Login".to_string(),
             recipient: "myapp.com".to_string(),
             nonce: [1; 32],
             callback_url: None,
-            state: None,
+            state: Some("csrf_token".to_string()),
         };
         let keys = [
             SecretKey::ed25519_from_bytes([7; 32]),
             SecretKey::secp256k1_from_bytes([2; 32]).unwrap(),
             SecretKey::ml_dsa65_from_seed([3; 32]),
         ];
-        keys.into_iter()
-            .map(|secret| {
-                let signed = SignedMessage {
-                    account_id: "alice.near".parse().unwrap(),
-                    public_key: secret.public_key(),
-                    signature: secret.sign(hash_message(&params).as_bytes()),
-                    state: None,
-                };
-                (signed, params.clone())
-            })
+        keys.iter()
+            .map(|secret| (sign(secret, &params), params.clone()))
             .collect()
     }
 
@@ -974,6 +668,26 @@ mod tests {
             assert_eq!(back, signed);
             assert!(verify_signature(&back, &params, NonceValidation::None));
         }
+    }
+
+    #[test]
+    fn auth_payload_json_shape() {
+        let (signed, params) = signed_by_every_key_type().remove(0);
+        let payload = AuthPayload::from_signed(signed.clone(), &params);
+        assert_eq!(
+            serde_json::to_value(&payload).unwrap(),
+            serde_json::json!({
+                "signedMessage": {
+                    "accountId": "alice.near",
+                    "publicKey": signed.public_key.to_string(),
+                    "signature": BASE64_STANDARD.encode(signed.signature.as_bytes()),
+                    "state": "csrf_token",
+                },
+                "nonce": "01".repeat(32),
+                "message": "Login",
+                "recipient": "myapp.com",
+            })
+        );
     }
 
     #[test]
@@ -1006,7 +720,13 @@ mod tests {
             });
             let back: SignedMessage = serde_json::from_value(json)
                 .unwrap_or_else(|e| panic!("{key_type:?} near-cli-rs JSON: {e}"));
-            assert_eq!(back, signed);
+            assert_eq!(
+                back,
+                SignedMessage {
+                    state: None,
+                    ..signed
+                }
+            );
             assert!(verify_signature(&back, &params, NonceValidation::None));
         }
     }
@@ -1028,8 +748,6 @@ mod tests {
 
     #[test]
     fn signature_of_unknown_length_is_rejected() {
-        use base64::prelude::*;
-
         // 0xFF bytes base64-encode to '/', which is not base58, so neither
         // encoding can be misread as the other.
         for bytes in [vec![0xFF; 63], vec![0xFF; 66], vec![0xFF; 3308]] {
