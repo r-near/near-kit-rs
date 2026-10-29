@@ -7,25 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.15.0](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.14.0...near-kit-macros-v0.15.0) - 2026-10-29
+## [0.15.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.14.0...near-kit-macros-v0.15.0-rc.1) - 2026-10-29
 
-### Added
+Use this crate through `near-kit` or `near-kit-primitives` with the `contracts`
+feature, not directly.
 
-- [**breaking**] make outcomes must_use and add the helpers a relayer needs ([#372](https://github.com/r-near/near-kit-rs/pull/372))
-- [**breaking**] rebuild the 0.30 API on two traits, Viewer and TxSender ([#368](https://github.com/r-near/near-kit-rs/pull/368))
-- let #[contract] bindings build with near-kit-primitives alone ([#367](https://github.com/r-near/near-kit-rs/pull/367))
-
-### Fixed
-
-- classify 4xx JSON-RPC errors by code and status, keep URL secrets out of Debug, and publish only from the release PR ([#382](https://github.com/r-near/near-kit-rs/pull/382))
-- [**breaking**] reject #[contract] forms the macro mis-generated, and send raw method names without r# ([#375](https://github.com/r-near/near-kit-rs/pull/375))
-
-### Other
-
-- [**breaking**] cut 10k lines of duplicated code, tests and docs ([#381](https://github.com/r-near/near-kit-rs/pull/381))
-- rewrite the READMEs, crate front pages and MIGRATION.md for 0.30 ([#380](https://github.com/r-near/near-kit-rs/pull/380))
-- document every public item and build the docs with -D warnings ([#377](https://github.com/r-near/near-kit-rs/pull/377))
-- [**breaking**] settle the 0.30 names and error variants ([#371](https://github.com/r-near/near-kit-rs/pull/371))
+- [**breaking**] Generates `<Name>Client<C>`, generic over any `Viewer`/`TxSender` backend (`C = Near` with near-kit's `rpc`) ([#368](https://github.com/r-near/near-kit-rs/pull/368)).
+- [**breaking**] Rejects forms it used to mis-generate: ignored `#[call]` return types, pattern arguments, generic, lifetime or `async` methods, and the reserved names `contract_id`, `client` and `clone`. `#[cfg]` on a method now applies to the generated items ([#375](https://github.com/r-near/near-kit-rs/pull/375)).
+- [**breaking**] Raw method names are sent without `r#` (`fn r#type` sends `type`) ([#375](https://github.com/r-near/near-kit-rs/pull/375)).
+- [**breaking**] Removed the standalone `call`/`json`/`borsh` markers.
+- Works with `near-kit-primitives` alone ([#367](https://github.com/r-near/near-kit-rs/pull/367)).
 
 ## [0.14.0](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.13.1...near-kit-macros-v0.14.0) - 2026-10-13
 

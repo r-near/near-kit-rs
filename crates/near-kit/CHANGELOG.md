@@ -7,33 +7,141 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.21.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.20.1...near-kit-v0.21.0) - 2026-10-29
+## [0.30.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.20.1...near-kit-v0.30.0-rc.1) - 2026-10-29
+
+This release changes the whole API in one go and keeps no deprecated aliases.
+[MIGRATION.md](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md)
+maps every removed method to its replacement. The new `near_kit::guide`
+module explains the model.
+
+### Changed without a compile error
+
+Read these first. Code that compiles against this release can still behave
+differently:
+
+- **Sends wait for `Final` by default** (0.20.1 used `ExecutedOptimistic`).
+  This also applies to `near.send_signed(..)`. Use `.wait_until::<ExecutedOptimistic>()`
+  to keep the old behaviour.
+  ([MIGRATION](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#wait-levels-final-by-default))
+- **Cached nonces are shared per chain.** They are keyed by genesis hash,
+  account and key rather than by RPC URL, so every client asks its node for
+  `status` before its first nonce. A test transport that panics on unexpected
+  methods needs a `status` reply. A backend without `status` keys nonces by
+  chain ID instead.
+  ([MIGRATION](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#nonces))
+- **Ed25519 secret keys print in the 64-byte form** that nearcore, near-cli-rs
+  and neard key files read. Both forms still parse, and 64-byte keys whose
+  halves disagree are now rejected.
+  ([MIGRATION](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#keys-and-signers-1))
+- **RPC errors are retried by cause and status.** A `-32000` error is retried
+  only when it has no cause or a transient one. Unknown transactions,
+  untracked shards and receipt lookups now have typed, non-retryable errors.
+  A JSON-RPC error on a 4xx keeps its status's classification, so 408 and 429
+  are retried, and `-32601` (method not found) stays `RpcError::Rpc` at any
+  status. ([#382](https://github.com/r-near/near-kit-rs/pull/382),
+  [MIGRATION](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#rpc-errors-and-retries))
+- **An outcome that fails to decode is now an error.** It used to read as
+  `outcome: None`. `ExecutionStatus::InvalidTx` is new.
+  ([MIGRATION](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#transaction-outcomes))
+- **Some error messages read differently.** A local check prints
+  "Refused before signing: …" (`Error::Validation`), and an action failure
+  prints "Action #N: …" from both `failure_message()` and `result()`, as
+  nearcore does. Code that matches on error text needs the new text.
+  ([#383](https://github.com/r-near/near-kit-rs/pull/383),
+  [MIGRATION](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#error-variants))
+- **`Debug` output and `tracing` spans show only the RPC URL's scheme and
+  host**, never its path, query string or credentials, where providers put API
+  keys. `RpcClient::url()` still returns the full URL.
+  ([#382](https://github.com/r-near/near-kit-rs/pull/382), [#385](https://github.com/r-near/near-kit-rs/pull/385))
+
+### Changed (breaking)
+
+- **Reading and signing are separate clients.** `Near` only reads.
+  `near.with_signer(signer)` returns a `SigningNear<W>`, whose type carries
+  the wait level. `SigningNear::from_env()` replaces `Near::from_env()`.
+  ([#368](https://github.com/r-near/near-kit-rs/pull/368))
+- **Everything runs on two traits, `Viewer` and `TxSender`.** Typed contract
+  clients, `View`, `Call` and the FT/NFT clients work over any backend that
+  implements them, including your own.
+  ([#368](https://github.com/r-near/near-kit-rs/pull/368))
+- **A transaction is a receiver plus `Action` values**:
+  `alice.transaction(id).add_action(..).await`. The per-action builder methods
+  are gone. A state init or delegate sent to the wrong receiver now fails with
+  `Error::Validation` before signing.
+- **`Near` keeps only the reads that do more than forward one RPC call**
+  (`view`, `balance`, `account_exists`, `tx_status`). Everything else is
+  `near.rpc().<method>(..)`. Reads pick a block with `.at(..)`.
+- **Arguments are typed** (`AccountId`/`&AccountIdRef`, `NearToken`, `Gas`).
+  `account!("..")` checks a literal at compile time. FT `transfer` and
+  `transfer_call` take `amount: u128`, so a literal amount compiles.
+- **Each layer has its own error type**: `ContractError<E>`, `OutcomeError`,
+  `CodecError`, `SignerError`, `DecodeTransactionError`, `DecodeDelegateError`.
+  Each converts into `near_kit::Error` with `?`. `RpcError::Rpc` gained a
+  `cause` field. The `RpcError::is_*` helpers were removed.
+  ([#365](https://github.com/r-near/near-kit-rs/pull/365), [#371](https://github.com/r-near/near-kit-rs/pull/371), [#381](https://github.com/r-near/near-kit-rs/pull/381))
+- **Types that may grow are `#[non_exhaustive]`**: `Error`, `KeyStoreError`,
+  `DecodeDelegateError`, `ViewFunctionResult` and `TransportResponse`. A
+  `match` needs a `_` arm; build a `TransportResponse` with
+  `TransportResponse::new(status, body)`. Base64 errors carry a `String`
+  instead of `base64::DecodeError`.
+  ([#383](https://github.com/r-near/near-kit-rs/pull/383))
+- **`FinalExecutionOutcome` and the other outcomes are `#[must_use]`.**
+  `sign_delegate` replaces the builder's `delegate`, and there are new helpers
+  for relayers. ([#372](https://github.com/r-near/near-kit-rs/pull/372))
+- **The protocol types moved into `near-kit-primitives`.** They are
+  re-exported at the same `near_kit::` paths but are new types to semver
+  tooling. Several constructors and helpers were removed in favour of plain
+  struct and enum syntax (see the protocol types table in MIGRATION).
+  ([#366](https://github.com/r-near/near-kit-rs/pull/366), [#381](https://github.com/r-near/near-kit-rs/pull/381))
+- **The key loader types are now functions** (`from_credentials`,
+  `from_credentials_file`, `from_keyring`, `from_env`).
+- **`#[near_kit::contract]` generates `<Name>Client<C = Near>`** and rejects
+  forms it used to compile into something wrong (ignored `#[call]` return
+  types, pattern arguments, generic or `async` methods, reserved names).
+  ([#375](https://github.com/r-near/near-kit-rs/pull/375))
+- Removed surface with no users: the `Box<T>` forwarding impls of
+  `Viewer`/`TxSender`, `From<NearBuilder> for Near` (call `build()`),
+  `NearBuilder::chain_id`, `RpcClient::block_effects`/`maintenance_windows`
+  (reachable with `RpcClient::request`), `Default for ChainId` and internal
+  constants. ([#381](https://github.com/r-near/near-kit-rs/pull/381), [#383](https://github.com/r-near/near-kit-rs/pull/383))
 
 ### Added
 
-- [**breaking**] make outcomes must_use and add the helpers a relayer needs ([#372](https://github.com/r-near/near-kit-rs/pull/372))
-- [**breaking**] rebuild the 0.30 API on two traits, Viewer and TxSender ([#368](https://github.com/r-near/near-kit-rs/pull/368))
-- let #[contract] bindings build with near-kit-primitives alone ([#367](https://github.com/r-near/near-kit-rs/pull/367))
+- More key forms load: near-api-js's 96-byte secp256k1 form, the 4032-byte
+  expanded ML-DSA-65 key, and near-cli-rs `ml-dsa-65-hash:` keyring entries.
+  NEP-413 payloads signed with any key type now read back.
+  ([#374](https://github.com/r-near/near-kit-rs/pull/374))
+- `from_credentials` also finds the per-key files near-cli-rs writes under
+  `<network>/<account>/`, and lists them when there are several.
+  ([#383](https://github.com/r-near/near-kit-rs/pull/383))
+- `max_nonce_retries` also covers `NonceTooLarge` and `Expired`.
+  ([#373](https://github.com/r-near/near-kit-rs/pull/373))
+- `contracts` without `rpc` now also generates the backend-generic client.
+  ([#367](https://github.com/r-near/near-kit-rs/pull/367))
+- `MaybeSend`/`MaybeSync` bounds, so code that forwards to `Viewer`/`TxSender`
+  also builds on `wasm32-unknown-unknown`.
+- A `guide` module with task-oriented chapters, every public item documented,
+  and runnable examples checked in CI.
+  ([#377](https://github.com/r-near/near-kit-rs/pull/377), [#378](https://github.com/r-near/near-kit-rs/pull/378), [#379](https://github.com/r-near/near-kit-rs/pull/379), [#380](https://github.com/r-near/near-kit-rs/pull/380))
 
 ### Fixed
 
-- show only the RPC URL's scheme and host in Debug and tracing, and don't block or panic on WASI and sandbox failures ([#385](https://github.com/r-near/near-kit-rs/pull/385))
-- classify 4xx JSON-RPC errors by code and status, keep URL secrets out of Debug, and publish only from the release PR ([#382](https://github.com/r-near/near-kit-rs/pull/382))
-- [**breaking**] decode RPC outcomes as nearcore sends them, and retry only transient errors ([#376](https://github.com/r-near/near-kit-rs/pull/376))
-- [**breaking**] read and write keys in the forms nearcore, near-cli-rs and near-api-js use ([#374](https://github.com/r-near/near-kit-rs/pull/374))
-- [**breaking**] share one nonce sequence per chain, account and key ([#373](https://github.com/r-near/near-kit-rs/pull/373))
+- RPC outcomes decode the way nearcore sends them.
+  ([#376](https://github.com/r-near/near-kit-rs/pull/376))
+- A universal account bootstrap is signed with `bootstrap_nonce + 1`, read
+  from the account view, on every attempt.
+  ([#373](https://github.com/r-near/near-kit-rs/pull/373))
+- `DelegateOptions { block_height_offset: Some(u64::MAX), .. }` no longer
+  overflows into an already-expired delegate action.
+  ([#382](https://github.com/r-near/near-kit-rs/pull/382))
+- The WASI transport reports a refused connection as the host's error (for
+  example `ConnectionRefused`) instead of "request body write failed", and
+  aborts the request body before waiting for that error.
+  ([#382](https://github.com/r-near/near-kit-rs/pull/382), [#385](https://github.com/r-near/near-kit-rs/pull/385))
 
-### Other
-
-- [**breaking**] trim the public API before 0.30.0-rc.1, and fix what new users trip on ([#383](https://github.com/r-near/near-kit-rs/pull/383))
-- [**breaking**] cut 10k lines of duplicated code, tests and docs ([#381](https://github.com/r-near/near-kit-rs/pull/381))
-- rewrite the READMEs, crate front pages and MIGRATION.md for 0.30 ([#380](https://github.com/r-near/near-kit-rs/pull/380))
-- rewrite the examples as runnable tasks and run them in CI ([#379](https://github.com/r-near/near-kit-rs/pull/379))
-- add a guide module with eleven task-oriented chapters ([#378](https://github.com/r-near/near-kit-rs/pull/378))
-- document every public item and build the docs with -D warnings ([#377](https://github.com/r-near/near-kit-rs/pull/377))
-- [**breaking**] settle the 0.30 names and error variants ([#371](https://github.com/r-near/near-kit-rs/pull/371))
-- move protocol types into near-kit-primitives, a client-free crate ([#366](https://github.com/r-near/near-kit-rs/pull/366))
-- [**breaking**] give client-free APIs their own error types ([#365](https://github.com/r-near/near-kit-rs/pull/365))
+The minimum supported Rust version is still 1.95. Each crate's public API is
+now checked in CI against a committed snapshot
+([#370](https://github.com/r-near/near-kit-rs/pull/370)).
 
 ## [0.20.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.20.0...near-kit-v0.20.1) - 2026-10-27
 

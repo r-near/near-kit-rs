@@ -48,9 +48,9 @@
 )]
 #![cfg_attr(
     not(feature = "rpc"),
-    doc = "[`Tx`]: https://docs.rs/near-kit/latest/near_kit/transaction/struct.Tx.html
-[signing-near]: https://docs.rs/near-kit/latest/near_kit/struct.SigningNear.html
-[wait-until]: https://docs.rs/near-kit/latest/near_kit/struct.SigningNear.html#method.wait_until"
+    doc = "[`Tx`]: https://docs.rs/near-kit/0.30.0-rc.1/near_kit/transaction/struct.Tx.html
+[signing-near]: https://docs.rs/near-kit/0.30.0-rc.1/near_kit/struct.SigningNear.html
+[wait-until]: https://docs.rs/near-kit/0.30.0-rc.1/near_kit/struct.SigningNear.html#method.wait_until"
 )]
 
 #[doc(inline)]
