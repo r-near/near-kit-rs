@@ -1,25 +1,36 @@
-//! Sandbox testing utilities for NEAR Protocol.
+//! A local NEAR node in Docker, for tests that use [`near-kit`](https://docs.rs/near-kit).
 //!
-//! This crate provides ergonomic APIs for testing against a local NEAR sandbox.
-//! It handles sandbox lifecycle management, including shared singleton instances
-//! for test performance and fresh instances for isolated tests.
+//! [`Sandbox`] starts a `nearprotocol/sandbox` container through
+//! testcontainers and hands back an ordinary `near_kit::SigningNear` for its
+//! root account, so test code reads like production code. Accounts are
+//! created the normal way, with `Action::create_account()` transactions from
+//! the root account.
 //!
-//! The sandbox runs as a Docker container via testcontainers, using the
-//! `nearprotocol/sandbox` image from Docker Hub.
+//! ## Requirements
 //!
-//! # Design Principles
+//! Docker must be installed and running. testcontainers finds it through the
+//! default socket; when Docker listens elsewhere (Colima, Rancher Desktop and
+//! similar setups), set `DOCKER_HOST` to the active context's endpoint:
 //!
-//! 1. **Consistent with production**: Test code looks like production code.
-//!    [`Sandbox::root_account`] is an ordinary `SigningNear` for the root account,
-//!    pointed at the sandbox network.
+//! ```sh
+//! export DOCKER_HOST="$(docker context inspect --format '{{.Endpoints.docker.Host}}')"
+//! ```
 //!
-//! 2. **Sandbox lifecycle management**: The library handles starting/stopping
-//!    sandboxes, including a shared singleton for test performance.
+//! The first start pulls the image, which can take a while.
 //!
-//! 3. **No magic account creation**: All accounts are created through the
-//!    standard `Action::create_account()` transaction flow.
+//! ## Starting a sandbox
 //!
-//! # Example
+//! - [`Sandbox::builder().shared()`](SandboxBuilder::shared) starts one
+//!   process-wide sandbox on first use and returns the same `&'static Sandbox`
+//!   afterwards. Tests sharing it must use distinct account names. It is
+//!   removed when the process exits.
+//! - [`Sandbox::builder().fresh()`](SandboxBuilder::fresh) starts a new
+//!   sandbox with clean state, stopped when the last clone of it drops.
+//!
+//! [`Sandbox::root_account`] is a `SigningNear` for the root account
+//! (`sandbox` unless [`root_account`](SandboxBuilder::root_account) sets
+//! another), funded at genesis. Sign as another account with
+//! `root.near().with_signer(signer)`, which reuses the connection.
 //!
 //! ```rust,no_run
 //! use near_kit::protocol::Action;
@@ -28,11 +39,10 @@
 //! use near_kit_sandbox::Sandbox;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // One process-wide sandbox; use `.fresh()` for isolated state.
 //! let sandbox = Sandbox::builder().shared().await?;
-//! let root = sandbox.root_account(); // a `SigningNear` for the root account
+//! let root = sandbox.root_account();
 //!
-//! // Create an account the normal way.
+//! // Create and fund an account with its own key.
 //! let alice_key = SecretKey::generate_ed25519();
 //! root.transaction(account!("alice.sandbox"))
 //!     .add_action(Action::create_account())
@@ -41,28 +51,81 @@
 //!     .await?
 //!     .result()?;
 //!
-//! // Sign as the new account over the same connection.
 //! let alice = root
 //!     .near()
 //!     .with_signer(InMemorySigner::new(account!("alice.sandbox"), alice_key));
 //! let balance = alice.near().balance(alice.account_id()).await?;
 //! # Ok(())
 //! # }
+//! ```
 //!
-//! # async fn custom() -> Result<(), Box<dyn std::error::Error>> {
-//! // A specific sandbox version and root account.
-//! let sandbox = Sandbox::builder()
-//!     .version("2.13.4")
-//!     .root_account(account!("sb"))
-//!     .fresh()
+//! ## Changing chain state directly
+//!
+//! - [`Sandbox::set_balance`] sets an account's balance and returns once the
+//!   new balance is visible.
+//! - [`Sandbox::patch_state`] writes raw state records (accounts, access keys,
+//!   contract code or storage). The patch applies asynchronously, so poll for
+//!   the state you wrote before relying on it.
+//! - [`Sandbox::fast_forward`] moves the chain ahead by a number of blocks,
+//!   for code that depends on block height or epochs.
+//!
+//! ```rust,no_run
+//! use near_kit::{NearToken, account};
+//! use near_kit_sandbox::Sandbox;
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let sandbox = Sandbox::builder().fresh().await?;
+//! sandbox
+//!     .set_balance(account!("sandbox"), NearToken::from_near(1_000_000))
 //!     .await?;
-//! assert_eq!(sandbox.root_account().account_id(), "sb");
+//! sandbox.fast_forward(1_000).await?;
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! ## Versions and configuration
+//!
+//! The builder picks the nearcore release to run with
+//! [`version`](SandboxBuilder::version) (by default the release this crate is
+//! tested against), the root account with
+//! [`root_account`](SandboxBuilder::root_account), and the chain ID with
+//! [`chain_id`](SandboxBuilder::chain_id). `"mainnet"` and `"testnet"` are
+//! rejected as chain IDs, because neard reserves them. Options passed to
+//! `shared()` apply only to the call that starts the shared sandbox.
+//!
+//! ```rust,no_run
+//! use near_kit::account;
+//! use near_kit_sandbox::Sandbox;
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let sandbox = Sandbox::builder()
+//!     .version("2.13.4")
+//!     .root_account(account!("local"))
+//!     .chain_id("localnet")
+//!     .fresh()
+//!     .await?;
+//! assert_eq!(sandbox.root_account().account_id(), "local");
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Set `NEAR_SANDBOX_IMAGE` to use another image, as `name` or `name:tag`
+//! (for example `my-registry/near-sandbox:custom`). The image must define a
+//! Docker health check, which is how the crate knows the node is ready.
+//!
+//! ## Features
+//!
+//! - `tracing`: sandbox lifecycle events, and near-kit's `tracing` feature.
+//! - `integration-tests`: this repository's own Docker-backed tests and
+//!   examples. Applications don't need it.
 
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+
+// Compiles the README's code blocks as doctests.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
 
 use std::borrow::Cow;
 use std::sync::Arc;
