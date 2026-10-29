@@ -654,7 +654,6 @@ impl RpcError {
         message: impl Into<String>,
         details: Option<serde_json::Value>,
     ) -> Self {
-        // Try to deserialize the structured error from the data field
         if let Some(ref data) = details
             && let Some(invalid_tx) = Self::try_parse_invalid_tx(data)
         {

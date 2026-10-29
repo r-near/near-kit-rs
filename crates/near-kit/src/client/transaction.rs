@@ -493,7 +493,6 @@ impl PreparedTransaction {
             }
         };
 
-        // Get max block height
         let max_block_height = if let Some(h) = options.max_block_height {
             h
         } else {
@@ -508,13 +507,11 @@ impl PreparedTransaction {
             ..
         } = self;
 
-        // Convert actions to NonDelegateAction
         let delegate_actions: Vec<NonDelegateAction> = actions
             .into_iter()
             .filter_map(NonDelegateAction::from_action)
             .collect();
 
-        // Create delegate action
         let delegate_action = DelegateAction {
             sender_id,
             receiver_id,
@@ -524,7 +521,6 @@ impl PreparedTransaction {
             public_key: public_key.clone(),
         };
 
-        // Sign the delegate action
         let hash = delegate_action.get_hash();
         let signature = key.sign(hash.as_bytes()).await?;
 
