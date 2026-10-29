@@ -7,14 +7,12 @@ members = [
     "crates/near-kit-sandbox",
 ]
 
-# Shared workspace metadata
 [workspace.package]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/r-near/near-kit-rs"
 rust-version = "1.95"
 
-# Shared dependencies - crates can use `workspace = true` to inherit these
 [workspace.dependencies]
 # NEAR ecosystem types
 near-account-id = { version = "3", features = ["serde", "borsh"] }
@@ -81,7 +79,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 near-kit = { path = "crates/near-kit", version = "0.20.1", default-features = false }
 near-kit-macros = { path = "crates/near-kit-macros", version = "0.14.0" }
 near-kit-primitives = { path = "crates/near-kit-primitives", version = "0.20.1" }
-near-kit-sandbox = { path = "crates/near-kit-sandbox", version = "0.20.1" }
 
 [profile.release]
 lto = true
