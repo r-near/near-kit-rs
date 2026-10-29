@@ -3,7 +3,7 @@
 //! NEAR Protocol types, keys, signing and transaction building, with no RPC
 //! client, no async runtime and no HTTP stack.
 //!
-//! This is the offline core of [`near-kit`](https://docs.rs/near-kit/0.30.0-rc.1).
+//! This is the offline core of [`near-kit`](https://docs.rs/near-kit/0.30.0-rc.2).
 //! near-kit depends on it and re-exports every item at the same path under
 //! `near_kit::` (`near_kit_primitives::protocol::Action` is
 //! `near_kit::protocol::Action`), so code using both sees one set of types.
@@ -60,7 +60,7 @@
 //! (`Counter::add(args)`) that return a [`transaction::FunctionCall`];
 //! [`FunctionCallAction::try_from`](protocol::FunctionCallAction) splits it
 //! into the parts near-sdk's `Promise::function_call` takes. near-kit's
-//! [platforms guide](https://docs.rs/near-kit/0.30.0-rc.1/near_kit/guide/platforms/index.html#smart-contracts)
+//! [platforms guide](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/platforms/index.html#smart-contracts)
 //! shows the conversion and the `getrandom` setting a contract needs.
 //!
 //! ## Your own backend
@@ -70,7 +70,7 @@
 //! a test double, a gateway, or a sender that queues actions. Both traits are
 //! implemented for `&T`, `Box<T>` and `Arc<T>` too. The trait docs have
 //! examples; near-kit's
-//! [testing guide](https://docs.rs/near-kit/0.30.0-rc.1/near_kit/guide/testing/index.html)
+//! [testing guide](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/testing/index.html)
 //! covers mocks in full.
 //!
 //! ## Feature flags
@@ -91,7 +91,7 @@
 //! with `--cfg getrandom_backend=".."` otherwise (`"custom"` for your own
 //! source, `"unsupported"` when nothing needs randomness). WASI targets need
 //! neither. near-kit's
-//! [platforms guide](https://docs.rs/near-kit/0.30.0-rc.1/near_kit/guide/platforms/index.html)
+//! [platforms guide](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/platforms/index.html)
 //! has the details.
 
 #![warn(missing_docs)]

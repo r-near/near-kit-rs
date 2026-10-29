@@ -10,7 +10,7 @@
 //!
 //! [`contract`] lists what the macro generates and the rules for methods.
 //! near-kit's
-//! [contracts and tokens guide](https://docs.rs/near-kit/0.30.0-rc.1/near_kit/guide/contracts_and_tokens/index.html)
+//! [contracts and tokens guide](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/contracts_and_tokens/index.html)
 //! shows it in use with every kind of backend.
 
 #![warn(missing_docs)]

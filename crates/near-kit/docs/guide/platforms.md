@@ -18,7 +18,7 @@ leave them off in the browser and in WASI.
 ## Browsers and other JS hosts
 
 ```sh
-cargo add near-kit@0.30.0-rc.1 --no-default-features --features js,rpc
+cargo add near-kit@0.30.0-rc.2 --no-default-features --features js,rpc
 ```
 
 On `wasm32-unknown-unknown`, `rpc` sends requests with the host's `fetch`
@@ -85,7 +85,7 @@ needs a transport from somewhere else.
 ### With `wasi:http`
 
 ```sh
-cargo add near-kit@0.30.0-rc.1 --no-default-features --features wasi-http
+cargo add near-kit@0.30.0-rc.2 --no-default-features --features wasi-http
 ```
 
 `wasi-http` implies `rpc` and adds
@@ -113,7 +113,7 @@ that imports it. Compiling the built-in transport adds that import, so use
 offer through [`NearBuilder::transport`](crate::NearBuilder::transport):
 
 ```sh
-cargo add near-kit@0.30.0-rc.1 --no-default-features --features rpc
+cargo add near-kit@0.30.0-rc.2 --no-default-features --features rpc
 ```
 
 ```rust
@@ -174,11 +174,11 @@ node:
   backend of your own.
 
 ```sh
-cargo add near-kit@0.30.0-rc.1 --no-default-features
+cargo add near-kit@0.30.0-rc.2 --no-default-features
 ```
 
 The same offline core is published as
-[`near-kit-primitives`](https://docs.rs/near-kit-primitives/0.30.0-rc.1), which near-kit
+[`near-kit-primitives`](https://docs.rs/near-kit-primitives/0.30.0-rc.2), which near-kit
 re-exports at the same paths: `near_kit_primitives::protocol::Action` is
 `near_kit::protocol::Action`. Depend on it directly in a crate that must
 never pull in the RPC layer, such as a smart contract, a signing service
@@ -193,7 +193,7 @@ code. The contract builds the call, converts it to its parts, and passes
 them to near-sdk's promise API:
 
 ```sh
-cargo add near-kit-primitives@0.30.0-rc.1 --features contracts
+cargo add near-kit-primitives@0.30.0-rc.2 --features contracts
 ```
 
 ```rust
