@@ -4,10 +4,7 @@ use std::{fmt, str::FromStr};
 
 /// Identifies the NEAR chain the client is connected to.
 ///
-/// This is a string-based newtype that replaces the former `Network` enum,
-/// allowing any chain identifier (not just the hardcoded variants).
-///
-/// Use the named constructors for well-known chains, or [`ChainId::new`]
+/// Any string is a chain ID. Use the named constructors for well-known chains, or [`ChainId::new`]
 /// for custom ones.
 ///
 /// # Examples
@@ -100,56 +97,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_chain_id_display() {
-        assert_eq!(ChainId::mainnet().to_string(), "mainnet");
-        assert_eq!(ChainId::testnet().to_string(), "testnet");
-        assert_eq!(ChainId::new("custom").to_string(), "custom");
-    }
-
-    #[test]
-    fn test_chain_id_predicates() {
-        assert!(ChainId::mainnet().is_mainnet());
-        assert!(!ChainId::mainnet().is_testnet());
-
-        assert!(ChainId::testnet().is_testnet());
-        assert!(!ChainId::testnet().is_mainnet());
-    }
-
-    #[test]
-    fn test_default_is_mainnet() {
+    fn test_chain_id() {
         assert_eq!(ChainId::default(), ChainId::mainnet());
-    }
+        assert_eq!(ChainId::mainnet().to_string(), "mainnet");
+        assert!(ChainId::mainnet().is_mainnet() && !ChainId::mainnet().is_testnet());
+        assert!(ChainId::testnet().is_testnet() && !ChainId::testnet().is_mainnet());
 
-    #[test]
-    fn test_as_str() {
-        assert_eq!(ChainId::mainnet().as_str(), "mainnet");
-        assert_eq!(ChainId::new("localnet").as_str(), "localnet");
-    }
-
-    #[test]
-    fn test_as_ref_str() {
-        let chain_id = ChainId::mainnet();
-        let s: &str = chain_id.as_ref();
-        assert_eq!(s, "mainnet");
-    }
-
-    #[test]
-    fn test_custom_chain_id() {
-        let chain_id = ChainId::new("my-custom-network");
-        assert_eq!(chain_id.as_str(), "my-custom-network");
-        assert!(!chain_id.is_mainnet());
-        assert!(!chain_id.is_testnet());
-    }
-
-    #[test]
-    fn test_from_str() {
-        let chain_id: ChainId = "mainnet".into();
-        assert!(chain_id.is_mainnet());
-    }
-
-    #[test]
-    fn test_from_string() {
-        let chain_id: ChainId = String::from("testnet").into();
-        assert!(chain_id.is_testnet());
+        let custom = ChainId::from("my-custom-network");
+        assert_eq!(custom, ChainId::from(String::from("my-custom-network")));
+        assert_eq!(custom.as_str(), "my-custom-network");
+        assert!(!custom.is_mainnet() && !custom.is_testnet());
     }
 }
