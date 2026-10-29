@@ -9,9 +9,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
 use k256::elliptic_curve::Generate as _;
 use k256::elliptic_curve::sec1::ToSec1Point;
-// `Signer` is already in scope from `ed25519_dalek` above: dalek 3 and `ml-dsa`
-// both sit on `signature` 3, so it is literally the same trait and importing it
-// from both paths warns.
+// `Signer` comes from `ed25519_dalek` above: the same `signature` 3 trait.
 use ml_dsa::MlDsa65;
 use ml_dsa::signature::Verifier as _;
 use serde_with::{DeserializeFromStr, SerializeDisplay};
@@ -65,7 +63,7 @@ impl KeyType {
     pub fn public_key_len(&self) -> usize {
         match self {
             KeyType::Ed25519 => 32,
-            KeyType::Secp256k1 => 64, // Uncompressed, no prefix — matches nearcore
+            KeyType::Secp256k1 => 64, // Uncompressed, no prefix, as in nearcore
             KeyType::MlDsa65 => ML_DSA_65_PUBLIC_KEY_LENGTH,
         }
     }
@@ -114,20 +112,15 @@ impl TryFrom<u8> for KeyType {
 ///
 /// # ML-DSA-65 handles
 ///
-/// A full ML-DSA-65 public key (`ml-dsa-65:`) appears on the wire — in
-/// transactions and `AddKey` actions. On-chain, however, an ML-DSA-65 access
-/// key is stored only as a 32-byte SHA3-256 digest, and view RPCs
-/// (`view_access_key_list`) return it as `ml-dsa-65-hash:<base58>`. The full
-/// 1952-byte key is *not* recoverable from that digest, so that form is **not**
-/// a `PublicKey`: it is modelled by [`PublicKeyHandle`] (as in nearcore), and
-/// parsing it as a `PublicKey` fails with [`ParseKeyError::MlDsa65HashHandle`].
-/// Use [`PublicKey::to_ml_dsa65_hash`] to compute the handle the chain stores
-/// for a full ML-DSA-65 key.
+/// View RPCs list an ML-DSA-65 access key as `ml-dsa-65-hash:<base58>`, a
+/// digest the full key can't be recovered from. That is a [`PublicKeyHandle`],
+/// not a `PublicKey`; parsing it here fails with
+/// [`ParseKeyError::MlDsa65HashHandle`].
 ///
 /// # Decoding and validation
 ///
-/// Like nearcore, decoding a `PublicKey` — from a string ([`FromStr`]), Borsh,
-/// or serde — checks only the key-type tag and the payload length. It does
+/// Like nearcore, decoding a `PublicKey` (from a string, Borsh or serde)
+/// checks only the key-type tag and the payload length. It does
 /// **not** check that ed25519/secp256k1 bytes are a valid curve point, so any
 /// key the chain or an RPC node hands back can be decoded and re-encoded
 /// byte-for-byte. Constructing a variant directly is likewise unchecked.
@@ -168,27 +161,18 @@ impl PublicKey {
     ///
     /// Returns [`ParseKeyError::InvalidCurvePoint`] if the bytes do not
     /// represent a valid compressed Ed25519 point.
-    ///
-    /// Use [`PublicKey::Ed25519`] directly to skip the check, as decoding does.
     pub fn ed25519_from_bytes(bytes: [u8; 32]) -> Result<Self, ParseKeyError> {
         validate_ed25519_point(&bytes)?;
         Ok(Self::Ed25519(bytes))
     }
 
-    /// Create a Secp256k1 public key from raw 64-byte uncompressed coordinates.
-    ///
-    /// The 64 bytes are the raw x,y coordinates without the `0x04` prefix,
-    /// matching nearcore's format.
-    ///
-    /// Validates that the point is on the secp256k1 curve.
+    /// Create a Secp256k1 public key from raw x, y coordinates (no `0x04`
+    /// prefix, as in nearcore).
     ///
     /// # Errors
     ///
     /// Returns [`ParseKeyError::InvalidCurvePoint`] if the bytes do not
     /// represent a valid point on the secp256k1 curve.
-    ///
-    /// Use [`PublicKey::Secp256k1`] directly to skip the check, as decoding
-    /// does.
     pub fn secp256k1_from_bytes(bytes: [u8; 64]) -> Result<Self, ParseKeyError> {
         validate_secp256k1_point(&bytes)?;
         Ok(Self::Secp256k1(bytes))
@@ -201,10 +185,7 @@ impl PublicKey {
 
     /// Check that the key bytes are a valid point on the key's curve.
     ///
-    /// Decoding (string, Borsh, serde) deliberately does not run this check,
-    /// matching nearcore; call it when you need to reject malformed keys
-    /// explicitly. ML-DSA-65 keys are structurally valid at their fixed length
-    /// and always pass.
+    /// Decoding doesn't run this check. ML-DSA-65 keys always pass.
     ///
     /// # Errors
     ///
@@ -277,7 +258,7 @@ impl PublicKey {
     /// Compute the on-trie handle (`ml-dsa-65-hash:`) for an ML-DSA-65 key: the
     /// SHA3-256 of (domain tag || raw pubkey bytes), which is what
     /// `view_access_key_list` returns for the key. Returns `None` for
-    /// ed25519/secp256k1 keys (those are stored, and listed, in full — see
+    /// ed25519/secp256k1 keys, which are stored and listed in full (see
     /// [`PublicKeyHandle::from`]).
     pub fn to_ml_dsa65_hash(&self) -> Option<PublicKeyHandle> {
         match self {
@@ -299,13 +280,6 @@ impl FromStr for PublicKey {
     type Err = ParseKeyError;
 
     /// Parse a full public key: `ed25519:`, `secp256k1:` or `ml-dsa-65:`.
-    ///
-    /// Only the prefix and payload length are checked, as in nearcore; see
-    /// [`PublicKey::validate`] for curve-point validation.
-    ///
-    /// The `ml-dsa-65-hash:` view handle is **not** a public key and is
-    /// rejected with [`ParseKeyError::MlDsa65HashHandle`]; parse it as a
-    /// [`PublicKeyHandle`] instead.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // A pointed error, since this is what users copy out of `view_access_key_list`.
         if s.starts_with(ML_DSA_65_HASH_PREFIX) {
@@ -407,17 +381,10 @@ const ML_DSA_65_HASH_PREFIX: &str = "ml-dsa-65-hash:";
 /// stored only as a domain-tagged SHA3-256 digest of the 1952-byte key, and
 /// view RPCs (`view_access_key_list`, state-change views) return it as
 /// `ml-dsa-65-hash:<base58>`. The full key is not recoverable from the digest,
-/// so such a value cannot sign, verify, or go into a transaction — which is why
+/// so such a value can't sign, verify or go into a transaction, which is why
 /// it is a separate type rather than a [`PublicKey`] variant. Fields that can
 /// only ever carry full keys (transactions, actions, receipts, validators) stay
 /// `PublicKey`.
-///
-/// - [`as_full`](Self::as_full) / [`into_full`](Self::into_full) get
-///   the usable key back when there is one.
-/// - [`PublicKey::to_ml_dsa65_hash`] computes the handle for a full ML-DSA-65
-///   key; [`refers_to`](Self::refers_to) checks a handle against a full key.
-/// - `From<PublicKey>` wraps a full key as [`PublicKeyHandle::Full`] without
-///   hashing.
 ///
 /// Parses from and prints as either form. There is no borsh impl: a handle
 /// is never part of a transaction, and the one wire format that carries
@@ -590,15 +557,8 @@ const DEFAULT_HD_PATH: &str = "m/44'/397'/0'";
 #[cfg(feature = "mnemonic")]
 const DEFAULT_WORD_COUNT: usize = 12;
 
-/// Default number of words in seed phrases generated for ML-DSA-65 keys.
-///
-/// NEP-649 (<https://github.com/near/NEPs/pull/649>) requires a *newly
-/// generated* ML-DSA-65 mnemonic to carry at least 18 words: 12 words is 128
-/// bits of entropy, below ML-DSA-65's NIST Category 3 security level. The NEP's
-/// own test vectors use 24 words, so that is the default here.
-///
-/// Recovery is unaffected: [`SecretKey::from_seed_phrase`] still accepts any
-/// valid 12–24-word BIP-39 phrase.
+/// Default number of words in seed phrases generated for ML-DSA-65 keys, as
+/// in NEP-649's test vectors.
 #[cfg(feature = "mnemonic")]
 const DEFAULT_ML_DSA_65_WORD_COUNT: usize = 24;
 
@@ -667,13 +627,8 @@ impl SecretKey {
         Ok(Self(SecretKeyRepr::Secp256k1(bytes)))
     }
 
-    /// Generate a new random ML-DSA-65 key pair (FIPS 204).
-    ///
-    /// The key is held as its 32-byte FIPS-204 seed, so [`Display`] prints
-    /// `ml-dsa-65:<base58 of 32 bytes>`. nearcore's `near-crypto` cannot parse
-    /// that form (it requires the 4032-byte expanded key under the same
-    /// prefix); if the key has to be handed to nearcore-based tooling, export
-    /// it with [`SecretKey::to_ml_dsa65_expanded_bytes`].
+    /// Generate a new random ML-DSA-65 key pair (FIPS 204), held as its
+    /// 32-byte seed. See [`SecretKey`] for exporting it to nearcore tooling.
     pub fn generate_ml_dsa65() -> Self {
         let mut seed = Box::new([0u8; ML_DSA_65_SEED_LENGTH]);
         fill_random(seed.as_mut_slice());
@@ -850,10 +805,6 @@ impl SecretKey {
         }
     }
 
-    // ========================================================================
-    // Seed Phrase / Mnemonic Support
-    // ========================================================================
-
     /// Derive a secret key of `key_type` from a BIP-39 seed phrase.
     ///
     /// `hd_path` defaults to NEAR's `m/44'/397'/0'` (SLIP-44 coin type 397);
@@ -919,10 +870,9 @@ impl SecretKey {
     ///
     /// Returns the phrase (for backup) and the key. `word_count` is 12, 15,
     /// 18, 21 or 24; `None` means 12 for Ed25519 and 24 for ML-DSA-65.
-    /// NEP-649 (<https://github.com/near/NEPs/pull/649>) requires a newly
-    /// generated ML-DSA-65 phrase to have at least 18 words (12 words is 128
-    /// bits of entropy, below ML-DSA-65's NIST Category 3 level), so 12 and
-    /// 15 are rejected for it. Recovery with
+    /// NEP-649 (<https://github.com/near/NEPs/pull/649>) requires at least 18
+    /// words for a new ML-DSA-65 phrase, so 12 and 15 are rejected for it.
+    /// Recovery with
     /// [`from_seed_phrase`](Self::from_seed_phrase) accepts any length. For
     /// another path or a passphrase, derive again from the returned phrase.
     ///
@@ -1190,17 +1140,8 @@ impl Debug for Signature {
     }
 }
 
-// ============================================================================
-// Seed Phrase Generation
-// ============================================================================
-
-/// Normalize a BIP-39 mnemonic and derive its 64-byte seed, applying an
-/// optional passphrase.
-///
-/// Shared by the Ed25519 and ML-DSA-65 seed-phrase constructors: the mnemonic
-/// is trimmed, lowercased, and whitespace-collapsed before parsing, then run
-/// through BIP-39's PBKDF2 seed derivation. The two key branches differ only
-/// downstream, in the SLIP-10 master salt.
+/// Lowercase and whitespace-collapse a BIP-39 phrase, then derive its 64-byte
+/// seed with the optional passphrase.
 #[cfg(feature = "mnemonic")]
 fn mnemonic_to_seed(
     phrase: impl AsRef<str>,
