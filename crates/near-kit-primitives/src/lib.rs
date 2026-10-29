@@ -56,55 +56,12 @@
 //!
 //! ## Calling other contracts from a near-sdk contract
 //!
-//! With the `contracts` feature, `#[contract]` turns a trait into offline
-//! constructors: `Counter::add(args)` returns a [`transaction::FunctionCall`]
-//! with the method name, encoded arguments, gas (30 Tgas unless set) and
-//! deposit. Inside a near-sdk contract, convert it with
-//! [`FunctionCallAction::try_from`](protocol::FunctionCallAction) and pass its
-//! public fields to `Promise::function_call`. The conversion fails only if the
-//! arguments didn't serialize.
-//!
-#![cfg_attr(feature = "contracts", doc = "```rust")]
-#![cfg_attr(not(feature = "contracts"), doc = "```rust,ignore")]
-//! use near_kit_primitives::protocol::FunctionCallAction;
-//! use near_kit_primitives::transaction::CodecError;
-//! use near_kit_primitives::{Gas, NearToken};
-//!
-//! #[near_kit_primitives::contract]
-//! pub trait Counter {
-//!     fn get_count(&self) -> u64;
-//!
-//!     #[call]
-//!     fn add(&mut self, args: AddArgs);
-//! }
-//!
-//! #[derive(serde::Serialize)]
-//! pub struct AddArgs {
-//!     pub value: u64,
-//! }
-//!
-//! let call = FunctionCallAction::try_from(
-//!     Counter::add(AddArgs { value: 5 })
-//!         .gas(Gas::from_tgas(10))
-//!         .deposit(NearToken::from_yoctonear(1)),
-//! )?;
-//! assert_eq!(call.method_name, "add");
-//! assert_eq!(call.args, br#"{"value":5}"#);
-//!
-//! // In the contract:
-//! // Promise::new(counter_id).function_call(call.method_name, call.args, call.deposit, call.gas)
-//! # Ok::<(), CodecError>(())
-//! ```
-//!
-//! A contract built for `wasm32-unknown-unknown` also needs a `getrandom`
-//! backend, even though it never generates keys. Set it for that target in
-//! `.cargo/config.toml` (a `RUSTFLAGS` environment variable replaces this
-//! setting, so don't set both):
-//!
-//! ```toml
-//! [target.wasm32-unknown-unknown]
-//! rustflags = ['--cfg', 'getrandom_backend="unsupported"']
-//! ```
+//! With the `contracts` feature, `#[contract]` gives offline constructors
+//! (`Counter::add(args)`) that return a [`transaction::FunctionCall`];
+//! [`FunctionCallAction::try_from`](protocol::FunctionCallAction) splits it
+//! into the parts near-sdk's `Promise::function_call` takes. near-kit's
+//! [platforms guide](https://docs.rs/near-kit/latest/near_kit/guide/platforms/index.html#smart-contracts)
+//! shows the conversion and the `getrandom` setting a contract needs.
 //!
 //! ## Your own backend
 //!
