@@ -901,6 +901,26 @@ mod tests {
     }
 
     #[test]
+    fn test_secp256k1_signing_key_rejects_non_digest_input() {
+        let signer =
+            InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_secp256k1());
+        let key = signer.key();
+        assert!(matches!(
+            block_on(key.sign(b"not a digest")),
+            Err(SignerError::SigningFailed(m)) if m == "secp256k1 signing expects a 32-byte digest, got 12 bytes"
+        ));
+        assert!(block_on(key.sign(&[7; 32])).is_ok());
+    }
+
+    #[test]
+    fn test_rotating_signer_from_no_signers() {
+        assert!(matches!(
+            RotatingSigner::from_signers(vec![]),
+            Err(SignerError::NoKeys)
+        ));
+    }
+
+    #[test]
     fn test_rotating_signer_signing_keys() {
         let keys = vec![
             SecretKey::generate_ed25519(),
