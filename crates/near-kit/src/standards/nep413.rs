@@ -139,3 +139,135 @@ pub async fn verify(
         .await
         .is_ok_and(|key| matches!(key.permission, AccessKeyPermissionView::FullAccess)))
 }
+
+#[cfg(all(test, feature = "rpc"))]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+    use crate::account;
+    use crate::client::test_rpc::{rpc_error, rpc_result};
+    use crate::client::{BoxFuture, RpcTransport, TransportResponse};
+    use crate::rpc::RpcError;
+    use crate::types::{InMemorySigner, SecretKey, Signer};
+
+    /// Answers every `EXPERIMENTAL_view_access_key` with `body` and counts calls.
+    struct AccessKeyTransport {
+        body: Vec<u8>,
+        calls: AtomicUsize,
+    }
+
+    impl RpcTransport for AccessKeyTransport {
+        fn post_json(
+            &self,
+            _url: &str,
+            body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(request["method"], "EXPERIMENTAL_view_access_key");
+            assert_eq!(request["params"]["finality"], "optimistic");
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            let body = self.body.clone();
+            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
+        }
+    }
+
+    fn access_key(permission: serde_json::Value) -> Vec<u8> {
+        rpc_result(serde_json::json!({
+            "nonce": 1u64,
+            "permission": permission,
+            "block_height": 1u64,
+            "block_hash": "11111111111111111111111111111111",
+        }))
+    }
+
+    async fn signed_message() -> (SignedMessage, SignMessageParams) {
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        let params = SignMessageParams {
+            message: "Login to MyApp".to_string(),
+            recipient: "myapp.com".to_string(),
+            nonce: generate_nonce(),
+            callback_url: None,
+            state: None,
+        };
+        let signed = signer
+            .key()
+            .sign_nep413(signer.account_id(), &params)
+            .await
+            .unwrap();
+        (signed, params)
+    }
+
+    /// `verify` with the key view answered by `body`, and the number of views.
+    async fn verify_with(
+        signed: &SignedMessage,
+        params: &SignMessageParams,
+        body: Vec<u8>,
+        options: VerifyOptions,
+    ) -> (bool, usize) {
+        let transport = Arc::new(AccessKeyTransport {
+            body,
+            calls: AtomicUsize::new(0),
+        });
+        let near = Near::custom("https://example.com", "test")
+            .transport(transport.clone())
+            .build();
+        let valid = verify(signed, params, &near, options).await.unwrap();
+        (valid, transport.calls.load(Ordering::Relaxed))
+    }
+
+    #[tokio::test]
+    async fn verify_needs_a_valid_signature_and_a_full_access_key() {
+        let (signed, params) = signed_message().await;
+        let full_access = || access_key(serde_json::json!("FullAccess"));
+        let function_call = access_key(serde_json::json!({
+            "FunctionCall": {
+                "allowance": null,
+                "receiver_id": "myapp.com",
+                "method_names": []
+            }
+        }));
+        let missing = rpc_error(
+            Some("UNKNOWN_ACCESS_KEY"),
+            serde_json::json!({ "public_key": signed.public_key.to_string() }),
+            serde_json::json!("access key does not exist"),
+        );
+        let default = VerifyOptions::default;
+        let offline = || VerifyOptions {
+            require_full_access: false,
+            ..default()
+        };
+
+        assert_eq!(
+            verify_with(&signed, &params, full_access(), default()).await,
+            (true, 1)
+        );
+        assert_eq!(
+            verify_with(&signed, &params, function_call, default()).await,
+            (false, 1)
+        );
+        assert_eq!(
+            verify_with(&signed, &params, missing, default()).await,
+            (false, 1)
+        );
+
+        // Without the key check, a valid signature is enough.
+        assert_eq!(
+            verify_with(&signed, &params, full_access(), offline()).await,
+            (true, 0)
+        );
+
+        // A signature over other params fails before any RPC call.
+        let tampered = SignMessageParams {
+            message: "Something else".to_string(),
+            ..params.clone()
+        };
+        for options in [default(), offline()] {
+            assert_eq!(
+                verify_with(&signed, &tampered, full_access(), options).await,
+                (false, 0)
+            );
+        }
+    }
+}

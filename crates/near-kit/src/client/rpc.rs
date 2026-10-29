@@ -2523,6 +2523,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_view_state_sends_only_a_positive_limit() {
+        // `(limit, expected params.limit)`: nearcore rejects `limit: 0`.
+        let cases = [
+            (None, None),
+            (Some(0), None),
+            (Some(1), Some(1)),
+            (Some(7), Some(7)),
+        ];
+        for (limit, expected) in cases {
+            let transport = CountingTransport::results([view_state_page(&[b"k"], None)]);
+            let account: AccountId = "app.near".parse().unwrap();
+            transport
+                .client()
+                .view_state(&account, b"", Some(b"a"), limit, BlockReference::Height(1))
+                .await
+                .unwrap();
+            let params = &transport.params()[0];
+            assert_eq!(
+                params.get("limit").and_then(serde_json::Value::as_u64),
+                expected,
+                "{limit:?}"
+            );
+            assert_eq!(params["after_key_base64"], STANDARD.encode(b"a"));
+        }
+    }
+
+    #[tokio::test]
     async fn test_view_state_all_forwards_explicit_page_size() {
         let transport = CountingTransport::results([view_state_page(&[b"k"], None)]);
         let account: AccountId = "app.near".parse().unwrap();
@@ -3395,6 +3422,51 @@ mod tests {
             unknown_tx.to_string(),
             "Transaction not found: H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj"
         );
+    }
+
+    #[tokio::test]
+    async fn test_receipt_to_tx_decodes_success_body() {
+        let transport = CountingTransport::results([serde_json::json!({
+            "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+            "sender_account_id": "alice.near"
+        })]);
+        let receipt_id = CryptoHash::hash(b"receipt");
+
+        let response = transport.client().receipt_to_tx(&receipt_id).await.unwrap();
+        assert_eq!(
+            response.transaction_hash.to_string(),
+            "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+        );
+        assert_eq!(response.sender_account_id.as_str(), "alice.near");
+        assert_eq!(
+            transport.params(),
+            [serde_json::json!({ "receipt_id": receipt_id.to_string() })]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_clone_shares_the_transport_and_settings() {
+        let transport = CountingTransport::results([serde_json::json!(1)]);
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(4),
+        );
+        let first: u64 = client
+            .request("status", serde_json::json!([]))
+            .await
+            .unwrap();
+
+        let clone = client.clone();
+        assert_eq!(clone.url(), client.url());
+        assert_eq!(clone.retry_config.max_retries, 4);
+        let second: u64 = clone
+            .request("status", serde_json::json!([]))
+            .await
+            .unwrap();
+        assert_eq!((first, second), (1, 1));
+        // Both requests went through the one shared transport.
+        assert_eq!(transport.calls(), 2);
     }
 
     #[test]
@@ -4509,115 +4581,10 @@ mod tests {
     /// fields of every event `RpcClient::request` emits.
     #[cfg(feature = "tracing")]
     mod tracing_events {
-        use std::sync::{Arc, Mutex, Once};
-
-        use tracing::field::{Field, Visit};
-        use tracing::subscriber::Interest;
-        use tracing::{Event, Level, Subscriber, span};
-        use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+        use tracing::Level;
 
         use super::*;
-
-        /// A captured event: its level plus every field rendered as text.
-        #[derive(Clone, Debug)]
-        struct CapturedEvent {
-            level: Level,
-            fields: Vec<(&'static str, String)>,
-        }
-
-        impl CapturedEvent {
-            fn field(&self, name: &str) -> Option<&str> {
-                self.fields
-                    .iter()
-                    .find(|(n, _)| *n == name)
-                    .map(|(_, v)| v.as_str())
-            }
-
-            fn message(&self) -> Option<&str> {
-                self.field("message")
-            }
-        }
-
-        struct FieldVisitor<'a>(&'a mut Vec<(&'static str, String)>);
-
-        impl Visit for FieldVisitor<'_> {
-            fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-                self.0.push((field.name(), format!("{value:?}")));
-            }
-
-            fn record_str(&mut self, field: &Field, value: &str) {
-                self.0.push((field.name(), value.to_string()));
-            }
-        }
-
-        #[derive(Clone, Default)]
-        struct EventLog(Arc<Mutex<Vec<CapturedEvent>>>);
-
-        impl<S: Subscriber> Layer<S> for EventLog {
-            fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-                let mut fields = Vec::new();
-                event.record(&mut FieldVisitor(&mut fields));
-                self.0.lock().unwrap().push(CapturedEvent {
-                    level: *event.metadata().level(),
-                    fields,
-                });
-            }
-        }
-
-        /// Permanent, do-nothing global subscriber that keeps callsites
-        /// "sometimes" interested.
-        ///
-        /// `tracing` caches each callsite's interest process-wide. While only
-        /// one dispatcher is registered, that cache is rebuilt from whichever
-        /// thread's *current* dispatcher first hits the callsite; a sibling
-        /// test driving the same RPC path on another thread with no subscriber
-        /// pins it to `never`, and the thread-scoped `EventLog` below never
-        /// sees the event (`cargo test --lib -- error` reproduced this).
-        /// Registering a second dispatcher that answers `sometimes` forces the
-        /// per-event `enabled` check to consult the thread-local subscriber
-        /// instead, so the scoped log is honored whatever the scheduling.
-        struct KeepAlive;
-
-        impl Subscriber for KeepAlive {
-            fn register_callsite(&self, _: &'static tracing::Metadata<'static>) -> Interest {
-                Interest::sometimes()
-            }
-
-            fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
-                false
-            }
-
-            fn new_span(&self, _: &span::Attributes<'_>) -> span::Id {
-                span::Id::from_u64(1)
-            }
-
-            fn record(&self, _: &span::Id, _: &span::Record<'_>) {}
-
-            fn record_follows_from(&self, _: &span::Id, _: &span::Id) {}
-
-            fn event(&self, _: &Event<'_>) {}
-
-            fn enter(&self, _: &span::Id) {}
-
-            fn exit(&self, _: &span::Id) {}
-        }
-
-        impl EventLog {
-            /// Install as the thread-default subscriber for the current test.
-            fn install(&self) -> tracing::subscriber::DefaultGuard {
-                static KEEP_ALIVE: Once = Once::new();
-                // Ignore the error: another global default is just as good
-                // for our purpose (anything but the no-op default works).
-                KEEP_ALIVE.call_once(|| {
-                    let _ = tracing::subscriber::set_global_default(KeepAlive);
-                });
-                tracing::subscriber::set_default(tracing_subscriber::registry().with(self.clone()))
-            }
-
-            fn events(&self) -> Vec<CapturedEvent> {
-                self.0.lock().unwrap().clone()
-            }
-        }
+        use crate::client::test_rpc::tracing_capture::{CapturedEvent, EventLog};
 
         fn assert_nothing_above_debug(events: &[CapturedEvent]) {
             let loud: Vec<_> = events

@@ -2698,8 +2698,9 @@ mod tests {
 
         assert!(outcome.is_failure());
         assert!(!outcome.is_success());
-        assert!(outcome.failure_message().is_some());
-        assert!(outcome.failure_error().is_some());
+        let message = outcome.failure_message().unwrap();
+        assert!(message.contains("test error"), "{message}");
+        assert_eq!(message, outcome.failure_error().unwrap().to_string());
         assert!(outcome.result().is_err());
         assert!(outcome.json::<u64>().is_err());
         // Metadata is still accessible
@@ -2708,6 +2709,7 @@ mod tests {
 
         let success = make_success_outcome("");
         assert!(success.is_success() && !success.is_failure());
+        assert_eq!(success.failure_message(), None);
     }
 
     #[test]

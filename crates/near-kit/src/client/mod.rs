@@ -14,7 +14,7 @@ mod signer;
 #[cfg(feature = "rpc")]
 mod signing;
 #[cfg(all(test, feature = "rpc"))]
-mod test_rpc;
+pub(crate) mod test_rpc;
 #[cfg(feature = "rpc")]
 mod transaction;
 #[cfg(feature = "rpc")]

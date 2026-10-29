@@ -1662,6 +1662,49 @@ mod tests {
         assert_eq!(nonces, vec![100_000_001, 100_000_001]);
     }
 
+    /// Span fields can't repeat, so each of several function calls gets its
+    /// own debug event instead.
+    #[cfg(feature = "tracing")]
+    #[test]
+    fn record_function_call_fields_logs_each_of_several_calls() {
+        use crate::client::test_rpc::tracing_capture::EventLog;
+
+        let log = EventLog::default();
+        let _guard = log.install();
+        let call = |method: &str, tgas| {
+            Action::function_call(
+                method,
+                Vec::new(),
+                Gas::from_tgas(tgas),
+                NearToken::from_yoctonear(tgas.into()),
+            )
+        };
+        record_function_call_fields(&[
+            call("first", 10),
+            Action::transfer(NearToken::from_near(1)),
+            call("second", 20),
+        ]);
+
+        let calls: Vec<_> = log
+            .events()
+            .into_iter()
+            .filter(|event| event.message() == Some("function_call action"))
+            .map(|event| {
+                assert_eq!(event.level, tracing::Level::DEBUG);
+                let field = |name| event.field(name).unwrap().to_string();
+                (field("method"), field("gas"), field("deposit"))
+            })
+            .collect();
+        let expected = |method: &str, tgas: u64| {
+            (
+                method.to_string(),
+                Gas::from_tgas(tgas).to_string(),
+                NearToken::from_yoctonear(tgas.into()).to_string(),
+            )
+        };
+        assert_eq!(calls, [expected("first", 10), expected("second", 20)]);
+    }
+
     #[tokio::test]
     async fn sign_moves_deployment_code_into_the_transaction() {
         // A one-shot signature has no retry to keep the actions for, so a
