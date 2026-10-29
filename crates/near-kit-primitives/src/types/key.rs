@@ -1320,34 +1320,66 @@ mod tests {
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_from_seed_phrase_different_paths() {
-        let key1 =
-            SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, Some("m/44'/397'/0'"), None)
-                .unwrap();
-        let key2 =
-            SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, Some("m/44'/397'/1'"), None)
-                .unwrap();
+        for key_type in [KeyType::Ed25519, KeyType::MlDsa65] {
+            let key1 =
+                SecretKey::from_seed_phrase(key_type, TEST_PHRASE, Some("m/44'/397'/0'"), None)
+                    .unwrap();
+            let key2 =
+                SecretKey::from_seed_phrase(key_type, TEST_PHRASE, Some("m/44'/397'/1'"), None)
+                    .unwrap();
 
-        // Different paths should produce different keys
-        assert_ne!(key1.public_key(), key2.public_key());
+            // Different paths should produce different keys
+            assert_ne!(key1.public_key(), key2.public_key(), "{key_type:?}");
+        }
     }
 
     #[cfg(feature = "mnemonic")]
     #[test]
     fn test_from_seed_phrase_with_passphrase() {
-        let key_no_pass =
-            SecretKey::from_seed_phrase(KeyType::Ed25519, TEST_PHRASE, Some(DEFAULT_HD_PATH), None)
-                .unwrap();
+        for key_type in [KeyType::Ed25519, KeyType::MlDsa65] {
+            let key_no_pass =
+                SecretKey::from_seed_phrase(key_type, TEST_PHRASE, Some(DEFAULT_HD_PATH), None)
+                    .unwrap();
 
-        let key_with_pass = SecretKey::from_seed_phrase(
-            KeyType::Ed25519,
-            TEST_PHRASE,
-            Some(DEFAULT_HD_PATH),
-            Some("my-password"),
-        )
-        .unwrap();
+            let key_with_pass = SecretKey::from_seed_phrase(
+                key_type,
+                TEST_PHRASE,
+                Some(DEFAULT_HD_PATH),
+                Some("my-password"),
+            )
+            .unwrap();
 
-        // Passphrase should produce different key
-        assert_ne!(key_no_pass.public_key(), key_with_pass.public_key());
+            // Passphrase should produce different key
+            assert_ne!(
+                key_no_pass.public_key(),
+                key_with_pass.public_key(),
+                "{key_type:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_public_key_len_sets_the_expected_length() {
+        for (key_type, len) in [
+            (KeyType::Ed25519, 32),
+            (KeyType::Secp256k1, 64),
+            (KeyType::MlDsa65, 1952),
+        ] {
+            assert_eq!(key_type.public_key_len(), len, "{key_type:?}");
+            let short = format!(
+                "{}:{}",
+                key_type.as_str(),
+                bs58::encode([1u8; 16]).into_string()
+            );
+            assert_eq!(
+                short.parse::<PublicKey>(),
+                Err(ParseKeyError::InvalidLength {
+                    expected: len,
+                    actual: 16
+                }),
+                "{key_type:?}"
+            );
+        }
     }
 
     #[cfg(feature = "mnemonic")]

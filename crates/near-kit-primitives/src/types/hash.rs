@@ -181,4 +181,23 @@ mod tests {
         let parsed: CryptoHash = borsh::from_slice(&bytes).unwrap();
         assert_eq!(hash, parsed);
     }
+
+    #[test]
+    fn test_conversions() {
+        // near-sdk's `CryptoHash` is `[u8; 32]`; both directions round-trip.
+        let hash = CryptoHash::hash(b"near-sdk interop");
+        let bytes: [u8; 32] = hash.into();
+        assert_eq!(&bytes, hash.as_bytes());
+        assert_eq!(CryptoHash::from(bytes), hash);
+
+        let parsed = CryptoHash::try_from(hash.to_string().as_str()).unwrap();
+        assert_eq!(parsed, hash);
+        assert!(matches!(
+            CryptoHash::try_from("3xRDxw"),
+            Err(ParseHashError::InvalidLength(_))
+        ));
+
+        assert_eq!(CryptoHash::try_from(bytes.as_slice()).unwrap(), hash);
+        assert_eq!(<CryptoHash as AsRef<[u8]>>::as_ref(&hash), &bytes);
+    }
 }

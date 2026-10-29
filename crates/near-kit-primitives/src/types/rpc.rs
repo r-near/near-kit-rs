@@ -2299,6 +2299,36 @@ mod tests {
         assert_eq!(balance.locked, view.locked);
         assert_eq!(balance.storage_cost, view.storage_cost());
         assert_eq!(balance.storage_usage, storage_usage);
+        // Display shows the spendable amount.
+        assert_eq!(balance.to_string(), view.available().to_string());
+    }
+
+    #[test]
+    fn test_has_contract_follows_the_code_hash() {
+        let mut view = make_account_view(1, 0, 0);
+        assert!(!view.has_contract());
+        view.code_hash = CryptoHash::hash(b"wasm");
+        assert!(view.has_contract());
+    }
+
+    #[test]
+    fn test_max_nonces_for_gas_key() {
+        // Mirrors nearcore's cap on a gas key's nonce slots.
+        assert_eq!(AccessKeyPermission::MAX_NONCES_FOR_GAS_KEY, 1024);
+    }
+
+    #[test]
+    fn test_receipt_to_tx_response() {
+        let json = serde_json::json!({
+            "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+            "sender_account_id": "alice.near"
+        });
+        let response: ReceiptToTxResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            response.transaction_hash.to_string(),
+            "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
+        );
+        assert_eq!(response.sender_account_id.as_str(), "alice.near");
     }
 
     fn make_view_result(result: Vec<u8>) -> ViewFunctionResult {
@@ -2309,6 +2339,18 @@ mod tests {
     fn test_view_function_result_text() {
         let result = make_view_result(b"hello world".to_vec());
         assert_eq!(result.text().unwrap(), "hello world");
+    }
+
+    #[test]
+    fn test_view_function_result_borsh() {
+        let result = make_view_result(borsh::to_vec(&42u64).unwrap());
+        assert_eq!(result.borsh::<u64>().unwrap(), 42);
+        // Too short for a u64.
+        let result = make_view_result(vec![1, 2, 3]);
+        assert!(result.borsh::<u64>().is_err());
+        // Trailing bytes are rejected too.
+        let result = make_view_result(vec![0; 9]);
+        assert!(result.borsh::<u64>().is_err());
     }
 
     #[test]

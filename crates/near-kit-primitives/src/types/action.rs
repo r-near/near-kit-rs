@@ -1114,6 +1114,11 @@ mod tests {
             "VersionedDelegateActionPayload::V2 must be discriminant 0"
         );
 
+        // NEP-461 prefix for the V2 delegate payload, distinct from V1's.
+        assert_eq!(DELEGATE_V2_ACTION_PREFIX, 1_073_742_435);
+        assert_eq!(DELEGATE_V2_ACTION_PREFIX, (1 << 30) + 611);
+        assert_ne!(DELEGATE_V2_ACTION_PREFIX, DELEGATE_ACTION_PREFIX);
+
         let signing = payload.serialize_for_signing();
         assert_eq!(
             u32::from_le_bytes(signing[0..4].try_into().unwrap()),

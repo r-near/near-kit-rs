@@ -401,6 +401,12 @@ mod tests {
             data: BTreeMap::from([(b"key".to_vec(), b"value".to_vec())]),
             access_keys: BTreeSet::new(),
         });
+        // The builder makes the same value.
+        let built: UniversalStateInit = UniversalStateInitV1::new()
+            .with_code(GlobalContractId::CodeHash([0x22; 32]))
+            .with_data_entry("key", "value")
+            .into();
+        assert_eq!(built, contract);
         let mut contract_bytes = vec![0, 1, 0];
         contract_bytes.extend_from_slice(&[0x22; 32]);
         contract_bytes.extend_from_slice(&[1, 0, 0, 0, 3, 0, 0, 0]);
