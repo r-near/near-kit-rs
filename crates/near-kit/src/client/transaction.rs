@@ -313,50 +313,26 @@ impl PreparedTransaction {
         )
     }
 
-    fn into_transaction(
-        self,
-        signer_id: AccountId,
-        public_key: PublicKey,
-        nonce: u64,
-        block_hash: CryptoHash,
-    ) -> Transaction {
-        Transaction::new(
-            signer_id,
-            public_key,
-            nonce,
-            self.receiver_id,
-            block_hash,
-            self.actions,
-        )
-    }
-
     async fn sign_transaction(
         transaction: Transaction,
         key: &SigningKey,
     ) -> Result<(SignedTransaction, CryptoHash), Error> {
         let tx_hash = transaction.get_hash();
         let signature = key.sign(tx_hash.as_bytes()).await?;
-        Ok((
-            SignedTransaction {
-                transaction,
-                signature,
-            },
-            tx_hash,
-        ))
+        Ok((transaction.into_signed(signature), tx_hash))
     }
 
     /// Resolve the nonce and block hash online and sign the transaction.
     pub(crate) async fn sign(self) -> Result<SignedTransaction, Error> {
-        let prepared = self;
-        let (signer_id, key) = prepared.claim_signer();
+        let (signer_id, key) = self.claim_signer();
         let public_key = key.public_key().clone();
 
         let span = trace::info_span!(
             "sign_transaction",
             sender = %signer_id,
-            receiver = %prepared.receiver_id,
-            action_count = prepared.actions.len(),
-            actions = %actions_summary(&prepared.actions),
+            receiver = %self.receiver_id,
+            action_count = self.actions.len(),
+            actions = %actions_summary(&self.actions),
             method = trace::field::Empty,
             gas = trace::field::Empty,
             deposit = trace::field::Empty,
@@ -364,12 +340,10 @@ impl PreparedTransaction {
 
         async move {
             #[cfg(feature = "tracing")]
-            record_function_call_fields(&prepared.actions);
+            record_function_call_fields(&self.actions);
 
-            let (nonce, block_hash, _) = prepared
-                .online_context(&signer_id, &public_key, None)
-                .await?;
-            let tx = prepared.into_transaction(signer_id, public_key, nonce, block_hash);
+            let (nonce, block_hash, _) = self.online_context(&signer_id, &public_key, None).await?;
+            let tx = self.transaction(signer_id, public_key, nonce, block_hash);
             let (signed_tx, _tx_hash) = PreparedTransaction::sign_transaction(tx, &key).await?;
 
             trace::debug!(tx_hash = %_tx_hash, nonce, "Transaction signed");
@@ -510,18 +484,13 @@ impl PreparedTransaction {
         self,
         options: DelegateOptions,
     ) -> Result<SignedDelegateAction, Error> {
-        let prepared = self;
-
-        // Verify no nested delegates (of any version)
-        for action in &prepared.actions {
-            if action.is_delegate() {
-                return Err(Error::Validation(
-                    "Delegate actions cannot contain nested signed delegate actions".to_string(),
-                ));
-            }
+        if self.actions.iter().any(Action::is_delegate) {
+            return Err(Error::Validation(
+                "Delegate actions cannot contain nested signed delegate actions".to_string(),
+            ));
         }
 
-        let (sender_id, key) = prepared.claim_signer();
+        let (sender_id, key) = self.claim_signer();
         let public_key = key.public_key().clone();
 
         // Draw from the same sequence as transactions, so delegate actions
@@ -535,7 +504,7 @@ impl PreparedTransaction {
         let nonce = match options.nonce {
             Some(nonce) => nonce,
             None => {
-                let access_key = prepared
+                let access_key = self
                     .rpc
                     .view_access_key(
                         &sender_id,
@@ -544,7 +513,7 @@ impl PreparedTransaction {
                     )
                     .await?;
                 nonce_manager().next(
-                    &prepared.chain().await?,
+                    &self.chain().await?,
                     &sender_id,
                     &public_key,
                     access_key.nonce,
@@ -556,7 +525,7 @@ impl PreparedTransaction {
         let max_block_height = if let Some(h) = options.max_block_height {
             h
         } else {
-            let status = prepared.rpc.status().await?;
+            let status = self.rpc.status().await?;
             let offset = options.block_height_offset.unwrap_or(200);
             status.sync_info.latest_block_height + offset
         };
@@ -565,7 +534,7 @@ impl PreparedTransaction {
             receiver_id,
             actions,
             ..
-        } = prepared;
+        } = self;
 
         // Convert actions to NonDelegateAction
         let delegate_actions: Vec<NonDelegateAction> = actions
@@ -679,10 +648,7 @@ impl<W: WaitLevel> Tx<W> {
     {
         match action.try_into() {
             Ok(action) => self.actions.push(action),
-            Err(error) => {
-                let error: CodecError = error.into();
-                self.defer(error.into());
-            }
+            Err(error) => self.defer(Into::<CodecError>::into(error).into()),
         }
         self
     }
