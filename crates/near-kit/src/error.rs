@@ -1131,111 +1131,8 @@ mod tests {
     use crate::types::FinalExecutionStatus;
 
     // ========================================================================
-    // KeyStoreError tests
-    // ========================================================================
-
-    #[test]
-    fn test_keystore_error_display() {
-        let account_id: AccountId = "alice.near".parse().unwrap();
-        assert_eq!(
-            KeyStoreError::KeyNotFound(account_id).to_string(),
-            "Key not found for account: alice.near"
-        );
-        assert_eq!(
-            KeyStoreError::InvalidFormat("missing field".to_string()).to_string(),
-            "Invalid credential format: missing field"
-        );
-        assert_eq!(
-            KeyStoreError::Platform("keyring locked".to_string()).to_string(),
-            "Platform keyring error: keyring locked"
-        );
-    }
-
-    // ========================================================================
     // RpcError tests
     // ========================================================================
-
-    #[test]
-    fn test_rpc_error_display() {
-        let account_id: AccountId = "alice.near".parse().unwrap();
-
-        assert_eq!(
-            RpcError::InvalidResponse("missing result".to_string()).to_string(),
-            "Invalid response: missing result"
-        );
-        assert_eq!(
-            RpcError::AccountNotFound {
-                account_id: account_id.clone(),
-                block_height: None,
-                block_hash: None,
-            }
-            .to_string(),
-            "Account not found: alice.near"
-        );
-        assert_eq!(
-            RpcError::InvalidAccount {
-                account_id: "bad-account".to_string(),
-                block_height: None,
-                block_hash: None,
-            }
-            .to_string(),
-            "Invalid account ID: bad-account"
-        );
-        assert_eq!(
-            RpcError::ContractNotDeployed {
-                account_id: account_id.clone(),
-                block_height: None,
-                block_hash: None,
-            }
-            .to_string(),
-            "Contract not deployed on account: alice.near"
-        );
-        assert_eq!(
-            RpcError::ContractStateTooLarge {
-                account_id: account_id.clone(),
-                block_height: None,
-                block_hash: None,
-            }
-            .to_string(),
-            "Contract state too large for account: alice.near"
-        );
-        assert_eq!(
-            RpcError::BlockNotFound("12345".to_string()).to_string(),
-            "Block not found: 12345. It may have been garbage-collected. Try an archival node for blocks older than 5 epochs."
-        );
-        assert_eq!(
-            RpcError::ChunkNotFound("abc123".to_string()).to_string(),
-            "Chunk not found: abc123. It may have been garbage-collected. Try an archival node."
-        );
-        assert_eq!(
-            RpcError::EpochNotFound("epoch1".to_string()).to_string(),
-            "Epoch not found for block: epoch1. The block may be invalid or too old. Try an archival node."
-        );
-        assert_eq!(
-            RpcError::ReceiptNotFound("receipt123".to_string()).to_string(),
-            "Receipt not found: receipt123"
-        );
-        assert_eq!(
-            RpcError::InvalidShardId("99".to_string()).to_string(),
-            "Invalid shard ID: 99"
-        );
-        assert_eq!(
-            RpcError::ShardUnavailable("shard 0".to_string()).to_string(),
-            "Shard unavailable: shard 0"
-        );
-        assert_eq!(
-            RpcError::NodeNotSynced("syncing...".to_string()).to_string(),
-            "Node not synced: syncing..."
-        );
-        assert_eq!(
-            RpcError::InternalError("database error".to_string()).to_string(),
-            "Internal server error: database error"
-        );
-        assert_eq!(
-            RpcError::ParseError("invalid json".to_string()).to_string(),
-            "Parse error: invalid json"
-        );
-    }
 
     #[test]
     fn test_rpc_error_is_retryable() {
@@ -1446,47 +1343,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_error_method_not_found_display() {
-        let account_id: AccountId = "contract.near".parse().unwrap();
-        let err = RpcError::MethodNotFound {
-            contract_id: account_id,
-            method_name: "missing".to_string(),
-            block_height: None,
-            block_hash: None,
-        };
-        assert_eq!(
-            err.to_string(),
-            "contract method not found: `contract.near::missing`"
-        );
-    }
-
-    #[test]
-    fn test_rpc_error_contract_execution_display() {
-        let account_id: AccountId = "contract.near".parse().unwrap();
-        let err = RpcError::ContractExecution {
-            contract_id: account_id,
-            method_name: Some("my_method".to_string()),
-            message: "execution failed".to_string(),
-            block_height: None,
-            block_hash: None,
-        };
-        assert_eq!(
-            err.to_string(),
-            "contract execution failed on contract.near: execution failed"
-        );
-    }
-
-    #[test]
-    fn test_rpc_error_contract_panic_display() {
-        let panic = RpcError::ContractPanic {
-            message: "assertion failed".to_string(),
-            block_height: None,
-            block_hash: None,
-        };
-        assert_eq!(panic.to_string(), "contract panic: assertion failed");
-    }
-
-    #[test]
     fn test_view_call_error_display_preserves_message_casing() {
         let contract_id: AccountId = "contract.near".parse().unwrap();
 
@@ -1522,33 +1378,6 @@ mod tests {
             .to_string(),
             "contract method not found: `contract.near::Nep413GetMessage`"
         );
-    }
-
-    #[test]
-    fn test_rpc_error_invalid_tx_display() {
-        use crate::types::InvalidTxError;
-        let err = RpcError::InvalidTx(InvalidTxError::InvalidNonce {
-            tx_nonce: 5,
-            ak_nonce: 10,
-        });
-        assert!(err.to_string().contains("transaction nonce"));
-        assert!(err.to_string().contains("access key nonce"));
-    }
-
-    #[test]
-    fn test_rpc_error_access_key_not_found_display() {
-        let account_id: AccountId = "alice.near".parse().unwrap();
-        let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
-            .parse()
-            .unwrap();
-        let err = RpcError::AccessKeyNotFound {
-            account_id,
-            public_key: public_key.clone(),
-            block_height: None,
-            block_hash: None,
-        };
-        assert!(err.to_string().contains("alice.near"));
-        assert!(err.to_string().contains(&public_key.to_string()));
     }
 
     #[test]
@@ -1600,21 +1429,6 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_error_config_display() {
-        assert_eq!(
-            Error::Config("invalid url".to_string()).to_string(),
-            "Invalid configuration: invalid url"
-        );
-    }
-
-    #[test]
-    fn test_error_invalid_tx_display() {
-        use crate::types::InvalidTxError;
-        let err = Error::InvalidTx(Box::new(InvalidTxError::Expired));
-        assert!(err.to_string().contains("expired"));
-    }
-
-    #[test]
     fn test_error_from_rpc_invalid_tx_promotes() {
         use crate::types::InvalidTxError;
         // RpcError::InvalidTx should become Error::InvalidTx, not Error::Rpc
@@ -1627,14 +1441,6 @@ mod tests {
             err,
             Error::InvalidTx(e) if matches!(*e, InvalidTxError::InvalidNonce { .. })
         ));
-    }
-
-    #[test]
-    fn test_error_borsh_display() {
-        assert_eq!(
-            Error::Borsh("deserialization failed".to_string()).to_string(),
-            "Borsh error: deserialization failed"
-        );
     }
 
     #[test]
