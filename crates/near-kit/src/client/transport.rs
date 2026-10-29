@@ -403,13 +403,22 @@ mod wasi_http {
                 RpcError::network("wasi:http request body stream unavailable", None, false)
             })?;
             for chunk in body.chunks(WRITE_CHUNK) {
-                stream.blocking_write_and_flush(chunk).map_err(|e| {
-                    RpcError::network(
-                        format!("wasi:http request body write failed: {}", stream_err(e)),
-                        None,
-                        true,
-                    )
-                })?;
+                if let Err(e) = stream.blocking_write_and_flush(chunk) {
+                    // The host closes the body stream when the request itself
+                    // failed (connection refused, DNS, TLS, ...). That cause
+                    // is in the response future, so report it when it's there.
+                    let pollable = future_response.subscribe();
+                    pollable.block();
+                    drop(pollable);
+                    return Err(match future_response.get() {
+                        Some(Ok(Err(code))) => request_failed(&code),
+                        _ => RpcError::network(
+                            format!("wasi:http request body write failed: {}", stream_err(e)),
+                            None,
+                            true,
+                        ),
+                    });
+                }
             }
         }
         OutgoingBody::finish(out_body, None).map_err(|code| {
@@ -429,13 +438,7 @@ mod wasi_http {
             Some(Ok(Ok(response))) => response,
             // The host-reported failure (DNS, connect, TLS, ...) — the
             // wasi:http analogue of a reqwest connect error.
-            Some(Ok(Err(code))) => {
-                return Err(RpcError::network(
-                    format!("wasi:http request failed: {code:?}"),
-                    None,
-                    is_retryable_error_code(&code),
-                ));
-            }
+            Some(Ok(Err(code))) => return Err(request_failed(&code)),
             Some(Err(())) => {
                 return Err(RpcError::network(
                     "wasi:http response consumed twice",
@@ -597,6 +600,15 @@ mod wasi_http {
     fn invalid_url(url: &str, reason: &str) -> RpcError {
         let shown = super::redact_url(url);
         RpcError::network(format!("invalid RPC URL `{shown}`: {reason}"), None, false)
+    }
+
+    /// The host-reported failure of a request (DNS, connect, TLS, ...).
+    fn request_failed(code: &ErrorCode) -> RpcError {
+        RpcError::network(
+            format!("wasi:http request failed: {code:?}"),
+            None,
+            is_retryable_error_code(code),
+        )
     }
 
     fn stream_err(e: StreamError) -> String {
