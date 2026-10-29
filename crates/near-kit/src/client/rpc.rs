@@ -918,11 +918,12 @@ impl RpcClient {
         account_id: &AccountIdRef,
         block: impl Into<BlockReference>,
     ) -> Result<AccountView, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "account_id": account_id.to_string(),
-        });
-        self.merge_block_reference(&mut params, &block);
+        let params = with_block(
+            serde_json::json!({
+                "account_id": account_id.to_string(),
+            }),
+            block.into(),
+        );
         self.request("EXPERIMENTAL_view_account", params).await
     }
 
@@ -934,12 +935,13 @@ impl RpcClient {
         public_key: &PublicKey,
         block: impl Into<BlockReference>,
     ) -> Result<AccessKeyView, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "account_id": account_id.to_string(),
-            "public_key": public_key.to_string(),
-        });
-        self.merge_block_reference(&mut params, &block);
+        let params = with_block(
+            serde_json::json!({
+                "account_id": account_id.to_string(),
+                "public_key": public_key.to_string(),
+            }),
+            block.into(),
+        );
         self.request("EXPERIMENTAL_view_access_key", params)
             .await
             .map_err(|mut e| {
@@ -1048,20 +1050,19 @@ impl RpcClient {
         limit: Option<NonZeroU32>,
         block: impl Into<BlockReference>,
     ) -> Result<AccessKeyListView, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "request_type": "view_access_key_list",
-            "account_id": account_id.to_string(),
-        });
-        if let Some(obj) = params.as_object_mut() {
-            if let Some(after) = after_key {
-                obj.insert("after_key".to_string(), after.to_string().into());
-            }
-            if let Some(limit) = limit {
-                obj.insert("limit".to_string(), limit.get().into());
-            }
+        let mut params = with_block(
+            serde_json::json!({
+                "request_type": "view_access_key_list",
+                "account_id": account_id.to_string(),
+            }),
+            block.into(),
+        );
+        if let Some(after) = after_key {
+            params["after_key"] = after.to_string().into();
         }
-        self.merge_block_reference(&mut params, &block);
+        if let Some(limit) = limit {
+            params["limit"] = limit.get().into();
+        }
         self.request("query", params).await
     }
 
@@ -1076,13 +1077,14 @@ impl RpcClient {
         public_key: &PublicKey,
         block: impl Into<BlockReference>,
     ) -> Result<GasKeyNoncesView, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "request_type": "view_gas_key_nonces",
-            "account_id": account_id.to_string(),
-            "public_key": public_key.to_string(),
-        });
-        self.merge_block_reference(&mut params, &block);
+        let params = with_block(
+            serde_json::json!({
+                "request_type": "view_gas_key_nonces",
+                "account_id": account_id.to_string(),
+                "public_key": public_key.to_string(),
+            }),
+            block.into(),
+        );
         self.request("query", params).await.map_err(|mut e| {
             // UNKNOWN_GAS_KEY's payload omits the account.
             if let RpcError::GasKeyNotFound { account_id: id, .. } = &mut e {
@@ -1101,13 +1103,14 @@ impl RpcClient {
         args: &[u8],
         block: impl Into<BlockReference>,
     ) -> Result<ViewFunctionResult, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "account_id": account_id.to_string(),
-            "method_name": method_name,
-            "args_base64": STANDARD.encode(args),
-        });
-        self.merge_block_reference(&mut params, &block);
+        let params = with_block(
+            serde_json::json!({
+                "account_id": account_id.to_string(),
+                "method_name": method_name,
+                "args_base64": STANDARD.encode(args),
+            }),
+            block.into(),
+        );
 
         // EXPERIMENTAL_call_function returns errors through the JSON-RPC
         // error envelope, so `parse_rpc_error` handles them. Patch in
@@ -1154,12 +1157,13 @@ impl RpcClient {
         account_id: &AccountIdRef,
         block: impl Into<BlockReference>,
     ) -> Result<ContractCodeView, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "request_type": "view_code",
-            "account_id": account_id.to_string(),
-        });
-        self.merge_block_reference(&mut params, &block);
+        let params = with_block(
+            serde_json::json!({
+                "request_type": "view_code",
+                "account_id": account_id.to_string(),
+            }),
+            block.into(),
+        );
         self.request("query", params).await
     }
 
@@ -1174,10 +1178,9 @@ impl RpcClient {
         id: impl Into<GlobalContractId>,
         block: impl Into<BlockReference>,
     ) -> Result<ContractCodeView, RpcError> {
-        let block = block.into();
         let id = id.into();
         trace::Span::current().record("id", trace::field::debug(&id));
-        let mut params = match &id {
+        let params = match &id {
             GlobalContractId::CodeHash(hash) => serde_json::json!({
                 "request_type": "view_global_contract_code",
                 "code_hash": CryptoHash::from_bytes(*hash).to_string(),
@@ -1187,23 +1190,24 @@ impl RpcClient {
                 "account_id": account_id.to_string(),
             }),
         };
-        self.merge_block_reference(&mut params, &block);
-        self.request("query", params).await.map_err(|mut e| {
-            // Replace the error's best-effort identifier with the one the
-            // caller asked for, so it stays accurate whatever the node's
-            // serialization shape.
-            if let RpcError::GlobalContractNotFound { identifier, .. } = &mut e {
-                *identifier = match &id {
-                    GlobalContractId::CodeHash(hash) => {
-                        GlobalContractIdentifierView::CodeHash(CryptoHash::from_bytes(*hash))
-                    }
-                    GlobalContractId::AccountId(account_id) => {
-                        GlobalContractIdentifierView::AccountId(account_id.clone())
-                    }
-                };
-            }
-            e
-        })
+        self.request("query", with_block(params, block.into()))
+            .await
+            .map_err(|mut e| {
+                // Replace the error's best-effort identifier with the one the
+                // caller asked for, so it stays accurate whatever the node's
+                // serialization shape.
+                if let RpcError::GlobalContractNotFound { identifier, .. } = &mut e {
+                    *identifier = match &id {
+                        GlobalContractId::CodeHash(hash) => {
+                            GlobalContractIdentifierView::CodeHash(CryptoHash::from_bytes(*hash))
+                        }
+                        GlobalContractId::AccountId(account_id) => {
+                            GlobalContractIdentifierView::AccountId(account_id.clone())
+                        }
+                    };
+                }
+                e
+            })
     }
 
     /// View a single page of a contract's state (raw key/value trie entries).
@@ -1225,25 +1229,21 @@ impl RpcClient {
         limit: Option<u32>,
         block: impl Into<BlockReference>,
     ) -> Result<ViewStateResult, RpcError> {
-        let block = block.into();
-        let mut params = serde_json::json!({
-            "request_type": "view_state",
-            "account_id": account_id.to_string(),
-            "prefix_base64": STANDARD.encode(prefix),
-        });
-        if let Some(obj) = params.as_object_mut() {
-            if let Some(after) = after_key {
-                obj.insert(
-                    "after_key_base64".to_string(),
-                    STANDARD.encode(after).into(),
-                );
-            }
-            // nearcore requires a non-zero limit; omit it otherwise.
-            if let Some(limit) = limit.filter(|&l| l > 0) {
-                obj.insert("limit".to_string(), limit.into());
-            }
+        let mut params = with_block(
+            serde_json::json!({
+                "request_type": "view_state",
+                "account_id": account_id.to_string(),
+                "prefix_base64": STANDARD.encode(prefix),
+            }),
+            block.into(),
+        );
+        if let Some(after) = after_key {
+            params["after_key_base64"] = STANDARD.encode(after).into();
         }
-        self.merge_block_reference(&mut params, &block);
+        // nearcore requires a non-zero limit; omit it otherwise.
+        if let Some(limit) = limit.filter(|&l| l > 0) {
+            params["limit"] = limit.into();
+        }
         self.request("query", params).await
     }
 
@@ -1317,9 +1317,7 @@ impl RpcClient {
     /// Get block information.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block)))]
     pub async fn block(&self, block: impl Into<BlockReference>) -> Result<BlockView, RpcError> {
-        let block = block.into();
-        let params = block_params(&block);
-        self.request("block", params).await
+        self.request("block", block_params(&block.into())).await
     }
 
     /// Get all state changes that occurred in a block.
@@ -1331,9 +1329,8 @@ impl RpcClient {
         &self,
         block: impl Into<BlockReference>,
     ) -> Result<BlockEffects, RpcError> {
-        let block = block.into();
-        let params = block_params(&block);
-        self.request("block_effects", params).await
+        self.request("block_effects", block_params(&block.into()))
+            .await
     }
 
     /// Get the upcoming maintenance windows for a validator account.
@@ -1455,15 +1452,6 @@ impl RpcClient {
         let params = serde_json::json!({ "receipt_id": receipt_id.to_string() });
         self.request("EXPERIMENTAL_receipt_to_tx", params).await
     }
-
-    /// Merge block reference parameters into a JSON object.
-    fn merge_block_reference(&self, params: &mut serde_json::Value, block: &BlockReference) {
-        if let serde_json::Value::Object(block_params) = block_params(block)
-            && let serde_json::Value::Object(map) = params
-        {
-            map.extend(block_params);
-        }
-    }
 }
 
 impl Clone for RpcClient {
@@ -1504,6 +1492,14 @@ fn block_params(block: &BlockReference) -> serde_json::Value {
             serde_json::json!({ "sync_checkpoint": checkpoint })
         }
     }
+}
+
+/// `params` with the parameters that select `block` merged in.
+fn with_block(mut params: Value, block: BlockReference) -> Value {
+    if let (Value::Object(map), Value::Object(block)) = (&mut params, block_params(&block)) {
+        map.extend(block);
+    }
+    params
 }
 
 /// The positional `block_id` for methods that take only a height, a hash or
