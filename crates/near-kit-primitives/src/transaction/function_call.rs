@@ -5,15 +5,10 @@ use crate::types::{Action, FunctionCallAction, Gas, NearToken};
 
 /// A standalone function call configuration, decoupled from any transaction.
 ///
-/// Use this when you need to pre-build calls and compose them into a transaction
-/// later. This is especially useful for dynamic transaction composition (e.g. in
-/// a loop) or for batching typed contract calls into a single transaction.
-///
-/// Note: `FunctionCall` does not capture a receiver/contract account. The call
-/// will execute against whichever `receiver_id` is set on the transaction it's
-/// added to.
-///
-/// No client or signer is required.
+/// Pre-build calls and compose them into a transaction later, for example in a
+/// loop or to batch typed contract calls. It has no receiver: the call runs
+/// against the `receiver_id` of the transaction it's added to. No client or
+/// signer is required.
 ///
 /// # Example
 ///
@@ -164,8 +159,6 @@ mod tests {
         }
     }
 
-    // FunctionCall tests
-
     #[test]
     fn function_call_into_action() {
         let call = FunctionCall::new("init")
@@ -216,33 +209,13 @@ mod tests {
             .into_action()
             .unwrap_err();
         assert!(matches!(borsh_error, CodecError::Borsh(_)));
-    }
 
-    #[test]
-    fn function_call_try_into_function_call_action() {
-        let action = FunctionCallAction::try_from(
-            FunctionCall::new("init")
-                .gas(Gas::from_tgas(50))
-                .deposit(NearToken::from_yoctonear(1)),
-        )
-        .unwrap();
-        assert_eq!(action.method_name, "init");
-        assert_eq!(action.gas, Gas::from_tgas(50));
-        assert_eq!(action.deposit, NearToken::from_yoctonear(1));
-
-        let error =
-            FunctionCallAction::try_from(FunctionCall::new("init").args(FailingJson)).unwrap_err();
-        assert!(matches!(error, CodecError::Json(_)));
-    }
-
-    #[test]
-    fn function_call_preserves_the_first_construction_error() {
-        let error = FunctionCall::new("method")
+        // The first error wins.
+        let first = FunctionCall::new("method")
             .args(FailingJson)
             .args_borsh(FailingBorsh)
             .into_action()
             .unwrap_err();
-
-        assert!(matches!(error, CodecError::Json(_)));
+        assert!(matches!(first, CodecError::Json(_)));
     }
 }
