@@ -208,6 +208,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `AccessKeyPermission::function_call(rx, methods, allowance)`, `AccessKeyPermission::full_access()`, `AccessKey::function_call(..)` | `AccessKeyPermission::FunctionCall(FunctionCallPermission { allowance, receiver_id, method_names })`, `AccessKeyPermission::FullAccess`, `AccessKey { nonce: 0, permission }`; or `Action::add_function_call_key(..)` |
 | `VersionedDelegateActionPayload::get_actions()` | `let VersionedDelegateActionPayload::V2(d) = payload;` then `d.actions.iter().cloned().map(Action::from)` |
 | `NonDelegateAction::into_inner()`, `NonDelegateAction::try_from(action)` (`Error = ()`) | `Action::from(non_delegate)`; `NonDelegateAction::from_action(action)`, which returns an `Option` |
+| `Transaction::get_hash_and_size()` | `tx.get_hash()`; `borsh::to_vec(&tx)?.len()` for the size |
 
 ### Sandbox (near-kit-sandbox)
 

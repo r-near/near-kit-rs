@@ -73,12 +73,6 @@ impl Transaction {
         CryptoHash::hash(&bytes)
     }
 
-    /// Get the raw bytes of this transaction (for signing).
-    pub fn get_hash_and_size(&self) -> (CryptoHash, usize) {
-        let bytes = borsh::to_vec(self).expect("transaction serialization should never fail");
-        (CryptoHash::hash(&bytes), bytes.len())
-    }
-
     /// Sign this transaction with a secret key.
     pub fn sign(self, signer: &SecretKey) -> SignedTransaction {
         let hash = self.get_hash();
