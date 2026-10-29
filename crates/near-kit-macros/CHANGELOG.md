@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0-rc.1...near-kit-macros-v0.15.0-rc.2) - 2026-10-29
+
+- `#[call(gas = EXPR, deposit = EXPR)]` sets a call's default gas and deposit. Each value is a `Gas` or `NearToken` expression, evaluated each time the call is built. The client method and the `FunctionCall` constructor both start from it, and `.gas(..)`/`.deposit(..)` still override it. `gas` or `deposit` on a view, an unknown or repeated key, and a second `#[call]` are compile errors ([#389](https://github.com/r-near/near-kit-rs/pull/389)).
+- No-argument methods still send `{}` (JSON) or no bytes (Borsh), now matching `View::json` and `FunctionCall::new` in near-kit-primitives 0.30.0-rc.2 ([#388](https://github.com/r-near/near-kit-rs/pull/388)).
+
 ## [0.15.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.14.0...near-kit-macros-v0.15.0-rc.1) - 2026-10-29
 
 Use this crate through `near-kit` or `near-kit-primitives` with the `contracts`

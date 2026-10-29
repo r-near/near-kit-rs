@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.1...near-kit-v0.30.0-rc.2) - 2026-10-29
+
+Upgrading from 0.20.1? Start with the 0.30.0-rc.1 notes below and
+[MIGRATION.md](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md).
+
+### Changed without a compile error
+
+- **A JSON view or call without arguments sends `{}`.** `near.view(id, m)`,
+  `View::json` and `FunctionCall::new(m)` used to send empty bytes until
+  `.args(..)` set something; they now send `{}`, the same bytes a
+  `#[contract]` method without arguments already sent. The FT and NFT
+  clients' no-argument views (`ft_metadata`, `ft_total_supply`,
+  `nft_metadata`, ...) send it too. This changes what goes on the wire: a
+  near-sdk method whose parameters are all `Option` parses `{}` but rejects
+  empty bytes. Borsh views and calls still send nothing. To send empty bytes,
+  use `.args_raw(Vec::new())`.
+  ([#388](https://github.com/r-near/near-kit-rs/pull/388),
+  [MIGRATION](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#reads-and-blocks))
+
+### Added
+
+- **`#[call(gas = .., deposit = ..)]` sets a call's default gas and deposit**
+  in `#[near_kit::contract]` (with the `contracts` feature), so a NEP-141 or
+  NEP-245 method can declare its 1 yoctoNEAR once. Either key may be left out;
+  a call without them still starts from 30 Tgas and no deposit. The generated
+  `FunctionCall` constructors used in batches carry the defaults too, and
+  `.gas(..)`/`.deposit(..)` on the `Call` or `FunctionCall` still override
+  them. ([#389](https://github.com/r-near/near-kit-rs/pull/389))
+
 ## [0.30.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.20.1...near-kit-v0.30.0-rc.1) - 2026-10-29
 
 This release changes the whole API in one go and keeps no deprecated aliases.

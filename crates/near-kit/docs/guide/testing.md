@@ -499,13 +499,13 @@ for how a send behaves on chain, use the sandbox.
 
 ## The sandbox
 
-[`near-kit-sandbox`](https://docs.rs/near-kit-sandbox/0.30.0-rc.1) runs
+[`near-kit-sandbox`](https://docs.rs/near-kit-sandbox/0.30.0-rc.2) runs
 `nearprotocol/sandbox` in Docker and hands back a `SigningNear` for its root
 account, so a sandbox test reads like production code. Docker must be
 running.
 
 ```sh
-cargo add --dev near-kit-sandbox@0.30.0-rc.1
+cargo add --dev near-kit-sandbox@0.30.0-rc.2
 ```
 
 `Sandbox::builder().shared()` starts one node for the whole test process;

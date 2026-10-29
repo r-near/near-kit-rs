@@ -27,7 +27,7 @@ macro_rules! needs_features {
         concat!(
             "This chapter's examples need the ",
             $features,
-            " feature(s). Read it on [docs.rs](https://docs.rs/near-kit/0.30.0-rc.1), ",
+            " feature(s). Read it on [docs.rs](https://docs.rs/near-kit/0.30.0-rc.2), ",
             "or build the docs with those features enabled."
         )
     };

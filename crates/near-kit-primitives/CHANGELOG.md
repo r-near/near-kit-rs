@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0-rc.1...near-kit-primitives-v0.30.0-rc.2) - 2026-10-29
+
+- **`View::json` and `FunctionCall::new` send `{}` until arguments are set**, as a `#[contract]` method without arguments already did. This changes what goes on the wire: they used to send empty bytes, which a near-sdk method whose parameters are all `Option` rejects. `View::borsh` and `#[contract(borsh)]` methods still send nothing; for empty bytes, use `.args_raw(Vec::new())` ([#388](https://github.com/r-near/near-kit-rs/pull/388)).
+- With `contracts`, `#[call(gas = .., deposit = ..)]` sets a call's default gas and deposit, which `.gas(..)`/`.deposit(..)` still override ([#389](https://github.com/r-near/near-kit-rs/pull/389)).
+
 ## [0.30.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.20.1...near-kit-primitives-v0.30.0-rc.1) - 2026-10-29
 
 This is the first supported release of near-kit-primitives. It holds

@@ -4,6 +4,11 @@ All notable changes to `near-kit-sandbox` are documented in this file.
 
 ## [Unreleased]
 
+## [0.30.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.30.0-rc.1...near-kit-sandbox-v0.30.0-rc.2) - 2026-10-29
+
+Depends on near-kit 0.30.0-rc.2. No user-facing changes; version bumped with
+the workspace.
+
 ## [0.30.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.20.1...near-kit-sandbox-v0.30.0-rc.1) - 2026-10-29
 
 Depends on near-kit 0.30.0-rc.1. See
