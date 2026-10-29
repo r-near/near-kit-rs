@@ -102,7 +102,7 @@ impl Transaction {
     /// # fn example(tx: Transaction, sig_bytes: [u8; 64]) {
     /// let hash = tx.get_hash();
     /// // sign hash externally...
-    /// let signature = Signature::ed25519_from_bytes(sig_bytes);
+    /// let signature = Signature::Ed25519(sig_bytes);
     /// let signed = tx.into_signed(signature);
     /// # }
     /// ```

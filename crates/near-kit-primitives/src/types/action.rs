@@ -1895,7 +1895,7 @@ mod tests {
     }
 
     fn sig() -> Signature {
-        Signature::ed25519_from_bytes([7; 64])
+        Signature::Ed25519([7; 64])
     }
 
     fn assert_json(action: Action, json: serde_json::Value) {

@@ -307,7 +307,7 @@ impl SigningBackend for RemoteKey {
         let bytes = request_signature(&self.key_id, message)
             .await
             .map_err(SignerError::SigningFailed)?;
-        Ok(Signature::ed25519_from_bytes(bytes))
+        Ok(Signature::Ed25519(bytes))
     }
 }
 

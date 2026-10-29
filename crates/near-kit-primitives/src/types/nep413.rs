@@ -535,11 +535,12 @@ fn signature_from_unprefixed_bytes(bytes: &[u8]) -> Option<Signature> {
     use crate::types::ML_DSA_65_SIGNATURE_LENGTH;
 
     match bytes.len() {
-        64 => Some(Signature::ed25519_from_bytes(bytes.try_into().ok()?)),
-        65 => Some(Signature::secp256k1_from_bytes(bytes.try_into().ok()?)),
-        ML_DSA_65_SIGNATURE_LENGTH => Some(Signature::ml_dsa65_from_bytes(Box::new(
-            bytes.try_into().ok()?,
-        ))),
+        64 => bytes.try_into().ok().map(Signature::Ed25519),
+        65 => bytes.try_into().ok().map(Signature::Secp256k1),
+        ML_DSA_65_SIGNATURE_LENGTH => bytes
+            .try_into()
+            .ok()
+            .map(|b| Signature::MlDsa65(Box::new(b))),
         _ => None,
     }
 }
@@ -853,7 +854,7 @@ mod tests {
 
         // Decode the expected signature
         let sig_bytes = BASE64_STANDARD.decode(expected_sig_no_callback).unwrap();
-        let signature = crate::types::Signature::ed25519_from_bytes(
+        let signature = crate::types::Signature::Ed25519(
             sig_bytes.try_into().expect("signature should be 64 bytes"),
         );
 
@@ -876,7 +877,7 @@ mod tests {
 
         let hash = hash_message(&params_with_callback);
         let sig_bytes = BASE64_STANDARD.decode(expected_sig_with_callback).unwrap();
-        let signature = crate::types::Signature::ed25519_from_bytes(
+        let signature = crate::types::Signature::Ed25519(
             sig_bytes.try_into().expect("signature should be 64 bytes"),
         );
 

@@ -1004,24 +1004,6 @@ pub enum Signature {
 }
 
 impl Signature {
-    /// Create an Ed25519 signature from raw 64 bytes.
-    pub fn ed25519_from_bytes(bytes: [u8; 64]) -> Self {
-        Self::Ed25519(bytes)
-    }
-
-    /// Create a Secp256k1 signature from raw 65 bytes.
-    ///
-    /// The format is `[r (32 bytes) | s (32 bytes) | v (1 byte recovery id)]`,
-    /// matching the NEAR protocol's secp256k1 signature format.
-    pub fn secp256k1_from_bytes(bytes: [u8; 65]) -> Self {
-        Self::Secp256k1(bytes)
-    }
-
-    /// Create an ML-DSA-65 signature from raw 3309 bytes.
-    pub fn ml_dsa65_from_bytes(bytes: Box<[u8; ML_DSA_65_SIGNATURE_LENGTH]>) -> Self {
-        Self::MlDsa65(bytes)
-    }
-
     /// Get the key type.
     pub fn key_type(&self) -> KeyType {
         match self {
@@ -1979,7 +1961,7 @@ mod tests {
     #[test]
     fn test_malformed_ml_dsa65_signature_is_rejected_without_panicking() {
         let public_key = SecretKey::ml_dsa65_from_seed([3; ML_DSA_65_SEED_LENGTH]).public_key();
-        let signature = Signature::ml_dsa65_from_bytes(Box::new([0; ML_DSA_65_SIGNATURE_LENGTH]));
+        let signature = Signature::MlDsa65(Box::new([0; ML_DSA_65_SIGNATURE_LENGTH]));
 
         assert!(!signature.verify(b"malformed signature", &public_key));
     }
