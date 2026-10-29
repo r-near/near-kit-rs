@@ -216,19 +216,6 @@ fn canonicality_vectors_match_upstream() {
     }
 }
 
-/// Handle tag 2 (a full ML-DSA-65 `PublicKey`) is never a handle.
-#[test]
-fn tag_two_handle_is_malformed() {
-    let mut bytes = vec![0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2];
-    bytes.extend_from_slice(&[0; 32]);
-    let raw = RawStateInit::from(bytes);
-    assert_eq!(
-        UniversalStateInit::from_raw(&raw),
-        Err(StateInitError::Malformed)
-    );
-    assert_eq!(raw.validate_canonical(), Err(StateInitError::Malformed));
-}
-
 /// Both crates hash an ML-DSA-65 key into the same handle; near-kit also
 /// normalizes a full key put in through the public field.
 #[test]

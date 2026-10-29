@@ -10,14 +10,17 @@
 
 use std::collections::BTreeMap;
 
-use near_kit_primitives::protocol::{Action, GlobalContractId, StateInit, StateInitV1};
+use near_kit_primitives::protocol::{
+    DeterministicStateInitAction, GlobalContractId, StateInit, StateInitV1,
+};
 use near_kit_primitives::{AccountId, NearToken};
 
 fn kit_id(state_init: &StateInit) -> AccountId {
-    match Action::state_init(state_init.clone(), NearToken::ZERO) {
-        Action::DeterministicStateInit(action) => action.derive_account_id(),
-        other => unreachable!("{other:?}"),
+    DeterministicStateInitAction {
+        state_init: state_init.clone(),
+        deposit: NearToken::ZERO,
     }
+    .derive_account_id()
 }
 
 #[test]

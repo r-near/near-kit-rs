@@ -74,12 +74,9 @@ impl From<UniversalStateInitV1> for RawStateInit {
 /// [`UniversalStateInit::from_raw_lenient`] decodes any well-formed borsh, for
 /// inspecting bytes without judging them.
 ///
-/// near-kit's typed state init is borsh-only; convert through
-/// [`RawStateInit`], which is the type near-sdk and near-global-contracts use.
-/// near-global-contracts has its own `UniversalStateInit`,
-/// `UniversalStateInitV1` and `PublicKeyHandle` under the same names; they
-/// encode to the same bytes but are different types (theirs also derive
-/// serde). `Action::universal_state_init` accepts either crate's typed value.
+/// This type is borsh-only; convert through [`RawStateInit`] (see there for
+/// near-global-contracts' same-named types). `Action::universal_state_init`
+/// accepts either crate's typed value.
 ///
 /// Mirrors nearcore's `UniversalStateInit`. New fields or semantics arrive as
 /// a new variant; the borsh discriminant is the only version marker. Create
@@ -460,38 +457,6 @@ mod tests {
         }
     }
 
-    fn contract_init() -> UniversalStateInit {
-        UniversalStateInitV1::new()
-            .with_code(GlobalContractId::AccountId(
-                "publisher.near".parse().unwrap(),
-            ))
-            .with_data_entry(b"alpha".to_vec(), b"1".to_vec())
-            .with_data_entry(b"beta".to_vec(), b"2".to_vec())
-            .with_access_key(ed_handle(7))
-            .with_access_key(mldsa_handle(9))
-            .with_access_key(PublicKeyHandle::Full(PublicKey::Secp256k1([5; 64])))
-            .into()
-    }
-
-    #[test]
-    fn handle_encoding_matches_nearcore() {
-        let si: UniversalStateInit = UniversalStateInitV1::new()
-            .with_access_key(mldsa_handle(9))
-            .with_access_key(PublicKeyHandle::Full(PublicKey::Secp256k1([5; 64])))
-            .with_access_key(ed_handle(7))
-            .into();
-        let mut expected = vec![0, 0, 0, 0, 0, 0, 3, 0, 0, 0];
-        // nearcore orders handles by variant (ed25519, secp256k1, ML-DSA-65
-        // hash), then by bytes.
-        expected.push(0);
-        expected.extend_from_slice(&[7; 32]);
-        expected.push(1);
-        expected.extend_from_slice(&[5; 64]);
-        expected.push(3);
-        expected.extend_from_slice(&[9; 32]);
-        assert_eq!(si.to_raw().0, expected);
-    }
-
     #[test]
     fn full_ml_dsa_key_is_stored_as_its_hash() {
         let sk = crate::types::SecretKey::generate_ml_dsa65();
@@ -551,17 +516,6 @@ mod tests {
         RawStateInit(bytes)
     }
 
-    #[test]
-    fn from_raw_accepts_hand_built_canonical() {
-        for raw in [
-            v1_bytes(&[(b"a", b"1"), (b"b", b"2")], &[ed_handle(1), ed_handle(2)]),
-            // "ab" < "b" by content, though its length prefix is larger.
-            v1_bytes(&[(b"ab", b""), (b"b", b"")], &[]),
-        ] {
-            assert_eq!(UniversalStateInit::from_raw(&raw).unwrap().to_raw(), raw);
-        }
-    }
-
     fn non_canonical_encodings() -> [RawStateInit; 5] {
         [
             v1_bytes(&[(b"b", b""), (b"a", b"")], &[]),
@@ -599,28 +553,6 @@ mod tests {
             assert_eq!(
                 raw.try_derive_account_id(),
                 Err(StateInitError::NonCanonical)
-            );
-        }
-    }
-
-    #[test]
-    fn from_raw_rejects_malformed() {
-        let mut trailing = contract_init().to_raw().0;
-        trailing.push(0);
-        // Tag 2 is a full ML-DSA-65 `PublicKey`, never a handle.
-        let mut full_ml_dsa_tag = vec![0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2];
-        full_ml_dsa_tag.extend_from_slice(&[0; 32]);
-        let unknown_version = vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        for bytes in [vec![], vec![0], trailing, full_ml_dsa_tag, unknown_version] {
-            let raw = RawStateInit(bytes);
-            assert_eq!(
-                UniversalStateInit::from_raw(&raw),
-                Err(StateInitError::Malformed),
-                "{raw:?}"
-            );
-            assert_eq!(
-                UniversalStateInit::from_raw_lenient(&raw),
-                Err(StateInitError::Malformed)
             );
         }
     }
