@@ -5,7 +5,7 @@ use std::ops::Deref;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
-use serde_with::{DisplayFromStr, base64::Base64, serde_as};
+use serde_with::{DisplayFromStr, PickFirst, base64::Base64, serde_as};
 
 use crate::error::OutcomeError;
 
@@ -593,11 +593,11 @@ pub struct TrieSplit {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CongestionInfoView {
     /// Gas used by delayed receipts.
-    #[serde_as(as = "DisplayFromStr")]
+    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
     #[serde(default)]
     pub delayed_receipts_gas: u128,
     /// Gas used by buffered receipts.
-    #[serde_as(as = "DisplayFromStr")]
+    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
     #[serde(default)]
     pub buffered_receipts_gas: u128,
     /// Bytes used by receipts.
@@ -2352,7 +2352,7 @@ mod tests {
     }
 
     #[test]
-    fn congestion_info_gas_decodes_from_a_decimal_string() {
+    fn congestion_info_gas_decodes_from_a_decimal_string_or_a_number() {
         let info: CongestionInfoView = serde_json::from_str(
             r#"{"delayed_receipts_gas":"340282366920938463463374607431768211455","buffered_receipts_gas":"7","receipt_bytes":3,"allowed_shard":1}"#,
         )
@@ -2364,10 +2364,20 @@ mod tests {
         assert_eq!(info.delayed_receipts_gas, 0);
         assert_eq!(info.buffered_receipts_gas, 0);
 
-        // nearcore always sends these as strings; a bare number isn't accepted.
+        // nearcore sends these as strings, but a bare number decodes too.
+        let info: CongestionInfoView =
+            serde_json::from_str(r#"{"delayed_receipts_gas":7,"buffered_receipts_gas":"9"}"#)
+                .unwrap();
+        assert_eq!(info.delayed_receipts_gas, 7);
+        assert_eq!(info.buffered_receipts_gas, 9);
+        let info: CongestionInfoView =
+            serde_json::from_str(r#"{"buffered_receipts_gas":18446744073709551615}"#).unwrap();
+        assert_eq!(info.buffered_receipts_gas, u128::from(u64::MAX));
+
         for bad in [
             r#"{"delayed_receipts_gas":"x"}"#,
-            r#"{"delayed_receipts_gas":7}"#,
+            r#"{"delayed_receipts_gas":-1}"#,
+            r#"{"delayed_receipts_gas":1.5}"#,
         ] {
             assert!(
                 serde_json::from_str::<CongestionInfoView>(bad).is_err(),
