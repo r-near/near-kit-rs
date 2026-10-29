@@ -1481,14 +1481,12 @@ fn block_id_or_null(block: Option<&BlockReference>) -> serde_json::Value {
     }
 }
 
-/// Strip query string, fragment, and userinfo from a URL for safe logging.
-///
-/// RPC provider URLs may carry API keys as query parameters or path tokens.
-/// This returns `scheme://host/path` so credentials don't leak into tracing spans.
+/// Cut a URL at its query string or fragment before it goes into a tracing
+/// span, since RPC providers often put API keys in query parameters. Userinfo
+/// and path segments are kept as they are.
 // Without `tracing`, only the unit tests reference this.
 #[cfg_attr(not(feature = "tracing"), allow(dead_code))]
 fn sanitize_url(url: &str) -> &str {
-    // Strip query and fragment
     let end = url.find('?').or_else(|| url.find('#')).unwrap_or(url.len());
     &url[..end]
 }

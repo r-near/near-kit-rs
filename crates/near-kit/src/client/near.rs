@@ -426,10 +426,10 @@ impl NearBuilder {
     ///
     /// Controls how the underlying [`RpcClient`] retries transient failures
     /// (transport errors, timeouts, 5xx). Defaults to
-    /// [`RetryConfig::default()`]: 3 retries with 500 ms → 2 s exponential
-    /// backoff. This is separate from [`NearBuilder::max_nonce_retries`],
-    /// which governs how many times a *transaction* is re-signed and re-sent
-    /// after an `InvalidNonce` rejection.
+    /// [`RetryConfig::default()`]. This is separate from
+    /// [`NearBuilder::max_nonce_retries`], which governs how many times a
+    /// *transaction* is re-signed and re-sent after an `InvalidNonce`
+    /// rejection.
     ///
     /// Callers that own their retry policy (CLIs with a "retry?" prompt,
     /// relayers with their own backoff) can pass [`RetryConfig::none()`] so
