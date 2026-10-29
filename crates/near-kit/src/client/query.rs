@@ -384,7 +384,7 @@ impl<W: WaitLevel> IntoFuture for TransactionStatusQuery<W> {
                 .rpc
                 .tx_status(&self.tx_hash, &sender_id, W::STATUS)
                 .await?;
-            W::convert(response, &sender_id)
+            Ok(W::convert(response, &sender_id)?)
         })
     }
 }

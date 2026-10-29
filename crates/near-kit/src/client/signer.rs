@@ -369,7 +369,7 @@ impl InMemorySigner {
     pub fn new(
         account_id: impl TryIntoAccountId,
         secret_key: impl AsRef<str>,
-    ) -> Result<Self, crate::error::Error> {
+    ) -> Result<Self, SignerError> {
         let account_id: AccountId = account_id.try_into_account_id()?;
         let secret_key: SecretKey = secret_key.as_ref().parse()?;
         let public_key = secret_key.public_key();
@@ -389,7 +389,7 @@ impl InMemorySigner {
     pub fn from_secret_key(
         account_id: impl TryIntoAccountId,
         secret_key: SecretKey,
-    ) -> Result<Self, crate::error::Error> {
+    ) -> Result<Self, SignerError> {
         let account_id: AccountId = account_id.try_into_account_id()?;
         let public_key = secret_key.public_key();
         Ok(Self {
@@ -499,7 +499,7 @@ impl InMemorySigner {
     pub fn from_seed_phrase(
         account_id: impl TryIntoAccountId,
         phrase: impl AsRef<str>,
-    ) -> Result<Self, crate::error::Error> {
+    ) -> Result<Self, SignerError> {
         let secret_key = SecretKey::from_seed_phrase(phrase)?;
         Self::from_secret_key(account_id, secret_key)
     }
@@ -528,7 +528,7 @@ impl InMemorySigner {
         account_id: impl TryIntoAccountId,
         phrase: impl AsRef<str>,
         hd_path: impl AsRef<str>,
-    ) -> Result<Self, crate::error::Error> {
+    ) -> Result<Self, SignerError> {
         let secret_key = SecretKey::from_seed_phrase_with_path(phrase, hd_path)?;
         Self::from_secret_key(account_id, secret_key)
     }
@@ -860,11 +860,9 @@ impl RotatingSigner {
     pub fn new(
         account_id: impl TryIntoAccountId,
         keys: Vec<SecretKey>,
-    ) -> Result<Self, crate::error::Error> {
+    ) -> Result<Self, SignerError> {
         if keys.is_empty() {
-            return Err(crate::error::Error::Config(
-                "RotatingSigner requires at least one key".to_string(),
-            ));
+            return Err(SignerError::NoKeys);
         }
 
         let account_id: AccountId = account_id.try_into_account_id()?;
@@ -895,21 +893,18 @@ impl RotatingSigner {
     /// let rotating = RotatingSigner::from_signers(signers)?;
     /// # Ok::<(), near_kit::Error>(())
     /// ```
-    pub fn from_signers(signers: Vec<InMemorySigner>) -> Result<Self, crate::error::Error> {
+    pub fn from_signers(signers: Vec<InMemorySigner>) -> Result<Self, SignerError> {
         if signers.is_empty() {
-            return Err(crate::error::Error::Config(
-                "RotatingSigner requires at least one signer".to_string(),
-            ));
+            return Err(SignerError::NoKeys);
         }
 
         let account_id = signers[0].account_id().clone();
         for signer in &signers[1..] {
             if signer.account_id() != &account_id {
-                return Err(crate::error::Error::Config(format!(
-                    "All signers must share the same account ID, got {} and {}",
-                    account_id,
-                    signer.account_id()
-                )));
+                return Err(SignerError::MixedAccounts {
+                    expected: account_id,
+                    found: signer.account_id().clone(),
+                });
             }
         }
 
@@ -930,7 +925,7 @@ impl RotatingSigner {
     pub fn from_key_strings(
         account_id: impl TryIntoAccountId,
         keys: &[impl AsRef<str>],
-    ) -> Result<Self, crate::error::Error> {
+    ) -> Result<Self, SignerError> {
         let parsed_keys: Result<Vec<SecretKey>, _> =
             keys.iter().map(|k| k.as_ref().parse()).collect();
         Self::new(account_id, parsed_keys?)

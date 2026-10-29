@@ -27,7 +27,7 @@
 //! # }
 //! ```
 
-use crate::error::Error;
+use crate::error::OutcomeError;
 use crate::types::AccountId;
 
 use super::block_reference::TxExecutionStatus;
@@ -63,7 +63,7 @@ pub trait WaitLevel: sealed::Sealed + Send + Sync + 'static {
     fn convert(
         response: RawTransactionResponse,
         sender_id: &AccountId,
-    ) -> Result<Self::Response, Error>;
+    ) -> Result<Self::Response, OutcomeError>;
 }
 
 // =============================================================================
@@ -103,7 +103,7 @@ impl WaitLevel for Submitted {
     fn convert(
         response: RawTransactionResponse,
         sender_id: &AccountId,
-    ) -> Result<Self::Response, Error> {
+    ) -> Result<Self::Response, OutcomeError> {
         Ok(send_tx_response(response, sender_id))
     }
 }
@@ -124,7 +124,7 @@ impl WaitLevel for Included {
     fn convert(
         response: RawTransactionResponse,
         sender_id: &AccountId,
-    ) -> Result<Self::Response, Error> {
+    ) -> Result<Self::Response, OutcomeError> {
         Ok(send_tx_response(response, sender_id))
     }
 }
@@ -145,7 +145,7 @@ impl WaitLevel for IncludedFinal {
     fn convert(
         response: RawTransactionResponse,
         sender_id: &AccountId,
-    ) -> Result<Self::Response, Error> {
+    ) -> Result<Self::Response, OutcomeError> {
         Ok(send_tx_response(response, sender_id))
     }
 }
@@ -157,20 +157,18 @@ impl WaitLevel for IncludedFinal {
 /// Extract and validate the execution outcome from a raw response.
 fn extract_outcome(
     response: RawTransactionResponse,
-    level: &str,
-) -> Result<FinalExecutionOutcome, Error> {
-    let outcome = response.outcome.ok_or_else(|| {
-        Error::InvalidTransaction(format!(
-            "RPC returned no execution outcome for transaction {} at wait level {}",
-            response.transaction_hash, level,
-        ))
+    wait_level: &'static str,
+) -> Result<FinalExecutionOutcome, OutcomeError> {
+    let outcome = response.outcome.ok_or(OutcomeError::MissingOutcome {
+        transaction_hash: response.transaction_hash,
+        wait_level,
     })?;
 
     use super::error::TxExecutionError;
     use super::rpc::FinalExecutionStatus;
     match outcome.status {
         FinalExecutionStatus::Failure(TxExecutionError::InvalidTxError(e)) => {
-            Err(Error::InvalidTx(Box::new(e)))
+            Err(OutcomeError::InvalidTx(Box::new(e)))
         }
         _ => Ok(outcome),
     }
@@ -191,7 +189,7 @@ impl WaitLevel for ExecutedOptimistic {
     fn convert(
         response: RawTransactionResponse,
         _sender_id: &AccountId,
-    ) -> Result<Self::Response, Error> {
+    ) -> Result<Self::Response, OutcomeError> {
         extract_outcome(response, "ExecutedOptimistic")
     }
 }
@@ -210,7 +208,7 @@ impl WaitLevel for Executed {
     fn convert(
         response: RawTransactionResponse,
         _sender_id: &AccountId,
-    ) -> Result<Self::Response, Error> {
+    ) -> Result<Self::Response, OutcomeError> {
         extract_outcome(response, "Executed")
     }
 }
@@ -229,7 +227,7 @@ impl WaitLevel for Final {
     fn convert(
         response: RawTransactionResponse,
         _sender_id: &AccountId,
-    ) -> Result<Self::Response, Error> {
+    ) -> Result<Self::Response, OutcomeError> {
         extract_outcome(response, "Final")
     }
 }

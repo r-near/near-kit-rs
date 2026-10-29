@@ -1,3 +1,38 @@
+# Migrating to near-kit 0.21
+
+0.21 starts moving the protocol types toward a client-free
+`near-kit-primitives` crate (#328). Code that can run without an RPC
+client no longer returns the client's `near_kit::Error`; each returns a
+small error type of its own instead:
+
+| API | Now returns |
+|---|---|
+| `SignedTransaction(V1)::from_bytes` / `from_base64` | `DecodeTransactionError` |
+| `FinalExecutionOutcome::result` / `json` | `OutcomeError` |
+| `FunctionCall::into_action`, `TryFrom<FunctionCall>` | `FunctionCallBuildError` |
+| `InMemorySigner::new` / `from_secret_key` / `from_seed_phrase*`, `RotatingSigner::new` / `from_signers` / `from_key_strings` | `SignerError` |
+
+Each converts into `near_kit::Error` with `?` and lands in the same
+variant, with the same message, as before. A function that returns
+`Result<_, near_kit::Error>` and uses `?` needs no change. Two patterns do
+need one:
+
+- **Passing a variant constructor to `map_err`.** Convert first:
+
+  ```rust
+  InMemorySigner::new(id, key).map_err(|e| MyError::Signer(e.into()))?;
+  // was .map_err(MyError::Signer)? with MyError::Signer(near_kit::Error)
+  ```
+
+- **Matching the result directly.** Match the new type's variants, for
+  example `OutcomeError::InvalidTx` instead of `Error::InvalidTx`, or call
+  `.map_err(near_kit::Error::from)` first.
+
+`SignerError` is now `#[non_exhaustive]` and gained `InvalidAccountId`,
+`InvalidKey`, `NoKeys` and `MixedAccounts`. `WaitLevel::convert` is
+`#[doc(hidden)]` and now returns `OutcomeError`; `STATUS` and `Response`
+are unchanged.
+
 # Migrating to near-kit 0.19
 
 0.19 walks back a few 0.18 changes that made downstream code noisier. Most of

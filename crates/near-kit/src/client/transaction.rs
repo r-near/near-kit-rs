@@ -1330,7 +1330,7 @@ impl CallBuilder {
     /// accumulated actions that would otherwise be discarded. Use
     /// [`finish`](Self::finish) to keep them in the transaction.
     pub fn into_action(self) -> Result<Action, Error> {
-        self.into_call()?.into_action()
+        Ok(self.into_call()?.into_action()?)
     }
 
     /// Convert this call into a standalone [`FunctionCall`], discarding the
@@ -1470,7 +1470,7 @@ impl<'tx, W: WaitLevel> IntoFuture for SignedTransactionSend<'tx, W> {
         Box::pin(async move {
             let sender_id = &self.signed_tx.transaction.signer_id;
             let response = self.rpc.send_tx(self.signed_tx, W::STATUS).await?;
-            W::convert(response, sender_id)
+            Ok(W::convert(response, sender_id)?)
         })
     }
 }
@@ -1587,7 +1587,7 @@ impl<W: WaitLevel> IntoFuture for TransactionSend<W> {
                             //   plus SendTxResponse::outcome). On this send_tx path the
                             //   node returns no outcome at early levels, so it stays None;
                             //   the tx_status path is where outcome can be Some.
-                            return W::convert(response, &signer_id);
+                            return Ok(W::convert(response, &signer_id)?);
                         }
                         Err(RpcError::InvalidTx(
                             crate::types::InvalidTxError::InvalidNonce { tx_nonce, ak_nonce },
@@ -2072,7 +2072,10 @@ mod tests {
             .into_call()
             .unwrap();
 
-        assert!(matches!(call.into_action(), Err(Error::ParseGas(_))));
+        assert!(matches!(
+            call.into_action(),
+            Err(crate::error::FunctionCallBuildError::ParseGas(_))
+        ));
     }
 
     #[test]

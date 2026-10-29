@@ -113,16 +113,36 @@ pub struct SignMessageParams {
 ///
 /// # Example
 ///
-/// ```rust,no_run
-/// use near_kit::standards::nep413::{AuthPayload, verify_signature, DEFAULT_MAX_AGE};
+/// The recipient, message and nonce come from the request, so a login
+/// handler compares them with what the app asked for: otherwise a signature
+/// the user made for another app, or a replay of an earlier login, passes.
 ///
-/// // Parse JSON from HTTP request body (in a real app, from req.body)
-/// fn handle_login(body: &str) -> bool {
-///     let payload: AuthPayload = serde_json::from_str(body).unwrap();
+/// ```rust,no_run
+/// use std::collections::HashSet;
+///
+/// use near_kit::standards::nep413::{AuthPayload, NonceValidation, verify_signature};
+///
+/// /// The offline checks on a login request body (in a real app, from
+/// /// req.body). `issued` holds the nonces this server generated with
+/// /// `generate_nonce()` and handed to the frontend.
+/// fn check_login(body: &str, issued: &HashSet<[u8; 32]>) -> Option<AuthPayload> {
+///     let payload: AuthPayload = serde_json::from_str(body).ok()?;
+///     if payload.recipient != "example.app"
+///         || payload.message != "Log in to example.app"
+///         || !issued.contains(&payload.nonce)
+///     {
+///         return None;
+///     }
 ///     let params = payload.to_params();
-///     verify_signature(&payload.signed_message, &params, DEFAULT_MAX_AGE)
+///     verify_signature(&payload.signed_message, &params, NonceValidation::default())
+///         .then_some(payload)
 /// }
 /// ```
+///
+/// `verify_signature` checks the signature and the nonce's age, not that the
+/// key belongs to the account the message names. Before accepting the
+/// account, confirm that with `nep413::verify` (an RPC lookup), then remove
+/// the nonce from `issued` so it is accepted once.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
