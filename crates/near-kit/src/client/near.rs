@@ -489,12 +489,6 @@ impl NearBuilder {
     }
 }
 
-impl From<NearBuilder> for Near {
-    fn from(builder: NearBuilder) -> Self {
-        builder.build()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -520,13 +514,6 @@ mod tests {
     fn test_near_custom_builder_with_chain_id_type() {
         let near = Near::custom("https://rpc.example.com", ChainId::testnet()).build();
         assert!(near.chain_id().is_testnet());
-    }
-
-    #[test]
-    fn test_near_builder_from_trait() {
-        let builder = Near::testnet();
-        let near: Near = builder.into();
-        assert!(!near.rpc().url().is_empty());
     }
 
     #[test]

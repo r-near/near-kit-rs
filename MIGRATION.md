@@ -38,6 +38,7 @@ after the table cover each one.
 | `Near::account_id()`, `Near::try_account_id()` | `alice.account_id()`; a `Near` has no account |
 | `Near::signer()`, `Near::public_key()` | `alice.signer()`, `alice.signer().public_key()` |
 | `Near::rpc_url()` | `near.rpc().url()` |
+| `Near::from(builder)`, `builder.into()` | `builder.build()` |
 | `Near::max_nonce_retries(n)` | `NearBuilder::max_nonce_retries(n)` before `build()`, or `alice.clone().max_nonce_retries(n)` |
 | `Near::sign_message(params)` | `alice.signer().key().sign_nep413(alice.account_id(), &params).await?` |
 | `Near::send(&signed)` | `near.send_signed(&signed)` |
