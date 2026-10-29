@@ -19,7 +19,7 @@ the right-hand column `near` is a `Near`, `alice` a `SigningNear`, and
 `block` anything that converts into a `BlockReference` (a `Finality`, a block
 height, a block hash or a `SyncCheckpoint`).
 
-Some behaviour changed without a compile error: sends wait for `Final` by
+Some behavior changed without a compile error: sends wait for `Final` by
 default, cached nonces are shared per chain, an Ed25519 secret key prints in
 its 64-byte form, and some RPC errors are no longer retried. The sections
 after the table cover each one.
@@ -379,7 +379,7 @@ The wait level is now part of the signing client's type, set once with
 `.wait_until::<W>()`. `SigningNear` with no parameter is `SigningNear<Final>`.
 **The default changed from `ExecutedOptimistic` to `Final`**, for sends and for
 `near.send_signed(..)`. This is not a compile error. Sends take longer, and a
-default (final) read afterwards sees the write. To keep the 0.20.1 behaviour,
+default (final) read afterwards sees the write. To keep the 0.20.1 behavior,
 use `.wait_until::<ExecutedOptimistic>()`. See
 [finality](https://docs.rs/near-kit/0.30.0-rc.1/near_kit/guide/finality/index.html).
 
@@ -466,7 +466,7 @@ impl Wrap for SigningNear {
 `near.contract::<Counter>(id)` gives a view-only client; build it from a
 `SigningNear` to call. A call resolves to the backend's output, `W::Response`
 for `SigningNear<W>` (a `FinalExecutionOutcome` at the default `Final`). For
-another wait level, build the client from a re-levelled sender:
+another wait level, build the client from a re-leveled sender:
 `alice.wait_until::<Included>().contract::<Counter>(id)`.
 
 ```rust
@@ -570,7 +570,7 @@ if let Some(error) = outcome.receipt_failures().next() {
 }
 ```
 
-Behaviour changes:
+Behavior changes:
 
 - **Delegate nonces come from the shared sequence.** Without
   `DelegateOptions::nonce`, `sign_delegate` takes the next nonce from the same

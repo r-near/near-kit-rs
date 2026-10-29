@@ -450,7 +450,7 @@ pub enum TimeoutCause {
         /// Free-form diagnostic text from the node.
         debug_info: String,
     },
-    /// A cause near-kit does not recognise, or one whose payload failed to
+    /// A cause near-kit does not recognize, or one whose payload failed to
     /// decode. Holds the raw `error.cause.info` JSON.
     Unknown(serde_json::Value),
 }
