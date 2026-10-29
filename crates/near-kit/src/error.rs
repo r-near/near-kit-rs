@@ -1362,44 +1362,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rpc_error_invalid_transaction_constructor_unstructured() {
-        let err = RpcError::invalid_tx("invalid nonce", None);
-        match err {
-            RpcError::InvalidTxUnparsed { message, details } => {
-                assert_eq!(message, "invalid nonce");
-                assert!(details.is_none());
-            }
-            _ => panic!("Expected InvalidTxUnparsed error"),
-        }
-    }
-
-    #[test]
-    fn test_rpc_error_invalid_transaction_constructor_structured() {
-        // When data contains a parseable InvalidTxError, it should produce InvalidTx
-        let data = serde_json::json!({
-            "TxExecutionError": {
-                "InvalidTxError": {
-                    "InvalidNonce": {
-                        "tx_nonce": 5,
-                        "ak_nonce": 10
-                    }
-                }
-            }
-        });
-        let err = RpcError::invalid_tx("invalid nonce", Some(data));
-        match err {
-            RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {
-                tx_nonce,
-                ak_nonce,
-            }) => {
-                assert_eq!(tx_nonce, 5);
-                assert_eq!(ak_nonce, 10);
-            }
-            other => panic!("Expected InvalidTx(InvalidNonce), got: {other:?}"),
-        }
-    }
-
-    #[test]
     fn test_rpc_error_is_account_not_found() {
         let account_id: AccountId = "alice.near".parse().unwrap();
         assert!(

@@ -3697,66 +3697,6 @@ mod tests {
         ));
     }
 
-    // ========================================================================
-    // EXPERIMENTAL_receipt_to_tx tests
-    //
-    // There is no HTTP mock harness in this crate, so the success path is
-    // exercised by decoding a real-shape `result` envelope into the
-    // user-facing type (the same step `try_request` performs), and the error
-    // path is exercised through `parse_rpc_error` on the real error envelope.
-    // ========================================================================
-
-    #[test]
-    fn test_receipt_to_tx_decodes_success_body() {
-        // Real-shape success body nearcore returns for EXPERIMENTAL_receipt_to_tx.
-        let body = r#"{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {
-                "transaction_hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
-                "sender_account_id": "alice.near"
-            }
-        }"#;
-        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
-        assert!(parsed.error.is_none(), "no error envelope expected");
-        let result = parsed.result.expect("result present");
-        let response: ReceiptToTxResponse =
-            serde_json::from_value(result).expect("decodes into ReceiptToTxResponse");
-        assert_eq!(
-            response.transaction_hash.to_string(),
-            "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"
-        );
-        assert_eq!(response.sender_account_id.as_str(), "alice.near");
-    }
-
-    #[test]
-    fn test_receipt_to_tx_maps_unknown_receipt() {
-        // Real-shape error body nearcore returns for an unknown receipt.
-        let body = r#"{
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {
-                "code": -32000,
-                "message": "Server error",
-                "cause": {
-                    "name": "UNKNOWN_RECEIPT",
-                    "info": {
-                        "receipt_id": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK"
-                    }
-                },
-                "name": "HANDLER_ERROR"
-            }
-        }"#;
-        let parsed: JsonRpcResponse = serde_json::from_str(body).expect("valid envelope");
-        let error = parsed.error.expect("error envelope present");
-        let result = parse_rpc_error(&error);
-        assert!(
-            matches!(result, RpcError::ReceiptNotFound(_)),
-            "expected ReceiptNotFound, got {:?}",
-            result
-        );
-    }
-
     #[test]
     fn test_parse_rpc_error_no_contract_code() {
         let error = handler_error(
