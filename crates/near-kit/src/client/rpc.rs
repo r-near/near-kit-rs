@@ -1683,7 +1683,6 @@ mod tests {
     use std::collections::VecDeque;
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Mutex, mpsc};
 
     use crate::reqwest::header::{HeaderMap, HeaderValue};
@@ -1733,53 +1732,63 @@ mod tests {
         );
     }
 
-    struct StaticResponseTransport {
-        body: Vec<u8>,
-    }
-
-    impl RpcTransport for StaticResponseTransport {
-        fn post_json(
-            &self,
-            _url: &str,
-            _body: Vec<u8>,
-        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-            let body = self.body.clone();
-            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
-        }
-    }
-
-    /// Transport that returns the same response every time and records each
-    /// request body, so tests can assert on retry attempts and what they sent.
+    /// Transport that answers from a queue of `(status, body)` responses,
+    /// repeating the last one, and records each request body, so tests can
+    /// assert on retry attempts and what they sent.
     struct CountingTransport {
-        status: u16,
-        body: Vec<u8>,
-        calls: AtomicUsize,
-        requests: std::sync::Mutex<Vec<Vec<u8>>>,
+        responses: Mutex<VecDeque<(u16, Vec<u8>)>>,
+        requests: Mutex<Vec<Vec<u8>>>,
     }
 
     impl CountingTransport {
+        /// Answers every request with `status` and `body`.
         fn new(status: u16, body: impl Into<Vec<u8>>) -> Arc<Self> {
+            Self::queue([(status, body.into())])
+        }
+
+        fn queue(responses: impl IntoIterator<Item = (u16, Vec<u8>)>) -> Arc<Self> {
             Arc::new(Self {
-                status,
-                body: body.into(),
-                calls: AtomicUsize::new(0),
-                requests: std::sync::Mutex::new(Vec::new()),
+                responses: Mutex::new(responses.into_iter().collect()),
+                requests: Mutex::new(Vec::new()),
             })
         }
 
-        fn calls(&self) -> usize {
-            self.calls.load(Ordering::SeqCst)
+        /// Answers with each JSON-RPC `result` in turn.
+        fn results(results: impl IntoIterator<Item = serde_json::Value>) -> Arc<Self> {
+            Self::queue(results.into_iter().map(|result| (200, rpc_result(result))))
         }
 
-        /// `params.signed_tx_base64` of each request, in order.
-        fn sent_signed_txs(&self) -> Vec<String> {
+        /// A client over this transport that doesn't retry.
+        fn client(self: &Arc<Self>) -> RpcClient {
+            RpcClient::with_transport_and_retry_config(
+                "https://example.com",
+                self.clone(),
+                RetryConfig::none(),
+            )
+        }
+
+        fn calls(&self) -> usize {
+            self.requests.lock().unwrap().len()
+        }
+
+        /// The `params` of each request, in order.
+        fn params(&self) -> Vec<serde_json::Value> {
             self.requests
                 .lock()
                 .unwrap()
                 .iter()
                 .map(|body| {
-                    let req: serde_json::Value = serde_json::from_slice(body).unwrap();
-                    req["params"]["signed_tx_base64"]
+                    serde_json::from_slice::<serde_json::Value>(body).unwrap()["params"].clone()
+                })
+                .collect()
+        }
+
+        /// `params.signed_tx_base64` of each request, in order.
+        fn sent_signed_txs(&self) -> Vec<String> {
+            self.params()
+                .iter()
+                .map(|params| {
+                    params["signed_tx_base64"]
                         .as_str()
                         .expect("request has params.signed_tx_base64")
                         .to_string()
@@ -1794,10 +1803,13 @@ mod tests {
             _url: &str,
             body: Vec<u8>,
         ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
             self.requests.lock().unwrap().push(body);
-            let status = self.status;
-            let body = self.body.clone();
+            let mut responses = self.responses.lock().unwrap();
+            let (status, body) = if responses.len() > 1 {
+                responses.pop_front().unwrap()
+            } else {
+                responses[0].clone()
+            };
             Box::pin(async move { Ok(TransportResponse { status, body }) })
         }
     }
@@ -1823,14 +1835,7 @@ mod tests {
 
     fn rpc_with_handler_error(cause_name: &str, info: serde_json::Value) -> RpcClient {
         let body = rpc_error(Some(cause_name), info, "view function failed".into());
-        RpcClient::with_transport_and_retry_config(
-            "https://example.com",
-            Arc::new(StaticResponseTransport { body }),
-            RetryConfig {
-                max_retries: 0,
-                ..RetryConfig::default()
-            },
-        )
+        CountingTransport::new(200, body).client()
     }
 
     // ========================================================================
@@ -2491,56 +2496,6 @@ mod tests {
     // view_state_all pagination
     // ========================================================================
 
-    /// Transport that replays queued JSON-RPC results in order and records the
-    /// `params` of every request it was sent.
-    struct RecordingTransport {
-        responses: Mutex<VecDeque<Vec<u8>>>,
-        params: Mutex<Vec<serde_json::Value>>,
-    }
-
-    impl RecordingTransport {
-        fn new(results: impl IntoIterator<Item = serde_json::Value>) -> Arc<Self> {
-            let responses = results.into_iter().map(rpc_result).collect();
-            Arc::new(Self {
-                responses: Mutex::new(responses),
-                params: Mutex::new(Vec::new()),
-            })
-        }
-
-        fn client(self: &Arc<Self>) -> RpcClient {
-            RpcClient::with_transport_and_retry_config(
-                "https://example.com",
-                self.clone(),
-                RetryConfig {
-                    max_retries: 0,
-                    ..RetryConfig::default()
-                },
-            )
-        }
-
-        fn params(&self) -> Vec<serde_json::Value> {
-            self.params.lock().unwrap().clone()
-        }
-    }
-
-    impl RpcTransport for RecordingTransport {
-        fn post_json(
-            &self,
-            _url: &str,
-            body: Vec<u8>,
-        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-            let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
-            self.params.lock().unwrap().push(request["params"].clone());
-            let body = self
-                .responses
-                .lock()
-                .unwrap()
-                .pop_front()
-                .expect("more RPC requests than queued responses");
-            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
-        }
-    }
-
     /// One `view_state` page holding `keys` (all with value `b"v"`), with an
     /// optional `last_key` continuation cursor.
     fn view_state_page(keys: &[&[u8]], last_key: Option<&[u8]>) -> serde_json::Value {
@@ -2566,7 +2521,7 @@ mod tests {
         // Regression for #294: an omitted `limit` makes nearcore treat the first
         // request as unpaginated and apply the TOO_LARGE_CONTRACT_STATE gate,
         // so `page_size == 0` must still put a positive `limit` on the wire.
-        let transport = RecordingTransport::new([
+        let transport = CountingTransport::results([
             view_state_page(&[b"sea", b"seb"], Some(b"seb")),
             view_state_page(&[b"sec"], None),
         ]);
@@ -2613,7 +2568,7 @@ mod tests {
     async fn test_view_state_all_pins_later_pages_without_resolving_finality_up_front() {
         // A finality reference goes straight to the first `view_state` page (no
         // separate `block` round trip); later pages use that page's hash.
-        let transport = RecordingTransport::new([
+        let transport = CountingTransport::results([
             view_state_page(&[b"a"], Some(b"a")),
             view_state_page(&[b"b"], None),
         ]);
@@ -2641,7 +2596,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_view_state_all_forwards_explicit_page_size() {
-        let transport = RecordingTransport::new([view_state_page(&[b"k"], None)]);
+        let transport = CountingTransport::results([view_state_page(&[b"k"], None)]);
         let account: AccountId = "app.near".parse().unwrap();
 
         let all = transport
@@ -2661,7 +2616,7 @@ mod tests {
     async fn test_view_state_all_result_is_ergonomic() {
         // `ViewStateAllResult` derefs to `[StateItem]`, iterates by value and
         // by reference, and `into_values` hands back the bare entries.
-        let transport = RecordingTransport::new([
+        let transport = CountingTransport::results([
             view_state_page(&[b"a"], Some(b"a")),
             view_state_page(&[b"b"], None),
         ]);
@@ -2722,7 +2677,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_view_access_key_list_single_page_is_one_paginated_request() {
-        let transport = RecordingTransport::new([access_key_page(&[ED_KEY], None, PAGE_ONE_HASH)]);
+        let transport =
+            CountingTransport::results([access_key_page(&[ED_KEY], None, PAGE_ONE_HASH)]);
         let account: AccountId = "alice.near".parse().unwrap();
 
         let list = transport
@@ -2756,7 +2712,7 @@ mod tests {
     async fn test_view_access_key_list_follows_last_key_pinned_to_first_block() {
         // The second page is read at a later block by a drifting node; the
         // helper must still have asked for the first page's block.
-        let transport = RecordingTransport::new([
+        let transport = CountingTransport::results([
             access_key_page(&[ED_KEY], Some(ED_KEY), PAGE_ONE_HASH),
             access_key_page(&[SECP_KEY], None, "11111111111111111111111111111111"),
         ]);
@@ -2790,7 +2746,7 @@ mod tests {
     #[tokio::test]
     async fn test_view_access_key_list_page_passes_cursor_and_limit_through() {
         let ml_dsa_hash = format!("ml-dsa-65-hash:{}", bs58::encode([7u8; 32]).into_string());
-        let transport = RecordingTransport::new([access_key_page(
+        let transport = CountingTransport::results([access_key_page(
             &[SECP_KEY, &ml_dsa_hash],
             Some(&ml_dsa_hash),
             PAGE_ONE_HASH,
@@ -2824,7 +2780,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_view_access_key_list_page_unpaginated_sends_neither_param() {
-        let transport = RecordingTransport::new([access_key_page(&[], None, PAGE_ONE_HASH)]);
+        let transport = CountingTransport::results([access_key_page(&[], None, PAGE_ONE_HASH)]);
         let account: AccountId = "alice.near".parse().unwrap();
 
         let page = transport
@@ -2847,7 +2803,7 @@ mod tests {
     #[tokio::test]
     async fn test_gas_price_sends_the_hash_or_null() {
         let price = serde_json::json!({ "gas_price": "100000000" });
-        let transport = RecordingTransport::new([price.clone(), price]);
+        let transport = CountingTransport::results([price.clone(), price]);
         let client = transport.client();
         let hash = CryptoHash::hash(b"block");
         client.gas_price(Some(&hash)).await.unwrap();
@@ -4584,7 +4540,6 @@ mod tests {
     /// fields of every event `RpcClient::request` emits.
     #[cfg(feature = "tracing")]
     mod tracing_events {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::{Arc, Mutex, Once};
 
         use tracing::field::{Field, Visit};
@@ -4706,34 +4661,6 @@ mod tests {
             );
         }
 
-        /// Fails the first request with a retryable HTTP status, then succeeds.
-        struct FlakyTransport {
-            calls: AtomicUsize,
-        }
-
-        impl RpcTransport for FlakyTransport {
-            fn post_json(
-                &self,
-                _url: &str,
-                _body: Vec<u8>,
-            ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-                let attempt = self.calls.fetch_add(1, Ordering::SeqCst);
-                Box::pin(async move {
-                    Ok(if attempt == 0 {
-                        TransportResponse {
-                            status: 503,
-                            body: b"upstream unavailable".to_vec(),
-                        }
-                    } else {
-                        TransportResponse {
-                            status: 200,
-                            body: rpc_result(serde_json::json!({ "ok": true })),
-                        }
-                    })
-                })
-            }
-        }
-
         #[tokio::test]
         async fn terminal_error_is_debug_and_names_the_variant() {
             let log = EventLog::default();
@@ -4786,9 +4713,11 @@ mod tests {
             let log = EventLog::default();
             let _guard = log.install();
 
-            let transport = Arc::new(FlakyTransport {
-                calls: AtomicUsize::new(0),
-            });
+            // Fails the first request with a retryable HTTP status, then succeeds.
+            let transport = CountingTransport::queue([
+                (503, b"upstream unavailable".to_vec()),
+                (200, rpc_result(serde_json::json!({ "ok": true }))),
+            ]);
             let client = RpcClient::with_transport_and_retry_config(
                 "https://example.com",
                 transport.clone(),
@@ -4804,7 +4733,7 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(result["ok"], true);
-            assert_eq!(transport.calls.load(Ordering::SeqCst), 2);
+            assert_eq!(transport.calls(), 2);
 
             let events = log.events();
             assert_nothing_above_debug(&events);
@@ -4824,15 +4753,7 @@ mod tests {
     // ========================================================================
 
     fn rpc_with_result(result: serde_json::Value) -> RpcClient {
-        let body = rpc_result(result);
-        RpcClient::with_transport_and_retry_config(
-            "https://example.com",
-            Arc::new(StaticResponseTransport { body }),
-            RetryConfig {
-                max_retries: 0,
-                ..RetryConfig::default()
-            },
-        )
+        CountingTransport::results([result]).client()
     }
 
     const QUERY_BLOCK_HASH: &str = "H33oNAtVZDJjhpncQb5LY6NxYzQLMMVLptq99mwmLmnj";

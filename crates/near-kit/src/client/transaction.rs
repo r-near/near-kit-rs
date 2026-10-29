@@ -1000,67 +1000,6 @@ mod tests {
     // Nonce refresh + re-sign on InvalidNonce (mock transport)
     // ========================================================================
 
-    /// Transport that answers `EXPERIMENTAL_view_access_key` with a fixed key
-    /// (nonce 5), scripts `send_tx` responses in order, and records every
-    /// signed payload it received.
-    struct NonceRetryTransport {
-        send_tx_responses: Mutex<VecDeque<Vec<u8>>>,
-        sent: Mutex<Vec<String>>,
-        access_key_queries: AtomicUsize,
-    }
-
-    impl NonceRetryTransport {
-        fn new(send_tx_responses: Vec<Vec<u8>>) -> Arc<Self> {
-            Arc::new(Self {
-                send_tx_responses: Mutex::new(send_tx_responses.into()),
-                sent: Mutex::new(Vec::new()),
-                access_key_queries: AtomicUsize::new(0),
-            })
-        }
-    }
-
-    impl RpcTransport for NonceRetryTransport {
-        fn post_json(
-            &self,
-            _url: &str,
-            body: Vec<u8>,
-        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
-            let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
-            let body = match request["method"].as_str().unwrap() {
-                "EXPERIMENTAL_view_access_key" => {
-                    self.access_key_queries.fetch_add(1, Ordering::SeqCst);
-                    serde_json::to_vec(&serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": 0,
-                        "result": {
-                            "nonce": 5,
-                            "permission": "FullAccess",
-                            "block_height": 100,
-                            "block_hash": "11111111111111111111111111111111",
-                        },
-                    }))
-                    .unwrap()
-                }
-                "send_tx" => {
-                    let signed = request["params"]["signed_tx_base64"]
-                        .as_str()
-                        .unwrap()
-                        .to_string();
-                    self.sent.lock().unwrap().push(signed);
-                    self.send_tx_responses
-                        .lock()
-                        .unwrap()
-                        .pop_front()
-                        .expect("unexpected extra send_tx")
-                }
-                // No `status`: nonces are cached by chain id.
-                "status" => method_not_found_body(),
-                other => panic!("unexpected RPC method {other}"),
-            };
-            Box::pin(async move { Ok(TransportResponse { status: 200, body }) })
-        }
-    }
-
     /// An uninitialized `0u` account: every access key is unknown, and
     /// `view_account` reports a `bootstrap_nonce` of 100000000.
     #[derive(Default)]
@@ -1217,7 +1156,10 @@ mod tests {
     async fn send_refreshes_nonce_and_resigns_on_invalid_nonce() {
         // First send_tx is rejected with InvalidNonce (the key's real nonce is
         // 20); the second is accepted.
-        let transport = NonceRetryTransport::new(vec![invalid_nonce_body(6, 20), accepted_body()]);
+        let transport = ScriptedNonceTransport::new(
+            vec![(5, 100)],
+            vec![invalid_nonce_body(6, 20), accepted_body()],
+        );
         let keys = vec![SecretKey::generate_ed25519(), SecretKey::generate_ed25519()];
         let signer = RotatingSigner::new(account!("alice.testnet"), keys).unwrap();
         // Default RetryConfig on purpose: the raw RPC layer must not add
@@ -1247,7 +1189,7 @@ mod tests {
         );
         assert_ne!(first.signature, second.signature, "retry must be re-signed");
         assert_eq!(
-            transport.access_key_queries.load(Ordering::SeqCst),
+            transport.view_finalities.lock().unwrap().len(),
             2,
             "each attempt re-fetches the access key for a fresh block hash"
         );
@@ -1255,7 +1197,10 @@ mod tests {
 
     #[tokio::test]
     async fn tx_sender_send_uses_the_same_retrying_path() {
-        let transport = NonceRetryTransport::new(vec![invalid_nonce_body(6, 20), accepted_body()]);
+        let transport = ScriptedNonceTransport::new(
+            vec![(5, 100)],
+            vec![invalid_nonce_body(6, 20), accepted_body()],
+        );
         let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
         let near = crate::Near::custom("http://tx-sender.invalid", "test")
             .transport(transport.clone())
@@ -1278,8 +1223,10 @@ mod tests {
 
     #[tokio::test]
     async fn expired_retries_honor_configured_maximum() {
-        let transport =
-            NonceRetryTransport::new(vec![expired_body(), expired_body(), accepted_body()]);
+        let transport = ScriptedNonceTransport::new(
+            vec![(5, 100)],
+            vec![expired_body(), expired_body(), accepted_body()],
+        );
         let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
         let near = crate::Near::custom("http://expired-retry.invalid", "test")
             .transport(transport.clone())
@@ -1294,12 +1241,12 @@ mod tests {
             .expect("two configured retries should allow the third send");
 
         assert_eq!(transport.sent.lock().unwrap().len(), 3);
-        assert_eq!(transport.access_key_queries.load(Ordering::SeqCst), 3);
+        assert_eq!(transport.view_finalities.lock().unwrap().len(), 3);
     }
 
     #[tokio::test]
     async fn expired_with_zero_retries_sends_once() {
-        let transport = NonceRetryTransport::new(vec![expired_body()]);
+        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![expired_body()]);
         let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
         let near = crate::Near::custom("http://no-expired-retry.invalid", "test")
             .transport(transport.clone())
