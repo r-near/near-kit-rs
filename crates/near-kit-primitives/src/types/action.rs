@@ -861,24 +861,11 @@ impl NonDelegateAction {
     pub fn inner(&self) -> &Action {
         &self.0
     }
-
-    /// Consume self and return the inner action.
-    pub fn into_inner(self) -> Action {
-        self.0
-    }
 }
 
 impl From<NonDelegateAction> for Action {
     fn from(action: NonDelegateAction) -> Self {
         action.0
-    }
-}
-
-impl TryFrom<Action> for NonDelegateAction {
-    type Error = ();
-
-    fn try_from(action: Action) -> Result<Self, Self::Error> {
-        Self::from_action(action).ok_or(())
     }
 }
 
@@ -1230,7 +1217,6 @@ mod tests {
             assert!(action.is_delegate());
             // Typed path rejects.
             assert!(NonDelegateAction::from_action(action.clone()).is_none());
-            assert!(NonDelegateAction::try_from(action.clone()).is_err());
 
             // Borsh path rejects (the bytes of a delegate action embedded where a
             // NonDelegateAction is expected).
@@ -1493,11 +1479,8 @@ mod tests {
         assert!(serde_json::from_value::<Action>(nested.clone()).is_ok());
         let err = serde_json::from_value::<NonDelegateAction>(nested).unwrap_err();
         assert!(err.to_string().contains("nested delegate"), "{err}");
-        assert_eq!(
-            serde_json::from_value::<NonDelegateAction>(serde_json::json!({"CreateAccount": {}}))
-                .unwrap()
-                .into_inner(),
-            Action::create_account()
-        );
+        let inner: NonDelegateAction =
+            serde_json::from_value(serde_json::json!({"CreateAccount": {}})).unwrap();
+        assert_eq!(Action::from(inner), Action::create_account());
     }
 }
