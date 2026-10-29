@@ -128,128 +128,68 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_finality_as_str() {
-        assert_eq!(Finality::Final.as_str(), "final");
-        assert_eq!(Finality::Optimistic.as_str(), "optimistic");
-        assert_eq!(Finality::NearFinal.as_str(), "near-final");
+    fn wire_strings() {
+        for (finality, wire) in [
+            (Finality::Optimistic, "optimistic"),
+            (Finality::NearFinal, "near-final"),
+            (Finality::Final, "final"),
+        ] {
+            assert_eq!(finality.as_str(), wire);
+            assert_eq!(serde_json::to_value(finality).unwrap(), wire);
+            assert_eq!(
+                serde_json::from_value::<Finality>(wire.into()).unwrap(),
+                finality
+            );
+        }
+        for (status, wire) in [
+            (TxExecutionStatus::None, "NONE"),
+            (TxExecutionStatus::Included, "INCLUDED"),
+            (TxExecutionStatus::ExecutedOptimistic, "EXECUTED_OPTIMISTIC"),
+            (TxExecutionStatus::IncludedFinal, "INCLUDED_FINAL"),
+            (TxExecutionStatus::Executed, "EXECUTED"),
+            (TxExecutionStatus::Final, "FINAL"),
+        ] {
+            assert_eq!(status.as_str(), wire);
+            assert_eq!(serde_json::to_value(status).unwrap(), wire);
+            assert_eq!(
+                serde_json::from_value::<TxExecutionStatus>(wire.into()).unwrap(),
+                status
+            );
+        }
+        for (checkpoint, wire) in [
+            (SyncCheckpoint::Genesis, "genesis"),
+            (SyncCheckpoint::EarliestAvailable, "earliest_available"),
+        ] {
+            assert_eq!(serde_json::to_value(checkpoint).unwrap(), wire);
+            assert_eq!(
+                serde_json::from_value::<SyncCheckpoint>(wire.into()).unwrap(),
+                checkpoint
+            );
+        }
     }
 
     #[test]
-    fn test_tx_execution_status_as_str() {
-        assert_eq!(TxExecutionStatus::Final.as_str(), "FINAL");
+    fn defaults_and_conversions() {
+        assert_eq!(Finality::default(), Finality::Final);
         assert_eq!(
-            TxExecutionStatus::ExecutedOptimistic.as_str(),
-            "EXECUTED_OPTIMISTIC"
+            TxExecutionStatus::default(),
+            TxExecutionStatus::ExecutedOptimistic
         );
-    }
+        assert_eq!(
+            BlockReference::default(),
+            BlockReference::Finality(Finality::Final)
+        );
 
-    #[test]
-    fn test_block_reference_from_sync_checkpoint() {
+        let hash = CryptoHash::hash(b"block");
+        assert_eq!(
+            BlockReference::from(Finality::Optimistic),
+            BlockReference::Finality(Finality::Optimistic)
+        );
+        assert_eq!(BlockReference::from(99_999), BlockReference::Height(99_999));
+        assert_eq!(BlockReference::from(hash), BlockReference::Hash(hash));
         assert_eq!(
             BlockReference::from(SyncCheckpoint::Genesis),
             BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis)
         );
-    }
-
-    #[test]
-    fn test_block_reference_default() {
-        let default = BlockReference::default();
-        assert_eq!(default, BlockReference::Finality(Finality::Final));
-    }
-
-    #[test]
-    fn test_block_reference_from_finality() {
-        let block_ref: BlockReference = Finality::Optimistic.into();
-        assert_eq!(block_ref, BlockReference::Finality(Finality::Optimistic));
-    }
-
-    #[test]
-    fn test_block_reference_from_height() {
-        let block_ref: BlockReference = 99999u64.into();
-        assert_eq!(block_ref, BlockReference::Height(99999));
-    }
-
-    #[test]
-    fn test_block_reference_from_hash() {
-        let hash = CryptoHash::hash(b"block");
-        let block_ref: BlockReference = hash.into();
-        assert_eq!(block_ref, BlockReference::Hash(hash));
-    }
-
-    #[test]
-    fn test_finality_default() {
-        let default = Finality::default();
-        assert_eq!(default, Finality::Final);
-    }
-
-    #[test]
-    fn test_tx_execution_status_default() {
-        let default = TxExecutionStatus::default();
-        assert_eq!(default, TxExecutionStatus::ExecutedOptimistic);
-    }
-
-    #[test]
-    fn test_tx_execution_status_all_variants() {
-        assert_eq!(TxExecutionStatus::None.as_str(), "NONE");
-        assert_eq!(TxExecutionStatus::Included.as_str(), "INCLUDED");
-        assert_eq!(
-            TxExecutionStatus::ExecutedOptimistic.as_str(),
-            "EXECUTED_OPTIMISTIC"
-        );
-        assert_eq!(TxExecutionStatus::IncludedFinal.as_str(), "INCLUDED_FINAL");
-        assert_eq!(TxExecutionStatus::Executed.as_str(), "EXECUTED");
-        assert_eq!(TxExecutionStatus::Final.as_str(), "FINAL");
-    }
-
-    #[test]
-    fn test_finality_serde_roundtrip() {
-        // Test all variants serialize/deserialize correctly
-        for finality in [Finality::Optimistic, Finality::NearFinal, Finality::Final] {
-            let json = serde_json::to_string(&finality).unwrap();
-            let parsed: Finality = serde_json::from_str(&json).unwrap();
-            assert_eq!(finality, parsed);
-        }
-    }
-
-    #[test]
-    fn test_tx_execution_status_serde_roundtrip() {
-        for status in [
-            TxExecutionStatus::None,
-            TxExecutionStatus::Included,
-            TxExecutionStatus::ExecutedOptimistic,
-            TxExecutionStatus::IncludedFinal,
-            TxExecutionStatus::Executed,
-            TxExecutionStatus::Final,
-        ] {
-            let json = serde_json::to_string(&status).unwrap();
-            let parsed: TxExecutionStatus = serde_json::from_str(&json).unwrap();
-            assert_eq!(status, parsed);
-        }
-    }
-
-    #[test]
-    fn test_block_reference_copy_and_eq() {
-        let original = BlockReference::Height(12345);
-        let copied = original;
-        assert_eq!(original, copied);
-    }
-
-    #[test]
-    fn test_finality_clone_and_copy() {
-        let f1 = Finality::Optimistic;
-        let f2 = f1; // Copy
-        #[allow(clippy::clone_on_copy)]
-        let f3 = f1.clone(); // Clone (intentionally testing Clone impl)
-        assert_eq!(f1, f2);
-        assert_eq!(f1, f3);
-    }
-
-    #[test]
-    fn test_sync_checkpoint_serde_roundtrip() {
-        for cp in [SyncCheckpoint::Genesis, SyncCheckpoint::EarliestAvailable] {
-            let json = serde_json::to_string(&cp).unwrap();
-            let parsed: SyncCheckpoint = serde_json::from_str(&json).unwrap();
-            assert_eq!(cp, parsed);
-        }
     }
 }
