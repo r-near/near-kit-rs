@@ -221,18 +221,12 @@ pub enum RpcError {
         block_hash: Option<CryptoHash>,
     },
 
-    /// A view function failed for a reason that does not have a more specific
-    /// [`RpcError`] variant.
-    ///
-    /// Missing contract code, missing methods, and contract panics are exposed
-    /// as [`ContractNotDeployed`](Self::ContractNotDeployed),
-    /// [`MethodNotFound`](Self::MethodNotFound), and
-    /// [`ContractPanic`](Self::ContractPanic), respectively. Those are
-    /// recognized from the node's structured `vm_error` field and, when a
-    /// provider only returns the legacy string form (for example
-    /// `Function call returned an error: MethodResolveError(MethodNotFound)`),
-    /// from that string as well. This variant is the catch-all left after both
-    /// classifications, so matching on `message` for those cases is not needed.
+    /// A view function failed for a reason with no more specific variant.
+    /// Missing code, missing methods and panics are already split out (from
+    /// the structured `vm_error` or its legacy string form) as
+    /// [`ContractNotDeployed`](Self::ContractNotDeployed),
+    /// [`MethodNotFound`](Self::MethodNotFound) and
+    /// [`ContractPanic`](Self::ContractPanic).
     #[error("contract execution failed on {contract_id}: {message}")]
     ContractExecution {
         /// The contract called. `unknown` only when parsing a raw response
@@ -567,33 +561,16 @@ fn is_transient_cause(cause: &str) -> bool {
 }
 
 impl RpcError {
-    /// Check if this error is retryable.
+    /// Whether re-sending the *same* request may succeed, which is what
+    /// `RpcClient::request` checks between attempts: transport failures
+    /// (including a connection the server reset or closed mid-exchange),
+    /// timeouts, unsynced or unavailable nodes, `-32603`, and `-32000` with no
+    /// cause or one that clears with time (`NODE_IS_SYNCING`, `BUSY`, ...).
     ///
-    /// "Retryable" means re-sending the *same* request may succeed: transient
-    /// transport failures, timeouts, and server-side conditions like an
-    /// unsynced node or a 5xx. This is what `RpcClient::request` consults
-    /// between attempts.
-    ///
-    /// A generic [`RpcError::Rpc`] server error (code `-32000`) is retryable
-    /// when it has no `cause` or a cause that clears with time, such as
-    /// `NODE_IS_SYNCING` or `BUSY`; a cause near-kit doesn't recognise is not
-    /// retried. Code `-32603` (internal error) is always retryable.
-    ///
-    /// For [`RpcError::InvalidTx`] the signed payload is fixed at this layer,
-    /// so only rejections that can clear while the *same* bytes are re-sent
-    /// count: `ShardCongested` and `ShardStuck`. `InvalidNonce` is transient
-    /// too ([`InvalidTxError::is_retryable`] says so) but re-sending the
-    /// rejected transaction byte-for-byte can never succeed — it needs a
-    /// fresh nonce and a new signature. That refresh-and-re-sign loop lives
-    /// in the transaction layer (`SigningNear` sends), where retrying can actually
-    /// change the outcome, so it is `false` here.
-    ///
-    /// A connection the server reset, aborted, or closed mid-exchange counts
-    /// as transient; overloaded nodes commonly shed load this way. The node
-    /// may already have handled such a request, so `RpcClient::request` never
-    /// retries `sandbox_fast_forward`, the one method that is not idempotent.
-    ///
-    /// [`InvalidTxError::is_retryable`]: crate::protocol::InvalidTxError::is_retryable
+    /// Of the [`InvalidTx`](Self::InvalidTx) rejections only `ShardCongested`
+    /// and `ShardStuck` count. `InvalidNonce` doesn't: the same signed bytes
+    /// can never pass, so the `SigningNear` transaction path re-signs with a
+    /// fresh nonce instead.
     pub fn is_retryable(&self) -> bool {
         match self {
             #[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
