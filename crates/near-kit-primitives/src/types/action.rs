@@ -341,33 +341,25 @@ pub struct DeterministicStateInitAction {
 }
 
 impl DeterministicStateInitAction {
-    /// Derive the deterministic account ID for this action.
-    ///
+    /// Derive the deterministic account ID for this action:
     /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`, the same id as
     /// [`StateInit::derive_account_id`] and nearcore's
-    /// `derive_near_deterministic_account_id`. Hashed in pure Rust, so it
-    /// never calls a NEAR host function, whatever features are unified on
-    /// near-global-contracts.
+    /// `derive_near_deterministic_account_id`.
+    ///
+    /// Hashed in pure Rust. near-global-contracts' `StateInit::derive_account_id`
+    /// switches to the `keccak256` host function under its
+    /// `__near-sdk-unit-testing` feature, which `near-sdk/unit-testing` anywhere
+    /// in a workspace turns on, and a test binary that links near-kit but not
+    /// near-sdk then fails to link.
     pub fn derive_account_id(&self) -> AccountId {
-        derive_deterministic_account_id(&self.state_init)
+        use sha3::{Digest as _, Keccak256};
+
+        let bytes = borsh::to_vec(&self.state_init).expect("borsh into a Vec never fails");
+        let hash: [u8; 32] = Keccak256::digest(&bytes).into();
+        format!("0s{}", hex::encode(&hash[12..32]))
+            .parse()
+            .expect("a 0s id is always a valid account id: 42 lowercase hex characters")
     }
-}
-
-/// The `0s` account id of a NEP-616 state init, computed with pure-Rust
-/// Keccak-256.
-///
-/// near-global-contracts' `StateInit::derive_account_id` switches to the
-/// `keccak256` host function under its `__near-sdk-unit-testing` feature,
-/// which `near-sdk/unit-testing` anywhere in a workspace turns on. A test
-/// binary that links near-kit but not near-sdk then fails to link.
-pub(crate) fn derive_deterministic_account_id(state_init: &StateInit) -> AccountId {
-    use sha3::{Digest as _, Keccak256};
-
-    let bytes = borsh::to_vec(state_init).expect("borsh into a Vec never fails");
-    let hash: [u8; 32] = Keccak256::digest(&bytes).into();
-    format!("0s{}", hex::encode(&hash[12..32]))
-        .parse()
-        .expect("a 0s id is always a valid account id: 42 lowercase hex characters")
 }
 
 /// Transfer NEAR to a gas key.
