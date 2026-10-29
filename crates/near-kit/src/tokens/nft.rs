@@ -66,6 +66,7 @@ pub struct NonFungibleToken;
 ///
 /// Contract metadata is fetched on first use and cached. Clones share the
 /// cache.
+#[derive(Clone)]
 pub struct NonFungibleTokenClient<C = Near> {
     backend: C,
     contract_id: AccountId,
@@ -197,9 +198,9 @@ impl<C: Viewer> NonFungibleTokenClient<C> {
 
     /// Get total supply of tokens (nft_total_supply).
     pub async fn total_supply(&self) -> Result<u64, ContractError<C::ViewError>> {
-        let Stringified(supply) =
-            read(&self.backend, &self.contract_id, "nft_total_supply", None).await?;
-        Ok(supply)
+        read(&self.backend, &self.contract_id, "nft_total_supply", None)
+            .await
+            .map(|Stringified(supply)| supply)
     }
 
     /// Get token supply for an owner (nft_supply_for_owner).
@@ -208,14 +209,14 @@ impl<C: Viewer> NonFungibleTokenClient<C> {
         account_id: impl Into<AccountId>,
     ) -> Result<u64, ContractError<C::ViewError>> {
         let account_id = account_id.into();
-        let Stringified(supply) = read(
+        read(
             &self.backend,
             &self.contract_id,
             "nft_supply_for_owner",
             Some(json!({ "account_id": account_id })),
         )
-        .await?;
-        Ok(supply)
+        .await
+        .map(|Stringified(supply)| supply)
     }
 }
 
@@ -224,6 +225,14 @@ impl<C: Viewer> NonFungibleTokenClient<C> {
 // =============================================================================
 
 impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
+    fn call(&self, function_call: FunctionCall) -> Call<C> {
+        call_through(
+            self.backend.clone(),
+            self.contract_id.clone(),
+            function_call,
+        )
+    }
+
     /// Transfer an NFT to a receiver (nft_transfer), with an optional memo.
     ///
     /// # Security
@@ -286,9 +295,7 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
         if let Some(memo) = memo {
             args["memo"] = memo.into();
         }
-        call_through(
-            self.backend.clone(),
-            self.contract_id.clone(),
+        self.call(
             FunctionCall::new("nft_transfer")
                 .args(args)
                 .deposit(NearToken::from_yoctonear(1))
@@ -343,9 +350,7 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
         let token_id = token_id.as_ref();
         trace::debug!(contract = %self.contract_id, token_id, receiver = %receiver_id, "nft_transfer_call");
 
-        call_through(
-            self.backend.clone(),
-            self.contract_id.clone(),
+        self.call(
             FunctionCall::new("nft_transfer_call")
                 .args(json!({
                     "receiver_id": receiver_id,
@@ -355,16 +360,6 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
                 .deposit(NearToken::from_yoctonear(1))
                 .gas(Gas::from_tgas(100)),
         )
-    }
-}
-
-impl<C: Clone> Clone for NonFungibleTokenClient<C> {
-    fn clone(&self) -> Self {
-        Self {
-            backend: self.backend.clone(),
-            contract_id: self.contract_id.clone(),
-            metadata: self.metadata.clone(),
-        }
     }
 }
 
