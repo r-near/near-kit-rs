@@ -1122,34 +1122,6 @@ impl ExecutionStatus {
         matches!(self, Self::Failure(_) | Self::InvalidTx(_))
     }
 
-    /// The receipt's return value, if it returned one.
-    ///
-    /// A receipt that hands its result to another receipt
-    /// ([`SuccessReceiptId`](Self::SuccessReceiptId)) has no value of its own.
-    ///
-    /// # Example
-    ///
-    /// Find the value a specific contract returned anywhere in a transaction:
-    ///
-    /// ```rust
-    /// # use near_kit_primitives::AccountId;
-    /// # use near_kit_primitives::rpc::FinalExecutionOutcome;
-    /// fn returned_by(outcome: &FinalExecutionOutcome, contract: &AccountId) -> Option<Vec<u8>> {
-    ///     outcome
-    ///         .receipts_outcome
-    ///         .iter()
-    ///         .filter(|o| &o.outcome.executor_id == contract)
-    ///         .find_map(|o| o.outcome.status.success_value())
-    ///         .map(<[u8]>::to_vec)
-    /// }
-    /// ```
-    pub fn success_value(&self) -> Option<&[u8]> {
-        match self {
-            Self::SuccessValue(value) => Some(value),
-            _ => None,
-        }
-    }
-
     /// The action error, if the receipt failed.
     pub fn failure(&self) -> Option<&ActionError> {
         match self {
@@ -3337,57 +3309,19 @@ mod tests {
     }
 
     #[test]
-    fn test_execution_status_success_value() {
-        let json = serde_json::json!({"SuccessValue": "aGVsbG8="});
-        let status: ExecutionStatus = serde_json::from_value(json).unwrap();
-        assert!(matches!(status, ExecutionStatus::SuccessValue(_)));
-    }
-
-    #[test]
-    fn test_execution_status_success_receipt_id() {
-        let json =
-            serde_json::json!({"SuccessReceiptId": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"});
-        let status: ExecutionStatus = serde_json::from_value(json).unwrap();
-        assert!(matches!(status, ExecutionStatus::SuccessReceiptId(_)));
-    }
-
-    #[test]
-    fn test_execution_status_failure_action_error() {
-        let json = serde_json::json!({
-            "Failure": {
-                "ActionError": {
-                    "index": 0,
-                    "kind": {
-                        "FunctionCallError": {
-                            "ExecutionError": "Smart contract panicked"
-                        }
-                    }
-                }
-            }
-        });
-        let status: ExecutionStatus = serde_json::from_value(json).unwrap();
-        match status {
-            ExecutionStatus::Failure(ae) => {
-                assert_eq!(ae.index, Some(0));
-            }
-            other => panic!("expected Failure, got: {other:?}"),
-        }
-    }
-
-    #[test]
     fn test_execution_status_accessors() {
         let value: ExecutionStatus =
             serde_json::from_value(serde_json::json!({"SuccessValue": "aGVsbG8="})).unwrap();
         assert!(value.is_success() && !value.is_failure());
-        assert_eq!(value.success_value(), Some(&b"hello"[..]));
+        assert!(matches!(&value, ExecutionStatus::SuccessValue(v) if v == b"hello"));
         assert!(value.failure().is_none());
 
         let receipt: ExecutionStatus = serde_json::from_value(
             serde_json::json!({"SuccessReceiptId": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U"}),
         )
         .unwrap();
-        assert!(receipt.is_success());
-        assert_eq!(receipt.success_value(), None);
+        assert!(receipt.is_success() && !receipt.is_failure());
+        assert!(matches!(receipt, ExecutionStatus::SuccessReceiptId(_)));
 
         let failure: ExecutionStatus = serde_json::from_value(serde_json::json!({
             "Failure": {"ActionError": {"index": 0, "kind": {
@@ -3397,7 +3331,6 @@ mod tests {
         .unwrap();
         assert!(failure.is_failure() && !failure.is_success());
         assert_eq!(failure.failure().and_then(|e| e.index), Some(0));
-        assert_eq!(failure.success_value(), None);
 
         assert!(!ExecutionStatus::Unknown.is_success());
         assert!(!ExecutionStatus::Unknown.is_failure());

@@ -107,6 +107,7 @@ after the table cover each one.
 | `ViewFunctionResult::bytes()` | The `result` field: `&view.result` |
 | `ViewStateAllResult::into_values()` | The `values` field: `all.values` |
 | `AccountState::is_initialized()` | `view.state == AccountState::Initialized` |
+| `ExecutionStatus::success_value()` | `match status { ExecutionStatus::SuccessValue(v) => Some(v), _ => None }` |
 
 ### RPC client
 
