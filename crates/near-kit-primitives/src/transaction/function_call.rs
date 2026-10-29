@@ -13,19 +13,19 @@ use crate::types::{Action, FunctionCallAction, Gas, IntoGas, IntoNearToken, Near
 /// will execute against whichever `receiver_id` is set on the transaction it's
 /// added to.
 ///
-/// Available with `default-features = false`; no client or signer is required.
+/// No client or signer is required.
 ///
 /// # Example
 ///
 /// ```rust
-/// use near_kit::transaction::FunctionCall;
-/// use near_kit::Gas;
+/// use near_kit_primitives::transaction::FunctionCall;
+/// use near_kit_primitives::Gas;
 ///
 /// let action = FunctionCall::new("init")
 ///     .args(serde_json::json!({"owner": "alice.testnet"}))
 ///     .gas(Gas::from_tgas(50))
 ///     .into_action()?;
-/// # Ok::<(), near_kit::Error>(())
+/// # Ok::<(), near_kit_primitives::transaction::FunctionCallBuildError>(())
 /// ```
 pub struct FunctionCall {
     method: String,

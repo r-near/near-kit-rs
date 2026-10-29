@@ -28,3 +28,13 @@ version_group = "near-kit"
 [[package]]
 name = "near-kit-sandbox"
 version_group = "near-kit"
+
+# near-kit re-exports near-kit-primitives' types at its own paths (e.g.
+# `near_kit::protocol::Action` is `near_kit_primitives::protocol::Action`), so
+# the two must release in lockstep: a primitives release that bumps its version
+# without near-kit following would leave callers compiling two incompatible
+# copies of the same types. Keep them in one version group until primitives
+# reaches 1.0.
+[[package]]
+name = "near-kit-primitives"
+version_group = "near-kit"

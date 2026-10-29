@@ -45,9 +45,10 @@
 //!   network-config testnet
 //! ```
 
-use crate::client::signer::{InMemorySigner, Signer, SigningKey};
 use crate::error::{Error, KeyStoreError, ParseKeyError};
-use crate::types::{AccountId, PublicKey, SecretKey, TryIntoAccountId};
+use crate::types::{
+    AccountId, InMemorySigner, PublicKey, SecretKey, Signer, SigningKey, TryIntoAccountId,
+};
 
 /// Signer that loads keys from the system keyring.
 ///

@@ -97,8 +97,8 @@ impl Transaction {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::protocol::Transaction;
-    /// # use near_kit::signer::Signature;
+    /// # use near_kit_primitives::protocol::Transaction;
+    /// # use near_kit_primitives::signer::Signature;
     /// # fn example(tx: Transaction, sig_bytes: [u8; 64]) {
     /// let hash = tx.get_hash();
     /// // sign hash externally...
@@ -147,7 +147,7 @@ impl SignedTransaction {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use near_kit::protocol::SignedTransaction;
+    /// use near_kit_primitives::protocol::SignedTransaction;
     /// let bytes: Vec<u8> = /* received from offline signer */;
     /// let signed_tx = SignedTransaction::from_bytes(&bytes)?;
     /// ```
@@ -162,10 +162,10 @@ impl SignedTransaction {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use near_kit::protocol::SignedTransaction;
+    /// # use near_kit_primitives::protocol::SignedTransaction;
     /// let base64_str = "AgAAAGFsaWNlLnRlc3RuZXQ...";
     /// let signed_tx = SignedTransaction::from_base64(base64_str)?;
-    /// # Ok::<(), near_kit::Error>(())
+    /// # Ok::<(), near_kit_primitives::protocol::DecodeTransactionError>(())
     /// ```
     pub fn from_base64(s: &str) -> Result<Self, DecodeTransactionError> {
         use base64::{Engine as _, engine::general_purpose::STANDARD};

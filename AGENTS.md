@@ -31,15 +31,23 @@ cargo test -p near-kit-sandbox --features integration-tests --test integration
 near-kit-rs/
 ├── Cargo.toml                  # Workspace root
 ├── crates/
-│   ├── near-kit/               # Main library crate
+│   ├── near-kit/               # Main library crate (the RPC client)
 │   │   ├── src/
 │   │   │   ├── lib.rs          # Public API exports
-│   │   │   ├── error.rs        # Error types (thiserror)
-│   │   │   ├── client/         # Near client, RPC, signers
-│   │   │   ├── types/          # AccountId, NearToken, Gas, keys, etc.
+│   │   │   ├── protocol.rs, rpc.rs, signer.rs, transaction.rs, standards.rs
+│   │   │   │                   # Public facades: re-export near-kit-primitives + client items
+│   │   │   ├── error.rs        # Error, RpcError, KeyStoreError (+ From impls)
+│   │   │   ├── client/         # Near client, RPC, transports, Env/File/Keyring signers
 │   │   │   ├── tokens/         # FT/NFT helpers (NEP-141, NEP-171)
 │   │   │   └── contract.rs     # Typed contract support
 │   │   └── examples/
+│   ├── near-kit-primitives/    # Offline core: no tokio/reqwest/hyper (CI-enforced)
+│   │   └── src/
+│   │       ├── lib.rs          # Facades mirror near-kit's (protocol, rpc, signer, ...)
+│   │       ├── error.rs        # Parse*/Signer/FunctionCallBuild/Outcome errors
+│   │       ├── types/          # AccountId, NearToken, Gas, keys, actions, txs,
+│   │       │                   # RPC views, Signer/InMemorySigner/RotatingSigner, NEP-413
+│   │       └── transaction/    # FunctionCall
 │   ├── near-kit-sandbox/       # Docker-backed sandbox lifecycle and integration tests
 │   └── near-kit-macros/        # Proc macros (#[near_kit::contract])
 └── lefthook.yml                # Git hooks (clippy, fmt)
@@ -129,11 +137,21 @@ let amount: NearToken = "5 NEAR".parse()?;
 - Use `borsh` for binary (NEAR's on-chain format)
 - When both traits are in scope, fully qualify: `serde::Deserialize::deserialize(...)`
 
+### Where code goes
+
+Anything that needs no RPC client, async runtime, or I/O belongs in
+`near-kit-primitives`; `near-kit` re-exports it at the same `near_kit::` path
+(add the item to both crates' facade lists). Client-only code stays in
+`near-kit`. Primitives' doctests use `near_kit_primitives::` paths and must work
+offline; examples that need `Near` go in near-kit's facade module docs.
+
 ### Feature Flags
 
 - `near-kit/contracts`: Typed contract clients and proc macros
 - `near-kit/keyring`: System keyring support (macOS Keychain, etc.)
 - `near-kit-sandbox/integration-tests`: Docker-backed integration suite
+- `near-kit-primitives/{mnemonic,js,tracing}`: forwarded from the same-named
+  `near-kit` features
 
 ## Git Hooks (Lefthook)
 

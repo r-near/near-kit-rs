@@ -15,9 +15,9 @@ use super::query::{
     GlobalContractQuery, TransactionStatusQuery, ViewCall,
 };
 use super::rpc::{MAINNET, RetryConfig, RpcClient, TESTNET};
-use super::signer::{InMemorySigner, Signer};
 use super::transaction::{CallBuilder, SignedTransactionSend, TransactionBuilder};
 use super::transport::{self, RpcTransport};
+use crate::types::{InMemorySigner, Signer};
 
 /// Trait for sandbox network configuration.
 ///

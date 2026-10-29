@@ -18,7 +18,7 @@ use crate::error::ParseHashError;
 /// dependency:
 ///
 /// ```rust,ignore
-/// let kit: near_kit::CryptoHash = sdk_hash.into(); // [u8; 32] -> CryptoHash
+/// let kit: near_kit_primitives::CryptoHash = sdk_hash.into(); // [u8; 32] -> CryptoHash
 /// let sdk: [u8; 32] = kit.into();                  // CryptoHash -> [u8; 32]
 /// ```
 ///
@@ -27,7 +27,7 @@ use crate::error::ParseHashError;
 /// `From<[u8; 32]>` upstream):
 ///
 /// ```rust,ignore
-/// let kit: near_kit::CryptoHash = <[u8; 32]>::from(base58_hash).into();
+/// let kit: near_kit_primitives::CryptoHash = <[u8; 32]>::from(base58_hash).into();
 /// let base58 = Base58CryptoHash::from(<[u8; 32]>::from(kit));
 /// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, SerializeDisplay, DeserializeFromStr)]

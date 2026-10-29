@@ -20,7 +20,7 @@
 //! [`NearToken`] and [`Gas`] support both typed constructors and string parsing:
 //!
 //! ```
-//! use near_kit::{NearToken, Gas};
+//! use near_kit_primitives::{NearToken, Gas};
 //!
 //! // Typed constructors (compile-time safe, zero-cost)
 //! let amount = NearToken::from_near(5);
@@ -56,8 +56,9 @@ mod hd;
 mod key;
 pub mod nep413;
 mod network;
-pub(crate) mod rpc;
+mod rpc;
 mod rpc_extra;
+mod signer;
 mod transaction;
 mod units;
 mod universal_state_init;
@@ -113,6 +114,7 @@ pub use rpc_extra::{
     LightClientBlockLiteView, LightClientBlockView, NextEpochValidatorInfo, StateChangeCauseView,
     StateChangeValueView, StateChangeWithCauseView, ValidatorKickoutReason, ValidatorKickoutView,
 };
+pub use signer::{InMemorySigner, RotatingSigner, Signer, SigningBackend, SigningKey};
 pub use transaction::{
     Nonce, NonceIndex, NonceMode, SignedTransaction, SignedTransactionV1, Transaction,
     TransactionNonce, TransactionV1, VersionedTransaction,

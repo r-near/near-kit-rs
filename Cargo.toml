@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/near-kit",
     "crates/near-kit-macros",
+    "crates/near-kit-primitives",
     "crates/near-kit-sandbox",
 ]
 
@@ -79,6 +80,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Internal crates
 near-kit = { path = "crates/near-kit", version = "0.20.1", default-features = false }
 near-kit-macros = { path = "crates/near-kit-macros", version = "0.14.0" }
+near-kit-primitives = { path = "crates/near-kit-primitives", version = "0.20.1" }
 near-kit-sandbox = { path = "crates/near-kit-sandbox", version = "0.20.1" }
 
 [profile.release]

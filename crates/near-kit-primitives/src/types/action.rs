@@ -754,18 +754,15 @@ impl Action {
     ///
     /// # Example
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// use near_kit_primitives::protocol::{Action, PublishMode};
+    ///
+    /// # let wasm_code = vec![0u8; 8];
     /// // Publish updatable contract (identified by your account)
-    /// near.transaction("alice.near")
-    ///     .publish(wasm_code, PublishMode::Updatable)
-    ///     .send()
-    ///     .await?;
+    /// let updatable = Action::publish(wasm_code.clone(), PublishMode::Updatable);
     ///
     /// // Publish immutable contract (identified by its hash)
-    /// near.transaction("alice.near")
-    ///     .publish(wasm_code, PublishMode::Immutable)
-    ///     .send()
-    ///     .await?;
+    /// let immutable = Action::publish(wasm_code, PublishMode::Immutable);
     /// ```
     pub fn publish(code: Vec<u8>, mode: PublishMode) -> Self {
         Self::DeployGlobalContract(DeployGlobalContractAction {
@@ -815,9 +812,9 @@ impl Action {
     /// # Example
     ///
     /// ```rust
-    /// # use near_kit::*;
-    /// # use near_kit::protocol::{Action, UniversalStateInitV1};
-    /// # use near_kit::signer::PublicKey;
+    /// # use near_kit_primitives::*;
+    /// # use near_kit_primitives::protocol::{Action, UniversalStateInitV1};
+    /// # use near_kit_primitives::signer::PublicKey;
     /// let key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
     /// let action = Action::universal_state_init(
     ///     UniversalStateInitV1::new().with_access_key(key),

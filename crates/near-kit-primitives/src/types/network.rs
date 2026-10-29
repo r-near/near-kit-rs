@@ -13,7 +13,7 @@ use std::{fmt, str::FromStr};
 /// # Examples
 ///
 /// ```
-/// use near_kit::protocol::ChainId;
+/// use near_kit_primitives::protocol::ChainId;
 ///
 /// let mainnet = ChainId::mainnet();
 /// assert!(mainnet.is_mainnet());

@@ -11,11 +11,9 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-# NEAR ecosystem types
-near-account-id.workspace = true
-near-token.workspace = true
-near-gas.workspace = true
-near-global-contracts.workspace = true
+# Protocol types, keys, signing, and offline transaction building. near-kit
+# re-exports all of it at the original `near_kit::` paths.
+near-kit-primitives.workspace = true
 
 # Async runtime — only pull in `sync` here; `time` is added below for every
 # target except JS-host wasm. Used only by the RPC layer, so optional and
@@ -32,20 +30,6 @@ serde_json.workspace = true
 borsh.workspace = true
 base64.workspace = true
 
-# Cryptography
-ed25519-dalek.workspace = true
-sha2.workspace = true
-sha3.workspace = true
-ml-dsa.workspace = true
-getrandom.workspace = true
-bip39 = { workspace = true, optional = true }
-hmac = { workspace = true, optional = true }
-k256.workspace = true
-
-# Encoding
-bs58.workspace = true
-hex.workspace = true
-
 # Filesystem (optional; gated by `file-signer` — no filesystem on JS-host wasm)
 dirs = { workspace = true, optional = true }
 
@@ -60,8 +44,6 @@ tracing = { workspace = true, optional = true }
 
 # Proc macros for typed contracts (opt-in via the `contracts` feature)
 near-kit-macros = { workspace = true, optional = true }
-
-serde_with = { version = "3.20", features = ["hex", "base64"] }
 
 # Native targets: tokio timer support for the RPC retry backoff. Wasm targets
 # sleep differently — the JS host's timers on `wasm32-unknown-unknown` (below),
@@ -88,13 +70,12 @@ reqwest = { workspace = true, optional = true }
 wasi = { version = "0.14", optional = true }
 
 # JS-host wasm only (`wasm32-unknown-unknown`, i.e. browsers/Node/Deno — NOT
-# WASI): JS-backed timer and time APIs. `getrandom` is the entropy backend for
-# key generation and NEP-413 nonces; its `wasm_js` feature is opt-in via the
-# crate's `js` feature (see below) so non-JS wasm embedders can choose their own
-# backend instead.
+# WASI): JS-backed timers for the RPC retry backoff. The entropy backend for key
+# generation and NEP-413 nonces lives in near-kit-primitives; its `wasm_js`
+# feature is opt-in via the crate's `js` feature (see below) so non-JS wasm
+# embedders can choose their own backend instead.
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 gloo-timers = { version = "0.4", features = ["futures"] }
-js-sys = "0.3"
 
 [features]
 default = ["rpc"]
@@ -121,13 +102,13 @@ keyring = ["dep:keyring"]
 file-signer = ["dep:dirs"]
 # Emit `tracing` spans and events for RPC calls, transactions, and token
 # operations. Disable (via `default-features = false`) to drop the dependency.
-tracing = ["dep:tracing"]
+tracing = ["dep:tracing", "near-kit-primitives/tracing"]
 # BIP-39 seed phrases and SLIP-10 hierarchical key derivation.
-mnemonic = ["dep:bip39", "dep:hmac"]
+mnemonic = ["near-kit-primitives/mnemonic"]
 # JS-host entropy backend for `wasm32-unknown-unknown`. Enables `getrandom`'s
 # `wasm_js` feature. Leave this off on non-JS wasm embedders (register your own
 # `getrandom` backend) and on WASI targets (which `getrandom` supports natively).
-js = ["getrandom/wasm_js"]
+js = ["near-kit-primitives/js"]
 
 # These examples drive a live `Near` client end to end. Quickstart also
 # demonstrates the opt-in typed-contract macros. Docker-backed examples live
@@ -141,6 +122,7 @@ name = "meta_transactions"
 required-features = ["rpc"]
 
 [dev-dependencies]
+bs58.workspace = true
 futures.workspace = true
 # The tracing integration tests need the real `tracing` crate regardless of
 # how the optional main dependency is configured.
