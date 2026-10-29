@@ -111,7 +111,7 @@ use `outcome.json::<T>()`.
 
 A client over a `Near` has no call methods: calling one is a compile error
 saying the backend "cannot send transactions". For another wait level, build
-the client from a re-levelled sender:
+the client from a re-leveled sender:
 `alice.wait_until::<Included>().contract::<Guestbook>(&id)`.
 
 ## Batching typed calls

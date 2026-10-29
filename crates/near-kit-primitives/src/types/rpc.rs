@@ -72,7 +72,7 @@ pub enum AccountState {
 
 impl AccountView {
     /// Get available (spendable) balance: `amount` minus
-    /// [`storage_cost`](Self::storage_cost). Staked tokens count towards the
+    /// [`storage_cost`](Self::storage_cost). Staked tokens count toward the
     /// storage requirement, so if `locked` covers it all of `amount` is
     /// available.
     pub fn available(&self) -> NearToken {
@@ -464,7 +464,7 @@ pub struct ChunkHeaderView {
     pub gas_limit: u64,
     /// Validator reward.
     pub validator_reward: NearToken,
-    /// Balance burnt.
+    /// Balance burned.
     pub balance_burnt: NearToken,
     /// Outgoing receipts root.
     pub outgoing_receipts_root: CryptoHash,
@@ -889,7 +889,7 @@ impl FinalExecutionOutcome {
 /// chunk but rejected when the chunk was applied; such a transaction resolves
 /// to `OutcomeError::InvalidTx` (`near_kit::Error::InvalidTx`).
 ///
-/// The NEAR RPC serialises a failure as `{"Failure": {"ActionError": {…}}}` or
+/// The NEAR RPC serializes a failure as `{"Failure": {"ActionError": {…}}}` or
 /// `{"Failure": {"InvalidTxError": {…}}}`. A custom [`Deserialize`] impl
 /// unwraps the outer `TxExecutionError` envelope.
 #[derive(Debug, Clone)]
@@ -1641,9 +1641,9 @@ pub struct ExecutionOutcomeWithId {
 pub struct ExecutionOutcome {
     /// Executor account.
     pub executor_id: AccountId,
-    /// Gas burnt during execution.
+    /// Gas burned during execution.
     pub gas_burnt: Gas,
-    /// Tokens burnt for gas.
+    /// Tokens burned for gas.
     pub tokens_burnt: NearToken,
     /// Logs emitted.
     pub logs: Vec<String>,

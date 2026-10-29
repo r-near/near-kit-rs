@@ -21,7 +21,7 @@ differently:
 
 - **Sends wait for `Final` by default** (0.20.1 used `ExecutedOptimistic`).
   This also applies to `near.send_signed(..)`. Use `.wait_until::<ExecutedOptimistic>()`
-  to keep the old behaviour.
+  to keep the old behavior.
   ([MIGRATION](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#wait-levels-final-by-default))
 - **Cached nonces are shared per chain.** They are keyed by genesis hash,
   account and key rather than by RPC URL, so every client asks its node for
@@ -90,7 +90,7 @@ differently:
   for relayers. ([#372](https://github.com/r-near/near-kit-rs/pull/372))
 - **The protocol types moved into `near-kit-primitives`.** They are
   re-exported at the same `near_kit::` paths but are new types to semver
-  tooling. Several constructors and helpers were removed in favour of plain
+  tooling. Several constructors and helpers were removed in favor of plain
   struct and enum syntax (see the protocol types table in MIGRATION).
   ([#366](https://github.com/r-near/near-kit-rs/pull/366), [#381](https://github.com/r-near/near-kit-rs/pull/381))
 - **The key loader types are now functions** (`from_credentials`,

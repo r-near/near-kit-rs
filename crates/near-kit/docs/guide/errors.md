@@ -194,7 +194,7 @@ Everything else is returned after one attempt, including
 `TransactionNotFound`, `ShardNotTracked`, account and contract errors, and
 `InvalidTx(InvalidNonce)`: the signed bytes are fixed at this layer and the
 same nonce can't succeed twice. Re-sending a signed transaction is safe,
-because the node recognises its hash and reports its status rather than
+because the node recognizes its hash and reports its status rather than
 running it twice. `sandbox_fast_forward` is the one method never retried.
 
 **The transaction layer** re-signs. When the node rejects a send with

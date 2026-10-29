@@ -512,7 +512,7 @@ mod wasi_http {
         let response = match future_response.get() {
             Some(Ok(Ok(response))) => response,
             // The host-reported failure (DNS, connect, TLS, ...) — the
-            // wasi:http analogue of a reqwest connect error.
+            // wasi:http analog of a reqwest connect error.
             Some(Ok(Err(code))) => return Err(request_failed(&code)),
             Some(Err(())) => {
                 return Err(RpcError::network(
