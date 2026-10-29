@@ -49,10 +49,15 @@ async fn deploy_guestbook(prefix: &str) -> (&'static Sandbox, SigningNear<Final>
 
 #[tokio::test]
 async fn typed_views_and_calls_roundtrip() {
-    let (_, near, contract_id) = deploy_guestbook("typed").await;
+    let (sandbox, near, contract_id) = deploy_guestbook("typed").await;
     let guestbook = near.contract::<Guestbook>(&contract_id);
 
-    assert_eq!(guestbook.total_messages().await.expect("initial count"), 0);
+    // Views need no signer. (A `#[call]` on a client over a read-only `Near`
+    // doesn't compile; near-kit-macros' `compile-fail/call_without_sender`
+    // pins that.)
+    let no_signer: Near = sandbox.root_account().near().clone();
+    let unsigned = no_signer.contract::<Guestbook>(&contract_id);
+    assert_eq!(unsigned.total_messages().await.expect("unsigned view"), 0);
     assert!(
         guestbook
             .get_messages()
@@ -70,16 +75,7 @@ async fn typed_views_and_calls_roundtrip() {
         .result()
         .unwrap();
 
-    let messages = guestbook.get_messages().await.expect("updated messages");
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].text, "typed message");
-}
-
-#[tokio::test]
-async fn typed_call_configuration_reaches_the_contract() {
-    let (_, near, contract_id) = deploy_guestbook("typedcfg").await;
-    let guestbook = near.contract::<Guestbook>(&contract_id);
-
+    // Gas and deposit set on the call reach the contract.
     guestbook
         .add_message(AddMessageArgs {
             text: "premium".to_owned(),
@@ -91,24 +87,11 @@ async fn typed_call_configuration_reaches_the_contract() {
         .result()
         .unwrap();
 
-    let messages = guestbook
-        .get_messages()
-        .await
-        .expect("configured typed view");
-    assert_eq!(messages.len(), 1);
-    assert!(messages[0].premium);
-}
-
-// A `#[call]` on a client over a read-only `Near` no longer compiles (pinned by
-// near-kit-macros' `compile-fail/call_without_sender`), so only the view half
-// of this behaviour is a runtime test.
-#[tokio::test]
-async fn typed_views_work_without_a_signer() {
-    let (sandbox, _, contract_id) = deploy_guestbook("typednosigner").await;
-    let no_signer: Near = sandbox.root_account().near().clone();
-    let guestbook = no_signer.contract::<Guestbook>(&contract_id);
-
-    assert_eq!(guestbook.total_messages().await.expect("unsigned view"), 0);
+    let messages = guestbook.get_messages().await.expect("updated messages");
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].text, "typed message");
+    assert!(!messages[0].premium);
+    assert!(messages[1].premium);
 }
 
 #[tokio::test]

@@ -74,47 +74,7 @@ async fn builder_wait_until_included_returns_send_response() {
 }
 
 #[tokio::test]
-async fn pre_signed_transaction_is_accepted() {
-    let (sandbox, root) = shared_client().await;
-    let (sender, _, _) =
-        funded_account(&root, sandbox, "presigned", NearToken::from_near(20)).await;
-    let (_, receiver_id, _) =
-        funded_account(&root, sandbox, "presignedrecv", NearToken::from_near(1)).await;
-    let before = root
-        .near()
-        .balance(&receiver_id)
-        .await
-        .expect("receiver balance");
-
-    let signed = sender
-        .sign(
-            &receiver_id,
-            vec![Action::transfer(NearToken::from_near(2))],
-        )
-        .await
-        .expect("signed transaction");
-    // Balance queries use final state, so wait for the transfer to become final.
-    let outcome = sender
-        .near()
-        .send_signed(&signed)
-        .wait_until::<Final>()
-        .await
-        .expect("pre-signed submission");
-
-    assert!(outcome.is_success());
-    let after = root
-        .near()
-        .balance(&receiver_id)
-        .await
-        .expect("receiver balance");
-    assert_eq!(
-        after.total.as_yoctonear() - before.total.as_yoctonear(),
-        NearToken::from_near(2).as_yoctonear()
-    );
-}
-
-#[tokio::test]
-async fn custom_chain_id_reaches_the_client() {
+async fn custom_chain_id_and_fast_forward() {
     let sandbox = Sandbox::builder()
         .chain_id("pinet")
         .fresh()
@@ -131,12 +91,7 @@ async fn custom_chain_id_reaches_the_client() {
             .total
             > NearToken::from_near(1)
     );
-}
 
-#[tokio::test]
-async fn fast_forward_advances_block_height() {
-    let sandbox = Sandbox::builder().fresh().await.expect("fresh sandbox");
-    let near = sandbox.root_account();
     let before = near
         .near()
         .rpc()

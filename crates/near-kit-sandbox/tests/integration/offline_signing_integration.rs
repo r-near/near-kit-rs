@@ -1,4 +1,5 @@
-//! One complete air-gapped signing and submission path against a real node.
+//! Pre-signed transactions against a real node: one signed by the client,
+//! one built and signed air-gapped, both submitted with `send_signed`.
 
 use near_kit::NearToken;
 use near_kit::protocol::Action;
@@ -9,7 +10,7 @@ use near_kit::transaction::Final;
 use super::support::{funded_account, shared_client};
 
 #[tokio::test]
-async fn offline_signed_transaction_roundtrips_and_executes() {
+async fn pre_signed_transactions_roundtrip_and_execute() {
     let (sandbox, root) = shared_client().await;
     let (sender, sender_id, sender_key) =
         funded_account(&root, sandbox, "offline", NearToken::from_near(20)).await;
@@ -20,6 +21,22 @@ async fn offline_signed_transaction_roundtrips_and_executes() {
         .balance(&receiver_id)
         .await
         .expect("receiver balance");
+
+    let signed = sender
+        .sign(
+            &receiver_id,
+            vec![Action::transfer(NearToken::from_near(2))],
+        )
+        .await
+        .expect("signed transaction");
+    // Balance queries use final state, so wait for the transfer to become final.
+    let outcome = sender
+        .near()
+        .send_signed(&signed)
+        .wait_until::<Final>()
+        .await
+        .expect("pre-signed submission");
+    assert!(outcome.is_success());
 
     let access_key = root
         .near()
@@ -70,6 +87,6 @@ async fn offline_signed_transaction_roundtrips_and_executes() {
         .expect("receiver balance");
     assert_eq!(
         after.total.as_yoctonear() - before.total.as_yoctonear(),
-        NearToken::from_near(3).as_yoctonear()
+        NearToken::from_near(5).as_yoctonear()
     );
 }
