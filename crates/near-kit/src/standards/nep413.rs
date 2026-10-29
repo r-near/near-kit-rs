@@ -129,36 +129,20 @@ pub async fn verify(
     near: &Near,
     options: VerifyOptions,
 ) -> Result<bool, Error> {
-    // First, do cryptographic verification
     if !verify_signature(signed, params, options.nonce_validation) {
         return Ok(false);
     }
-
-    // If RPC verification is requested, check key ownership
-    if options.require_full_access {
-        // Query the access key
-        let access_key_result = near
-            .rpc()
-            .view_access_key(
-                &signed.account_id,
-                &signed.public_key,
-                BlockReference::Finality(crate::types::Finality::Optimistic),
-            )
-            .await;
-
-        match access_key_result {
-            Ok(access_key) => {
-                // Check if it's a full access key
-                if !matches!(access_key.permission, AccessKeyPermissionView::FullAccess) {
-                    return Ok(false);
-                }
-            }
-            Err(_) => {
-                // Key not found or RPC error - verification fails
-                return Ok(false);
-            }
-        }
+    if !options.require_full_access {
+        return Ok(true);
     }
-
-    Ok(true)
+    // A missing key or an RPC error fails verification.
+    Ok(near
+        .rpc()
+        .view_access_key(
+            &signed.account_id,
+            &signed.public_key,
+            BlockReference::Finality(crate::types::Finality::Optimistic),
+        )
+        .await
+        .is_ok_and(|key| matches!(key.permission, AccessKeyPermissionView::FullAccess)))
 }
