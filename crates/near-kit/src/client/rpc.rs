@@ -4596,6 +4596,108 @@ mod tests {
     // an HTTP mock harness.
     // ========================================================================
 
+    /// Non-2xx responses through the real `request` path: nearcore's typed
+    /// errors come through, a 4xx whose cause near-kit doesn't know stays a
+    /// non-retryable `Network` error, and a 5xx keeps the body's own retry
+    /// classification.
+    #[tokio::test]
+    async fn test_non_2xx_responses_decode_and_keep_http_retry_classification() {
+        let handler =
+            |cause, info, data| serde_json::to_vec(&handler_error_body(cause, info, data)).unwrap();
+        fn not_retryable_network(e: &RpcError, status: u16) -> bool {
+            matches!(e, RpcError::Network { status_code: Some(s), retryable: false, .. } if *s == status)
+        }
+        type Check = fn(&RpcError) -> bool;
+        // `(status, body, attempts with 2 retries allowed, expected error)`
+        let cases: [(u16, Vec<u8>, usize, Check); 8] = [
+            (
+                422,
+                handler(
+                    "UNKNOWN_BLOCK",
+                    Some(serde_json::json!({})),
+                    "DB Not Found Error: BLOCK HEIGHT: 1",
+                ),
+                1,
+                |e| matches!(e, RpcError::BlockNotFound(_)),
+            ),
+            (
+                422,
+                handler(
+                    "UNKNOWN_CHUNK",
+                    Some(
+                        serde_json::json!({ "chunk_hash": "3tMcx4v6hUzN7XeQgEr4kQb8R5rGvmM4Py7o4nP1T8bY" }),
+                    ),
+                    "Chunk Missing",
+                ),
+                1,
+                |e| matches!(e, RpcError::ChunkNotFound(_)),
+            ),
+            // nearcore 2.14's TIMEOUT_ERROR: retryable, so it is re-sent.
+            (
+                408,
+                handler(
+                    "TIMEOUT_ERROR",
+                    Some(serde_json::json!({ "cause": "NOT_OBSERVED" })),
+                    "Timeout",
+                ),
+                3,
+                |e| {
+                    matches!(
+                        e,
+                        RpcError::Timeout { message, transaction_hash: None, cause: Some(TimeoutCause::NotObserved) }
+                            if message == "Server error"
+                    ) && e.is_retryable()
+                },
+            ),
+            (
+                422,
+                server_error_body(Some("FUTURE_HANDLER_ERROR")),
+                1,
+                |e| not_retryable_network(e, 422),
+            ),
+            (
+                418,
+                server_error_body(Some("SOME_UNMAPPED_CAUSE")),
+                1,
+                |e| not_retryable_network(e, 418),
+            ),
+            // A 5xx keeps the generic error: a cause near-kit doesn't know
+            // isn't retried, a missing one is.
+            (
+                503,
+                server_error_body(Some("FUTURE_HANDLER_ERROR")),
+                1,
+                |e| matches!(e, RpcError::Rpc { .. }),
+            ),
+            (503, server_error_body(None), 3, |e| {
+                matches!(e, RpcError::Rpc { .. })
+            }),
+            (
+                422,
+                b"<html><body><h1>422 Unprocessable Entity</h1></body></html>".to_vec(),
+                1,
+                |e| not_retryable_network(e, 422),
+            ),
+        ];
+        for (status, body, attempts, is_expected) in cases {
+            let transport = CountingTransport::new(status, body);
+            let client = RpcClient::with_transport_and_retry_config(
+                "https://example.com",
+                transport.clone(),
+                fast_retries(2),
+            );
+            let error = client
+                .request::<_, serde_json::Value>(
+                    "block",
+                    serde_json::json!({ "finality": "final" }),
+                )
+                .await
+                .unwrap_err();
+            assert!(is_expected(&error), "HTTP {status}: {error:?}");
+            assert_eq!(transport.calls(), attempts, "HTTP {status}: {error:?}");
+        }
+    }
+
     #[test]
     fn test_non_2xx_body_decodes_unknown_block() {
         // Real-shape body nearcore returns with HTTP 422 for UNKNOWN_BLOCK.
