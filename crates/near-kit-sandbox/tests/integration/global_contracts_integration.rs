@@ -88,6 +88,8 @@ async fn test_publish_deploy_from_call_end_to_end() {
         .transaction(publisher_near.account_id())
         .add_action(Action::publish(wasm_code, PublishMode::Updatable))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // User deploys from the publisher's global contract
@@ -99,6 +101,8 @@ async fn test_publish_deploy_from_call_end_to_end() {
         .transaction(user_near.account_id())
         .add_action(Action::deploy_from(publisher_id.clone()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Call a mutating method on the deployed contract
@@ -112,6 +116,8 @@ async fn test_publish_deploy_from_call_end_to_end() {
                 .deposit(NearToken::ZERO),
         )
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Verify the message was stored
@@ -192,6 +198,8 @@ async fn test_deploy_from_publisher() {
         .transaction(&publisher_id)
         .add_action(Action::publish(wasm_code, PublishMode::Updatable))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Create a user account that will deploy from the publisher
@@ -244,6 +252,8 @@ async fn test_deploy_from_hash() {
         .transaction(&publisher_id)
         .add_action(Action::publish(wasm_code, PublishMode::Immutable))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Create a user account that will deploy from the hash
@@ -293,6 +303,8 @@ async fn test_state_init_by_hash() {
         .transaction(&publisher_id)
         .add_action(Action::publish(wasm_code, PublishMode::Immutable))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Create initial state data (empty for this test)
@@ -334,6 +346,8 @@ async fn test_state_init_by_publisher() {
         .transaction(&publisher_id)
         .add_action(Action::publish(wasm_code, PublishMode::Updatable))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Create initial state data with some sample data
@@ -415,6 +429,8 @@ async fn test_action_delete_account() {
         .add_action(Action::transfer(NearToken::from_near(2)))
         .add_action(Action::add_full_access_key(to_delete_key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     assert!(
@@ -436,6 +452,8 @@ async fn test_action_delete_account() {
         .transaction(&to_delete_id)
         .add_action(Action::delete_account(beneficiary_id.clone()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     assert!(
@@ -505,6 +523,8 @@ async fn test_multiple_function_calls() {
         .transaction(&contract_id)
         .add_action(Action::deploy_contract(wasm_code))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Call multiple methods in one transaction
@@ -549,6 +569,8 @@ async fn test_global_contract_query_by_account() {
         .transaction(publisher_near.account_id())
         .add_action(Action::publish(wasm_code.clone(), PublishMode::Updatable))
         .await
+        .unwrap()
+        .result()
         .unwrap();
     wait_for_global_contract(&root_near, publisher_id.clone()).await;
 
@@ -580,6 +602,8 @@ async fn test_global_contract_query_by_hash() {
         .transaction(publisher_near.account_id())
         .add_action(Action::publish(wasm_code.clone(), PublishMode::Immutable))
         .await
+        .unwrap()
+        .result()
         .unwrap();
     wait_for_global_contract(&root_near, *code_hash.as_bytes()).await;
 
@@ -648,6 +672,8 @@ async fn test_contract_code_query() {
         .transaction(account_near.account_id())
         .add_action(Action::deploy_contract(wasm_code.clone()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     let contract = rpc

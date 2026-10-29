@@ -51,10 +51,12 @@
 //!     ));
 //!     me.transaction(account!("bob.testnet"))
 //!         .add_action(Action::transfer(NearToken::from_near(1)))
-//!         .await?;
+//!         .await?
+//!         .result()?;
 //!     me.transaction(account!("counter.testnet"))
 //!         .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(30)))
-//!         .await?;
+//!         .await?
+//!         .result()?;
 //!     Ok(())
 //! }
 //! ```
@@ -125,7 +127,8 @@
 //!     .add_action(
 //!         FunctionCall::new("new").args(serde_json::json!({ "owner_id": alice.account_id() })),
 //!     )
-//!     .await?;
+//!     .await?
+//!     .result()?;
 //!
 //! // Return as soon as the transaction is in a block.
 //! let fast = alice.wait_until::<Included>();
@@ -171,7 +174,7 @@
 //! let count = near.contract::<Counter>(account!("counter.testnet")).get_count().await?;
 //!
 //! let counter = alice.contract::<Counter>(account!("counter.testnet"));
-//! counter.add(AddArgs { value: 5 }).gas(Gas::from_tgas(10)).await?;
+//! counter.add(AddArgs { value: 5 }).gas(Gas::from_tgas(10)).await?.result()?;
 //! let count = counter.get_count().at(180_000_000).await?;
 //! # Ok(())
 //! # }
@@ -201,7 +204,8 @@
 //! alice
 //!     .contract::<FungibleToken>(&wrap)
 //!     .transfer(account!("bob.near"), 1_000_u128, None)
-//!     .await?;
+//!     .await?
+//!     .result()?;
 //!
 //! let nfts = near
 //!     .contract::<NonFungibleToken>(account!("nft.near"))
@@ -469,6 +473,11 @@ pub use near_kit_primitives::{
 
 #[cfg(feature = "rpc")]
 pub use client::{Near, NearBuilder, SigningNear};
+
+/// The `reqwest` near-kit is built with, for the `reqwest::Client` that
+/// [`ReqwestTransport::with_client`](crate::rpc::ReqwestTransport::with_client) takes.
+#[cfg(all(feature = "rpc", not(all(target_arch = "wasm32", target_os = "wasi"))))]
+pub use reqwest;
 
 // The typed-contract macro. Its `#[call]` / `#[json]` / `#[borsh]` markers are
 // read by the macro itself and need no import.

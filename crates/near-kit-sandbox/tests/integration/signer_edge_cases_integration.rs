@@ -27,7 +27,9 @@ async fn rotating_signer_uses_every_on_chain_key() {
         .add_action(Action::add_full_access_key(keys[1].public_key()))
         .add_action(Action::add_full_access_key(keys[2].public_key()))
         .await
-        .expect("multi-key account");
+        .expect("multi-key account")
+        .result()
+        .unwrap();
 
     let signer = RotatingSigner::new(&account_id, keys.to_vec()).expect("rotating signer");
     let account = root.near().with_signer(signer);
@@ -43,7 +45,9 @@ async fn rotating_signer_uses_every_on_chain_key() {
                 SecretKey::generate_ed25519().public_key(),
             ))
             .await
-            .expect("rotating-key transaction");
+            .expect("rotating-key transaction")
+            .result()
+            .unwrap();
         assert!(
             root.near()
                 .account_exists(&child)
@@ -74,7 +78,9 @@ async fn with_signer_replaces_the_client_signer() {
             SecretKey::generate_ed25519().public_key(),
         ))
         .await
-        .expect("signer override transaction");
+        .expect("signer override transaction")
+        .result()
+        .unwrap();
 
     assert!(
         root.near()
@@ -99,7 +105,9 @@ async fn deleted_key_is_rejected() {
         .add_action(Action::add_full_access_key(key_to_delete.public_key()))
         .add_action(Action::add_full_access_key(retained_key.public_key()))
         .await
-        .expect("two-key account");
+        .expect("two-key account")
+        .result()
+        .unwrap();
 
     let retained_key_client = client_for(sandbox, &account_id, &retained_key);
     retained_key_client
@@ -107,7 +115,9 @@ async fn deleted_key_is_rejected() {
         .transaction(&account_id)
         .add_action(Action::delete_key(deleted_public_key.clone()))
         .await
-        .expect("key deletion");
+        .expect("key deletion")
+        .result()
+        .unwrap();
 
     let deleted_key_client = client_for(sandbox, &account_id, &key_to_delete);
     let error = deleted_key_client

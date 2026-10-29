@@ -45,7 +45,7 @@ const DEFAULT_MAX_NONCE_RETRIES: u32 = 3;
 ///     alice
 ///         .transaction(account!("bob.testnet"))
 ///         .add_action(Action::transfer(NearToken::from_near(1)))
-///         .await?;
+///         .await?.result()?;
 ///
 ///     Ok(())
 /// }
@@ -520,6 +520,19 @@ mod tests {
         let near = Near::custom("https://custom-rpc.example.com", "mainnet").build();
         assert_eq!(near.rpc().url(), "https://custom-rpc.example.com");
         assert!(near.chain_id().is_mainnet());
+    }
+
+    #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
+    #[test]
+    fn test_near_builder_with_reexported_reqwest_client() {
+        let client = crate::reqwest::Client::builder()
+            .user_agent("near-kit-test")
+            .build()
+            .unwrap();
+        let near = Near::custom("https://rpc.example.com", "mainnet")
+            .transport(crate::rpc::ReqwestTransport::with_client(client))
+            .build();
+        assert_eq!(near.rpc().url(), "https://rpc.example.com");
     }
 
     #[test]

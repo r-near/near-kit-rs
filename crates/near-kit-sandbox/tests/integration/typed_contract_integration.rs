@@ -41,7 +41,9 @@ async fn deploy_guestbook(prefix: &str) -> (&'static Sandbox, SigningNear<Final>
         .transaction(contract.account_id())
         .add_action(Action::deploy_contract(guestbook_wasm()))
         .await
-        .expect("guestbook deployment");
+        .expect("guestbook deployment")
+        .result()
+        .unwrap();
     (sandbox, root.wait_until::<Final>(), contract_id)
 }
 
@@ -64,7 +66,9 @@ async fn typed_views_and_calls_roundtrip() {
             text: "typed message".to_owned(),
         })
         .await
-        .expect("typed call");
+        .expect("typed call")
+        .result()
+        .unwrap();
 
     let messages = guestbook.get_messages().await.expect("updated messages");
     assert_eq!(messages.len(), 1);
@@ -83,7 +87,9 @@ async fn typed_call_configuration_reaches_the_contract() {
         .gas(Gas::from_tgas(50))
         .deposit(NearToken::from_near(1))
         .await
-        .expect("configured typed call");
+        .expect("configured typed call")
+        .result()
+        .unwrap();
 
     let messages = guestbook
         .get_messages()

@@ -11,7 +11,7 @@
 
 use near_kit::protocol::Action;
 use near_kit::protocol::SignedDelegateAction;
-use near_kit::rpc::FinalExecutionOutcome;
+use near_kit::rpc::{FinalExecutionOutcome, OutcomeError};
 use near_kit::signer::InMemorySigner;
 use near_kit::transaction::{DelegateOptions, FunctionCall};
 use near_kit::*;
@@ -116,7 +116,14 @@ async fn main() -> Result<(), Error> {
             let delegate_result = user_creates_delegate(&user).await?;
 
             // Step 2: Relayer submits it on-chain (pays gas)
-            relayer_submits_delegate(&relayer, delegate_result).await?;
+            let outcome = relayer_submits_delegate(&relayer, delegate_result).await?;
+            // `result()` reads the receipt that unpacks the delegate action,
+            // which succeeds once it has forwarded the user's actions. The
+            // user's call runs in a later receipt: check those too.
+            outcome.result()?;
+            if let Some(error) = outcome.receipt_failures().next() {
+                return Err(OutcomeError::ActionFailed(Box::new(error.clone())).into());
+            }
 
             println!("\n=== Result ===");
             println!("User's action executed without paying gas!");

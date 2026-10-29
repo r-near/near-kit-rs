@@ -38,6 +38,8 @@ async fn test_ft_queries_on_non_contract_account() {
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Try to get FT metadata from non-contract account
@@ -77,6 +79,8 @@ async fn test_token_metadata_on_wrong_contract_type() {
         .add_action(Action::add_full_access_key(key.public_key()))
         .add_action(Action::deploy_contract(guestbook_wasm()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     // Try to use FT methods on non-FT contract (no init needed)
@@ -130,6 +134,8 @@ async fn test_nft_queries_on_non_contract() {
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(key.public_key()))
         .await
+        .unwrap()
+        .result()
         .unwrap();
 
     let nft = near.contract::<NonFungibleToken>(&account_id);

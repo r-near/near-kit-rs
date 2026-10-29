@@ -22,7 +22,9 @@ async fn deploy_guestbook(near: &SigningNear, contract_account: &AccountId) {
         .add_action(Action::add_full_access_key(new_key.public_key()))
         .add_action(Action::deploy_contract(wasm_code))
         .await
-        .expect("deploy guestbook");
+        .expect("deploy guestbook")
+        .result()
+        .unwrap();
 }
 
 #[tokio::test]
@@ -43,7 +45,9 @@ async fn test_view_state_pagination_reads_all_entries() {
                     .args(serde_json::json!({ "text": format!("message number {i}") })),
             )
             .await
-            .expect("add_message");
+            .expect("add_message")
+            .result()
+            .unwrap();
     }
 
     let contract = contract_id.clone();

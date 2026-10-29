@@ -5,8 +5,9 @@
 //! [...]}` could break `FinalExecutionOutcome` deserialization: the
 //! `#[serde(flatten)] Option<FinalExecutionOutcome>` silently becomes `None`
 //! when any nested field fails to parse, surfacing as "no execution outcome".
-//! This test confirms a real 2.13 outcome round-trips through the typed
-//! `.send().wait_until::<Final>()` path and exposes the V4 `contracts` field.
+//! This test confirms a real 2.13+ outcome round-trips through the typed
+//! `wait_until::<Final>().transaction(..)` path and exposes the V4
+//! `contracts` field.
 
 use near_kit::protocol::Action;
 use near_kit::*;
@@ -16,14 +17,14 @@ use super::support::unique_account;
 
 #[tokio::test]
 async fn test_v4_execution_metadata_parses_through_send() {
-    let (_, near) = super::support::shared_client().await;
+    let (_, root) = super::support::shared_client().await;
 
     // A create_account + transfer produces receipt outcomes on a 2.13 node.
-    // If V4 metadata didn't parse, `.send()` would fail to deserialize the
+    // If V4 metadata didn't parse, the send would fail to deserialize the
     // outcome entirely (the bug this guards against).
     let key = SecretKey::generate_ed25519();
     let account_id = unique_account("execmeta");
-    let outcome = near
+    let outcome = root
         .wait_until::<Final>()
         .transaction(&account_id)
         .add_action(Action::create_account())
@@ -43,7 +44,7 @@ async fn test_v4_execution_metadata_parses_through_send() {
 
     // On a protocol-v85+ node the receipt outcomes carry V4 metadata, whose
     // typed `contracts` field must be exposed (one entry per action).
-    let protocol = near
+    let protocol = root
         .near()
         .rpc()
         .status()

@@ -40,7 +40,8 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
         .add_action(Action::create_account())
         .add_action(Action::transfer(NearToken::from_near(50)))
         .add_action(Action::add_full_access_key(secret_keys[0].public_key()))
-        .await?;
+        .await?
+        .result()?;
 
     // Add remaining keys
     let bot_near = sandbox
@@ -53,7 +54,8 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
         .fold(bot_near.transaction(&bot_account), |tx, key| {
             tx.add_action(Action::add_full_access_key(key.public_key()))
         })
-        .await?;
+        .await?
+        .result()?;
 
     // Create recipient
     let recipient: AccountId = format!("recipient.{root_account}").parse()?;
@@ -61,7 +63,8 @@ async fn sequential_example() -> Result<(), Box<dyn std::error::Error>> {
         .transaction(&recipient)
         .add_action(Action::create_account())
         .add_action(Action::transfer(NearToken::from_millinear(100)))
-        .await?;
+        .await?
+        .result()?;
 
     // Split RotatingSigner into per-key signers
     let rotating = RotatingSigner::new(&bot_account, secret_keys)?;

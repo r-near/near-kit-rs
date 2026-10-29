@@ -36,7 +36,9 @@ async fn test_delegate_v2_relay() {
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(sender_key.public_key()))
         .await
-        .expect("create sender");
+        .expect("create sender")
+        .result()
+        .unwrap();
 
     let relayer_key = SecretKey::generate_ed25519();
     let relayer_id = unique_account("dv2relayer");
@@ -47,7 +49,9 @@ async fn test_delegate_v2_relay() {
         .add_action(Action::transfer(NearToken::from_near(10)))
         .add_action(Action::add_full_access_key(relayer_key.public_key()))
         .await
-        .expect("create relayer");
+        .expect("create relayer")
+        .result()
+        .unwrap();
 
     let recipient_key = SecretKey::generate_ed25519();
     let recipient_id = unique_account("dv2recipient");
@@ -58,7 +62,9 @@ async fn test_delegate_v2_relay() {
         .add_action(Action::transfer(NearToken::from_near(1)))
         .add_action(Action::add_full_access_key(recipient_key.public_key()))
         .await
-        .expect("create recipient");
+        .expect("create recipient")
+        .result()
+        .unwrap();
 
     let recipient_before = root_near
         .near()

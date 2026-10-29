@@ -170,7 +170,8 @@ async fn typed_contract_example(me: &SigningNear) -> Result<(), Error> {
             text: "Type-safe message!".to_string(),
         })
         .gas(Gas::from_tgas(30))
-        .await?;
+        .await?
+        .result()?;
 
     println!("Added message via typed interface");
 

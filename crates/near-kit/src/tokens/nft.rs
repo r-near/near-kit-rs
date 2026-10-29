@@ -239,9 +239,9 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
     /// # async fn example(near: SigningNear) -> Result<(), near_kit::Error> {
     /// let nft = near.contract::<NonFungibleToken>(account!("nft-contract.near"));
     ///
-    /// nft.transfer(account!("bob.near"), "token-123", None).await?;
+    /// nft.transfer(account!("bob.near"), "token-123", None).await?.result()?;
     /// nft.transfer(account!("bob.near"), "token-456", Some("gift".into()))
-    ///     .await?;
+    ///     .await?.result()?;
     /// # Ok(())
     /// # }
     /// ```
@@ -313,7 +313,7 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
     ///     "token-123",
     ///     r#"{"action":"list","price":"10"}"#,
     /// )
-    /// .await?;
+    /// .await?.result()?;
     /// # Ok(())
     /// # }
     /// ```

@@ -24,7 +24,8 @@
 //! alice
 //!     .transaction(account!("bob.testnet"))
 //!     .add_action(Action::transfer(NearToken::from_near(1)))
-//!     .await?;
+//!     .await?
+//!     .result()?;
 //! # Ok(())
 //! # }
 //! ```

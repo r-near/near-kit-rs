@@ -72,14 +72,14 @@ and `block` anything that converts into a `BlockReference`, like
 |---|---|
 | `Near::testnet().credentials(key, id)?.build()` | `Near::testnet().build().with_signer(InMemorySigner::new(id, key.parse()?))` |
 | `NearBuilder::signer(s)` | `near.with_signer(s)` after `build()` |
-| `Near::from_env()` | `SigningNear::from_env()`. It now fails unless both `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` are set; build a `Near` for read-only use. |
+| `Near::from_env()` | `SigningNear::from_env()`. It now fails unless both `NEAR_ACCOUNT_ID` and `NEAR_PRIVATE_KEY` are set; build a `Near` for read-only use. When `NEAR_NETWORK` is a URL it also needs `NEAR_CHAIN_ID` (the chain ID no longer defaults to `"custom"`). |
 | `near.with_signer(s) -> Near` | `near.with_signer(s) -> SigningNear` |
 | `near.account_id()` / `try_account_id()` | `signing.account_id()`. A `Near` has no account. |
 | `near.signer()` / `public_key()` | `signing.signer()` (an `&Arc<dyn Signer>`), `signing.signer().public_key()` |
 | `near.sign_message(params)` | `signing.signer().key().sign_nep413(signing.account_id(), &params).await?` (or the same on any `Signer`; import `near_kit::signer::Signer`). There is no `SigningNear::sign_message`. |
 | `near.rpc_url()` | `near.rpc().url()` |
 | `Near::from_rpc(rpc, chain_id)` | `Near::custom(url, chain_id).transport(t).retry_config(c).build()` |
-| `NearBuilder::http_client(client)` | `.transport(ReqwestTransport::with_client(client))` |
+| `NearBuilder::http_client(client)` | `.transport(ReqwestTransport::with_client(client))`; build `client` with `near_kit::reqwest` so its version matches |
 | `RpcClient::with_retry_config(url, c)` | `RpcClient::with_transport_and_retry_config(url, Arc::new(ReqwestTransport::default()), c)`, or `Near::custom(url, id).retry_config(c)` |
 | `rpc.genesis_config()` | `rpc.request::<_, serde_json::Value>("genesis_config", json!([]))` |
 | `rpc.call(method, params)` | `rpc.request(method, params)` |
@@ -457,9 +457,9 @@ These had no producer or only an internal use, and are gone:
 
 | 0.20 | 0.21 |
 |---|---|
-| `Error::DelegateDecode` | Removed: nothing returned it. `SignedDelegateAction::from_base64` returns `DecodeDelegateError` itself. |
 | `Error::is_invalid_tx()` | `matches!(e, Error::InvalidTx(_))` |
 | `From<Infallible> for Error` | Removed |
+| `KeyStoreError::{Io, Json, PathError}` | Removed: nothing returned them |
 | `RpcError::network(..)`, `RpcError::invalid_transaction(..)` | Crate-private. Build the variant (`RpcError::Network { .. }`) in a custom transport. |
 | `RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`, `DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE` | Crate-private (10,000 and 100) |
 
@@ -510,6 +510,7 @@ Items that keep their role under a new name or path:
 | `RpcError::Timeout(u32)` | Removed: nothing returned it |
 | `RpcError::InvalidTransaction { message, details }` | `RpcError::InvalidTxUnparsed { message, details }` |
 | `protocol::DelegateDecodeError` | `protocol::DecodeDelegateError` |
+| `Error::DelegateDecode` | `Error::DecodeDelegate`; `?` on `SignedDelegateAction::from_base64` still converts into it |
 | `protocol::UniversalStateInitError` | `protocol::StateInitError`, re-exported from near-global-contracts: same `Malformed` / `NonCanonical` variants, different `Display` text |
 | `protocol::RawStateInit` (near-kit's own) | Same path, now near-global-contracts' `RawStateInit` (the type near-sdk uses; base64 in JSON). `raw.as_bytes()` → `raw.as_ref()` or `&raw.0`; `raw.into_bytes()` → `raw.0` or `Vec::from(raw)`; `raw.derive_account_id()` → `raw.try_derive_account_id()?`, which rejects malformed and non-canonical bytes, or `UniversalStateInitAction::derive_account_id()` for the unvalidated id of the bytes an action carries |
 | `rpc::RawTransactionResponse` (hidden) | `rpc::RpcTransactionResponse`, documented: what `RpcClient::send_tx` and `tx_status` return |

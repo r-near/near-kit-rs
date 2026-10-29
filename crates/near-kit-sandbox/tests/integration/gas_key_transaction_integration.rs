@@ -9,7 +9,7 @@
 //!    sign it with the gas key, and submit it with `send_tx`.
 //! 5. Assert the transfer landed and the gas key's nonce advanced.
 //!
-//! Pins the sandbox to stable `2.13.4`, shared with the other protocol tests.
+//! Pins the sandbox to stable `2.13.4`, in a fresh container of its own.
 //!
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
@@ -52,7 +52,9 @@ async fn test_gas_key_signed_transaction() {
         .add_action(Action::transfer(NearToken::from_near(20)))
         .add_action(Action::add_full_access_key(owner_key.public_key()))
         .await
-        .expect("create owner account");
+        .expect("create owner account")
+        .result()
+        .unwrap();
 
     let owner_near = root_near
         .near()
@@ -84,7 +86,9 @@ async fn test_gas_key_signed_transaction() {
             NearToken::from_near(5),
         ))
         .await
-        .expect("add + fund gas key");
+        .expect("add + fund gas key")
+        .result()
+        .unwrap();
 
     // --- 3. Read the gas key's nonce (it is height-derived, not 0). ---------
     let nonces = view_gas_key_nonces(&root_near, &owner_id, &gas_pk).await;
@@ -118,7 +122,9 @@ async fn test_gas_key_signed_transaction() {
         .add_action(Action::transfer(NearToken::from_near(1)))
         .add_action(Action::add_full_access_key(recipient_key.public_key()))
         .await
-        .expect("create recipient");
+        .expect("create recipient")
+        .result()
+        .unwrap();
 
     let recipient_before = root_near
         .near()
