@@ -1176,17 +1176,11 @@ pub struct TransactionView {
 #[serde(untagged)]
 enum GlobalContractIdCompat {
     CodeHash {
+        #[serde(alias = "CodeHash")]
         hash: CryptoHash,
     },
     AccountId {
-        account_id: AccountId,
-    },
-    LegacyCodeHash {
-        #[serde(rename = "CodeHash")]
-        hash: CryptoHash,
-    },
-    LegacyAccountId {
-        #[serde(rename = "AccountId")]
+        #[serde(alias = "AccountId")]
         account_id: AccountId,
     },
     DeprecatedCodeHash(CryptoHash),
@@ -1211,10 +1205,8 @@ impl From<GlobalContractIdCompat> for GlobalContractIdentifierView {
     fn from(compat: GlobalContractIdCompat) -> Self {
         match compat {
             GlobalContractIdCompat::CodeHash { hash }
-            | GlobalContractIdCompat::LegacyCodeHash { hash }
             | GlobalContractIdCompat::DeprecatedCodeHash(hash) => Self::CodeHash(hash),
             GlobalContractIdCompat::AccountId { account_id }
-            | GlobalContractIdCompat::LegacyAccountId { account_id }
             | GlobalContractIdCompat::DeprecatedAccountId(account_id) => {
                 Self::AccountId(account_id)
             }
