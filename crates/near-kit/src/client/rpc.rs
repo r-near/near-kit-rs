@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde_json::Value;
 
 use super::transport::RpcTransport;
 // The module itself is only referenced for `default_transport`, which doesn't
@@ -154,6 +155,12 @@ struct ErrorCause {
     name: String,
     #[serde(default)]
     info: Option<serde_json::Value>,
+}
+
+/// Placeholder account for errors whose payload doesn't name one; the typed
+/// helpers patch in the caller-known account where they can.
+fn unknown_account() -> AccountId {
+    "unknown".parse().expect("`unknown` is a valid account id")
 }
 
 /// Extract the block context included in view RPC error payloads.
@@ -618,14 +625,24 @@ impl RpcClient {
             let info = cause.info.as_ref();
             let data = &error.data;
             let (block_height, block_hash) = parse_error_block_context(info);
+            let info_str = |key: &str| info.and_then(|i| i.get(key)).and_then(Value::as_str);
+            let data_or_message = data
+                .as_ref()
+                .and_then(Value::as_str)
+                .unwrap_or(&error.message);
+            // nearcore uses `contract_account_id`; the other keys are lenient
+            // fallbacks. The first key present wins.
+            let contract_key = info
+                .and_then(|i| {
+                    ["contract_account_id", "account_id", "contract_id"]
+                        .into_iter()
+                        .find_map(|key| i.get(key))
+                })
+                .and_then(Value::as_str);
 
             match cause_name {
                 "UNKNOWN_ACCOUNT" => {
-                    if let Some(account_id) = info
-                        .and_then(|i| i.get("requested_account_id"))
-                        .and_then(|a| a.as_str())
-                        && let Ok(account_id) = account_id.parse()
-                    {
+                    if let Some(Ok(account_id)) = info_str("requested_account_id").map(str::parse) {
                         return RpcError::AccountNotFound {
                             account_id,
                             block_height,
@@ -634,10 +651,7 @@ impl RpcClient {
                     }
                 }
                 "INVALID_ACCOUNT" => {
-                    let account_id = info
-                        .and_then(|i| i.get("requested_account_id"))
-                        .and_then(|a| a.as_str())
-                        .unwrap_or("unknown");
+                    let account_id = info_str("requested_account_id").unwrap_or("unknown");
                     return RpcError::InvalidAccount {
                         account_id: account_id.to_string(),
                         block_height,
@@ -645,20 +659,14 @@ impl RpcClient {
                     };
                 }
                 "UNKNOWN_ACCESS_KEY" | "UNKNOWN_GAS_KEY" => {
-                    if let Some(public_key) = info
-                        .and_then(|i| i.get("public_key"))
-                        .and_then(|k| k.as_str())
-                        .and_then(|k| k.parse().ok())
-                    {
+                    if let Some(public_key) = info_str("public_key").and_then(|k| k.parse().ok()) {
                         // nearcore's payload only carries the public key
                         // (`requested_account_id` is a legacy `query` extra);
                         // the typed helpers patch in the caller-known account.
                         // Fall back to "unknown".
-                        let account_id = info
-                            .and_then(|i| i.get("requested_account_id"))
-                            .and_then(|a| a.as_str())
+                        let account_id = info_str("requested_account_id")
                             .and_then(|a| a.parse().ok())
-                            .unwrap_or_else(|| "unknown".parse().unwrap());
+                            .unwrap_or_else(unknown_account);
                         if cause_name == "UNKNOWN_GAS_KEY" {
                             return RpcError::GasKeyNotFound {
                                 account_id,
@@ -676,11 +684,7 @@ impl RpcClient {
                     }
                 }
                 "UNKNOWN_BLOCK" => {
-                    let block_ref = data
-                        .as_ref()
-                        .and_then(|d| d.as_str())
-                        .unwrap_or(&error.message);
-                    return RpcError::BlockNotFound(block_ref.to_string());
+                    return RpcError::BlockNotFound(data_or_message.to_string());
                 }
                 "GARBAGE_COLLECTED_BLOCK" => {
                     // A height-based `query` past the node's GC horizon
@@ -695,36 +699,23 @@ impl RpcClient {
                             format!("#{height} ({hash})")
                         }
                         (Some(height), _) => format!("#{height}"),
-                        (None, _) => data
-                            .as_ref()
-                            .and_then(|d| d.as_str())
-                            .unwrap_or(&error.message)
-                            .to_string(),
+                        (None, _) => data_or_message.to_string(),
                     };
                     return RpcError::BlockNotFound(block_ref);
                 }
                 "UNKNOWN_CHUNK" => {
-                    let chunk_ref = info
-                        .and_then(|i| i.get("chunk_hash"))
-                        .and_then(|c| c.as_str())
-                        .unwrap_or(&error.message);
+                    let chunk_ref = info_str("chunk_hash").unwrap_or(&error.message);
                     return RpcError::ChunkNotFound(chunk_ref.to_string());
                 }
                 "UNKNOWN_EPOCH" => {
-                    let block_ref = data
-                        .as_ref()
-                        .and_then(|d| d.as_str())
-                        .unwrap_or(&error.message);
-                    return RpcError::EpochNotFound(block_ref.to_string());
+                    return RpcError::EpochNotFound(data_or_message.to_string());
                 }
                 "UNKNOWN_TRANSACTION" => {
                     // `RpcTransactionError::UnknownTransaction`. Without a
                     // hash, fall through to the generic error rather than
                     // inventing one.
-                    if let Some(hash) = info
-                        .and_then(|i| i.get("requested_transaction_hash"))
-                        .and_then(|h| h.as_str())
-                        .and_then(|h| h.parse().ok())
+                    if let Some(hash) =
+                        info_str("requested_transaction_hash").and_then(|h| h.parse().ok())
                     {
                         return RpcError::TransactionNotFound(hash);
                     }
@@ -733,22 +724,11 @@ impl RpcClient {
                     return RpcError::ShardNotTracked;
                 }
                 "UNKNOWN_RECEIPT" => {
-                    let receipt_id = info
-                        .and_then(|i| i.get("receipt_id"))
-                        .and_then(|r| r.as_str())
-                        .unwrap_or("unknown");
+                    let receipt_id = info_str("receipt_id").unwrap_or("unknown");
                     return RpcError::ReceiptNotFound(receipt_id.to_string());
                 }
                 "NO_CONTRACT_CODE" => {
-                    let account_id = info
-                        .and_then(|i| {
-                            i.get("contract_account_id")
-                                .or_else(|| i.get("account_id"))
-                                .or_else(|| i.get("contract_id"))
-                        })
-                        .and_then(|a| a.as_str())
-                        .unwrap_or("unknown");
-                    if let Ok(account_id) = account_id.parse() {
+                    if let Ok(account_id) = contract_key.unwrap_or("unknown").parse() {
                         return RpcError::ContractNotDeployed {
                             account_id,
                             block_height,
@@ -767,7 +747,7 @@ impl RpcClient {
                             serde_json::from_value::<GlobalContractIdentifierView>(v.clone()).ok()
                         })
                         .unwrap_or_else(|| {
-                            GlobalContractIdentifierView::AccountId("unknown".parse().unwrap())
+                            GlobalContractIdentifierView::AccountId(unknown_account())
                         });
                     return RpcError::GlobalContractNotFound {
                         identifier,
@@ -776,19 +756,9 @@ impl RpcClient {
                     };
                 }
                 "TOO_LARGE_CONTRACT_STATE" => {
-                    // nearcore's `RpcQueryError::TooLargeContractState` puts the
-                    // account under `contract_account_id`; the other keys are
-                    // lenient fallbacks. If none parses, fall through to the
-                    // generic error rather than inventing an account id.
-                    if let Some(account_id) = info
-                        .and_then(|i| {
-                            i.get("contract_account_id")
-                                .or_else(|| i.get("account_id"))
-                                .or_else(|| i.get("contract_id"))
-                        })
-                        .and_then(|a| a.as_str())
-                        .and_then(|a| a.parse().ok())
-                    {
+                    // Without a parseable account, fall through to the generic
+                    // error rather than inventing an account id.
+                    if let Some(account_id) = contract_key.and_then(|a| a.parse().ok()) {
                         return RpcError::ContractStateTooLarge {
                             account_id,
                             block_height,
@@ -800,16 +770,10 @@ impl RpcClient {
                     // Legacy `query` includes contract_id/method_name;
                     // EXPERIMENTAL_call_function does not (the caller
                     // already knows them). Fall back to "unknown".
-                    let contract_id = info
-                        .and_then(|i| i.get("contract_id"))
-                        .and_then(|c| c.as_str())
-                        .unwrap_or("unknown")
-                        .parse()
-                        .unwrap_or_else(|_| "unknown".parse().unwrap());
-                    let method_name = info
-                        .and_then(|i| i.get("method_name"))
-                        .and_then(|m| m.as_str())
-                        .map(String::from);
+                    let contract_id = info_str("contract_id")
+                        .and_then(|c| c.parse().ok())
+                        .unwrap_or_else(unknown_account);
+                    let method_name = info_str("method_name").map(String::from);
                     let function_call_error = parse_function_call_error(info);
                     if let Some(specific_error) = function_call_error.as_ref().and_then(|error| {
                         classify_function_call_error(
@@ -826,11 +790,8 @@ impl RpcClient {
                     // Legacy shape: no usable structured `vm_error`, only the
                     // Debug rendering of the error in `data` (or in the legacy
                     // `query` endpoint's `vm_error` string).
-                    let legacy_messages = [
-                        data.as_ref().and_then(|d| d.as_str()),
-                        info.and_then(|i| i.get("vm_error"))
-                            .and_then(|v| v.as_str()),
-                    ];
+                    let legacy_messages =
+                        [data.as_ref().and_then(Value::as_str), info_str("vm_error")];
                     if let Some(specific_error) =
                         legacy_messages.into_iter().flatten().find_map(|message| {
                             classify_legacy_function_call_error(
@@ -847,8 +808,8 @@ impl RpcClient {
 
                     let message = data
                         .as_ref()
-                        .and_then(|d| d.as_str())
-                        .map(|s| s.to_string())
+                        .and_then(Value::as_str)
+                        .map(String::from)
                         .or_else(|| function_call_error.as_ref().map(ToString::to_string))
                         .or_else(|| {
                             // EXPERIMENTAL endpoint: use vm_error as fallback
@@ -881,10 +842,8 @@ impl RpcClient {
                     return RpcError::invalid_tx(&error.message, data.clone());
                 }
                 "TIMEOUT_ERROR" => {
-                    let transaction_hash = info
-                        .and_then(|i| i.get("transaction_hash"))
-                        .and_then(|h| h.as_str())
-                        .and_then(|h| h.parse().ok());
+                    let transaction_hash =
+                        info_str("transaction_hash").and_then(|h| h.parse().ok());
                     return RpcError::Timeout {
                         message: error.message.clone(),
                         transaction_hash,
@@ -903,10 +862,7 @@ impl RpcClient {
                     // more than `limit` keys. Both identifying fields are
                     // required; without them fall through to the generic error
                     // rather than inventing an account id or cap.
-                    let account_id = info
-                        .and_then(|i| i.get("requested_account_id"))
-                        .and_then(|a| a.as_str())
-                        .and_then(|a| a.parse().ok());
+                    let account_id = info_str("requested_account_id").and_then(|a| a.parse().ok());
                     let limit = info
                         .and_then(|i| i.get("limit"))
                         .and_then(serde_json::Value::as_u64)
