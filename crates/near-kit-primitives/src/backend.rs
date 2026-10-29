@@ -174,7 +174,7 @@ impl<E: fmt::Debug + fmt::Display> std::error::Error for ContractError<E> {
 /// read at.
 ///
 /// ```rust
-/// use near_kit_primitives::transaction::View;
+/// use near_kit_primitives::View;
 /// use near_kit_primitives::rpc::{BlockReference, ViewFunctionResult};
 /// use near_kit_primitives::{AccountId, CryptoHash, Viewer, account};
 ///
@@ -200,7 +200,7 @@ impl<E: fmt::Debug + fmt::Display> std::error::Error for ContractError<E> {
 ///     .at(1_000_u64)
 ///     .await?;
 /// assert_eq!(count, 42);
-/// # Ok::<(), near_kit_primitives::transaction::ContractError<std::convert::Infallible>>(())
+/// # Ok::<(), near_kit_primitives::ContractError<std::convert::Infallible>>(())
 /// # }).unwrap();
 /// ```
 ///
@@ -424,7 +424,8 @@ impl<C> fmt::Debug for Call<C> {
 ///
 /// ```rust
 /// # use near_kit_primitives::Gas;
-/// # use near_kit_primitives::transaction::{Call, FunctionCall};
+/// # use near_kit_primitives::transaction::FunctionCall;
+/// # use near_kit_primitives::Call;
 /// # fn batch<C>(call: Call<C>) -> Result<(), near_kit_primitives::transaction::CodecError> {
 /// let action = FunctionCall::from(call.gas(Gas::from_tgas(50))).into_action()?;
 /// # Ok(())

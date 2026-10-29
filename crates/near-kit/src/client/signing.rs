@@ -307,14 +307,14 @@ impl<W: WaitLevel> SigningNear<W> {
     ///     vec![Action::transfer(NearToken::from_near(1))],
     /// );
     /// let signature = key.sign(tx.get_hash().as_bytes()).await?;
-    /// let signed = tx.complete(signature);
+    /// let signed = tx.into_signed(signature);
     /// # Ok(())
     /// # }
     /// ```
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidTransaction`] if `actions` is empty or a state init
+    /// [`Error::Validation`] if `actions` is empty or a state init
     /// targets another receiver, otherwise RPC and signing errors.
     pub async fn sign(
         &self,
@@ -353,7 +353,7 @@ impl<W: WaitLevel> SigningNear<W> {
     ///     .args(serde_json::json!({ "text": "Hello!" }))
     ///     .gas(Gas::from_tgas(30));
     /// let signed = alice
-    ///     .delegate(account!("guestbook.testnet"), vec![call.try_into()?], Default::default())
+    ///     .sign_delegate(account!("guestbook.testnet"), vec![call.try_into()?], Default::default())
     ///     .await?;
     ///
     /// // Relayer submits it and pays the gas
@@ -367,9 +367,9 @@ impl<W: WaitLevel> SigningNear<W> {
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidTransaction`] if `actions` is empty or contains a
+    /// [`Error::Validation`] if `actions` is empty or contains a
     /// delegate action, otherwise RPC and signing errors.
-    pub async fn delegate(
+    pub async fn sign_delegate(
         &self,
         receiver_id: impl Into<AccountId>,
         actions: Vec<Action>,

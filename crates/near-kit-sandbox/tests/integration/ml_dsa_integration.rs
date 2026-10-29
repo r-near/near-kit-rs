@@ -24,7 +24,7 @@ const ML_DSA_PROTOCOL_VERSION: u32 = 85;
 #[tokio::test]
 async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
     let sandbox = sandbox_2_13().await;
-    let near = sandbox.client();
+    let near = sandbox.root_account();
 
     let status = near.near().rpc().status().await.expect("node status");
     assert!(
@@ -86,7 +86,7 @@ async fn test_ml_dsa65_signed_transfer_accepted_on_chain() {
         .unwrap();
 
     let signed = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&account_id, ml_dsa_key.clone()));
 

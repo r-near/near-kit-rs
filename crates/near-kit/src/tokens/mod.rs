@@ -74,8 +74,8 @@ use std::str::FromStr;
 use serde::de::DeserializeOwned;
 
 use crate::Viewer;
-use crate::transaction::{ContractError, View};
 use crate::types::{AccountId, Finality};
+use crate::{ContractError, View};
 
 /// Run a JSON view of `method` through a borrowed backend at optimistic
 /// finality, sending `args` if there are any.

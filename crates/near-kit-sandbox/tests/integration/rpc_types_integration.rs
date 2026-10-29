@@ -521,7 +521,10 @@ async fn test_gas_price() {
         gas_price.gas_price.as_yoctonear() > 0,
         "Gas price should exist"
     );
-    assert!(gas_price.as_u128() > 0, "Gas price should be positive");
+    assert!(
+        gas_price.gas_price > NearToken::from_yoctonear(0),
+        "Gas price should be positive"
+    );
 
     println!(
         "Current gas price: {} yoctoNEAR",
@@ -629,7 +632,7 @@ async fn test_view_function_result() {
     // but the error handling proves the types work
     match result {
         Ok(view_result) => {
-            println!("View result: {:?}", view_result.as_string());
+            println!("View result: {:?}", view_result.text());
             // Note: block_height may be 0 for genesis
             assert!(!view_result.block_hash.is_zero());
         }

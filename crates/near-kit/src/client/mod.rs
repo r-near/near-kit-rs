@@ -31,7 +31,7 @@
 //! - [`BalanceQuery`] — Get account balance
 //! - [`AccountExistsQuery`] — Check if account exists
 //! - [`TransactionStatusQuery`] — Poll or wait for transaction progress
-//! - [`View`](crate::transaction::View) — Call view functions on contracts
+//! - [`View`](crate::View) — Call view functions on contracts
 //!
 //! Every other read (accounts, access keys, contract code, validators, …)
 //! is an [`RpcClient`] method, reached through [`Near::rpc`].

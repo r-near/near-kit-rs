@@ -22,7 +22,7 @@ pub(crate) async fn shared_client() -> (&'static Sandbox, SigningNear) {
         .shared()
         .await
         .expect("shared sandbox must start");
-    (sandbox, sandbox.client())
+    (sandbox, sandbox.root_account())
 }
 
 pub(crate) async fn sandbox_2_13() -> &'static Sandbox {
@@ -38,7 +38,7 @@ pub(crate) fn client_for(
     secret_key: &SecretKey,
 ) -> SigningNear {
     let signer = InMemorySigner::new(account_id.clone(), secret_key.clone());
-    sandbox.client().near().with_signer(signer)
+    sandbox.root_account().near().with_signer(signer)
 }
 
 pub(crate) async fn funded_account(

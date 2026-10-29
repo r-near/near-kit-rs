@@ -3,9 +3,9 @@
 //! These tests verify that FT and NFT helpers handle errors correctly.
 //! Run with: `cargo test -p near-kit-sandbox --features integration-tests --test integration`
 
+use near_kit::ContractError;
 use near_kit::protocol::Action;
 use near_kit::standards::{FungibleToken, NonFungibleToken};
-use near_kit::transaction::ContractError;
 use near_kit::*;
 use near_kit::{rpc::RpcError, signer::SecretKey, transaction::Final};
 

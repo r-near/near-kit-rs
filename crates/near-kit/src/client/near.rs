@@ -7,7 +7,7 @@ use crate::error::RpcError;
 use crate::platform::MaybeSend;
 use serde::de::DeserializeOwned;
 
-use crate::transaction::View;
+use crate::View;
 use crate::types::{AccountId, BlockReference, ChainId, ViewFunctionResult};
 
 use super::query::{AccountExistsQuery, BalanceQuery, TransactionStatusQuery};
@@ -93,25 +93,6 @@ impl Near {
     /// Get the chain ID this client is connected to.
     pub fn chain_id(&self) -> &ChainId {
         &self.chain_id
-    }
-
-    /// Set the number of nonce retries on `InvalidNonce` errors.
-    ///
-    /// `0` means no retries (send once), `1` means one retry, etc. Defaults to `3`.
-    ///
-    /// A [`SigningNear`] takes the setting of the `Near` it was created
-    /// from; use [`SigningNear::max_nonce_retries`] to change it for one
-    /// sender.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use near_kit::*;
-    /// let near = Near::testnet().build().max_nonce_retries(10);
-    /// ```
-    pub fn max_nonce_retries(mut self, retries: u32) -> Near {
-        self.max_nonce_retries = retries;
-        self
     }
 
     /// Attach a signer, giving a [`SigningNear`] that sends transactions as
@@ -211,7 +192,7 @@ impl Near {
     ///
     /// ```rust,no_run
     /// # use near_kit::*;
-    /// # use near_kit::transaction::View;
+    /// # use near_kit::View;
     /// # async fn example() -> Result<(), near_kit::Error> {
     /// let near = Near::testnet().build();
     ///
@@ -327,8 +308,8 @@ impl Near {
     ///
     /// `T` is the marker type `#[near_kit::contract]` generates for a trait;
     /// the result is its generated `<Name>Client<Near>`. View methods return
-    /// a [`View`](crate::transaction::View) and `#[call]` methods a
-    /// [`Call`](crate::transaction::Call); both are `.await`ed directly.
+    /// a [`View`](crate::View) and `#[call]` methods a
+    /// [`Call`](crate::Call); both are `.await`ed directly.
     ///
     /// A `Near`-backed client can only view; for `#[call]` methods, use
     /// [`SigningNear::contract`](crate::SigningNear::contract).
@@ -637,11 +618,11 @@ mod tests {
         let near = Near::testnet().build();
         assert_eq!(near.max_nonce_retries, 3);
 
-        let near = near.max_nonce_retries(10);
+        let near = Near::testnet().max_nonce_retries(10).build();
         assert_eq!(near.max_nonce_retries, 10);
 
         // 0 means no retries (send once)
-        let near = near.max_nonce_retries(0);
+        let near = Near::testnet().max_nonce_retries(0).build();
         assert_eq!(near.max_nonce_retries, 0);
 
         // A signing client takes the setting of the Near it came from.

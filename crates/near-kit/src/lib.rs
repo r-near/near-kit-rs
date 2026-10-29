@@ -19,7 +19,7 @@
 //!
 //! `Near` reads. `near.with_signer(signer)` returns a `SigningNear`, which reads
 //! and sends. Everything else (typed contract clients, the FT/NFT helpers, the
-//! awaitable [`View`](transaction::View) and [`Call`](transaction::Call)
+//! awaitable [`View`] and [`Call`]
 //! values) is written against the two traits, so it runs on your own backend
 //! too.
 //!
@@ -61,7 +61,7 @@
 //!
 //! ## Reads
 //!
-//! `Near::view` returns a [`View`](transaction::View): set arguments with
+//! `Near::view` returns a [`View`]: set arguments with
 //! `.args(..)`, pick a block with `.at(..)` (a height, a hash, or a
 //! [`Finality`](rpc::Finality); the default is `Final`), then `.await`.
 //! `.with_metadata()` also returns the block height and hash the value was
@@ -137,14 +137,14 @@
 //! ```
 //!
 //! `SigningNear::sign` signs without sending (submit later with
-//! `Near::send_signed`) and `SigningNear::delegate` builds NEP-366
+//! `Near::send_signed`) and `SigningNear::sign_delegate` builds NEP-366
 //! meta-transactions.
 //!
 //! ## Typed contracts
 //!
 //! With the opt-in `contracts` feature, `#[near_kit::contract]` turns a trait
 //! into a client. Views need a [`Viewer`] and return a `View`; `#[call]` methods
-//! need a [`TxSender`] and return a [`Call`](transaction::Call) that takes
+//! need a [`TxSender`] and return a [`Call`] that takes
 //! `.gas(..)` and `.deposit(..)`.
 //!
 #![cfg_attr(all(feature = "rpc", feature = "contracts"), doc = "```rust,no_run")]
@@ -220,7 +220,7 @@
 //!
 //! ```rust
 //! use near_kit::rpc::{BlockReference, ViewFunctionResult};
-//! use near_kit::transaction::View;
+//! use near_kit::View;
 //! use near_kit::*;
 //!
 //! /// Answers every view with the same JSON.
@@ -282,14 +282,14 @@
 //!
 //! Queries such as `balance` and `transaction(..)` sends return
 //! [`Error`]. A `View` or `Call` (including typed-contract and
-//! token methods) returns [`ContractError<E>`](transaction::ContractError):
+//! token methods) returns [`ContractError<E>`](ContractError):
 //! a codec error for the arguments or result, or the backend's own error `E`
 //! (`RpcError` for `Near`'s views). `?` converts it into `Error`.
 //!
 //! ## Sandbox testing
 //!
 //! The companion [`near-kit-sandbox`](https://docs.rs/near-kit-sandbox) crate
-//! starts a Docker-backed local node; `sandbox.client()` is a `SigningNear` for
+//! starts a Docker-backed local node; `sandbox.root_account()` is a `SigningNear` for
 //! its root account.
 //!
 //! ## WebAssembly support
@@ -427,7 +427,7 @@
 //!
 //! ### Tracing
 //!
-//! With `tracing` on, RPC calls and transactions run inside spans (`call`,
+//! With `tracing` on, RPC calls and transactions run inside spans (`request`,
 //! `view_function`, `send_transaction`, ...) and emit events at DEBUG (retries,
 //! failed requests, transaction lifecycle) and TRACE (raw request/response
 //! payloads). near-kit never logs at WARN or ERROR for an error it returns to you —
@@ -461,9 +461,11 @@ pub use error::Error;
 #[doc(inline)]
 pub use near_kit_primitives::account;
 #[doc(inline)]
-pub use near_kit_primitives::{AccountId, CryptoHash, Gas, NearToken};
+pub use near_kit_primitives::{AccountId, AccountIdRef, CryptoHash, Gas, NearToken};
 #[doc(inline)]
-pub use near_kit_primitives::{Contract, MaybeSend, MaybeSync, TxSender, Viewer};
+pub use near_kit_primitives::{
+    Call, Contract, ContractError, MaybeSend, MaybeSync, TxSender, View, Viewer,
+};
 
 #[cfg(feature = "rpc")]
 pub use client::{Near, NearBuilder, SigningNear};

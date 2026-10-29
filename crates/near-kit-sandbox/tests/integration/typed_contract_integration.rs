@@ -1,7 +1,8 @@
 //! Typed-contract macro behavior that crosses the RPC and runtime boundary.
 
+use near_kit::ContractError;
 use near_kit::protocol::Action;
-use near_kit::transaction::{CodecError, ContractError, Final};
+use near_kit::transaction::{CodecError, Final};
 use near_kit::{AccountId, Gas, Near, NearToken, SigningNear};
 use near_kit_sandbox::Sandbox;
 use serde::{Deserialize, Serialize};
@@ -98,7 +99,7 @@ async fn typed_call_configuration_reaches_the_contract() {
 #[tokio::test]
 async fn typed_views_work_without_a_signer() {
     let (sandbox, _, contract_id) = deploy_guestbook("typednosigner").await;
-    let no_signer: Near = sandbox.client().near().clone();
+    let no_signer: Near = sandbox.root_account().near().clone();
     let guestbook = no_signer.contract::<Guestbook>(&contract_id);
 
     assert_eq!(guestbook.total_messages().await.expect("unsigned view"), 0);

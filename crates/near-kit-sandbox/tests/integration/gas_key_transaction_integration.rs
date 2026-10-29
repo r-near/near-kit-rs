@@ -40,7 +40,7 @@ async fn view_gas_key_nonces(
 #[tokio::test]
 async fn test_gas_key_signed_transaction() {
     let sandbox = sandbox_2_13().await;
-    let root_near = sandbox.client();
+    let root_near = sandbox.root_account();
 
     // --- 1. Owner account with an ordinary full-access key. -----------------
     let owner_key = SecretKey::generate_ed25519();
@@ -152,10 +152,10 @@ async fn test_gas_key_signed_transaction() {
         "signed_tx_base64": signed.to_base64(),
         "wait_until": "FINAL",
     });
-    let resp: RawTransactionResponse = root_near
+    let resp: RpcTransactionResponse = root_near
         .near()
         .rpc()
-        .call("send_tx", send_params)
+        .request("send_tx", send_params)
         .await
         .expect("send gas-key signed transaction");
 

@@ -72,7 +72,7 @@ fn main() {
 
     let counter: CounterClient<Fixed> =
         Counter::client(Fixed, near_kit::account!("counter.near"));
-    let _view: near_kit::transaction::View<Fixed, u64> = counter.get_count();
+    let _view: near_kit::View<Fixed, u64> = counter.get_count();
 
     let call: FunctionCall = Counter::add(AddArgs { value: 5 })
         .gas(Gas::from_tgas(30))

@@ -41,7 +41,7 @@ async fn test_secp256k1_signed_transfer_and_delegate_accepted_on_chain() {
         .unwrap();
 
     let sender_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&sender_id, secp_key.clone()));
 
@@ -58,7 +58,7 @@ async fn test_secp256k1_signed_transfer_and_delegate_accepted_on_chain() {
 
     // Delegate action signed by the secp256k1 key, relayed by root.
     let delegate = sender_near
-        .delegate(
+        .sign_delegate(
             &recipient_id,
             vec![Action::transfer(NearToken::from_near(3))],
             DelegateOptions {

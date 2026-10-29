@@ -18,7 +18,7 @@ async fn funded_account(
     sandbox: &near_kit_sandbox::Sandbox,
     balance: NearToken,
 ) -> (SigningNear, AccountId, SecretKey) {
-    let near = sandbox.client();
+    let near = sandbox.root_account();
     setup_funded_account(&near, sandbox, "typerr", balance).await
 }
 

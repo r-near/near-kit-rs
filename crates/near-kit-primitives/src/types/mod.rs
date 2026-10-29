@@ -67,14 +67,13 @@ mod wait_level;
 pub use account::{AccountId, AccountIdRef};
 pub use action::{
     AccessKey, AccessKeyPermission, Action, AddKeyAction, CreateAccountAction,
-    DELEGATE_ACTION_PREFIX, DELEGATE_V2_ACTION_PREFIX, DecodeError as DelegateDecodeError,
+    DELEGATE_ACTION_PREFIX, DELEGATE_V2_ACTION_PREFIX, DecodeError as DecodeDelegateError,
     DelegateAction, DelegateActionV2, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     DeployGlobalContractAction, DeterministicStateInitAction, FunctionCallAction,
-    FunctionCallPermission, GasKeyInfo, GlobalContractId, MAX_NONCES_FOR_GAS_KEY,
-    NonDelegateAction, PublishMode, SignedDelegateAction, StakeAction, StateInit, StateInitExt,
-    StateInitV1, TransferAction, TransferToGasKeyAction, UniversalStateInitAction,
-    UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
-    WithdrawFromGasKeyAction,
+    FunctionCallPermission, GasKeyInfo, GlobalContractId, NonDelegateAction, PublishMode,
+    SignedDelegateAction, StakeAction, StateInit, StateInitV1, TransferAction,
+    TransferToGasKeyAction, UniversalStateInitAction, UseGlobalContractAction,
+    VersionedDelegateActionPayload, VersionedSignedDelegateAction, WithdrawFromGasKeyAction,
 };
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{
@@ -99,7 +98,7 @@ pub use rpc::{
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
     FinalExecutionStatus, GasKeyNoncesView, GasPrice, GasProfileEntry,
     GlobalContractIdentifierView, MaintenanceWindow, MerkleDirection, MerklePathItem, NodeVersion,
-    RawTransactionResponse, Receipt, ReceiptContent, ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE,
+    Receipt, ReceiptContent, ReceiptToTxResponse, RpcTransactionResponse, STORAGE_AMOUNT_PER_BYTE,
     SendTxResponse, SlashedValidator, StateChangeKindView, StateItem, StatusResponse, SyncInfo,
     TransactionNonceView, TransactionView, TrieSplit, ValidatorInfo, ValidatorStakeView,
     ValidatorStakeViewV1, VersionedDelegateActionPayloadView, ViewFunctionResult,

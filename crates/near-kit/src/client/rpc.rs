@@ -18,7 +18,7 @@ use super::transport::RpcTransport;
 use super::transport;
 use crate::error::{RpcError, TimeoutCause};
 use crate::trace;
-use crate::types::RawTransactionResponse;
+use crate::types::RpcTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountIdRef, AccountView, BlockEffects,
     BlockReference, BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
@@ -71,7 +71,7 @@ pub const TESTNET: NetworkConfig = NetworkConfig {
 
 /// Retry configuration for RPC calls.
 ///
-/// Governs how [`RpcClient::call`] retries transient failures (transport
+/// Governs how [`RpcClient::request`] retries transient failures (transport
 /// errors, timeouts, 5xx / server-side errors — anything where
 /// [`RpcError::is_retryable`] is `true`). Delays grow exponentially from
 /// `initial_delay_ms`, capped at `max_delay_ms`.
@@ -493,7 +493,7 @@ impl RpcClient {
     /// layer re-signs with a fresh nonce instead). `sandbox_fast_forward` is
     /// never retried, since it is not idempotent.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %sanitize_url(&self.url))))]
-    pub async fn call<P: Serialize, R: DeserializeOwned>(
+    pub async fn request<P: Serialize, R: DeserializeOwned>(
         &self,
         method: &str,
         params: P,
@@ -510,7 +510,7 @@ impl RpcClient {
                 params: &params,
             };
 
-            match self.try_call::<R>(&request).await {
+            match self.try_request::<R>(&request).await {
                 Ok(result) => return Ok(result),
                 Err(e)
                     if is_idempotent(method)
@@ -550,7 +550,7 @@ impl RpcClient {
     }
 
     /// Single attempt to make an RPC call.
-    async fn try_call<R: DeserializeOwned>(
+    async fn try_request<R: DeserializeOwned>(
         &self,
         request: &JsonRpcRequest<'_, impl Serialize>,
     ) -> Result<R, RpcError> {
@@ -697,7 +697,7 @@ impl RpcClient {
                         .as_ref()
                         .and_then(|d| d.as_str())
                         .unwrap_or(&error.message);
-                    return RpcError::UnknownBlock(block_ref.to_string());
+                    return RpcError::BlockNotFound(block_ref.to_string());
                 }
                 "GARBAGE_COLLECTED_BLOCK" => {
                     // A height-based `query` past the node's GC horizon
@@ -718,28 +718,28 @@ impl RpcClient {
                             .unwrap_or(&error.message)
                             .to_string(),
                     };
-                    return RpcError::UnknownBlock(block_ref);
+                    return RpcError::BlockNotFound(block_ref);
                 }
                 "UNKNOWN_CHUNK" => {
                     let chunk_ref = info
                         .and_then(|i| i.get("chunk_hash"))
                         .and_then(|c| c.as_str())
                         .unwrap_or(&error.message);
-                    return RpcError::UnknownChunk(chunk_ref.to_string());
+                    return RpcError::ChunkNotFound(chunk_ref.to_string());
                 }
                 "UNKNOWN_EPOCH" => {
                     let block_ref = data
                         .as_ref()
                         .and_then(|d| d.as_str())
                         .unwrap_or(&error.message);
-                    return RpcError::UnknownEpoch(block_ref.to_string());
+                    return RpcError::EpochNotFound(block_ref.to_string());
                 }
                 "UNKNOWN_RECEIPT" => {
                     let receipt_id = info
                         .and_then(|i| i.get("receipt_id"))
                         .and_then(|r| r.as_str())
                         .unwrap_or("unknown");
-                    return RpcError::UnknownReceipt(receipt_id.to_string());
+                    return RpcError::ReceiptNotFound(receipt_id.to_string());
                 }
                 "NO_CONTRACT_CODE" => {
                     let account_id = info
@@ -880,14 +880,14 @@ impl RpcClient {
                     return RpcError::InvalidShardId(shard_id);
                 }
                 "INVALID_TRANSACTION" => {
-                    return RpcError::invalid_transaction(&error.message, data.clone());
+                    return RpcError::invalid_tx(&error.message, data.clone());
                 }
                 "TIMEOUT_ERROR" => {
                     let transaction_hash = info
                         .and_then(|i| i.get("transaction_hash"))
                         .and_then(|h| h.as_str())
                         .and_then(|h| h.parse().ok());
-                    return RpcError::RequestTimeout {
+                    return RpcError::Timeout {
                         message: error.message.clone(),
                         transaction_hash,
                         cause: info.and_then(parse_timeout_cause),
@@ -968,7 +968,7 @@ impl RpcClient {
             "account_id": account_id.to_string(),
         });
         self.merge_block_reference(&mut params, &block);
-        self.call("EXPERIMENTAL_view_account", params).await
+        self.request("EXPERIMENTAL_view_account", params).await
     }
 
     /// View access key information.
@@ -985,7 +985,7 @@ impl RpcClient {
             "public_key": public_key.to_string(),
         });
         self.merge_block_reference(&mut params, &block);
-        self.call("EXPERIMENTAL_view_access_key", params)
+        self.request("EXPERIMENTAL_view_access_key", params)
             .await
             .map_err(|e| match e {
                 // The EXPERIMENTAL endpoint's UNKNOWN_ACCESS_KEY error omits
@@ -1116,7 +1116,7 @@ impl RpcClient {
             }
         }
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await
+        self.request("query", params).await
     }
 
     /// View the parallel nonces assigned to a gas key.
@@ -1137,7 +1137,7 @@ impl RpcClient {
             "public_key": public_key.to_string(),
         });
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await.map_err(|e| match e {
+        self.request("query", params).await.map_err(|e| match e {
             // UNKNOWN_GAS_KEY's payload omits the account; patch it in from
             // the request params so callers get a complete error.
             RpcError::GasKeyNotFound {
@@ -1177,7 +1177,7 @@ impl RpcClient {
         // the caller-known contract_id and method_name when they are
         // missing from the error info (the experimental endpoint omits them).
         let response: CallFunctionResponse = self
-            .call("EXPERIMENTAL_call_function", params)
+            .request("EXPERIMENTAL_call_function", params)
             .await
             .map_err(|e| match e {
                 RpcError::ContractExecution {
@@ -1226,7 +1226,7 @@ impl RpcClient {
             "account_id": account_id.to_string(),
         });
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await
+        self.request("query", params).await
     }
 
     /// View a global contract's WASM code.
@@ -1254,7 +1254,7 @@ impl RpcClient {
             }),
         };
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await.map_err(|e| match e {
+        self.request("query", params).await.map_err(|e| match e {
             // Replace the error's best-effort identifier with the one the
             // caller asked for, so it stays accurate whatever the node's
             // serialization shape.
@@ -1316,7 +1316,7 @@ impl RpcClient {
             }
         }
         self.merge_block_reference(&mut params, &block);
-        self.call("query", params).await
+        self.request("query", params).await
     }
 
     /// Read a contract's entire state, transparently following pagination.
@@ -1391,7 +1391,7 @@ impl RpcClient {
     pub async fn block(&self, block: impl Into<BlockReference>) -> Result<BlockView, RpcError> {
         let block = block.into();
         let params = block_params(&block);
-        self.call("block", params).await
+        self.request("block", params).await
     }
 
     /// Get all state changes that occurred in a block.
@@ -1405,7 +1405,7 @@ impl RpcClient {
     ) -> Result<BlockEffects, RpcError> {
         let block = block.into();
         let params = block_params(&block);
-        self.call("block_effects", params).await
+        self.request("block_effects", params).await
     }
 
     /// Get the upcoming maintenance windows for a validator account.
@@ -1419,13 +1419,13 @@ impl RpcClient {
         account_id: &AccountIdRef,
     ) -> Result<Vec<MaintenanceWindow>, RpcError> {
         let params = serde_json::json!({ "account_id": account_id.to_string() });
-        self.call("maintenance_windows", params).await
+        self.request("maintenance_windows", params).await
     }
 
     /// Get node status.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub async fn status(&self) -> Result<StatusResponse, RpcError> {
-        self.call("status", serde_json::json!([])).await
+        self.request("status", serde_json::json!([])).await
     }
 
     /// Get current gas price.
@@ -1435,7 +1435,7 @@ impl RpcClient {
             Some(hash) => serde_json::json!([hash.to_string()]),
             None => serde_json::json!([serde_json::Value::Null]),
         };
-        self.call("gas_price", params).await
+        self.request("gas_price", params).await
     }
 
     /// Get validator information for an epoch.
@@ -1449,7 +1449,7 @@ impl RpcClient {
         block: Option<BlockReference>,
     ) -> Result<EpochValidatorInfo, RpcError> {
         let params = serde_json::json!([block_id_or_null(block.as_ref())]);
-        self.call("validators", params).await
+        self.request("validators", params).await
     }
 
     /// Send a signed transaction.
@@ -1464,15 +1464,15 @@ impl RpcClient {
         &self,
         signed_tx: &SignedTransaction,
         wait_until: TxExecutionStatus,
-    ) -> Result<RawTransactionResponse, RpcError> {
+    ) -> Result<RpcTransactionResponse, RpcError> {
         let tx_hash = signed_tx.get_hash();
         trace::Span::current().record("tx_hash", trace::field::display(&tx_hash));
         let params = serde_json::json!({
             "signed_tx_base64": signed_tx.to_base64(),
             "wait_until": wait_until.as_str(),
         });
-        let mut response: RawTransactionResponse = self
-            .call("send_tx", params)
+        let mut response: RpcTransactionResponse = self
+            .request("send_tx", params)
             .await
             .map_err(|e| with_timeout_tx_hash(e, tx_hash))?;
         response.transaction_hash = tx_hash;
@@ -1490,14 +1490,14 @@ impl RpcClient {
         tx_hash: &CryptoHash,
         sender_id: &AccountIdRef,
         wait_until: TxExecutionStatus,
-    ) -> Result<RawTransactionResponse, RpcError> {
+    ) -> Result<RpcTransactionResponse, RpcError> {
         let params = serde_json::json!({
             "tx_hash": tx_hash.to_string(),
             "sender_account_id": sender_id.to_string(),
             "wait_until": wait_until.as_str(),
         });
-        let mut response: RawTransactionResponse = self
-            .call("EXPERIMENTAL_tx_status", params)
+        let mut response: RpcTransactionResponse = self
+            .request("EXPERIMENTAL_tx_status", params)
             .await
             .map_err(|e| with_timeout_tx_hash(e, *tx_hash))?;
         response.transaction_hash = response
@@ -1511,7 +1511,7 @@ impl RpcClient {
     /// Look up the transaction that produced a receipt.
     ///
     /// Uses `EXPERIMENTAL_receipt_to_tx`, available on nodes running
-    /// nearcore 2.12 or later. Returns [`RpcError::UnknownReceipt`] if the
+    /// nearcore 2.12 or later. Returns [`RpcError::ReceiptNotFound`] if the
     /// node does not know the receipt.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%receipt_id)))]
     pub async fn receipt_to_tx(
@@ -1519,7 +1519,7 @@ impl RpcClient {
         receipt_id: &CryptoHash,
     ) -> Result<ReceiptToTxResponse, RpcError> {
         let params = serde_json::json!({ "receipt_id": receipt_id.to_string() });
-        self.call("EXPERIMENTAL_receipt_to_tx", params).await
+        self.request("EXPERIMENTAL_receipt_to_tx", params).await
     }
 
     /// Merge block reference parameters into a JSON object.
@@ -1633,7 +1633,7 @@ fn parse_timeout_cause(info: &serde_json::Value) -> Option<TimeoutCause> {
         // `send_tx` / `tx_status` return on success, so decode it the same way.
         Some("PENDING") => info
             .get("status")
-            .and_then(|status| RawTransactionResponse::deserialize(status).ok())
+            .and_then(|status| RpcTransactionResponse::deserialize(status).ok())
             .map(|status| TimeoutCause::Pending {
                 final_execution_status: status.final_execution_status,
                 outcome: status.outcome.map(Box::new),
@@ -1663,7 +1663,7 @@ fn parse_timeout_cause(info: &serde_json::Value) -> Option<TimeoutCause> {
 fn with_timeout_tx_hash(err: RpcError, tx_hash: CryptoHash) -> RpcError {
     match err {
         // The sent tx's hash is authoritative.
-        RpcError::RequestTimeout { message, cause, .. } => RpcError::RequestTimeout {
+        RpcError::Timeout { message, cause, .. } => RpcError::Timeout {
             message,
             transaction_hash: Some(tx_hash),
             cause,
@@ -1677,7 +1677,7 @@ fn with_timeout_tx_hash(err: RpcError, tx_hash: CryptoHash) -> RpcError {
 /// failure and must not retry, regardless of what the JSON-RPC body claims.
 ///
 /// `parse_rpc_error` returns one of two shapes:
-///   1. A typed handler variant (UnknownBlock/Chunk/Epoch/RequestTimeout/
+///   1. A typed handler variant (Block/Chunk/EpochNotFound, Timeout,
 ///      NodeNotSynced/…). These have well-understood retry semantics already
 ///      encoded in `RpcError::is_retryable` and should pass through unchanged.
 ///   2. The catch-all `RpcError::Rpc { code, .. }` (unrecognized or missing
@@ -1938,7 +1938,7 @@ mod tests {
         );
 
         let err = client
-            .call::<_, serde_json::Value>(
+            .request::<_, serde_json::Value>(
                 "send_tx",
                 serde_json::json!({ "signed_tx_base64": "AA==", "wait_until": "NONE" }),
             )
@@ -1988,7 +1988,7 @@ mod tests {
         );
 
         let err = client
-            .call::<_, serde_json::Value>(
+            .request::<_, serde_json::Value>(
                 "send_tx",
                 serde_json::json!({ "signed_tx_base64": "AA==", "wait_until": "NONE" }),
             )
@@ -2016,7 +2016,7 @@ mod tests {
         );
 
         let err = client
-            .call::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
+            .request::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
             .await
             .unwrap_err();
 
@@ -2046,7 +2046,7 @@ mod tests {
         );
 
         let err = client
-            .call::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
+            .request::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
             .await
             .unwrap_err();
 
@@ -2263,7 +2263,7 @@ mod tests {
         let debug = format!("{:?}", near.rpc());
         assert!(!debug.contains(secret));
         assert!(!debug.contains("x-api-key"));
-        let response: serde_json::Value = near.rpc().call("status", ()).await.unwrap();
+        let response: serde_json::Value = near.rpc().request("status", ()).await.unwrap();
         assert_eq!(response, serde_json::json!({ "ok": true }));
 
         let request = request_rx.recv().unwrap().to_ascii_lowercase();
@@ -2364,14 +2364,14 @@ mod tests {
         let (url, server) = scripted_server(vec![Conn::Reset, Conn::Reset, Conn::Respond]);
 
         let error = test_client(&url, RetryConfig::none())
-            .call::<_, serde_json::Value>("status", ())
+            .request::<_, serde_json::Value>("status", ())
             .await
             .unwrap_err();
         assert!(matches!(error, RpcError::Http(_)), "{error:?}");
         assert!(error.is_retryable(), "{error:?}");
 
         let response: serde_json::Value = test_client(&url, fast_retries(1))
-            .call("status", ())
+            .request("status", ())
             .await
             .unwrap();
         assert_eq!(response, serde_json::json!({ "ok": true }));
@@ -2386,14 +2386,14 @@ mod tests {
         let (url, server) = scripted_server(vec![Conn::Close, Conn::Close, Conn::Respond]);
 
         let error = test_client(&url, RetryConfig::none())
-            .call::<_, serde_json::Value>("status", ())
+            .request::<_, serde_json::Value>("status", ())
             .await
             .unwrap_err();
         assert!(is_incomplete_message(&error), "{error:?}");
         assert!(error.is_retryable(), "{error:?}");
 
         let response: serde_json::Value = test_client(&url, fast_retries(1))
-            .call("status", ())
+            .request("status", ())
             .await
             .unwrap();
         assert_eq!(response, serde_json::json!({ "ok": true }));
@@ -2411,7 +2411,7 @@ mod tests {
         let client = test_client(&url, fast_retries(2));
 
         let error = client
-            .call::<_, serde_json::Value>(
+            .request::<_, serde_json::Value>(
                 "sandbox_fast_forward",
                 serde_json::json!({ "delta_height": 1 }),
             )
@@ -2420,7 +2420,7 @@ mod tests {
         assert!(is_incomplete_message(&error), "{error:?}");
 
         let response: serde_json::Value = client
-            .call(
+            .request(
                 "query",
                 serde_json::json!({
                     "request_type": "view_account",
@@ -2946,7 +2946,7 @@ mod tests {
                 }
             }
         });
-        let err = RpcError::invalid_transaction("invalid nonce", Some(data));
+        let err = RpcError::invalid_tx("invalid nonce", Some(data));
         match err {
             RpcError::InvalidTx(InvalidTxError::InvalidNonce { tx_nonce, ak_nonce }) => {
                 assert_eq!(tx_nonce, 5);
@@ -2969,7 +2969,7 @@ mod tests {
                 }
             }
         });
-        let err = RpcError::invalid_transaction("insufficient balance", Some(data));
+        let err = RpcError::invalid_tx("insufficient balance", Some(data));
         assert!(
             matches!(
                 err,
@@ -2983,8 +2983,8 @@ mod tests {
     fn test_invalid_transaction_falls_back_on_unparseable() {
         // When data doesn't contain a parseable InvalidTxError, falls back
         let data = serde_json::json!({ "SomeOtherError": {} });
-        let err = RpcError::invalid_transaction("some error", Some(data));
-        assert!(matches!(err, RpcError::InvalidTransaction { .. }));
+        let err = RpcError::invalid_tx("some error", Some(data));
+        assert!(matches!(err, RpcError::InvalidTxUnparsed { .. }));
     }
 
     // ========================================================================
@@ -3231,7 +3231,7 @@ mod tests {
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::UnknownBlock(_)));
+        assert!(matches!(result, RpcError::BlockNotFound(_)));
     }
 
     #[test]
@@ -3255,13 +3255,13 @@ mod tests {
         .unwrap();
         let result = client.parse_rpc_error(&error);
         match &result {
-            RpcError::UnknownBlock(block_ref) => {
+            RpcError::BlockNotFound(block_ref) => {
                 assert_eq!(
                     block_ref,
                     "#100000000 (GLCuCE2yNJWH2EfWJu7pSM8swd5qd1RG71pwV4YFbUz7)"
                 );
             }
-            other => panic!("expected UnknownBlock, got {other:?}"),
+            other => panic!("expected BlockNotFound, got {other:?}"),
         }
         // Deterministic: must not inherit the catch-all's -32000 retry.
         assert!(!result.is_retryable());
@@ -3283,8 +3283,8 @@ mod tests {
         }))
         .unwrap();
         match client.parse_rpc_error(&error) {
-            RpcError::UnknownBlock(block_ref) => assert_eq!(block_ref, "#100000000"),
-            other => panic!("expected UnknownBlock, got {other:?}"),
+            RpcError::BlockNotFound(block_ref) => assert_eq!(block_ref, "#100000000"),
+            other => panic!("expected BlockNotFound, got {other:?}"),
         }
 
         // No usable info: fall back to the descriptive `data` string.
@@ -3301,10 +3301,10 @@ mod tests {
             name: None,
         };
         match client.parse_rpc_error(&error) {
-            RpcError::UnknownBlock(block_ref) => {
+            RpcError::BlockNotFound(block_ref) => {
                 assert_eq!(block_ref, "The data for block #5 is garbage collected");
             }
-            other => panic!("expected UnknownBlock, got {other:?}"),
+            other => panic!("expected BlockNotFound, got {other:?}"),
         }
     }
 
@@ -3324,7 +3324,7 @@ mod tests {
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::UnknownChunk(_)));
+        assert!(matches!(result, RpcError::ChunkNotFound(_)));
     }
 
     #[test]
@@ -3341,7 +3341,7 @@ mod tests {
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::UnknownEpoch(_)));
+        assert!(matches!(result, RpcError::EpochNotFound(_)));
     }
 
     #[test]
@@ -3360,7 +3360,7 @@ mod tests {
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::UnknownReceipt(_)));
+        assert!(matches!(result, RpcError::ReceiptNotFound(_)));
     }
 
     // ========================================================================
@@ -3368,7 +3368,7 @@ mod tests {
     //
     // There is no HTTP mock harness in this crate, so the success path is
     // exercised by decoding a real-shape `result` envelope into the
-    // user-facing type (the same step `try_call` performs), and the error
+    // user-facing type (the same step `try_request` performs), and the error
     // path is exercised through `parse_rpc_error` on the real error envelope.
     // ========================================================================
 
@@ -3418,8 +3418,8 @@ mod tests {
         let client = RpcClient::new("https://example.com");
         let result = client.parse_rpc_error(&error);
         assert!(
-            matches!(result, RpcError::UnknownReceipt(_)),
-            "expected UnknownReceipt, got {:?}",
+            matches!(result, RpcError::ReceiptNotFound(_)),
+            "expected ReceiptNotFound, got {:?}",
             result
         );
     }
@@ -3732,7 +3732,7 @@ mod tests {
             name: None,
         };
         let result = client.parse_rpc_error(&error);
-        assert!(matches!(result, RpcError::InvalidTransaction { .. }));
+        assert!(matches!(result, RpcError::InvalidTxUnparsed { .. }));
     }
 
     #[test]
@@ -3764,12 +3764,12 @@ mod tests {
     ) -> (Option<CryptoHash>, Option<TimeoutCause>) {
         let client = RpcClient::new("https://example.com");
         match client.parse_rpc_error(&timeout_error(info)) {
-            RpcError::RequestTimeout {
+            RpcError::Timeout {
                 transaction_hash,
                 cause,
                 ..
             } => (transaction_hash, cause),
-            other => panic!("expected RequestTimeout, got {other:?}"),
+            other => panic!("expected Timeout, got {other:?}"),
         }
     }
 
@@ -4503,7 +4503,7 @@ mod tests {
     // non-2xx envelope decode tests
     //
     // nearcore returns HTTP 422 (UNKNOWN_BLOCK/UNKNOWN_CHUNK) and 408
-    // (TIMEOUT_ERROR) with a well-formed JSON-RPC error body. `try_call` now
+    // (TIMEOUT_ERROR) with a well-formed JSON-RPC error body. `try_request` now
     // tries to decode that body before falling back to `RpcError::Network`.
     // These tests verify the decode path on synthetic bodies without needing
     // an HTTP mock harness.
@@ -4531,8 +4531,8 @@ mod tests {
         let client = RpcClient::new("https://example.com");
         let result = client.parse_rpc_error(&error);
         assert!(
-            matches!(result, RpcError::UnknownBlock(_)),
-            "expected UnknownBlock, got {:?}",
+            matches!(result, RpcError::BlockNotFound(_)),
+            "expected BlockNotFound, got {:?}",
             result
         );
     }
@@ -4560,8 +4560,8 @@ mod tests {
         let client = RpcClient::new("https://example.com");
         let result = client.parse_rpc_error(&error);
         assert!(
-            matches!(result, RpcError::UnknownChunk(_)),
-            "expected UnknownChunk, got {:?}",
+            matches!(result, RpcError::ChunkNotFound(_)),
+            "expected ChunkNotFound, got {:?}",
             result
         );
     }
@@ -4589,7 +4589,7 @@ mod tests {
         let client = RpcClient::new("https://example.com");
         let result = client.parse_rpc_error(&error);
         match result {
-            RpcError::RequestTimeout {
+            RpcError::Timeout {
                 ref message,
                 transaction_hash,
                 ref cause,
@@ -4599,13 +4599,13 @@ mod tests {
                 assert!(matches!(cause, Some(TimeoutCause::NotObserved)));
                 assert!(result.is_retryable());
             }
-            _ => panic!("expected RequestTimeout, got {:?}", result),
+            _ => panic!("expected Timeout, got {:?}", result),
         }
     }
 
     #[tokio::test]
     async fn test_send_tx_timeout_pending_retries_same_bytes_and_reports_hash() {
-        // A PENDING timeout means the tx is already accepted. `call` keeps
+        // A PENDING timeout means the tx is already accepted. `request` keeps
         // re-sending the *same* signed bytes (nearcore treats a resubmission
         // of a known tx as "keep waiting"), never re-signs, and the final
         // error carries the caller-known hash so the caller can poll by hash.
@@ -4656,7 +4656,7 @@ mod tests {
             "every retry must re-send the original signed bytes"
         );
         match err {
-            RpcError::RequestTimeout {
+            RpcError::Timeout {
                 transaction_hash,
                 cause,
                 ..
@@ -4664,7 +4664,7 @@ mod tests {
                 assert_eq!(transaction_hash, Some(signed_tx.get_hash()));
                 assert!(matches!(cause, Some(TimeoutCause::Pending { .. })));
             }
-            other => panic!("expected RequestTimeout, got {other:?}"),
+            other => panic!("expected Timeout, got {other:?}"),
         }
     }
 
@@ -4672,16 +4672,16 @@ mod tests {
     fn test_non_2xx_html_body_falls_back_to_network() {
         // Non-JSON bodies (HTML error pages from proxies, gateways, etc.)
         // must still fall through to `RpcError::Network` with the status code
-        // preserved. We verify the decode-attempt fails so try_call's fallback
+        // preserved. We verify the decode-attempt fails so try_request's fallback
         // path kicks in.
         let body = "<html><body><h1>422 Unprocessable Entity</h1></body></html>";
         let parsed = serde_json::from_str::<JsonRpcResponse>(body);
         assert!(
             parsed.is_err(),
-            "HTML body must fail to parse as JsonRpcResponse so try_call falls back to Network"
+            "HTML body must fail to parse as JsonRpcResponse so try_request falls back to Network"
         );
 
-        // Confirm the fallback produces the expected shape (same call try_call
+        // Confirm the fallback produces the expected shape (same call try_request
         // makes once the decode attempt fails).
         let fallback = RpcError::network(format!("HTTP {}: {}", 422, body), Some(422), false);
         match fallback {
@@ -4790,7 +4790,7 @@ mod tests {
 
     #[test]
     fn test_non_2xx_typed_variant_passes_through_unchanged() {
-        // Typed variants (UnknownBlock, RequestTimeout, etc.) have well-known
+        // Typed variants (BlockNotFound, Timeout, etc.) have well-known
         // retry semantics and must not be downgraded — even on a 4xx status.
         let body = r#"{
             "jsonrpc": "2.0",
@@ -4812,8 +4812,8 @@ mod tests {
         let parsed_err = client.parse_rpc_error(&error);
         let result = preserve_http_retry_classification(parsed_err, 422, body);
         assert!(
-            matches!(result, RpcError::UnknownBlock(_)),
-            "typed UnknownBlock must pass through, got {:?}",
+            matches!(result, RpcError::BlockNotFound(_)),
+            "typed BlockNotFound must pass through, got {:?}",
             result
         );
     }
@@ -4896,7 +4896,7 @@ mod tests {
 
     /// The library must not log above DEBUG for errors it hands back to the
     /// caller. These install a capturing subscriber and check the level and
-    /// fields of every event `RpcClient::call` emits.
+    /// fields of every event `RpcClient::request` emits.
     #[cfg(feature = "tracing")]
     mod tracing_events {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -5114,8 +5114,10 @@ mod tests {
                 },
             );
 
-            let result: serde_json::Value =
-                client.call("status", serde_json::json!({})).await.unwrap();
+            let result: serde_json::Value = client
+                .request("status", serde_json::json!({}))
+                .await
+                .unwrap();
             assert_eq!(result["ok"], true);
             assert_eq!(transport.calls.load(Ordering::SeqCst), 2);
 

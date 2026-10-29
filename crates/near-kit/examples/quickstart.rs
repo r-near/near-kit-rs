@@ -8,7 +8,8 @@
 //!   NEAR_ACCOUNT_ID=your-account.testnet
 //!   NEAR_PRIVATE_KEY=ed25519:...
 
-use near_kit::protocol::{AccountIdRef, Action};
+use near_kit::AccountIdRef;
+use near_kit::protocol::Action;
 use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::transaction::FunctionCall;
 use near_kit::*;

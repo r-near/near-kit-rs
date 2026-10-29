@@ -9,8 +9,9 @@ use serde_json::json;
 use tokio::sync::OnceCell;
 
 use crate::Near;
-use crate::transaction::{Call, ContractError, FunctionCall};
+use crate::transaction::FunctionCall;
 use crate::types::{AccountId, Gas, NearToken};
+use crate::{Call, ContractError};
 use crate::{Contract, TxSender, Viewer};
 
 use super::types::{NftContractMetadata, NftToken};

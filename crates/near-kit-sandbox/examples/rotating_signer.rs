@@ -18,7 +18,7 @@ async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting local sandbox...\n");
     let sandbox: Sandbox = Sandbox::builder().fresh().await?;
 
-    let root_near = sandbox.client();
+    let root_near = sandbox.root_account();
     let root_account = root_near.account_id().to_string();
 
     // Generate 5 keys dynamically
@@ -40,7 +40,7 @@ async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add remaining keys using a loop
     let bot_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&bot_account, secret_keys[0].clone()));
 
@@ -57,7 +57,7 @@ async fn high_throughput_example() -> Result<(), Box<dyn std::error::Error>> {
     // Create RotatingSigner with all keys
     let rotating_signer = RotatingSigner::new(&bot_account, secret_keys)?;
 
-    let near = sandbox.client().near().with_signer(rotating_signer);
+    let near = sandbox.root_account().near().with_signer(rotating_signer);
 
     // Create recipient accounts
     let num_recipients = 20;

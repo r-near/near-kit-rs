@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use near_kit::protocol::Action;
 use near_kit::rpc::{BlockReference, ViewFunctionResult};
-use near_kit::transaction::ContractError;
+use near_kit::ContractError;
 use near_kit::*;
 
 #[near_kit::contract]

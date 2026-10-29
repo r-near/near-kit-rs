@@ -1,6 +1,7 @@
 //! Test that `impl Trait` arguments are accepted, as in any trait method.
 
-use near_kit::transaction::{Call, FunctionCall};
+use near_kit::transaction::FunctionCall;
+use near_kit::Call;
 use near_kit::signer::{InMemorySigner, SecretKey};
 use near_kit::*;
 

@@ -395,9 +395,9 @@ pub fn extract_timestamp_from_nonce(nonce: &[u8; 32]) -> u64 {
 ///     state: None,
 /// };
 ///
-/// let hash = nep413::serialize_message(&params);
+/// let hash = nep413::hash_message(&params);
 /// ```
-pub fn serialize_message(params: &SignMessageParams) -> CryptoHash {
+pub fn hash_message(params: &SignMessageParams) -> CryptoHash {
     // Serialize tag as u32 little-endian (Borsh uses little-endian)
     let tag_bytes = NEP413_TAG.to_le_bytes();
 
@@ -469,7 +469,7 @@ pub fn verify_signature(
     }
 
     // Reconstruct the hash
-    let hash = serialize_message(params);
+    let hash = hash_message(params);
 
     // Verify the signature
     signed.signature.verify(hash.as_bytes(), &signed.public_key)
@@ -572,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serialize_message() {
+    fn test_hash_message() {
         let params = SignMessageParams {
             message: "Hello NEAR!".to_string(),
             recipient: "example.near".to_string(),
@@ -581,13 +581,13 @@ mod tests {
             state: None,
         };
 
-        let hash = serialize_message(&params);
+        let hash = hash_message(&params);
 
         // Should produce a valid 32-byte hash
         assert_eq!(hash.as_bytes().len(), 32);
 
         // Same input should produce same hash
-        let hash2 = serialize_message(&params);
+        let hash2 = hash_message(&params);
         assert_eq!(hash, hash2);
 
         // Different input should produce different hash
@@ -598,7 +598,7 @@ mod tests {
             callback_url: None,
             state: None,
         };
-        let hash3 = serialize_message(&params2);
+        let hash3 = hash_message(&params2);
         assert_ne!(hash, hash3);
     }
 
@@ -615,7 +615,7 @@ mod tests {
             state: Some("csrf_token".to_string()),
         };
 
-        let hash = serialize_message(&params);
+        let hash = hash_message(&params);
         let signature = secret.sign(hash.as_bytes());
 
         let signed = SignedMessage {
@@ -664,7 +664,7 @@ mod tests {
             state: None,
         };
 
-        let hash = serialize_message(&params);
+        let hash = hash_message(&params);
         let signature = secret.sign(hash.as_bytes());
 
         let signed = SignedMessage {
@@ -716,7 +716,7 @@ mod tests {
             state: None,
         };
 
-        let hash = serialize_message(&params);
+        let hash = hash_message(&params);
         let signature = secret.sign(hash.as_bytes());
 
         let signed = SignedMessage {
@@ -759,7 +759,7 @@ mod tests {
             state: None,
         };
 
-        let hash = serialize_message(&params);
+        let hash = hash_message(&params);
         let signature = secret.sign(hash.as_bytes());
 
         let signed = SignedMessage {
@@ -842,7 +842,7 @@ mod tests {
         let expected_sig_no_callback = "NnJgPU1Ql7ccRTITIoOVsIfElmvH1RV7QAT4a9Vh6ShCOnjIzRwxqX54JzoQ/nK02p7VBMI2vJn48rpImIJwAw==";
 
         // Verify our serialization produces the same hash that the TS impl would sign
-        let hash = serialize_message(&params_no_callback);
+        let hash = hash_message(&params_no_callback);
 
         // The public key from the seed phrase (derived with m/44'/397'/0')
         let public_key: crate::types::PublicKey =
@@ -873,7 +873,7 @@ mod tests {
 
         let expected_sig_with_callback = "zzZQ/GwAjrZVrTIFlvmmQbDQHllfzrr8urVWHaRt5cPfcXaCSZo35c5LDpPpTKivR6BxLyb3lcPM0FfCW5lcBQ==";
 
-        let hash = serialize_message(&params_with_callback);
+        let hash = hash_message(&params_with_callback);
         let sig_bytes = BASE64_STANDARD.decode(expected_sig_with_callback).unwrap();
         let signature = crate::types::Signature::ed25519_from_bytes(
             sig_bytes.try_into().expect("signature should be 64 bytes"),
@@ -939,7 +939,7 @@ mod tests {
             state: Some("session123".to_string()),
         };
 
-        let hash = serialize_message(&params);
+        let hash = hash_message(&params);
         let signature = secret.sign(hash.as_bytes());
 
         let signed = SignedMessage {
@@ -1053,7 +1053,7 @@ mod tests {
             state: None,
         };
 
-        let hash = serialize_message(&params);
+        let hash = hash_message(&params);
         let signature = secret.sign(hash.as_bytes());
 
         let signed = SignedMessage {

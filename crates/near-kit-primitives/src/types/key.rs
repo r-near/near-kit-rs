@@ -453,7 +453,7 @@ const ML_DSA_65_HASH_PREFIX: &str = "ml-dsa-65-hash";
 /// only ever carry full keys (transactions, actions, receipts, validators) stay
 /// `PublicKey`.
 ///
-/// - [`full_pubkey`](Self::full_pubkey) / [`into_full`](Self::into_full) get
+/// - [`as_full`](Self::as_full) / [`into_full`](Self::into_full) get
 ///   the usable key back when there is one.
 /// - [`PublicKey::to_ml_dsa65_hash`] computes the handle for a full ML-DSA-65
 ///   key; [`refers_to`](Self::refers_to) checks a handle against a full key.
@@ -473,11 +473,11 @@ const ML_DSA_65_HASH_PREFIX: &str = "ml-dsa-65-hash";
 /// ```rust
 /// # use near_kit_primitives::signer::{PublicKey, PublicKeyHandle};
 /// let full: PublicKeyHandle = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
-/// assert!(full.full_pubkey().is_some());
+/// assert!(full.as_full().is_some());
 ///
 /// let handle: PublicKeyHandle =
 ///     "ml-dsa-65-hash:GsDTSpXDhiutJazktZEpKNQZit7U91LskL2Fq541u8PJ".parse()?;
-/// assert!(handle.full_pubkey().is_none());
+/// assert!(handle.as_full().is_none());
 /// // ...and the same string is *not* a PublicKey:
 /// assert!("ml-dsa-65-hash:GsDTSpXDhiutJazktZEpKNQZit7U91LskL2Fq541u8PJ"
 ///     .parse::<PublicKey>()
@@ -496,14 +496,14 @@ impl PublicKeyHandle {
     /// The full public key, if this handle carries one (ed25519/secp256k1, or a
     /// full ML-DSA-65 key wrapped via `From<PublicKey>`). `None` for an
     /// ML-DSA-65 hash: the key is not recoverable from the digest.
-    pub fn full_pubkey(&self) -> Option<&PublicKey> {
+    pub fn as_full(&self) -> Option<&PublicKey> {
         match self {
             Self::Full(pk) => Some(pk),
             Self::MlDsa65Hash(_) => None,
         }
     }
 
-    /// Owned version of [`full_pubkey`](Self::full_pubkey).
+    /// Owned version of [`as_full`](Self::as_full).
     pub fn into_full(self) -> Option<PublicKey> {
         match self {
             Self::Full(pk) => Some(pk),
@@ -2150,7 +2150,7 @@ mod tests {
         let full = secret.public_key();
         let handle = full.to_ml_dsa65_hash().unwrap();
         assert!(handle.is_ml_dsa65_hash());
-        assert!(handle.full_pubkey().is_none());
+        assert!(handle.as_full().is_none());
         assert_eq!(handle.key_type(), KeyType::MlDsa65);
         assert_eq!(handle.as_bytes().len(), ML_DSA_65_HASH_LENGTH);
 
@@ -2179,7 +2179,7 @@ mod tests {
         // Wrapping the full key is lossless and distinct from its hash.
         let wrapped = PublicKeyHandle::from(full.clone());
         assert_ne!(wrapped, handle);
-        assert_eq!(wrapped.full_pubkey(), Some(&full));
+        assert_eq!(wrapped.as_full(), Some(&full));
         assert!(wrapped.refers_to(&full));
         assert_eq!(wrapped.clone().into_full(), Some(full.clone()));
         assert_eq!(wrapped.to_string(), full.to_string());

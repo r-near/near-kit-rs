@@ -97,7 +97,7 @@ async fn test_publish_deploy_from_call_end_to_end() {
     user_near
         .wait_until::<Final>()
         .transaction(user_near.account_id())
-        .add_action(Action::deploy_from_account(publisher_id.clone()))
+        .add_action(Action::deploy_from(publisher_id.clone()))
         .await
         .unwrap();
 
@@ -202,7 +202,7 @@ async fn test_deploy_from_publisher() {
     let outcome = user_near
         .wait_until::<Final>()
         .transaction(&user_id)
-        .add_action(Action::deploy_from_account(publisher_id.clone()))
+        .add_action(Action::deploy_from(publisher_id.clone()))
         .await
         .unwrap();
 
@@ -254,7 +254,7 @@ async fn test_deploy_from_hash() {
     let outcome = user_near
         .wait_until::<Final>()
         .transaction(&user_id)
-        .add_action(Action::deploy_from_hash(code_hash))
+        .add_action(Action::deploy_from(code_hash))
         .await
         .unwrap();
 
@@ -299,7 +299,10 @@ async fn test_state_init_by_hash() {
     let initial_data: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
 
     // Use state_init to create a deterministic account
-    let si = StateInit::by_hash(code_hash, initial_data);
+    let si = StateInit::V1(StateInitV1 {
+        code: code_hash.into(),
+        data: initial_data,
+    });
     let receiver = si.derive_account_id();
     let outcome = publisher_near
         .wait_until::<Final>()
@@ -338,7 +341,10 @@ async fn test_state_init_by_publisher() {
     initial_data.insert(b"key1".to_vec(), b"value1".to_vec());
 
     // Use state_init to create a deterministic account
-    let si = StateInit::by_publisher(publisher_id.clone(), initial_data);
+    let si = StateInit::V1(StateInitV1 {
+        code: publisher_id.clone().into(),
+        data: initial_data,
+    });
     let receiver = si.derive_account_id();
     let outcome = publisher_near
         .wait_until::<Final>()
@@ -421,7 +427,7 @@ async fn test_action_delete_account() {
 
     // Delete the account
     let to_delete_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&to_delete_id, to_delete_key.clone()));
 

@@ -362,7 +362,7 @@ fn generate_view_method(method: &MethodInfo, contract_format: SerializationForma
 
     quote! {
         #(#docs)*
-        pub fn #method_name(&self, #params) -> #near_kit::transaction::View<#backend, #return_type>
+        pub fn #method_name(&self, #params) -> #near_kit::View<#backend, #return_type>
         where
             #backend: #near_kit::Viewer + ::core::clone::Clone,
         {
@@ -392,7 +392,7 @@ fn generate_call_method(method: &MethodInfo, trait_name: &Ident) -> TokenStream2
 
     quote! {
         #(#docs)*
-        pub fn #method_name(&self, #params) -> #near_kit::transaction::Call<#backend>
+        pub fn #method_name(&self, #params) -> #near_kit::Call<#backend>
         where
             #backend: #near_kit::TxSender + ::core::clone::Clone,
         {

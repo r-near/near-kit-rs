@@ -6,9 +6,10 @@
 use std::future::IntoFuture;
 use std::sync::{Arc, Mutex};
 
+use near_kit_primitives::ContractError;
 use near_kit_primitives::protocol::Action;
 use near_kit_primitives::rpc::{BlockReference, Finality, ViewFunctionResult};
-use near_kit_primitives::transaction::{CodecError, ContractError};
+use near_kit_primitives::transaction::CodecError;
 use near_kit_primitives::{
     AccountId, Contract, CryptoHash, Gas, NearToken, TxSender, Viewer, account,
 };
@@ -175,7 +176,7 @@ impl Viewer for Unclonable {
 /// An extension-trait helper can return the view itself, so callers can
 /// still pick a block or ask for metadata.
 trait CounterExt: Viewer + Clone + Sized {
-    fn count(&self) -> near_kit_primitives::transaction::View<Self, u64> {
+    fn count(&self) -> near_kit_primitives::View<Self, u64> {
         Counter::client(self.clone(), account!("c.near")).get_count()
     }
 }

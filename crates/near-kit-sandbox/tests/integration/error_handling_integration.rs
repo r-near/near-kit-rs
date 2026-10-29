@@ -1,8 +1,9 @@
 //! RPC error shapes that are observable only against a real node.
 
+use near_kit::ContractError;
 use near_kit::protocol::Action;
 use near_kit::rpc::{BlockReference, RpcError};
-use near_kit::transaction::{ContractError, Final};
+use near_kit::transaction::Final;
 use near_kit::{AccountId, CryptoHash, Error, NearToken};
 use near_kit_sandbox::SANDBOX_ROOT_ACCOUNT;
 
@@ -101,5 +102,5 @@ async fn invalid_block_hash_returns_unknown_block() {
         .block(BlockReference::from(CryptoHash::default()))
         .await
         .expect_err("zero block hash must not exist");
-    assert!(matches!(error, RpcError::UnknownBlock(_)));
+    assert!(matches!(error, RpcError::BlockNotFound(_)));
 }

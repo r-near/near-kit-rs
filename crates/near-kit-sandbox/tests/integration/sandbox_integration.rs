@@ -118,7 +118,7 @@ async fn custom_chain_id_reaches_the_client() {
         .fresh()
         .await
         .expect("custom-chain sandbox");
-    let near = sandbox.client();
+    let near = sandbox.root_account();
 
     assert_eq!(near.near().chain_id().as_str(), "pinet");
     assert!(
@@ -134,7 +134,7 @@ async fn custom_chain_id_reaches_the_client() {
 #[tokio::test]
 async fn fast_forward_advances_block_height() {
     let sandbox = Sandbox::builder().fresh().await.expect("fresh sandbox");
-    let near = sandbox.client();
+    let near = sandbox.root_account();
     let before = near
         .near()
         .rpc()

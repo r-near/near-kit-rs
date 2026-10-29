@@ -1,6 +1,6 @@
 //! Low-level RPC access, transports, query builders, and response types.
 //!
-//! `RpcClient` includes the generic `RpcClient::call` escape hatch in
+//! `RpcClient` includes the generic `RpcClient::request` escape hatch in
 //! addition to typed NEAR RPC methods. The response and view types are
 //! re-exported from `near-kit-primitives`.
 //!
@@ -51,8 +51,8 @@ pub use near_kit_primitives::rpc::{
     ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
     FinalExecutionStatus, Finality, GasKeyNoncesView, GasPrice, GasProfileEntry,
     GlobalContractIdentifierView, MaintenanceWindow, MerkleDirection, MerklePathItem,
-    NextEpochValidatorInfo, NodeVersion, RawTransactionResponse, Receipt, ReceiptContent,
-    ReceiptToTxResponse, STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator,
+    NextEpochValidatorInfo, NodeVersion, Receipt, ReceiptContent, ReceiptToTxResponse,
+    RpcTransactionResponse, STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator,
     StateChangeKindView, StateItem, StatusResponse, SyncCheckpoint, SyncInfo, TransactionNonceView,
     TransactionView, TrieSplit, TxExecutionStatus, ValidatorInfo, ValidatorKickoutReason,
     ValidatorKickoutView, ValidatorStakeView, ValidatorStakeViewV1,

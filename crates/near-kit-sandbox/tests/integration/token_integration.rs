@@ -157,7 +157,7 @@ async fn test_ft_transfer() {
     let receiver_id: AccountId = format!("receiver.{}", owner_id).parse().unwrap();
 
     let owner_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&owner_id, owner_key.clone()));
 
@@ -442,7 +442,7 @@ async fn test_nft_transfer() {
 
     // Create owner's client for signing
     let owner_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&owner_id, owner_key.clone()));
 
@@ -553,7 +553,7 @@ async fn test_nft_supply_for_owner() {
 
     // Create owner1's client for signing
     let owner1_near = sandbox
-        .client()
+        .root_account()
         .near()
         .with_signer(InMemorySigner::new(&owner1_id, owner1_key.clone()));
 
