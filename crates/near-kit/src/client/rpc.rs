@@ -2995,35 +2995,27 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_sanitize_url_plain() {
-        assert_eq!(
-            sanitize_url("https://rpc.mainnet.near.org"),
-            "https://rpc.mainnet.near.org"
-        );
-    }
-
-    #[test]
-    fn test_sanitize_url_strips_query() {
-        assert_eq!(
-            sanitize_url("https://rpc.provider.com/v1?api_key=secret123"),
-            "https://rpc.provider.com/v1"
-        );
-    }
-
-    #[test]
-    fn test_sanitize_url_strips_fragment() {
-        assert_eq!(
-            sanitize_url("https://rpc.provider.com/v1#section"),
-            "https://rpc.provider.com/v1"
-        );
-    }
-
-    #[test]
     fn test_sanitize_url_strips_query_and_fragment() {
-        assert_eq!(
-            sanitize_url("https://rpc.provider.com/v1?key=val#frag"),
-            "https://rpc.provider.com/v1"
-        );
+        for (url, shown) in [
+            (
+                "https://rpc.mainnet.near.org",
+                "https://rpc.mainnet.near.org",
+            ),
+            (
+                "https://rpc.provider.com/v1?api_key=secret123",
+                "https://rpc.provider.com/v1",
+            ),
+            (
+                "https://rpc.provider.com/v1#section",
+                "https://rpc.provider.com/v1",
+            ),
+            (
+                "https://rpc.provider.com/v1?key=val#frag",
+                "https://rpc.provider.com/v1",
+            ),
+        ] {
+            assert_eq!(sanitize_url(url), shown);
+        }
     }
 
     // ========================================================================
@@ -4656,42 +4648,24 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn test_block_id_or_null_with_none() {
-        let result = block_id_or_null(None);
-        assert!(result.is_null());
-    }
-
-    #[test]
-    fn test_block_id_or_null_with_height() {
-        let block = BlockReference::Height(12345);
-        let result = block_id_or_null(Some(&block));
-        assert_eq!(result, serde_json::json!(12345));
-    }
-
-    #[test]
-    fn test_block_id_or_null_with_hash() {
+    fn test_block_id_or_null_keeps_only_heights_and_hashes() {
         let hash = CryptoHash::hash(b"test block");
-        let block = BlockReference::Hash(hash);
-        let result = block_id_or_null(Some(&block));
-        assert_eq!(result, serde_json::json!(hash.to_string()));
-    }
-
-    #[test]
-    fn test_block_id_or_null_with_finality_falls_back_to_null() {
-        let block = BlockReference::Finality(Finality::Final);
-        let result = block_id_or_null(Some(&block));
-        assert!(result.is_null(), "finality variants should map to null");
-
-        let block = BlockReference::Finality(Finality::Optimistic);
-        let result = block_id_or_null(Some(&block));
-        assert!(result.is_null(), "optimistic should map to null");
-    }
-
-    #[test]
-    fn test_block_id_or_null_with_sync_checkpoint_falls_back_to_null() {
-        let block = BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis);
-        let result = block_id_or_null(Some(&block));
-        assert!(result.is_null(), "sync checkpoint should map to null");
+        assert!(block_id_or_null(None).is_null());
+        assert_eq!(
+            block_id_or_null(Some(&BlockReference::Height(12345))),
+            serde_json::json!(12345)
+        );
+        assert_eq!(
+            block_id_or_null(Some(&BlockReference::Hash(hash))),
+            serde_json::json!(hash.to_string())
+        );
+        for latest in [
+            BlockReference::Finality(Finality::Final),
+            BlockReference::Finality(Finality::Optimistic),
+            BlockReference::SyncCheckpoint(SyncCheckpoint::Genesis),
+        ] {
+            assert!(block_id_or_null(Some(&latest)).is_null(), "{latest:?}");
+        }
     }
 
     // ========================================================================
