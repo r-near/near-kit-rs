@@ -3353,6 +3353,41 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_view_access_key_patches_account_into_access_key_not_found() {
+        let account_id: AccountId = "alice.near".parse().unwrap();
+        let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+            .parse()
+            .unwrap();
+        let error = rpc_with_handler_error(
+            "UNKNOWN_ACCESS_KEY",
+            serde_json::json!({
+                "public_key": public_key,
+                "block_height": 100,
+                "block_hash": "11111111111111111111111111111111",
+            }),
+        )
+        .view_access_key(
+            &account_id,
+            &public_key,
+            BlockReference::Finality(Finality::Final),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                RpcError::AccessKeyNotFound {
+                    account_id: actual_account,
+                    public_key: actual_key,
+                    block_height: Some(100),
+                    block_hash: Some(CryptoHash::ZERO),
+                } if *actual_account == account_id && *actual_key == public_key
+            ),
+            "got {error:?}"
+        );
+    }
+
     #[test]
     fn test_parse_rpc_error_invalid_account() {
         let client = RpcClient::new("https://example.com");
