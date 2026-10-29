@@ -34,7 +34,7 @@
 //!
 //! # Nonces
 //!
-//! NEP-413 defines the nonce as an arbitrary, opaque 32-byte value — the spec attaches no
+//! NEP-413 defines the nonce as an arbitrary, opaque 32-byte value; the spec attaches no
 //! semantics to it. As a convenience, near-kit's [`generate_nonce()`] embeds a big-endian
 //! millisecond timestamp in the first 8 bytes so that verification can enforce a maximum
 //! signature age. This timestamp embedding is a near-kit convention, not part of the spec.
@@ -42,7 +42,7 @@
 //! By default, [`verify_signature()`] (and `near-kit`'s RPC-backed `verify()`) assume this
 //! convention ([`NonceValidation::Timestamp`]). If you are verifying messages from an app that
 //! uses its own nonce scheme (e.g. random bytes, or a custom structured nonce), pass
-//! [`NonceValidation::None`] to skip the timestamp interpretation — you are then responsible
+//! [`NonceValidation::None`] to skip the timestamp interpretation. You are then responsible
 //! for replay protection yourself (e.g. tracking used nonces or validating your own embedded
 //! structure).
 //!
@@ -50,13 +50,13 @@
 
 use std::time::Duration;
 
-use borsh::BorshSerialize;
+use base64::prelude::*;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{hex::Hex, serde_as};
 
 use crate::types::{AccountId, CryptoHash, PublicKey, Signature};
 
-/// NEP-413 tag prefix: 2^31 + 413 = 2147484061
+/// NEP-413 tag prefix.
 ///
 /// This prefix ensures that signed messages cannot be confused with valid transactions.
 /// The tag makes the message too long to be a valid signer account ID.
@@ -64,10 +64,6 @@ pub const NEP413_TAG: u32 = (1 << 31) + 413;
 
 /// Default maximum age for signature validity (5 minutes).
 pub const DEFAULT_MAX_AGE: Duration = Duration::from_secs(5 * 60);
-
-// ============================================================================
-// Types
-// ============================================================================
 
 /// Parameters for signing a NEP-413 message.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,11 +74,7 @@ pub struct SignMessageParams {
     /// The recipient identifier (e.g., "alice.near" or "myapp.com").
     pub recipient: String,
 
-    /// A 32-byte nonce for replay protection.
-    ///
-    /// Per NEP-413 this is an arbitrary, opaque value — any 32 bytes are valid.
-    /// Use [`generate_nonce()`] to create one with an embedded timestamp
-    /// (a near-kit convention that enables expiration checking during verification).
+    /// A 32-byte nonce for replay protection; see [Nonces](self#nonces).
     pub nonce: [u8; 32],
 
     /// Optional callback URL for web wallets.
@@ -163,38 +155,7 @@ impl AuthPayload {
         }
     }
 
-    /// Create an `AuthPayload` from a signed message and the original parameters.
-    ///
-    /// This is useful when you want to generate the same JSON format that a
-    /// TypeScript client would produce, for example when testing or when a
-    /// Rust client needs to authenticate to a service.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use near_kit_primitives::signer::{InMemorySigner, SecretKey, Signer};
-    /// use near_kit_primitives::standards::nep413;
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let signer = InMemorySigner::implicit(SecretKey::generate_ed25519())?;
-    ///
-    /// let params = nep413::SignMessageParams {
-    ///     message: "Sign in to My App".to_string(),
-    ///     recipient: "myapp.com".to_string(),
-    ///     nonce: nep413::generate_nonce(),
-    ///     callback_url: None,
-    ///     state: None,
-    /// };
-    ///
-    /// let signed = signer.key().sign_nep413(signer.account_id(), &params).await?;
-    /// let payload = nep413::AuthPayload::from_signed(signed, &params);
-    ///
-    /// // Serialize to JSON for HTTP request
-    /// let json = serde_json::to_string(&payload)?;
-    /// println!("POST body: {}", json);
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// The payload a client sends for `signed_message`, signed over `params`.
     pub fn from_signed(signed_message: SignedMessage, params: &SignMessageParams) -> Self {
         Self {
             signed_message,
@@ -204,15 +165,6 @@ impl AuthPayload {
             callback_url: params.callback_url.clone(),
         }
     }
-}
-
-/// Internal Borsh-serializable payload matching NEP-413 spec.
-#[derive(BorshSerialize)]
-struct Nep413Payload {
-    message: String,
-    nonce: [u8; 32],
-    recipient: String,
-    callback_url: Option<String>,
 }
 
 /// A signed NEP-413 message.
@@ -237,13 +189,7 @@ pub struct SignedMessage {
     pub state: Option<String>,
 }
 
-/// How to interpret the nonce during verification.
-///
-/// NEP-413 defines the nonce as an arbitrary, opaque 32-byte value. near-kit's
-/// [`generate_nonce()`] embeds a timestamp in the first 8 bytes as a convention, which
-/// [`NonceValidation::Timestamp`] (the default) checks against a maximum age. Apps using
-/// their own nonce scheme should use [`NonceValidation::None`] and handle replay
-/// protection themselves.
+/// How to interpret the nonce during verification; see [Nonces](self#nonces).
 ///
 /// A [`Duration`] converts into this type for convenience: `max_age.into()` yields
 /// `Timestamp { max_age }`, and `Duration::MAX` yields `None` (no expiration checking).
@@ -257,11 +203,8 @@ pub enum NonceValidation {
         max_age: Duration,
     },
 
-    /// Treat the nonce as opaque, per the NEP-413 spec. No interpretation is applied.
-    ///
-    /// The caller is then responsible for nonce validation and replay protection —
-    /// e.g. tracking used nonces server-side, or validating their own embedded
-    /// structure (expiration, versioning, etc.).
+    /// Treat the nonce as opaque, per the NEP-413 spec; replay protection is then
+    /// the caller's job.
     None,
 }
 
@@ -309,10 +252,6 @@ impl Default for VerifyOptions {
     }
 }
 
-// ============================================================================
-// Core Functions
-// ============================================================================
-
 /// Current time in milliseconds since the Unix epoch.
 ///
 /// `std::time::SystemTime::now()` panics on `wasm32-unknown-unknown` (there's no OS
@@ -333,128 +272,44 @@ fn now_millis() -> u64 {
     }
 }
 
-/// Generate a 32-byte nonce with an embedded timestamp for expiration checking.
-///
-/// The nonce structure:
-/// - First 8 bytes: timestamp (milliseconds since epoch, big-endian)
-/// - Remaining 24 bytes: cryptographically random data
-///
-/// This layout is a near-kit convention, not part of NEP-413 — the spec treats the nonce
-/// as an arbitrary, opaque 32-byte value. Nonces produced by this function work with the
-/// default [`NonceValidation::Timestamp`] expiration checking in [`verify_signature()`]
-/// and `verify()`.
-///
-/// # Example
-///
-/// ```rust
-/// use near_kit_primitives::standards::nep413;
-///
-/// let nonce = nep413::generate_nonce();
-/// assert_eq!(nonce.len(), 32);
-/// ```
+/// Generate a 32-byte nonce: a big-endian millisecond timestamp, then 24 random
+/// bytes (a near-kit convention; see [Nonces](self#nonces)).
 pub fn generate_nonce() -> [u8; 32] {
     let mut nonce = [0u8; 32];
-
-    // First 8 bytes: timestamp (ms since epoch) as big-endian u64
-    let timestamp = now_millis();
-    nonce[..8].copy_from_slice(&timestamp.to_be_bytes());
-
-    // Remaining 24 bytes: random data
+    nonce[..8].copy_from_slice(&now_millis().to_be_bytes());
     super::csprng::fill_random(&mut nonce[8..]);
-
     nonce
 }
 
 /// Extract the timestamp from a nonce (first 8 bytes as big-endian u64 milliseconds).
-///
-/// Only meaningful for nonces that follow the near-kit convention used by
-/// [`generate_nonce()`]. For nonces from other schemes the returned value is
-/// whatever their first 8 bytes happen to contain.
+/// Only meaningful for nonces from [`generate_nonce()`].
 pub fn extract_timestamp_from_nonce(nonce: &[u8; 32]) -> u64 {
     u64::from_be_bytes(nonce[..8].try_into().unwrap())
 }
 
-/// Serialize and hash a NEP-413 message, ready for signing.
-///
-/// Steps:
-/// 1. Serialize the tag (2147484061) as u32 little-endian
-/// 2. Serialize the payload with Borsh
-/// 3. Concatenate: tag_bytes + payload_bytes
-/// 4. Hash with SHA256
-///
-/// # Example
-///
-/// ```rust
-/// use near_kit_primitives::standards::nep413::{self, SignMessageParams};
-///
-/// let params = SignMessageParams {
-///     message: "Hello".to_string(),
-///     recipient: "myapp.com".to_string(),
-///     nonce: nep413::generate_nonce(),
-///     callback_url: None,
-///     state: None,
-/// };
-///
-/// let hash = nep413::hash_message(&params);
-/// ```
-pub fn hash_message(params: &SignMessageParams) -> CryptoHash {
-    // Serialize tag as u32 little-endian (Borsh uses little-endian)
-    let tag_bytes = NEP413_TAG.to_le_bytes();
-
-    // Serialize payload
-    let payload = Nep413Payload {
-        message: params.message.clone(),
-        nonce: params.nonce,
-        recipient: params.recipient.clone(),
-        callback_url: params.callback_url.clone(),
-    };
-    let payload_bytes = borsh::to_vec(&payload).expect("Borsh serialization should not fail");
-
-    // Concatenate tag + payload
-    let mut combined = Vec::with_capacity(tag_bytes.len() + payload_bytes.len());
-    combined.extend_from_slice(&tag_bytes);
-    combined.extend_from_slice(&payload_bytes);
-
-    // Hash with SHA256
-    CryptoHash::hash(&combined)
+/// Hash a NEP-413 message, ready for signing: SHA-256 of borsh [`NEP413_TAG`]
+/// (u32 LE) then borsh `{message, nonce, recipient, callback_url}`.
+pub fn hash_message(p: &SignMessageParams) -> CryptoHash {
+    let payload = (
+        NEP413_TAG,
+        &p.message,
+        &p.nonce,
+        &p.recipient,
+        &p.callback_url,
+    );
+    CryptoHash::hash(&borsh::to_vec(&payload).expect("borsh to Vec cannot fail"))
 }
 
-/// Verify a NEP-413 signature without RPC (cryptographic verification only).
+/// Verify a NEP-413 signature and the nonce without RPC.
 ///
-/// This checks:
-/// - The signature is valid for the message
-/// - The nonce passes validation ([`NonceValidation::Timestamp`] checks the near-kit
-///   timestamp convention; [`NonceValidation::None`] skips nonce interpretation)
-///
-/// Does NOT check:
-/// - Whether the public key belongs to the claimed account
-/// - Whether the key has full access permission
-///
-/// `nonce_validation` accepts a [`NonceValidation`] or a plain [`Duration`] max age
-/// (with `Duration::MAX` disabling expiration checking).
-///
-/// Use `verify()` for full verification including RPC checks.
-///
-/// # Custom nonce schemes
-///
-/// NEP-413 nonces are arbitrary 32 bytes; the timestamp layout is only a near-kit
-/// convention. To verify messages from apps that use their own nonce scheme, pass
-/// [`NonceValidation::None`] and handle replay protection yourself:
-///
-/// ```rust,no_run
-/// use near_kit_primitives::standards::nep413::{verify_signature, NonceValidation};
-///
-/// # let (signed, params) = todo!();
-/// // The app embeds its own structure in the nonce — don't interpret it as a timestamp.
-/// let is_valid = verify_signature(&signed, &params, NonceValidation::None);
-/// // ...then check params.nonce against your own replay-protection scheme.
-/// ```
+/// This doesn't check that the key belongs to the account (see the
+/// [module docs](self)). `nonce_validation` accepts a [`NonceValidation`] or a
+/// [`Duration`] max age (`Duration::MAX` disables expiration checking).
 pub fn verify_signature(
     signed: &SignedMessage,
     params: &SignMessageParams,
     nonce_validation: impl Into<NonceValidation>,
 ) -> bool {
-    // Check timestamp expiration if the nonce follows the near-kit timestamp convention
     if let NonceValidation::Timestamp { max_age } = nonce_validation.into() {
         let timestamp_ms = extract_timestamp_from_nonce(&params.nonce);
         let now_ms = now_millis();
@@ -468,25 +323,16 @@ pub fn verify_signature(
         }
     }
 
-    // Reconstruct the hash
     let hash = hash_message(params);
-
-    // Verify the signature
     signed.signature.verify(hash.as_bytes(), &signed.public_key)
 }
-
-// ============================================================================
-// Serde Helpers
-// ============================================================================
 
 /// Serialize a Signature as base64 (NEP-413 spec requirement).
 fn serialize_signature_base64<S>(signature: &Signature, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    use base64::prelude::*;
-    let base64_str = BASE64_STANDARD.encode(signature.as_bytes());
-    serializer.serialize_str(&base64_str)
+    serializer.serialize_str(&BASE64_STANDARD.encode(signature.as_bytes()))
 }
 
 /// Deserialize a Signature from the formats clients send:
@@ -501,7 +347,6 @@ fn deserialize_signature_flexible<'de, D>(deserializer: D) -> Result<Signature, 
 where
     D: Deserializer<'de>,
 {
-    use base64::prelude::*;
     use serde::de::Error;
 
     let s: String = String::deserialize(deserializer)?;
@@ -544,10 +389,6 @@ fn signature_from_unprefixed_bytes(bytes: &[u8]) -> Option<Signature> {
         _ => None,
     }
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
