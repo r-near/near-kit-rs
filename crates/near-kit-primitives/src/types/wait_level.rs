@@ -3,21 +3,16 @@
 //! Instead of using a runtime enum, each wait level is its own type with an
 //! associated `Response` type. In near-kit the level is a type parameter of the
 //! signing client, `SigningNear<W>`, so the compiler knows what
-//! `alice.wait_until::<W>().transaction(..).await` returns:
+//! `alice.wait_until::<W>().transaction(..).await` returns: executed levels a
+//! [`FinalExecutionOutcome`], earlier ones a [`SendTxResponse`].
 //!
 //! ```rust
 //! use near_kit_primitives::rpc::TxExecutionStatus;
 //! use near_kit_primitives::transaction::{Final, Included, WaitLevel};
 //!
-//! // Each level carries the `wait_until` value sent to the RPC...
+//! // Each level carries the `wait_until` value sent to the RPC.
 //! assert_eq!(Final::STATUS, TxExecutionStatus::Final);
 //! assert_eq!(Included::STATUS, TxExecutionStatus::Included);
-//!
-//! // ...and fixes the response type at compile time: executed levels return a
-//! // `FinalExecutionOutcome`, earlier ones a `SendTxResponse`.
-//! fn response_of<W: WaitLevel>(response: W::Response) -> W::Response {
-//!     response
-//! }
 //! ```
 //!
 //! A `SigningNear` sends at [`Final`] unless `wait_until::<W>()` picks another
@@ -28,7 +23,11 @@ use crate::error::OutcomeError;
 use crate::types::AccountId;
 
 use super::block_reference::TxExecutionStatus;
-use super::rpc::{FinalExecutionOutcome, RpcTransactionResponse, SendTxResponse};
+use super::error::TxExecutionError;
+use super::rpc::{
+    ExecutionStatus, FinalExecutionOutcome, FinalExecutionStatus, RpcTransactionResponse,
+    SendTxResponse,
+};
 
 mod sealed {
     pub trait Sealed {}
@@ -50,13 +49,8 @@ pub trait WaitLevel: sealed::Sealed + Send + Sync + 'static {
     /// The RPC `wait_until` value.
     const STATUS: TxExecutionStatus;
 
-    /// Convert a raw RPC response into the appropriate return type.
-    ///
-    /// For executed levels, this extracts the outcome and checks for
-    /// `InvalidTxError`. For non-executed levels, this builds a
-    /// [`SendTxResponse`] with the transaction hash, sender ID, and any partial
-    /// execution outcome the RPC returned (present from `EXPERIMENTAL_tx_status`,
-    /// absent from `send_tx`).
+    /// Convert a raw RPC response into [`Response`](WaitLevel::Response).
+    /// Executed levels reject an outcome with an `InvalidTxError`.
     #[doc(hidden)]
     fn convert(
         response: RpcTransactionResponse,
@@ -64,93 +58,69 @@ pub trait WaitLevel: sealed::Sealed + Send + Sync + 'static {
     ) -> Result<Self::Response, OutcomeError>;
 }
 
-// =============================================================================
-// Non-executed wait levels → SendTxResponse
-// =============================================================================
+/// Implements [`WaitLevel`] for a marker type: levels before execution return
+/// a [`SendTxResponse`], with any outcome passed through unvalidated; executed
+/// levels return the checked [`FinalExecutionOutcome`].
+macro_rules! wait_level {
+    ($level:ident, $status:ident, SendTxResponse) => {
+        impl sealed::Sealed for $level {}
+        impl WaitLevel for $level {
+            type Response = SendTxResponse;
+            const STATUS: TxExecutionStatus = TxExecutionStatus::$status;
 
-/// Build a [`SendTxResponse`], carrying through any partial execution outcome.
-///
-/// The outcome is present once the node has one (from `IncludedFinal`, and
-/// possibly at `Submitted` or `Included`; never when sending at `Submitted`),
-/// whether the response comes from `send_tx` or `EXPERIMENTAL_tx_status`. It is passed through as-is — not validated — so
-/// callers can inspect partial progress; final-status validation happens at
-/// executed levels.
-fn send_tx_response(response: RpcTransactionResponse, sender_id: &AccountId) -> SendTxResponse {
-    SendTxResponse {
-        transaction_hash: response.transaction_hash,
-        sender_id: sender_id.clone(),
-        outcome: response.outcome,
-    }
+            fn convert(
+                response: RpcTransactionResponse,
+                sender_id: &AccountId,
+            ) -> Result<Self::Response, OutcomeError> {
+                Ok(SendTxResponse {
+                    transaction_hash: response.transaction_hash,
+                    sender_id: sender_id.clone(),
+                    outcome: response.outcome,
+                })
+            }
+        }
+    };
+    ($level:ident, $status:ident, FinalExecutionOutcome) => {
+        impl sealed::Sealed for $level {}
+        impl WaitLevel for $level {
+            type Response = FinalExecutionOutcome;
+            const STATUS: TxExecutionStatus = TxExecutionStatus::$status;
+
+            fn convert(
+                response: RpcTransactionResponse,
+                _sender_id: &AccountId,
+            ) -> Result<Self::Response, OutcomeError> {
+                extract_outcome(response, stringify!($level))
+            }
+        }
+    };
 }
 
 /// Don't wait, return immediately after the RPC accepts the transaction.
 ///
-/// Returns [`SendTxResponse`]. Its `outcome` is populated when polled via
-/// `Near::tx_status` and the node already has receipt
-/// data; it is [`None`] on the `send_tx` path.
+/// Returns [`SendTxResponse`]; its [`outcome`](SendTxResponse::outcome) says
+/// when one is present.
 ///
 /// Named `Submitted` instead of `None` to avoid shadowing `Option::None`.
 #[derive(Clone, Copy, Debug)]
 pub struct Submitted;
-
-impl sealed::Sealed for Submitted {}
-impl WaitLevel for Submitted {
-    type Response = SendTxResponse;
-    const STATUS: TxExecutionStatus = TxExecutionStatus::None;
-
-    fn convert(
-        response: RpcTransactionResponse,
-        sender_id: &AccountId,
-    ) -> Result<Self::Response, OutcomeError> {
-        Ok(send_tx_response(response, sender_id))
-    }
-}
+wait_level!(Submitted, None, SendTxResponse);
 
 /// Wait for the transaction to be included in a block.
 ///
-/// Returns [`SendTxResponse`]. Its `outcome` is populated when polled via
-/// `Near::tx_status` and the node already has receipt
-/// data; it is [`None`] on the `send_tx` path.
+/// Returns [`SendTxResponse`]; its [`outcome`](SendTxResponse::outcome) says
+/// when one is present.
 #[derive(Clone, Copy, Debug)]
 pub struct Included;
-
-impl sealed::Sealed for Included {}
-impl WaitLevel for Included {
-    type Response = SendTxResponse;
-    const STATUS: TxExecutionStatus = TxExecutionStatus::Included;
-
-    fn convert(
-        response: RpcTransactionResponse,
-        sender_id: &AccountId,
-    ) -> Result<Self::Response, OutcomeError> {
-        Ok(send_tx_response(response, sender_id))
-    }
-}
+wait_level!(Included, Included, SendTxResponse);
 
 /// Wait for the transaction's block to reach finality.
 ///
-/// Returns [`SendTxResponse`]. Its `outcome` is populated when polled via
-/// `Near::tx_status` and the node already has receipt
-/// data; it is [`None`] on the `send_tx` path.
+/// Returns [`SendTxResponse`]; its [`outcome`](SendTxResponse::outcome) says
+/// when one is present.
 #[derive(Clone, Copy, Debug)]
 pub struct IncludedFinal;
-
-impl sealed::Sealed for IncludedFinal {}
-impl WaitLevel for IncludedFinal {
-    type Response = SendTxResponse;
-    const STATUS: TxExecutionStatus = TxExecutionStatus::IncludedFinal;
-
-    fn convert(
-        response: RpcTransactionResponse,
-        sender_id: &AccountId,
-    ) -> Result<Self::Response, OutcomeError> {
-        Ok(send_tx_response(response, sender_id))
-    }
-}
-
-// =============================================================================
-// Executed wait levels → FinalExecutionOutcome
-// =============================================================================
+wait_level!(IncludedFinal, IncludedFinal, SendTxResponse);
 
 /// Extract and validate the execution outcome from a raw response.
 fn extract_outcome(
@@ -162,8 +132,6 @@ fn extract_outcome(
         wait_level,
     })?;
 
-    use super::error::TxExecutionError;
-    use super::rpc::{ExecutionStatus, FinalExecutionStatus};
     // nearcore derives the top-level status from the transaction outcome's,
     // so a rejection shows in both; check both.
     match (&outcome.status, &outcome.transaction_outcome.outcome.status) {
@@ -181,38 +149,18 @@ fn extract_outcome(
 /// near-kit's default is [`Final`].
 #[derive(Clone, Copy, Debug)]
 pub struct ExecutedOptimistic;
-
-impl sealed::Sealed for ExecutedOptimistic {}
-impl WaitLevel for ExecutedOptimistic {
-    type Response = FinalExecutionOutcome;
-    const STATUS: TxExecutionStatus = TxExecutionStatus::ExecutedOptimistic;
-
-    fn convert(
-        response: RpcTransactionResponse,
-        _sender_id: &AccountId,
-    ) -> Result<Self::Response, OutcomeError> {
-        extract_outcome(response, "ExecutedOptimistic")
-    }
-}
+wait_level!(
+    ExecutedOptimistic,
+    ExecutedOptimistic,
+    FinalExecutionOutcome
+);
 
 /// Wait for execution in a finalized block.
 ///
 /// Returns [`FinalExecutionOutcome`].
 #[derive(Clone, Copy, Debug)]
 pub struct Executed;
-
-impl sealed::Sealed for Executed {}
-impl WaitLevel for Executed {
-    type Response = FinalExecutionOutcome;
-    const STATUS: TxExecutionStatus = TxExecutionStatus::Executed;
-
-    fn convert(
-        response: RpcTransactionResponse,
-        _sender_id: &AccountId,
-    ) -> Result<Self::Response, OutcomeError> {
-        extract_outcome(response, "Executed")
-    }
-}
+wait_level!(Executed, Executed, FinalExecutionOutcome);
 
 /// Wait for full finality (all receipts executed, all blocks finalized).
 ///
@@ -221,16 +169,4 @@ impl WaitLevel for Executed {
 /// so a read at the default finality right after sees the change.
 #[derive(Clone, Copy, Debug)]
 pub struct Final;
-
-impl sealed::Sealed for Final {}
-impl WaitLevel for Final {
-    type Response = FinalExecutionOutcome;
-    const STATUS: TxExecutionStatus = TxExecutionStatus::Final;
-
-    fn convert(
-        response: RpcTransactionResponse,
-        _sender_id: &AccountId,
-    ) -> Result<Self::Response, OutcomeError> {
-        extract_outcome(response, "Final")
-    }
-}
+wait_level!(Final, Final, FinalExecutionOutcome);
