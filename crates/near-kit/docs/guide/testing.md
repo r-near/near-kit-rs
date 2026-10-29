@@ -273,7 +273,7 @@ impl TxSender for Recorder {
 let alice = Recorder::new(account!("alice.testnet"));
 
 FungibleToken::client(alice.clone(), account!("usdc.testnet"))
-    .transfer(account!("bob.testnet"), 1_500_000_u128, None)
+    .transfer(account!("bob.testnet"), 1_500_000, None)
     .await?;
 Guestbook::client(alice.clone(), account!("guestbook.testnet"))
     .add_message(AddMessage { text: "hi".into() })

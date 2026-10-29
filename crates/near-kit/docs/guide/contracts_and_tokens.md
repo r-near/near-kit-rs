@@ -296,7 +296,7 @@ use near_kit::*;
 # async fn example(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
 let usdc = alice.contract::<FungibleToken>(account!("usdc.testnet"));
 let outcome = usdc
-    .transfer_call(account!("dex.testnet"), 1_000_000_u128, r#"{"action":"deposit"}"#)
+    .transfer_call(account!("dex.testnet"), 1_000_000, r#"{"action":"deposit"}"#)
     .await?;
 let used: u128 = outcome.json::<String>()?.parse()?;
 if used < 1_000_000 {

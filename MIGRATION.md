@@ -145,6 +145,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `standards::FungibleToken`, `standards::NonFungibleToken` (the clients) | `FungibleTokenClient<C = Near>`, `NonFungibleTokenClient<C = Near>`; `FungibleToken` and `NonFungibleToken` are now `Contract` markers |
 | `Near::ft(id)`, `Near::nft(id)` | `near.contract::<FungibleToken>(id)`, `near.contract::<NonFungibleToken>(id)` |
 | `FungibleToken::contract_id`, `is_registered`, `metadata`, `storage_balance_bounds`, `storage_balance_of`, `storage_deposit`, `transfer`, `transfer_call` | Same methods on `FungibleTokenClient<C>`; `transfer` takes a memo `Option` |
+| `FungibleToken::transfer(to, amount)`, `transfer_call(to, amount, msg)` with `amount: impl Into<u128>` | `amount: u128`, so an integer literal needs no `_u128` suffix; pass a smaller integer type with `.into()` |
 | `FungibleToken::balance_of`, `FungibleToken::total_supply` returning `FtAmount` | Same methods, returning `u128` |
 | `FungibleToken::transfer_with_memo(to, amount, memo)`, `NonFungibleToken::transfer_with_memo(..)` | `transfer(to, amount, Some(memo))` |
 | `NonFungibleToken::contract_id`, `metadata`, `token`, `tokens_for_owner`, `supply_for_owner`, `total_supply`, `transfer`, `transfer_call`, `transfer_with_approval` | Same methods on `NonFungibleTokenClient<C>`; `transfer` takes a memo `Option` |
@@ -504,7 +505,7 @@ use near_kit::standards::FungibleToken;
 
 alice
     .contract::<FungibleToken>(account!("wrap.near"))
-    .transfer(account!("bob.near"), 1_000_u128, Some("rent".to_owned()))
+    .transfer(account!("bob.near"), 1_000, Some("rent".to_owned()))
     .await?
     .result()?;
 ```
