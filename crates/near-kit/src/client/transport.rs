@@ -22,18 +22,23 @@ compile_error!(
      `NearBuilder::transport` instead"
 );
 
-/// `url` as it may be shown in logs, errors and `Debug` output: cut at the
-/// query string or fragment, and with any `user:pass@` userinfo removed, since
-/// RPC providers put API keys and credentials in both. The path is kept.
+/// `url` as it may be shown in logs, errors and `Debug` output: only
+/// `scheme://host[:port]`. RPC providers put API keys in the query string
+/// (`?apikey=...`), in the path (`/v3/<key>`, `/<token>/`) and in `user:pass@`
+/// userinfo, so all of those are left out.
+///
+/// The userinfo is everything up to the last `@` before the path, even when
+/// it holds an unencoded `?` or `#`: `https://user:p?ss@host/` shows as
+/// `https://host`, not as `https://user:p`.
 pub(crate) fn redact_url(url: &str) -> String {
-    let url = &url[..url.find(['?', '#']).unwrap_or(url.len())];
     let authority_start = url.find("://").map_or(0, |i| i + 3);
     let rest = &url[authority_start..];
-    let authority = &rest[..rest.find('/').unwrap_or(rest.len())];
-    match authority.rfind('@') {
-        Some(at) => format!("{}{}", &url[..authority_start], &rest[at + 1..]),
-        None => url.to_string(),
-    }
+    let before_path = &rest[..rest.find('/').unwrap_or(rest.len())];
+    let host = before_path
+        .rfind('@')
+        .map_or(before_path, |at| &before_path[at + 1..]);
+    let host = &host[..host.find(['?', '#']).unwrap_or(host.len())];
+    format!("{}{host}", &url[..authority_start])
 }
 
 /// A raw HTTP response handed back from an [`RpcTransport`].
@@ -607,8 +612,8 @@ mod wasi_http {
         out
     }
 
-    /// A malformed URL is deterministic — never retryable. The message leaves
-    /// out the query, fragment and userinfo, which may carry an API key.
+    /// A malformed URL is deterministic — never retryable. The message shows
+    /// only the scheme and host, since the rest may carry an API key.
     fn invalid_url(url: &str, reason: &str) -> RpcError {
         let shown = super::redact_url(url);
         RpcError::network(format!("invalid RPC URL `{shown}`: {reason}"), None, false)

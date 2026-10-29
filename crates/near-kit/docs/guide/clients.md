@@ -128,8 +128,8 @@ let near = Near::custom("https://rpc.mainnet.example.com", "mainnet")
 ```
 
 Some providers take the key in the URL instead; pass that URL to
-`Near::custom`. near-kit strips the query string from the URL it records in
-`tracing` spans.
+`Near::custom`. `tracing` spans and `Debug` output show only the URL's
+scheme and host, never its path, query string or credentials.
 
 Platforms whose HTTP stack isn't reqwest implement
 [`RpcTransport`](crate::rpc::RpcTransport) themselves; see the

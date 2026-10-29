@@ -237,8 +237,8 @@ doesn't generate keys.
 
 With the `tracing` feature, RPC calls and transactions run inside
 [`tracing`](https://docs.rs/tracing) spans: one per RPC method call (with
-the method and the endpoint URL, its query string removed in case it holds
-an API key), one per view or account read (with the account), one per
+the method and the endpoint's scheme and host, without the path, query or
+credentials, any of which may hold an API key), one per view or account read (with the account), one per
 transaction send (with the sender, receiver and hash). Events report
 retries, failed requests and each step of a send at `DEBUG`, and raw
 request and response bodies at `TRACE`.

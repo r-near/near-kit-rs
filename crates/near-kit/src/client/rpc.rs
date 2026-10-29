@@ -1422,7 +1422,8 @@ impl Clone for RpcClient {
 impl std::fmt::Debug for RpcClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RpcClient")
-            // The URL may carry an API key (query) or credentials (userinfo).
+            // The URL may carry an API key (path or query) or credentials
+            // (userinfo), so only the scheme and host are shown.
             .field("url", &redact_url(&self.url))
             .field("retry_config", &self.retry_config)
             .finish()
@@ -2483,7 +2484,29 @@ mod tests {
                 assert!(!shown.contains(secret), "{secret} in {shown}");
             }
         }
-        assert!(format!("{near:?}").contains("https://rpc.example.com/"));
+        assert!(format!("{near:?}").contains("https://rpc.example.com"));
+    }
+
+    /// Providers that put the API key in the path (`/v3/<key>`) or that get
+    /// an unencoded `?` in a password still show only the scheme and host.
+    #[test]
+    fn test_debug_output_hides_path_keys_and_odd_userinfo() {
+        for (url, host) in [
+            (
+                "https://mainnet.infura.io/v3/PATHKEY",
+                "\"https://mainnet.infura.io\"",
+            ),
+            (
+                "https://USER:P?SS@rpc.example.com/",
+                "\"https://rpc.example.com\"",
+            ),
+        ] {
+            let shown = format!("{:?}", RpcClient::new(url));
+            for secret in ["PATHKEY", "/v3", "USER", "P?SS"] {
+                assert!(!shown.contains(secret), "{secret} in {shown}");
+            }
+            assert!(shown.contains(&format!("url: {host}")), "{shown}");
+        }
     }
 
     /// The node may have handled a request whose connection dropped, so only
@@ -2924,7 +2947,7 @@ mod tests {
     }
 
     #[test]
-    fn test_redact_url_strips_query_fragment_and_userinfo() {
+    fn test_redact_url_shows_only_scheme_and_host() {
         for (url, shown) in [
             (
                 "https://rpc.mainnet.near.org",
@@ -2932,32 +2955,57 @@ mod tests {
             ),
             (
                 "https://user:secret@rpc.provider.com/v1",
-                "https://rpc.provider.com/v1",
+                "https://rpc.provider.com",
             ),
             (
                 "https://user:p@ss@rpc.provider.com:3030?api_key=secret123",
                 "https://rpc.provider.com:3030",
             ),
-            ("http://token@127.0.0.1:3030/", "http://127.0.0.1:3030/"),
+            ("http://token@127.0.0.1:3030/", "http://127.0.0.1:3030"),
+            ("http://[::1]:3030/v1", "http://[::1]:3030"),
+            // Keys in the path are hidden too.
+            (
+                "https://mainnet.infura.io/v3/PATHKEY",
+                "https://mainnet.infura.io",
+            ),
+            ("https://go.getblock.io/PATHKEY/", "https://go.getblock.io"),
+            ("https://rpc.ankr.com/near/PATHKEY", "https://rpc.ankr.com"),
             // An `@` in the path is not userinfo.
             (
                 "https://rpc.provider.com/v1/@scope",
-                "https://rpc.provider.com/v1/@scope",
+                "https://rpc.provider.com",
             ),
             (
                 "https://rpc.provider.com/v1?api_key=secret123",
-                "https://rpc.provider.com/v1",
+                "https://rpc.provider.com",
             ),
             (
-                "https://rpc.provider.com/v1#section",
-                "https://rpc.provider.com/v1",
+                "https://rpc.provider.com?api_key=secret123",
+                "https://rpc.provider.com",
+            ),
+            (
+                "https://rpc.provider.com#section",
+                "https://rpc.provider.com",
             ),
             (
                 "https://rpc.provider.com/v1?key=val#frag",
-                "https://rpc.provider.com/v1",
+                "https://rpc.provider.com",
+            ),
+            // An unencoded `?` or `#` in the userinfo is still userinfo.
+            (
+                "https://user:p?ss@rpc.provider.com/",
+                "https://rpc.provider.com",
+            ),
+            (
+                "https://user:p#ss@rpc.provider.com",
+                "https://rpc.provider.com",
+            ),
+            (
+                "https://user:p?ss@rpc.provider.com:3030?api_key=secret123",
+                "https://rpc.provider.com:3030",
             ),
         ] {
-            assert_eq!(redact_url(url), shown);
+            assert_eq!(redact_url(url), shown, "{url}");
         }
     }
 
@@ -4865,6 +4913,31 @@ mod tests {
             assert_eq!(retry.level, Level::DEBUG);
             assert_eq!(retry.field("attempt"), Some("1"));
             assert_eq!(retry.field("max_attempts"), Some("2"));
+        }
+
+        /// The request span's `rpc.url` field shows only the scheme and host,
+        /// so a key in the path or userinfo never reaches the logs.
+        #[tokio::test]
+        async fn request_span_url_shows_only_scheme_and_host() {
+            let log = EventLog::default();
+            let _guard = log.install();
+
+            let client = RpcClient::with_transport_and_retry_config(
+                "https://USER:P?SS@rpc.example.com/v3/PATHKEY?apikey=QUERYKEY",
+                CountingTransport::results([serde_json::json!({ "ok": true })]),
+                RetryConfig::none(),
+            );
+            let _: serde_json::Value = client
+                .request("status", serde_json::json!({}))
+                .await
+                .unwrap();
+
+            let spans = log.spans();
+            let url = spans
+                .iter()
+                .find_map(|s| s.field("rpc.url"))
+                .unwrap_or_else(|| panic!("no rpc.url span field in {spans:?}"));
+            assert_eq!(url, "https://rpc.example.com");
         }
     }
 
