@@ -92,6 +92,7 @@ pub use near_kit::protocol::VersionedSignedDelegateAction
 pub use near_kit::protocol::VersionedTransaction
 pub use near_kit::protocol::WasmTrap
 pub use near_kit::protocol::WithdrawFromGasKeyAction
+pub use near_kit::protocol::derive_deterministic_account_id
 pub mod near_kit::rpc
 pub use near_kit::rpc::AccessKeyDetails
 pub use near_kit::rpc::AccessKeyInfoView
@@ -669,11 +670,15 @@ pub fn near_kit::Near::view<T: serde_core::de::DeserializeOwned>(&self, impl cor
 pub fn near_kit::Near::with_signer(&self, impl near_kit_primitives::types::signer::Signer + 'static) -> near_kit::SigningNear
 impl core::clone::Clone for near_kit::Near
 pub fn near_kit::Near::clone(&self) -> near_kit::Near
+impl core::convert::AsRef<near_kit::Near> for near_kit::Near
+pub fn near_kit::Near::as_ref(&self) -> &near_kit::Near
 impl core::fmt::Debug for near_kit::Near
 pub fn near_kit::Near::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl near_kit_primitives::backend::Viewer for near_kit::Near
 pub type near_kit::Near::ViewError = near_kit::rpc::RpcError
 pub fn near_kit::Near::view_function(&self, &near_account_id::account_id::AccountId, &str, &[u8], near_kit_primitives::types::block_reference::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::types::rpc::ViewFunctionResult, near_kit::rpc::RpcError>> + near_kit_primitives::platform::MaybeSend
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::convert::AsRef<near_kit::Near> for near_kit::SigningNear<W>
+pub fn near_kit::SigningNear<W>::as_ref(&self) -> &near_kit::Near
 pub struct near_kit::NearBuilder
 impl near_kit::NearBuilder
 pub fn near_kit::NearBuilder::build(self) -> near_kit::Near
@@ -695,6 +700,8 @@ pub fn near_kit::SigningNear<W>::transaction(&self, impl core::convert::Into<nea
 pub fn near_kit::SigningNear<W>::wait_until<W2: near_kit_primitives::types::wait_level::WaitLevel>(&self) -> near_kit::SigningNear<W2>
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::clone::Clone for near_kit::SigningNear<W>
 pub fn near_kit::SigningNear<W>::clone(&self) -> Self
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::convert::AsRef<near_kit::Near> for near_kit::SigningNear<W>
+pub fn near_kit::SigningNear<W>::as_ref(&self) -> &near_kit::Near
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::fmt::Debug for near_kit::SigningNear<W>
 pub fn near_kit::SigningNear<W>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit_primitives::backend::TxSender for near_kit::SigningNear<W>

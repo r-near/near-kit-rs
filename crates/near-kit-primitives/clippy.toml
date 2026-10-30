@@ -1,7 +1,7 @@
 # near-global-contracts' `StateInit::derive_account_id` calls NEAR host
 # functions when a workspace enables `near-sdk/unit-testing`, and a test binary
 # that links near-kit but not near-sdk then fails to link. Derive `0s` ids with
-# `DeterministicStateInitAction::derive_account_id`, which hashes in pure Rust.
+# `protocol::derive_deterministic_account_id`, which hashes in pure Rust.
 disallowed-methods = [
-    { path = "near_global_contracts::StateInit::derive_account_id", reason = "uses NEAR host functions under `near-sdk/unit-testing`; use `DeterministicStateInitAction::derive_account_id`" },
+    { path = "near_global_contracts::StateInit::derive_account_id", reason = "uses NEAR host functions under `near-sdk/unit-testing`; use `protocol::derive_deterministic_account_id`" },
 ]

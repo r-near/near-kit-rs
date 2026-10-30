@@ -11,6 +11,11 @@ layer has its own error type that converts into `near_kit::Error` with `?`.
 The [guide](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/index.html)
 explains the model.
 
+You can adopt 0.30 as a plain version bump: update your call sites to the
+new client API (reads on `Near`, sends on `SigningNear`; the table below maps
+each removed method) and stop there. The `Viewer` and `TxSender` traits and
+`#[contract]` typed clients are optional and can come later.
+
 ## Where did this go?
 
 The compiler reports a removed method as ``no method named `x` found`` with no
@@ -54,7 +59,7 @@ after the table cover each one.
 | `Near::transfer(id, amount)` | `alice.transaction(id).add_action(Action::transfer(amount))` |
 | `Near::call(id, m)` | `alice.transaction(id).add_action(FunctionCall::new(m))`, or a typed contract client |
 | `Near::deploy(wasm)`, `Near::publish(code, mode)`, `Near::deploy_from(id)`, `Near::add_full_access_key(pk)`, `Near::delete_key(pk)` | `alice.transaction(alice.account_id()).add_action(Action::deploy_contract(wasm))`, and `Action::publish`, `Action::deploy_from`, `Action::add_full_access_key`, `Action::delete_key` |
-| `Near::state_init(si, deposit)` | `let init = DeterministicStateInitAction { state_init: si, deposit };` then `alice.transaction(init.derive_account_id()).add_action(Action::DeterministicStateInit(init))` (see Platforms and features for why not `si.derive_account_id()`) |
+| `Near::state_init(si, deposit)` | `alice.transaction(derive_deterministic_account_id(&si)).add_action(Action::state_init(si, deposit))`, with `protocol::derive_deterministic_account_id` (see Platforms and features for why not `si.derive_account_id()`) |
 | `Near::universal_state_init(usi, deposit)` | `alice.transaction(usi.derive_account_id()).add_action(Action::universal_state_init(usi, deposit))` for a typed `UniversalStateInit`; for a `RawStateInit`, `raw.try_derive_account_id()` returns a `StateInitError`, which doesn't convert into `Error` |
 | `TransactionBuilder::create_account()`, `transfer`, `deploy`, `add_full_access_key`, `add_function_call_key`, `delete_key`, `delete_account`, `stake`, `publish`, `deploy_from`, `state_init`, `universal_state_init` | `Tx::add_action(Action::create_account())` and so on: one `Action::*` constructor per helper (`deploy` is `Action::deploy_contract`) |
 | `TransactionBuilder::call(m)`, `CallBuilder` (`args`, `args_borsh`, `args_raw`, `gas`, `deposit`) | `add_action(FunctionCall::new(m).args(a).gas(g).deposit(d))` |
@@ -322,7 +327,8 @@ let count = view.decode(&raw.result)?;
 ### A separate signing client
 
 `near.with_signer(signer)` returns a `SigningNear`. It has no `Deref` to
-`Near`: read through `alice.near()`. Typed contract views and token views
+`Near`: read through `alice.near()`, or take `impl AsRef<Near>` in a helper
+that should accept either client. Typed contract views and token views
 work on a `SigningNear` directly. `SigningNear::from_env()` replaces
 `Near::from_env()` and fails unless both `NEAR_ACCOUNT_ID` and
 `NEAR_PRIVATE_KEY` are set; build a `Near` for read-only use. When
@@ -752,8 +758,8 @@ The feature names are unchanged. See
   your workspace enables `near-sdk/unit-testing` (feature unification turns
   it on for every crate), and a test binary that links near-kit but not
   near-sdk then fails to link (`_keccak256` undefined). near-kit's
-  `DeterministicStateInitAction::derive_account_id`, which sends use, hashes in
-  pure Rust and gives the same id.
+  `protocol::derive_deterministic_account_id(&state_init)`, which sends use,
+  hashes in pure Rust and gives the same id; it needs no deposit.
 - **`near-kit-macros` changed incompatibly** (`Client<C>`, reserved method
   names, the removed standalone `call`/`json`/`borsh` markers). Depend on
   near-kit or near-kit-primitives with `contracts` rather than on

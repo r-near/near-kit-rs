@@ -311,25 +311,49 @@ pub struct DeterministicStateInitAction {
 }
 
 impl DeterministicStateInitAction {
-    /// Derive the deterministic account ID for this action:
-    /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`, the same id as
-    /// [`StateInit::derive_account_id`] and nearcore's
-    /// `derive_near_deterministic_account_id`.
-    ///
-    /// Hashed in pure Rust. near-global-contracts' `StateInit::derive_account_id`
-    /// switches to the `keccak256` host function under its
-    /// `__near-sdk-unit-testing` feature, which `near-sdk/unit-testing` anywhere
-    /// in a workspace turns on, and a test binary that links near-kit but not
-    /// near-sdk then fails to link.
+    /// Derive the deterministic account ID for this action, the account the
+    /// transaction must be sent to. Same as
+    /// [`derive_deterministic_account_id`] on the carried `state_init`; the
+    /// deposit plays no part.
     pub fn derive_account_id(&self) -> AccountId {
-        use sha3::{Digest as _, Keccak256};
-
-        let bytes = borsh::to_vec(&self.state_init).expect("borsh into a Vec never fails");
-        let hash: [u8; 32] = Keccak256::digest(&bytes).into();
-        format!("0s{}", hex::encode(&hash[12..32]))
-            .parse()
-            .expect("a 0s id is always a valid account id: 42 lowercase hex characters")
+        derive_deterministic_account_id(&self.state_init)
     }
+}
+
+/// Derive the `0s` deterministic account ID (NEP-616) of a [`StateInit`]:
+/// `"0s" + hex(keccak256(borsh(state_init))[12..32])`, the same id as
+/// near-global-contracts' `StateInit::derive_account_id` and nearcore's
+/// `derive_near_deterministic_account_id`.
+///
+/// Hashed in pure Rust. near-global-contracts' `StateInit::derive_account_id`
+/// switches to the `keccak256` host function under its
+/// `__near-sdk-unit-testing` feature, which `near-sdk/unit-testing` anywhere
+/// in a workspace turns on, and a test binary that links near-kit but not
+/// near-sdk then fails to link.
+///
+/// # Example
+///
+/// ```rust
+/// use near_kit_primitives::protocol::{
+///     GlobalContractId, StateInit, StateInitV1, derive_deterministic_account_id,
+/// };
+///
+/// let state_init = StateInit::V1(StateInitV1 {
+///     code: GlobalContractId::AccountId("ft.near".parse()?),
+///     data: Default::default(),
+/// });
+/// let account_id = derive_deterministic_account_id(&state_init);
+/// assert_eq!(account_id.as_str(), "0s69284a5453e7be5632b28b6a01baecf6c12c156d");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn derive_deterministic_account_id(state_init: &StateInit) -> AccountId {
+    use sha3::{Digest as _, Keccak256};
+
+    let bytes = borsh::to_vec(state_init).expect("borsh into a Vec never fails");
+    let hash: [u8; 32] = Keccak256::digest(&bytes).into();
+    format!("0s{}", hex::encode(&hash[12..32]))
+        .parse()
+        .expect("a 0s id is always a valid account id: 42 lowercase hex characters")
 }
 
 /// Transfer NEAR to a gas key.
@@ -707,7 +731,7 @@ impl Action {
     ///
     /// The account ID is derived from the state init data:
     /// `"0s" + hex(keccak256(borsh(state_init))[12..32])`. Send the
-    /// transaction to that account ([`DeterministicStateInitAction::derive_account_id`]);
+    /// transaction to that account ([`derive_deterministic_account_id`]);
     /// near-kit's `Tx` rejects any other receiver before signing.
     pub fn state_init(state_init: StateInit, deposit: NearToken) -> Self {
         Self::DeterministicStateInit(DeterministicStateInitAction {

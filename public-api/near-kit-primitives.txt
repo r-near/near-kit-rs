@@ -1464,6 +1464,7 @@ impl serde_core::ser::Serialize for near_kit_primitives::protocol::WithdrawFromG
 pub fn near_kit_primitives::protocol::WithdrawFromGasKeyAction::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::protocol::WithdrawFromGasKeyAction
 pub fn near_kit_primitives::protocol::WithdrawFromGasKeyAction::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn near_kit_primitives::protocol::derive_deterministic_account_id(&near_global_contracts::state_init::StateInit) -> near_account_id::account_id::AccountId
 pub type near_kit_primitives::protocol::Nonce = u64
 pub type near_kit_primitives::protocol::NonceIndex = u16
 pub type near_kit_primitives::protocol::ParseAccountIdError = near_account_id::errors::ParseAccountError

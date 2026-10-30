@@ -31,7 +31,9 @@ use super::transaction::{DelegateOptions, PreparedTransaction, Tx};
 /// Reads go through [`near()`](Self::near): there is no `Deref` and no
 /// forwarded read methods. `SigningNear` implements [`Viewer`](crate::Viewer)
 /// and [`TxSender`](crate::TxSender), so generated contract clients and other
-/// generic code accept it directly.
+/// generic code accept it directly. Both `Near` and `SigningNear` implement
+/// `AsRef<Near>`, so a helper that reads blocks, accounts or keys can take
+/// either client (see below).
 ///
 /// # Example
 ///
@@ -55,6 +57,30 @@ use super::transaction::{DelegateOptions, PreparedTransaction, Tx};
 ///
 /// // Reads go through the read-only client.
 /// let balance = alice.near().balance(alice.account_id()).await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Reading through either client
+///
+/// ```rust,no_run
+/// use near_kit::*;
+/// use near_kit::rpc::Finality;
+///
+/// async fn height_and_balance(
+///     client: impl AsRef<Near>,
+///     account_id: &AccountId,
+/// ) -> Result<(u64, NearToken), Error> {
+///     let near = client.as_ref();
+///     let height = near.rpc().block(Finality::Final).await?.header.height;
+///     let balance = near.balance(account_id).at(height).await?;
+///     Ok((height, balance.available))
+/// }
+///
+/// # async fn example(alice: SigningNear) -> Result<(), Error> {
+/// let near = Near::testnet().build();
+/// height_and_balance(&near, alice.account_id()).await?;
+/// height_and_balance(&alice, alice.account_id()).await?;
 /// # Ok(())
 /// # }
 /// ```
@@ -405,6 +431,14 @@ impl<W: WaitLevel> SigningNear<W> {
     }
 }
 
+/// The read-only client, as [`near()`](SigningNear::near) returns it, so
+/// read helpers can take `impl AsRef<Near>` and accept either client.
+impl<W: WaitLevel> AsRef<Near> for SigningNear<W> {
+    fn as_ref(&self) -> &Near {
+        &self.near
+    }
+}
+
 impl<W: WaitLevel> crate::Viewer for SigningNear<W> {
     type ViewError = RpcError;
 
@@ -475,6 +509,22 @@ mod tests {
         assert_eq!(alice_included.account_id(), alice.account_id());
         assert!(Arc::ptr_eq(alice_included.signer(), alice.signer()));
         assert_eq!(alice_included.near().rpc().url(), alice.near().rpc().url());
+    }
+
+    #[test]
+    fn read_helpers_take_either_client() {
+        fn read_client(client: impl AsRef<Near>) -> String {
+            client.as_ref().rpc().url().to_string()
+        }
+
+        let alice = alice();
+        let alice_included = alice.wait_until::<Included>();
+        let near = alice.near().clone();
+        assert!(std::ptr::eq(near.as_ref(), &near));
+        assert!(std::ptr::eq(alice.as_ref(), alice.near()));
+        assert_eq!(read_client(&near), read_client(&alice));
+        assert_eq!(read_client(&alice_included), read_client(alice));
+        assert_eq!(read_client(near), read_client(alice_included));
     }
 
     #[test]

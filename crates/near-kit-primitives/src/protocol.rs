@@ -22,6 +22,7 @@ pub use crate::types::{
     TransferToGasKeyAction, TxExecutionError, UniversalStateInit, UniversalStateInitAction,
     UniversalStateInitV1, UnknownError, UseGlobalContractAction, VersionedDelegateActionPayload,
     VersionedSignedDelegateAction, VersionedTransaction, WasmTrap, WithdrawFromGasKeyAction,
+    derive_deterministic_account_id,
 };
 
 pub use crate::types::ChainId;
