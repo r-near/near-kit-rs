@@ -4,6 +4,14 @@ All notable changes to `near-kit-sandbox` are documented in this file.
 
 ## [Unreleased]
 
+## [0.30.0-rc.3](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.30.0-rc.2...near-kit-sandbox-v0.30.0-rc.3) - 2026-10-30
+
+### Added
+
+- switch accounts and pick a wait level per transaction without losing the sender's settings; accept boxed backends ([#394](https://github.com/r-near/near-kit-rs/pull/394))
+- *(macros)* [**breaking**] send #[contract] parameters by name, like near-sdk, so traits can mirror a contract's signatures ([#393](https://github.com/r-near/near-kit-rs/pull/393))
+- derive 0s account ids without a deposit and take either client via AsRef<Near> ([#391](https://github.com/r-near/near-kit-rs/pull/391))
+
 ## [0.30.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.30.0-rc.1...near-kit-sandbox-v0.30.0-rc.2) - 2026-10-29
 
 Depends on near-kit 0.30.0-rc.2. No user-facing changes; version bumped with

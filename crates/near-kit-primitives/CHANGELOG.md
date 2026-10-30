@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.3](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0-rc.2...near-kit-primitives-v0.30.0-rc.3) - 2026-10-30
+
+### Added
+
+- switch accounts and pick a wait level per transaction without losing the sender's settings; accept boxed backends ([#394](https://github.com/r-near/near-kit-rs/pull/394))
+- *(macros)* [**breaking**] send #[contract] parameters by name, like near-sdk, so traits can mirror a contract's signatures ([#393](https://github.com/r-near/near-kit-rs/pull/393))
+- derive 0s account ids without a deposit and take either client via AsRef<Near> ([#391](https://github.com/r-near/near-kit-rs/pull/391))
+- poll a view without decoding every answer (View: Clone, fetch_raw, decode) ([#390](https://github.com/r-near/near-kit-rs/pull/390))
+
 ## [0.30.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0-rc.1...near-kit-primitives-v0.30.0-rc.2) - 2026-10-29
 
 - **`View::json` and `FunctionCall::new` send `{}` until arguments are set**, as a `#[contract]` method without arguments already did. This changes what goes on the wire: they used to send empty bytes, which a near-sdk method whose parameters are all `Option` rejects. `View::borsh` and `#[contract(borsh)]` methods still send nothing; for empty bytes, use `.args_raw(Vec::new())` ([#388](https://github.com/r-near/near-kit-rs/pull/388)).
