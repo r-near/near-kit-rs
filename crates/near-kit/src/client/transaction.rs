@@ -1253,6 +1253,7 @@ mod tests {
             .expect("a Submitted send accepts a bare acknowledgement");
         assert_eq!(response.sender_id.as_str(), "alice.testnet");
         assert_eq!(transport.sent.lock().unwrap().len(), 1);
+        assert_eq!(*transport.sent_wait_until.lock().unwrap(), ["NONE"]);
 
         // The client keeps waiting for `Final`.
         let _: Tx<crate::types::Final> = alice.transaction(account!("bob.testnet"));
@@ -1332,6 +1333,8 @@ mod tests {
         views: Mutex<VecDeque<(u64, u64)>>,
         send_tx_responses: Mutex<VecDeque<Vec<u8>>>,
         sent: Mutex<Vec<String>>,
+        /// The `wait_until` of each `send_tx`, in order.
+        sent_wait_until: Mutex<Vec<serde_json::Value>>,
         /// The `finality` of each access key view, in order.
         view_finalities: Mutex<Vec<serde_json::Value>>,
         genesis_hash: CryptoHash,
@@ -1358,6 +1361,7 @@ mod tests {
                 views: Mutex::new(views.into()),
                 send_tx_responses: Mutex::new(send_tx_responses.into()),
                 sent: Mutex::new(Vec::new()),
+                sent_wait_until: Mutex::new(Vec::new()),
                 view_finalities: Mutex::new(Vec::new()),
                 genesis_hash,
                 status_replies: Mutex::new(VecDeque::new()),
@@ -1415,6 +1419,10 @@ mod tests {
                         .unwrap()
                         .to_string();
                     self.sent.lock().unwrap().push(signed);
+                    self.sent_wait_until
+                        .lock()
+                        .unwrap()
+                        .push(request["params"]["wait_until"].clone());
                     self.send_tx_responses
                         .lock()
                         .unwrap()
