@@ -149,7 +149,9 @@ pub use near_kit_macros::contract;
 /// expansions that name near-kit.
 #[doc(hidden)]
 pub mod __private {
-    pub use near_kit_primitives::__private::{borsh_args, call, json_args, view_borsh, view_json};
+    pub use near_kit_primitives::__private::{
+        borsh, borsh_args, borsh_param, call, json_args, json_param, serde, view_borsh, view_json,
+    };
 
     // A `cfg` in proc-macro output is evaluated against the *calling* crate's
     // features, not near-kit's. So the macro wraps its client struct in

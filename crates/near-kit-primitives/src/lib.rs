@@ -57,7 +57,7 @@
 //! ## Calling other contracts from a near-sdk contract
 //!
 //! With the `contracts` feature, `#[contract]` gives offline constructors
-//! (`Counter::add(args)`) that return a [`transaction::FunctionCall`];
+//! (`Counter::add(value)`) that return a [`transaction::FunctionCall`];
 //! [`FunctionCallAction::try_from`](protocol::FunctionCallAction) splits it
 //! into the parts near-sdk's `Promise::function_call` takes. near-kit's
 //! [platforms guide](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/platforms/index.html#smart-contracts)
@@ -152,7 +152,13 @@ pub mod __private {
     pub use crate::platform::BoxFuture;
 
     // What `#[contract]` expansions call to build views and calls.
-    pub use crate::backend::expansion::{borsh_args, call, json_args, view_borsh, view_json};
+    pub use crate::backend::expansion::{
+        borsh_args, borsh_param, call, json_args, json_param, view_borsh, view_json,
+    };
+
+    // Methods whose parameters are sent by name implement these for the
+    // struct that holds them.
+    pub use {borsh, serde};
 
     // There is no client here, so the generated client's backend has no
     // default.

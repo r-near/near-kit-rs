@@ -1,0 +1,5 @@
+error: #[near_kit::contract] supports no attributes on method parameters other than #[args]
+ --> tests/compile-fail/parameter_attribute.rs:5:19
+  |
+5 |     fn get(&self, #[serde(rename = "accountId")] account_id: String, limit: u32) -> u64;
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -8,17 +8,14 @@ use near_kit::{AccountId, Gas, Near, NearToken, SigningNear};
 use near_kit_sandbox::Sandbox;
 use serde::{Deserialize, Serialize};
 
-use super::support::{deploy_ft_contract, funded_account, guestbook_wasm, shared_client};
+use super::support::{
+    deploy_ft_contract, funded_account, guestbook_wasm, shared_client, unique_account,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GuestbookMessage {
     pub premium: bool,
     pub sender: String,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AddMessageArgs {
     pub text: String,
 }
 
@@ -28,7 +25,14 @@ pub trait Guestbook {
     fn get_messages(&self) -> Vec<GuestbookMessage>;
 
     #[call]
-    fn add_message(&mut self, args: AddMessageArgs);
+    fn add_message(&mut self, text: String);
+}
+
+/// The guestbook's `get_messages(from_index: Option<U128>, limit: Option<U64>)`
+/// with its parameters, sent by name.
+#[near_kit::contract]
+pub trait PagedGuestbook {
+    fn get_messages(&self, from_index: Option<&str>, limit: Option<&str>) -> Vec<GuestbookMessage>;
 }
 
 /// Deploy a guestbook; returns the root account waiting for finality, so a
@@ -68,9 +72,7 @@ async fn typed_views_and_calls_roundtrip() {
     );
 
     guestbook
-        .add_message(AddMessageArgs {
-            text: "typed message".to_owned(),
-        })
+        .add_message("typed message".to_owned())
         .await
         .expect("typed call")
         .result()
@@ -78,9 +80,7 @@ async fn typed_views_and_calls_roundtrip() {
 
     // Gas and deposit set on the call reach the contract.
     guestbook
-        .add_message(AddMessageArgs {
-            text: "premium".to_owned(),
-        })
+        .add_message("premium".to_owned())
         .gas(Gas::from_tgas(50))
         .deposit(NearToken::from_near(1))
         .await
@@ -93,6 +93,69 @@ async fn typed_views_and_calls_roundtrip() {
     assert_eq!(messages[0].text, "typed message");
     assert!(!messages[0].premium);
     assert!(messages[1].premium);
+
+    // Two parameters, by name; `None` is `null`, which near-sdk reads as
+    // `None`.
+    let paged = near.contract::<PagedGuestbook>(&contract_id);
+    let page = paged
+        .get_messages(Some("1"), Some("1"))
+        .await
+        .expect("paged view");
+    assert_eq!(page, messages[1..]);
+    let all = paged.get_messages(None, None).await.expect("unpaged view");
+    assert_eq!(all, messages);
+}
+
+/// A near-sdk token's methods declared with their parameters, which the
+/// contract reads by name, and one with an `#[args]` struct.
+#[near_kit::contract]
+pub trait NamedToken {
+    fn ft_balance_of(&self, account_id: &AccountId) -> String;
+
+    #[call(deposit = NearToken::from_millinear(10))]
+    fn storage_deposit(&mut self, #[args] args: StorageDepositArgs);
+
+    #[call(deposit = NearToken::from_yoctonear(1))]
+    fn ft_transfer(&mut self, receiver_id: &AccountId, amount: &str, memo: Option<&str>);
+}
+
+#[derive(Serialize)]
+pub struct StorageDepositArgs {
+    pub account_id: AccountId,
+    pub registration_only: bool,
+}
+
+#[tokio::test]
+async fn named_parameters_reach_a_near_sdk_contract() {
+    let (_, root) = shared_client().await;
+    let root = root.wait_until::<Final>();
+    let (ft_id, _) = deploy_ft_contract(&root, root.account_id())
+        .await
+        .expect("token deployment");
+    let token = root.contract::<NamedToken>(&ft_id);
+    let bob = unique_account("bob");
+
+    token
+        .storage_deposit(StorageDepositArgs {
+            account_id: bob.clone(),
+            registration_only: true,
+        })
+        .await
+        .expect("sent")
+        .result()
+        .expect("registered");
+    token
+        .ft_transfer(&bob, "1000", Some("named"))
+        .await
+        .expect("sent")
+        .result()
+        .expect("transferred");
+
+    assert_eq!(token.ft_balance_of(&bob).await.expect("view"), "1000");
+    assert_eq!(
+        token.ft_balance_of(root.account_id()).await.expect("view"),
+        "999999999999999999999000"
+    );
 }
 
 #[tokio::test]
@@ -126,9 +189,7 @@ async fn no_argument_views_and_calls_send_an_empty_json_object() {
     let reader = near.near();
     let guestbook = near.contract::<Guestbook>(&contract_id);
     guestbook
-        .add_message(AddMessageArgs {
-            text: "hello".to_owned(),
-        })
+        .add_message("hello".to_owned())
         .await
         .expect("typed call")
         .result()

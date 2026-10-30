@@ -590,6 +590,17 @@ pub(crate) mod expansion {
         Ok(serde_json::to_vec(args)?)
     }
 
+    /// A parameter sent by name in JSON, passed through so a type that
+    /// can't be encoded is reported at the parameter.
+    pub fn json_param<A: serde::Serialize>(param: A) -> A {
+        param
+    }
+
+    /// A parameter sent in Borsh, passed through like [`json_param`].
+    pub fn borsh_param<A: borsh::BorshSerialize>(param: A) -> A {
+        param
+    }
+
     /// Borsh-encode view arguments.
     pub fn borsh_args<A: borsh::BorshSerialize + ?Sized>(args: &A) -> Result<Vec<u8>, CodecError> {
         borsh::to_vec(args).map_err(CodecError::Borsh)

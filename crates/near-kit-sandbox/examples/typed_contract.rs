@@ -10,7 +10,7 @@
 //! - Views through a read-only `Near`, at the default `Final` finality and at
 //!   an earlier block with `.at(..)`.
 //! - Calls through a `SigningNear`, with `.gas(..)` and `.deposit(..)`.
-//! - `Guestbook::add_message(args)` as an action in a `Tx`, batched with
+//! - `Guestbook::add_message(text)` as an action in a `Tx`, batched with
 //!   another one.
 //! - A failed action is `Ok(outcome)` with `outcome.is_failure()`, and the
 //!   actions in a transaction succeed or fail together.
@@ -29,29 +29,20 @@ use near_kit::rpc::Finality;
 use near_kit::transaction::FunctionCall;
 use near_kit::{AccountId, Gas, NearToken, account};
 use near_kit_sandbox::Sandbox;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 /// The guestbook contract's interface. Methods taking `&self` are views;
-/// `#[call]` methods taking `&mut self` are transactions.
+/// `#[call]` methods taking `&mut self` are transactions. Each parameter is
+/// sent by name, as the contract declares it (`{"text": ".."}`).
 #[near_kit::contract]
 pub trait Guestbook {
     fn total_messages(&self) -> u32;
-    fn get_messages(&self, args: GetMessagesArgs) -> Vec<Message>;
+
+    /// The contract takes `U128`/`U64` numbers, which are strings in JSON.
+    fn get_messages(&self, from_index: &str, limit: &str) -> Vec<Message>;
 
     #[call]
-    fn add_message(&mut self, args: AddMessageArgs);
-}
-
-/// The contract takes `U128`/`U64` numbers, which are strings in JSON.
-#[derive(Serialize)]
-pub struct GetMessagesArgs {
-    pub from_index: String,
-    pub limit: String,
-}
-
-#[derive(Serialize)]
-pub struct AddMessageArgs {
-    pub text: String,
+    fn add_message(&mut self, text: &str);
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,9 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let guestbook = alice.contract::<Guestbook>(account!("guestbook.sandbox"));
 
     let outcome = guestbook
-        .add_message(AddMessageArgs {
-            text: "Hello from a typed client".into(),
-        })
+        .add_message("Hello from a typed client")
         .gas(Gas::from_tgas(10))
         .await?;
     println!("add_message: {}", outcome.transaction_hash());
@@ -98,9 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Attaching 0.1 NEAR makes this guestbook mark the message premium.
     guestbook
-        .add_message(AddMessageArgs {
-            text: "A premium message".into(),
-        })
+        .add_message("A premium message")
         .deposit(NearToken::from_millinear(100))
         .await?
         .result()?;
@@ -122,12 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     assert_eq!((total, earlier), (2, 1));
 
-    let messages = guestbook_view
-        .get_messages(GetMessagesArgs {
-            from_index: "0".into(),
-            limit: "10".into(),
-        })
-        .await?;
+    let messages = guestbook_view.get_messages("0", "10").await?;
     for message in &messages {
         println!(
             "  {} (premium: {}): {}",
@@ -139,12 +121,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- Batching: typed calls as actions in one transaction ---
     let outcome = alice
         .transaction(account!("guestbook.sandbox"))
-        .add_action(Guestbook::add_message(AddMessageArgs {
-            text: "First of two".into(),
-        }))
-        .add_action(Guestbook::add_message(AddMessageArgs {
-            text: "Second of two".into(),
-        }))
+        .add_action(Guestbook::add_message("First of two"))
+        .add_action(Guestbook::add_message("Second of two"))
         .await?;
     println!("batch succeeded: {}", outcome.is_success());
     assert_eq!(guestbook_view.total_messages().await?, 4);
@@ -154,9 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // still returns Ok: the transaction executed. Check the outcome.
     let outcome = alice
         .transaction(account!("guestbook.sandbox"))
-        .add_action(Guestbook::add_message(AddMessageArgs {
-            text: "Never stored".into(),
-        }))
+        .add_action(Guestbook::add_message("Never stored"))
         .add_action(FunctionCall::new("no_such_method").gas(Gas::from_tgas(10)))
         .await?;
     assert!(outcome.is_failure());

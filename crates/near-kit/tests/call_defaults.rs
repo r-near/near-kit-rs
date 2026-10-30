@@ -30,10 +30,10 @@ fn counted_gas() -> Gas {
 #[near_kit::contract]
 pub trait Token {
     #[call(deposit = ONE_YOCTO)]
-    fn transfer(&mut self, args: Transfer);
+    fn transfer(&mut self, #[args] args: Transfer);
 
     #[call(gas = TRANSFER_CALL_GAS, deposit = NearToken::from_yoctonear(1))]
-    fn transfer_call(&mut self, args: Transfer);
+    fn transfer_call(&mut self, #[args] args: Transfer);
 
     #[call(deposit = NearToken::from_millinear(5), gas = Gas::from_tgas(50))]
     fn register(&mut self);
@@ -42,13 +42,13 @@ pub trait Token {
     fn counted(&mut self);
 
     #[call]
-    fn plain(&mut self, args: Transfer);
+    fn plain(&mut self, #[args] args: Transfer);
 }
 
 #[near_kit::contract(borsh)]
 pub trait BorshToken {
     #[call(gas = Gas::from_tgas(40), deposit = ONE_YOCTO)]
-    fn transfer(&mut self, args: Transfer);
+    fn transfer(&mut self, #[args] args: Transfer);
 }
 
 /// Records the gas and deposit of every function call it's asked to send.
