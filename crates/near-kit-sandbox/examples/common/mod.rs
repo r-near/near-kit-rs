@@ -21,7 +21,5 @@ pub async fn create_account(
         // outcome is unknown (a timeout); `.result()?` also fails if an
         // action did.
         .result()?;
-    Ok(root
-        .near()
-        .with_signer(InMemorySigner::new(account_id, key)))
+    Ok(root.with_signer(InMemorySigner::new(account_id, key)))
 }

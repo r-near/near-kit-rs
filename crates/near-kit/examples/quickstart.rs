@@ -108,9 +108,7 @@ async fn writes(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
     // Sign as the new account over the same connection, and delete it,
     // sending its balance back. `.result()?` turns a failed action into an
     // error.
-    let sub = alice
-        .near()
-        .with_signer(InMemorySigner::new(sub_id.clone(), sub_key));
+    let sub = alice.with_signer(InMemorySigner::new(sub_id.clone(), sub_key));
     let outcome = sub
         .transaction(&sub_id)
         .add_action(Action::delete_account(alice.account_id().clone()))
