@@ -26,8 +26,10 @@ height, a block hash or a `SyncCheckpoint`).
 
 Some behavior changed without a compile error: sends wait for `Final` by
 default, cached nonces are shared per chain, an Ed25519 secret key prints in
-its 64-byte form, and some RPC errors are no longer retried. The sections
-after the table cover each one.
+its 64-byte form, some RPC errors are no longer retried, and a `#[contract]`
+method with one parameter sends it by name
+([below](#one-parameter-is-sent-by-name)). The sections after the table
+cover each one.
 
 ### Clients
 
@@ -155,6 +157,8 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 |---|---|
 | `ContractClient`, `ContractClient::new(near, id)`, `Contract::Client: ContractClient` | `Contract::Client<C>`, `Contract::client(backend, id)` |
 | `near_kit::{call, json, borsh}` attribute re-exports | Removed: `#[contract]` reads the markers itself |
+| `#[contract]` method with one parameter `args: Args`, sent as the whole argument object | Sent by name, `{"args": ..}`, with no compile error; `#[args] args: Args` keeps the whole object (see [below](#one-parameter-is-sent-by-name)) |
+| `#[contract]` method with several parameters (a compile error) | Each parameter sent by name, as near-sdk encodes them |
 | `standards::FungibleToken`, `standards::NonFungibleToken` (the clients) | `FungibleTokenClient<C = Near>`, `NonFungibleTokenClient<C = Near>`; `FungibleToken` and `NonFungibleToken` are now `Contract` markers |
 | `Near::ft(id)`, `Near::nft(id)` | `near.contract::<FungibleToken>(id)`, `near.contract::<NonFungibleToken>(id)` |
 | `FungibleToken::contract_id`, `is_registered`, `metadata`, `storage_balance_bounds`, `storage_balance_of`, `storage_deposit`, `transfer`, `transfer_call` | Same methods on `FungibleTokenClient<C>`; `transfer` takes a memo `Option` |
@@ -499,10 +503,44 @@ at the call site still override them.
 let counter = near.contract::<Counter>("counter.testnet".parse::<AccountId>()?);
 counter.add(AddArgs { value: 1 }).await?;
 
-// This release
+// This release, with `fn add(&mut self, #[args] args: AddArgs)` (see below)
 let counter = alice.contract::<Counter>(account!("counter.testnet"));
 counter.add(AddArgs { value: 1 }).gas(Gas::from_tgas(10)).await?.result()?;
 let count = counter.get_count().at(Finality::Optimistic).await?;
+```
+
+#### One parameter is sent by name
+
+A method's parameters are now the contract method's parameters, by name,
+as near-sdk's `#[near]` and `#[ext_contract]` encode them. A method with
+several parameters, a compile error in 0.20.1, sends a JSON object with a
+key per parameter (or each parameter's Borsh encoding, in order). This
+changes what a method with **one** parameter sends, with no compile error:
+in 0.20.1 the value was the whole argument object, now it is the value of
+a key named after the parameter. Mark the parameter `#[args]` to keep
+sending it as the whole object. Borsh methods send the same bytes either
+way.
+
+```rust
+#[derive(Serialize)]
+pub struct AddArgs {
+    pub value: u64,
+}
+
+#[near_kit::contract]
+pub trait Counter {
+    // 0.20.1 sent {"value":1}. This release sends {"args":{"value":1}}.
+    #[call]
+    fn add(&mut self, args: AddArgs);
+}
+
+// Keep the struct as the whole argument object: sends {"value":1}.
+#[call]
+fn add(&mut self, #[args] args: AddArgs);
+
+// Or declare the contract's own parameter: `counter.add(1)` sends {"value":1}.
+#[call]
+fn add(&mut self, value: u64);
 ```
 
 The macro now rejects declarations it used to compile into something wrong:
@@ -511,7 +549,7 @@ The macro now rejects declarations it used to compile into something wrong:
 |---|---|
 | `#[call] fn m(&mut self) -> T` (return type ignored) | A compile error; decode the outcome yourself |
 | Methods named `contract_id`, `client` or `clone`, including as raw identifiers | A compile error; rename them |
-| An argument bound to `_` or a pattern (dropped: the method sent `{}`) | A compile error; name the argument (`args: Args`) |
+| An argument bound to `_` or a pattern (dropped: the method sent `{}`) | A compile error; name the parameter (`value: u64`, or `#[args] args: Args`) |
 | Generic methods, lifetime parameters, `async fn` | A compile error; use `impl Trait` or a concrete type, drop `async` |
 | `#[cfg]` / `#[cfg_attr]` on a method (ignored) | Applied to the generated client method and `FunctionCall` constructor; `#[call]`, `#[json]` or `#[borsh]` behind `#[cfg_attr]` is a compile error (declare the method twice, each under `#[cfg]`) |
 | `fn r#type(&self)` sent the method name `r#type` | It sends `type` |

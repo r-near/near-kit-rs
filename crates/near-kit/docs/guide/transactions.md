@@ -123,7 +123,7 @@ token client is a [`Call`](crate::Call); `FunctionCall::from(call)` keeps
 its method, arguments, gas and deposit, and drops the client.
 
 A `#[near_kit::contract]` trait also generates a `FunctionCall`
-constructor for each `#[call]` method, such as `Counter::add(args)`; see
+constructor for each `#[call]` method, such as `Counter::add(value)`; see
 the [contracts chapter](crate::guide::contracts_and_tokens).
 
 ### Access keys
