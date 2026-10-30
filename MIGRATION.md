@@ -51,7 +51,7 @@ cover each one.
 | `Near::sign_message(params)` | `alice.signer().key().sign_nep413(alice.account_id(), &params).await?` |
 | `Near::send(&signed)` | `near.send_signed(&signed)` |
 | `Near::balance`, `account_exists`, `view`, `tx_status`, `contract`, `chain_id`, `rpc` called on a signing client | Still on `Near`; from a `SigningNear`, `alice.near().balance(id)` and so on. `alice.contract::<T>(id)` stays. |
-| `Near::with_signer(s)` on a client that already had a signer | `alice.near().with_signer(s)` |
+| `Near::with_signer(s)` on a client that already had a signer | `alice.with_signer(s)`, which keeps `alice`'s wait level and nonce retries (`alice.near().with_signer(s)` waits for `Final`) |
 
 ### Sending transactions
 
@@ -71,9 +71,9 @@ cover each one.
 | `CallBuilder::into_action()` | `function_call.into_action()?`, or `FunctionCall::from(call).into_action()?` |
 | `TransactionBuilder::add_actions(iter)` | `add_action` in a loop, or `TxSender::send(&alice, rx, actions)` |
 | `TransactionBuilder::send()`, `CallBuilder::send()`, `TransactionSend` | `.await` the `Tx` |
-| `TransactionBuilder::wait_until::<W>()`, `TransactionSend::wait_until::<W>()` | `alice.wait_until::<W>().transaction(rx)` |
+| `TransactionBuilder::wait_until::<W>()`, `TransactionSend::wait_until::<W>()` | `alice.transaction(rx).add_action(a).wait_until::<W>()` for one transaction, `alice.wait_until::<W>()` for every send |
 | `TransactionBuilder::max_nonce_retries(n)`, `TransactionSend::max_nonce_retries(n)` | `alice.clone().max_nonce_retries(n).transaction(rx)` |
-| `TransactionBuilder::sign_with(other)` | `alice.near().with_signer(other).transaction(rx)` |
+| `TransactionBuilder::sign_with(other)` | `alice.with_signer(other).transaction(rx)` |
 | `TransactionBuilder::sign()` | `alice.sign(rx, actions).await?` |
 | `TransactionBuilder::build()`, `build_offline(..)`, `sign_offline(..)`, `into_parts()` | Keep the receiver and `Vec<Action>` yourself; `Transaction::new(signer_id, public_key, nonce, receiver_id, block_hash, actions).sign(&secret_key)` |
 | `Action::deploy_from_hash(hash)`, `Action::deploy_from_account(id)` | `Action::deploy_from(hash)`, `Action::deploy_from(id)` |
@@ -171,7 +171,6 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `standards::FtAmount` (and `From<FtAmount> for u128`) | Removed: amounts are `u128`; format with `metadata().await?.decimals` |
 | `standards::nep413::serialize_message(&params)` | `standards::nep413::hash_message(&params)` |
 | `standards::nep413::NEP413_TAG` | Crate-private (2^31 + 413); `standards::nep413::hash_message(&params)` prepends it |
-| `Viewer` and `TxSender` for `Box<T>` | `Arc<T>`, or the backend itself |
 
 ### Keys and signers
 
@@ -337,7 +336,9 @@ work on a `SigningNear` directly. `SigningNear::from_env()` replaces
 `Near::from_env()` and fails unless both `NEAR_ACCOUNT_ID` and
 `NEAR_PRIVATE_KEY` are set; build a `Near` for read-only use. When
 `NEAR_NETWORK` is an RPC URL it also fails without `NEAR_CHAIN_ID` (0.20.1 used
-the chain ID `"custom"`).
+the chain ID `"custom"`). To sign as another account with the same settings,
+call `alice.with_signer(other)`: it keeps `alice`'s wait level and nonce
+retries.
 
 ```rust
 // 0.20.1
@@ -401,6 +402,8 @@ the tokens already), so check the returned amount (or `bool` for NFTs), and
 
 The wait level is now part of the signing client's type, set once with
 `.wait_until::<W>()`. `SigningNear` with no parameter is `SigningNear<Final>`.
+One transaction can still pick its own: `Tx::wait_until::<W>()` after the
+actions.
 **The default changed from `ExecutedOptimistic` to `Final`**, for sends and for
 `near.send_signed(..)`. This is not a compile error. Sends take longer, and a
 default (final) read afterwards sees the write. To keep the 0.20.1 behavior,
@@ -415,12 +418,15 @@ let response = near
     .wait_until::<Included>()
     .await?;
 
-// This release
+// This release: for one transaction
 let response = alice
-    .wait_until::<Included>()
     .transaction(account!("bob.testnet"))
     .add_action(Action::transfer(NearToken::from_near(1)))
+    .wait_until::<Included>()
     .await?;
+
+// or for every transaction from a client
+let alice_fast = alice.wait_until::<Included>();
 ```
 
 A type of yours that held a `Near` to both view and send should hold a
@@ -559,7 +565,7 @@ The macro now rejects declarations it used to compile into something wrong:
 Implement `Viewer`, `TxSender` or both, and typed contract clients, `View`,
 `Call` and the token clients run on your type. Build the view result with
 `ViewFunctionResult::new(bytes, block_height, block_hash)`. Both traits are
-implemented for `&T` and `Arc<T>` (with `T: ?Sized`), so
+implemented for `&T`, `Box<T>` and `Arc<T>` (with `T: ?Sized`), so
 `Arc<dyn MySender>` works once you implement `TxSender for dyn MySender`.
 Awaiting a `View` or `Call` needs a `'static` backend; through a shorter
 `&T` borrow, use `.with_metadata()` on a view and `.send()` on a call.
