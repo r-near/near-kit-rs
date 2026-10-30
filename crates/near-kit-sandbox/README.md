@@ -3,10 +3,10 @@
 A local NEAR node in Docker, for tests that use
 [`near-kit`](https://crates.io/crates/near-kit).
 
-[API docs](https://docs.rs/near-kit-sandbox/0.30.0-rc.2) · [Changelog](CHANGELOG.md)
+[API docs](https://docs.rs/near-kit-sandbox/0.30.0-rc.3) · [Changelog](CHANGELOG.md)
 
 ```sh
-cargo add --dev near-kit@0.30.0-rc.2 near-kit-sandbox@0.30.0-rc.2
+cargo add --dev near-kit@0.30.0-rc.3 near-kit-sandbox@0.30.0-rc.3
 cargo add --dev tokio --features macros,rt-multi-thread
 ```
 

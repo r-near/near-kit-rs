@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.3](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0-rc.2...near-kit-primitives-v0.30.0-rc.3) - 2026-10-30
+
+- **With `contracts`, `#[contract]` sends every parameter by name, including a single one.** This changes what a one-parameter method sends, with no compile error: `fn m(&self, args: Args)` used to send `Args` as the whole argument object and now sends `{"args": ..}`. Mark the parameter `#[args]` to keep the old bytes. Methods may now take several parameters, sent as near-sdk encodes them ([#393](https://github.com/r-near/near-kit-rs/pull/393), [MIGRATION](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#one-parameter-is-sent-by-name)).
+- `View` is `Clone` when its backend is. `View::fetch_raw` runs it without decoding, and `View::decode` decodes the bytes as `.await` would ([#390](https://github.com/r-near/near-kit-rs/pull/390)).
+- `protocol::derive_deterministic_account_id(&StateInit)` derives a `0s` account ID without a deposit; `DeterministicStateInitAction::derive_account_id` calls it ([#391](https://github.com/r-near/near-kit-rs/pull/391)).
+- `Viewer` and `TxSender` are implemented for `Box<T>`, as for `&T` and `Arc<T>` ([#394](https://github.com/r-near/near-kit-rs/pull/394)).
+
 ## [0.30.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0-rc.1...near-kit-primitives-v0.30.0-rc.2) - 2026-10-29
 
 - **`View::json` and `FunctionCall::new` send `{}` until arguments are set**, as a `#[contract]` method without arguments already did. This changes what goes on the wire: they used to send empty bytes, which a near-sdk method whose parameters are all `Option` rejects. `View::borsh` and `#[contract(borsh)]` methods still send nothing; for empty bytes, use `.args_raw(Vec::new())` ([#388](https://github.com/r-near/near-kit-rs/pull/388)).

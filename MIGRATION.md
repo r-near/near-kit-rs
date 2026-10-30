@@ -8,13 +8,17 @@ This release is a clean break with no deprecated aliases. `Near` only reads;
 `account!("..")` checks a literal at compile time. The protocol types moved
 into `near-kit-primitives`, re-exported at the same `near_kit::` paths. Each
 layer has its own error type that converts into `near_kit::Error` with `?`.
-The [guide](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/index.html)
+The [guide](https://docs.rs/near-kit/0.30.0-rc.3/near_kit/guide/index.html)
 explains the model.
 
 You can adopt 0.30 as a plain version bump: update your call sites to the
 new client API (reads on `Near`, sends on `SigningNear`; the table below maps
 each removed method) and stop there. The `Viewer` and `TxSender` traits and
-`#[contract]` typed clients are optional and can come later.
+`#[contract]` typed clients are optional and can come later. If you already
+have `#[contract]` traits, a method with one parameter now sends it by name,
+with no compile error: check each one, and add `#[args]` where the parameter
+is the whole argument object (see
+[One parameter is sent by name](#one-parameter-is-sent-by-name)).
 
 ## Where did this go?
 
@@ -408,7 +412,7 @@ actions.
 `near.send_signed(..)`. This is not a compile error. Sends take longer, and a
 default (final) read afterwards sees the write. To keep the 0.20.1 behavior,
 use `.wait_until::<ExecutedOptimistic>()`. See
-[finality](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/finality/index.html).
+[finality](https://docs.rs/near-kit/0.30.0-rc.3/near_kit/guide/finality/index.html).
 
 ```rust
 // 0.20.1
@@ -438,7 +442,7 @@ and sending ones for `MyWrapper<SigningNear<W>>`.
 
 ### Nonces
 
-See [nonces](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/nonces/index.html)
+See [nonces](https://docs.rs/near-kit/0.30.0-rc.3/near_kit/guide/nonces/index.html)
 for the full picture. What changed:
 
 - **Cached nonces are shared per chain.** The cache is keyed by the chain's
@@ -579,7 +583,7 @@ any backend; clones of a client share its metadata cache. `balance_of` and
 `total_supply` return `u128` in the token's smallest unit and no longer read
 the metadata first. A non-numeric `U128`/`U64` string from a token contract is
 now `ContractError::Codec`, not an RPC error. See
-[contracts and tokens](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/contracts_and_tokens/index.html).
+[contracts and tokens](https://docs.rs/near-kit/0.30.0-rc.3/near_kit/guide/contracts_and_tokens/index.html).
 
 ```rust
 // 0.20.1
@@ -603,7 +607,7 @@ alice
 `SignedDelegateAction` itself. The relayer sends it to the delegate's sender;
 any other receiver fails with `Error::Validation` before signing (nearcore
 would reject it on chain, at the relayer's cost). See
-[meta-transactions](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/meta_transactions/index.html).
+[meta-transactions](https://docs.rs/near-kit/0.30.0-rc.3/near_kit/guide/meta_transactions/index.html).
 
 ```rust
 // 0.20.1
@@ -669,7 +673,7 @@ Behavior changes:
 ## Keys and signers
 
 The loader types are now functions; the tables above map each one. See
-[keys](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/keys/index.html).
+[keys](https://docs.rs/near-kit/0.30.0-rc.3/near_kit/guide/keys/index.html).
 
 Key parsing and printing changed too, mostly without a compile error:
 
@@ -706,7 +710,7 @@ Key parsing and printing changed too, mostly without a compile error:
 ## Errors
 
 Each layer returns its own error, and each converts into `near_kit::Error`
-with `?`. See [errors](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/errors/index.html).
+with `?`. See [errors](https://docs.rs/near-kit/0.30.0-rc.3/near_kit/guide/errors/index.html).
 
 | API | Now returns |
 |---|---|
@@ -778,12 +782,12 @@ match err {
 `sandbox.patch_state(records)` replaces the `RpcClient` method. It still
 sends the patch twice but no longer sleeps 100 ms afterwards, so poll for the
 state you wrote, or use `sandbox.set_balance(..)`, which does. See
-[testing](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/testing/index.html).
+[testing](https://docs.rs/near-kit/0.30.0-rc.3/near_kit/guide/testing/index.html).
 
 ## Platforms and features
 
 The feature names are unchanged. See
-[platforms](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/platforms/index.html).
+[platforms](https://docs.rs/near-kit/0.30.0-rc.3/near_kit/guide/platforms/index.html).
 
 - **`near-kit-primitives`** holds the protocol types, signers, `Viewer` and
   `TxSender`, and (with its `contracts` feature) `#[contract]`. It has no RPC
