@@ -38,6 +38,24 @@ fn signing_clients_select_wait_levels_in_type_position() {
 }
 
 #[test]
+fn with_signer_on_a_signing_client_keeps_its_wait_level() {
+    let relayer: SigningNear<Included> = alice().wait_until::<Included>();
+    let bob = || {
+        InMemorySigner::new(
+            account!("bob.testnet"),
+            "ed25519:3JoAjwLppjgvxkk6kNsu5wQj3FfUJnpBKWieC73hVTpBeA6FZiCc5tfyZL3a3tHeQJegQe4qGSv8FLsYp7TYd1r6".parse().unwrap(),
+        )
+    };
+
+    let swapped: SigningNear<Included> = relayer.with_signer(bob());
+    assert_eq!(swapped.account_id().as_str(), "bob.testnet");
+    assert!(format!("{swapped:?}").contains("Included"));
+
+    // Through the read-only client, the level goes back to the default.
+    let _reset: SigningNear<Final> = relayer.near().with_signer(bob());
+}
+
+#[test]
 fn wait_level_types_map_to_rpc_statuses() {
     assert_eq!(Submitted::STATUS, TxExecutionStatus::None);
     assert_eq!(Included::STATUS, TxExecutionStatus::Included);
