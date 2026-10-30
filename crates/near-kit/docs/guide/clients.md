@@ -41,6 +41,9 @@ let balance = alice.near().balance(alice.account_id()).await?;
 `alice.near()` is the way to read. It does implement
 [`Viewer`](crate::Viewer) as well as [`TxSender`](crate::TxSender), so a
 typed contract client built from it can both view and call.
+Both clients implement `AsRef<Near>`, so a helper that only reads can take
+`client: impl AsRef<Near>`, call `client.as_ref()`, and accept either a
+`Near` or a `SigningNear`.
 
 Both types are cheap to clone and are `Send + Sync`: a `Near` holds its RPC
 client in an `Arc`, and every `SigningNear` made from it shares that

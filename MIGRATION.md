@@ -322,7 +322,8 @@ let count = view.decode(&raw.result)?;
 ### A separate signing client
 
 `near.with_signer(signer)` returns a `SigningNear`. It has no `Deref` to
-`Near`: read through `alice.near()`. Typed contract views and token views
+`Near`: read through `alice.near()`, or take `impl AsRef<Near>` in a helper
+that should accept either client. Typed contract views and token views
 work on a `SigningNear` directly. `SigningNear::from_env()` replaces
 `Near::from_env()` and fails unless both `NEAR_ACCOUNT_ID` and
 `NEAR_PRIVATE_KEY` are set; build a `Near` for read-only use. When

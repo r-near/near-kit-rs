@@ -357,6 +357,14 @@ impl Near {
     }
 }
 
+/// Lets read helpers take `impl AsRef<Near>` and accept a `Near` or a
+/// [`SigningNear`](crate::SigningNear).
+impl AsRef<Near> for Near {
+    fn as_ref(&self) -> &Near {
+        self
+    }
+}
+
 impl crate::Viewer for Near {
     type ViewError = RpcError;
 
