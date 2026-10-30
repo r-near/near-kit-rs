@@ -14,7 +14,11 @@ explains the model.
 You can adopt 0.30 as a plain version bump: update your call sites to the
 new client API (reads on `Near`, sends on `SigningNear`; the table below maps
 each removed method) and stop there. The `Viewer` and `TxSender` traits and
-`#[contract]` typed clients are optional and can come later.
+`#[contract]` typed clients are optional and can come later. If you already
+have `#[contract]` traits, a method with one parameter now sends it by name,
+with no compile error: check each one, and add `#[args]` where the parameter
+is the whole argument object (see
+[One parameter is sent by name](#one-parameter-is-sent-by-name)).
 
 ## Where did this go?
 
