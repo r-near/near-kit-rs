@@ -305,6 +305,18 @@ impl From<ContractError<RpcError>> for MyError {
 }
 ```
 
+A `View` is `Clone` when its backend is (`Near` is), so a poll can build
+the view once and run a clone on every tick. `.fetch_raw()` runs it without
+decoding and returns the bytes with the block they were read at;
+`.decode(&bytes)` decodes them as `.await` would. The finality guide's
+"Polling a view" decodes only when the result changes:
+
+```rust
+let view = near.view::<u64>(account!("counter.testnet"), "get_count");
+let raw = view.clone().fetch_raw().await?;
+let count = view.decode(&raw.result)?;
+```
+
 ## Signing and sending
 
 ### A separate signing client

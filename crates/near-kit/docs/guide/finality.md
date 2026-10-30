@@ -88,6 +88,39 @@ let balance: u128 = raw.parse()?;
 # }
 ```
 
+## Polling a view
+
+To follow a value as it changes, run the same view on a timer. A
+[`View`](crate::View) is `Clone`, so build it once and clone it for each
+poll. [`fetch_raw`](crate::View::fetch_raw) runs it without decoding: the
+bytes the contract returned, with the block they were read at.
+[`decode`](crate::View::decode) decodes them as `.await` would. Compare the
+bytes and decode only when they change:
+
+```rust,no_run
+use std::time::Duration;
+
+use near_kit::*;
+
+# async fn example(near: &Near) -> Result<(), Error> {
+let view = near.view::<u64>(account!("counter.testnet"), "get_count");
+let mut last: Option<Vec<u8>> = None;
+let mut highest = 0;
+loop {
+    let raw = view.clone().fetch_raw().await?;
+    // Behind a load balancer, a node that is a block behind can answer
+    // after one that is ahead: skip its older value instead of going back.
+    if raw.block_height >= highest && last.as_ref() != Some(&raw.result) {
+        let count = view.decode(&raw.result)?;
+        println!("{count} at block {}", raw.block_height);
+        last = Some(raw.result);
+    }
+    highest = highest.max(raw.block_height);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+}
+# }
+```
+
 ## Wait levels
 
 A send returns when the transaction reaches its wait level. The level is a

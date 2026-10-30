@@ -5,7 +5,7 @@
 //! | [`clients`] | `Near` and `SigningNear`, networks and RPC endpoints, client settings |
 //! | [`keys`] | Key types and string forms, loading keys, seed phrases, external signers |
 //! | [`transactions`] | Building transactions from actions, batching calls, global contracts, state init |
-//! | [`finality`] | Read finality, wait levels and their responses, reading your own writes |
+//! | [`finality`] | Read finality, polling a view, wait levels and their responses, reading your own writes |
 //! | [`nonces`] | The nonce cache, nonce retries, concurrent senders, rotating keys |
 //! | [`errors`] | Failed actions vs errors, error types, retries, your own error enum |
 //! | [`meta_transactions`] | Signing delegate actions and relaying them |

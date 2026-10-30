@@ -2982,6 +2982,8 @@ pub fn near_kit_primitives::View<C, T>::args_borsh(self, impl borsh::ser::BorshS
 pub fn near_kit_primitives::View<C, T>::args_raw(self, impl core::convert::Into<alloc::vec::Vec<u8>>) -> Self
 pub fn near_kit_primitives::View<C, T>::at(self, impl core::convert::Into<near_kit_primitives::rpc::BlockReference>) -> Self
 pub fn near_kit_primitives::View<C, T>::borsh(C, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::Into<alloc::string::String>) -> Self where C: near_kit_primitives::Viewer, T: borsh::de::BorshDeserialize
+pub fn near_kit_primitives::View<C, T>::decode(&self, &[u8]) -> core::result::Result<T, near_kit_primitives::transaction::CodecError>
+pub async fn near_kit_primitives::View<C, T>::fetch_raw(self) -> core::result::Result<near_kit_primitives::rpc::ViewFunctionResult, near_kit_primitives::ContractError<<C as near_kit_primitives::Viewer>::ViewError>> where C: near_kit_primitives::Viewer
 pub fn near_kit_primitives::View<C, T>::json(C, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::Into<alloc::string::String>) -> Self where C: near_kit_primitives::Viewer, T: serde_core::de::DeserializeOwned
 pub async fn near_kit_primitives::View<C, T>::with_metadata(self) -> core::result::Result<near_kit_primitives::rpc::ViewFunctionResult<T>, near_kit_primitives::ContractError<<C as near_kit_primitives::Viewer>::ViewError>> where C: near_kit_primitives::Viewer
 impl<C, T> core::fmt::Debug for near_kit_primitives::View<C, T>
@@ -2990,6 +2992,8 @@ impl<C, T> core::future::into_future::IntoFuture for near_kit_primitives::View<C
 pub type near_kit_primitives::View<C, T>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit_primitives::View<C, T> as core::future::into_future::IntoFuture>::Output> + core::marker::Send)>>
 pub type near_kit_primitives::View<C, T>::Output = core::result::Result<T, near_kit_primitives::ContractError<<C as near_kit_primitives::Viewer>::ViewError>>
 pub fn near_kit_primitives::View<C, T>::into_future(self) -> Self::IntoFuture
+impl<C: core::clone::Clone, T> core::clone::Clone for near_kit_primitives::View<C, T>
+pub fn near_kit_primitives::View<C, T>::clone(&self) -> Self
 pub trait near_kit_primitives::Contract
 pub type near_kit_primitives::Contract::Client<C>
 pub fn near_kit_primitives::Contract::client<C>(C, near_account_id::account_id::AccountId) -> Self::Client
