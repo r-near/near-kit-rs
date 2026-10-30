@@ -23,9 +23,9 @@ use crate::types::{AccountId, Action, BlockReference, Gas, NearToken, ViewFuncti
 /// Implement it with an `async fn`. The future must be `Send` on every target
 /// except `wasm32-unknown-unknown`.
 ///
-/// Generated clients need a `Clone` backend; `&T` and `Arc<T>` forward to
-/// `T`. See [`View`] for which backends `.await` accepts and for an example
-/// implementation.
+/// Generated clients need a `Clone` backend; `&T`, `Box<T>` and `Arc<T>`
+/// forward to `T`. See [`View`] for which backends `.await` accepts and for
+/// an example implementation.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot run contract views",
     label = "not a `Viewer`",
@@ -52,8 +52,8 @@ pub trait Viewer: MaybeSend + MaybeSync {
 /// backend decides how to sign, how long to wait and what to return
 /// ([`Output`](Self::Output)).
 ///
-/// Generated clients need a `Clone` backend; `&T` and `Arc<T>` forward to
-/// `T`. Through a short borrow, send with [`Call::send`].
+/// Generated clients need a `Clone` backend; `&T`, `Box<T>` and `Arc<T>`
+/// forward to `T`. Through a short borrow, send with [`Call::send`].
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot send transactions",
     label = "needs a signer",
@@ -532,7 +532,7 @@ macro_rules! forward {
     )+};
 }
 
-forward!(&T, Arc<T>);
+forward!(&T, Box<T>, Arc<T>);
 
 /// Constructors and encoders used by `#[contract]` expansions (and by
 /// near-kit's token clients). Not public API.
