@@ -25,7 +25,7 @@ pub trait Counter {
     fn get_count(&self) -> u64;
 
     #[call]
-    fn add(&mut self, args: AddArgs);
+    fn add(&mut self, amount: u64);
 
     #[call]
     fn reset(&mut self);
@@ -36,10 +36,42 @@ pub trait Counter {
 #[near_kit_primitives::contract]
 pub trait Vault {
     #[call(deposit = NearToken::from_yoctonear(1))]
-    fn withdraw(&mut self, args: AddArgs);
+    fn withdraw(&mut self, #[args] args: AddArgs);
 
     #[call(gas = near_kit_primitives::Gas::from_tgas(100))]
     fn sweep(&mut self);
+}
+
+/// Parameters encoded by name, through near-kit-primitives' `serde` and
+/// `borsh` re-exports alone.
+#[near_kit_primitives::contract]
+pub trait Params {
+    #[call(deposit = NearToken::from_yoctonear(1))]
+    fn transfer(&mut self, receiver_id: AccountId, amount: &str, memo: Option<&str>);
+
+    #[call]
+    #[borsh]
+    fn store(&mut self, key: u8, value: Vec<u8>);
+}
+
+#[test]
+fn named_parameters_encode_through_primitives() {
+    let Action::FunctionCall(call) = Params::transfer(account!("bob.near"), "5", None)
+        .into_action()
+        .unwrap()
+    else {
+        panic!("expected a function call");
+    };
+    assert_eq!(
+        call.args,
+        br#"{"receiver_id":"bob.near","amount":"5","memo":null}"#
+    );
+    assert_eq!(call.deposit, NearToken::from_yoctonear(1));
+
+    let Action::FunctionCall(call) = Params::store(1, vec![2]).into_action().unwrap() else {
+        panic!("expected a function call");
+    };
+    assert_eq!(call.args, [1, 1, 0, 0, 0, 2]);
 }
 
 #[test]
@@ -72,7 +104,7 @@ fn call_options_resolve_through_primitives() {
 
 #[test]
 fn offline_constructors_build_actions() {
-    let action = Counter::add(AddArgs { amount: 5 })
+    let action = Counter::add(5)
         .gas(Gas::from_tgas(10))
         .deposit(NearToken::from_yoctonear(1))
         .into_action()
@@ -151,10 +183,7 @@ fn generated_client_runs_on_any_backend() {
         run(counter.get_count().at(Finality::Optimistic)).unwrap(),
         7
     );
-    run(counter
-        .add(AddArgs { amount: 5 })
-        .deposit(NearToken::from_yoctonear(1)))
-    .unwrap();
+    run(counter.add(5).deposit(NearToken::from_yoctonear(1))).unwrap();
 
     assert_eq!(
         *backend.views.lock().unwrap(),
@@ -171,7 +200,7 @@ fn generated_client_runs_on_any_backend() {
             ),
         ]
     );
-    let expected: Action = Counter::add(AddArgs { amount: 5 })
+    let expected: Action = Counter::add(5)
         .deposit(NearToken::from_yoctonear(1))
         .try_into()
         .unwrap();

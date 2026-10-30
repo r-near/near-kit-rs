@@ -27,18 +27,14 @@ Production passes a client over `Near` or `SigningNear`; tests pass the same
 client over a mock:
 
 ```rust
-# use serde::{Deserialize, Serialize};
+# use serde::Deserialize;
 # #[near_kit::contract]
 # pub trait Guestbook {
-#     fn get_messages(&self, args: GetMessages) -> Vec<Message>;
+#     fn get_messages(&self, from_index: Option<&str>, limit: Option<&str>) -> Vec<Message>;
 #     fn total_messages(&self) -> u32;
 #     #[call]
-#     fn add_message(&mut self, args: AddMessage);
+#     fn add_message(&mut self, text: &str);
 # }
-# #[derive(Serialize)]
-# pub struct GetMessages { pub from_index: String, pub limit: String }
-# #[derive(Serialize)]
-# pub struct AddMessage { pub text: String }
 # #[derive(Debug, Deserialize)]
 # pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 use near_kit::*;
@@ -50,7 +46,7 @@ where
     C::ViewError: 'static,
 {
     let messages = guestbook
-        .get_messages(GetMessages { from_index: "0".into(), limit: "100".into() })
+        .get_messages(Some("0"), Some("100"))
         .await?;
     Ok(messages.iter().filter(|m| m.premium).count())
 }
@@ -100,23 +96,19 @@ JSON values and records each call. It is `Clone`, so it can back a
 generated client, and the clones share the record:
 
 ```rust
-# use serde::{Deserialize, Serialize};
+# use serde::Deserialize;
 # #[near_kit::contract]
 # pub trait Guestbook {
-#     fn get_messages(&self, args: GetMessages) -> Vec<Message>;
+#     fn get_messages(&self, from_index: Option<&str>, limit: Option<&str>) -> Vec<Message>;
 #     fn total_messages(&self) -> u32;
 #     #[call]
-#     fn add_message(&mut self, args: AddMessage);
+#     fn add_message(&mut self, text: &str);
 # }
-# #[derive(Serialize)]
-# pub struct GetMessages { pub from_index: String, pub limit: String }
-# #[derive(Serialize)]
-# pub struct AddMessage { pub text: String }
 # #[derive(Debug, Deserialize)]
 # pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 # async fn premium_count<C>(guestbook: &GuestbookClient<C>) -> Result<usize, ContractError<C::ViewError>>
 # where C: Viewer + Clone + 'static, C::ViewError: 'static {
-#     let messages = guestbook.get_messages(GetMessages { from_index: "0".into(), limit: "100".into() }).await?;
+#     let messages = guestbook.get_messages(Some("0"), Some("100")).await?;
 #     Ok(messages.iter().filter(|m| m.premium).count())
 # }
 use std::collections::HashMap;
@@ -217,18 +209,14 @@ A [`TxSender`](crate::TxSender) picks its own
 the receiver and actions of each transaction for the test to inspect:
 
 ```rust
-# use serde::{Deserialize, Serialize};
+# use serde::Deserialize;
 # #[near_kit::contract]
 # pub trait Guestbook {
-#     fn get_messages(&self, args: GetMessages) -> Vec<Message>;
+#     fn get_messages(&self, from_index: Option<&str>, limit: Option<&str>) -> Vec<Message>;
 #     fn total_messages(&self) -> u32;
 #     #[call]
-#     fn add_message(&mut self, args: AddMessage);
+#     fn add_message(&mut self, text: &str);
 # }
-# #[derive(Serialize)]
-# pub struct GetMessages { pub from_index: String, pub limit: String }
-# #[derive(Serialize)]
-# pub struct AddMessage { pub text: String }
 # #[derive(Debug, Deserialize)]
 # pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 use std::sync::{Arc, Mutex};
@@ -276,7 +264,7 @@ FungibleToken::client(alice.clone(), account!("usdc.testnet"))
     .transfer(account!("bob.testnet"), 1_500_000, None)
     .await?;
 Guestbook::client(alice.clone(), account!("guestbook.testnet"))
-    .add_message(AddMessage { text: "hi".into() })
+    .add_message("hi")
     .deposit(NearToken::from_millinear(10))
     .await?;
 

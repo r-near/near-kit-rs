@@ -1,0 +1,15 @@
+error[E0425]: cannot find value `tgas` in this scope
+ --> tests/compile-fail/call_option_uses_parameters.rs:7:33
+  |
+7 |     #[call(gas = Gas::from_tgas(tgas))]
+  |                                 ^^^^ not found in this scope
+  |
+help: an identifier with the same name is defined here, but is not accessible due to macro hygiene
+ --> tests/compile-fail/call_option_uses_parameters.rs:8:52
+  |
+5 | #[near_kit::contract]
+  | --------------------- in this attribute macro expansion
+...
+8 |     fn do_something(&mut self, account_id: String, tgas: u64);
+  |                                                    ^^^^
+  = note: this error originates in the attribute macro `near_kit::contract` (in Nightly builds, run with -Z macro-backtrace for more info)

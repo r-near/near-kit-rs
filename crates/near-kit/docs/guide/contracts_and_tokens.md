@@ -10,29 +10,18 @@ on by default.
 
 ```rust
 use near_kit::AccountId;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 #[near_kit::contract]
 pub trait Guestbook {
-    /// The newest messages.
-    fn get_messages(&self, args: GetMessages) -> Vec<Message>;
+    /// The newest messages. The contract takes `U128`/`U64` numbers, which
+    /// are strings in JSON.
+    fn get_messages(&self, from_index: Option<&str>, limit: Option<&str>) -> Vec<Message>;
 
     fn total_messages(&self) -> u32;
 
     #[call]
-    fn add_message(&mut self, args: AddMessage);
-}
-
-/// The contract takes `U64` numbers, which are strings in JSON.
-#[derive(Serialize)]
-pub struct GetMessages {
-    pub from_index: String,
-    pub limit: String,
-}
-
-#[derive(Serialize)]
-pub struct AddMessage {
-    pub text: String,
+    fn add_message(&mut self, text: &str);
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,11 +33,13 @@ pub struct Message {
 ```
 
 A method that takes `&self` is a view; one that takes `&mut self` and is
-marked `#[call]` is a change method. For `trait Guestbook` the macro
-generates:
+marked `#[call]` is a change method. Its parameters are the contract
+method's, by name, as in near-sdk: `add_message("hello")` sends
+`{"text":"hello"}` (see [Parameters](#parameters)). For `trait Guestbook`
+the macro generates:
 
 - a unit struct `Guestbook`, with a `FunctionCall` constructor for each
-  `#[call]` method (`Guestbook::add_message(args)`);
+  `#[call]` method (`Guestbook::add_message(text)`);
 - `GuestbookClient<C>`, a client over a backend `C` (`C` defaults to
   `Near`), with one method per trait method and `contract_id()`;
 - `impl Contract for Guestbook`, which is how
@@ -58,18 +49,14 @@ generates:
 ## Calling it
 
 ```rust,no_run
-# use serde::{Deserialize, Serialize};
+# use serde::Deserialize;
 # #[near_kit::contract]
 # pub trait Guestbook {
-#     fn get_messages(&self, args: GetMessages) -> Vec<Message>;
+#     fn get_messages(&self, from_index: Option<&str>, limit: Option<&str>) -> Vec<Message>;
 #     fn total_messages(&self) -> u32;
 #     #[call]
-#     fn add_message(&mut self, args: AddMessage);
+#     fn add_message(&mut self, text: &str);
 # }
-# #[derive(Serialize)]
-# pub struct GetMessages { pub from_index: String, pub limit: String }
-# #[derive(Serialize)]
-# pub struct AddMessage { pub text: String }
 # #[derive(Debug, Deserialize)]
 # pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 use near_kit::rpc::Finality;
@@ -82,14 +69,14 @@ let id = account!("guestbook.testnet");
 let guestbook = near.contract::<Guestbook>(&id);
 let total = guestbook.total_messages().await?;
 let latest = guestbook
-    .get_messages(GetMessages { from_index: "0".into(), limit: "10".into() })
+    .get_messages(None, Some("10"))
     .at(Finality::Optimistic)
     .await?;
 
 // Over a SigningNear it has the calls too, sent as alice.
 let guestbook = alice.contract::<Guestbook>(&id);
 guestbook
-    .add_message(AddMessage { text: "hello".into() })
+    .add_message("hello")
     .gas(Gas::from_tgas(10))
     .deposit(NearToken::from_millinear(10))
     .await?
@@ -126,32 +113,37 @@ and a forgotten `.gas(..)` compiles and quietly sends 30 Tgas.
 NEP-245 multi-tokens:
 
 ```rust,no_run
-# use serde::Serialize;
-# #[derive(Serialize)]
-# pub struct MtTransfer { pub receiver_id: String, pub token_id: String, pub amount: String }
-# #[derive(Serialize)]
-# pub struct MtTransferCall { pub receiver_id: String, pub token_ids: Vec<String>, pub amounts: Vec<String>, pub msg: String }
 use near_kit::*;
 
 /// Gas for `mt_transfer_call`, which calls the receiver and then resolves.
 const TRANSFER_CALL_GAS: Gas = Gas::from_tgas(300);
 
+/// Amounts are `U128` in the contract, strings in JSON.
 #[near_kit::contract]
 pub trait MultiToken {
     #[call(deposit = NearToken::from_yoctonear(1))]
-    fn mt_transfer(&mut self, args: MtTransfer);
+    fn mt_transfer(&mut self, receiver_id: &AccountId, token_id: &str, amount: &str);
 
     #[call(gas = TRANSFER_CALL_GAS, deposit = NearToken::from_yoctonear(1))]
-    fn mt_transfer_call(&mut self, args: MtTransferCall);
+    fn mt_transfer_call(
+        &mut self,
+        receiver_id: &AccountId,
+        token_id: &str,
+        amount: &str,
+        msg: &str,
+    );
 }
 
-# fn transfer() -> MtTransfer { todo!() }
 # async fn example(alice: &SigningNear) -> Result<(), Error> {
 let mt = alice.contract::<MultiToken>(account!("mt.testnet"));
+let bob = account!("bob.testnet");
 // 30 Tgas and 1 yoctoNEAR, with nothing set here.
-mt.mt_transfer(transfer()).await?.result()?;
+mt.mt_transfer(&bob, "nep141:wrap.testnet", "10").await?.result()?;
 // The call site still overrides either one.
-mt.mt_transfer(transfer()).gas(Gas::from_tgas(50)).await?.result()?;
+mt.mt_transfer(&bob, "nep141:wrap.testnet", "10")
+    .gas(Gas::from_tgas(50))
+    .await?
+    .result()?;
 # Ok(())
 # }
 ```
@@ -160,7 +152,7 @@ Either key can be left out, and a plain `#[call]` keeps 30 Tgas and no
 deposit. Each value is any Rust expression of the right type (`Gas` for
 `gas`, `NearToken` for `deposit`): a `const`, `Gas::from_tgas(300)` or a
 function call. Its names resolve where the trait is declared, and it's
-evaluated each time a call is built. It can't use the method's argument:
+evaluated each time a call is built. It can't use the method's parameters:
 when gas depends on the arguments, set `.gas(..)` at the call site. Options
 on a view, unknown or repeated keys, and a second `#[call]` are compile
 errors.
@@ -169,6 +161,68 @@ The defaults go into the `FunctionCall` constructor too, so a batched call
 carries them, and `.gas(..)`/`.deposit(..)` on the `FunctionCall` override
 them there (next section).
 
+## Parameters
+
+A method's parameters are the contract method's parameters, by name, the
+way near-sdk's `#[near]` reads them and its `#[ext_contract]` sends them,
+so the trait can copy the contract's signature:
+
+```rust
+use near_kit::{AccountId, NearToken};
+
+/// Amounts are `U128` in the contract, strings in JSON.
+#[near_kit::contract]
+pub trait MultiToken {
+    // {"account_id":"alice.near","token_id":"nep141:wrap.near"}
+    fn mt_balance_of(&self, account_id: &AccountId, token_id: &str) -> String;
+
+    #[call(deposit = NearToken::from_yoctonear(1))]
+    fn mt_transfer(
+        &mut self,
+        receiver_id: AccountId,
+        token_id: String,
+        amount: String,
+        approval: Option<(AccountId, u64)>,
+        memo: Option<String>,
+    );
+
+    // {"account_id":"alice.near"}
+    fn storage_balance_of(&self, account_id: &AccountId) -> Option<serde_json::Value>;
+}
+```
+
+In JSON that is an object with a key per parameter, in order, for one
+parameter as for several; `None` is `null` (near-sdk reads a missing key
+and `null` alike), and `fn f(&self, r#type: u8)` sends the key `type`. A
+method without parameters sends `{}`. In Borsh it is each parameter's
+encoding in order (the encoding of a struct with those fields), and nothing
+without parameters.
+
+When you already have a struct whose fields are the contract's parameters,
+mark the parameter `#[args]` to send the struct as the whole argument
+object. It must be the method's only parameter:
+
+```rust
+use near_kit::AccountId;
+use serde::Serialize;
+
+#[derive(Serialize)]
+pub struct DerivationArgs {
+    pub path: String,
+    pub predecessor: Option<AccountId>,
+}
+
+#[near_kit::contract]
+pub trait Signer {
+    // {"path":"m/44","predecessor":null}
+    fn derived_public_key(&self, #[args] args: DerivationArgs) -> String;
+}
+```
+
+Without `#[args]`, that method would send `{"args":{"path":..}}`. In Borsh
+a single parameter encodes like the bare value, so `#[args]` changes
+nothing there.
+
 ## Batching typed calls
 
 The generated constructors return a
@@ -176,27 +230,21 @@ The generated constructors return a
 typed call can share a transaction with other actions:
 
 ```rust,no_run
-# use serde::Serialize;
-# #[derive(Serialize)]
-# pub struct AddMessage { pub text: String }
 use near_kit::*;
 
 #[near_kit::contract]
 pub trait Guestbook {
     #[call(gas = Gas::from_tgas(10))]
-    fn add_message(&mut self, args: AddMessage);
+    fn add_message(&mut self, text: &str);
 }
 
 # async fn example(alice: &SigningNear) -> Result<(), Error> {
 alice
     .transaction(account!("guestbook.testnet"))
     // 10 Tgas each, from the declaration.
-    .add_action(Guestbook::add_message(AddMessage { text: "one".into() }))
+    .add_action(Guestbook::add_message("one"))
     // `.gas(..)` and `.deposit(..)` on the `FunctionCall` override it.
-    .add_action(
-        Guestbook::add_message(AddMessage { text: "two".into() })
-            .deposit(NearToken::from_millinear(10)),
-    )
+    .add_action(Guestbook::add_message("two").deposit(NearToken::from_millinear(10)))
     .await?.result()?;
 # Ok(())
 # }
@@ -211,12 +259,13 @@ The macro rejects, with a compile error, what it can't generate correctly:
 
 - **Receivers.** Every method takes `&self` (a view) or `&mut self` with
   `#[call]`. `#[call]` on `&self`, or `&mut self` without it, is an error.
-- **Arguments.** At most one, bound to a plain name (`args: Args`, or
-  `mut args`). It becomes the method's whole argument object: a JSON struct's
-  fields are the contract's parameter names. For several parameters, use a
-  struct. `impl Trait` and concrete types work; generic methods, lifetime
-  parameters, `where` clauses and patterns such as `_` or `(a, b)` don't.
-  A method without an argument sends `{}` in JSON, and nothing in Borsh.
+- **Parameters.** Each is bound to a plain name (`text: String`, or
+  `mut text`) and sent under that name (see [Parameters](#parameters)).
+  Borrowed (`&str`) and `impl Trait` types work; generic methods, lifetime
+  parameters, `where` clauses, patterns such as `_` or `(a, b)`, a repeated
+  name, attributes other than `#[args]` on a parameter, and `#[args]` next
+  to other parameters don't. A type that can't be encoded is reported at
+  its parameter.
 - **Return types.** A view's return type is what its result decodes into
   (`()` when there is none; an empty result decodes as `null`, so `()` and
   `Option<_>` work). A `#[call]` can't declare one, since it resolves to the
@@ -260,16 +309,22 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub trait Counter {
     fn get(&self) -> u64;
 
+    // The Borsh encoding of `value`, as near-sdk's
+    // `fn set(&mut self, #[serializer(borsh)] value: u64)` reads it.
     #[call]
-    fn set(&mut self, args: Set);
+    fn set(&mut self, value: u64);
+
+    #[call]
+    fn set_range(&mut self, #[args] args: Range);
 
     #[json]
     fn metadata(&self) -> serde_json::Value;
 }
 
 #[derive(BorshSerialize)]
-pub struct Set {
-    pub value: u64,
+pub struct Range {
+    pub start: u64,
+    pub end: u64,
 }
 ```
 

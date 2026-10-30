@@ -1,0 +1,5 @@
+error: parameter `account_id` is declared more than once
+ --> tests/compile-fail/duplicate_parameter.rs:5:39
+  |
+5 |     fn get(&self, account_id: String, account_id: String) -> u64;
+  |                                       ^^^^^^^^^^

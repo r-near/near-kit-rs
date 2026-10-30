@@ -38,7 +38,6 @@ use near_kit::standards::{FungibleToken, FungibleTokenClient};
 use near_kit::{
     AccountId, Contract, ContractError, CryptoHash, Gas, NearToken, TxSender, Viewer, account,
 };
-use serde::Serialize;
 
 // --- The contract and the app code under test ---
 
@@ -47,12 +46,7 @@ pub trait Guestbook {
     fn total_messages(&self) -> u32;
 
     #[call]
-    fn add_message(&mut self, args: AddMessageArgs);
-}
-
-#[derive(Serialize)]
-pub struct AddMessageArgs {
-    pub text: String,
+    fn add_message(&mut self, text: &str);
 }
 
 /// What app code reads from a sent call's output: whether its actions
@@ -272,7 +266,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     assert_eq!(guestbook.total_messages().await?, 7);
 
     guestbook
-        .add_message(AddMessageArgs { text: "hi".into() })
+        .add_message("hi")
         .gas(Gas::from_tgas(10))
         .await?
         .check()?;

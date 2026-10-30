@@ -1,5 +1,5 @@
 //! `contracts` without `rpc`: the macro, its `#[call]` / `#[json]` / `#[borsh]`
-//! markers, the offline `FunctionCall` constructors and the backend-generic
+//! / `#[args]` markers, the offline `FunctionCall` constructors and the backend-generic
 //! client all work.
 
 use near_kit::protocol::{Action, FunctionCallAction};
@@ -11,11 +11,6 @@ pub struct AddArgs {
     pub value: u64,
 }
 
-#[derive(borsh::BorshSerialize)]
-pub struct UploadArgs {
-    pub data: Vec<u8>,
-}
-
 #[near_kit::contract]
 pub trait Counter {
     fn get_count(&self) -> u64;
@@ -24,16 +19,16 @@ pub trait Counter {
     fn increment(&mut self);
 
     #[call]
-    fn add(&mut self, args: AddArgs);
+    fn add(&mut self, value: u64);
 
     #[call]
     #[borsh]
-    fn upload(&mut self, args: UploadArgs);
+    fn upload(&mut self, data: Vec<u8>);
 
-    fn lookup(&self, args: impl serde::Serialize) -> Option<u64>;
+    fn lookup(&self, key: impl serde::Serialize) -> Option<u64>;
 
     #[call]
-    fn register(&mut self, args: impl serde::Serialize);
+    fn register(&mut self, #[args] args: impl serde::Serialize);
 }
 
 #[near_kit::contract(borsh)]
@@ -43,7 +38,7 @@ pub trait Store {
 
     #[call]
     #[json]
-    fn set_status(&mut self, args: AddArgs);
+    fn set_status(&mut self, #[args] args: AddArgs);
 
     #[call]
     fn clear(&mut self);
@@ -74,7 +69,7 @@ fn main() {
         Counter::client(Fixed, near_kit::account!("counter.near"));
     let _view: near_kit::View<Fixed, u64> = counter.get_count();
 
-    let call: FunctionCall = Counter::add(AddArgs { value: 5 })
+    let call: FunctionCall = Counter::add(5)
         .gas(Gas::from_tgas(30))
         .deposit(NearToken::from_yoctonear(1));
     let action: FunctionCallAction = call.try_into().unwrap();
@@ -84,9 +79,7 @@ fn main() {
     let action: FunctionCallAction = Counter::increment().try_into().unwrap();
     assert_eq!(action.args, b"{}");
 
-    let action: FunctionCallAction = Counter::upload(UploadArgs { data: vec![1, 2] })
-        .try_into()
-        .unwrap();
+    let action: FunctionCallAction = Counter::upload(vec![1, 2]).try_into().unwrap();
     assert_eq!(action.args, [2, 0, 0, 0, 1, 2]);
 
     let action: FunctionCallAction = Counter::register(AddArgs { value: 7 }).try_into().unwrap();

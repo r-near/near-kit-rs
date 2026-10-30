@@ -1,0 +1,20 @@
+# Checks that #[near_kit::contract] sends the bytes near-sdk's #[ext_contract]
+# sends for the same method signatures. A workspace of its own: near-sdk's
+# `unit-testing` feature pulls in nearcore crates (near-primitives,
+# near-vm-runner) the main workspace doesn't otherwise build. CI runs it in a
+# separate job:
+#
+#     cargo test --manifest-path crates/near-kit-macros/tests/near-sdk-wire/Cargo.toml
+[package]
+name = "near-sdk-wire"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dev-dependencies]
+near-kit = { path = "../../../near-kit", default-features = false, features = ["contracts"] }
+near-sdk = { version = "=5.30.0", features = ["unit-testing"] }
+serde = { version = "1", features = ["derive"] }
+borsh = { version = "1", features = ["derive"] }

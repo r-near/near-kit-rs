@@ -1,0 +1,11 @@
+error: #[args] goes on the parameter, not the method: `fn method(&self, #[args] args: Args)`
+  --> tests/compile-fail/args_misplaced.rs:11:5
+   |
+11 |     #[args]
+   |     ^^^^^^^
+
+error: #[args] does not accept options
+  --> tests/compile-fail/args_misplaced.rs:17:21
+   |
+17 |     fn get(&self, #[args(with = Args::new)] args: Args) -> u64;
+   |                     ^^^^^^^^^^^^^^^^^^^^^^

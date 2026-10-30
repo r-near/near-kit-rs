@@ -92,6 +92,31 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
 
+  # `#[contract]` against near-sdk's own `#[ext_contract]` encoding. A
+  # separate workspace and job: near-sdk's `unit-testing` feature builds
+  # nearcore crates the main workspace doesn't need.
+  near-sdk-wire:
+    name: near-sdk wire format
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/near-kit-macros/tests/near-sdk-wire
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/near-kit-macros/tests/near-sdk-wire
+          shared-key: near-sdk-wire
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: "true"
+      - run: cargo fmt -- --check
+      # Not `--locked`: a release bumps near-kit's version, which this lock
+      # file records.
+      - run: cargo test
+
   docs:
     name: Docs
     runs-on: ubuntu-latest

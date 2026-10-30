@@ -1,0 +1,5 @@
+error: #[args] makes its parameter the whole argument object, so it must be the method's only parameter; remove it to send each parameter by name
+  --> tests/compile-fail/args_with_other_parameters.rs:11:19
+   |
+11 |     fn get(&self, #[args] args: Args, limit: u32) -> u64;
+   |                   ^^^^^^^

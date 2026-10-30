@@ -4,9 +4,9 @@
 //! Don't depend on this crate directly. Enable near-kit's `contracts`
 //! feature and write `#[near_kit::contract]`, or near-kit-primitives'
 //! `contracts` feature (`#[near_kit_primitives::contract]`) where the RPC
-//! client can't go, such as inside a contract. The `#[call]`, `#[json]` and
-//! `#[borsh]` markers inside the trait are read by `#[contract]` itself and
-//! need no import.
+//! client can't go, such as inside a contract. The `#[call]`, `#[json]`,
+//! `#[borsh]` and `#[args]` markers inside the trait are read by
+//! `#[contract]` itself and need no import.
 //!
 //! [`contract`] lists what the macro generates and the rules for methods.
 //! near-kit's
@@ -81,6 +81,21 @@ impl Parse for SerializationFormat {
     }
 }
 
+/// How a method's parameters become its arguments.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum ArgsShape {
+    /// No parameters: JSON sends `{}`, Borsh nothing.
+    None,
+    /// The one parameter, marked `#[args]`, is the whole argument object
+    /// (a JSON struct's fields are the contract's parameter names).
+    Whole,
+    /// Each parameter is one of the contract's parameters, named after it, as
+    /// near-sdk encodes them: a JSON object with a key per parameter, or the
+    /// parameters' Borsh encodings in order. Every method with parameters
+    /// but no `#[args]`, including one with a single parameter.
+    Named,
+}
+
 struct MethodInfo {
     name: Ident,
     /// The method's `#[doc]` attributes, copied onto the generated methods.
@@ -91,7 +106,10 @@ struct MethodInfo {
     is_view: bool,
     /// Set by `#[json]` or `#[borsh]`.
     format_override: Option<SerializationFormat>,
-    arg: Option<(Ident, Type)>,
+    /// The method's parameters after the receiver, in order.
+    params: Vec<(Ident, Type)>,
+    /// How the parameters become the argument object.
+    shape: ArgsShape,
     return_type: Type,
     /// `#[call(gas = ..)]`: the call's default gas.
     gas: Option<syn::Expr>,
@@ -268,6 +286,20 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         }
     }
 
+    // Only `#[doc]`, `#[cfg]` and `#[cfg_attr]` are carried to the generated
+    // items, so `#[args]` here would be dropped without a word.
+    if let Some(attr) = method
+        .attrs
+        .iter()
+        .find(|attr| attr.path().is_ident("args"))
+    {
+        return Err(syn::Error::new_spanned(
+            attr,
+            "#[args] goes on the parameter, not the method: \
+             `fn method(&self, #[args] args: Args)`",
+        ));
+    }
+
     let is_call = call_attr.is_some();
     if let Some(attr) = call_attr
         && is_view
@@ -294,33 +326,73 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         ));
     }
 
-    let mut typed = method.sig.inputs.iter().filter_map(|arg| match arg {
-        FnArg::Typed(pat_type) => Some(pat_type),
-        FnArg::Receiver(_) => None,
-    });
-    // The name becomes the generated method's parameter, so it must be a
+    // Each name becomes a parameter of the generated method, so it must be a
     // plain identifier (`args`, `mut args`).
-    let arg = match typed.next() {
-        None => None,
-        Some(pat_type) => match pat_type.pat.as_ref() {
+    let mut params: Vec<(Ident, Type)> = Vec::new();
+    let mut args_attr = None;
+    for arg in &method.sig.inputs {
+        let FnArg::Typed(pat_type) = arg else {
+            continue;
+        };
+        for attr in &pat_type.attrs {
+            // The trait is replaced by the generated items, so any other
+            // attribute here would silently do nothing (`#[serde(..)]`
+            // included).
+            if !attr.path().is_ident("args") {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "#[near_kit::contract] supports no attributes on method parameters other \
+                     than #[args]",
+                ));
+            }
+            if attr.meta.require_path_only().is_err() {
+                return Err(syn::Error::new_spanned(
+                    &attr.meta,
+                    "#[args] does not accept options",
+                ));
+            }
+            if args_attr.is_some() {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "#[args] may only be specified once",
+                ));
+            }
+            args_attr = Some(attr);
+        }
+        match pat_type.pat.as_ref() {
             Pat::Ident(pat_ident) if pat_ident.by_ref.is_none() && pat_ident.subpat.is_none() => {
-                Some((pat_ident.ident.clone(), (*pat_type.ty).clone()))
+                let name = &pat_ident.ident;
+                // Also the argument object's keys, so rejected here rather
+                // than left to rustc's errors about the generated method.
+                if params.iter().any(|(seen, _)| seen.unraw() == name.unraw()) {
+                    return Err(syn::Error::new(
+                        name.span(),
+                        format!("parameter `{}` is declared more than once", name.unraw()),
+                    ));
+                }
+                params.push((name.clone(), (*pat_type.ty).clone()));
             }
             other => {
                 return Err(syn::Error::new(
                     other.span(),
-                    "contract method arguments must be a plain name, like `args: Args` \
-                     (the generated method takes the argument by that name)",
+                    "contract method parameters must be plain names, like `account_id: AccountId` \
+                     (the generated method takes them by those names)",
                 ));
             }
-        },
-    };
-    if let Some(second) = typed.next() {
-        return Err(syn::Error::new(
-            second.span(),
-            "contract methods can have at most one argument (use a struct for multiple parameters)",
-        ));
+        }
     }
+    let shape = match (params.len(), args_attr) {
+        (0, _) => ArgsShape::None,
+        (1, Some(_)) => ArgsShape::Whole,
+        (_, Some(attr)) => {
+            return Err(syn::Error::new_spanned(
+                attr,
+                "#[args] makes its parameter the whole argument object, so it must be the \
+                 method's only parameter; remove it to send each parameter by name",
+            ));
+        }
+        (_, None) => ArgsShape::Named,
+    };
 
     // A `#[call]` resolves to the sender's `TxSender::Output`, so a declared
     // return type would be silently ignored; reject it so it can be given a
@@ -356,7 +428,8 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         cfgs,
         is_view,
         format_override,
-        arg,
+        params,
+        shape,
         return_type,
         gas,
         deposit,
@@ -411,22 +484,23 @@ fn generate_view_method(
 
     // Arguments are encoded now, so borrowed argument types never enter the
     // future. Without arguments, JSON views send `{}` and Borsh views nothing.
-    let (params, args) = match (&method.arg, format) {
-        (Some((arg_name, arg_type)), SerializationFormat::Json) => (
-            quote! { #arg_name: #arg_type },
-            quote! { #near_kit::__private::json_args(&#arg_name) },
-        ),
-        (Some((arg_name, arg_type)), SerializationFormat::Borsh) => (
-            quote! { #arg_name: #arg_type },
-            quote! { #near_kit::__private::borsh_args(&#arg_name) },
-        ),
-        (None, SerializationFormat::Json) => (quote! {}, quote! { Ok(b"{}".to_vec()) }),
-        (None, SerializationFormat::Borsh) => (quote! {}, quote! { Ok(::std::vec::Vec::new()) }),
+    let params = param_list(&method.params);
+    let args = match (args_value(method, &names(method), format, near_kit), format) {
+        (Some(value), SerializationFormat::Json) => {
+            quote! { #near_kit::__private::json_args(&#value) }
+        }
+        (Some(value), SerializationFormat::Borsh) => {
+            quote! { #near_kit::__private::borsh_args(&#value) }
+        }
+        (None, SerializationFormat::Json) => quote! { Ok(b"{}".to_vec()) },
+        (None, SerializationFormat::Borsh) => quote! { Ok(::std::vec::Vec::new()) },
     };
 
     quote! {
         #(#cfgs)*
         #(#docs)*
+        // A method mirrors the contract's signature, however long it is.
+        #[allow(clippy::too_many_arguments)]
         pub fn #method_name(&self, #params) -> #near_kit::View<#backend, #return_type>
         where
             #backend: #near_kit::Viewer + ::core::clone::Clone,
@@ -441,14 +515,107 @@ fn generate_view_method(
     }
 }
 
-/// The `name: Type` parameter and the bare `name` for a method's argument,
-/// or nothing for a method without one.
-fn arg_tokens(method: &MethodInfo) -> (Option<TokenStream2>, Option<&Ident>) {
-    method
-        .arg
-        .as_ref()
-        .map(|(name, ty)| (quote! { #name: #ty }, name))
-        .unzip()
+/// The parameters' names, in order.
+fn names(method: &MethodInfo) -> Vec<Ident> {
+    method.params.iter().map(|(name, _)| name.clone()).collect()
+}
+
+/// `name: Type, ..` for the generated method's parameters.
+fn param_list(params: &[(Ident, Type)]) -> TokenStream2 {
+    let params = params.iter().map(|(name, ty)| quote! { #name: #ty });
+    quote! { #(#params),* }
+}
+
+/// The value a method's arguments are encoded from, moving the parameters
+/// `names` into it, or `None` without parameters.
+///
+/// [`ArgsShape::Whole`] is the parameter itself. [`ArgsShape::Named`] is a
+/// local tuple struct holding the parameters, which serializes the way
+/// near-sdk's `#[near]` and `#[ext_contract]` encode a method's parameters:
+/// in JSON a struct (an object) with one field per parameter, named after it
+/// and in order, `None` as `null`; in Borsh each parameter's encoding in
+/// order. The struct is generic over the parameter types, so borrowed and
+/// `impl Trait` parameters work without naming their types.
+fn args_value(
+    method: &MethodInfo,
+    names: &[Ident],
+    format: SerializationFormat,
+    near_kit: &TokenStream2,
+) -> Option<TokenStream2> {
+    match method.shape {
+        ArgsShape::None => None,
+        ArgsShape::Whole => {
+            let name = &names[0];
+            Some(quote! { #name })
+        }
+        ArgsShape::Named => {
+            let args = format_ident!("__NearKitArgs", span = Span::mixed_site());
+            let tys: Vec<Ident> = (0..names.len())
+                .map(|i| format_ident!("__NearKitA{i}", span = Span::mixed_site()))
+                .collect();
+            let indices = (0..names.len()).map(syn::Index::from);
+            // Each value passes through an identity function bounded on the
+            // format's trait, spanned at the parameter, so a parameter type
+            // that can't be encoded is reported there.
+            let check = match format {
+                SerializationFormat::Json => quote! { json_param },
+                SerializationFormat::Borsh => quote! { borsh_param },
+            };
+            let values = names.iter().map(|name| {
+                quote::quote_spanned! {name.span()=> #near_kit::__private::#check(#name) }
+            });
+            let encode = match format {
+                SerializationFormat::Json => {
+                    let serde = quote! { #near_kit::__private::serde };
+                    let keys = method
+                        .params
+                        .iter()
+                        .map(|(name, _)| name.unraw().to_string());
+                    let len = names.len();
+                    quote! {
+                        impl<#(#tys: #serde::Serialize),*> #serde::Serialize for #args<#(#tys),*> {
+                            fn serialize<__S: #serde::Serializer>(
+                                &self,
+                                serializer: __S,
+                            ) -> ::core::result::Result<__S::Ok, __S::Error> {
+                                let mut state =
+                                    #serde::Serializer::serialize_struct(serializer, "Args", #len)?;
+                                #(
+                                    #serde::ser::SerializeStruct::serialize_field(
+                                        &mut state, #keys, &self.#indices,
+                                    )?;
+                                )*
+                                #serde::ser::SerializeStruct::end(state)
+                            }
+                        }
+                    }
+                }
+                SerializationFormat::Borsh => {
+                    let borsh = quote! { #near_kit::__private::borsh };
+                    quote! {
+                        impl<#(#tys: #borsh::BorshSerialize),*> #borsh::BorshSerialize
+                            for #args<#(#tys),*>
+                        {
+                            fn serialize<__W: #borsh::io::Write>(
+                                &self,
+                                writer: &mut __W,
+                            ) -> #borsh::io::Result<()> {
+                                #( #borsh::BorshSerialize::serialize(&self.#indices, writer)?; )*
+                                ::core::result::Result::Ok(())
+                            }
+                        }
+                    }
+                }
+            };
+            Some(quote! {
+                {
+                    struct #args<#(#tys),*>(#(#tys),*);
+                    #encode
+                    #args(#(#values),*)
+                }
+            })
+        }
+    }
 }
 
 /// Generate the client method for a call function, on top of the static
@@ -463,11 +630,13 @@ fn generate_call_method(
     let method_name = &method.name;
     let docs = &method.docs;
     let cfgs = &method.cfgs;
-    let (params, args) = arg_tokens(method);
+    let params = param_list(&method.params);
+    let args = names(method);
 
     quote! {
         #(#cfgs)*
         #(#docs)*
+        #[allow(clippy::too_many_arguments)]
         pub fn #method_name(&self, #params) -> #near_kit::Call<#backend>
         where
             #backend: #near_kit::TxSender + ::core::clone::Clone,
@@ -475,7 +644,7 @@ fn generate_call_method(
             // The constructor carries the method's attributes, so a
             // `#[deprecated]` method would warn here, in generated code.
             #[allow(deprecated)]
-            let function_call = #trait_name::#method_name(#args);
+            let function_call = #trait_name::#method_name(#(#args),*);
             #near_kit::__private::call(
                 ::core::clone::Clone::clone(&self.backend),
                 self.contract_id.clone(),
@@ -498,22 +667,25 @@ fn generate_function_call_method(
     let method_name_str = method_name.unraw().to_string();
     let docs = &method.docs;
     let cfgs = &method.cfgs;
-    // The argument gets mixed-site hygiene, so a `gas` or `deposit`
-    // expression, which keeps the trait's own hygiene, can't see it: the
+    // The parameters get mixed-site hygiene, so a `gas` or `deposit`
+    // expression, which keeps the trait's own hygiene, can't see them: the
     // defaults are per method, not per argument.
-    let hygienic_arg = method.arg.as_ref().map(|(name, ty)| {
-        let mut name = name.clone();
-        name.set_span(Span::mixed_site().located_at(name.span()));
-        (name, ty)
-    });
-    let params = hygienic_arg
-        .as_ref()
-        .map(|(name, ty)| quote! { #name: #ty });
-    let arg = hygienic_arg.as_ref().map(|(name, _)| name);
+    let hygienic: Vec<(Ident, Type)> = method
+        .params
+        .iter()
+        .map(|(name, ty)| {
+            let mut name = name.clone();
+            name.set_span(Span::mixed_site().located_at(name.span()));
+            (name, ty.clone())
+        })
+        .collect();
+    let params = param_list(&hygienic);
+    let names: Vec<Ident> = hygienic.iter().map(|(name, _)| name.clone()).collect();
+    let format = method.format_override.unwrap_or(contract_format);
 
-    let args_call = match (arg, method.format_override.unwrap_or(contract_format)) {
-        (Some(arg), SerializationFormat::Json) => quote! { .args(#arg) },
-        (Some(arg), SerializationFormat::Borsh) => quote! { .args_borsh(#arg) },
+    let args_call = match (args_value(method, &names, format, near_kit), format) {
+        (Some(value), SerializationFormat::Json) => quote! { .args(#value) },
+        (Some(value), SerializationFormat::Borsh) => quote! { .args_borsh(#value) },
         (None, SerializationFormat::Json) => quote! { .args_raw(b"{}".to_vec()) },
         // Borsh's encoding of no arguments is no bytes, not `FunctionCall`'s
         // JSON default.
@@ -529,6 +701,7 @@ fn generate_function_call_method(
     quote! {
         #(#cfgs)*
         #(#docs)*
+        #[allow(clippy::too_many_arguments)]
         pub fn #method_name(#params) -> #near_kit::transaction::FunctionCall {
             #near_kit::transaction::FunctionCall::new(#method_name_str) #args_call #gas #deposit
         }
@@ -540,7 +713,7 @@ fn generate_function_call_method(
 /// For `trait Counter`, this generates:
 ///
 /// - a unit struct `Counter` with a static `FunctionCall` constructor for each
-///   `#[call]` method (e.g. `Counter::add(args)`), for composing typed calls
+///   `#[call]` method (e.g. `Counter::add(value)`), for composing typed calls
 ///   into transactions;
 /// - a `CounterClient<C>` generic over its backend `C`: view methods need
 ///   `C: Viewer + Clone` and return a `View`, `#[call]` methods need
@@ -553,15 +726,68 @@ fn generate_function_call_method(
 /// - `impl Contract for Counter`, which `Near::contract::<Counter>(id)` uses
 ///   to build the client.
 ///
-/// Each method takes `&self` (a view) or `&mut self` with `#[call]`, and at
-/// most one argument bound to a plain name (`args: Args`).
+/// Each method takes `&self` (a view) or `&mut self` with `#[call]`, then
+/// its parameters, each bound to a plain name. As in near-sdk's `#[near]`
+/// and `#[ext_contract]`, each parameter is one of the contract method's
+/// parameters, by the same name, so a method can be copied from a near-sdk
+/// contract keeping its signature:
+///
+/// - JSON sends an object with a key per parameter, in order (`None` is
+///   `null`; a raw identifier's key has no `r#`). That includes a single
+///   parameter: `amount: U128` sends `{"amount":"10"}`. No parameters send
+///   `{}`.
+/// - Borsh sends each parameter's encoding in order, and nothing without
+///   parameters.
+///
+/// To send a value as the whole argument object instead, mark its parameter
+/// `#[args]`: `fn ft_balance_of(&self, #[args] args: BalanceArgs)` sends
+/// `BalanceArgs`' fields as the contract's parameters. `#[args]` must be the
+/// method's only parameter. In Borsh it sends the same bytes either way.
+///
+/// ```
+/// use near_kit::AccountId;
+/// use serde::Serialize;
+///
+/// #[derive(Serialize)]
+/// pub struct DerivationArgs {
+///     pub path: String,
+///     pub predecessor: Option<AccountId>,
+/// }
+///
+/// #[near_kit::contract]
+/// pub trait Signer {
+///     // {"path":"m/44","predecessor":null,"domain_id":1}
+///     fn derived_public_key(
+///         &self,
+///         path: String,
+///         predecessor: Option<AccountId>,
+///         domain_id: Option<u64>,
+///     ) -> String;
+///
+///     // {"update_hash":"4f2a"}
+///     #[call]
+///     fn vote_contract_update(&mut self, update_hash: String);
+///
+///     // {"path":"m/44","predecessor":null}
+///     fn derived_key_hash(&self, #[args] args: DerivationArgs) -> String;
+/// }
+///
+/// let call = Signer::vote_contract_update("4f2a".into());
+/// # let _ = call;
+/// ```
+///
+/// Parameters may be borrowed (`token_id: &str`) or `impl Trait`; the
+/// arguments are encoded when the method is called, and a parameter type
+/// that can't be encoded is reported at the parameter. Repeated names and
+/// attributes other than `#[args]` on parameters (`#[serde(..)]` included)
+/// are rejected.
 ///
 /// A call sends 30 Tgas and no deposit unless `#[call(gas = EXPR, deposit =
 /// EXPR)]` sets its defaults; either key may be left out. Each value is a
 /// Rust expression of type `Gas` or `NearToken` (a `const`,
 /// `Gas::from_tgas(100)`, `NearToken::from_yoctonear(1)`), resolved where
 /// the trait is declared and evaluated each time the call is built. It can't
-/// refer to the method's argument. Both the client method and the
+/// refer to the method's parameters. Both the client method and the
 /// `FunctionCall` constructor start from these defaults, and the call site
 /// overrides them: `.gas(..)`/`.deposit(..)` on the returned `Call`, or on
 /// the `FunctionCall` before it's added to a transaction.
@@ -574,7 +800,7 @@ fn generate_function_call_method(
 /// pub trait MultiToken {
 ///     // NEP-245 requires exactly 1 yoctoNEAR.
 ///     #[call(deposit = NearToken::from_yoctonear(1))]
-///     fn mt_transfer(&mut self, args: MtTransfer);
+///     fn mt_transfer(&mut self, #[args] args: MtTransfer);
 /// }
 ///
 /// let call = MultiToken::mt_transfer(MtTransfer {}).gas(Gas::from_tgas(50));
@@ -585,8 +811,8 @@ fn generate_function_call_method(
 /// and default methods are rejected, as are the names `client`,
 /// `contract_id` and `clone`. A method's `#[cfg]` and `#[cfg_attr]`
 /// attributes apply to everything generated for it, but `#[call]`,
-/// `#[json]` and `#[borsh]` can't go behind `#[cfg_attr]`; for a format that
-/// depends on a `cfg`, declare the method twice, each under its own
+/// `#[json]` and `#[borsh]` can't go behind `#[cfg_attr]`; for a format
+/// that depends on a `cfg`, declare the method twice, each under its own
 /// `#[cfg]`. A raw identifier (`fn r#type`) calls the contract method
 /// without the `r#` (`type`).
 ///
@@ -769,7 +995,7 @@ mod tests {
     fn the_constructor_sets_the_defaults_after_the_arguments() {
         let method = parse(parse_quote! {
             #[call(deposit = ONE_YOCTO)]
-            fn transfer(&mut self, args: Args);
+            fn transfer(&mut self, #[args] args: Args);
         })
         .unwrap();
         let tokens =
@@ -805,5 +1031,51 @@ mod tests {
                 .starts_with("`gas` and `deposit` apply only to calls")
         );
         assert!(error(parse_quote! { #[call(gas)] fn f(&mut self); }).contains("expected `=`"));
+    }
+
+    #[test]
+    fn parameters_are_named_unless_one_is_marked_args() {
+        let shape = |method| parse(method).unwrap().shape;
+        assert_eq!(shape(parse_quote! { fn f(&self) -> u64; }), ArgsShape::None);
+        assert_eq!(
+            shape(parse_quote! { fn f(&self, a: A) -> u64; }),
+            ArgsShape::Named
+        );
+        assert_eq!(
+            shape(parse_quote! { fn f(&self, a: A, b: B) -> u64; }),
+            ArgsShape::Named
+        );
+        assert_eq!(
+            shape(parse_quote! { fn f(&self, #[args] a: A) -> u64; }),
+            ArgsShape::Whole
+        );
+    }
+
+    #[test]
+    fn misplaced_args_markers_are_rejected() {
+        assert!(
+            error(parse_quote! { fn f(&self, #[args] a: A, b: B) -> u64; })
+                .starts_with("#[args] makes its parameter the whole argument object")
+        );
+        assert!(
+            error(parse_quote! { fn f(&self, a: A, #[args] b: B) -> u64; })
+                .starts_with("#[args] makes its parameter the whole argument object")
+        );
+        assert_eq!(
+            error(parse_quote! { fn f(&self, #[args] #[args] a: A) -> u64; }),
+            "#[args] may only be specified once"
+        );
+        assert_eq!(
+            error(parse_quote! { fn f(&self, #[args(with = A::new)] a: A) -> u64; }),
+            "#[args] does not accept options"
+        );
+        assert!(
+            error(parse_quote! { #[args] fn f(&self, a: A) -> u64; })
+                .starts_with("#[args] goes on the parameter, not the method")
+        );
+        assert_eq!(
+            error(parse_quote! { fn f(&self, #[serde(rename = "b")] a: A) -> u64; }),
+            "#[near_kit::contract] supports no attributes on method parameters other than #[args]"
+        );
     }
 }

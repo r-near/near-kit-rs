@@ -15,11 +15,6 @@ mod json_contract {
         pub text: String,
     }
 
-    #[derive(Debug, Serialize)]
-    pub struct AddMessageArgs {
-        pub text: String,
-    }
-
     #[near_kit::contract]
     pub trait JsonGuestbook {
         /// Every message, oldest first.
@@ -28,7 +23,7 @@ mod json_contract {
 
         /// Append a message.
         #[call]
-        fn add_message(&mut self, args: AddMessageArgs);
+        fn add_message(&mut self, text: String);
     }
 
     #[test]
@@ -51,9 +46,7 @@ mod json_contract {
         let signing_client: JsonGuestbookClient<SigningNear> =
             account.contract::<JsonGuestbook>(account!("guestbook.testnet"));
         let _call: Call<SigningNear> = signing_client
-            .add_message(AddMessageArgs {
-                text: "hello".to_string(),
-            })
+            .add_message("hello".to_string())
             .gas(Gas::from_tgas(50))
             .deposit(NearToken::from_yoctonear(1));
 
@@ -61,17 +54,10 @@ mod json_contract {
         let _: JsonGuestbookClient<Near> =
             <JsonGuestbook as Contract>::client(near.clone(), account!("guestbook.testnet"));
 
-        let _fc: FunctionCall = JsonGuestbook::add_message(AddMessageArgs {
-            text: "composable".to_string(),
-        });
+        let _fc: FunctionCall = JsonGuestbook::add_message("composable".to_string());
         let _tx = account
             .transaction(account!("guestbook.testnet"))
-            .add_action(
-                JsonGuestbook::add_message(AddMessageArgs {
-                    text: "composed".to_string(),
-                })
-                .gas(Gas::from_tgas(50)),
-            );
+            .add_action(JsonGuestbook::add_message("composed".to_string()).gas(Gas::from_tgas(50)));
     }
 }
 
@@ -204,7 +190,8 @@ mod cfg_format_per_copy {
     }
 }
 
-/// `impl Trait` arguments are accepted, as in any trait method.
+/// `impl Trait` parameters are accepted, as in any trait method, named or
+/// as the whole argument object.
 mod impl_trait_args {
     use near_kit::Call;
     use near_kit::signer::{InMemorySigner, SecretKey};
@@ -213,10 +200,10 @@ mod impl_trait_args {
 
     #[near_kit::contract]
     pub trait Registry {
-        fn lookup(&self, args: impl serde::Serialize) -> Option<String>;
+        fn lookup(&self, key: impl serde::Serialize) -> Option<String>;
 
         #[call]
-        fn register(&mut self, args: impl serde::Serialize);
+        fn register(&mut self, #[args] args: impl serde::Serialize);
     }
 
     #[derive(serde::Serialize)]
@@ -229,7 +216,7 @@ mod impl_trait_args {
         let near = Near::testnet().build();
         let client = near.contract::<Registry>(account!("registry.testnet"));
 
-        let _view = client.lookup(Key { key: "a".into() });
+        let _view = client.lookup("a");
         let account: SigningNear = near.with_signer(InMemorySigner::new(
             account!("alice.testnet"),
             SecretKey::generate_ed25519(),
@@ -253,10 +240,10 @@ mod user_type_named_c {
 
     #[near_kit::contract]
     pub trait Store {
-        fn get(&self, args: C) -> C;
+        fn get(&self, #[args] args: C) -> C;
 
         #[call]
-        fn set(&mut self, args: C);
+        fn set(&mut self, value: C);
     }
 
     #[test]
