@@ -11,6 +11,11 @@ layer has its own error type that converts into `near_kit::Error` with `?`.
 The [guide](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/index.html)
 explains the model.
 
+You can adopt 0.30 as a plain version bump: update your call sites to the
+new client API (reads on `Near`, sends on `SigningNear`; the table below maps
+each removed method) and stop there. The `Viewer` and `TxSender` traits and
+`#[contract]` typed clients are optional and can come later.
+
 ## Where did this go?
 
 The compiler reports a removed method as ``no method named `x` found`` with no
