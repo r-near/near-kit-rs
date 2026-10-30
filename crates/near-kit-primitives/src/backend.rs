@@ -179,6 +179,11 @@ pub enum ContractError<E> {
 /// client an `Arc` of it. A borrowed backend (`&B`) works too, but then
 /// `.await` needs a `'static` borrow; [`with_metadata`](Self::with_metadata)
 /// has no such bound, and its `.result` is the value `.await` would give.
+///
+/// A `View` is [`Clone`] when its backend is, so one view can be run again
+/// and again. [`fetch_raw`](Self::fetch_raw) runs it without decoding and
+/// [`decode`](Self::decode) decodes later, for instance only when a polled
+/// result changed.
 #[must_use = "a view does nothing until it is awaited"]
 pub struct View<C, T> {
     backend: C,
@@ -285,20 +290,93 @@ impl<C, T> View<C, T> {
     where
         C: Viewer,
     {
+        let decode = self.decode;
+        let raw = self.fetch_raw().await?;
+        let result = decode(&raw.result).map_err(ContractError::Codec)?;
+        Ok(ViewFunctionResult::new(result, raw.block_height, raw.block_hash).with_logs(raw.logs))
+    }
+
+    /// Run the view without decoding its result: the bytes the contract
+    /// returned, with the block they were read at and the logs.
+    ///
+    /// [`decode`](Self::decode) turns those bytes into what `.await` would
+    /// return. Splitting the two lets a caller look at the bytes first, for
+    /// example to skip decoding when a polled view returns the same bytes as
+    /// last time:
+    ///
+    /// ```rust
+    /// # use near_kit_primitives::{ContractError, View, Viewer};
+    /// # async fn poll<C: Viewer + Clone>(view: View<C, u64>, last: &mut Vec<u8>)
+    /// #     -> Result<Option<u64>, ContractError<C::ViewError>> {
+    /// let raw = view.clone().fetch_raw().await?;
+    /// if raw.result == *last {
+    ///     return Ok(None);
+    /// }
+    /// let value = view.decode(&raw.result).map_err(ContractError::Codec)?;
+    /// *last = raw.result;
+    /// Ok(Some(value))
+    /// # }
+    /// ```
+    ///
+    /// An argument encoding error is returned as
+    /// [`ContractError::Codec`] without calling the backend.
+    pub async fn fetch_raw(self) -> Result<ViewFunctionResult, ContractError<C::ViewError>>
+    where
+        C: Viewer,
+    {
         let args = self.args.map_err(ContractError::Codec)?;
         // `match` rather than `?` on the backend result: a `?` temporary
         // holding `C::ViewError` would make the future `!Send` for a `!Send`
         // error.
-        let raw = match self
+        match self
             .backend
             .view_function(&self.contract_id, &self.method, &args, self.block)
             .await
         {
-            Ok(raw) => raw,
-            Err(error) => return Err(ContractError::Backend(error)),
-        };
-        let result = (self.decode)(&raw.result).map_err(ContractError::Codec)?;
-        Ok(ViewFunctionResult::new(result, raw.block_height, raw.block_hash).with_logs(raw.logs))
+            Ok(raw) => Ok(raw),
+            Err(error) => Err(ContractError::Backend(error)),
+        }
+    }
+
+    /// Decode a result as this view would: JSON or Borsh, as chosen by
+    /// [`json`](Self::json) or [`borsh`](Self::borsh) (for JSON, empty bytes
+    /// read as `null`). Pair it with [`fetch_raw`](Self::fetch_raw).
+    pub fn decode(&self, bytes: &[u8]) -> Result<T, CodecError> {
+        (self.decode)(bytes)
+    }
+}
+
+/// Clones the backend, the encoded arguments and the block, so one view can
+/// be run again, for instance on every tick of a poll.
+///
+/// A view whose arguments failed to encode clones into one that fails the
+/// same way: same [`CodecError`] variant and message (and Borsh
+/// [`io::ErrorKind`](std::io::ErrorKind)), without the original's source
+/// chain.
+impl<C: Clone, T> Clone for View<C, T> {
+    fn clone(&self) -> Self {
+        Self {
+            backend: self.backend.clone(),
+            contract_id: self.contract_id.clone(),
+            method: self.method.clone(),
+            args: match &self.args {
+                Ok(args) => Ok(args.clone()),
+                Err(error) => Err(copy_codec_error(error)),
+            },
+            block: self.block,
+            decode: self.decode,
+        }
+    }
+}
+
+/// `CodecError` holds `serde_json::Error` and `io::Error`, neither of which is
+/// `Clone`; rebuild one with the same variant and message.
+fn copy_codec_error(error: &CodecError) -> CodecError {
+    match error {
+        CodecError::Json(error) => CodecError::Json(serde::ser::Error::custom(error)),
+        CodecError::Borsh(error) => {
+            CodecError::Borsh(std::io::Error::new(error.kind(), error.to_string()))
+        }
     }
 }
 
@@ -786,6 +864,95 @@ mod tests {
     }
 
     #[test]
+    fn fetch_raw_returns_undecoded_bytes_and_decode_matches_await() {
+        let viewer = MockViewer::new(b"42");
+        let view = View::<_, u64>::json(viewer.clone(), contract(), "get")
+            .args(serde_json::json!({ "k": 1 }))
+            .at(5_u64);
+
+        let raw = run(view.clone().fetch_raw()).unwrap();
+        assert_eq!(raw.result, b"42");
+        assert_eq!(
+            (raw.block_height, raw.logs.as_slice()),
+            (7, ["log".to_owned()].as_slice())
+        );
+        let (_, method, args, block) = viewer.seen.lock().unwrap().take().unwrap();
+        assert_eq!(
+            (method.as_str(), args.as_slice()),
+            ("get", br#"{"k":1}"#.as_slice())
+        );
+        assert_eq!(block, BlockReference::Height(5));
+
+        assert_eq!(view.decode(&raw.result).unwrap(), 42);
+        assert_eq!(
+            view.decode(&raw.result).unwrap(),
+            run(view.clone()).unwrap()
+        );
+        assert!(matches!(view.decode(b"nope"), Err(CodecError::Json(_))));
+
+        // JSON decoding reads empty bytes as `null`, as `.await` does.
+        let optional = View::<_, Option<u64>>::json(viewer.clone(), contract(), "get");
+        assert_eq!(optional.decode(b"").unwrap(), None);
+        let borsh = View::<_, u32>::borsh(viewer.clone(), contract(), "get");
+        assert_eq!(borsh.decode(&7_u32.to_le_bytes()).unwrap(), 7);
+        assert!(matches!(borsh.decode(b""), Err(CodecError::Borsh(_))));
+    }
+
+    #[test]
+    fn fetch_raw_keeps_error_layers() {
+        let viewer = MockViewer::new(b"1");
+        let error = run(View::<_, u64>::json(viewer.clone(), contract(), "get")
+            .args(FailingJson)
+            .fetch_raw())
+        .unwrap_err();
+        assert!(matches!(error, ContractError::Codec(CodecError::Json(_))));
+        assert!(viewer.seen.lock().unwrap().is_none(), "nothing was sent");
+
+        let error =
+            run(View::<_, u64>::json(viewer.clone(), contract(), "fail").fetch_raw()).unwrap_err();
+        assert!(matches!(&error, ContractError::Backend(e) if e == "backend down"));
+
+        // An undecodable result is not an error until it is decoded.
+        let raw = run(View::<_, u64>::json(viewer, contract(), "get").fetch_raw()).unwrap();
+        assert_eq!(raw.result, b"1");
+    }
+
+    #[test]
+    fn a_cloned_view_runs_again() {
+        let viewer = MockViewer::new(b"5");
+        let view = View::<_, u64>::json(viewer.clone(), contract(), "get").at(9_u64);
+        let first = view.clone();
+        assert_eq!(run(first).unwrap(), 5);
+        assert_eq!(run(view.clone()).unwrap(), 5);
+        assert_eq!(run(view).unwrap(), 5);
+        let (_, _, args, block) = viewer.seen.lock().unwrap().take().unwrap();
+        assert_eq!(
+            (args.as_slice(), block),
+            (b"{}".as_slice(), BlockReference::Height(9))
+        );
+    }
+
+    #[test]
+    fn a_cloned_view_keeps_its_argument_encoding_error() {
+        let viewer = MockViewer::new(b"1");
+        let json = View::<_, u64>::json(viewer.clone(), contract(), "get").args(FailingJson);
+        let original = json.args.as_ref().unwrap_err().to_string();
+        let error = run(json.clone()).unwrap_err();
+        assert!(matches!(&error, ContractError::Codec(CodecError::Json(_))));
+        assert_eq!(error.to_string(), original);
+
+        let borsh =
+            View::<_, u64>::borsh(viewer.clone(), contract(), "get").args_borsh(FailingBorsh);
+        let error = run(borsh.clone()).unwrap_err();
+        let ContractError::Codec(CodecError::Borsh(io)) = &error else {
+            panic!("expected a Borsh error, got {error:?}");
+        };
+        assert_eq!(io.kind(), std::io::ErrorKind::Other);
+        assert_eq!(io.to_string(), "deliberate");
+        assert!(viewer.seen.lock().unwrap().is_none(), "nothing was sent");
+    }
+
+    #[test]
     fn call_sends_one_function_call() {
         let sender = Arc::new(MockSender::default());
         let typed = || {
@@ -852,18 +1019,42 @@ mod tests {
         fn assert_spawnable<F: Future + Send + 'static>(_: F) {}
         fn generic<V, S>(viewer: V, sender: S)
         where
-            V: Viewer + 'static,
+            V: Viewer + Clone + 'static,
             S: TxSender + 'static,
             V::ViewError: Send,
             S::Output: Send,
             S::SendError: Send,
         {
-            assert_spawnable(
-                view_json::<_, u64>(viewer, contract(), "get", Ok(Vec::new())).into_future(),
-            );
+            let view = view_json::<_, u64>(viewer, contract(), "get", Ok(Vec::new()));
+            assert_spawnable(view.clone().fetch_raw());
+            assert_spawnable(view.into_future());
             assert_spawnable(call(sender, contract(), FunctionCall::new("add")).into_future());
         }
         generic(MockViewer::new(b"1"), Arc::new(MockSender::default()));
+    }
+
+    /// A `!Send` backend error doesn't make the view futures `!Send`.
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    #[test]
+    fn futures_are_send_with_a_non_send_view_error() {
+        fn assert_send<F: Future + Send>(_: F) {}
+        #[derive(Clone)]
+        struct RcError;
+        impl Viewer for RcError {
+            type ViewError = std::rc::Rc<str>;
+            async fn view_function(
+                &self,
+                _: &AccountId,
+                _: &str,
+                _: &[u8],
+                _: BlockReference,
+            ) -> Result<ViewFunctionResult, Self::ViewError> {
+                Ok(ViewFunctionResult::new(Vec::new(), 0, CryptoHash::ZERO))
+            }
+        }
+        let view = view_json::<_, u64>(RcError, contract(), "get", Ok(Vec::new()));
+        assert_send(view.clone().fetch_raw());
+        assert_send(view.with_metadata());
     }
 
     #[test]

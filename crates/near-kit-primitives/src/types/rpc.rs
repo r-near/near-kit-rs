@@ -1703,8 +1703,9 @@ pub struct GasProfileEntry {
 
 /// A view function result and metadata from the same successful RPC response.
 ///
-/// The default payload is raw bytes. Typed views using `with_metadata().await`
-/// return this same structure with a decoded payload.
+/// The default payload is raw bytes, as [`View::fetch_raw`](crate::View::fetch_raw)
+/// returns it. Typed views using `with_metadata().await` return this same
+/// structure with a decoded payload.
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
 pub struct ViewFunctionResult<T = Vec<u8>> {
