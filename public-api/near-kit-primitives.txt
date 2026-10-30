@@ -3012,6 +3012,11 @@ pub type &T::Output = <T as near_kit_primitives::TxSender>::Output
 pub type &T::SendError = <T as near_kit_primitives::TxSender>::SendError
 pub fn &T::account_id(&self) -> &near_account_id::account_id::AccountId
 pub fn &T::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
+impl<T: near_kit_primitives::TxSender + ?core::marker::Sized> near_kit_primitives::TxSender for alloc::boxed::Box<T>
+pub type alloc::boxed::Box<T>::Output = <T as near_kit_primitives::TxSender>::Output
+pub type alloc::boxed::Box<T>::SendError = <T as near_kit_primitives::TxSender>::SendError
+pub fn alloc::boxed::Box<T>::account_id(&self) -> &near_account_id::account_id::AccountId
+pub fn alloc::boxed::Box<T>::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
 impl<T: near_kit_primitives::TxSender + ?core::marker::Sized> near_kit_primitives::TxSender for alloc::sync::Arc<T>
 pub type alloc::sync::Arc<T>::Output = <T as near_kit_primitives::TxSender>::Output
 pub type alloc::sync::Arc<T>::SendError = <T as near_kit_primitives::TxSender>::SendError
@@ -3023,6 +3028,9 @@ pub fn near_kit_primitives::Viewer::view_function(&self, &near_account_id::accou
 impl<T: near_kit_primitives::Viewer + ?core::marker::Sized> near_kit_primitives::Viewer for &T
 pub type &T::ViewError = <T as near_kit_primitives::Viewer>::ViewError
 pub fn &T::view_function(&self, &near_account_id::account_id::AccountId, &str, &[u8], near_kit_primitives::rpc::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::rpc::ViewFunctionResult, Self::ViewError>> + near_kit_primitives::MaybeSend
+impl<T: near_kit_primitives::Viewer + ?core::marker::Sized> near_kit_primitives::Viewer for alloc::boxed::Box<T>
+pub type alloc::boxed::Box<T>::ViewError = <T as near_kit_primitives::Viewer>::ViewError
+pub fn alloc::boxed::Box<T>::view_function(&self, &near_account_id::account_id::AccountId, &str, &[u8], near_kit_primitives::rpc::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::rpc::ViewFunctionResult, Self::ViewError>> + near_kit_primitives::MaybeSend
 impl<T: near_kit_primitives::Viewer + ?core::marker::Sized> near_kit_primitives::Viewer for alloc::sync::Arc<T>
 pub type alloc::sync::Arc<T>::ViewError = <T as near_kit_primitives::Viewer>::ViewError
 pub fn alloc::sync::Arc<T>::view_function(&self, &near_account_id::account_id::AccountId, &str, &[u8], near_kit_primitives::rpc::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::rpc::ViewFunctionResult, Self::ViewError>> + near_kit_primitives::MaybeSend

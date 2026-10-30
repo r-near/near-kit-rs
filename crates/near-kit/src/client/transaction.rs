@@ -561,7 +561,9 @@ impl PreparedTransaction {
 /// and waits for the client's wait level `W`, so it resolves to
 /// `W::Response` (a [`FinalExecutionOutcome`](crate::rpc::FinalExecutionOutcome)
 /// for the default [`Final`](crate::transaction::Final)). Final is also what
-/// reads default to, so a default read after a default write sees it.
+/// reads default to, so a default read after a default write sees it. Pick
+/// another level for this one transaction with
+/// [`wait_until`](Self::wait_until).
 ///
 /// Actions come from the [`Action`] constructors, typed
 /// [`FunctionCall`](crate::transaction::FunctionCall)s, or the static
@@ -593,10 +595,10 @@ impl PreparedTransaction {
 /// // Several actions in one atomic transaction, returning as soon as it
 /// // executes rather than waiting for finality.
 /// alice
-///     .wait_until::<ExecutedOptimistic>()
 ///     .transaction(account!("counter.testnet"))
 ///     .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
 ///     .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
+///     .wait_until::<ExecutedOptimistic>()
 ///     .await?.result()?;
 /// # Ok(())
 /// # }
@@ -637,6 +639,39 @@ impl<W: WaitLevel> Tx<W> {
             Err(error) => self.defer(Into::<CodecError>::into(error).into()),
         }
         self
+    }
+
+    /// Wait for `W2` instead of the client's level `W`, for this transaction
+    /// only.
+    ///
+    /// `.await` then resolves to `W2::Response`; see
+    /// [`SigningNear::wait_until`] for the response type of each level. The
+    /// client the transaction came from keeps its own level, and the
+    /// actions (and any kept encoding error) carry over.
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # use near_kit::protocol::Action;
+    /// # use near_kit::rpc::SendTxResponse;
+    /// # use near_kit::transaction::Included;
+    /// # async fn example(alice: SigningNear) -> Result<(), Error> {
+    /// // `alice` waits for `Final`; this one transfer returns once included.
+    /// let response: SendTxResponse = alice
+    ///     .transaction(account!("bob.testnet"))
+    ///     .add_action(Action::transfer(NearToken::from_near(1)))
+    ///     .wait_until::<Included>()
+    ///     .await?;
+    /// println!("tx hash: {}", response.transaction_hash);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn wait_until<W2: WaitLevel>(self) -> Tx<W2> {
+        Tx {
+            sender: self.sender.wait_until(),
+            receiver_id: self.receiver_id,
+            actions: self.actions,
+            error: self.error,
+        }
     }
 
     /// Keep `error` (unless an earlier one is already kept) to return from
@@ -1200,6 +1235,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn one_transaction_waits_for_its_own_level() {
+        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![accepted_body()]);
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        // A `Final` client: at its own level it would expect an execution
+        // outcome, which this reply doesn't have.
+        let alice = crate::Near::custom("http://per-tx-wait.invalid", "test")
+            .transport(transport.clone())
+            .build()
+            .with_signer(signer);
+
+        let response: crate::rpc::SendTxResponse = alice
+            .transaction(account!("bob.testnet"))
+            .add_action(Action::transfer(NearToken::from_near(1)))
+            .wait_until::<Submitted>()
+            .await
+            .expect("a Submitted send accepts a bare acknowledgement");
+        assert_eq!(response.sender_id.as_str(), "alice.testnet");
+        assert_eq!(transport.sent.lock().unwrap().len(), 1);
+        assert_eq!(*transport.sent_wait_until.lock().unwrap(), ["NONE"]);
+
+        // The client keeps waiting for `Final`.
+        let _: Tx<crate::types::Final> = alice.transaction(account!("bob.testnet"));
+    }
+
+    #[tokio::test]
+    async fn wait_until_keeps_a_deferred_encoding_error() {
+        let transport = ScriptedNonceTransport::new(vec![(5, 100)], vec![accepted_body()]);
+        let signer = InMemorySigner::new(account!("alice.testnet"), SecretKey::generate_ed25519());
+        let alice = crate::Near::custom("http://per-tx-wait-error.invalid", "test")
+            .transport(transport.clone())
+            .build()
+            .with_signer(signer);
+
+        let error = alice
+            .transaction(account!("bob.testnet"))
+            .add_action(FunctionCall::new("f").args(FailingJson))
+            .wait_until::<Submitted>()
+            .await
+            .unwrap_err();
+        assert!(matches!(error, Error::Json(_)), "{error:?}");
+        assert!(transport.sent.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn expired_retries_honor_configured_maximum() {
         let transport = ScriptedNonceTransport::new(
             vec![(5, 100)],
@@ -1254,6 +1333,8 @@ mod tests {
         views: Mutex<VecDeque<(u64, u64)>>,
         send_tx_responses: Mutex<VecDeque<Vec<u8>>>,
         sent: Mutex<Vec<String>>,
+        /// The `wait_until` of each `send_tx`, in order.
+        sent_wait_until: Mutex<Vec<serde_json::Value>>,
         /// The `finality` of each access key view, in order.
         view_finalities: Mutex<Vec<serde_json::Value>>,
         genesis_hash: CryptoHash,
@@ -1280,6 +1361,7 @@ mod tests {
                 views: Mutex::new(views.into()),
                 send_tx_responses: Mutex::new(send_tx_responses.into()),
                 sent: Mutex::new(Vec::new()),
+                sent_wait_until: Mutex::new(Vec::new()),
                 view_finalities: Mutex::new(Vec::new()),
                 genesis_hash,
                 status_replies: Mutex::new(VecDeque::new()),
@@ -1337,6 +1419,10 @@ mod tests {
                         .unwrap()
                         .to_string();
                     self.sent.lock().unwrap().push(signed);
+                    self.sent_wait_until
+                        .lock()
+                        .unwrap()
+                        .push(request["params"]["wait_until"].clone());
                     self.send_tx_responses
                         .lock()
                         .unwrap()

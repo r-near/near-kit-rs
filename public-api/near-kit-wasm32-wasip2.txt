@@ -595,6 +595,7 @@ pub fn near_kit::transaction::SignedTransactionSend<'tx, W>::into_future(self) -
 pub struct near_kit::transaction::Tx<W: near_kit_primitives::types::wait_level::WaitLevel>
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit::transaction::Tx<W>
 pub fn near_kit::transaction::Tx<W>::add_action<A>(self, A) -> Self where A: core::convert::TryInto<near_kit_primitives::types::action::Action>, <A as core::convert::TryInto>::Error: core::convert::Into<near_kit_primitives::error::CodecError>
+pub fn near_kit::transaction::Tx<W>::wait_until<W2: near_kit_primitives::types::wait_level::WaitLevel>(self) -> near_kit::transaction::Tx<W2>
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::fmt::Debug for near_kit::transaction::Tx<W>
 pub fn near_kit::transaction::Tx<W>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::future::into_future::IntoFuture for near_kit::transaction::Tx<W>
@@ -690,6 +691,7 @@ pub async fn near_kit::SigningNear<W>::sign_delegate(&self, impl core::convert::
 pub fn near_kit::SigningNear<W>::signer(&self) -> &alloc::sync::Arc<dyn near_kit_primitives::types::signer::Signer>
 pub fn near_kit::SigningNear<W>::transaction(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit::transaction::Tx<W>
 pub fn near_kit::SigningNear<W>::wait_until<W2: near_kit_primitives::types::wait_level::WaitLevel>(&self) -> near_kit::SigningNear<W2>
+pub fn near_kit::SigningNear<W>::with_signer(&self, impl near_kit_primitives::types::signer::Signer + 'static) -> near_kit::SigningNear<W>
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::clone::Clone for near_kit::SigningNear<W>
 pub fn near_kit::SigningNear<W>::clone(&self) -> Self
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::convert::AsRef<near_kit::Near> for near_kit::SigningNear<W>

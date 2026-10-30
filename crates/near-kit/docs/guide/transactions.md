@@ -298,7 +298,7 @@ alice
     .add_action(Action::transfer(NearToken::from_near(1)))
     .await?.result()?;
 
-let universal = alice.near().with_signer(InMemorySigner::new(&account_id, key));
+let universal = alice.with_signer(InMemorySigner::new(&account_id, key));
 universal
     .transaction(&account_id)
     .add_action(Action::universal_state_init(state_init, NearToken::ZERO))

@@ -273,6 +273,30 @@ impl<W: WaitLevel> SigningNear<W> {
         self
     }
 
+    /// The same sender settings, signing as another account.
+    ///
+    /// The result keeps this client's connection, wait level `W` and
+    /// [`max_nonce_retries`](Self::max_nonce_retries); only the signer
+    /// changes. [`near()`](Self::near)`.with_signer(signer)` signs as
+    /// `signer` too, but starts from the read-only client, so it waits for
+    /// the default [`Final`].
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # use near_kit::signer::{InMemorySigner, SecretKey};
+    /// # use near_kit::transaction::Included;
+    /// # fn example(relayer: SigningNear, bob_key: SecretKey) {
+    /// let relayer = relayer.max_nonce_retries(10).wait_until::<Included>();
+    ///
+    /// // Signs as bob, still waits for `Included` and retries up to 10 times.
+    /// let bob: SigningNear<Included> =
+    ///     relayer.with_signer(InMemorySigner::new(account!("bob.testnet"), bob_key));
+    /// # }
+    /// ```
+    pub fn with_signer(&self, signer: impl Signer + 'static) -> SigningNear<W> {
+        SigningNear::new(self.near.clone(), Arc::new(signer))
+    }
+
     /// Start a transaction to `receiver_id`.
     ///
     /// Add actions with [`Tx::add_action`] and `.await` the result. See
@@ -535,6 +559,19 @@ mod tests {
         assert_eq!(alice.near().max_nonce_retries, 3);
         let included = relayer.wait_until::<Included>();
         assert_eq!(included.near().max_nonce_retries, u32::MAX);
+    }
+
+    #[test]
+    fn with_signer_keeps_the_wait_level_and_nonce_retries() {
+        let bob = InMemorySigner::new(account!("bob.testnet"), ALICE_KEY.parse().unwrap());
+        let relayer = alice().max_nonce_retries(7).wait_until::<Included>();
+
+        let swapped: SigningNear<Included> = relayer.with_signer(bob);
+        assert_eq!(swapped.account_id().as_str(), "bob.testnet");
+        assert_eq!(swapped.near().max_nonce_retries, 7);
+        assert_eq!(swapped.near().rpc().url(), relayer.near().rpc().url());
+        // The client it came from still signs as alice.
+        assert_eq!(relayer.account_id().as_str(), "alice.testnet");
     }
 
     #[test]

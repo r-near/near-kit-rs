@@ -298,11 +298,13 @@ To test failure handling, return an error from `send`. The caller sees it as
 
 ## Shared and borrowed backends
 
-Both traits are implemented for `&T` and `Arc<T>` whenever `T` implements
-them, including unsized `T`. Two consequences:
+Both traits are implemented for `&T`, `Box<T>` and `Arc<T>` whenever `T`
+implements them, including unsized `T`. Two consequences:
 
 - A backend that isn't `Clone` can back a generated client through
   `Arc<T>` or `&T` (see the bounds [above](#write-code-against-the-traits)).
+  A `Box<T>` is a backend too, and `Clone` when `T` is; a field that holds
+  one needs no unboxing.
 - `Viewer` and `TxSender` have `async` methods, so `dyn TxSender` isn't a
   type. To choose a backend at run time, put a small object-safe trait in
   front of it and implement `TxSender` for that trait object. `Arc<dyn _>`
@@ -361,9 +363,18 @@ impl TxSender for dyn Wallet {
     }
 }
 
-# fn example(alice: SigningNear) {
-let wallet: Arc<dyn Wallet> = Arc::new(alice);
+# async fn example(alice: SigningNear) -> Result<(), Error> {
+let wallet: Arc<dyn Wallet> = Arc::new(alice.clone());
 let token = FungibleToken::client(wallet, account!("usdc.testnet"));
+
+// A `Box<dyn Wallet>` is a sender too. It isn't `Clone`, so a client
+// borrows it, and a call through the borrow finishes with `.send()`.
+let boxed: Box<dyn Wallet> = Box::new(alice);
+FungibleToken::client(&boxed, account!("usdc.testnet"))
+    .transfer(account!("bob.testnet"), 1_000_000, None)
+    .send()
+    .await?;
+# Ok(())
 # }
 ```
 

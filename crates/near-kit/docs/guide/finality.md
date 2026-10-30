@@ -176,6 +176,27 @@ println!("{}", response.transaction_hash);
 # }
 ```
 
+One transaction can wait for another level than its client:
+[`Tx::wait_until`](crate::transaction::Tx::wait_until) goes after the
+actions and changes what `.await` returns, leaving the client as it was:
+
+```rust,no_run
+use near_kit::protocol::Action;
+use near_kit::rpc::SendTxResponse;
+use near_kit::transaction::Included;
+use near_kit::*;
+
+# async fn example(alice: &SigningNear) -> Result<(), Error> {
+let response: SendTxResponse = alice
+    .transaction(account!("bob.testnet"))
+    .add_action(Action::transfer(NearToken::from_near(1)))
+    .wait_until::<Included>()
+    .await?;
+println!("{}", response.transaction_hash);
+# Ok(())
+# }
+```
+
 A pre-signed transaction picks its level on the send:
 `near.send_signed(&signed).wait_until::<Included>()`. Without
 `wait_until` it also waits for `Final`.

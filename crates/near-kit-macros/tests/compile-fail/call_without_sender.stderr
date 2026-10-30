@@ -18,9 +18,10 @@ help: the following other types implement trait `TxSender`
    |         |
    |         `&T`
    |         `Arc<T>`
+   |         `Box<T>`
 ...
-   | forward!(&T, Arc<T>);
-   | -------------------- in this macro invocation
+   | forward!(&T, Box<T>, Arc<T>);
+   | ---------------------------- in this macro invocation
    |
   ::: $WORKSPACE/crates/near-kit/src/client/signing.rs
    |

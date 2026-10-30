@@ -163,6 +163,11 @@ on a `SigningNear`, returning a new one for the same account:
 - [`max_nonce_retries(n)`](crate::SigningNear::max_nonce_retries) overrides
   the builder's value for this sender.
 
+[`with_signer(signer)`](crate::SigningNear::with_signer) on a `SigningNear`
+keeps both and changes only the account: a relayer set to `Included` signs
+as another account at `Included`. Through the read-only client,
+`alice.near().with_signer(signer)`, the wait level starts over at `Final`.
+
 ## Other RPC methods
 
 `Near` keeps the reads that add something on top of the RPC:

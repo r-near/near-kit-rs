@@ -268,7 +268,7 @@ alice
     .add_action(Action::transfer(NearToken::from_near(1)))
     .await?.result()?;
 
-let carol = alice.near().with_signer(carol);
+let carol = alice.with_signer(carol);
 # Ok(())
 # }
 ```

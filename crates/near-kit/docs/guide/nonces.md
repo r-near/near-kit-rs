@@ -153,7 +153,7 @@ for key in &keys {
 add_keys.await?.result()?;
 
 // A client for the same account that rotates through them.
-let bot = bot.near().with_signer(RotatingSigner::new(bot.account_id(), keys)?);
+let bot = bot.with_signer(RotatingSigner::new(bot.account_id(), keys)?);
 let sends = (0..30).map(|_| {
     bot.transaction(account!("bob.testnet"))
         .add_action(Action::transfer(NearToken::from_millinear(1)))

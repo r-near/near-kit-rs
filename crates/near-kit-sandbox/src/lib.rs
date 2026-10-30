@@ -30,7 +30,7 @@
 //! [`Sandbox::root_account`] is a `SigningNear` for the root account
 //! (`sandbox` unless [`root_account`](SandboxBuilder::root_account) sets
 //! another), funded at genesis. Sign as another account with
-//! `root.near().with_signer(signer)`, which reuses the connection. For code
+//! `root.with_signer(signer)`, which reuses the connection. For code
 //! configured with an RPC URL and chain ID (such as
 //! `SigningNear::from_env`, through `NEAR_NETWORK` and `NEAR_CHAIN_ID`), the
 //! sandbox's are `root.near().rpc().url()` and `root.near().chain_id()`.
@@ -54,9 +54,7 @@
 //!     .await?
 //!     .result()?;
 //!
-//! let alice = root
-//!     .near()
-//!     .with_signer(InMemorySigner::new(account!("alice.sandbox"), alice_key));
+//! let alice = root.with_signer(InMemorySigner::new(account!("alice.sandbox"), alice_key));
 //! let balance = alice.near().balance(alice.account_id()).await?;
 //! # Ok(())
 //! # }
@@ -315,7 +313,7 @@ impl Sandbox {
     ///
     /// The root account is funded at genesis, so it can create and fund
     /// test accounts. For reads use `root_account().near()`; for another account,
-    /// `root_account().near().with_signer(signer)`.
+    /// `root_account().with_signer(signer)`.
     pub fn root_account(&self) -> SigningNear {
         self.near.with_signer(self.root_signer.clone())
     }
