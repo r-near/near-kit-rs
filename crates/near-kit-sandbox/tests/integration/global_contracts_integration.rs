@@ -239,7 +239,7 @@ async fn test_state_init_by_hash() {
         code: code_hash.into(),
         data: initial_data,
     });
-    let receiver = si.derive_account_id();
+    let receiver = derive_deterministic_account_id(&si);
     publisher_near
         .wait_until::<Final>()
         .transaction(&receiver)
@@ -276,7 +276,7 @@ async fn test_state_init_by_publisher() {
         code: publisher_id.clone().into(),
         data: initial_data,
     });
-    let receiver = si.derive_account_id();
+    let receiver = derive_deterministic_account_id(&si);
     publisher_near
         .wait_until::<Final>()
         .transaction(&receiver)

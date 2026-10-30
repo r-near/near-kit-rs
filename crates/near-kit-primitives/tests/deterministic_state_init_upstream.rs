@@ -12,15 +12,21 @@ use std::collections::BTreeMap;
 
 use near_kit_primitives::protocol::{
     DeterministicStateInitAction, GlobalContractId, StateInit, StateInitV1,
+    derive_deterministic_account_id,
 };
 use near_kit_primitives::{AccountId, NearToken};
 
 fn kit_id(state_init: &StateInit) -> AccountId {
-    DeterministicStateInitAction {
-        state_init: state_init.clone(),
-        deposit: NearToken::ZERO,
+    let id = derive_deterministic_account_id(state_init);
+    // The action's id ignores its deposit.
+    for deposit in [NearToken::ZERO, NearToken::from_near(1)] {
+        let action = DeterministicStateInitAction {
+            state_init: state_init.clone(),
+            deposit,
+        };
+        assert_eq!(action.derive_account_id(), id);
     }
-    .derive_account_id()
+    id
 }
 
 #[test]

@@ -91,6 +91,7 @@ pub use near_kit::protocol::VersionedSignedDelegateAction
 pub use near_kit::protocol::VersionedTransaction
 pub use near_kit::protocol::WasmTrap
 pub use near_kit::protocol::WithdrawFromGasKeyAction
+pub use near_kit::protocol::derive_deterministic_account_id
 pub mod near_kit::rpc
 pub use near_kit::rpc::AccessKeyDetails
 pub use near_kit::rpc::AccessKeyInfoView

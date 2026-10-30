@@ -220,32 +220,32 @@ let code = alice.near().rpc().view_global_contract_code(code_hash, rpc::Finality
 A deterministic account's ID is derived from its initial state: a global
 contract reference plus storage entries. Anyone can create it, and anyone
 who knows the state knows the ID in advance. Build the
-[`StateInit`](crate::protocol::StateInit) into a
-[`DeterministicStateInitAction`](crate::protocol::DeterministicStateInitAction),
-derive the ID from it, and send the action **to that ID**:
+[`StateInit`](crate::protocol::StateInit), derive the ID from it with
+[`derive_deterministic_account_id`](crate::protocol::derive_deterministic_account_id),
+and send [`Action::state_init`](crate::protocol::Action::state_init) **to that
+ID**:
 
 ```rust,no_run
-use near_kit::protocol::{Action, DeterministicStateInitAction, StateInitV1};
+use near_kit::protocol::{Action, StateInit, StateInitV1, derive_deterministic_account_id};
 use near_kit::*;
 
 # async fn example(alice: &SigningNear) -> Result<(), Error> {
-let init = DeterministicStateInitAction {
-    state_init: StateInitV1::code(account!("wallets.publisher.testnet"))
-        .with_data_entry(b"owner".to_vec(), alice.account_id().as_str().as_bytes().to_vec())
-        .into(),
-    deposit: NearToken::from_millinear(100),
-};
-let account_id = init.derive_account_id(); // "0s..."
+let state_init: StateInit = StateInitV1::code(account!("wallets.publisher.testnet"))
+    .with_data_entry(b"owner".to_vec(), alice.account_id().as_str().as_bytes().to_vec())
+    .into();
+let account_id = derive_deterministic_account_id(&state_init); // "0s..."
 
 alice
     .transaction(&account_id)
-    .add_action(Action::DeterministicStateInit(init))
+    .add_action(Action::state_init(state_init, NearToken::from_millinear(100)))
     .await?.result()?;
 # Ok(())
 # }
 ```
 
-near-kit derives the ID in pure Rust. near-global-contracts'
+The ID depends only on the state, not on the deposit, so you can also
+compute it just to look the account up.
+`derive_deterministic_account_id` hashes in pure Rust. near-global-contracts'
 `StateInit::derive_account_id` gives the same ID, but it calls NEAR host
 functions when any crate in the workspace enables `near-sdk/unit-testing`,
 and a test binary that doesn't link near-sdk then fails to link.

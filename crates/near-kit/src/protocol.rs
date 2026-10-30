@@ -19,6 +19,7 @@ pub use near_kit_primitives::protocol::{
     TxExecutionError, UniversalStateInit, UniversalStateInitAction, UniversalStateInitV1,
     UnknownError, UseGlobalContractAction, VersionedDelegateActionPayload,
     VersionedSignedDelegateAction, VersionedTransaction, WasmTrap, WithdrawFromGasKeyAction,
+    derive_deterministic_account_id,
 };
 #[doc(inline)]
 pub use near_kit_primitives::protocol::{

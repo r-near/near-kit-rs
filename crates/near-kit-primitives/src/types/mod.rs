@@ -28,7 +28,7 @@ pub use action::{
     GlobalContractId, NonDelegateAction, PublishMode, SignedDelegateAction, StakeAction, StateInit,
     StateInitV1, TransferAction, TransferToGasKeyAction, UniversalStateInitAction,
     UseGlobalContractAction, VersionedDelegateActionPayload, VersionedSignedDelegateAction,
-    WithdrawFromGasKeyAction,
+    WithdrawFromGasKeyAction, derive_deterministic_account_id,
 };
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{
