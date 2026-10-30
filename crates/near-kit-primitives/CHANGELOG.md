@@ -9,12 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.30.0-rc.3](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0-rc.2...near-kit-primitives-v0.30.0-rc.3) - 2026-10-30
 
-### Added
-
-- switch accounts and pick a wait level per transaction without losing the sender's settings; accept boxed backends ([#394](https://github.com/r-near/near-kit-rs/pull/394))
-- *(macros)* [**breaking**] send #[contract] parameters by name, like near-sdk, so traits can mirror a contract's signatures ([#393](https://github.com/r-near/near-kit-rs/pull/393))
-- derive 0s account ids without a deposit and take either client via AsRef<Near> ([#391](https://github.com/r-near/near-kit-rs/pull/391))
-- poll a view without decoding every answer (View: Clone, fetch_raw, decode) ([#390](https://github.com/r-near/near-kit-rs/pull/390))
+- **With `contracts`, `#[contract]` sends every parameter by name, including a single one.** This changes what a one-parameter method sends, with no compile error: `fn m(&self, args: Args)` used to send `Args` as the whole argument object and now sends `{"args": ..}`. Mark the parameter `#[args]` to keep the old bytes. Methods may now take several parameters, sent as near-sdk encodes them ([#393](https://github.com/r-near/near-kit-rs/pull/393), [MIGRATION](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#one-parameter-is-sent-by-name)).
+- `View` is `Clone` when its backend is. `View::fetch_raw` runs it without decoding, and `View::decode` decodes the bytes as `.await` would ([#390](https://github.com/r-near/near-kit-rs/pull/390)).
+- `protocol::derive_deterministic_account_id(&StateInit)` derives a `0s` account ID without a deposit; `DeterministicStateInitAction::derive_account_id` calls it ([#391](https://github.com/r-near/near-kit-rs/pull/391)).
+- `Viewer` and `TxSender` are implemented for `Box<T>`, as for `&T` and `Arc<T>` ([#394](https://github.com/r-near/near-kit-rs/pull/394)).
 
 ## [0.30.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0-rc.1...near-kit-primitives-v0.30.0-rc.2) - 2026-10-29
 

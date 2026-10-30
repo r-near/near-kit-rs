@@ -9,10 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.15.0-rc.3](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0-rc.2...near-kit-macros-v0.15.0-rc.3) - 2026-10-30
 
+### Changed without a compile error
+
+- A method's parameters are sent by name, as near-sdk's `#[near]` and `#[ext_contract]` encode them, including a single parameter: `fn m(&self, args: Args)` used to send `Args` as the whole argument object and now sends `{"args": ..}`. Borsh bytes are unchanged, and methods without parameters still send `{}` (JSON) or nothing (Borsh). See [MIGRATION](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#one-parameter-is-sent-by-name) ([#393](https://github.com/r-near/near-kit-rs/pull/393)).
+
 ### Added
 
-- switch accounts and pick a wait level per transaction without losing the sender's settings; accept boxed backends ([#394](https://github.com/r-near/near-kit-rs/pull/394))
-- *(macros)* [**breaking**] send #[contract] parameters by name, like near-sdk, so traits can mirror a contract's signatures ([#393](https://github.com/r-near/near-kit-rs/pull/393))
+- `#[args]` on a method's only parameter sends it as the whole argument object, as a lone parameter was sent before ([#393](https://github.com/r-near/near-kit-rs/pull/393)).
+- Methods may take several parameters: a JSON object with a key per parameter in order (`None` as `null`, raw identifiers without `r#`), or each parameter's Borsh encoding in order. Borrowed and `impl Trait` parameters work, and a type that can't be encoded is reported at its parameter ([#393](https://github.com/r-near/near-kit-rs/pull/393)).
+- `#[args]` next to other parameters, on the method or with options, other parameter attributes (such as `#[serde(..)]`) and repeated parameter names are compile errors ([#393](https://github.com/r-near/near-kit-rs/pull/393)).
 
 ## [0.15.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0-rc.1...near-kit-macros-v0.15.0-rc.2) - 2026-10-29
 

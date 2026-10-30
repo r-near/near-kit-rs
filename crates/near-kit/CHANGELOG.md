@@ -9,12 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.30.0-rc.3](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.2...near-kit-v0.30.0-rc.3) - 2026-10-30
 
+Upgrading from 0.20.1? Start with the 0.30.0-rc.1 notes below and
+[MIGRATION.md](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md).
+
+### Changed without a compile error
+
+- **A `#[contract]` method with one parameter sends it by name.** With the
+  `contracts` feature, every parameter is now sent by name, as near-sdk's
+  `#[near]` and `#[ext_contract]` encode it, including a single one:
+  `fn add(&mut self, args: AddArgs)` used to send `AddArgs` as the whole
+  argument object (`{"value":1}`) and now sends `{"args":{"value":1}}`. Mark
+  the parameter `#[args]` to keep the old bytes. Borsh methods send the same
+  bytes either way, and methods without parameters still send `{}`.
+  ([#393](https://github.com/r-near/near-kit-rs/pull/393),
+  [MIGRATION](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#one-parameter-is-sent-by-name))
+
 ### Added
 
-- switch accounts and pick a wait level per transaction without losing the sender's settings; accept boxed backends ([#394](https://github.com/r-near/near-kit-rs/pull/394))
-- *(macros)* [**breaking**] send #[contract] parameters by name, like near-sdk, so traits can mirror a contract's signatures ([#393](https://github.com/r-near/near-kit-rs/pull/393))
-- derive 0s account ids without a deposit and take either client via AsRef<Near> ([#391](https://github.com/r-near/near-kit-rs/pull/391))
-- poll a view without decoding every answer (View: Clone, fetch_raw, decode) ([#390](https://github.com/r-near/near-kit-rs/pull/390))
+- **`#[contract]` methods can take several parameters**, so a trait can
+  copy a contract's signatures, such as `fn ft_transfer(&mut self,
+  receiver_id: &AccountId, amount: &str, memo: Option<&str>)`. JSON methods
+  send an object with a key per parameter (`None` as `null`); Borsh
+  methods send each parameter's encoding in order. Borrowed and
+  `impl Trait` parameters work. ([#393](https://github.com/r-near/near-kit-rs/pull/393))
+- **Poll a view without decoding every answer.** `View` is `Clone` when
+  its backend is, `View::fetch_raw()` runs it and returns the undecoded
+  bytes with the block they were read at, and `View::decode(&bytes)`
+  decodes them as `.await` would. The finality guide's "Polling a view"
+  decodes only when the result changes. ([#390](https://github.com/r-near/near-kit-rs/pull/390))
+- **`protocol::derive_deterministic_account_id(&state_init)`** derives a
+  `0s` account ID without a deposit, hashing in pure Rust.
+  ([#391](https://github.com/r-near/near-kit-rs/pull/391))
+- **`AsRef<Near>` for `Near` and `SigningNear`**, so a read helper can
+  take `impl AsRef<Near>` and accept either client. ([#391](https://github.com/r-near/near-kit-rs/pull/391))
+- **`SigningNear::with_signer(signer)`** signs as another account with the
+  same connection, wait level and nonce retries. `alice.near().with_signer(..)`
+  still starts at `Final`. ([#394](https://github.com/r-near/near-kit-rs/pull/394))
+- **`Tx::wait_until::<W>()`** sets the wait level for one transaction,
+  after its actions; the client keeps its own. ([#394](https://github.com/r-near/near-kit-rs/pull/394))
+- **`Viewer` and `TxSender` are implemented for `Box<T>`**, as for `&T`
+  and `Arc<T>`, so a boxed backend can drive typed contract clients,
+  `View` and `Call`. ([#394](https://github.com/r-near/near-kit-rs/pull/394))
 
 ## [0.30.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.1...near-kit-v0.30.0-rc.2) - 2026-10-29
 

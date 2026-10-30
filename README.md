@@ -4,24 +4,24 @@ A Rust client for NEAR Protocol: read chain state, send transactions, and call
 contracts through typed clients.
 
 [![Crates.io](https://img.shields.io/crates/v/near-kit.svg)](https://crates.io/crates/near-kit)
-[![Documentation](https://docs.rs/near-kit/badge.svg)](https://docs.rs/near-kit/0.30.0-rc.2)
+[![Documentation](https://docs.rs/near-kit/badge.svg)](https://docs.rs/near-kit/0.30.0-rc.3)
 [![CI](https://github.com/r-near/near-kit-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/r-near/near-kit-rs/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/r-near/near-kit-rs/graph/badge.svg)](https://codecov.io/gh/r-near/near-kit-rs)
 [![MSRV](https://img.shields.io/badge/MSRV-1.95-blue.svg)](https://github.com/r-near/near-kit-rs)
 
-[API docs](https://docs.rs/near-kit/0.30.0-rc.2) · [Guide](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/index.html) · [Examples](#examples) · [Upgrading](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md) · [Changelog](https://github.com/r-near/near-kit-rs/blob/main/crates/near-kit/CHANGELOG.md)
+[API docs](https://docs.rs/near-kit/0.30.0-rc.3) · [Guide](https://docs.rs/near-kit/0.30.0-rc.3/near_kit/guide/index.html) · [Examples](#examples) · [Upgrading](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md) · [Changelog](https://github.com/r-near/near-kit-rs/blob/main/crates/near-kit/CHANGELOG.md)
 
 ## Install
 
 Add near-kit and an async runtime:
 
 ```sh
-cargo add near-kit@0.30.0-rc.2
+cargo add near-kit@0.30.0-rc.3
 cargo add tokio --features macros,rt-multi-thread
 ```
 
 For typed contract clients (`#[near_kit::contract]`), add near-kit with the
-`contracts` feature instead: `cargo add near-kit@0.30.0-rc.2 --features contracts`.
+`contracts` feature instead: `cargo add near-kit@0.30.0-rc.3 --features contracts`.
 
 ## Quick start
 
@@ -85,10 +85,10 @@ start a local node in Docker.
 
 | Crate | Use it for |
 |---|---|
-| [`near-kit`](https://docs.rs/near-kit/0.30.0-rc.2) | The client: everything on this page |
+| [`near-kit`](https://docs.rs/near-kit/0.30.0-rc.3) | The client: everything on this page |
 | [`near-kit-primitives`](crates/near-kit-primitives/README.md) | Types, keys, signing and transaction building with no RPC client or async runtime, for contracts, signing services and wasm |
 | [`near-kit-sandbox`](crates/near-kit-sandbox/README.md) | Tests against a local NEAR node in Docker |
-| [`near-kit-macros`](https://docs.rs/near-kit-macros/0.15.0-rc.2) | The `#[contract]` macro; use it through the `contracts` feature |
+| [`near-kit-macros`](https://docs.rs/near-kit-macros/0.15.0-rc.3) | The `#[contract]` macro; use it through the `contracts` feature |
 
 ## Feature flags
 

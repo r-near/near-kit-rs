@@ -27,11 +27,11 @@ To send a struct as the whole argument object instead, mark its parameter
 Don't depend on this crate directly. Use it through one of:
 
 - `near-kit` with the `contracts` feature: `#[near_kit::contract]`
-  (`cargo add near-kit@0.30.0-rc.2 --features contracts`)
+  (`cargo add near-kit@0.30.0-rc.3 --features contracts`)
 - `near-kit-primitives` with the `contracts` feature, for crates without the
   RPC client, such as contracts built for wasm
 
-The [typed contracts and tokens guide](https://docs.rs/near-kit/0.30.0-rc.2/near_kit/guide/contracts_and_tokens/index.html)
+The [typed contracts and tokens guide](https://docs.rs/near-kit/0.30.0-rc.3/near_kit/guide/contracts_and_tokens/index.html)
 covers the trait syntax, argument formats and generated API.
 
 ## License
