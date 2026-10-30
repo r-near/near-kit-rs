@@ -603,6 +603,7 @@ pub fn near_kit::transaction::SignedTransactionSend<'tx, W>::into_future(self) -
 pub struct near_kit::transaction::Tx<W: near_kit_primitives::types::wait_level::WaitLevel>
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit::transaction::Tx<W>
 pub fn near_kit::transaction::Tx<W>::add_action<A>(self, A) -> Self where A: core::convert::TryInto<near_kit_primitives::types::action::Action>, <A as core::convert::TryInto>::Error: core::convert::Into<near_kit_primitives::error::CodecError>
+pub fn near_kit::transaction::Tx<W>::wait_until<W2: near_kit_primitives::types::wait_level::WaitLevel>(self) -> near_kit::transaction::Tx<W2>
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::fmt::Debug for near_kit::transaction::Tx<W>
 pub fn near_kit::transaction::Tx<W>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::future::into_future::IntoFuture for near_kit::transaction::Tx<W>

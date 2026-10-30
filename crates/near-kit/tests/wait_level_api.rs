@@ -38,6 +38,28 @@ fn signing_clients_select_wait_levels_in_type_position() {
 }
 
 #[test]
+fn one_transaction_picks_its_own_wait_level() {
+    let alice = alice();
+    let _included: Tx<Included> = alice
+        .transaction(account!("bob.testnet"))
+        .add_action(Action::transfer(NearToken::from_near(1)))
+        .wait_until::<Included>();
+    // The client keeps its level.
+    let _still_final: Tx<Final> = alice.transaction(account!("bob.testnet"));
+}
+
+#[allow(dead_code)]
+async fn one_transaction_resolves_to_its_level(
+    alice: &SigningNear,
+) -> Result<SendTxResponse, Error> {
+    alice
+        .transaction(account!("bob.testnet"))
+        .add_action(Action::transfer(NearToken::from_near(1)))
+        .wait_until::<Included>()
+        .await
+}
+
+#[test]
 fn with_signer_on_a_signing_client_keeps_its_wait_level() {
     let relayer: SigningNear<Included> = alice().wait_until::<Included>();
     let bob = || {
