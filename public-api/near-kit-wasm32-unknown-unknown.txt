@@ -257,6 +257,7 @@ pub near_kit::rpc::RpcError::Rpc
 pub near_kit::rpc::RpcError::Rpc::cause: core::option::Option<alloc::string::String>
 pub near_kit::rpc::RpcError::Rpc::code: i64
 pub near_kit::rpc::RpcError::Rpc::data: core::option::Option<serde_json::value::Value>
+pub near_kit::rpc::RpcError::Rpc::info: core::option::Option<serde_json::value::Value>
 pub near_kit::rpc::RpcError::Rpc::message: alloc::string::String
 pub near_kit::rpc::RpcError::ShardNotTracked
 pub near_kit::rpc::RpcError::ShardUnavailable(alloc::string::String)

@@ -681,6 +681,7 @@ fn parse_rpc_error(error: &JsonRpcError) -> RpcError {
         message: error.message.clone(),
         data: error.data.clone(),
         cause: error.cause.as_ref().map(|cause| cause.name.clone()),
+        info: error.cause.as_ref().and_then(|cause| cause.info.clone()),
     }
 }
 
@@ -4470,6 +4471,46 @@ mod tests {
         );
         let result = parse_rpc_error(&error);
         assert!(matches!(result, RpcError::Rpc { .. }));
+    }
+
+    /// A handler error whose cause near-kit doesn't map keeps the node's
+    /// structured `cause.info` next to the cause name and the plain-string
+    /// `data`, so callers can read details no typed variant covers.
+    #[tokio::test]
+    async fn test_unmapped_cause_keeps_cause_info() {
+        let info = serde_json::json!({
+            "limit": 100,
+            "requested": 500,
+            "detail": { "field": "block_range" },
+        });
+        let data = serde_json::json!("limit exceeded: requested 500, limit 100");
+        let transport = CountingTransport::new(
+            200,
+            rpc_error(Some("FUTURE_HANDLER_ERROR"), info.clone(), data.clone()),
+        );
+
+        let err = transport
+            .client()
+            .request::<_, serde_json::Value>("block", serde_json::json!({ "finality": "final" }))
+            .await
+            .unwrap_err();
+
+        match err {
+            RpcError::Rpc {
+                code,
+                data: got_data,
+                cause,
+                info: got_info,
+                ..
+            } => {
+                assert_eq!(code, -32000);
+                assert_eq!(cause.as_deref(), Some("FUTURE_HANDLER_ERROR"));
+                assert_eq!(got_data, Some(data));
+                assert_eq!(got_info, Some(info));
+            }
+            other => panic!("expected RpcError::Rpc, got {other:?}"),
+        }
+        assert_eq!(transport.calls(), 1);
     }
 
     #[test]

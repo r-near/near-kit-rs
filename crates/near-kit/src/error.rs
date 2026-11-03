@@ -124,6 +124,11 @@ pub enum RpcError {
         /// The name of the node's error cause (`error.cause.name`, such as
         /// `NODE_IS_SYNCING`), when the response has one.
         cause: Option<String>,
+        /// The node's error details (`error.cause.info`), when the response
+        /// has them: the structured payload that goes with `cause`, kept as
+        /// raw JSON for causes near-kit doesn't map. The typed variants keep
+        /// the parts of it they need instead.
+        info: Option<serde_json::Value>,
     },
 
     /// The account does not exist at the queried block (`UNKNOWN_ACCOUNT`).
@@ -1096,6 +1101,7 @@ mod tests {
             message: "server error".to_string(),
             data: None,
             cause: cause.map(str::to_string),
+            info: None,
         };
         assert!(server_error(None).is_retryable());
         assert!(server_error(Some("NODE_IS_SYNCING")).is_retryable());
