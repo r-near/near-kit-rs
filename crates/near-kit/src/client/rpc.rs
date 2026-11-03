@@ -1906,6 +1906,11 @@ mod tests {
             // A named cause near-kit doesn't know may well be deterministic.
             (Some("FUTURE_HANDLER_ERROR"), 1),
             (Some("REQUEST_ROUTED"), 1),
+            // Indexer causes that don't clear by re-sending the same request.
+            (Some("DATA_UNAVAILABLE"), 1),
+            (Some("INCOMPLETE_DATA"), 1),
+            (Some("LIMIT_EXCEEDED"), 1),
+            (Some("UNSUPPORTED"), 1),
             // Older nodes and proxies send no cause.
             (None, 3),
             // Known-transient causes nearcore names.
