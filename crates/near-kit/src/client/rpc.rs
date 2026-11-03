@@ -767,6 +767,29 @@ impl RpcClient {
         }
     }
 
+    /// Set how this client retries transient failures, keeping its URL and
+    /// transport.
+    ///
+    /// Replaces the [`RetryConfig`] the client was built with (for
+    /// [`RpcClient::new`], [`RetryConfig::default()`]), so the default
+    /// transport can be kept while only the retries change. Pass
+    /// [`RetryConfig::none()`] when the caller runs its own retry loop. This
+    /// is the `RpcClient` counterpart of
+    /// [`NearBuilder::retry_config`](super::NearBuilder::retry_config).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::rpc::{RetryConfig, RpcClient};
+    ///
+    /// let rpc = RpcClient::new("https://rpc.testnet.near.org").retry_config(RetryConfig::none());
+    /// ```
+    #[must_use]
+    pub fn retry_config(mut self, retry_config: RetryConfig) -> Self {
+        self.retry_config = retry_config;
+        self
+    }
+
     /// Get the RPC URL.
     pub fn url(&self) -> &str {
         &self.url
@@ -1958,6 +1981,44 @@ mod tests {
 
         assert!(err.is_retryable(), "503 is retryable in principle: {err:?}");
         assert_eq!(transport.calls(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_retry_config_replaces_the_constructor_setting() {
+        // `(config set at construction, config set afterwards, attempts)` on
+        // a retryable 503: the later setting wins in both directions.
+        let cases = [
+            (RetryConfig::default(), RetryConfig::none(), 1),
+            (RetryConfig::none(), fast_retries(2), 3),
+        ];
+        for (initial, replacement, attempts) in cases {
+            let transport = CountingTransport::new(503, "service unavailable");
+            let client = RpcClient::with_transport_and_retry_config(
+                "https://example.com",
+                transport.clone(),
+                initial,
+            )
+            .retry_config(replacement);
+
+            let err = client
+                .request::<_, serde_json::Value>(
+                    "block",
+                    serde_json::json!({ "finality": "final" }),
+                )
+                .await
+                .unwrap_err();
+
+            assert!(err.is_retryable(), "{err:?}");
+            assert_eq!(transport.calls(), attempts);
+        }
+    }
+
+    #[test]
+    fn test_retry_config_keeps_the_url() {
+        let client =
+            RpcClient::new("https://rpc.testnet.near.org").retry_config(RetryConfig::none());
+        assert_eq!(client.url(), "https://rpc.testnet.near.org");
+        assert_eq!(client.retry_config.max_retries, 0);
     }
 
     #[test]
