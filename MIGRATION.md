@@ -738,12 +738,13 @@ works.
   `RpcError::Rpc` with code `-32000` that was retried (about 3.5 s with the
   default `RetryConfig`) and reported `is_retryable() == true`. They are
   returned after one attempt and aren't retryable.
-- **`RpcError::Rpc` has a `cause` field**, the node's error cause name when
-  the response has one. A `-32000` server error is retried (and
+- **`RpcError::Rpc` has `cause` and `info` fields**: the node's error cause
+  name and its details (`error.cause.info`, as raw JSON) when the response has
+  them. A `-32000` server error is retried (and
   `is_retryable()`) only when it has no cause or one that clears with time
   (`NODE_IS_SYNCING`, `NO_NEW_BLOCKS`, `BUSY`, `NOT_CONFIRMED`,
   `CHUNK_NOT_CERTIFIED`); 0.20.1 retried every `-32000` error. Struct patterns
-  and literals without `..` need the new field.
+  and literals without `..` need the new fields.
 
 ```rust
 // 0.20.1
