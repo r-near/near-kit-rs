@@ -333,6 +333,7 @@ pub async fn near_kit::rpc::RpcClient::gas_price(&self, core::option::Option<&ne
 pub fn near_kit::rpc::RpcClient::new(impl core::convert::Into<alloc::string::String>) -> Self
 pub async fn near_kit::rpc::RpcClient::receipt_to_tx(&self, &near_kit_primitives::types::hash::CryptoHash) -> core::result::Result<near_kit_primitives::types::rpc::ReceiptToTxResponse, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::request<P: serde_core::ser::Serialize, R: serde_core::de::DeserializeOwned>(&self, &str, P) -> core::result::Result<R, near_kit::rpc::RpcError>
+pub fn near_kit::rpc::RpcClient::retry_config(self, near_kit::rpc::RetryConfig) -> Self
 pub async fn near_kit::rpc::RpcClient::send_tx(&self, &near_kit_primitives::types::transaction::SignedTransaction, near_kit_primitives::types::block_reference::TxExecutionStatus) -> core::result::Result<near_kit_primitives::types::rpc::RpcTransactionResponse, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::status(&self) -> core::result::Result<near_kit_primitives::types::rpc::StatusResponse, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::tx_status(&self, &near_kit_primitives::types::hash::CryptoHash, &near_account_id::account_id_ref::AccountIdRef, near_kit_primitives::types::block_reference::TxExecutionStatus) -> core::result::Result<near_kit_primitives::types::rpc::RpcTransactionResponse, near_kit::rpc::RpcError>
