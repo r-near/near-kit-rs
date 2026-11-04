@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.4](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.3...near-kit-v0.30.0-rc.4) - 2026-11-04
+
+### Added
+
+- change only an RpcClient's retries without naming a transport ([#397](https://github.com/r-near/near-kit-rs/pull/397))
+- [**breaking**] keep the node's cause.info on RpcError::Rpc, so callers can read the details of causes near-kit doesn't map ([#396](https://github.com/r-near/near-kit-rs/pull/396))
+
 ## [0.30.0-rc.3](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.2...near-kit-v0.30.0-rc.3) - 2026-10-30
 
 Upgrading from 0.20.1? Start with the 0.30.0-rc.1 notes below and
