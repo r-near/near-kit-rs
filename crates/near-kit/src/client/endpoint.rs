@@ -62,6 +62,13 @@ impl RpcEndpoint {
     /// case-insensitively). The name and value are checked when a request is
     /// sent: one that isn't a valid HTTP header fails that request with a
     /// non-retryable [`RpcError::Network`](crate::rpc::RpcError::Network).
+    ///
+    /// The headers go to this endpoint's URL, and to wherever it redirects
+    /// the request: on a redirect to another host, reqwest drops only
+    /// `Authorization` and cookies. Prefer [`bearer`](Self::bearer) when the
+    /// provider accepts it, and point the endpoint at its final URL; to stop
+    /// following redirects altogether, build the HTTP client with
+    /// `redirect(near_kit::reqwest::redirect::Policy::none())`.
     #[must_use]
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         let name = name.into();
