@@ -8,7 +8,7 @@ use near_kit::*;
 use near_kit::{rpc::*, signer::SecretKey, transaction::*};
 use near_kit_sandbox::SANDBOX_ROOT_ACCOUNT;
 
-use super::support::unique_account;
+use super::support::{guestbook_wasm, unique_account};
 
 #[tokio::test]
 async fn test_block_view_full_fields() {
@@ -283,6 +283,87 @@ async fn test_tx_status_early_wait_level_surfaces_receipts() {
     assert!(
         !partial.receipts.is_empty(),
         "early-level tx_status should expose receipts (receiver_id -> stage mapping)"
+    );
+}
+
+/// `RpcClient::receipt` returns each receipt a function call spawned, the
+/// same receipt `EXPERIMENTAL_tx_status` lists in full for the transaction.
+#[tokio::test]
+async fn test_receipt_matches_the_transactions_receipts() {
+    let (_, near) = super::support::shared_client().await;
+    let contract_id = unique_account("receipt");
+    near.wait_until::<Final>()
+        .transaction(&contract_id)
+        .add_action(Action::create_account())
+        .add_action(Action::transfer(NearToken::from_near(5)))
+        .add_action(Action::deploy_contract(guestbook_wasm()))
+        .await
+        .unwrap()
+        .result()
+        .unwrap();
+
+    let outcome = near
+        .wait_until::<Final>()
+        .transaction(&contract_id)
+        .add_action(
+            FunctionCall::new("add_message")
+                .args(serde_json::json!({ "text": "hello" }))
+                .gas(Gas::from_tgas(30)),
+        )
+        .await
+        .unwrap();
+    assert!(outcome.is_success(), "{:?}", outcome.failure_message());
+
+    let rpc = near.near().rpc();
+    let full = rpc
+        .tx_status(
+            outcome.transaction_hash(),
+            near.account_id(),
+            TxExecutionStatus::Final,
+        )
+        .await
+        .unwrap()
+        .outcome
+        .expect("a final transaction has an outcome");
+    assert!(!full.receipts.is_empty());
+
+    // The function call receipt (to the contract) and its gas refund.
+    for listed in &full.receipts {
+        let fetched = rpc.receipt(&listed.receipt_id).await.unwrap();
+        assert_eq!(fetched.receipt_id, listed.receipt_id);
+        assert_eq!(fetched.predecessor_id, listed.predecessor_id);
+        assert_eq!(fetched.receiver_id, listed.receiver_id);
+        assert_eq!(fetched.priority, listed.priority);
+        assert_eq!(
+            format!("{:?}", fetched.receipt),
+            format!("{:?}", listed.receipt),
+            "receipt {}",
+            listed.receipt_id
+        );
+    }
+
+    // The first receipt is the call itself, from the signer to the contract.
+    let call_receipt_id = &outcome.transaction_outcome.outcome.receipt_ids[0];
+    let call = rpc.receipt(call_receipt_id).await.unwrap();
+    assert_eq!(&call.predecessor_id, near.account_id());
+    assert_eq!(call.receiver_id, contract_id);
+    let ReceiptContent::Action(action) = call.receipt else {
+        panic!("expected an action receipt, got {:?}", call.receipt);
+    };
+    assert!(
+        matches!(
+            action.actions.as_slice(),
+            [ActionView::FunctionCall { method_name, .. }] if method_name == "add_message"
+        ),
+        "{:?}",
+        action.actions
+    );
+
+    let unknown = CryptoHash::hash(b"no such receipt");
+    let err = rpc.receipt(&unknown).await.unwrap_err();
+    assert!(
+        matches!(&err, RpcError::ReceiptNotFound(id) if *id == unknown.to_string()),
+        "{err:?}"
     );
 }
 
