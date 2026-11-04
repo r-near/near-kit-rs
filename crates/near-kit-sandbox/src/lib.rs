@@ -1,4 +1,4 @@
-//! A local NEAR node in Docker, for tests that use [`near-kit`](https://docs.rs/near-kit/0.30.0-rc.4).
+//! A local NEAR node in Docker, for tests that use [`near-kit`](https://docs.rs/near-kit/0.30.0-rc.5).
 //!
 //! [`Sandbox`] starts a `nearprotocol/sandbox` container through
 //! testcontainers and hands back an ordinary `near_kit::SigningNear` for its

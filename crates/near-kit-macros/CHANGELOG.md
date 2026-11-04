@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0-rc.5](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0-rc.4...near-kit-macros-v0.15.0-rc.5) - 2026-11-04
+
+### Documentation
+
+- The `#[contract]` docs point a `U128` parameter at
+  `near_kit::json_types::U128`. No code changes; version bumped with the
+  workspace. ([#399](https://github.com/r-near/near-kit-rs/pull/399))
+
 ## [0.15.0-rc.4](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0-rc.3...near-kit-macros-v0.15.0-rc.4) - 2026-11-04
 
 No user-facing changes; version bumped with the workspace.
