@@ -108,9 +108,10 @@ start a local node in Docker.
 `Near::mainnet()` and `Near::testnet()` use FastNEAR's free tier
 (`https://free.rpc.fastnear.com` and `https://test.rpc.fastnear.com`), which is
 rate-limited. For production traffic, point the client at your own endpoint
-with `Near::custom`. To send an API key or other headers, build a
-`near_kit::reqwest::Client` with them and pass
-`ReqwestTransport::with_client(client)` to `NearBuilder::transport`.
+with `Near::custom`. To send an API key, pass
+`RpcEndpoint::new(url).bearer(key)` (or `.header(name, value)`) instead of the
+URL; add other providers with `NearBuilder::fallback`, which are tried in order
+when one fails with a retryable error. Each endpoint's headers go only to it.
 
 ## MSRV and versioning
 

@@ -336,6 +336,7 @@ impl core::fmt::Debug for near_kit::rpc::ReqwestTransport
 pub fn near_kit::rpc::ReqwestTransport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl near_kit::rpc::RpcTransport for near_kit::rpc::ReqwestTransport
 pub fn near_kit::rpc::ReqwestTransport::post_json(&self, &str, alloc::vec::Vec<u8>) -> near_kit_primitives::platform::BoxFuture<'_, core::result::Result<near_kit::rpc::TransportResponse, near_kit::rpc::RpcError>>
+pub fn near_kit::rpc::ReqwestTransport::post_json_with_headers(&self, &str, &[(alloc::string::String, alloc::string::String)], alloc::vec::Vec<u8>) -> near_kit_primitives::platform::BoxFuture<'_, core::result::Result<near_kit::rpc::TransportResponse, near_kit::rpc::RpcError>>
 pub struct near_kit::rpc::RetryConfig
 pub near_kit::rpc::RetryConfig::initial_delay_ms: u64
 pub near_kit::rpc::RetryConfig::max_delay_ms: u64
@@ -351,8 +352,10 @@ pub fn near_kit::rpc::RetryConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> 
 pub struct near_kit::rpc::RpcClient
 impl near_kit::rpc::RpcClient
 pub async fn near_kit::rpc::RpcClient::block(&self, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::BlockView, near_kit::rpc::RpcError>
+pub fn near_kit::rpc::RpcClient::endpoints(&self) -> &[near_kit::rpc::RpcEndpoint]
+pub fn near_kit::rpc::RpcClient::fallback(self, impl core::convert::Into<near_kit::rpc::RpcEndpoint>) -> Self
 pub async fn near_kit::rpc::RpcClient::gas_price(&self, core::option::Option<&near_kit_primitives::types::hash::CryptoHash>) -> core::result::Result<near_kit_primitives::types::rpc::GasPrice, near_kit::rpc::RpcError>
-pub fn near_kit::rpc::RpcClient::new(impl core::convert::Into<alloc::string::String>) -> Self
+pub fn near_kit::rpc::RpcClient::new(impl core::convert::Into<near_kit::rpc::RpcEndpoint>) -> Self
 pub async fn near_kit::rpc::RpcClient::receipt(&self, &near_kit_primitives::types::hash::CryptoHash) -> core::result::Result<near_kit_primitives::types::rpc::Receipt, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::receipt_to_tx(&self, &near_kit_primitives::types::hash::CryptoHash) -> core::result::Result<near_kit_primitives::types::rpc::ReceiptToTxResponse, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::request<P: serde_core::ser::Serialize, R: serde_core::de::DeserializeOwned>(&self, &str, P) -> core::result::Result<R, near_kit::rpc::RpcError>
@@ -372,11 +375,27 @@ pub async fn near_kit::rpc::RpcClient::view_gas_key_nonces(&self, &near_account_
 pub async fn near_kit::rpc::RpcClient::view_global_contract_code(&self, impl core::convert::Into<near_global_contracts::global_contract_identifier::GlobalContractId>, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::ContractCodeView, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::view_state(&self, &near_account_id::account_id_ref::AccountIdRef, &[u8], core::option::Option<&[u8]>, core::option::Option<u32>, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::ViewStateResult, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::view_state_all(&self, &near_account_id::account_id_ref::AccountIdRef, &[u8], u32, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::ViewStateAllResult, near_kit::rpc::RpcError>
-pub fn near_kit::rpc::RpcClient::with_transport_and_retry_config(impl core::convert::Into<alloc::string::String>, alloc::sync::Arc<dyn near_kit::rpc::RpcTransport>, near_kit::rpc::RetryConfig) -> Self
+pub fn near_kit::rpc::RpcClient::with_transport_and_retry_config(impl core::convert::Into<near_kit::rpc::RpcEndpoint>, alloc::sync::Arc<dyn near_kit::rpc::RpcTransport>, near_kit::rpc::RetryConfig) -> Self
 impl core::clone::Clone for near_kit::rpc::RpcClient
 pub fn near_kit::rpc::RpcClient::clone(&self) -> Self
 impl core::fmt::Debug for near_kit::rpc::RpcClient
 pub fn near_kit::rpc::RpcClient::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct near_kit::rpc::RpcEndpoint
+impl near_kit::rpc::RpcEndpoint
+pub fn near_kit::rpc::RpcEndpoint::bearer(self, impl core::convert::AsRef<str>) -> Self
+pub fn near_kit::rpc::RpcEndpoint::header(self, impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn near_kit::rpc::RpcEndpoint::new(impl core::convert::Into<alloc::string::String>) -> Self
+pub fn near_kit::rpc::RpcEndpoint::url(&self) -> &str
+impl core::clone::Clone for near_kit::rpc::RpcEndpoint
+pub fn near_kit::rpc::RpcEndpoint::clone(&self) -> near_kit::rpc::RpcEndpoint
+impl core::convert::From<&alloc::string::String> for near_kit::rpc::RpcEndpoint
+pub fn near_kit::rpc::RpcEndpoint::from(&alloc::string::String) -> Self
+impl core::convert::From<&str> for near_kit::rpc::RpcEndpoint
+pub fn near_kit::rpc::RpcEndpoint::from(&str) -> Self
+impl core::convert::From<alloc::string::String> for near_kit::rpc::RpcEndpoint
+pub fn near_kit::rpc::RpcEndpoint::from(alloc::string::String) -> Self
+impl core::fmt::Debug for near_kit::rpc::RpcEndpoint
+pub fn near_kit::rpc::RpcEndpoint::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct near_kit::rpc::TransactionStatusQuery<W: near_kit_primitives::types::wait_level::WaitLevel>
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit::rpc::TransactionStatusQuery<W>
 pub fn near_kit::rpc::TransactionStatusQuery<W>::wait_until<W2: near_kit_primitives::types::wait_level::WaitLevel>(self) -> near_kit::rpc::TransactionStatusQuery<W2>
@@ -393,10 +412,13 @@ impl core::fmt::Debug for near_kit::rpc::TransportResponse
 pub fn near_kit::rpc::TransportResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub trait near_kit::rpc::RpcTransport: near_kit_primitives::platform::MaybeSend + near_kit_primitives::platform::MaybeSync
 pub fn near_kit::rpc::RpcTransport::post_json(&self, &str, alloc::vec::Vec<u8>) -> near_kit_primitives::platform::BoxFuture<'_, core::result::Result<near_kit::rpc::TransportResponse, near_kit::rpc::RpcError>>
+pub fn near_kit::rpc::RpcTransport::post_json_with_headers(&self, &str, &[(alloc::string::String, alloc::string::String)], alloc::vec::Vec<u8>) -> near_kit_primitives::platform::BoxFuture<'_, core::result::Result<near_kit::rpc::TransportResponse, near_kit::rpc::RpcError>>
 impl near_kit::rpc::RpcTransport for near_kit::rpc::ReqwestTransport
 pub fn near_kit::rpc::ReqwestTransport::post_json(&self, &str, alloc::vec::Vec<u8>) -> near_kit_primitives::platform::BoxFuture<'_, core::result::Result<near_kit::rpc::TransportResponse, near_kit::rpc::RpcError>>
+pub fn near_kit::rpc::ReqwestTransport::post_json_with_headers(&self, &str, &[(alloc::string::String, alloc::string::String)], alloc::vec::Vec<u8>) -> near_kit_primitives::platform::BoxFuture<'_, core::result::Result<near_kit::rpc::TransportResponse, near_kit::rpc::RpcError>>
 impl<T: near_kit::rpc::RpcTransport + ?core::marker::Sized> near_kit::rpc::RpcTransport for alloc::sync::Arc<T>
 pub fn alloc::sync::Arc<T>::post_json(&self, &str, alloc::vec::Vec<u8>) -> near_kit_primitives::platform::BoxFuture<'_, core::result::Result<near_kit::rpc::TransportResponse, near_kit::rpc::RpcError>>
+pub fn alloc::sync::Arc<T>::post_json_with_headers(&self, &str, &[(alloc::string::String, alloc::string::String)], alloc::vec::Vec<u8>) -> near_kit_primitives::platform::BoxFuture<'_, core::result::Result<near_kit::rpc::TransportResponse, near_kit::rpc::RpcError>>
 pub mod near_kit::signer
 pub use near_kit::signer::InMemorySigner
 pub use near_kit::signer::KeyType
@@ -667,7 +689,7 @@ pub fn near_kit::Near::account_exists(&self, impl core::convert::Into<near_accou
 pub fn near_kit::Near::balance(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit::rpc::BalanceQuery
 pub fn near_kit::Near::chain_id(&self) -> &near_kit_primitives::types::network::ChainId
 pub fn near_kit::Near::contract<T: near_kit_primitives::backend::Contract>(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> <T as near_kit_primitives::backend::Contract>::Client
-pub fn near_kit::Near::custom(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<near_kit_primitives::types::network::ChainId>) -> near_kit::NearBuilder
+pub fn near_kit::Near::custom(impl core::convert::Into<near_kit::rpc::RpcEndpoint>, impl core::convert::Into<near_kit_primitives::types::network::ChainId>) -> near_kit::NearBuilder
 pub fn near_kit::Near::mainnet() -> near_kit::NearBuilder
 pub fn near_kit::Near::rpc(&self) -> &near_kit::rpc::RpcClient
 pub fn near_kit::Near::send_signed<'tx>(&self, &'tx near_kit_primitives::types::transaction::SignedTransaction) -> near_kit::transaction::SignedTransactionSend<'tx>
@@ -689,6 +711,7 @@ pub fn near_kit::SigningNear<W>::as_ref(&self) -> &near_kit::Near
 pub struct near_kit::NearBuilder
 impl near_kit::NearBuilder
 pub fn near_kit::NearBuilder::build(self) -> near_kit::Near
+pub fn near_kit::NearBuilder::fallback(self, impl core::convert::Into<near_kit::rpc::RpcEndpoint>) -> Self
 pub fn near_kit::NearBuilder::max_nonce_retries(self, u32) -> Self
 pub fn near_kit::NearBuilder::retry_config(self, near_kit::rpc::RetryConfig) -> Self
 pub fn near_kit::NearBuilder::transport(self, impl near_kit::rpc::RpcTransport + 'static) -> Self

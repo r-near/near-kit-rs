@@ -218,6 +218,50 @@ async fn clients_on_two_url_spellings_share_one_nonce_sequence() {
     );
 }
 
+/// A client whose primary endpoint refuses connections reads, looks up the
+/// genesis hash and nonce, and sends through its fallback.
+#[tokio::test]
+async fn a_refusing_primary_fails_over_to_the_fallback() {
+    let (sandbox, root) = shared_client().await;
+    let (funded, account_id, key) =
+        funded_account(&root, sandbox, "failover", NearToken::from_near(5)).await;
+    let (_, receiver, _) =
+        funded_account(&root, sandbox, "failrecv", NearToken::from_near(1)).await;
+
+    let refused = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind a free port");
+        format!("http://{}", listener.local_addr().expect("local address"))
+    };
+    let alice = Near::custom(refused.as_str(), funded.near().chain_id().clone())
+        .fallback(funded.near().rpc().url())
+        .build()
+        .with_signer(InMemorySigner::new(account_id.clone(), key));
+    assert_eq!(alice.near().rpc().url(), refused);
+
+    let before = alice
+        .near()
+        .rpc()
+        .view_account(&receiver, BlockReference::Finality(Finality::Final))
+        .await
+        .expect("read through the fallback")
+        .amount;
+    alice
+        .transaction(&receiver)
+        .add_action(Action::transfer(NearToken::from_yoctonear(1)))
+        .await
+        .expect("send through the fallback")
+        .result()
+        .expect("transfer succeeds");
+    let after = root
+        .near()
+        .rpc()
+        .view_account(&receiver, BlockReference::Finality(Finality::Final))
+        .await
+        .expect("receiver balance")
+        .amount;
+    assert_eq!(after.as_yoctonear() - before.as_yoctonear(), 1);
+}
+
 /// Two sandboxes share the chain id `sandbox` and the root key, but not a
 /// genesis, so their nonces stay apart: sends alternate between them, the
 /// shorter chain first, and every one lands on its first attempt.

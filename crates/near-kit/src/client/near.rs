@@ -10,6 +10,7 @@ use serde::de::DeserializeOwned;
 use crate::View;
 use crate::types::{AccountId, BlockReference, ChainId, ViewFunctionResult};
 
+use super::endpoint::RpcEndpoint;
 use super::nonce_manager::GenesisHash;
 use super::query::{AccountExistsQuery, BalanceQuery, TransactionStatusQuery};
 use super::rpc::{RetryConfig, RpcClient};
@@ -72,7 +73,11 @@ impl Near {
         NearBuilder::new("https://test.rpc.fastnear.com", ChainId::testnet())
     }
 
-    /// Create a builder with a custom RPC URL and chain ID.
+    /// Create a builder with a custom RPC endpoint and chain ID.
+    ///
+    /// `rpc` is a URL or an [`RpcEndpoint`] with headers of its own, such as
+    /// a provider's API key; add more endpoints with
+    /// [`NearBuilder::fallback`].
     ///
     /// Signing clients cache nonces per chain, account and key, and tell
     /// chains apart by the genesis hash their node reports: each client asks
@@ -96,9 +101,17 @@ impl Near {
     ///
     /// // Custom network
     /// let near = Near::custom("https://rpc.pinet.near.org", "pinet").build();
+    ///
+    /// // A provider that wants an API key
+    /// use near_kit::rpc::RpcEndpoint;
+    /// let near = Near::custom(
+    ///     RpcEndpoint::new("https://rpc.mainnet.example.com").bearer("my-api-key"),
+    ///     "mainnet",
+    /// )
+    /// .build();
     /// ```
-    pub fn custom(rpc_url: impl Into<String>, chain_id: impl Into<ChainId>) -> NearBuilder {
-        NearBuilder::new(rpc_url, chain_id.into())
+    pub fn custom(rpc: impl Into<RpcEndpoint>, chain_id: impl Into<ChainId>) -> NearBuilder {
+        NearBuilder::new(rpc, chain_id.into())
     }
 
     /// Get the underlying RPC client.
@@ -400,7 +413,9 @@ impl std::fmt::Debug for Near {
 ///     .build();
 /// ```
 pub struct NearBuilder {
-    rpc_url: String,
+    endpoint: RpcEndpoint,
+    /// Tried in order after `endpoint`.
+    fallbacks: Vec<RpcEndpoint>,
     /// `None` until [`NearBuilder::build`] — resolved lazily so that injecting
     /// a transport never constructs the target's default. On WASI without
     /// `wasi-http`, that default reports a non-retryable transport error.
@@ -411,10 +426,11 @@ pub struct NearBuilder {
 }
 
 impl NearBuilder {
-    /// Create a new builder with the given RPC URL.
-    fn new(rpc_url: impl Into<String>, chain_id: ChainId) -> Self {
+    /// Create a new builder for the given primary endpoint.
+    fn new(rpc: impl Into<RpcEndpoint>, chain_id: ChainId) -> Self {
         Self {
-            rpc_url: rpc_url.into(),
+            endpoint: rpc.into(),
+            fallbacks: Vec::new(),
             transport: None,
             retry_config: RetryConfig::default(),
             chain_id,
@@ -428,6 +444,41 @@ impl NearBuilder {
     /// [`Near::custom`].
     pub(crate) fn chain_id(mut self, chain_id: impl Into<ChainId>) -> Self {
         self.chain_id = chain_id.into();
+        self
+    }
+
+    /// Add `endpoint` as a fallback, tried after the endpoints before it when
+    /// they fail with a retryable error.
+    ///
+    /// Every call starts at the primary endpoint (the preset's, or the one
+    /// passed to [`Near::custom`]). A retryable error moves on to the next
+    /// endpoint at once; once every endpoint has failed, the client waits the
+    /// [`retry_config`](Self::retry_config) delay and starts another round
+    /// from the primary. Any other error is returned at once. See
+    /// [`RpcClient::fallback`].
+    ///
+    /// Give each endpoint its own key with [`RpcEndpoint::bearer`] or
+    /// [`RpcEndpoint::header`]; default headers on a shared `reqwest::Client`
+    /// would reach every endpoint. All endpoints should serve the same
+    /// network: nonces and the chain's genesis hash are read from whichever
+    /// one answers.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::Near;
+    /// use near_kit::rpc::RpcEndpoint;
+    ///
+    /// let near = Near::custom(
+    ///     RpcEndpoint::new("https://rpc.mainnet.example.com").bearer("my-api-key"),
+    ///     "mainnet",
+    /// )
+    /// .fallback("https://free.rpc.fastnear.com")
+    /// .build();
+    /// ```
+    #[must_use]
+    pub fn fallback(mut self, endpoint: impl Into<RpcEndpoint>) -> Self {
+        self.fallbacks.push(endpoint.into());
         self
     }
 
@@ -455,8 +506,10 @@ impl NearBuilder {
     /// host call instead of exposing raw HTTP. On WASI builds without the
     /// `wasi-http` feature it is the *only* way to reach the network — the
     /// default there only returns a typed transport error. To configure the
-    /// default reqwest transport (headers, proxies, TLS, timeouts), pass
-    /// `ReqwestTransport::with_client(client)`.
+    /// default reqwest transport (proxies, TLS, timeouts), pass
+    /// `ReqwestTransport::with_client(client)`. API keys belong on each
+    /// [`RpcEndpoint`] rather than in that client's default headers, which
+    /// every endpoint receives.
     pub fn transport(mut self, transport: impl RpcTransport + 'static) -> Self {
         self.transport = Some(Arc::new(transport));
         self
@@ -485,12 +538,12 @@ impl NearBuilder {
     /// Use [`NearBuilder::transport`] to make that client operational.
     pub fn build(self) -> Near {
         let transport = self.transport.unwrap_or_else(transport::default_transport);
+        let rpc = self.fallbacks.into_iter().fold(
+            RpcClient::with_transport_and_retry_config(self.endpoint, transport, self.retry_config),
+            RpcClient::fallback,
+        );
         Near {
-            rpc: Arc::new(RpcClient::with_transport_and_retry_config(
-                self.rpc_url,
-                transport,
-                self.retry_config,
-            )),
+            rpc: Arc::new(rpc),
             chain_id: self.chain_id,
             max_nonce_retries: self.max_nonce_retries,
             genesis: Arc::default(),

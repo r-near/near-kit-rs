@@ -166,6 +166,15 @@ impl TransportResponse {
 ///     .transport(Canned(r#"{"jsonrpc":"2.0","id":0,"result":null}"#))
 ///     .build();
 /// ```
+///
+/// # Headers
+///
+/// [`RpcClient`](super::rpc::RpcClient) sends every request through
+/// [`post_json_with_headers`](Self::post_json_with_headers), with the
+/// headers of the [`RpcEndpoint`](super::RpcEndpoint) it is talking to. Its
+/// default calls `post_json` when there are none and otherwise fails the
+/// request, so a transport that only implements `post_json` never drops an
+/// API key silently. Implement it too if your endpoints set headers.
 pub trait RpcTransport: MaybeSend + MaybeSync {
     /// POST `body` to `url` with `Content-Type: application/json`.
     fn post_json(
@@ -173,6 +182,42 @@ pub trait RpcTransport: MaybeSend + MaybeSync {
         url: &str,
         body: Vec<u8>,
     ) -> BoxFuture<'_, Result<TransportResponse, RpcError>>;
+
+    /// POST `body` to `url` like [`post_json`](Self::post_json), adding the
+    /// `(name, value)` pairs in `headers`.
+    ///
+    /// The headers come from the endpoint's
+    /// [`RpcEndpoint::header`](super::RpcEndpoint::header) and
+    /// [`bearer`](super::RpcEndpoint::bearer), at most one per name, and
+    /// should replace any header of the same name the transport would send
+    /// otherwise. A name or value the HTTP stack rejects is a deterministic
+    /// failure: return a non-retryable [`RpcError::Network`].
+    ///
+    /// The default calls `post_json` when `headers` is empty. Otherwise it
+    /// returns a non-retryable [`RpcError::Network`] naming the headers,
+    /// rather than sending the request without them. The built-in transports
+    /// send the headers.
+    fn post_json_with_headers(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: Vec<u8>,
+    ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+        if headers.is_empty() {
+            return self.post_json(url, body);
+        }
+        let names: Vec<&str> = headers.iter().map(|(name, _)| name.as_str()).collect();
+        let error = RpcError::network(
+            format!(
+                "the RPC endpoint sets headers ({}), but this RpcTransport doesn't send \
+                 headers; implement RpcTransport::post_json_with_headers",
+                names.join(", ")
+            ),
+            None,
+            false,
+        );
+        Box::pin(async move { Err(error) })
+    }
 }
 
 /// Implement `RpcTransport` for `Arc<T>` where `T: RpcTransport`.
@@ -188,6 +233,15 @@ impl<T: RpcTransport + ?Sized> RpcTransport for Arc<T> {
         body: Vec<u8>,
     ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
         (**self).post_json(url, body)
+    }
+
+    fn post_json_with_headers(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: Vec<u8>,
+    ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+        (**self).post_json_with_headers(url, headers, body)
     }
 }
 
@@ -221,6 +275,16 @@ mod missing_wasi_http {
                 ))
             })
         }
+
+        // Report the missing transport, not the missing header support.
+        fn post_json_with_headers(
+            &self,
+            url: &str,
+            _headers: &[(String, String)],
+            body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            self.post_json(url, body)
+        }
     }
 
     #[cfg(test)]
@@ -242,6 +306,16 @@ mod missing_wasi_http {
                     ..
                 }
             ));
+
+            let headers = [("authorization".to_string(), "Bearer key".to_string())];
+            let error =
+                futures::executor::block_on(MissingWasiHttpTransport.post_json_with_headers(
+                    "https://rpc.testnet.near.org",
+                    &headers,
+                    Vec::new(),
+                ))
+                .unwrap_err();
+            assert!(error.to_string().contains("wasi-http"), "{error}");
         }
     }
 }
@@ -276,11 +350,91 @@ pub(crate) fn default_transport() -> Arc<dyn RpcTransport> {
     }
 }
 
+/// The headers of a `wasi:http` request: the JSON content headers, then
+/// `Authorization: Basic` from the URL's userinfo (if any), then the
+/// endpoint's `headers`, each replacing a header of the same name set
+/// before. Names are lowercased, as HTTP/2 sends them.
+#[cfg(any(
+    test,
+    all(
+        feature = "wasi-http",
+        target_arch = "wasm32",
+        target_os = "wasi",
+        target_env = "p2"
+    )
+))]
+fn wasi_request_headers(
+    body_len: usize,
+    userinfo_authorization: Option<Vec<u8>>,
+    headers: &[(String, String)],
+) -> Vec<(String, Vec<u8>)> {
+    let mut list = vec![
+        ("content-type".to_string(), b"application/json".to_vec()),
+        (
+            "content-length".to_string(),
+            body_len.to_string().into_bytes(),
+        ),
+    ];
+    if let Some(value) = userinfo_authorization {
+        list.push(("authorization".to_string(), value));
+    }
+    for (name, value) in headers {
+        let name = name.to_ascii_lowercase();
+        list.retain(|(existing, _)| *existing != name);
+        list.push((name, value.as_bytes().to_vec()));
+    }
+    list
+}
+
+#[cfg(test)]
+mod wasi_header_tests {
+    use super::wasi_request_headers;
+
+    fn pairs(list: &[(String, Vec<u8>)]) -> Vec<(&str, &str)> {
+        list.iter()
+            .map(|(name, value)| (name.as_str(), std::str::from_utf8(value).unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn userinfo_authorization_is_sent_without_endpoint_headers() {
+        let list = wasi_request_headers(12, Some(b"Basic dTpw".to_vec()), &[]);
+        assert_eq!(
+            pairs(&list),
+            [
+                ("content-type", "application/json"),
+                ("content-length", "12"),
+                ("authorization", "Basic dTpw"),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_endpoint_authorization_header_replaces_the_userinfo_one() {
+        let headers = [
+            ("Authorization".to_string(), "Bearer key".to_string()),
+            ("X-Api-Key".to_string(), "other".to_string()),
+        ];
+        let list = wasi_request_headers(2, Some(b"Basic dTpw".to_vec()), &headers);
+        assert_eq!(
+            pairs(&list),
+            [
+                ("content-type", "application/json"),
+                ("content-length", "2"),
+                ("authorization", "Bearer key"),
+                ("x-api-key", "other"),
+            ]
+        );
+    }
+}
+
 #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
 pub use reqwest_backend::ReqwestTransport;
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "wasi")))]
 mod reqwest_backend {
+    use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
+
     use super::{BoxFuture, RpcError, RpcTransport, TransportResponse};
 
     /// The default [`RpcTransport`] on every target except WASI, backed by
@@ -291,6 +445,10 @@ mod reqwest_backend {
     /// [`NearBuilder::transport`](crate::NearBuilder::transport). Build it with
     /// [`near_kit::reqwest`](crate::reqwest), the reqwest near-kit is built
     /// with, so the versions match.
+    ///
+    /// The client's default headers go to every endpoint, fallbacks
+    /// included, so put a provider's API key on its
+    /// [`RpcEndpoint`](crate::rpc::RpcEndpoint) instead.
     #[derive(Clone, Default)]
     pub struct ReqwestTransport {
         client: reqwest::Client,
@@ -322,10 +480,31 @@ mod reqwest_backend {
             url: &str,
             body: Vec<u8>,
         ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            self.post_json_with_headers(url, &[], body)
+        }
+
+        /// Sends `headers` marked sensitive, so reqwest and hyper leave their
+        /// values out of their own logs. They replace a header of the same
+        /// name set on the wrapped client with `default_headers`.
+        fn post_json_with_headers(
+            &self,
+            url: &str,
+            headers: &[(String, String)],
+            body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            let headers = match header_map(headers) {
+                Ok(headers) => headers,
+                Err(message) => {
+                    // A malformed request: not retryable.
+                    let error = RpcError::network(message, None, false);
+                    return Box::pin(async move { Err(error) });
+                }
+            };
             let request = self
                 .client
                 .post(url)
-                .header("Content-Type", "application/json")
+                .header(CONTENT_TYPE, "application/json")
+                .headers(headers)
                 .body(body);
             Box::pin(async move {
                 // Failures pass through as `RpcError::Http`, keeping reqwest's
@@ -338,6 +517,24 @@ mod reqwest_backend {
                 Ok(TransportResponse::new(status, body))
             })
         }
+    }
+
+    /// `headers` as a reqwest header map, each value marked sensitive. A name
+    /// or value HTTP doesn't allow is an error message that shows the name
+    /// only.
+    fn header_map(headers: &[(String, String)]) -> Result<HeaderMap, String> {
+        let invalid =
+            |what: &str, name: &str| format!("invalid {what} for the RPC endpoint header `{name}`");
+        let mut map = HeaderMap::with_capacity(headers.len());
+        for (name, value) in headers {
+            let header_name =
+                HeaderName::from_bytes(name.as_bytes()).map_err(|_| invalid("name", name))?;
+            let mut header_value =
+                HeaderValue::from_str(value).map_err(|_| invalid("value", name))?;
+            header_value.set_sensitive(true);
+            map.insert(header_name, header_value);
+        }
+        Ok(map)
     }
 }
 
@@ -401,15 +598,31 @@ mod wasi_http {
             url: &str,
             body: Vec<u8>,
         ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            self.post_json_with_headers(url, &[], body)
+        }
+
+        /// An `Authorization` header in `headers` replaces the one built
+        /// from the URL's `user:pass@` userinfo.
+        fn post_json_with_headers(
+            &self,
+            url: &str,
+            headers: &[(String, String)],
+            body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
             // `exchange` never awaits, so the `!Send` wasi handles it creates
             // never live across a yield and the future stays `Send`.
             let url = url.to_owned();
-            Box::pin(async move { exchange(&url, &body) })
+            let headers = headers.to_vec();
+            Box::pin(async move { exchange(&url, &headers, &body) })
         }
     }
 
     /// The synchronous `wasi:http/outgoing-handler` exchange.
-    fn exchange(url: &str, body: &[u8]) -> Result<TransportResponse, RpcError> {
+    fn exchange(
+        url: &str,
+        headers: &[(String, String)],
+        body: &[u8],
+    ) -> Result<TransportResponse, RpcError> {
         let UrlParts {
             scheme,
             authority,
@@ -417,16 +630,7 @@ mod wasi_http {
             authorization,
         } = split_url(url)?;
 
-        let mut header_list = vec![
-            ("content-type".to_string(), b"application/json".to_vec()),
-            (
-                "content-length".to_string(),
-                body.len().to_string().into_bytes(),
-            ),
-        ];
-        if let Some(value) = authorization {
-            header_list.push(("authorization".to_string(), value));
-        }
+        let header_list = super::wasi_request_headers(body.len(), authorization, headers);
         // Rejected headers mean a malformed request — not retryable.
         let headers = Fields::from_list(&header_list).map_err(|e| {
             RpcError::network(
