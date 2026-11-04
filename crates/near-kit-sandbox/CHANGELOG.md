@@ -4,6 +4,13 @@ All notable changes to `near-kit-sandbox` are documented in this file.
 
 ## [Unreleased]
 
+## [0.30.0-rc.5](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.30.0-rc.4...near-kit-sandbox-v0.30.0-rc.5) - 2026-11-04
+
+### Added
+
+- [**breaking**] fail over across RPC endpoints inside the retry loop, so a keyed primary can fall back to other providers ([#400](https://github.com/r-near/near-kit-rs/pull/400))
+- RpcClient::receipt fetches a receipt by ID, so callers stop hand-rolling EXPERIMENTAL_receipt ([#402](https://github.com/r-near/near-kit-rs/pull/402))
+
 ## [0.30.0-rc.4](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.30.0-rc.3...near-kit-sandbox-v0.30.0-rc.4) - 2026-11-04
 
 Depends on near-kit 0.30.0-rc.4. No user-facing changes; version bumped with

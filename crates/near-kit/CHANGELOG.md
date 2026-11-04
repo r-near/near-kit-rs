@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.5](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.4...near-kit-v0.30.0-rc.5) - 2026-11-04
+
+### Added
+
+- [**breaking**] fail over across RPC endpoints inside the retry loop, so a keyed primary can fall back to other providers ([#400](https://github.com/r-near/near-kit-rs/pull/400))
+- RpcClient::receipt fetches a receipt by ID, so callers stop hand-rolling EXPERIMENTAL_receipt ([#402](https://github.com/r-near/near-kit-rs/pull/402))
+- add near-sdk's json_types (U128, U64, Base64VecU8, ...), so contract signatures copy over unchanged ([#399](https://github.com/r-near/near-kit-rs/pull/399))
+
 ## [0.30.0-rc.4](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.3...near-kit-v0.30.0-rc.4) - 2026-11-04
 
 Upgrading from 0.20.1? Start with the 0.30.0-rc.1 notes below and
