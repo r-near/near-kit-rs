@@ -9,7 +9,11 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
-use super::transport::{RpcTransport, redact_url};
+use super::endpoint::RpcEndpoint;
+use super::transport::RpcTransport;
+// Only logs show endpoint URLs; `Debug` goes through `RpcEndpoint`.
+#[cfg(any(test, feature = "tracing"))]
+use super::transport::redact_url;
 // The module itself is only referenced for `default_transport`, which doesn't
 // exist on WASI builds without the `wasi-http` feature (no built-in transport).
 #[cfg(any(
@@ -61,6 +65,11 @@ async fn async_sleep(duration: Duration) {
 /// [`RpcError::is_retryable`] is `true`). Delays grow exponentially from
 /// `initial_delay_ms`, capped at `max_delay_ms`.
 ///
+/// A client with [fallback endpoints](RpcClient::fallback) tries each
+/// endpoint in turn without waiting, and waits only once all of them have
+/// failed; `max_retries` counts those rounds, so every endpoint gets
+/// `max_retries + 1` attempts.
+///
 /// An `InvalidNonce` rejection is not retried here (see
 /// [`RpcError::is_retryable`]); the `SigningNear` transaction path re-signs
 /// instead (see `NearBuilder::max_nonce_retries`).
@@ -69,7 +78,8 @@ async fn async_sleep(duration: Duration) {
 /// caller runs its own retry loop.
 #[derive(Clone, Debug)]
 pub struct RetryConfig {
-    /// Maximum number of retries after the first attempt (`0` = one attempt).
+    /// Maximum number of retries after the first attempt (`0` = one attempt
+    /// per endpoint).
     pub max_retries: u32,
     /// Delay before the first retry, in milliseconds. Doubles on each
     /// subsequent retry.
@@ -698,8 +708,14 @@ struct CallFunctionResponse {
 }
 
 /// Low-level JSON-RPC client for NEAR.
+///
+/// A client talks to one [`RpcEndpoint`] and, optionally, to
+/// [fallbacks](Self::fallback) it tries when that one fails with a
+/// retryable error; see [`request`](Self::request).
 pub struct RpcClient {
-    url: String,
+    /// The primary endpoint, then the fallbacks in the order they were added.
+    /// Never empty.
+    endpoints: Vec<RpcEndpoint>,
     transport: Arc<dyn RpcTransport>,
     retry_config: RetryConfig,
     request_id: AtomicU64,
@@ -731,18 +747,28 @@ impl RpcClient {
     /// [`RpcError::TooManyAccessKeys`] instead of returning the list.
     pub(crate) const DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE: NonZeroU32 = NonZeroU32::new(100).unwrap();
 
-    /// Create a new RPC client with the given URL.
+    /// Create a new RPC client for `endpoint`: a URL, or an [`RpcEndpoint`]
+    /// with headers such as an API key.
     ///
     /// Only exists where a built-in transport does (every target except WASI
     /// without the `wasi-http` feature) — otherwise construct via
     /// [`with_transport_and_retry_config`](Self::with_transport_and_retry_config).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::rpc::{RpcClient, RpcEndpoint};
+    ///
+    /// let rpc = RpcClient::new("https://rpc.testnet.near.org");
+    /// let keyed = RpcClient::new(RpcEndpoint::new("https://rpc.example.com").bearer("my-api-key"));
+    /// ```
     #[cfg(any(
         not(all(target_arch = "wasm32", target_os = "wasi")),
         all(feature = "wasi-http", target_env = "p2")
     ))]
-    pub fn new(url: impl Into<String>) -> Self {
+    pub fn new(endpoint: impl Into<RpcEndpoint>) -> Self {
         Self::with_transport_and_retry_config(
-            url,
+            endpoint,
             transport::default_transport(),
             RetryConfig::default(),
         )
@@ -754,21 +780,56 @@ impl RpcClient {
     /// This is the low-level injection point for platforms whose HTTP stack
     /// near-kit doesn't know about. Most callers should use
     /// [`NearBuilder::transport`](super::NearBuilder::transport) instead.
+    /// An endpoint with headers needs a transport that implements
+    /// [`RpcTransport::post_json_with_headers`].
     pub fn with_transport_and_retry_config(
-        url: impl Into<String>,
+        endpoint: impl Into<RpcEndpoint>,
         transport: Arc<dyn RpcTransport>,
         retry_config: RetryConfig,
     ) -> Self {
         Self {
-            url: url.into(),
+            endpoints: vec![endpoint.into()],
             transport,
             retry_config,
             request_id: AtomicU64::new(0),
         }
     }
 
-    /// Set how this client retries transient failures, keeping its URL and
-    /// transport.
+    /// Add `endpoint` as a fallback, tried after the endpoints added before
+    /// it when they fail with a retryable error.
+    ///
+    /// Every call starts at the primary endpoint. A retryable error
+    /// ([`RpcError::is_retryable`]) moves on to the next endpoint at once; once
+    /// every endpoint has failed, the client waits the [`RetryConfig`] delay
+    /// and starts another round from the primary, for `max_retries + 1`
+    /// rounds. Any other error is returned at once, without trying another
+    /// endpoint. Methods that aren't safe to repeat (`sandbox_fast_forward`)
+    /// are sent once, to the primary.
+    ///
+    /// All endpoints share the client's transport. Give each its own key with
+    /// [`RpcEndpoint::bearer`] or [`RpcEndpoint::header`] rather than with a
+    /// shared HTTP client's default headers, which every endpoint would
+    /// receive. This is the `RpcClient` counterpart of
+    /// [`NearBuilder::fallback`](super::NearBuilder::fallback).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit::rpc::{RpcClient, RpcEndpoint};
+    ///
+    /// let rpc = RpcClient::new(RpcEndpoint::new("https://rpc.example.com").bearer("my-api-key"))
+    ///     .fallback("https://free.rpc.fastnear.com");
+    /// assert_eq!(rpc.url(), "https://rpc.example.com");
+    /// assert_eq!(rpc.endpoints()[1].url(), "https://free.rpc.fastnear.com");
+    /// ```
+    #[must_use]
+    pub fn fallback(mut self, endpoint: impl Into<RpcEndpoint>) -> Self {
+        self.endpoints.push(endpoint.into());
+        self
+    }
+
+    /// Set how this client retries transient failures, keeping its endpoints
+    /// and transport.
     ///
     /// Replaces the [`RetryConfig`] the client was built with (for
     /// [`RpcClient::new`], [`RetryConfig::default()`]), so the default
@@ -790,69 +851,111 @@ impl RpcClient {
         self
     }
 
-    /// Get the RPC URL.
+    /// The primary endpoint's URL.
     pub fn url(&self) -> &str {
-        &self.url
+        &self.endpoints[0].url
+    }
+
+    /// The endpoints this client sends to: the primary first, then the
+    /// [fallbacks](Self::fallback) in the order they were added. Never empty.
+    pub fn endpoints(&self) -> &[RpcEndpoint] {
+        &self.endpoints
     }
 
     /// Make a raw RPC call with retries.
     ///
     /// Transient failures ([`RpcError::is_retryable`]) are retried according
-    /// to the client's [`RetryConfig`]. `sandbox_fast_forward` is never
-    /// retried, since it is not idempotent.
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %redact_url(&self.url))))]
+    /// to the client's [`RetryConfig`], moving through the
+    /// [fallback endpoints](Self::fallback) first: each call starts at the
+    /// primary, a retryable error moves on to the next endpoint at once, and
+    /// the backoff delay comes only after every endpoint has failed. When
+    /// every round has failed, the last error is returned. Any other error is
+    /// returned at once. `sandbox_fast_forward` is never retried or sent to a
+    /// fallback, since it is not idempotent.
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %redact_url(self.url()))))]
     pub async fn request<P: Serialize, R: DeserializeOwned>(
         &self,
         method: &str,
         params: P,
     ) -> Result<R, RpcError> {
         let max_retries = self.retry_config.max_retries;
-        let mut retry: u32 = 0;
+        let repeatable = is_idempotent(method);
+        let mut round: u32 = 0;
 
         loop {
-            let request_id = self.request_id.fetch_add(1, Ordering::Relaxed);
+            for (index, endpoint) in self.endpoints.iter().enumerate() {
+                let request_id = self.request_id.fetch_add(1, Ordering::Relaxed);
 
-            let request = JsonRpcRequest {
-                jsonrpc: "2.0",
-                id: request_id,
-                method,
-                params: &params,
-            };
+                let request = JsonRpcRequest {
+                    jsonrpc: "2.0",
+                    id: request_id,
+                    method,
+                    params: &params,
+                };
 
-            match self.try_request::<R>(&request).await {
-                Ok(result) => return Ok(result),
-                Err(e) if is_idempotent(method) && e.is_retryable() && retry < max_retries => {
-                    let delay = retry_delay_ms(&self.retry_config, retry);
-                    // DEBUG, not WARN: the retry is routine and the caller
-                    // sees the final outcome either way. Retryable variants
-                    // are never enriched downstream, so `Display` is accurate.
-                    trace::debug!(
-                        attempt = u64::from(retry) + 1,
-                        max_attempts = u64::from(max_retries) + 1,
-                        delay_ms = delay,
-                        error = %e,
-                        "RPC request failed, retrying"
-                    );
-                    async_sleep(Duration::from_millis(delay)).await;
-                    retry += 1;
-                    continue;
-                }
-                Err(e) => {
+                let e = match self.try_request::<R>(endpoint, &request).await {
+                    Ok(result) => return Ok(result),
+                    Err(e) => e,
+                };
+                let last_endpoint = index + 1 == self.endpoints.len();
+                if !(repeatable && e.is_retryable()) || (last_endpoint && round >= max_retries) {
                     // DEBUG, not ERROR: the error is returned to the caller,
                     // who decides whether it is worth reporting. Only the
                     // variant is logged — the typed helpers may still patch
                     // caller-known context (contract, method, ...) into it,
                     // so its `Display` text can be misleading here.
-                    trace::debug!(error.kind = e.variant_name(), "RPC request failed");
+                    trace::debug!(
+                        endpoint = %redact_url(&endpoint.url),
+                        round = u64::from(round) + 1,
+                        error.kind = e.variant_name(),
+                        "RPC request failed"
+                    );
                     return Err(e);
                 }
+                // DEBUG, not WARN: the retry is routine and the caller sees
+                // the final outcome either way. Retryable variants are never
+                // enriched downstream, so `Display` is accurate.
+                if !last_endpoint {
+                    trace::debug!(
+                        attempt = self.attempt_number(round, index),
+                        max_attempts = self.attempt_number(max_retries, self.endpoints.len() - 1),
+                        round = u64::from(round) + 1,
+                        endpoint = %redact_url(&endpoint.url),
+                        error = %e,
+                        "RPC request failed, trying the next endpoint"
+                    );
+                    continue;
+                }
+                let delay = retry_delay_ms(&self.retry_config, round);
+                trace::debug!(
+                    attempt = self.attempt_number(round, index),
+                    max_attempts = self.attempt_number(max_retries, self.endpoints.len() - 1),
+                    round = u64::from(round) + 1,
+                    endpoint = %redact_url(&endpoint.url),
+                    delay_ms = delay,
+                    error = %e,
+                    "RPC request failed, retrying"
+                );
+                async_sleep(Duration::from_millis(delay)).await;
+                round += 1;
             }
         }
     }
 
-    /// Single attempt to make an RPC call.
+    /// The 1-based number of the attempt at endpoint `index` in round `round`
+    /// (0-based), counting every endpoint's attempts; saturates.
+    #[cfg(feature = "tracing")]
+    fn attempt_number(&self, round: u32, index: usize) -> u64 {
+        let endpoints = self.endpoints.len() as u64;
+        u64::from(round)
+            .saturating_mul(endpoints)
+            .saturating_add(index as u64 + 1)
+    }
+
+    /// Single attempt to make an RPC call to `endpoint`.
     async fn try_request<R: DeserializeOwned>(
         &self,
+        endpoint: &RpcEndpoint,
         request: &JsonRpcRequest<'_, impl Serialize>,
     ) -> Result<R, RpcError> {
         // Gated on the feature (not routed through `crate::trace`) because the
@@ -865,7 +968,10 @@ impl RpcClient {
         }
 
         let request_body = serde_json::to_vec(request).map_err(RpcError::Json)?;
-        let response = self.transport.post_json(&self.url, request_body).await?;
+        let response = self
+            .transport
+            .post_json_with_headers(&endpoint.url, &endpoint.headers, request_body)
+            .await?;
 
         let status = response.status;
         // Lossy decode matches what reqwest's `text()` did here before the
@@ -1459,7 +1565,7 @@ impl RpcClient {
 impl Clone for RpcClient {
     fn clone(&self) -> Self {
         Self {
-            url: self.url.clone(),
+            endpoints: self.endpoints.clone(),
             transport: self.transport.clone(),
             retry_config: self.retry_config.clone(),
             request_id: AtomicU64::new(0),
@@ -1470,9 +1576,9 @@ impl Clone for RpcClient {
 impl std::fmt::Debug for RpcClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RpcClient")
-            // The URL may carry an API key (path or query) or credentials
-            // (userinfo), so only the scheme and host are shown.
-            .field("url", &redact_url(&self.url))
+            // `RpcEndpoint`'s `Debug` shows only each URL's scheme and host
+            // and leaves out header values.
+            .field("endpoints", &self.endpoints)
             .field("retry_config", &self.retry_config)
             .finish()
     }
@@ -2630,6 +2736,580 @@ mod tests {
             .unwrap();
         assert_eq!(response, serde_json::json!({ "ok": true }));
         server.join().unwrap();
+    }
+
+    /// What [`UrlTransport`] answers one request with.
+    #[derive(Clone)]
+    enum Reply {
+        /// An HTTP response.
+        Http(u16, Vec<u8>),
+        /// No response: a transport failure such as a refused connection.
+        Fail { retryable: bool },
+    }
+
+    /// `{"ok": true}` with HTTP 200.
+    fn ok_reply() -> Reply {
+        Reply::Http(200, rpc_result(serde_json::json!({ "ok": true })))
+    }
+
+    /// A `HANDLER_ERROR` with `cause`, with HTTP 200.
+    fn handler_error_reply(cause: &str, info: Value) -> Reply {
+        Reply::Http(200, rpc_error(Some(cause), info, Value::Null))
+    }
+
+    const PRIMARY: &str = "https://primary.example.com";
+    const SECOND: &str = "https://second.example.com";
+    const THIRD: &str = "https://third.example.com";
+
+    /// The URL, headers and JSON body of one request.
+    type SentRequest = (String, Vec<(String, String)>, Value);
+
+    /// Transport that answers each URL from its own script of replies
+    /// (repeating the last one) and records the URL, headers and body of
+    /// every request, in order.
+    struct UrlTransport {
+        scripts: Mutex<std::collections::HashMap<String, VecDeque<Reply>>>,
+        requests: Mutex<Vec<SentRequest>>,
+    }
+
+    impl UrlTransport {
+        fn new(scripts: impl IntoIterator<Item = (&'static str, Vec<Reply>)>) -> Arc<Self> {
+            Arc::new(Self {
+                scripts: Mutex::new(
+                    scripts
+                        .into_iter()
+                        .map(|(url, replies)| (url.to_string(), replies.into()))
+                        .collect(),
+                ),
+                requests: Mutex::new(Vec::new()),
+            })
+        }
+
+        /// The URL of each request, in order.
+        fn urls(&self) -> Vec<String> {
+            let requests = self.requests.lock().unwrap();
+            requests.iter().map(|(url, _, _)| url.clone()).collect()
+        }
+
+        /// The URL and headers of each request, in order.
+        fn headers(&self) -> Vec<(String, Vec<(String, String)>)> {
+            let requests = self.requests.lock().unwrap();
+            requests
+                .iter()
+                .map(|(url, headers, _)| (url.clone(), headers.clone()))
+                .collect()
+        }
+
+        /// The URL and `params.signed_tx_base64` of each request, in order.
+        fn signed_txs(&self) -> Vec<(String, String)> {
+            let requests = self.requests.lock().unwrap();
+            requests
+                .iter()
+                .map(|(url, _, body)| {
+                    let signed = body["params"]["signed_tx_base64"].as_str().unwrap();
+                    (url.clone(), signed.to_string())
+                })
+                .collect()
+        }
+    }
+
+    impl RpcTransport for UrlTransport {
+        fn post_json(
+            &self,
+            url: &str,
+            body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            self.post_json_with_headers(url, &[], body)
+        }
+
+        fn post_json_with_headers(
+            &self,
+            url: &str,
+            headers: &[(String, String)],
+            body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            let body = serde_json::from_slice(&body).unwrap();
+            self.requests
+                .lock()
+                .unwrap()
+                .push((url.to_string(), headers.to_vec(), body));
+            let reply = {
+                let mut scripts = self.scripts.lock().unwrap();
+                let script = scripts
+                    .get_mut(url)
+                    .unwrap_or_else(|| panic!("no script for {url}"));
+                if script.len() > 1 {
+                    script.pop_front().unwrap()
+                } else {
+                    script[0].clone()
+                }
+            };
+            Box::pin(async move {
+                match reply {
+                    Reply::Http(status, body) => Ok(TransportResponse::new(status, body)),
+                    Reply::Fail { retryable } => {
+                        Err(RpcError::network("connection refused", None, retryable))
+                    }
+                }
+            })
+        }
+    }
+
+    /// A client over `transport` for `endpoints`, the first one primary.
+    fn failover_client(
+        transport: &Arc<UrlTransport>,
+        retry_config: RetryConfig,
+        endpoints: impl IntoIterator<Item = RpcEndpoint>,
+    ) -> RpcClient {
+        let mut endpoints = endpoints.into_iter();
+        let primary = endpoints.next().unwrap();
+        endpoints.fold(
+            RpcClient::with_transport_and_retry_config(primary, transport.clone(), retry_config),
+            RpcClient::fallback,
+        )
+    }
+
+    // `RpcError` is large; see the `allow` on `impl RpcClient`.
+    #[allow(clippy::result_large_err)]
+    fn status_request(client: &RpcClient) -> impl Future<Output = Result<Value, RpcError>> + '_ {
+        client.request("status", serde_json::json!({}))
+    }
+
+    /// A node that is syncing or busy answers HTTP 200 with a retryable
+    /// JSON-RPC error, which only the retry loop can see: it moves on to the
+    /// next endpoint at once, even with retries disabled.
+    #[tokio::test]
+    async fn test_retryable_json_rpc_errors_fail_over_to_the_next_endpoint() {
+        for cause in ["NODE_IS_SYNCING", "BUSY"] {
+            let transport = UrlTransport::new([
+                (PRIMARY, vec![handler_error_reply(cause, Value::Null)]),
+                (SECOND, vec![ok_reply()]),
+            ]);
+            let client = failover_client(
+                &transport,
+                RetryConfig::none(),
+                [PRIMARY.into(), SECOND.into()],
+            );
+
+            let result = status_request(&client).await.unwrap();
+            assert_eq!(result, serde_json::json!({ "ok": true }), "{cause}");
+            assert_eq!(transport.urls(), [PRIMARY, SECOND], "{cause}");
+        }
+    }
+
+    /// A refused connection, a client timeout and a node `TIMEOUT_ERROR` each
+    /// move on to the next endpoint.
+    #[tokio::test]
+    async fn test_transport_failures_and_timeouts_fail_over() {
+        let timeout = rpc_error(Some("TIMEOUT_ERROR"), Value::Null, "Timeout".into());
+        let transport = UrlTransport::new([
+            (PRIMARY, vec![Reply::Fail { retryable: true }]),
+            (SECOND, vec![Reply::Http(408, timeout)]),
+            (THIRD, vec![ok_reply()]),
+        ]);
+        let client = failover_client(
+            &transport,
+            RetryConfig::none(),
+            [PRIMARY.into(), SECOND.into(), THIRD.into()],
+        );
+
+        status_request(&client).await.unwrap();
+        assert_eq!(transport.urls(), [PRIMARY, SECOND, THIRD]);
+
+        // Over reqwest: a port nothing listens on, then a server that accepts
+        // the connection and never answers.
+        let refused = {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            format!("http://{}", listener.local_addr().unwrap())
+        };
+        let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+        let hangs = format!("http://{}", silent.local_addr().unwrap());
+        let (answers, server, _) = scripted_server(vec![Conn::Respond]);
+        let http = crate::reqwest::Client::builder()
+            .timeout(Duration::from_millis(300))
+            .build()
+            .unwrap();
+        let client = RpcClient::with_transport_and_retry_config(
+            refused,
+            Arc::new(transport::ReqwestTransport::with_client(http)),
+            RetryConfig::none(),
+        )
+        .fallback(hangs)
+        .fallback(answers);
+
+        let result = status_request(&client).await.unwrap();
+        assert_eq!(result, serde_json::json!({ "ok": true }));
+        server.join().unwrap();
+        drop(silent);
+    }
+
+    /// An error that won't change on another node is returned at once.
+    #[tokio::test]
+    async fn test_non_retryable_errors_do_not_try_the_fallback() {
+        let unknown_account = handler_error_reply(
+            "UNKNOWN_ACCOUNT",
+            serde_json::json!({
+                "requested_account_id": "nobody.near",
+                "block_height": 1,
+                "block_hash": "11111111111111111111111111111111",
+            }),
+        );
+        let transport =
+            UrlTransport::new([(PRIMARY, vec![unknown_account]), (SECOND, vec![ok_reply()])]);
+        let client = failover_client(&transport, fast_retries(3), [PRIMARY.into(), SECOND.into()]);
+
+        let account: AccountId = "nobody.near".parse().unwrap();
+        let error = client
+            .view_account(&account, Finality::Final)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, RpcError::AccountNotFound { .. }),
+            "{error:?}"
+        );
+        assert_eq!(transport.urls(), [PRIMARY]);
+    }
+
+    /// `sandbox_fast_forward` may have been applied by a node that didn't
+    /// answer, so it isn't sent to a fallback either.
+    #[tokio::test]
+    async fn test_sandbox_fast_forward_is_not_sent_to_a_fallback() {
+        let transport = UrlTransport::new([
+            (PRIMARY, vec![Reply::Fail { retryable: true }]),
+            (SECOND, vec![ok_reply()]),
+        ]);
+        let client = failover_client(&transport, fast_retries(2), [PRIMARY.into(), SECOND.into()]);
+
+        let error = client
+            .request::<_, Value>(
+                "sandbox_fast_forward",
+                serde_json::json!({ "delta_height": 1 }),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.is_retryable(), "{error:?}");
+        assert_eq!(transport.urls(), [PRIMARY]);
+    }
+
+    /// `max_retries` counts rounds over every endpoint: `RetryConfig::none()`
+    /// tries each endpoint once, two retries try each three times, always in
+    /// order from the primary, and the last endpoint's error is returned.
+    #[tokio::test]
+    async fn test_each_round_tries_every_endpoint_in_order() {
+        for (retry_config, rounds) in [(RetryConfig::none(), 1), (fast_retries(2), 3)] {
+            let transport = UrlTransport::new([
+                (PRIMARY, vec![Reply::Http(503, b"unavailable".to_vec())]),
+                (SECOND, vec![Reply::Fail { retryable: true }]),
+                (THIRD, vec![Reply::Http(502, b"bad gateway".to_vec())]),
+            ]);
+            let client = failover_client(
+                &transport,
+                retry_config,
+                [PRIMARY.into(), SECOND.into(), THIRD.into()],
+            );
+
+            let error = status_request(&client).await.unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    RpcError::Network {
+                        status_code: Some(502),
+                        ..
+                    }
+                ),
+                "{error:?}"
+            );
+            assert_eq!(transport.urls(), [PRIMARY, SECOND, THIRD].repeat(rounds));
+        }
+    }
+
+    /// The backoff delay comes once per round, not once per endpoint: two
+    /// retries over three endpoints wait twice.
+    #[tokio::test]
+    async fn test_backoff_comes_only_between_rounds() {
+        let transport = UrlTransport::new([
+            (PRIMARY, vec![Reply::Fail { retryable: true }]),
+            (SECOND, vec![Reply::Fail { retryable: true }]),
+            (THIRD, vec![Reply::Fail { retryable: true }]),
+        ]);
+        let delay_ms = 100;
+        let retry_config = RetryConfig {
+            max_retries: 2,
+            initial_delay_ms: delay_ms,
+            max_delay_ms: delay_ms,
+        };
+        let client = failover_client(
+            &transport,
+            retry_config,
+            [PRIMARY.into(), SECOND.into(), THIRD.into()],
+        );
+
+        let started = std::time::Instant::now();
+        status_request(&client).await.unwrap_err();
+        let elapsed = started.elapsed();
+
+        assert_eq!(transport.urls().len(), 9);
+        // Two waits; one per failed attempt would be eight.
+        assert!(
+            elapsed >= Duration::from_millis(2 * delay_ms),
+            "{elapsed:?}"
+        );
+        assert!(elapsed < Duration::from_millis(6 * delay_ms), "{elapsed:?}");
+    }
+
+    /// Every call starts at the primary, even after an earlier call was
+    /// answered by a fallback.
+    #[tokio::test]
+    async fn test_every_call_starts_at_the_primary() {
+        let transport = UrlTransport::new([
+            (PRIMARY, vec![Reply::Fail { retryable: true }, ok_reply()]),
+            (SECOND, vec![ok_reply()]),
+        ]);
+        let client = failover_client(
+            &transport,
+            RetryConfig::none(),
+            [PRIMARY.into(), SECOND.into()],
+        );
+
+        status_request(&client).await.unwrap();
+        status_request(&client).await.unwrap();
+        assert_eq!(transport.urls(), [PRIMARY, SECOND, PRIMARY]);
+    }
+
+    /// Each endpoint's headers go to that endpoint only. Built through
+    /// `NearBuilder`, whose `transport` wraps the `Arc` again, so this also
+    /// covers the `Arc<T>` forwarding impl.
+    #[tokio::test]
+    async fn test_endpoint_headers_reach_only_their_endpoint() {
+        let transport = UrlTransport::new([
+            (PRIMARY, vec![Reply::Http(503, b"unavailable".to_vec())]),
+            (SECOND, vec![Reply::Fail { retryable: true }]),
+            (THIRD, vec![ok_reply()]),
+        ]);
+        let near = crate::Near::custom(RpcEndpoint::new(PRIMARY).bearer("primary-token"), "test")
+            .fallback(RpcEndpoint::new(SECOND).header("x-api-key", "second-key"))
+            .fallback(THIRD)
+            .transport(transport.clone())
+            .retry_config(RetryConfig::none())
+            .build();
+
+        status_request(near.rpc()).await.unwrap();
+        let header = |name: &str, value: &str| vec![(name.to_string(), value.to_string())];
+        assert_eq!(
+            transport.headers(),
+            [
+                (
+                    PRIMARY.to_string(),
+                    header("Authorization", "Bearer primary-token")
+                ),
+                (SECOND.to_string(), header("x-api-key", "second-key")),
+                (THIRD.to_string(), vec![]),
+            ]
+        );
+    }
+
+    /// Over reqwest, an endpoint's headers are sent to it alone and replace a
+    /// client default header of the same name, which the other endpoints
+    /// still get.
+    #[tokio::test]
+    async fn test_reqwest_sends_endpoint_headers_over_client_defaults() {
+        let (primary, primary_server, primary_heads) = scripted_server(vec![Conn::Close]);
+        let (fallback, fallback_server, fallback_heads) = scripted_server(vec![Conn::Respond]);
+        let mut defaults = HeaderMap::new();
+        defaults.insert("x-api-key", HeaderValue::from_static("shared-key"));
+        let http = crate::reqwest::Client::builder()
+            .default_headers(defaults)
+            .build()
+            .unwrap();
+        let client = RpcClient::with_transport_and_retry_config(
+            RpcEndpoint::new(primary)
+                .header("X-Api-Key", "primary-key")
+                .bearer("primary-token"),
+            Arc::new(transport::ReqwestTransport::with_client(http)),
+            RetryConfig::none(),
+        )
+        .fallback(fallback);
+
+        status_request(&client).await.unwrap();
+        // The servers lowercase each request head.
+        let primary_head = primary_heads.recv().unwrap();
+        assert!(
+            primary_head.contains("x-api-key: primary-key\r\n"),
+            "{primary_head}"
+        );
+        assert!(
+            primary_head.contains("authorization: bearer primary-token\r\n"),
+            "{primary_head}"
+        );
+        assert!(!primary_head.contains("shared-key"), "{primary_head}");
+        assert!(
+            primary_head.contains("content-type: application/json\r\n"),
+            "{primary_head}"
+        );
+        let fallback_head = fallback_heads.recv().unwrap();
+        assert!(
+            fallback_head.contains("x-api-key: shared-key\r\n"),
+            "{fallback_head}"
+        );
+        assert!(!fallback_head.contains("primary"), "{fallback_head}");
+        primary_server.join().unwrap();
+        fallback_server.join().unwrap();
+    }
+
+    /// A header HTTP doesn't allow fails the request without retrying, and
+    /// the error names the header but not its value.
+    #[tokio::test]
+    async fn test_reqwest_rejects_an_invalid_endpoint_header() {
+        for endpoint in [
+            RpcEndpoint::new("http://127.0.0.1:1").header("bad name", "SECRET"),
+            RpcEndpoint::new("http://127.0.0.1:1").header("x-api-key", "SECRET\nnext"),
+        ] {
+            let client = RpcClient::new(endpoint).retry_config(fast_retries(2));
+            let error = status_request(&client).await.unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    RpcError::Network {
+                        retryable: false,
+                        ..
+                    }
+                ),
+                "{error:?}"
+            );
+            assert!(!error.to_string().contains("SECRET"), "{error}");
+        }
+    }
+
+    /// A transport that only implements `post_json` fails a request to an
+    /// endpoint with headers rather than dropping them, without retrying or
+    /// failing over, and names the headers but not their values.
+    #[tokio::test]
+    async fn test_a_transport_without_header_support_refuses_endpoint_headers() {
+        let transport = CountingTransport::new(200, rpc_result(serde_json::json!({ "ok": true })));
+        let client = RpcClient::with_transport_and_retry_config(
+            RpcEndpoint::new(PRIMARY).bearer("SECRET-TOKEN"),
+            transport.clone(),
+            fast_retries(2),
+        )
+        .fallback(SECOND);
+
+        let error = status_request(&client).await.unwrap_err();
+        assert!(
+            matches!(
+                error,
+                RpcError::Network {
+                    status_code: None,
+                    retryable: false,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        let message = error.to_string();
+        assert!(message.contains("Authorization"), "{message}");
+        assert!(message.contains("post_json_with_headers"), "{message}");
+        assert!(!message.contains("SECRET-TOKEN"), "{message}");
+        assert_eq!(transport.calls(), 0);
+
+        // Without headers the same transport works.
+        let client = RpcClient::with_transport_and_retry_config(
+            PRIMARY,
+            transport.clone(),
+            RetryConfig::none(),
+        );
+        status_request(&client).await.unwrap();
+        assert_eq!(transport.calls(), 1);
+    }
+
+    /// `Debug` shows each endpoint's host and header names, never the keys.
+    #[test]
+    fn test_debug_output_hides_endpoint_header_values() {
+        let near = crate::Near::custom(
+            RpcEndpoint::new("https://rpc.example.com/v3/PATHKEY").bearer("TOKEN"),
+            "mainnet",
+        )
+        .fallback(RpcEndpoint::new("https://other.example.com").header("x-api-key", "HEADERKEY"))
+        .build();
+
+        for shown in [format!("{near:?}"), format!("{:?}", near.rpc())] {
+            for secret in ["PATHKEY", "TOKEN", "HEADERKEY"] {
+                assert!(!shown.contains(secret), "{secret} in {shown}");
+            }
+            for shown_part in [
+                "https://rpc.example.com",
+                "https://other.example.com",
+                "Authorization",
+                "x-api-key",
+            ] {
+                assert!(shown.contains(shown_part), "{shown_part} not in {shown}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_fallbacks_keep_the_primary_url_and_their_order() {
+        let near = crate::Near::custom(PRIMARY, "mainnet")
+            .fallback(SECOND)
+            .fallback(RpcEndpoint::new(THIRD).bearer("key"))
+            .build();
+        assert_eq!(near.rpc().url(), PRIMARY);
+        let urls: Vec<&str> = near
+            .rpc()
+            .endpoints()
+            .iter()
+            .map(RpcEndpoint::url)
+            .collect();
+        assert_eq!(urls, [PRIMARY, SECOND, THIRD]);
+
+        let rpc = RpcClient::new(PRIMARY);
+        assert_eq!(rpc.endpoints().len(), 1);
+        let rpc = rpc.fallback(SECOND).retry_config(RetryConfig::none());
+        assert_eq!(rpc.clone().endpoints().len(), 2);
+    }
+
+    /// A send whose primary timed out goes to the fallback with the same
+    /// signed bytes; the fallback's outcome is the answer.
+    #[tokio::test]
+    async fn test_send_tx_resends_the_same_bytes_to_a_fallback() {
+        let pending = rpc_error(
+            Some("TIMEOUT_ERROR"),
+            serde_json::json!({
+                "cause": "PENDING",
+                "status": { "final_execution_status": "INCLUDED" }
+            }),
+            "Timeout".into(),
+        );
+        let executed = rpc_result(serde_json::json!({ "final_execution_status": "FINAL" }));
+        let transport = UrlTransport::new([
+            (PRIMARY, vec![Reply::Http(408, pending)]),
+            (SECOND, vec![Reply::Http(200, executed)]),
+        ]);
+        let client = failover_client(&transport, fast_retries(3), [PRIMARY.into(), SECOND.into()]);
+
+        let secret = crate::types::SecretKey::generate_ed25519();
+        let signed_tx = crate::types::Transaction::new(
+            "alice.testnet".parse().unwrap(),
+            secret.public_key(),
+            1,
+            "bob.testnet".parse().unwrap(),
+            CryptoHash::ZERO,
+            vec![],
+        )
+        .sign(&secret);
+
+        let response = client
+            .send_tx(&signed_tx, TxExecutionStatus::Final)
+            .await
+            .unwrap();
+        assert_eq!(response.transaction_hash, signed_tx.get_hash());
+        let sent = signed_tx.to_base64();
+        assert_eq!(
+            transport.signed_txs(),
+            [
+                (PRIMARY.to_string(), sent.clone()),
+                (SECOND.to_string(), sent)
+            ]
+        );
     }
 
     /// One `view_state` page holding `keys` (all with value `b"v"`), with an
@@ -5125,6 +5805,70 @@ mod tests {
             assert_eq!(retry.level, Level::DEBUG);
             assert_eq!(retry.field("attempt"), Some("1"));
             assert_eq!(retry.field("max_attempts"), Some("2"));
+        }
+
+        /// Moving to the next endpoint is a DEBUG event naming the failed
+        /// endpoint (scheme and host only) and the round.
+        #[tokio::test]
+        async fn failover_is_debug_and_names_the_endpoint_and_round() {
+            const KEYED: &str = "https://USER:PASSWORD@primary.example.com/v3/PATHKEY";
+            let log = EventLog::default();
+            let _guard = log.install();
+
+            let transport = UrlTransport::new([
+                (KEYED, vec![Reply::Fail { retryable: true }]),
+                (SECOND, vec![Reply::Fail { retryable: true }, ok_reply()]),
+            ]);
+            let client =
+                failover_client(&transport, fast_retries(1), [KEYED.into(), SECOND.into()]);
+            status_request(&client).await.unwrap();
+            assert_eq!(transport.urls(), [KEYED, SECOND, KEYED, SECOND]);
+
+            let events = log.events();
+            assert_nothing_above_debug(&events);
+            let summary: Vec<_> = events
+                .iter()
+                .filter(|e| {
+                    e.message()
+                        .is_some_and(|m| m.starts_with("RPC request failed"))
+                })
+                .map(|e| {
+                    (
+                        e.message().unwrap().to_string(),
+                        e.field("endpoint").unwrap().to_string(),
+                        e.field("round").unwrap().to_string(),
+                        e.field("attempt").unwrap().to_string(),
+                        e.field("max_attempts").unwrap().to_string(),
+                    )
+                })
+                .collect();
+            let event = |message: &str, endpoint: &str, round: &str, attempt: &str| {
+                (
+                    message.to_string(),
+                    endpoint.to_string(),
+                    round.to_string(),
+                    attempt.to_string(),
+                    "4".to_string(),
+                )
+            };
+            assert_eq!(
+                summary,
+                [
+                    event(
+                        "RPC request failed, trying the next endpoint",
+                        "https://primary.example.com",
+                        "1",
+                        "1"
+                    ),
+                    event("RPC request failed, retrying", SECOND, "1", "2"),
+                    event(
+                        "RPC request failed, trying the next endpoint",
+                        "https://primary.example.com",
+                        "2",
+                        "3"
+                    ),
+                ]
+            );
         }
 
         /// The request span's `rpc.url` field shows only the scheme and host,

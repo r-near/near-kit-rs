@@ -69,6 +69,6 @@ pub use crate::client::ReqwestTransport;
 pub use crate::client::WasiHttpTransport;
 #[cfg(feature = "rpc")]
 pub use crate::client::{
-    AccountExistsQuery, BalanceQuery, BoxFuture, RetryConfig, RpcClient, RpcTransport,
+    AccountExistsQuery, BalanceQuery, BoxFuture, RetryConfig, RpcClient, RpcEndpoint, RpcTransport,
     TransactionStatusQuery, TransportResponse,
 };

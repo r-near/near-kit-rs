@@ -3,6 +3,8 @@
 // Everything that talks to the network lives behind the `rpc` feature; the
 // signers stay available in offline builds (they only do local cryptography).
 #[cfg(feature = "rpc")]
+mod endpoint;
+#[cfg(feature = "rpc")]
 pub(crate) mod near;
 #[cfg(feature = "rpc")]
 mod nonce_manager;
@@ -23,6 +25,8 @@ mod transport;
 #[cfg(feature = "keyring")]
 mod keyring;
 
+#[cfg(feature = "rpc")]
+pub use endpoint::RpcEndpoint;
 #[cfg(feature = "rpc")]
 pub use near::{Near, NearBuilder};
 #[cfg(feature = "rpc")]

@@ -1443,6 +1443,152 @@ mod tests {
         }
     }
 
+    /// How the primary in [`FailoverSendTransport`] fails a `send_tx`.
+    #[derive(Clone, Copy, Debug)]
+    enum PrimarySend {
+        /// No answer in time: a client-side timeout.
+        ClientTimeout,
+        /// The node's `TIMEOUT_ERROR` for a transaction it accepted.
+        NodeTimeout,
+    }
+
+    /// A primary node whose `send_tx` fails as `primary_send` says, and a
+    /// fallback that answers `send_tx` with `fallback_send`; `node` answers
+    /// every other method, on either URL. Records the URL and signed payload
+    /// of each `send_tx`.
+    struct FailoverSendTransport {
+        node: Arc<ScriptedNonceTransport>,
+        primary_send: PrimarySend,
+        fallback_send: Vec<u8>,
+        sends: Mutex<Vec<(String, String)>>,
+    }
+
+    const PRIMARY_URL: &str = "http://primary.invalid";
+    const FALLBACK_URL: &str = "http://fallback.invalid";
+
+    impl RpcTransport for FailoverSendTransport {
+        fn post_json(
+            &self,
+            url: &str,
+            body: Vec<u8>,
+        ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
+            let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            if request["method"] != "send_tx" {
+                return self.node.post_json(url, body);
+            }
+            let signed = request["params"]["signed_tx_base64"].as_str().unwrap();
+            self.sends
+                .lock()
+                .unwrap()
+                .push((url.to_string(), signed.to_string()));
+            let reply = match (url, self.primary_send) {
+                (PRIMARY_URL, PrimarySend::ClientTimeout) => {
+                    Err(RpcError::network("request timed out", None, true))
+                }
+                (PRIMARY_URL, PrimarySend::NodeTimeout) => {
+                    let body = rpc_error(
+                        Some("TIMEOUT_ERROR"),
+                        serde_json::json!({
+                            "cause": "PENDING",
+                            "status": { "final_execution_status": "INCLUDED" }
+                        }),
+                        "Timeout".into(),
+                    );
+                    Ok(TransportResponse::new(408, body))
+                }
+                (FALLBACK_URL, _) => Ok(TransportResponse::new(200, self.fallback_send.clone())),
+                (other, _) => panic!("unexpected URL {other}"),
+            };
+            Box::pin(async move { reply })
+        }
+    }
+
+    /// A `send_tx` answer at `FINAL`: the transfer succeeded.
+    fn final_outcome_body() -> Vec<u8> {
+        let hash = "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U";
+        rpc_result(serde_json::json!({
+            "final_execution_status": "FINAL",
+            "status": { "SuccessValue": "" },
+            "transaction": {
+                "signer_id": "alice.testnet",
+                "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+                "nonce": 6,
+                "receiver_id": "bob.testnet",
+                "actions": [],
+                "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
+                "hash": hash,
+            },
+            "transaction_outcome": {
+                "id": hash,
+                "outcome": {
+                    "executor_id": "alice.testnet",
+                    "gas_burnt": 223182562500u64,
+                    "logs": [],
+                    "metadata": { "gas_profile": null, "version": 3 },
+                    "receipt_ids": [],
+                    "status": { "SuccessValue": "" },
+                    "tokens_burnt": "0",
+                },
+                "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
+                "proof": [],
+            },
+            "receipts_outcome": [],
+        }))
+    }
+
+    /// The primary doesn't answer a send in time, either as a client-side
+    /// timeout or as the node's `TIMEOUT_ERROR` for an accepted transaction;
+    /// the fallback, which knows the transaction, answers with its outcome.
+    /// The send returns that outcome having signed once: the same bytes went
+    /// to each endpoint once, and nothing was re-signed or sent again.
+    #[tokio::test]
+    async fn a_send_that_timed_out_finishes_on_a_fallback_without_re_signing() {
+        for primary_send in [PrimarySend::ClientTimeout, PrimarySend::NodeTimeout] {
+            let node = ScriptedNonceTransport::new(vec![(5, 100)], vec![]);
+            let transport = Arc::new(FailoverSendTransport {
+                node: node.clone(),
+                primary_send,
+                fallback_send: final_outcome_body(),
+                sends: Mutex::new(Vec::new()),
+            });
+            let alice = crate::Near::custom(PRIMARY_URL, "test")
+                .fallback(FALLBACK_URL)
+                .transport(transport.clone())
+                .build()
+                .with_signer(InMemorySigner::new(
+                    account!("alice.testnet"),
+                    SecretKey::generate_ed25519(),
+                ));
+
+            let outcome = alice
+                .transaction(account!("bob.testnet"))
+                .add_action(Action::transfer(NearToken::from_yoctonear(1)))
+                .await
+                .expect("the fallback's outcome is the answer");
+            assert!(outcome.is_success(), "{primary_send:?}");
+
+            let sends = transport.sends.lock().unwrap();
+            let urls: Vec<&str> = sends.iter().map(|(url, _)| url.as_str()).collect();
+            assert_eq!(urls, [PRIMARY_URL, FALLBACK_URL]);
+            assert_eq!(
+                sends[0].1, sends[1].1,
+                "the fallback gets the same signed bytes"
+            );
+            assert_eq!(
+                SignedTransaction::from_base64(&sends[0].1)
+                    .unwrap()
+                    .transaction
+                    .nonce,
+                6
+            );
+            assert_eq!(
+                node.view_finalities.lock().unwrap().len(),
+                1,
+                "signed once: the access key was read once"
+            );
+        }
+    }
+
     fn nonce_too_large_body(tx_nonce: u64, upper_bound: u64) -> Vec<u8> {
         invalid_tx_body(serde_json::json!({
             "NonceTooLarge": { "tx_nonce": tx_nonce, "upper_bound": upper_bound }
