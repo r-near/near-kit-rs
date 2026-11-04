@@ -265,7 +265,7 @@ transaction for the same intent; poll the old one by hash. The error carries
 `transaction_hash`, and nodes running nearcore 2.14 or later say how far the
 transaction got in `cause`. `Timeout` is retryable, so with the default
 `RetryConfig` the same signed transaction has already been re-sent three
-times before you see it:
+times (three rounds over every endpoint, with fallbacks) before you see it:
 
 ```rust,no_run
 use near_kit::protocol::Action;
