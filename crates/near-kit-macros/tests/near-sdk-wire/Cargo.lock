@@ -1783,6 +1783,7 @@ dependencies = [
  "near-kit",
  "near-sdk",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -112,6 +112,7 @@ mod trace;
 mod types;
 
 pub mod guide;
+pub mod json_types;
 pub mod protocol;
 pub mod rpc;
 pub mod signer;

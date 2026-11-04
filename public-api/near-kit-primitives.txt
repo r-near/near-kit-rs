@@ -4,6 +4,158 @@ pub use near_kit_primitives::AccountIdRef
 pub use near_kit_primitives::Gas
 pub use near_kit_primitives::NearToken
 pub use near_kit_primitives::contract
+pub mod near_kit_primitives::json_types
+pub struct near_kit_primitives::json_types::Base64VecU8(pub alloc::vec::Vec<u8>)
+impl borsh::de::BorshDeserialize for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::deserialize_reader<__R: alloc::io::read::Read>(&mut __R) -> core::result::Result<Self, core::io::error::Error>
+impl borsh::ser::BorshSerialize for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::serialize<__W: core::io::write::Write>(&self, &mut __W) -> core::result::Result<(), core::io::error::Error>
+impl core::clone::Clone for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::clone(&self) -> near_kit_primitives::json_types::Base64VecU8
+impl core::cmp::Eq for near_kit_primitives::json_types::Base64VecU8
+impl core::cmp::Ord for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::cmp(&self, &near_kit_primitives::json_types::Base64VecU8) -> core::cmp::Ordering
+impl core::cmp::PartialEq for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::eq(&self, &near_kit_primitives::json_types::Base64VecU8) -> bool
+impl core::cmp::PartialOrd for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::partial_cmp(&self, &near_kit_primitives::json_types::Base64VecU8) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::AsRef<[u8]> for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::as_ref(&self) -> &[u8]
+impl core::convert::From<alloc::vec::Vec<u8>> for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::from(alloc::vec::Vec<u8>) -> Self
+impl core::convert::From<near_kit_primitives::json_types::Base64VecU8> for alloc::vec::Vec<u8>
+pub fn alloc::vec::Vec<u8>::from(near_kit_primitives::json_types::Base64VecU8) -> Self
+impl core::default::Default for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::default() -> near_kit_primitives::json_types::Base64VecU8
+impl core::fmt::Debug for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::StructuralPartialEq for near_kit_primitives::json_types::Base64VecU8
+impl serde_core::ser::Serialize for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::json_types::Base64VecU8
+pub fn near_kit_primitives::json_types::Base64VecU8::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct near_kit_primitives::json_types::I128(pub i128)
+impl borsh::de::BorshDeserialize for near_kit_primitives::json_types::I128
+pub fn near_kit_primitives::json_types::I128::deserialize_reader<__R: alloc::io::read::Read>(&mut __R) -> core::result::Result<Self, core::io::error::Error>
+impl borsh::ser::BorshSerialize for near_kit_primitives::json_types::I128
+pub fn near_kit_primitives::json_types::I128::serialize<__W: core::io::write::Write>(&self, &mut __W) -> core::result::Result<(), core::io::error::Error>
+impl core::clone::Clone for near_kit_primitives::json_types::I128
+pub fn near_kit_primitives::json_types::I128::clone(&self) -> near_kit_primitives::json_types::I128
+impl core::cmp::Eq for near_kit_primitives::json_types::I128
+impl core::cmp::Ord for near_kit_primitives::json_types::I128
+pub fn near_kit_primitives::json_types::I128::cmp(&self, &near_kit_primitives::json_types::I128) -> core::cmp::Ordering
+impl core::cmp::PartialEq for near_kit_primitives::json_types::I128
+pub fn near_kit_primitives::json_types::I128::eq(&self, &near_kit_primitives::json_types::I128) -> bool
+impl core::cmp::PartialOrd for near_kit_primitives::json_types::I128
+pub fn near_kit_primitives::json_types::I128::partial_cmp(&self, &near_kit_primitives::json_types::I128) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<i128> for near_kit_primitives::json_types::I128
+pub fn near_kit_primitives::json_types::I128::from(i128) -> Self
+impl core::convert::From<near_kit_primitives::json_types::I128> for i128
+pub fn i128::from(near_kit_primitives::json_types::I128) -> Self
+impl core::default::Default for near_kit_primitives::json_types::I128
+pub fn near_kit_primitives::json_types::I128::default() -> near_kit_primitives::json_types::I128
+impl core::fmt::Debug for near_kit_primitives::json_types::I128
+pub fn near_kit_primitives::json_types::I128::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for near_kit_primitives::json_types::I128
+pub fn near_kit_primitives::json_types::I128::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for near_kit_primitives::json_types::I128
+impl core::marker::StructuralPartialEq for near_kit_primitives::json_types::I128
+impl serde_core::ser::Serialize for near_kit_primitives::json_types::I128
+pub fn near_kit_primitives::json_types::I128::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::json_types::I128
+pub fn near_kit_primitives::json_types::I128::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct near_kit_primitives::json_types::I64(pub i64)
+impl borsh::de::BorshDeserialize for near_kit_primitives::json_types::I64
+pub fn near_kit_primitives::json_types::I64::deserialize_reader<__R: alloc::io::read::Read>(&mut __R) -> core::result::Result<Self, core::io::error::Error>
+impl borsh::ser::BorshSerialize for near_kit_primitives::json_types::I64
+pub fn near_kit_primitives::json_types::I64::serialize<__W: core::io::write::Write>(&self, &mut __W) -> core::result::Result<(), core::io::error::Error>
+impl core::clone::Clone for near_kit_primitives::json_types::I64
+pub fn near_kit_primitives::json_types::I64::clone(&self) -> near_kit_primitives::json_types::I64
+impl core::cmp::Eq for near_kit_primitives::json_types::I64
+impl core::cmp::Ord for near_kit_primitives::json_types::I64
+pub fn near_kit_primitives::json_types::I64::cmp(&self, &near_kit_primitives::json_types::I64) -> core::cmp::Ordering
+impl core::cmp::PartialEq for near_kit_primitives::json_types::I64
+pub fn near_kit_primitives::json_types::I64::eq(&self, &near_kit_primitives::json_types::I64) -> bool
+impl core::cmp::PartialOrd for near_kit_primitives::json_types::I64
+pub fn near_kit_primitives::json_types::I64::partial_cmp(&self, &near_kit_primitives::json_types::I64) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<i64> for near_kit_primitives::json_types::I64
+pub fn near_kit_primitives::json_types::I64::from(i64) -> Self
+impl core::convert::From<near_kit_primitives::json_types::I64> for i64
+pub fn i64::from(near_kit_primitives::json_types::I64) -> Self
+impl core::default::Default for near_kit_primitives::json_types::I64
+pub fn near_kit_primitives::json_types::I64::default() -> near_kit_primitives::json_types::I64
+impl core::fmt::Debug for near_kit_primitives::json_types::I64
+pub fn near_kit_primitives::json_types::I64::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for near_kit_primitives::json_types::I64
+pub fn near_kit_primitives::json_types::I64::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for near_kit_primitives::json_types::I64
+impl core::marker::StructuralPartialEq for near_kit_primitives::json_types::I64
+impl serde_core::ser::Serialize for near_kit_primitives::json_types::I64
+pub fn near_kit_primitives::json_types::I64::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::json_types::I64
+pub fn near_kit_primitives::json_types::I64::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct near_kit_primitives::json_types::U128(pub u128)
+impl borsh::de::BorshDeserialize for near_kit_primitives::json_types::U128
+pub fn near_kit_primitives::json_types::U128::deserialize_reader<__R: alloc::io::read::Read>(&mut __R) -> core::result::Result<Self, core::io::error::Error>
+impl borsh::ser::BorshSerialize for near_kit_primitives::json_types::U128
+pub fn near_kit_primitives::json_types::U128::serialize<__W: core::io::write::Write>(&self, &mut __W) -> core::result::Result<(), core::io::error::Error>
+impl core::clone::Clone for near_kit_primitives::json_types::U128
+pub fn near_kit_primitives::json_types::U128::clone(&self) -> near_kit_primitives::json_types::U128
+impl core::cmp::Eq for near_kit_primitives::json_types::U128
+impl core::cmp::Ord for near_kit_primitives::json_types::U128
+pub fn near_kit_primitives::json_types::U128::cmp(&self, &near_kit_primitives::json_types::U128) -> core::cmp::Ordering
+impl core::cmp::PartialEq for near_kit_primitives::json_types::U128
+pub fn near_kit_primitives::json_types::U128::eq(&self, &near_kit_primitives::json_types::U128) -> bool
+impl core::cmp::PartialOrd for near_kit_primitives::json_types::U128
+pub fn near_kit_primitives::json_types::U128::partial_cmp(&self, &near_kit_primitives::json_types::U128) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<near_kit_primitives::json_types::U128> for u128
+pub fn u128::from(near_kit_primitives::json_types::U128) -> Self
+impl core::convert::From<u128> for near_kit_primitives::json_types::U128
+pub fn near_kit_primitives::json_types::U128::from(u128) -> Self
+impl core::default::Default for near_kit_primitives::json_types::U128
+pub fn near_kit_primitives::json_types::U128::default() -> near_kit_primitives::json_types::U128
+impl core::fmt::Debug for near_kit_primitives::json_types::U128
+pub fn near_kit_primitives::json_types::U128::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for near_kit_primitives::json_types::U128
+pub fn near_kit_primitives::json_types::U128::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for near_kit_primitives::json_types::U128
+impl core::marker::StructuralPartialEq for near_kit_primitives::json_types::U128
+impl serde_core::ser::Serialize for near_kit_primitives::json_types::U128
+pub fn near_kit_primitives::json_types::U128::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::json_types::U128
+pub fn near_kit_primitives::json_types::U128::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct near_kit_primitives::json_types::U64(pub u64)
+impl borsh::de::BorshDeserialize for near_kit_primitives::json_types::U64
+pub fn near_kit_primitives::json_types::U64::deserialize_reader<__R: alloc::io::read::Read>(&mut __R) -> core::result::Result<Self, core::io::error::Error>
+impl borsh::ser::BorshSerialize for near_kit_primitives::json_types::U64
+pub fn near_kit_primitives::json_types::U64::serialize<__W: core::io::write::Write>(&self, &mut __W) -> core::result::Result<(), core::io::error::Error>
+impl core::clone::Clone for near_kit_primitives::json_types::U64
+pub fn near_kit_primitives::json_types::U64::clone(&self) -> near_kit_primitives::json_types::U64
+impl core::cmp::Eq for near_kit_primitives::json_types::U64
+impl core::cmp::Ord for near_kit_primitives::json_types::U64
+pub fn near_kit_primitives::json_types::U64::cmp(&self, &near_kit_primitives::json_types::U64) -> core::cmp::Ordering
+impl core::cmp::PartialEq for near_kit_primitives::json_types::U64
+pub fn near_kit_primitives::json_types::U64::eq(&self, &near_kit_primitives::json_types::U64) -> bool
+impl core::cmp::PartialOrd for near_kit_primitives::json_types::U64
+pub fn near_kit_primitives::json_types::U64::partial_cmp(&self, &near_kit_primitives::json_types::U64) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<near_kit_primitives::json_types::U64> for u64
+pub fn u64::from(near_kit_primitives::json_types::U64) -> Self
+impl core::convert::From<u64> for near_kit_primitives::json_types::U64
+pub fn near_kit_primitives::json_types::U64::from(u64) -> Self
+impl core::default::Default for near_kit_primitives::json_types::U64
+pub fn near_kit_primitives::json_types::U64::default() -> near_kit_primitives::json_types::U64
+impl core::fmt::Debug for near_kit_primitives::json_types::U64
+pub fn near_kit_primitives::json_types::U64::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for near_kit_primitives::json_types::U64
+pub fn near_kit_primitives::json_types::U64::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for near_kit_primitives::json_types::U64
+impl core::marker::StructuralPartialEq for near_kit_primitives::json_types::U64
+impl serde_core::ser::Serialize for near_kit_primitives::json_types::U64
+pub fn near_kit_primitives::json_types::U64::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::json_types::U64
+pub fn near_kit_primitives::json_types::U64::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
 pub mod near_kit_primitives::protocol
 pub use near_kit_primitives::protocol::GlobalContractId
 pub use near_kit_primitives::protocol::RawStateInit
