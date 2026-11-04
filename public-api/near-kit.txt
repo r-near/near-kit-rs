@@ -27,6 +27,12 @@ pub mod near_kit::guide::offline_signing
 pub mod near_kit::guide::platforms
 pub mod near_kit::guide::testing
 pub mod near_kit::guide::transactions
+pub mod near_kit::json_types
+pub use near_kit::json_types::Base64VecU8
+pub use near_kit::json_types::I128
+pub use near_kit::json_types::I64
+pub use near_kit::json_types::U128
+pub use near_kit::json_types::U64
 pub mod near_kit::protocol
 pub use near_kit::protocol::AccessKey
 pub use near_kit::protocol::AccessKeyPermission

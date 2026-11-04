@@ -163,6 +163,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `near_kit::{call, json, borsh}` attribute re-exports | Removed: `#[contract]` reads the markers itself |
 | `#[contract]` method with one parameter `args: Args`, sent as the whole argument object | Sent by name, `{"args": ..}`, with no compile error; `#[args] args: Args` keeps the whole object (see [below](#one-parameter-is-sent-by-name)) |
 | `#[contract]` method with several parameters (a compile error) | Each parameter sent by name, as near-sdk encodes them |
+| No JSON wrapper types: a contract's `U128`/`U64` passed as `String`, or a wrapper of your own | `near_kit::json_types::{U64, I64, U128, I128, Base64VecU8}`, with near-sdk's names, public field and wire format (decimal strings and standard base64 in JSON, the inner value in Borsh), so `amount: U128` copies from the contract unchanged |
 | `standards::FungibleToken`, `standards::NonFungibleToken` (the clients) | `FungibleTokenClient<C = Near>`, `NonFungibleTokenClient<C = Near>`; `FungibleToken` and `NonFungibleToken` are now `Contract` markers |
 | `Near::ft(id)`, `Near::nft(id)` | `near.contract::<FungibleToken>(id)`, `near.contract::<NonFungibleToken>(id)` |
 | `FungibleToken::contract_id`, `is_registered`, `metadata`, `storage_balance_bounds`, `storage_balance_of`, `storage_deposit`, `transfer`, `transfer_call` | Same methods on `FungibleTokenClient<C>`; `transfer` takes a memo `Option` |

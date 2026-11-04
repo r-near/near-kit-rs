@@ -113,23 +113,23 @@ and a forgotten `.gas(..)` compiles and quietly sends 30 Tgas.
 NEP-245 multi-tokens:
 
 ```rust,no_run
+use near_kit::json_types::U128;
 use near_kit::*;
 
 /// Gas for `mt_transfer_call`, which calls the receiver and then resolves.
 const TRANSFER_CALL_GAS: Gas = Gas::from_tgas(300);
 
-/// Amounts are `U128` in the contract, strings in JSON.
 #[near_kit::contract]
 pub trait MultiToken {
     #[call(deposit = NearToken::from_yoctonear(1))]
-    fn mt_transfer(&mut self, receiver_id: &AccountId, token_id: &str, amount: &str);
+    fn mt_transfer(&mut self, receiver_id: &AccountId, token_id: &str, amount: U128);
 
     #[call(gas = TRANSFER_CALL_GAS, deposit = NearToken::from_yoctonear(1))]
     fn mt_transfer_call(
         &mut self,
         receiver_id: &AccountId,
         token_id: &str,
-        amount: &str,
+        amount: U128,
         msg: &str,
     );
 }
@@ -138,9 +138,9 @@ pub trait MultiToken {
 let mt = alice.contract::<MultiToken>(account!("mt.testnet"));
 let bob = account!("bob.testnet");
 // 30 Tgas and 1 yoctoNEAR, with nothing set here.
-mt.mt_transfer(&bob, "nep141:wrap.testnet", "10").await?.result()?;
+mt.mt_transfer(&bob, "nep141:wrap.testnet", U128(10)).await?.result()?;
 // The call site still overrides either one.
-mt.mt_transfer(&bob, "nep141:wrap.testnet", "10")
+mt.mt_transfer(&bob, "nep141:wrap.testnet", U128(10))
     .gas(Gas::from_tgas(50))
     .await?
     .result()?;
@@ -168,20 +168,21 @@ way near-sdk's `#[near]` reads them and its `#[ext_contract]` sends them,
 so the trait can copy the contract's signature:
 
 ```rust
+use near_kit::json_types::U128;
 use near_kit::{AccountId, NearToken};
 
-/// Amounts are `U128` in the contract, strings in JSON.
 #[near_kit::contract]
 pub trait MultiToken {
     // {"account_id":"alice.near","token_id":"nep141:wrap.near"}
-    fn mt_balance_of(&self, account_id: &AccountId, token_id: &str) -> String;
+    fn mt_balance_of(&self, account_id: &AccountId, token_id: &str) -> U128;
 
+    // {"receiver_id":..,"token_id":..,"amount":"10","approval":null,"memo":null}
     #[call(deposit = NearToken::from_yoctonear(1))]
     fn mt_transfer(
         &mut self,
         receiver_id: AccountId,
         token_id: String,
-        amount: String,
+        amount: U128,
         approval: Option<(AccountId, u64)>,
         memo: Option<String>,
     );
@@ -197,6 +198,11 @@ and `null` alike), and `fn f(&self, r#type: u8)` sends the key `type`. A
 method without parameters sends `{}`. In Borsh it is each parameter's
 encoding in order (the encoding of a struct with those fields), and nothing
 without parameters.
+
+near-sdk's `json_types` are in [`near_kit::json_types`](crate::json_types)
+under the same names, with the same JSON and Borsh: `U128`, `U64`, `I128`
+and `I64` are decimal strings in JSON, `Base64VecU8` is a base64 string. So
+`amount: U128` and `-> U128` copy over from the contract unchanged.
 
 When you already have a struct whose fields are the contract's parameters,
 mark the parameter `#[args]` to send the struct as the whole argument

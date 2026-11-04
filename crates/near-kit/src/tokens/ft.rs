@@ -9,13 +9,14 @@ use serde_json::json;
 use tokio::sync::OnceCell;
 
 use crate::Near;
+use crate::json_types::U128;
 use crate::transaction::FunctionCall;
 use crate::types::{AccountId, Gas, NearToken};
 use crate::{Call, ContractError};
 use crate::{Contract, TxSender, Viewer};
 
+use super::read;
 use super::types::{FtMetadata, StorageBalance, StorageBalanceBounds};
-use super::{Stringified, read};
 
 /// A NEP-141 fungible token contract.
 ///
@@ -131,14 +132,14 @@ impl<C: Viewer> FungibleTokenClient<C> {
         )
         .instrument(span)
         .await
-        .map(|Stringified(raw)| raw)
+        .map(|U128(raw)| raw)
     }
 
     /// Get total token supply (ft_total_supply), in the token's smallest unit.
     pub async fn total_supply(&self) -> Result<u128, ContractError<C::ViewError>> {
         read(&self.backend, &self.contract_id, "ft_total_supply", None)
             .await
-            .map(|Stringified(raw)| raw)
+            .map(|U128(raw)| raw)
     }
 
     /// Check if an account is registered on this token contract.
@@ -456,6 +457,39 @@ mod tests {
             token.storage_balance_bounds().await,
             Err(ContractError::Backend(message)) if message.contains("storage_balance_bounds")
         ));
+    }
+
+    /// Amounts are a decimal string up to `u128::MAX` (near-sdk's `U128`):
+    /// a JSON number, padding or an out-of-range value is a codec error
+    /// that names the text.
+    #[tokio::test]
+    async fn amounts_decode_as_near_sdk_u128_strings() {
+        let cases = [
+            (json!("0"), Some(0)),
+            (json!("+5"), Some(5)),
+            (json!(u128::MAX.to_string()), Some(u128::MAX)),
+            (json!(5), None),
+            (json!(" 5"), None),
+            (json!("-1"), None),
+            (json!("340282366920938463463374607431768211456"), None),
+        ];
+        for (answer, expected) in cases {
+            let mock = Mock::default().answer("ft_balance_of", answer.clone());
+            let token = FungibleToken::client(mock, account!("token.near"));
+            let result = token.balance_of(account!("alice.near")).await;
+            match expected {
+                Some(amount) => assert_eq!(result.unwrap(), amount, "{answer}"),
+                None => assert!(
+                    matches!(result, Err(ContractError::Codec(CodecError::Json(_)))),
+                    "{answer}: {result:?}"
+                ),
+            }
+        }
+
+        let mock = Mock::default().answer("ft_total_supply", json!("ten"));
+        let token = FungibleToken::client(mock, account!("token.near"));
+        let error = token.total_supply().await.unwrap_err().to_string();
+        assert!(error.contains(r#"invalid number "ten": "#), "{error}");
     }
 
     #[tokio::test]

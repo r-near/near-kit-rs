@@ -81,7 +81,7 @@ mod kit {
             &mut self,
             receiver_id: &near_kit::AccountIdRef,
             token_id: &str,
-            amount: U128,
+            amount: near_kit::json_types::U128,
             approval: Option<(AccountId, u64)>,
             memo: Option<&str>,
         );
@@ -204,7 +204,7 @@ fn several_parameters() {
         let kit = kit_bytes(kit::Signer::mt_transfer(
             near_kit::AccountIdRef::new_or_panic("bob.near"),
             "nep141:wrap.near",
-            U128(10u128.pow(24)),
+            near_kit::json_types::U128(10u128.pow(24)),
             approval.map(|(a, n)| (kit_id(a), n)),
             memo,
         ));

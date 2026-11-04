@@ -734,7 +734,8 @@ fn generate_function_call_method(
 ///
 /// - JSON sends an object with a key per parameter, in order (`None` is
 ///   `null`; a raw identifier's key has no `r#`). That includes a single
-///   parameter: `amount: U128` sends `{"amount":"10"}`. No parameters send
+///   parameter: `amount: U128` (`near_kit::json_types::U128`, near-sdk's
+///   type and wire format) sends `{"amount":"10"}`. No parameters send
 ///   `{}`.
 /// - Borsh sends each parameter's encoding in order, and nothing without
 ///   parameters.

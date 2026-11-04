@@ -9,13 +9,14 @@ use serde_json::json;
 use tokio::sync::OnceCell;
 
 use crate::Near;
+use crate::json_types::U64;
 use crate::transaction::FunctionCall;
 use crate::types::{AccountId, Gas, NearToken};
 use crate::{Call, ContractError};
 use crate::{Contract, TxSender, Viewer};
 
+use super::read;
 use super::types::{NftContractMetadata, NftToken};
-use super::{Stringified, read};
 
 /// A NEP-171 non-fungible token contract.
 ///
@@ -192,7 +193,7 @@ impl<C: Viewer> NonFungibleTokenClient<C> {
     pub async fn total_supply(&self) -> Result<u64, ContractError<C::ViewError>> {
         read(&self.backend, &self.contract_id, "nft_total_supply", None)
             .await
-            .map(|Stringified(supply)| supply)
+            .map(|U64(supply)| supply)
     }
 
     /// Get token supply for an owner (nft_supply_for_owner).
@@ -208,7 +209,7 @@ impl<C: Viewer> NonFungibleTokenClient<C> {
             Some(json!({ "account_id": account_id })),
         )
         .await
-        .map(|Stringified(supply)| supply)
+        .map(|U64(supply)| supply)
     }
 }
 
@@ -424,6 +425,28 @@ mod tests {
                 json!({"account_id": "alice.near"}),
             ]
         );
+    }
+
+    /// Supplies are a decimal string up to `u64::MAX` (near-sdk's `U64`).
+    #[tokio::test]
+    async fn supplies_decode_as_near_sdk_u64_strings() {
+        let cases = [
+            (json!(u64::MAX.to_string()), Some(u64::MAX)),
+            (json!(12), None),
+            (json!("18446744073709551616"), None),
+        ];
+        for (answer, expected) in cases {
+            let mock = Mock::default().answer("nft_total_supply", answer.clone());
+            let nft = NonFungibleToken::client(mock, account!("nft.near"));
+            let result = nft.total_supply().await;
+            match expected {
+                Some(supply) => assert_eq!(result.unwrap(), supply, "{answer}"),
+                None => assert!(
+                    matches!(result, Err(ContractError::Codec(_))),
+                    "{answer}: {result:?}"
+                ),
+            }
+        }
     }
 
     #[tokio::test]
