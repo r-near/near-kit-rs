@@ -134,6 +134,7 @@ cover each one.
 | `RpcClient::call(method, params)` | `RpcClient::request(method, params)` |
 | `RpcClient::genesis_config()` | `rpc.request::<_, serde_json::Value>("genesis_config", serde_json::json!([]))` |
 | `RpcClient::block_effects(block)`, `RpcClient::maintenance_windows(id)`, `rpc::BlockEffects`, `rpc::StateChangeKindView`, `rpc::MaintenanceWindow` | `rpc.request::<_, serde_json::Value>("block_effects", serde_json::json!({ "block_id": hash }))` (or `{ "finality": "final" }`), `rpc.request::<_, serde_json::Value>("maintenance_windows", serde_json::json!({ "account_id": id }))`, or your own serde type in place of `Value` |
+| `RpcClient::new(url)`, `RpcClient::with_transport_and_retry_config(url, t, c)`, `Near::custom(url, id)` taking `impl Into<String>` | They take `impl Into<RpcEndpoint>`; `&str`, `String` and `&String` still work. A value of a generic `impl Into<String>` type needs `.into()` to a `String` first |
 | `RpcClient::with_retry_config(url, c)` | `RpcClient::new(url).retry_config(c)`, which keeps the default transport, or `Near::custom(url, id).retry_config(c)`; with a custom transport, `RpcClient::with_transport_and_retry_config(url, t, c)` |
 | `RpcClient::sandbox_fast_forward(n)`, `RpcClient::sandbox_patch_state(records)` | `sandbox.fast_forward(n)`, `sandbox.patch_state(records)`; for a sandbox node you started yourself, `near_kit_sandbox::fast_forward(&rpc, n)`, `near_kit_sandbox::patch_state(&rpc, records)` (sends the patch twice, as 0.20.1 did) |
 | `TransportResponse { status, body }` (a struct literal in a custom `RpcTransport`, error E0639) | `TransportResponse::new(status, body)`: the struct is `#[non_exhaustive]`; its fields stay readable |
@@ -771,6 +772,47 @@ match err {
     _ => {}
 }
 ```
+
+### Several RPC endpoints
+
+A client can fail over between providers. near-api's
+`NetworkConfig { rpc_endpoints, .. }` and
+`RPCEndpoint::new(url).with_api_key(key)` map to a primary
+`RpcEndpoint` plus `.fallback(..)`, tried in order:
+
+```rust
+// near-api
+let network = NetworkConfig {
+    rpc_endpoints: vec![
+        RPCEndpoint::new(primary_url.parse()?).with_api_key(key),
+        RPCEndpoint::mainnet(),
+    ],
+    ..NetworkConfig::mainnet()
+};
+
+// This release
+use near_kit::rpc::RpcEndpoint;
+
+let near = Near::custom(RpcEndpoint::new(primary_url).bearer(key), "mainnet")
+    .fallback("https://free.rpc.fastnear.com")
+    .build();
+```
+
+- **Failover happens inside the retry loop.** Every call starts at the
+  primary. A retryable error, including a node that answers
+  `NODE_IS_SYNCING` or `BUSY` with HTTP 200, moves on to the next endpoint
+  at once; the `RetryConfig` delay comes only after every endpoint has
+  failed, and `max_retries` counts those rounds. near-api instead retries
+  each endpoint `retries` times before moving on. An error that isn't
+  retryable, such as an unknown account, is returned without trying
+  another endpoint.
+- **Keys go on their endpoint.** `.bearer(key)` sends
+  `Authorization: Bearer <key>` and `.header(name, value)` any other
+  header, to that endpoint only. Default headers on a shared
+  `reqwest::Client` reach every endpoint, fallbacks included.
+- **A custom `RpcTransport` sends endpoint headers only if it implements
+  `post_json_with_headers`.** Without it, a request to an endpoint with
+  headers fails with a non-retryable `RpcError::Network`.
 
 ### Transaction outcomes
 

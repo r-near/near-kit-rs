@@ -143,6 +143,12 @@ let near = Near::custom("https://rpc.mainnet.example.com", "mainnet")
     .build();
 ```
 
+An [`RpcEndpoint`](crate::rpc::RpcEndpoint) with headers (an API key)
+needs a transport that sends them: implement
+[`post_json_with_headers`](crate::rpc::RpcTransport::post_json_with_headers)
+as well. Without it, requests to such an endpoint fail with a non-retryable
+`RpcError::Network` rather than going out without the key.
+
 Return `Ok` with the status and body for every HTTP response, including
 4xx and 5xx, because nearcore sends JSON-RPC errors in error responses and
 the client reads them. Return `Err` only when there was no response. In

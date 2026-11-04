@@ -174,7 +174,11 @@ near-kit retries at two layers, and they don't overlap.
 [`RpcClient`](crate::rpc::RpcClient) method, which means every read and
 every `send_tx`, and it is controlled by
 [`RetryConfig`](crate::rpc::RetryConfig). The default is three retries after
-the first attempt, waiting 500 ms, 1 s and 2 s. A request is retried when
+the first attempt, waiting 500 ms, 1 s and 2 s. With
+[fallback endpoints](crate::NearBuilder::fallback), each call starts at the
+first endpoint and a failure moves on to the next one at once; the wait comes
+only after every endpoint has failed, and each retry is another round from the
+first endpoint. A request is retried when
 [`RpcError::is_retryable`](crate::rpc::RpcError::is_retryable) is true:
 
 - transport failures: connection refused, reset or dropped mid-response, and
@@ -190,12 +194,14 @@ the first attempt, waiting 500 ms, 1 s and 2 s. A request is retried when
   variants). A `-32000` error with any other cause is returned at once,
   since it depends on the request or the node and won't change.
 
-Everything else is returned after one attempt, including
-`TransactionNotFound`, `ShardNotTracked`, account and contract errors, and
-`InvalidTx(InvalidNonce)`: the signed bytes are fixed at this layer and the
-same nonce can't succeed twice. Re-sending a signed transaction is safe,
-because the node recognizes its hash and reports its status rather than
-running it twice. `sandbox_fast_forward` is the one method never retried.
+Everything else is returned after one attempt, without trying a fallback,
+including `TransactionNotFound`, `ShardNotTracked`, account and contract
+errors, and `InvalidTx(InvalidNonce)`: the signed bytes are fixed at this
+layer and the same nonce can't succeed twice. Re-sending a signed
+transaction is safe, on the same node or a fallback, because a node that
+already has it recognizes its hash and reports its status rather than
+running it twice. `sandbox_fast_forward` is the one method never retried or
+sent to a fallback.
 
 **The transaction layer** re-signs. When the node rejects a send with
 `InvalidNonce`, `NonceTooLarge` or `Expired`, a `Tx` signs again with a

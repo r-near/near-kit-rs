@@ -445,6 +445,10 @@ mod reqwest_backend {
     /// [`NearBuilder::transport`](crate::NearBuilder::transport). Build it with
     /// [`near_kit::reqwest`](crate::reqwest), the reqwest near-kit is built
     /// with, so the versions match.
+    ///
+    /// The client's default headers go to every endpoint, fallbacks
+    /// included, so put a provider's API key on its
+    /// [`RpcEndpoint`](crate::rpc::RpcEndpoint) instead.
     #[derive(Clone, Default)]
     pub struct ReqwestTransport {
         client: reqwest::Client,

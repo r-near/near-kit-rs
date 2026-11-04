@@ -506,8 +506,10 @@ impl NearBuilder {
     /// host call instead of exposing raw HTTP. On WASI builds without the
     /// `wasi-http` feature it is the *only* way to reach the network — the
     /// default there only returns a typed transport error. To configure the
-    /// default reqwest transport (headers, proxies, TLS, timeouts), pass
-    /// `ReqwestTransport::with_client(client)`.
+    /// default reqwest transport (proxies, TLS, timeouts), pass
+    /// `ReqwestTransport::with_client(client)`. API keys belong on each
+    /// [`RpcEndpoint`] rather than in that client's default headers, which
+    /// every endpoint receives.
     pub fn transport(mut self, transport: impl RpcTransport + 'static) -> Self {
         self.transport = Some(Arc::new(transport));
         self

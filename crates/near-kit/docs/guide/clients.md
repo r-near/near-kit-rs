@@ -96,11 +96,48 @@ assert_eq!(near.rpc().url(), "https://rpc.mainnet.example.com");
 Use the network's real chain ID (`mainnet`, `testnet`, or your network's);
 the [nonces chapter](crate::guide::nonces) explains why.
 
-### Headers, API keys, proxies and timeouts
+### API keys and fallback endpoints
 
-Providers that want an API key in a header, a proxy, or a request timeout
-are configured on the HTTP client. Build a `reqwest::Client` and wrap it
-with [`ReqwestTransport::with_client`](crate::rpc::ReqwestTransport::with_client).
+Providers that want an API key in a header get it on their
+[`RpcEndpoint`](crate::rpc::RpcEndpoint), with
+[`bearer`](crate::rpc::RpcEndpoint::bearer) for `Authorization: Bearer ..`
+or [`header`](crate::rpc::RpcEndpoint::header) for any other. A URL alone
+converts into an endpoint, so `Near::custom` takes either. Add other
+providers with [`fallback`](crate::NearBuilder::fallback):
+
+```rust
+use near_kit::Near;
+use near_kit::rpc::RpcEndpoint;
+
+let near = Near::custom(
+    RpcEndpoint::new("https://rpc.mainnet.example.com").bearer("my-api-key"),
+    "mainnet",
+)
+.fallback(RpcEndpoint::new("https://rpc.other.example.com").header("x-api-key", "other-key"))
+.fallback("https://free.rpc.fastnear.com")
+.build();
+```
+
+Every call starts at the first endpoint. When it fails with an error that
+[`is_retryable`](crate::rpc::RpcError::is_retryable), such as a refused
+connection, a timeout, a 5xx or a node that answers `NODE_IS_SYNCING` or
+`BUSY`, the client tries the next endpoint at once, and waits the retry
+delay only after every endpoint has failed; see
+[retries](crate::guide::errors#retries). Any other error, such as an
+unknown account, comes back at once, since another node would give the same
+answer. An endpoint's headers go to that endpoint only, and `tracing` spans,
+events and `Debug` output show the URL's scheme and host and the header
+names, never the header values. All endpoints should serve the same network.
+
+Some providers take the key in the URL instead; pass that URL. `tracing`
+and `Debug` output show only the URL's scheme and host, never its path,
+query string or credentials.
+
+### Proxies and timeouts
+
+A proxy or a request timeout is configured on the HTTP client. Build a
+`reqwest::Client` and wrap it with
+[`ReqwestTransport::with_client`](crate::rpc::ReqwestTransport::with_client).
 [`near_kit::reqwest`](crate::reqwest) is the reqwest near-kit is built
 with, so the client's version always matches:
 
@@ -109,17 +146,10 @@ use std::time::Duration;
 
 use near_kit::Near;
 use near_kit::reqwest;
-use near_kit::reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use near_kit::rpc::ReqwestTransport;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let mut headers = HeaderMap::new();
-let mut token = HeaderValue::from_str("Bearer my-api-key")?;
-token.set_sensitive(true);
-headers.insert(AUTHORIZATION, token);
-
 let http = reqwest::Client::builder()
-    .default_headers(headers)
     .timeout(Duration::from_secs(30))
     .build()?;
 
@@ -130,9 +160,9 @@ let near = Near::custom("https://rpc.mainnet.example.com", "mainnet")
 # }
 ```
 
-Some providers take the key in the URL instead; pass that URL to
-`Near::custom`. `tracing` spans and `Debug` output show only the URL's
-scheme and host, never its path, query string or credentials.
+The client's default headers go to every endpoint, so keep provider keys
+on their endpoints instead. An endpoint header replaces a default header of
+the same name.
 
 Platforms whose HTTP stack isn't reqwest implement
 [`RpcTransport`](crate::rpc::RpcTransport) themselves; see the
@@ -146,6 +176,7 @@ every call through a client:
 
 | Setting | Default | Covers |
 |---|---|---|
+| [`fallback`](crate::NearBuilder::fallback) | None | Other endpoints to try when one fails with a retryable error |
 | [`transport`](crate::NearBuilder::transport) | reqwest (`wasi:http` on WASI with `wasi-http`) | How HTTP requests are made |
 | [`retry_config`](crate::NearBuilder::retry_config) | 3 retries, 500 ms doubling | Re-sending a request after a transient failure |
 | [`max_nonce_retries`](crate::NearBuilder::max_nonce_retries) | 3 | Re-signing a send after a nonce or expiry rejection |
