@@ -24,7 +24,7 @@ use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountIdRef, AccountView, BlockReference,
     BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
     FunctionCallError, GasKeyNoncesView, GasPrice, GlobalContractId, GlobalContractIdentifierView,
-    HostError, MethodResolveError, PublicKey, PublicKeyHandle, ReceiptToTxResponse,
+    HostError, MethodResolveError, PublicKey, PublicKeyHandle, Receipt, ReceiptToTxResponse,
     SignedTransaction, StatusResponse, SyncCheckpoint, TxExecutionStatus, ViewFunctionResult,
     ViewStateAllResult, ViewStateResult,
 };
@@ -1429,6 +1429,30 @@ impl RpcClient {
     ) -> Result<ReceiptToTxResponse, RpcError> {
         let params = serde_json::json!({ "receipt_id": receipt_id.to_string() });
         self.request("EXPERIMENTAL_receipt_to_tx", params).await
+    }
+
+    /// Get a receipt by its ID: its predecessor, receiver and content (the
+    /// actions, or the data it carries).
+    ///
+    /// Uses `EXPERIMENTAL_receipt`. Returns [`RpcError::ReceiptNotFound`],
+    /// which is not retried, if the node doesn't know the receipt: it was
+    /// never created, or a non-archival node has garbage-collected it (after
+    /// a few epochs). The receipt IDs of a transaction are in its outcome's
+    /// [`receipts_outcome`](crate::rpc::FinalExecutionOutcome::receipts_outcome).
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # async fn example(near: &Near, outcome: &rpc::FinalExecutionOutcome) -> Result<(), Error> {
+    /// let receipt_id = &outcome.receipts_outcome[0].id;
+    /// let receipt = near.rpc().receipt(receipt_id).await?;
+    /// println!("{} -> {}", receipt.predecessor_id, receipt.receiver_id);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(%receipt_id)))]
+    pub async fn receipt(&self, receipt_id: &CryptoHash) -> Result<Receipt, RpcError> {
+        let params = serde_json::json!({ "receipt_id": receipt_id.to_string() });
+        self.request("EXPERIMENTAL_receipt", params).await
     }
 }
 
@@ -3682,6 +3706,72 @@ mod tests {
             transport.params(),
             [serde_json::json!({ "receipt_id": receipt_id.to_string() })]
         );
+    }
+
+    #[tokio::test]
+    async fn test_receipt_decodes_captured_response() {
+        // Verbatim testnet `EXPERIMENTAL_receipt` response: an action receipt
+        // carrying a delegate action.
+        let body = r#"{"jsonrpc":"2.0","result":{"predecessor_id":"bookerbob-demo.testnet","priority":0,"receipt":{"Action":{"actions":[{"Delegate":{"delegate_action":{"actions":[{"FunctionCall":{"args":"eyJyZWNlaXZlcl9pZCI6ImJvb2tlcmJvYi50ZXN0bmV0IiwiYW1vdW50IjoiMzYwMDAwMDAiLCJtc2ciOiIifQ==","deposit":"1","gas":100000000000000,"method_name":"ft_transfer_call"}}],"max_block_height":276255096,"nonce":276254834000005,"public_key":"ed25519:Ekmd7rQCvDXa2pTW5BVNS9EgexB8b4w5AuXDN2AYyAjE","receiver_id":"bookerbob-dusdc.testnet","sender_id":"t-823cb3.bookerbob-demo.testnet"},"signature":"ed25519:ywMxZiVVn3HAkCJo8xXYm5u7mRA21VxFoHVAFzXPQ8zpArNFEPY1hNeJjFa1TeBMDriAetFxzFnULV3NbbtJeMs"}}],"gas_price":"1000000000","input_data_ids":[],"is_promise_yield":false,"output_data_receivers":[],"signer_id":"bookerbob-demo.testnet","signer_public_key":"ed25519:25TTam42F2scxWqhTRZcnkm6eRamt75FNTmDfHTS9G6b"}},"receipt_id":"Go6QKRsrBjeQCrGEGzEdANhw5ZHjQCsxh38tAQeju3Em","receiver_id":"t-823cb3.bookerbob-demo.testnet"},"id":0}"#;
+        let transport = CountingTransport::new(200, body);
+        let receipt_id: CryptoHash = "Go6QKRsrBjeQCrGEGzEdANhw5ZHjQCsxh38tAQeju3Em"
+            .parse()
+            .unwrap();
+
+        let receipt = transport.client().receipt(&receipt_id).await.unwrap();
+        assert_eq!(
+            transport.params(),
+            [serde_json::json!({ "receipt_id": receipt_id.to_string() })]
+        );
+        assert_eq!(receipt.receipt_id, receipt_id);
+        assert_eq!(receipt.predecessor_id.as_str(), "bookerbob-demo.testnet");
+        assert_eq!(
+            receipt.receiver_id.as_str(),
+            "t-823cb3.bookerbob-demo.testnet"
+        );
+        assert_eq!(receipt.priority, Some(0));
+        let crate::types::ReceiptContent::Action(action) = receipt.receipt else {
+            panic!("expected an action receipt, got {:?}", receipt.receipt);
+        };
+        assert_eq!(action.signer_id.as_str(), "bookerbob-demo.testnet");
+        assert_eq!(
+            action.gas_price,
+            crate::NearToken::from_yoctonear(1_000_000_000)
+        );
+        assert_eq!(action.is_promise_yield, Some(false));
+        let [
+            crate::types::ActionView::Delegate {
+                delegate_action, ..
+            },
+        ] = action.actions.as_slice()
+        else {
+            panic!("expected one delegate action, got {:?}", action.actions);
+        };
+        assert_eq!(
+            delegate_action.receiver_id.as_str(),
+            "bookerbob-dusdc.testnet"
+        );
+        assert_eq!(delegate_action.nonce, 276_254_834_000_005);
+    }
+
+    #[tokio::test]
+    async fn test_receipt_unknown_is_receipt_not_found_and_not_retried() {
+        // Verbatim testnet answer for a receipt ID the node has never seen.
+        let body = r#"{"jsonrpc":"2.0","error":{"name":"HANDLER_ERROR","cause":{"info":{"receipt_id":"11111111111111111111111111111111"},"name":"UNKNOWN_RECEIPT"},"code":-32000,"message":"Server error","data":{"info":{"receipt_id":"11111111111111111111111111111111"},"name":"UNKNOWN_RECEIPT"}},"id":0}"#;
+        let transport = CountingTransport::new(200, body);
+        let client = RpcClient::with_transport_and_retry_config(
+            "https://example.com",
+            transport.clone(),
+            fast_retries(3),
+        );
+
+        let err = client.receipt(&CryptoHash::ZERO).await.unwrap_err();
+        assert!(
+            matches!(&err, RpcError::ReceiptNotFound(id) if id == "11111111111111111111111111111111"),
+            "{err:?}"
+        );
+        assert!(!err.is_retryable());
+        assert_eq!(transport.calls(), 1);
     }
 
     #[tokio::test]

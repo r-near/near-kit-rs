@@ -353,6 +353,7 @@ impl near_kit::rpc::RpcClient
 pub async fn near_kit::rpc::RpcClient::block(&self, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::BlockView, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::gas_price(&self, core::option::Option<&near_kit_primitives::types::hash::CryptoHash>) -> core::result::Result<near_kit_primitives::types::rpc::GasPrice, near_kit::rpc::RpcError>
 pub fn near_kit::rpc::RpcClient::new(impl core::convert::Into<alloc::string::String>) -> Self
+pub async fn near_kit::rpc::RpcClient::receipt(&self, &near_kit_primitives::types::hash::CryptoHash) -> core::result::Result<near_kit_primitives::types::rpc::Receipt, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::receipt_to_tx(&self, &near_kit_primitives::types::hash::CryptoHash) -> core::result::Result<near_kit_primitives::types::rpc::ReceiptToTxResponse, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::request<P: serde_core::ser::Serialize, R: serde_core::de::DeserializeOwned>(&self, &str, P) -> core::result::Result<R, near_kit::rpc::RpcError>
 pub fn near_kit::rpc::RpcClient::retry_config(self, near_kit::rpc::RetryConfig) -> Self
