@@ -9,13 +9,14 @@ use serde_json::json;
 use tokio::sync::OnceCell;
 
 use crate::Near;
+use crate::json_types::U64;
 use crate::transaction::FunctionCall;
 use crate::types::{AccountId, Gas, NearToken};
 use crate::{Call, ContractError};
 use crate::{Contract, TxSender, Viewer};
 
+use super::read;
 use super::types::{NftContractMetadata, NftToken};
-use super::{Stringified, read};
 
 /// A NEP-171 non-fungible token contract.
 ///
@@ -192,7 +193,7 @@ impl<C: Viewer> NonFungibleTokenClient<C> {
     pub async fn total_supply(&self) -> Result<u64, ContractError<C::ViewError>> {
         read(&self.backend, &self.contract_id, "nft_total_supply", None)
             .await
-            .map(|Stringified(supply)| supply)
+            .map(|U64(supply)| supply)
     }
 
     /// Get token supply for an owner (nft_supply_for_owner).
@@ -208,7 +209,7 @@ impl<C: Viewer> NonFungibleTokenClient<C> {
             Some(json!({ "account_id": account_id })),
         )
         .await
-        .map(|Stringified(supply)| supply)
+        .map(|U64(supply)| supply)
     }
 }
 

@@ -9,13 +9,14 @@ use serde_json::json;
 use tokio::sync::OnceCell;
 
 use crate::Near;
+use crate::json_types::U128;
 use crate::transaction::FunctionCall;
 use crate::types::{AccountId, Gas, NearToken};
 use crate::{Call, ContractError};
 use crate::{Contract, TxSender, Viewer};
 
+use super::read;
 use super::types::{FtMetadata, StorageBalance, StorageBalanceBounds};
-use super::{Stringified, read};
 
 /// A NEP-141 fungible token contract.
 ///
@@ -131,14 +132,14 @@ impl<C: Viewer> FungibleTokenClient<C> {
         )
         .instrument(span)
         .await
-        .map(|Stringified(raw)| raw)
+        .map(|U128(raw)| raw)
     }
 
     /// Get total token supply (ft_total_supply), in the token's smallest unit.
     pub async fn total_supply(&self) -> Result<u128, ContractError<C::ViewError>> {
         read(&self.backend, &self.contract_id, "ft_total_supply", None)
             .await
-            .map(|Stringified(raw)| raw)
+            .map(|U128(raw)| raw)
     }
 
     /// Check if an account is registered on this token contract.

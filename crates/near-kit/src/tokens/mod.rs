@@ -8,8 +8,6 @@ pub use ft::*;
 pub use nft::*;
 pub use types::*;
 
-use std::str::FromStr;
-
 use serde::de::DeserializeOwned;
 
 use crate::Viewer;
@@ -33,22 +31,6 @@ where
         view = view.args(args);
     }
     Ok(view.with_metadata().await?.result)
-}
-
-/// A number the contract returns as a JSON string (`U128`/`U64`).
-struct Stringified<T>(T);
-
-impl<'de, T> serde::Deserialize<'de> for Stringified<T>
-where
-    T: FromStr,
-    T::Err: std::fmt::Display,
-{
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = String::deserialize(deserializer)?;
-        text.parse().map(Stringified).map_err(|error| {
-            serde::de::Error::custom(format_args!("invalid number {text:?}: {error}"))
-        })
-    }
 }
 
 #[cfg(test)]
