@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.4](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.3...near-kit-v0.30.0-rc.4) - 2026-11-04
+
+Upgrading from 0.20.1? Start with the 0.30.0-rc.1 notes below and
+[MIGRATION.md](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md).
+
+### Changed (breaking)
+
+- **`RpcError::Rpc` has an `info` field**, `Option<serde_json::Value>`:
+  the node's error details (`error.cause.info`) as raw JSON, when the
+  response has them, so callers can read what goes with a cause near-kit
+  doesn't map to a typed variant. Struct patterns and literals without `..`
+  need the new field (`info: None` in a test literal).
+  ([#396](https://github.com/r-near/near-kit-rs/pull/396))
+
+### Added
+
+- **`RpcClient::retry_config(config)`** changes only a client's retries and
+  keeps its URL and transport, so the default transport no longer has to be
+  named: `RpcClient::with_transport_and_retry_config(url,
+  Arc::new(ReqwestTransport::default()), c)` becomes
+  `RpcClient::new(url).retry_config(c)`.
+  ([#397](https://github.com/r-near/near-kit-rs/pull/397))
+
+### Documentation
+
+- MIGRATION.md lists the RPC errors 0.20.1 retried that are now returned
+  after one attempt (an indexer's `DATA_UNAVAILABLE`, `INCOMPLETE_DATA`,
+  `LIMIT_EXCEEDED` and `UNSUPPORTED` causes), notes that a node's
+  `TIMEOUT_ERROR` is `RpcError::Timeout`, and names the E0639 error a
+  `TransportResponse` struct literal gives.
+  ([#397](https://github.com/r-near/near-kit-rs/pull/397))
+
 ## [0.30.0-rc.3](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.2...near-kit-v0.30.0-rc.3) - 2026-10-30
 
 Upgrading from 0.20.1? Start with the 0.30.0-rc.1 notes below and
