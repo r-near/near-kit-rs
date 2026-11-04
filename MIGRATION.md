@@ -139,6 +139,7 @@ cover each one.
 | `TransportResponse { status, body }` (a struct literal in a custom `RpcTransport`, error E0639) | `TransportResponse::new(status, body)`: the struct is `#[non_exhaustive]`; its fields stay readable |
 | `RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`, `RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE` | Crate-private (10,000 and 100) |
 | `rpc::RawTransactionResponse` (hidden) | `rpc::RpcTransactionResponse`, documented; `send_tx` and `tx_status` return it |
+| `rpc.call::<_, Receipt>("EXPERIMENTAL_receipt", ..)` (no typed method) | `rpc.receipt(&receipt_id)`, returning `rpc::Receipt`; a receipt the node doesn't know (or has garbage-collected) is `RpcError::ReceiptNotFound`, not retried |
 
 ### Typed arguments
 

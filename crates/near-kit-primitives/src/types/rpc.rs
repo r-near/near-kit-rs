@@ -1802,7 +1802,8 @@ impl ViewFunctionResult {
     }
 }
 
-/// Receipt from EXPERIMENTAL_tx_status.
+/// A receipt, as `EXPERIMENTAL_receipt` returns it and
+/// `EXPERIMENTAL_tx_status` lists it in [`FinalExecutionOutcome::receipts`].
 #[derive(Debug, Clone, Deserialize)]
 pub struct Receipt {
     /// Predecessor account that created this receipt.
