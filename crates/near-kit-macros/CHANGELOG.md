@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0-rc.4](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0-rc.3...near-kit-macros-v0.15.0-rc.4) - 2026-11-04
+
+No user-facing changes; version bumped with the workspace.
+
 ## [0.15.0-rc.3](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0-rc.2...near-kit-macros-v0.15.0-rc.3) - 2026-10-30
 
 ### Changed without a compile error

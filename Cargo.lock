@@ -1911,7 +1911,7 @@ dependencies = [
 
 [[package]]
 name = "near-kit-macros"
-version = "0.15.0-rc.3"
+version = "0.15.0-rc.4"
 dependencies = [
  "near-kit",
  "proc-macro-crate",

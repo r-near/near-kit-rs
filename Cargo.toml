@@ -77,7 +77,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Internal crates
 near-kit = { path = "crates/near-kit", version = "=0.30.0-rc.4", default-features = false }
-near-kit-macros = { path = "crates/near-kit-macros", version = "=0.15.0-rc.3" }
+near-kit-macros = { path = "crates/near-kit-macros", version = "=0.15.0-rc.4" }
 near-kit-primitives = { path = "crates/near-kit-primitives", version = "=0.30.0-rc.4" }
 
 [profile.release]
