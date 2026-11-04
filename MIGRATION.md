@@ -134,9 +134,9 @@ cover each one.
 | `RpcClient::call(method, params)` | `RpcClient::request(method, params)` |
 | `RpcClient::genesis_config()` | `rpc.request::<_, serde_json::Value>("genesis_config", serde_json::json!([]))` |
 | `RpcClient::block_effects(block)`, `RpcClient::maintenance_windows(id)`, `rpc::BlockEffects`, `rpc::StateChangeKindView`, `rpc::MaintenanceWindow` | `rpc.request::<_, serde_json::Value>("block_effects", serde_json::json!({ "block_id": hash }))` (or `{ "finality": "final" }`), `rpc.request::<_, serde_json::Value>("maintenance_windows", serde_json::json!({ "account_id": id }))`, or your own serde type in place of `Value` |
-| `RpcClient::with_retry_config(url, c)` | `RpcClient::with_transport_and_retry_config(url, Arc::new(ReqwestTransport::default()), c)`, or `Near::custom(url, id).retry_config(c)` |
+| `RpcClient::with_retry_config(url, c)` | `RpcClient::new(url).retry_config(c)`, which keeps the default transport, or `Near::custom(url, id).retry_config(c)`; with a custom transport, `RpcClient::with_transport_and_retry_config(url, t, c)` |
 | `RpcClient::sandbox_fast_forward(n)`, `RpcClient::sandbox_patch_state(records)` | `sandbox.fast_forward(n)`, `sandbox.patch_state(records)`; for a sandbox node you started yourself, `near_kit_sandbox::fast_forward(&rpc, n)`, `near_kit_sandbox::patch_state(&rpc, records)` (sends the patch twice, as 0.20.1 did) |
-| `TransportResponse { status, body }` (a struct literal in a custom `RpcTransport`) | `TransportResponse::new(status, body)`: the struct is `#[non_exhaustive]`; its fields stay readable |
+| `TransportResponse { status, body }` (a struct literal in a custom `RpcTransport`, error E0639) | `TransportResponse::new(status, body)`: the struct is `#[non_exhaustive]`; its fields stay readable |
 | `RpcClient::DEFAULT_VIEW_STATE_PAGE_SIZE`, `RpcClient::DEFAULT_VIEW_ACCESS_KEYS_PAGE_SIZE` | Crate-private (10,000 and 100) |
 | `rpc::RawTransactionResponse` (hidden) | `rpc::RpcTransactionResponse`, documented; `send_tx` and `tx_status` return it |
 
@@ -745,6 +745,13 @@ works.
   (`NODE_IS_SYNCING`, `NO_NEW_BLOCKS`, `BUSY`, `NOT_CONFIRMED`,
   `CHUNK_NOT_CERTIFIED`); 0.20.1 retried every `-32000` error. Struct patterns
   and literals without `..` need the new fields.
+- **Indexer causes are no longer retried.** A `-32000` error with an
+  indexer's `DATA_UNAVAILABLE`, `INCOMPLETE_DATA`, `LIMIT_EXCEEDED` or
+  `UNSUPPORTED` cause is returned after one attempt and isn't retryable;
+  0.20.1 retried it. `BUSY` is still retried. Sent with HTTP status 408 or
+  429, any of them comes back as a retryable `RpcError::Network` instead.
+- **A node's `TIMEOUT_ERROR` is `RpcError::Timeout { .. }`**, 0.20.1's
+  `RpcError::RequestTimeout`. It is still retried.
 
 ```rust
 // 0.20.1
