@@ -9,11 +9,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.30.0-rc.5](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.4...near-kit-v0.30.0-rc.5) - 2026-11-04
 
+Upgrading from 0.20.1? Start with the 0.30.0-rc.1 notes below and
+[MIGRATION.md](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md).
+
+### Changed (breaking)
+
+- **`RpcClient::new`, `RpcClient::with_transport_and_retry_config` and
+  `Near::custom` take `impl Into<RpcEndpoint>`** instead of
+  `impl Into<String>`. `&str`, `String` and `&String` still work; a value of
+  a generic `impl Into<String>` type needs `.into()` to a `String` first.
+  ([#400](https://github.com/r-near/near-kit-rs/pull/400))
+
 ### Added
 
-- [**breaking**] fail over across RPC endpoints inside the retry loop, so a keyed primary can fall back to other providers ([#400](https://github.com/r-near/near-kit-rs/pull/400))
-- RpcClient::receipt fetches a receipt by ID, so callers stop hand-rolling EXPERIMENTAL_receipt ([#402](https://github.com/r-near/near-kit-rs/pull/402))
-- add near-sdk's json_types (U128, U64, Base64VecU8, ...), so contract signatures copy over unchanged ([#399](https://github.com/r-near/near-kit-rs/pull/399))
+- **RPC endpoint failover.** `rpc::RpcEndpoint` is a URL plus the headers
+  sent only to it, and `NearBuilder::fallback(..)` /
+  `RpcClient::fallback(..)` add more endpoints, tried in order inside the
+  retry loop: a retryable error, including `NODE_IS_SYNCING` or `BUSY` sent
+  with HTTP 200, moves on to the next endpoint at once, and the
+  `RetryConfig` delay comes only after every endpoint has failed. A client
+  with one endpoint behaves as before. `RpcClient::endpoints()` lists them;
+  `url()` is still the primary's.
+  `Near::custom(url, "mainnet").transport(ReqwestTransport::with_client(http))`,
+  with the key in `http`'s default headers, becomes
+  `Near::custom(RpcEndpoint::new(url).bearer(key), "mainnet").fallback("https://free.rpc.fastnear.com")`.
+  ([#400](https://github.com/r-near/near-kit-rs/pull/400))
+- **Per-endpoint headers**: `RpcEndpoint::bearer(key)` sends
+  `Authorization: Bearer <key>` and `.header(name, value)` any other header,
+  to that endpoint only, so a fallback provider never sees the primary's
+  key. `RpcTransport::post_json_with_headers` sends them; it has a default,
+  so a custom transport still compiles, but without an override a request to
+  an endpoint with headers fails with a non-retryable `RpcError::Network`.
+  `ReqwestTransport` and `WasiHttpTransport` implement it.
+  ([#400](https://github.com/r-near/near-kit-rs/pull/400))
+- **`near_kit::json_types::{U64, I64, U128, I128, Base64VecU8}`**, with
+  near-sdk's names, public tuple field and wire format (decimal strings and
+  standard base64 in JSON, the inner value in Borsh), so a contract's
+  `amount: U128` copies into a `#[contract]` trait unchanged.
+  ([#399](https://github.com/r-near/near-kit-rs/pull/399))
+- **`RpcClient::receipt(&receipt_id)`** fetches a receipt over
+  `EXPERIMENTAL_receipt` and returns `rpc::Receipt`; an unknown or
+  garbage-collected receipt is `RpcError::ReceiptNotFound`, not retried.
+  ([#402](https://github.com/r-near/near-kit-rs/pull/402))
+
+### Documentation
+
+- MIGRATION.md has a "Several RPC endpoints" section on failover order,
+  per-endpoint keys and custom transports, and rows for the
+  `Into<RpcEndpoint>` signatures, `json_types` and `receipt`.
+  ([#399](https://github.com/r-near/near-kit-rs/pull/399),
+  [#400](https://github.com/r-near/near-kit-rs/pull/400),
+  [#402](https://github.com/r-near/near-kit-rs/pull/402))
 
 ## [0.30.0-rc.4](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.3...near-kit-v0.30.0-rc.4) - 2026-11-04
 

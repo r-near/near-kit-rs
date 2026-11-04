@@ -11,8 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- RpcClient::receipt fetches a receipt by ID, so callers stop hand-rolling EXPERIMENTAL_receipt ([#402](https://github.com/r-near/near-kit-rs/pull/402))
-- add near-sdk's json_types (U128, U64, Base64VecU8, ...), so contract signatures copy over unchanged ([#399](https://github.com/r-near/near-kit-rs/pull/399))
+- **`json_types::{U64, I64, U128, I128, Base64VecU8}`**, near-sdk's JSON
+  wrappers with the same names, public tuple field and wire format: decimal
+  strings and standard base64 in JSON, the inner value in Borsh. near-kit
+  re-exports them as `near_kit::json_types`.
+  ([#399](https://github.com/r-near/near-kit-rs/pull/399))
 
 ## [0.30.0-rc.4](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0-rc.3...near-kit-primitives-v0.30.0-rc.4) - 2026-11-04
 
