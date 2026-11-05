@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.6](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.5...near-kit-v0.30.0-rc.6) - 2026-11-05
+
+### Added
+
+- contract clients hand out their backend, so helpers can take just the client ([#405](https://github.com/r-near/near-kit-rs/pull/405))
+
+### Other
+
+- put the existing way to do things in the errors and guides people check first ([#406](https://github.com/r-near/near-kit-rs/pull/406))
+
 ## [0.30.0-rc.5](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.4...near-kit-v0.30.0-rc.5) - 2026-11-04
 
 Upgrading from 0.20.1? Start with the 0.30.0-rc.1 notes below and

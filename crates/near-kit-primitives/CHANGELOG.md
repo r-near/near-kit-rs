@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.6](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0-rc.5...near-kit-primitives-v0.30.0-rc.6) - 2026-11-05
+
+### Other
+
+- put the existing way to do things in the errors and guides people check first ([#406](https://github.com/r-near/near-kit-rs/pull/406))
+
 ## [0.30.0-rc.5](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0-rc.4...near-kit-primitives-v0.30.0-rc.5) - 2026-11-04
 
 ### Added
