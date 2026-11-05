@@ -1,4 +1,4 @@
-error: `#[call]` methods resolve to the sender's `TxSender::Output`; remove the return type
+error: `#[call]` methods resolve to the sender's `TxSender::Output`, the transaction outcome; remove the return type and decode the result from the outcome with `.await?.json::<T>()`
  --> tests/compile-fail/call_return_type.rs:8:28
   |
 8 |     fn close(&mut self) -> bool;

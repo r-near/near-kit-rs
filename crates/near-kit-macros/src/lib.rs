@@ -348,7 +348,9 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
                 return Err(syn::Error::new_spanned(
                     attr,
                     "#[near_kit::contract] supports no attributes on method parameters other \
-                     than #[args]",
+                     than #[args]; to control how a value is serialized, send an #[args] struct \
+                     and put #[serde(..)] or #[serde_as(..)] on its fields, or use a wire type \
+                     such as `near_kit::json_types::U128`",
                 ));
             }
             if attr.meta.require_path_only().is_err() {
@@ -408,8 +410,9 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         ReturnType::Type(_, ty) if is_call => {
             return Err(syn::Error::new(
                 ty.span(),
-                "`#[call]` methods resolve to the sender's `TxSender::Output`; \
-                 remove the return type",
+                "`#[call]` methods resolve to the sender's `TxSender::Output`, the transaction \
+                 outcome; remove the return type and decode the result from the outcome with \
+                 `.await?.json::<T>()`",
             ));
         }
         ReturnType::Type(_, ty) => (**ty).clone(),
@@ -1146,7 +1149,10 @@ mod tests {
         );
         assert_eq!(
             error(parse_quote! { fn f(&self, #[serde(rename = "b")] a: A) -> u64; }),
-            "#[near_kit::contract] supports no attributes on method parameters other than #[args]"
+            "#[near_kit::contract] supports no attributes on method parameters other than \
+             #[args]; to control how a value is serialized, send an #[args] struct and put \
+             #[serde(..)] or #[serde_as(..)] on its fields, or use a wire type such as \
+             `near_kit::json_types::U128`"
         );
     }
 }
