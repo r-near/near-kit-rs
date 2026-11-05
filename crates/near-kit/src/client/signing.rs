@@ -292,6 +292,29 @@ impl<W: WaitLevel> SigningNear<W> {
     /// let relayer = relayer.max_nonce_retries(u32::MAX).wait_until::<Included>();
     /// # }
     /// ```
+    ///
+    /// # One transaction with its own limit
+    ///
+    /// Set it on a clone and start the transaction from that. Cloning a
+    /// `SigningNear` is cheap: it copies three `Arc`s (the RPC connection,
+    /// the node's genesis hash and the signer), the chain ID and the retry
+    /// limit. The clone sends over the same connection and draws from the
+    /// same nonce sequence, and `alice` keeps its own limit:
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # use near_kit::protocol::Action;
+    /// # async fn example(alice: SigningNear) -> Result<(), Error> {
+    /// alice
+    ///     .clone()
+    ///     .max_nonce_retries(10)
+    ///     .transaction(account!("bob.testnet"))
+    ///     .add_action(Action::transfer(NearToken::from_near(1)))
+    ///     .await?
+    ///     .result()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn max_nonce_retries(mut self, retries: u32) -> Self {
         self.near.max_nonce_retries = retries;
         self
