@@ -41,7 +41,8 @@ the macro generates:
 - a unit struct `Guestbook`, with a `FunctionCall` constructor for each
   `#[call]` method (`Guestbook::add_message(text)`);
 - `GuestbookClient<C>`, a client over a backend `C` (`C` defaults to
-  `Near`), with one method per trait method and `contract_id()`;
+  `Near`), with one method per trait method, `contract_id()`, and
+  `backend()` and `into_parts()` for the backend it was built from;
 - `impl Contract for Guestbook`, which is how
   [`Near::contract`](crate::Near::contract) and
   [`SigningNear::contract`](crate::SigningNear::contract) build the client.
@@ -278,8 +279,9 @@ The macro rejects, with a compile error, what it can't generate correctly:
   sender's output; decode the outcome instead.
 - **Not supported:** `async fn`, default method bodies, generic or
   `unsafe` traits, supertraits, and items other than methods.
-- **Reserved names.** `client`, `contract_id` and `clone` collide with the
-  generated client and are rejected; rename the method.
+- **Reserved names.** `client`, `contract_id`, `backend`, `into_parts`
+  and `clone` collide with the generated items and are rejected; rename
+  the method.
 
 Two attributes carry through:
 
@@ -348,6 +350,26 @@ use near_kit::{Contract, Near, account};
 
 let guestbook = Guestbook::client(Near::testnet().build(), account!("guestbook.testnet"));
 assert_eq!(guestbook.contract_id(), "guestbook.testnet");
+```
+
+`backend()` borrows the backend back and `into_parts()` returns it with the
+contract account, so a helper can take just the client:
+
+```rust,no_run
+# #[near_kit::contract]
+# pub trait Guestbook {
+#     fn total_messages(&self) -> u32;
+#     #[call]
+#     fn add_message(&mut self, text: &str);
+# }
+use near_kit::*;
+
+async fn sign_guestbook(guestbook: &GuestbookClient<SigningNear>) -> Result<(), Error> {
+    let alice = guestbook.backend();
+    let text = format!("hello from {}", alice.account_id());
+    guestbook.add_message(&text).await?.result()?;
+    Ok(())
+}
 ```
 
 A backend that isn't `Clone` works through `&T` or `Arc<T>`. The
