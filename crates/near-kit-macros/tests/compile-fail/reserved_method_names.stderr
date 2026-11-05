@@ -1,23 +1,35 @@
-error: `client` is reserved by #[near_kit::contract] (the generated client uses it); rename the method
- --> tests/compile-fail/reserved_method_names.rs:8:8
+error: `client` is reserved by #[near_kit::contract], which generates `client` on the marker type and `contract_id`, `backend` and `into_parts` on the client; rename the method
+ --> tests/compile-fail/reserved_method_names.rs:9:8
   |
-8 |     fn client(&mut self);
+9 |     fn client(&mut self);
   |        ^^^^^^
 
-error: `client` is reserved by #[near_kit::contract] (the generated client uses it); rename the method
-  --> tests/compile-fail/reserved_method_names.rs:14:8
+error: `client` is reserved by #[near_kit::contract], which generates `client` on the marker type and `contract_id`, `backend` and `into_parts` on the client; rename the method
+  --> tests/compile-fail/reserved_method_names.rs:15:8
    |
-14 |     fn r#client(&mut self);
+15 |     fn r#client(&mut self);
    |        ^^^^^^^^
 
-error: `contract_id` is reserved by #[near_kit::contract] (the generated client uses it); rename the method
-  --> tests/compile-fail/reserved_method_names.rs:19:8
+error: `contract_id` is reserved by #[near_kit::contract], which generates `client` on the marker type and `contract_id`, `backend` and `into_parts` on the client; rename the method
+  --> tests/compile-fail/reserved_method_names.rs:20:8
    |
-19 |     fn contract_id(&self) -> String;
+20 |     fn contract_id(&self) -> String;
    |        ^^^^^^^^^^^
 
-error: `clone` is reserved by #[near_kit::contract] (it would shadow `Clone::clone` on the generated client); rename the method
-  --> tests/compile-fail/reserved_method_names.rs:24:8
+error: `backend` is reserved by #[near_kit::contract], which generates `client` on the marker type and `contract_id`, `backend` and `into_parts` on the client; rename the method
+  --> tests/compile-fail/reserved_method_names.rs:25:8
    |
-24 |     fn clone(&self) -> u64;
+25 |     fn backend(&self) -> String;
+   |        ^^^^^^^
+
+error: `into_parts` is reserved by #[near_kit::contract], which generates `client` on the marker type and `contract_id`, `backend` and `into_parts` on the client; rename the method
+  --> tests/compile-fail/reserved_method_names.rs:31:8
+   |
+31 |     fn r#into_parts(&mut self);
+   |        ^^^^^^^^^^^^
+
+error: `clone` is reserved by #[near_kit::contract] (it would shadow `Clone::clone` on the generated client); rename the method
+  --> tests/compile-fail/reserved_method_names.rs:36:8
+   |
+36 |     fn clone(&self) -> u64;
    |        ^^^^^
