@@ -87,6 +87,54 @@ impl<C> NonFungibleTokenClient<C> {
     pub fn contract_id(&self) -> &AccountId {
         &self.contract_id
     }
+
+    /// The backend this client sends through: the [`Near`] or
+    /// [`SigningNear`](crate::SigningNear) it was built from, or the backend
+    /// given to [`Contract::client`].
+    ///
+    /// A helper that takes the client can reach the backend through it
+    /// instead of taking it as a second parameter.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use near_kit::*;
+    /// use near_kit::standards::NonFungibleTokenClient;
+    ///
+    /// // Gives a token to bob and logs who sent it.
+    /// async fn give_to_bob(
+    ///     nft: &NonFungibleTokenClient<SigningNear>,
+    ///     token_id: &str,
+    /// ) -> Result<(), Error> {
+    ///     nft.transfer(account!("bob.near"), token_id, None).await?.result()?;
+    ///     println!("{} gave {token_id} to bob", nft.backend().account_id());
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn backend(&self) -> &C {
+        &self.backend
+    }
+
+    /// The backend and contract account this client was built from, for
+    /// code that needs them owned. The cached metadata is dropped;
+    /// [`Contract::client`] builds a fresh client from the parts.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use near_kit::*;
+    /// use near_kit::standards::NonFungibleToken;
+    ///
+    /// # fn example(alice: SigningNear) {
+    /// let nft = alice.contract::<NonFungibleToken>(account!("nft.near"));
+    /// let (alice, nft_id) = nft.into_parts();
+    /// let tx = alice.transaction(nft_id);
+    /// # let _ = tx;
+    /// # }
+    /// ```
+    pub fn into_parts(self) -> (C, AccountId) {
+        (self.backend, self.contract_id)
+    }
 }
 
 impl<C: Viewer> NonFungibleTokenClient<C> {

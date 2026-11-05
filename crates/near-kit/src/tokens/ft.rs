@@ -85,6 +85,55 @@ impl<C> FungibleTokenClient<C> {
     pub fn contract_id(&self) -> &AccountId {
         &self.contract_id
     }
+
+    /// The backend this client sends through: the [`Near`] or
+    /// [`SigningNear`](crate::SigningNear) it was built from, or the backend
+    /// given to [`Contract::client`].
+    ///
+    /// A helper that takes the client can reach the backend through it
+    /// instead of taking it as a second parameter.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use near_kit::*;
+    /// use near_kit::standards::FungibleTokenClient;
+    ///
+    /// // Pays `amount` to bob and returns what the sender has left.
+    /// async fn pay_bob(
+    ///     token: &FungibleTokenClient<SigningNear>,
+    ///     amount: u128,
+    /// ) -> Result<u128, Error> {
+    ///     token.transfer(account!("bob.near"), amount, None).await?.result()?;
+    ///     let sender = token.backend().account_id();
+    ///     Ok(token.balance_of(sender).await?)
+    /// }
+    /// ```
+    pub fn backend(&self) -> &C {
+        &self.backend
+    }
+
+    /// The backend and contract account this client was built from, for
+    /// code that needs them owned. The cached metadata and storage bounds
+    /// are dropped; [`Contract::client`] builds a fresh client from the
+    /// parts.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use near_kit::*;
+    /// use near_kit::standards::FungibleToken;
+    ///
+    /// # fn example(alice: SigningNear) {
+    /// let token = alice.contract::<FungibleToken>(account!("wrap.near"));
+    /// let (alice, token_id) = token.into_parts();
+    /// let tx = alice.transaction(token_id);
+    /// # let _ = tx;
+    /// # }
+    /// ```
+    pub fn into_parts(self) -> (C, AccountId) {
+        (self.backend, self.contract_id)
+    }
 }
 
 impl<C: Viewer> FungibleTokenClient<C> {
