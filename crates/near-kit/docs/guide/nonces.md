@@ -74,6 +74,28 @@ let alice_retrying = alice.clone().max_nonce_retries(50);
 # }
 ```
 
+For one transaction with its own limit, start it from such a clone.
+Cloning a `SigningNear` copies three `Arc`s (the RPC connection, the
+node's genesis hash and the signer), the chain ID and the limit, so it's
+cheap, and the clone draws from the same nonce sequence:
+
+```rust,no_run
+use near_kit::protocol::Action;
+use near_kit::*;
+
+# async fn example(alice: &SigningNear) -> Result<(), Error> {
+// This transfer retries up to 50 times; `alice` keeps its own limit.
+alice
+    .clone()
+    .max_nonce_retries(50)
+    .transaction(account!("bob.testnet"))
+    .add_action(Action::transfer(NearToken::from_near(1)))
+    .await?
+    .result()?;
+# Ok(())
+# }
+```
+
 Only sends from a `SigningNear` (a [`Tx`](crate::transaction::Tx), or a
 typed contract call through one) retry like this. `sign`, `sign_delegate`
 and [`Near::send_signed`](crate::Near::send_signed) never re-sign: the

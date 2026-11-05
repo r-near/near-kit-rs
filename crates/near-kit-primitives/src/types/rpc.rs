@@ -30,7 +30,8 @@ pub const STORAGE_AMOUNT_PER_BYTE: u128 = 10_000_000_000_000_000_000;
 /// Account information from view_account RPC.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AccountView {
-    /// Total balance including locked.
+    /// Liquid balance: everything except `locked` (staked), including the
+    /// part reserved for storage, so `available + storage_cost`.
     pub amount: NearToken,
     /// Locked balance (staked).
     pub locked: NearToken,
@@ -95,7 +96,8 @@ impl AccountView {
 /// Simplified balance info.
 #[derive(Debug, Clone)]
 pub struct AccountBalance {
-    /// Total balance (available + locked).
+    /// The account's [`amount`](AccountView::amount): its liquid balance,
+    /// `available + storage_cost`. Excludes `locked`.
     pub total: NearToken,
     /// Available balance (spendable, accounting for storage).
     pub available: NearToken,

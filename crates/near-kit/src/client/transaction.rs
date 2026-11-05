@@ -565,6 +565,12 @@ impl PreparedTransaction {
 /// another level for this one transaction with
 /// [`wait_until`](Self::wait_until).
 ///
+/// For a different retry limit on one transaction, start it from a sender
+/// with that limit: `alice.clone().max_nonce_retries(n).transaction(rx)`.
+/// The clone is cheap (it shares `alice`'s connection and signer) and
+/// `alice` keeps its own limit; see
+/// [`SigningNear::max_nonce_retries`](crate::SigningNear::max_nonce_retries).
+///
 /// Actions come from the [`Action`] constructors, typed
 /// [`FunctionCall`](crate::transaction::FunctionCall)s, or the static
 /// constructors `#[near_kit::contract]` generates. An argument-encoding

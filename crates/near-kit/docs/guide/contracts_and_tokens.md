@@ -104,6 +104,48 @@ saying the backend "cannot send transactions". For another wait level, build
 the client from a re-leveled sender:
 `alice.wait_until::<Included>().contract::<Guestbook>(&id)`.
 
+### A call's return value
+
+A `#[call]` method has no return type (declaring one is a compile error),
+because it resolves to the sender's outcome rather than to the contract's
+value. Decode the value from the outcome: `.json::<T>()` for a JSON result,
+or [`result()`](crate::rpc::FinalExecutionOutcome::result) for the raw bytes
+of a Borsh one. Both are `Err` when the call failed, so they also replace
+`.result()?`:
+
+```rust,no_run
+use near_kit::json_types::U128;
+use near_kit::*;
+
+#[near_kit::contract]
+pub trait Vault {
+    /// Returns the shares minted, as JSON.
+    #[call]
+    fn mint(&mut self, amount: U128);
+
+    /// Returns the new total, Borsh-encoded (`#[result_serializer(borsh)]`).
+    #[call]
+    #[borsh]
+    fn compound(&mut self);
+}
+
+# async fn example(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
+let vault = alice.contract::<Vault>(account!("vault.testnet"));
+
+let shares: U128 = vault.mint(U128(100)).await?.json()?;
+
+let outcome = vault.compound().await?;
+let total: u128 = borsh::from_slice(&outcome.result()?)?;
+# let _ = (shares, total);
+# Ok(())
+# }
+```
+
+Only a sender that waits for execution has a value to decode: the default
+`Final`, `ExecutedOptimistic` and `Executed` resolve to a
+`FinalExecutionOutcome`, while `Submitted`, `Included` and `IncludedFinal`
+return before the call runs.
+
 ## Default gas and deposit
 
 Most token methods require exactly 1 yoctoNEAR attached, and a call that
@@ -111,40 +153,111 @@ fans out to other contracts needs more than 30 Tgas. Setting those at every
 call site is easy to get wrong: a forgotten `.deposit(..)` fails on chain,
 and a forgotten `.gas(..)` compiles and quietly sends 30 Tgas.
 `#[call(gas = .., deposit = ..)]` declares them once, on the method. Take
-NEP-245 multi-tokens:
+NEP-245 multi-tokens. This trait covers the standard's core methods, with
+its parameter names, so it can be copied as is:
 
 ```rust,no_run
 use near_kit::json_types::U128;
 use near_kit::*;
+use serde::Deserialize;
 
-/// Gas for `mt_transfer_call`, which calls the receiver and then resolves.
+/// NEP-245 requires exactly 1 yoctoNEAR on every transfer.
+const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
+/// Gas for the `*_transfer_call` methods, which call the receiver's
+/// `mt_on_transfer` and then resolve.
 const TRANSFER_CALL_GAS: Gas = Gas::from_tgas(300);
+
+/// A token as `mt_token` returns it.
+#[derive(Debug, Deserialize)]
+pub struct Token {
+    pub token_id: String,
+    pub owner_id: Option<AccountId>,
+}
+
+/// An approval: the owner and the approval ID (NEP-245's Approval
+/// Management extension). `None` without one.
+pub type Approval = Option<(AccountId, u64)>;
 
 #[near_kit::contract]
 pub trait MultiToken {
-    #[call(deposit = NearToken::from_yoctonear(1))]
-    fn mt_transfer(&mut self, receiver_id: &AccountId, token_id: &str, amount: U128);
+    #[call(deposit = ONE_YOCTO)]
+    fn mt_transfer(
+        &mut self,
+        receiver_id: &AccountId,
+        token_id: &str,
+        amount: U128,
+        approval: Approval,
+        memo: Option<&str>,
+    );
 
-    #[call(gas = TRANSFER_CALL_GAS, deposit = NearToken::from_yoctonear(1))]
+    #[call(deposit = ONE_YOCTO)]
+    fn mt_batch_transfer(
+        &mut self,
+        receiver_id: &AccountId,
+        token_ids: &[&str],
+        amounts: &[U128],
+        approvals: Option<&[Approval]>,
+        memo: Option<&str>,
+    );
+
+    /// Resolves to the amounts the receiver used (`Vec<U128>`).
+    #[call(gas = TRANSFER_CALL_GAS, deposit = ONE_YOCTO)]
     fn mt_transfer_call(
         &mut self,
         receiver_id: &AccountId,
         token_id: &str,
         amount: U128,
+        approval: Approval,
+        memo: Option<&str>,
         msg: &str,
     );
+
+    /// Resolves to the amounts the receiver used (`Vec<U128>`).
+    #[call(gas = TRANSFER_CALL_GAS, deposit = ONE_YOCTO)]
+    fn mt_batch_transfer_call(
+        &mut self,
+        receiver_id: &AccountId,
+        token_ids: &[&str],
+        amounts: &[U128],
+        approvals: Option<&[Approval]>,
+        memo: Option<&str>,
+        msg: &str,
+    );
+
+    /// `None` for a token that doesn't exist.
+    fn mt_token(&self, token_ids: &[&str]) -> Vec<Option<Token>>;
+
+    fn mt_balance_of(&self, account_id: &AccountId, token_id: &str) -> U128;
+
+    fn mt_batch_balance_of(&self, account_id: &AccountId, token_ids: &[&str]) -> Vec<U128>;
+
+    /// `None` for a token that doesn't exist.
+    fn mt_supply(&self, token_id: &str) -> Option<U128>;
+
+    fn mt_batch_supply(&self, token_ids: &[&str]) -> Vec<Option<U128>>;
 }
 
 # async fn example(alice: &SigningNear) -> Result<(), Error> {
 let mt = alice.contract::<MultiToken>(account!("mt.testnet"));
 let bob = account!("bob.testnet");
 // 30 Tgas and 1 yoctoNEAR, with nothing set here.
-mt.mt_transfer(&bob, "nep141:wrap.testnet", U128(10)).await?.result()?;
+mt.mt_transfer(&bob, "nep141:wrap.testnet", U128(10), None, None)
+    .await?
+    .result()?;
 // The call site still overrides either one.
-mt.mt_transfer(&bob, "nep141:wrap.testnet", U128(10))
+mt.mt_transfer(&bob, "nep141:wrap.testnet", U128(10), None, Some("rent"))
     .gas(Gas::from_tgas(50))
     .await?
     .result()?;
+// 300 Tgas and 1 yoctoNEAR; the receiver's answer is in the outcome.
+let used: Vec<U128> = mt
+    .mt_batch_transfer_call(&bob, &["a", "b"], &[U128(1), U128(2)], None, None, "")
+    .await?
+    .json()?;
+let balances = mt
+    .mt_batch_balance_of(alice.account_id(), &["a", "b"])
+    .await?;
+# let _ = (used, balances);
 # Ok(())
 # }
 ```
@@ -230,6 +343,54 @@ Without `#[args]`, that method would send `{"args":{"path":..}}`. In Borsh
 a single parameter encodes like the bare value, so `#[args]` changes
 nothing there.
 
+### Choosing how a value is serialized
+
+A parameter takes no attributes other than `#[args]`, so `#[serde(..)]` on
+a parameter is a compile error. Choose the encoding through the type
+instead: a wire type such as `U128` for a parameter, or an `#[args]` struct
+whose fields carry the serde attributes. Both send
+`{"receiver_id":"bob.testnet","amount":"10"}`:
+
+```rust
+use near_kit::AccountId;
+use near_kit::json_types::U128;
+use serde::Serialize;
+
+/// `u128` as a decimal string, the way `U128` sends it.
+mod u128_string {
+    pub fn serialize<S: serde::Serializer>(value: &u128, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(value)
+    }
+}
+
+#[derive(Serialize)]
+pub struct TransferArgs {
+    pub receiver_id: AccountId,
+    #[serde(with = "u128_string")]
+    pub amount: u128,
+}
+
+#[near_kit::contract]
+pub trait Token {
+    #[call]
+    fn ft_transfer(&mut self, receiver_id: AccountId, amount: U128);
+
+    #[call]
+    fn ft_transfer_raw(&mut self, #[args] args: TransferArgs);
+}
+
+let typed = Token::ft_transfer("bob.testnet".parse()?, U128(10));
+let raw = Token::ft_transfer_raw(TransferArgs { receiver_id: "bob.testnet".parse()?, amount: 10 });
+# let typed = near_kit::protocol::FunctionCallAction::try_from(typed)?;
+# let raw = near_kit::protocol::FunctionCallAction::try_from(raw)?;
+# assert_eq!(typed.args, br#"{"receiver_id":"bob.testnet","amount":"10"}"#);
+# assert_eq!(raw.args, typed.args);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+With `serde_with`, `#[serde_as(as = "DisplayFromStr")] amount: u128` on the
+struct (marked `#[serde_as]`) does the same as the module.
+
 ## Batching typed calls
 
 The generated constructors return a
@@ -270,13 +431,15 @@ The macro rejects, with a compile error, what it can't generate correctly:
   `mut text`) and sent under that name (see [Parameters](#parameters)).
   Borrowed (`&str`) and `impl Trait` types work; generic methods, lifetime
   parameters, `where` clauses, patterns such as `_` or `(a, b)`, a repeated
-  name, attributes other than `#[args]` on a parameter, and `#[args]` next
-  to other parameters don't. A type that can't be encoded is reported at
-  its parameter.
+  name, attributes other than `#[args]` on a parameter (see
+  [Choosing how a value is serialized](#choosing-how-a-value-is-serialized)),
+  and `#[args]` next to other parameters don't. A type that can't be
+  encoded is reported at its parameter.
 - **Return types.** A view's return type is what its result decodes into
   (`()` when there is none; an empty result decodes as `null`, so `()` and
   `Option<_>` work). A `#[call]` can't declare one, since it resolves to the
-  sender's output; decode the outcome instead.
+  sender's output; decode the outcome with `.json::<T>()` instead (see
+  [A call's return value](#a-calls-return-value)).
 - **Not supported:** `async fn`, default method bodies, generic or
   `unsafe` traits, supertraits, and items other than methods.
 - **Reserved names.** `client`, `contract_id`, `backend`, `into_parts`

@@ -276,6 +276,34 @@ let carol = alice.with_signer(carol);
 Only ed25519 keys have implicit accounts; others fail with
 `SignerError::ImplicitAccountRequiresEd25519`.
 
+## Signing a NEP-413 message
+
+A NEP-413 message proves an account holds a key, off chain and without gas.
+[`SigningKey::sign_nep413`](crate::signer::SigningKey::sign_nep413) signs
+one; a `SigningNear` signs as its account with its signer's key:
+
+```rust,no_run
+use near_kit::standards::nep413::{self, SignMessageParams};
+use near_kit::*;
+
+# async fn example(alice: &SigningNear) -> Result<(), Error> {
+let params = SignMessageParams {
+    message: "Login to MyApp".to_string(),
+    recipient: "myapp.com".to_string(),
+    nonce: nep413::generate_nonce(),
+    callback_url: None,
+    state: None,
+};
+let signed = alice.signer().key().sign_nep413(alice.account_id(), &params).await?;
+# let _ = signed;
+# Ok(())
+# }
+```
+
+On a [`RotatingSigner`](crate::signer::RotatingSigner), `key()` claims the
+next key, as a send does. [`nep413`](crate::standards::nep413) verifies the
+result.
+
 ## Several keys for one account
 
 [`RotatingSigner`](crate::signer::RotatingSigner) holds several keys of one

@@ -52,7 +52,7 @@ cover each one.
 | `Near::rpc_url()` | `near.rpc().url()` |
 | `Near::from(builder)`, `builder.into()` | `builder.build()` |
 | `Near::max_nonce_retries(n)` | `NearBuilder::max_nonce_retries(n)` before `build()`, or `alice.clone().max_nonce_retries(n)` |
-| `Near::sign_message(params)` | `alice.signer().key().sign_nep413(alice.account_id(), &params).await?` |
+| `Near::sign_message(params)` | `alice.signer().key().sign_nep413(alice.account_id(), &params).await?`: the signer's key, signing as the account (see [keys](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/keys/index.html#signing-a-nep-413-message)) |
 | `Near::send(&signed)` | `near.send_signed(&signed)` |
 | `Near::balance`, `account_exists`, `view`, `tx_status`, `contract`, `chain_id`, `rpc` called on a signing client | Still on `Near`; from a `SigningNear`, `alice.near().balance(id)` and so on. `alice.contract::<T>(id)` stays. |
 | `Near::with_signer(s)` on a client that already had a signer | `alice.with_signer(s)`, which keeps `alice`'s wait level and nonce retries (`alice.near().with_signer(s)` waits for `Final`) |
@@ -76,7 +76,7 @@ cover each one.
 | `TransactionBuilder::add_actions(iter)` | `add_action` in a loop, or `TxSender::send(&alice, rx, actions)` |
 | `TransactionBuilder::send()`, `CallBuilder::send()`, `TransactionSend` | `.await` the `Tx` |
 | `TransactionBuilder::wait_until::<W>()`, `TransactionSend::wait_until::<W>()` | `alice.transaction(rx).add_action(a).wait_until::<W>()` for one transaction, `alice.wait_until::<W>()` for every send |
-| `TransactionBuilder::max_nonce_retries(n)`, `TransactionSend::max_nonce_retries(n)` | `alice.clone().max_nonce_retries(n).transaction(rx)` |
+| `TransactionBuilder::max_nonce_retries(n)`, `TransactionSend::max_nonce_retries(n)` | `alice.clone().max_nonce_retries(n).transaction(rx)`: the clone shares `alice`'s connection and signer, and `alice` keeps its own limit (see [nonces](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/nonces/index.html)) |
 | `TransactionBuilder::sign_with(other)` | `alice.with_signer(other).transaction(rx)` |
 | `TransactionBuilder::sign()` | `alice.sign(rx, actions).await?` |
 | `TransactionBuilder::build()`, `build_offline(..)`, `sign_offline(..)`, `into_parts()` | Keep the receiver and `Vec<Action>` yourself; `Transaction::new(signer_id, public_key, nonce, receiver_id, block_hash, actions).sign(&secret_key)` |
@@ -561,7 +561,7 @@ The macro now rejects declarations it used to compile into something wrong:
 
 | 0.20.1 | This release |
 |---|---|
-| `#[call] fn m(&mut self) -> T` (return type ignored) | A compile error; decode the outcome yourself |
+| `#[call] fn m(&mut self) -> T` (return type ignored) | A compile error; remove the return type and decode the value with `outcome.json::<T>()` |
 | Methods named `contract_id`, `backend`, `into_parts`, `client` or `clone`, including as raw identifiers | A compile error; rename them |
 | An argument bound to `_` or a pattern (dropped: the method sent `{}`) | A compile error; name the parameter (`value: u64`, or `#[args] args: Args`) |
 | Generic methods, lifetime parameters, `async fn` | A compile error; use `impl Trait` or a concrete type, drop `async` |
