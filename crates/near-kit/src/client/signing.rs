@@ -219,6 +219,30 @@ impl<W: WaitLevel> SigningNear<W> {
     /// use (it does not advance a
     /// [`RotatingSigner`](crate::signer::RotatingSigner)), or clone it to
     /// attach the same signer to another [`Near`].
+    ///
+    /// # Signing a NEP-413 message
+    ///
+    /// [`SigningKey::sign_nep413`](crate::signer::SigningKey::sign_nep413)
+    /// signs off-chain messages; this account's key comes from
+    /// `signer().key()`:
+    ///
+    /// ```rust,no_run
+    /// use near_kit::*;
+    /// use near_kit::standards::nep413::{self, SignMessageParams};
+    ///
+    /// # async fn example(alice: SigningNear) -> Result<(), Error> {
+    /// let params = SignMessageParams {
+    ///     message: "Login to MyApp".to_string(),
+    ///     recipient: "myapp.com".to_string(),
+    ///     nonce: nep413::generate_nonce(),
+    ///     callback_url: None,
+    ///     state: None,
+    /// };
+    /// let signed = alice.signer().key().sign_nep413(alice.account_id(), &params).await?;
+    /// # let _ = signed;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn signer(&self) -> &Arc<dyn Signer> {
         &self.signer
     }

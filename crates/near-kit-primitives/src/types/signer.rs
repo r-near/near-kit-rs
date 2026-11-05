@@ -163,6 +163,11 @@ impl SigningKey {
 
     /// Sign a NEP-413 message for off-chain authentication (see
     /// [`nep413`](crate::standards::nep413) for an example).
+    ///
+    /// To sign as a `SigningNear`'s account, take the key from its signer:
+    /// `alice.signer().key().sign_nep413(alice.account_id(), &params)`. On
+    /// a rotating signer, `key()` claims the next key, the same as a send.
+    #[doc(alias = "sign_message")]
     pub async fn sign_nep413(
         &self,
         account_id: &AccountId,
