@@ -162,6 +162,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | 0.20.1 | This release |
 |---|---|
 | `ContractClient`, `ContractClient::new(near, id)`, `Contract::Client: ContractClient` | `Contract::Client<C>`, `Contract::client(backend, id)` |
+| A contract client exposed only `contract_id()`, so code that needed the backend took it as a second parameter | Every contract client (generated, `FungibleTokenClient`, `NonFungibleTokenClient`) also has `backend()` and `into_parts()`, which returns `(backend, contract_id)` |
 | `near_kit::{call, json, borsh}` attribute re-exports | Removed: `#[contract]` reads the markers itself |
 | `#[contract]` method with one parameter `args: Args`, sent as the whole argument object | Sent by name, `{"args": ..}`, with no compile error; `#[args] args: Args` keeps the whole object (see [below](#one-parameter-is-sent-by-name)) |
 | `#[contract]` method with several parameters (a compile error) | Each parameter sent by name, as near-sdk encodes them |
@@ -561,7 +562,7 @@ The macro now rejects declarations it used to compile into something wrong:
 | 0.20.1 | This release |
 |---|---|
 | `#[call] fn m(&mut self) -> T` (return type ignored) | A compile error; decode the outcome yourself |
-| Methods named `contract_id`, `client` or `clone`, including as raw identifiers | A compile error; rename them |
+| Methods named `contract_id`, `backend`, `into_parts`, `client` or `clone`, including as raw identifiers | A compile error; rename them |
 | An argument bound to `_` or a pattern (dropped: the method sent `{}`) | A compile error; name the parameter (`value: u64`, or `#[args] args: Args`) |
 | Generic methods, lifetime parameters, `async fn` | A compile error; use `impl Trait` or a concrete type, drop `async` |
 | `#[cfg]` / `#[cfg_attr]` on a method (ignored) | Applied to the generated client method and `FunctionCall` constructor; `#[call]`, `#[json]` or `#[borsh]` behind `#[cfg_attr]` is a compile error (declare the method twice, each under `#[cfg]`) |

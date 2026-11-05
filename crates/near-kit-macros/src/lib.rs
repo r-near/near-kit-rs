@@ -117,19 +117,25 @@ struct MethodInfo {
     deposit: Option<syn::Expr>,
 }
 
+/// Names the generated items take, so a contract method can't have them:
+/// the client's accessors and the marker's `Contract::client`.
+const CLIENT_RESERVED: [&str; 4] = ["client", "contract_id", "backend", "into_parts"];
+
 fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
     let name = method.sig.ident.clone();
     let unraw_name = name.unraw().to_string();
 
-    // `contract_id` is the generated client's accessor and `client` is the
-    // `Contract` constructor on the marker type; a contract method with
-    // either name would collide with or shadow them.
-    if unraw_name == "contract_id" || unraw_name == "client" {
+    // `contract_id`, `backend` and `into_parts` are the generated client's
+    // accessors and `client` is the `Contract` constructor on the marker
+    // type; a contract method with any of those names would collide with or
+    // shadow them.
+    if CLIENT_RESERVED.contains(&unraw_name.as_str()) {
         return Err(syn::Error::new(
             name.span(),
             format!(
-                "`{unraw_name}` is reserved by #[near_kit::contract] (the generated client uses \
-                 it); rename the method"
+                "`{unraw_name}` is reserved by #[near_kit::contract], which generates `client` \
+                 on the marker type and `contract_id`, `backend` and `into_parts` on the client; \
+                 rename the method"
             ),
         ));
     }
@@ -722,9 +728,32 @@ fn generate_function_call_method(
 ///   `.await` needs a `'static` backend; through a shorter `&T` borrow,
 ///   finish a view with `.with_metadata()` and a call with `.send()`. When
 ///   the expansion resolves to near-kit with its `rpc` feature, `C`
-///   defaults to `near_kit::Near`;
+///   defaults to `near_kit::Near`. Besides the contract's methods it has
+///   `contract_id()`, `backend()` and `into_parts()`;
 /// - `impl Contract for Counter`, which `Near::contract::<Counter>(id)` uses
 ///   to build the client.
+///
+/// A helper can take the client alone and reach its backend through
+/// `backend()`, so it needs no second parameter for the sender:
+///
+/// ```no_run
+/// use near_kit::*;
+///
+/// #[near_kit::contract]
+/// pub trait Counter {
+///     fn get_num(&self) -> u64;
+///
+///     #[call]
+///     fn increment(&mut self);
+/// }
+///
+/// async fn increment(counter: &CounterClient<SigningNear>) -> Result<u64, Error> {
+///     counter.increment().await?.result()?;
+///     let alice = counter.backend();
+///     println!("{} incremented {}", alice.account_id(), counter.contract_id());
+///     Ok(counter.get_num().await?)
+/// }
+/// ```
 ///
 /// Each method takes `&self` (a view) or `&mut self` with `#[call]`, then
 /// its parameters, each bound to a plain name. As in near-sdk's `#[near]`
@@ -808,14 +837,13 @@ fn generate_function_call_method(
 /// # let _ = call;
 /// ```
 ///
-/// Generic, `async`
-/// and default methods are rejected, as are the names `client`,
-/// `contract_id` and `clone`. A method's `#[cfg]` and `#[cfg_attr]`
-/// attributes apply to everything generated for it, but `#[call]`,
-/// `#[json]` and `#[borsh]` can't go behind `#[cfg_attr]`; for a format
-/// that depends on a `cfg`, declare the method twice, each under its own
-/// `#[cfg]`. A raw identifier (`fn r#type`) calls the contract method
-/// without the `r#` (`type`).
+/// Generic, `async` and default methods are rejected, as are the names
+/// `client`, `contract_id`, `backend`, `into_parts` and `clone`. A
+/// method's `#[cfg]` and `#[cfg_attr]` attributes apply to everything
+/// generated for it, but `#[call]`, `#[json]` and `#[borsh]` can't go
+/// behind `#[cfg_attr]`; for a format that depends on a `cfg`, declare the
+/// method twice, each under its own `#[cfg]`. A raw identifier (`fn
+/// r#type`) calls the contract method without the `r#` (`type`).
 ///
 /// Everything it names is in near-kit-primitives, so it works without the
 /// RPC client (e.g. in contracts built for wasm).
@@ -938,6 +966,25 @@ fn contract_impl(format: SerializationFormat, input: ItemTrait) -> syn::Result<T
                 &self.contract_id
             }
 
+            /// The backend this client sends through: the `Near` or
+            /// `SigningNear` it was built from, or the backend given to
+            /// `Contract::client`.
+            ///
+            /// A helper that takes the client can reach the rest of the
+            /// backend from it, such as `client.backend().account_id()` on a
+            /// `SigningNear`, instead of taking the backend as a second
+            /// parameter.
+            pub fn backend(&self) -> &#backend {
+                &self.backend
+            }
+
+            /// The backend and contract account this client was built from,
+            /// for code that needs them owned. `Contract::client(backend, id)`
+            /// builds the client again.
+            pub fn into_parts(self) -> (#backend, #near_kit::AccountId) {
+                (self.backend, self.contract_id)
+            }
+
             #(#client_methods)*
         }
 
@@ -1007,6 +1054,29 @@ mod tests {
             "{tokens}"
         );
         assert!(!tokens.contains(". gas ("), "{tokens}");
+    }
+
+    #[test]
+    fn the_generated_items_names_are_reserved() {
+        for method in [
+            parse_quote! { #[call] fn client(&mut self); },
+            parse_quote! { fn contract_id(&self) -> String; },
+            parse_quote! { fn backend(&self) -> String; },
+            parse_quote! { #[call] fn r#into_parts(&mut self); },
+        ] {
+            let message = error(method);
+            assert!(
+                message.ends_with(
+                    "is reserved by #[near_kit::contract], which generates `client` on the \
+                     marker type and `contract_id`, `backend` and `into_parts` on the client; \
+                     rename the method"
+                ),
+                "{message}"
+            );
+        }
+        assert!(error(parse_quote! { fn clone(&self) -> u64; }).starts_with("`clone` is reserved"));
+        // Names that merely contain a reserved one are fine.
+        parse(parse_quote! { fn backend_version(&self) -> String; }).unwrap();
     }
 
     #[test]

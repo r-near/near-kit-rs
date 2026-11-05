@@ -499,7 +499,9 @@ pub async fn near_kit::standards::FungibleTokenClient<C>::storage_balance_bounds
 pub async fn near_kit::standards::FungibleTokenClient<C>::storage_balance_of(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> core::result::Result<core::option::Option<near_kit::standards::StorageBalance>, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
 pub async fn near_kit::standards::FungibleTokenClient<C>::total_supply(&self) -> core::result::Result<u128, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
 impl<C> near_kit::standards::FungibleTokenClient<C>
+pub fn near_kit::standards::FungibleTokenClient<C>::backend(&self) -> &C
 pub fn near_kit::standards::FungibleTokenClient<C>::contract_id(&self) -> &near_account_id::account_id::AccountId
+pub fn near_kit::standards::FungibleTokenClient<C>::into_parts(self) -> (C, near_account_id::account_id::AccountId)
 impl<C: core::clone::Clone> core::clone::Clone for near_kit::standards::FungibleTokenClient<C>
 pub fn near_kit::standards::FungibleTokenClient<C>::clone(&self) -> near_kit::standards::FungibleTokenClient<C>
 impl<C> core::fmt::Debug for near_kit::standards::FungibleTokenClient<C>
@@ -574,7 +576,9 @@ pub async fn near_kit::standards::NonFungibleTokenClient<C>::token(&self, impl c
 pub async fn near_kit::standards::NonFungibleTokenClient<C>::tokens_for_owner(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<alloc::vec::Vec<near_kit::standards::NftToken>, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
 pub async fn near_kit::standards::NonFungibleTokenClient<C>::total_supply(&self) -> core::result::Result<u64, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
 impl<C> near_kit::standards::NonFungibleTokenClient<C>
+pub fn near_kit::standards::NonFungibleTokenClient<C>::backend(&self) -> &C
 pub fn near_kit::standards::NonFungibleTokenClient<C>::contract_id(&self) -> &near_account_id::account_id::AccountId
+pub fn near_kit::standards::NonFungibleTokenClient<C>::into_parts(self) -> (C, near_account_id::account_id::AccountId)
 impl<C: core::clone::Clone> core::clone::Clone for near_kit::standards::NonFungibleTokenClient<C>
 pub fn near_kit::standards::NonFungibleTokenClient<C>::clone(&self) -> near_kit::standards::NonFungibleTokenClient<C>
 impl<C> core::fmt::Debug for near_kit::standards::NonFungibleTokenClient<C>
