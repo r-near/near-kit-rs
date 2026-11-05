@@ -41,9 +41,48 @@ let balance = alice.near().balance(alice.account_id()).await?;
 `alice.near()` is the way to read. It does implement
 [`Viewer`](crate::Viewer) as well as [`TxSender`](crate::TxSender), so a
 typed contract client built from it can both view and call.
+
+For several reads in a row, bind the read-only client once. `near()` only
+borrows a field, so this costs nothing:
+
+```rust,no_run
+use near_kit::*;
+
+# async fn example(alice: &SigningNear) -> Result<(), Error> {
+let near = alice.near();
+let chain_id = near.chain_id();
+let balance = near.balance(alice.account_id()).await?;
+let bob = near.balance(account!("bob.testnet")).await?;
+# let _ = (chain_id, balance, bob);
+# Ok(())
+# }
+```
+
 Both clients implement `AsRef<Near>`, so a helper that only reads can take
 `client: impl AsRef<Near>`, call `client.as_ref()`, and accept either a
-`Near` or a `SigningNear`.
+`Near` or a `SigningNear`:
+
+```rust,no_run
+use near_kit::*;
+use near_kit::rpc::Finality;
+
+async fn height_and_balance(
+    client: impl AsRef<Near>,
+    account_id: &AccountId,
+) -> Result<(u64, NearToken), Error> {
+    let near = client.as_ref();
+    let height = near.rpc().block(Finality::Final).await?.header.height;
+    let balance = near.balance(account_id).at(height).await?;
+    Ok((height, balance.available))
+}
+
+# async fn example(alice: SigningNear) -> Result<(), Error> {
+let near = Near::testnet().build();
+height_and_balance(&near, alice.account_id()).await?;
+height_and_balance(&alice, alice.account_id()).await?;
+# Ok(())
+# }
+```
 
 Both types are cheap to clone and are `Send + Sync`: a `Near` holds its RPC
 client in an `Arc`, and every `SigningNear` made from it shares that
