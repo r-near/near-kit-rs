@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.7](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.6...near-kit-v0.30.0-rc.7) - 2026-11-06
+
+### Added
+
+- FinalExecutionOutcome::checked, so a failed action is an error and the logs and receipts are still there ([#410](https://github.com/r-near/near-kit-rs/pull/410))
+
+### Other
+
+- show reading NEP-297 events only from the contract that emitted them ([#409](https://github.com/r-near/near-kit-rs/pull/409))
+
 ## [0.30.0-rc.6](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.5...near-kit-v0.30.0-rc.6) - 2026-11-05
 
 ### Added
