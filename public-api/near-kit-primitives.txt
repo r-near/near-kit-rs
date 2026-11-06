@@ -2326,6 +2326,7 @@ pub near_kit_primitives::rpc::FinalExecutionOutcome::status: near_kit_primitives
 pub near_kit_primitives::rpc::FinalExecutionOutcome::transaction: near_kit_primitives::rpc::TransactionView
 pub near_kit_primitives::rpc::FinalExecutionOutcome::transaction_outcome: near_kit_primitives::rpc::ExecutionOutcomeWithId
 impl near_kit_primitives::rpc::FinalExecutionOutcome
+pub fn near_kit_primitives::rpc::FinalExecutionOutcome::checked(self) -> core::result::Result<Self, near_kit_primitives::rpc::OutcomeError>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::failure_error(&self) -> core::option::Option<&near_kit_primitives::protocol::TxExecutionError>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::failure_message(&self) -> core::option::Option<alloc::string::String>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::is_failure(&self) -> bool

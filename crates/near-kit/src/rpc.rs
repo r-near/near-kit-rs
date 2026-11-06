@@ -36,6 +36,45 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! # Failing on a failed action, keeping the outcome
+//!
+//! A failed action still arrives as `Ok(outcome)`.
+//! [`FinalExecutionOutcome::checked`] turns it into an `Err` with the same
+//! check and error as [`FinalExecutionOutcome::result`], and on success hands
+//! back the outcome, so its logs and receipts are still there to read:
+//!
+#![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
+#![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
+//! # use near_kit::*;
+//! # use near_kit::transaction::FunctionCall;
+//! # async fn example(alice: &SigningNear) -> Result<(), Error> {
+//! let outcome = alice
+//!     .transaction(account!("counter.testnet"))
+//!     .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
+//!     .await?
+//!     .checked()?;
+//! for log in outcome.logs() {
+//!     println!("{log}");
+//! }
+//! println!("{} receipts", outcome.receipts_outcome.len());
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Like `result()`, it reads the transaction's top-level status only: a
+//! relayed transaction whose inner actions failed, or a token `transfer_call`
+//! whose receiver failed and was refunded, is still `Ok`. Check
+//! [`FinalExecutionOutcome::receipt_failures`] for those, and the amount a
+//! `transfer_call` returns (see
+#![cfg_attr(
+    feature = "rpc",
+    doc = "[`FungibleTokenClient::transfer_call`](crate::standards::FungibleTokenClient::transfer_call))."
+)]
+#![cfg_attr(
+    not(feature = "rpc"),
+    doc = "the token clients' `transfer_call` docs)."
+)]
 
 pub use crate::error::{ReceiptToTxError, RpcError, TimeoutCause};
 #[doc(inline)]
