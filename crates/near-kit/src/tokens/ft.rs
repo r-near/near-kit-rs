@@ -339,7 +339,7 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     ///
     /// The receiver can return unused tokens, which will be refunded to the sender.
     ///
-    /// `.result()?` doesn't tell you the receiver took the tokens: if
+    /// `.result()?` (or `.checked()?`) doesn't tell you the receiver took the tokens: if
     /// `ft_on_transfer` fails, the token's `ft_resolve_transfer` callback
     /// handles the failure and tries to refund the sender, so the transaction
     /// still succeeds. The refund is capped at what the receiver still holds,

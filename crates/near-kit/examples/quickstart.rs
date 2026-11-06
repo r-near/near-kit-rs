@@ -106,14 +106,14 @@ async fn writes(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
     println!("created {sub_id} in {}", outcome.transaction_hash());
 
     // Sign as the new account over the same connection, and delete it,
-    // sending its balance back. `.result()?` turns a failed action into an
-    // error.
+    // sending its balance back. `.checked()?` turns a failed action into an
+    // error and keeps the outcome.
     let sub = alice.with_signer(InMemorySigner::new(sub_id.clone(), sub_key));
     let outcome = sub
         .transaction(&sub_id)
         .add_action(Action::delete_account(alice.account_id().clone()))
-        .await?;
-    outcome.result()?;
+        .await?
+        .checked()?;
     println!("deleted {sub_id} in {}", outcome.transaction_hash());
 
     // Sends wait for `Final` by default, so this read already sees both.

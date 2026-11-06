@@ -399,12 +399,15 @@ means the transaction didn't run, or (after a timeout or a dropped
 connection) that near-kit couldn't find out whether it did. `FinalExecutionOutcome` is now
 `#[must_use]`, so a send whose outcome is dropped (`.await?;`) warns: check
 `is_failure()` or `receipt_failures()`, or call `.result()?` to turn a failed
-action into an `Err`. For an FT or NFT `transfer_call`, `.result()?` isn't
-enough: when the receiver's `ft_on_transfer` or `nft_on_transfer` fails, the
-token's resolve callback handles it and tries to refund the sender, so the
-transaction succeeds. The refund can fall short (the receiver may have moved
-the tokens already), so check the returned amount (or `bool` for NFTs), and
-`receipt_failures()` for why the receiver failed.
+action into an `Err`. `.checked()?` makes the same check and keeps the
+outcome, for reading its logs or receipts afterward; it is the counterpart of
+near-api's and near-workspaces' `ExecutionFinalResult::into_result()`. For an
+FT or NFT `transfer_call`, neither is enough: when the receiver's
+`ft_on_transfer` or `nft_on_transfer` fails, the token's resolve callback
+handles it and tries to refund the sender, so the transaction succeeds. The
+refund can fall short (the receiver may have moved the tokens already), so
+check the returned amount (or `bool` for NFTs), and `receipt_failures()` for
+why the receiver failed.
 
 ### Wait levels: `Final` by default
 
