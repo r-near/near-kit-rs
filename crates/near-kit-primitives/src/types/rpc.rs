@@ -813,16 +813,86 @@ impl FinalExecutionOutcome {
     /// Every log line the transaction emitted: the transaction outcome's
     /// logs, then each receipt outcome's logs in the order the RPC lists them.
     ///
+    /// The lines don't say which account logged them. That's fine for a test
+    /// that compares them with the exact lines it expects, but not for
+    /// reading events: any contract can log an `EVENT_JSON:` line claiming
+    /// any `standard`. Read NEP-297 events from
+    /// [`receipts_outcome`](Self::receipts_outcome) instead, keeping the
+    /// receipts that the contract you expect executed and that succeeded (a
+    /// failed receipt's changes are rolled back, but its logs stay).
+    ///
     /// # Example
     ///
     /// ```rust
-    /// # use near_kit_primitives::rpc::FinalExecutionOutcome;
-    /// fn events(outcome: &FinalExecutionOutcome) -> Vec<&str> {
+    /// use near_kit_primitives::rpc::FinalExecutionOutcome;
+    /// use near_kit_primitives::{AccountIdRef, account};
+    /// use serde::Deserialize;
+    ///
+    /// /// A NEP-297 event: the JSON after `EVENT_JSON:`.
+    /// #[derive(Debug, Deserialize)]
+    /// struct Event {
+    ///     standard: String,
+    ///     version: String,
+    ///     event: String,
+    ///     data: Option<serde_json::Value>,
+    /// }
+    ///
+    /// /// The events `contract` emitted in receipts that succeeded.
+    /// fn events_from(
+    ///     outcome: &FinalExecutionOutcome,
+    ///     contract: &AccountIdRef,
+    /// ) -> Result<Vec<Event>, serde_json::Error> {
     ///     outcome
-    ///         .logs()
+    ///         .receipts_outcome
+    ///         .iter()
+    ///         .map(|r| &r.outcome)
+    ///         .filter(|o| o.executor_id == *contract && o.status.is_success())
+    ///         .flat_map(|o| &o.logs)
     ///         .filter_map(|log| log.strip_prefix("EVENT_JSON:"))
+    ///         .map(serde_json::from_str)
     ///         .collect()
     /// }
+    ///
+    /// # fn receipt(executor_id: &str, log: &str) -> serde_json::Value {
+    /// #     serde_json::json!({
+    /// #         "id": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK",
+    /// #         "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
+    /// #         "outcome": {
+    /// #             "executor_id": executor_id,
+    /// #             "gas_burnt": 1,
+    /// #             "tokens_burnt": "0",
+    /// #             "logs": [log],
+    /// #             "receipt_ids": [],
+    /// #             "status": {"SuccessValue": ""},
+    /// #         },
+    /// #     })
+    /// # }
+    /// # let transfer = r#"EVENT_JSON:{"standard":"nep141","version":"1.0.0","event":"ft_transfer","data":[{"old_owner_id":"alice.near","new_owner_id":"bob.near","amount":"10"}]}"#;
+    /// # let fake = r#"EVENT_JSON:{"standard":"nep141","version":"1.0.0","event":"ft_mint","data":[{"owner_id":"mallory.near","amount":"1000000"}]}"#;
+    /// # let outcome: FinalExecutionOutcome = serde_json::from_value(serde_json::json!({
+    /// #     "status": {"SuccessValue": ""},
+    /// #     "transaction": {
+    /// #         "signer_id": "alice.near",
+    /// #         "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+    /// #         "nonce": 1,
+    /// #         "receiver_id": "wrap.near",
+    /// #         "actions": [],
+    /// #         "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
+    /// #         "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+    /// #     },
+    /// #     "transaction_outcome": receipt("alice.near", "signed"),
+    /// #     "receipts_outcome": [receipt("wrap.near", transfer), receipt("mallory.near", fake)],
+    /// # }))?;
+    /// // `outcome` has a receipt on wrap.near that logged an `ft_transfer`
+    /// // event, and one on mallory.near that logged a fake `nep141` mint.
+    /// let events = events_from(&outcome, &account!("wrap.near"))?;
+    /// assert_eq!(events.len(), 1);
+    /// assert_eq!(events[0].standard, "nep141");
+    /// assert_eq!(events[0].event, "ft_transfer");
+    ///
+    /// // In a test, comparing every line with the expected ones is enough.
+    /// assert_eq!(outcome.logs().collect::<Vec<_>>(), ["signed", transfer, fake]);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn logs(&self) -> impl Iterator<Item = &str> {
         std::iter::once(&self.transaction_outcome)
