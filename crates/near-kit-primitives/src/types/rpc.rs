@@ -2777,6 +2777,83 @@ mod tests {
         assert_eq!(outcome.result().unwrap_err().to_string(), message);
     }
 
+    /// On success `checked()` hands back the outcome it was given: logs,
+    /// receipt outcomes, receipts and the return value are all still there.
+    #[test]
+    fn test_checked_success_keeps_outcome() {
+        let ok = serde_json::json!({"SuccessValue": "aGVsbG8="});
+        let mut json = outcome_json(
+            ok.clone(),
+            &[ok.clone(), ok],
+            &[&["tx"], &["a", "b"], &["c"]],
+        );
+        json["receipts"] = serde_json::json!([{
+            "predecessor_id": "alice.near",
+            "receiver_id": "bob.near",
+            "receipt_id": RECEIPT_ID,
+            "receipt": {"Action": {
+                "signer_id": "alice.near",
+                "signer_public_key": PK,
+                "gas_price": "100000000",
+                "output_data_receivers": [],
+                "input_data_ids": [],
+                "actions": []
+            }}
+        }]);
+        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+        let before = format!("{outcome:?}");
+
+        let checked = outcome.checked().unwrap();
+        assert_eq!(format!("{checked:?}"), before);
+        assert_eq!(checked.logs().collect::<Vec<_>>(), ["tx", "a", "b", "c"]);
+        assert_eq!(checked.receipts_outcome.len(), 2);
+        assert_eq!(checked.receipts.len(), 1);
+        assert_eq!(checked.result().unwrap(), b"hello");
+    }
+
+    /// A failed transaction gives the same `OutcomeError` from `checked()`
+    /// as from `result()`, for every way `result()` can fail.
+    #[test]
+    fn test_checked_failure_same_error_as_result() {
+        let invalid_tx = serde_json::json!({"Failure": {"InvalidTxError": "Expired"}});
+        let cases = [
+            (outcome_with_receipts(panicked("boom"), &[]), "ActionFailed"),
+            (outcome_with_receipts(invalid_tx, &[]), "InvalidTx"),
+            (
+                outcome_with_receipts(serde_json::json!("Started"), &[]),
+                "NotSuccess",
+            ),
+            (make_success_outcome("not-valid-base64!!!"), "InvalidBase64"),
+        ];
+        for (outcome, variant) in cases {
+            let expected = outcome.result().unwrap_err();
+            let err = outcome.checked().unwrap_err();
+            assert_eq!(format!("{err:?}"), format!("{expected:?}"));
+            assert_eq!(err.to_string(), expected.to_string());
+            assert!(format!("{err:?}").starts_with(variant), "{err:?}");
+        }
+    }
+
+    /// `checked()` reads the top-level status only, like `result()`: a
+    /// relayed transaction or `transfer_call` whose receipt failed off the
+    /// main chain is still `Ok`, and the failure is in `receipt_failures`.
+    #[test]
+    fn test_checked_ignores_receipt_failures_off_main_chain() {
+        let ok = serde_json::json!({"SuccessValue": ""});
+        let outcome = outcome_with_receipts(
+            ok.clone(),
+            &[
+                serde_json::json!({"SuccessReceiptId": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo"}),
+                panicked("ft_on_transfer panicked"),
+                ok,
+            ],
+        );
+        assert!(outcome.result().is_ok());
+
+        let checked = outcome.checked().unwrap();
+        assert_eq!(checked.receipt_failures().count(), 1);
+    }
+
     #[test]
     fn test_execution_status_unknown() {
         let json = serde_json::json!("Unknown");
