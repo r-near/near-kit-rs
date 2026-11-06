@@ -286,7 +286,7 @@ use near_kit::json_types::U128;
 use near_kit::{AccountId, NearToken};
 
 #[near_kit::contract]
-pub trait MultiToken {
+pub trait TokenLedger {
     // {"account_id":"alice.near","token_id":"nep141:wrap.near"}
     fn mt_balance_of(&self, account_id: &AccountId, token_id: &str) -> U128;
 
@@ -316,7 +316,10 @@ without parameters.
 near-sdk's `json_types` are in [`near_kit::json_types`](crate::json_types)
 under the same names, with the same JSON and Borsh: `U128`, `U64`, `I128`
 and `I64` are decimal strings in JSON, `Base64VecU8` is a base64 string. So
-`amount: U128` and `-> U128` copy over from the contract unchanged.
+`amount: U128` and `-> U128` copy over from the contract unchanged. They are
+for crates that don't depend on near-sdk: a JSON parameter can be any
+`Serialize` type and a return value any `Deserialize` type, so a crate that
+already depends on near-sdk can keep `near_sdk::json_types::U128` in its trait.
 
 When you already have a struct whose fields are the contract's parameters,
 mark the parameter `#[args]` to send the struct as the whole argument
