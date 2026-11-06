@@ -71,6 +71,28 @@ let new_count: u64 = alice
 # }
 ```
 
+To make a failed action an `Err` and still read the outcome afterward, call
+[`checked`](crate::rpc::FinalExecutionOutcome::checked). It makes the same
+check as `result()` and returns the same error, but hands back the outcome
+itself, so its logs and receipts are still there:
+
+```rust,no_run
+use near_kit::transaction::FunctionCall;
+use near_kit::*;
+
+# async fn example(alice: &SigningNear) -> Result<(), Error> {
+let outcome = alice
+    .transaction(account!("counter.testnet"))
+    .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
+    .await?
+    .checked()?;
+let events: Vec<&str> =
+    outcome.logs().filter_map(|log| log.strip_prefix("EVENT_JSON:")).collect();
+# let _ = events;
+# Ok(())
+# }
+```
+
 ### Failures that `is_failure` doesn't see
 
 `outcome.status` is the result of the transaction's main chain of
@@ -78,7 +100,7 @@ receipts. A receipt that fails off that chain, such as a detached promise,
 a callback that a contract handled, or the user's actions in a relayed
 meta-transaction (see the [meta-transactions
 chapter](crate::guide::meta_transactions#reading-the-result)), leaves
-`is_failure()` false and `result()` `Ok`. When that matters,
+`is_failure()` false and `result()` and `checked()` `Ok`. When that matters,
 [`receipt_failures`](crate::rpc::FinalExecutionOutcome::receipt_failures)
 lists every failed receipt's action error, in RPC order.
 
@@ -90,7 +112,7 @@ lists every failed receipt's action error, in RPC order.
 | `near.rpc().view_account(..)` and every other [`RpcClient`](crate::rpc::RpcClient) method | [`RpcError`](crate::rpc::RpcError) |
 | `Near::view`, and the views of typed contract and token clients | [`ContractError<RpcError>`](crate::ContractError) |
 | `#[call]` methods and token calls through a `SigningNear` | [`ContractError<Error>`](crate::ContractError) |
-| `FinalExecutionOutcome::result` / `json` | [`OutcomeError`](crate::rpc::OutcomeError) |
+| `FinalExecutionOutcome::result` / `checked` / `json` | [`OutcomeError`](crate::rpc::OutcomeError) |
 | Client-free code: `FunctionCall::into_action`, key parsing, `RotatingSigner::new`, `SignedTransaction::from_base64`, `SignedDelegateAction::from_base64` | [`CodecError`](crate::transaction::CodecError), [`ParseKeyError`](crate::signer::ParseKeyError), [`SignerError`](crate::signer::SignerError), [`DecodeTransactionError`](crate::protocol::DecodeTransactionError), [`DecodeDelegateError`](crate::protocol::DecodeDelegateError) |
 
 Each of these converts into [`Error`](crate::Error) with `?`, so a function

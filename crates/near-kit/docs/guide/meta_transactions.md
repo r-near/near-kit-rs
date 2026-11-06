@@ -111,10 +111,10 @@ let signed = SignedDelegateAction::from_base64(payload)?;
 let outcome = relayer
     .transaction(signed.sender_id())
     .add_action(Action::delegate(signed))
-    .await?;
-// `result()` fails if the chain rejected the delegate action itself, but
-// not if the user's call failed; see "Reading the result" below.
-outcome.result()?;
+    .await?
+    // `checked()` fails if the chain rejected the delegate action itself, but
+    // not if the user's call failed; see "Reading the result" below.
+    .checked()?;
 if let Some(error) = outcome.receipt_failures().next() {
     println!("the user's call failed: {error}");
 }

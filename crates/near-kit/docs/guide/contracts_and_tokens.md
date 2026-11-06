@@ -590,8 +590,8 @@ The 1 yoctoNEAR deposit is what NEP-141 requires, so that a function-call
 access key can't move tokens. Each method returns a `Call`, so `.gas(..)`
 overrides the default, and `FunctionCall::from(call)` batches it.
 
-`.result()?` on a `transfer_call` doesn't tell you the receiver took the
-tokens. If `ft_on_transfer` fails, the token's `ft_resolve_transfer`
+`.result()?` (or `.checked()?`) on a `transfer_call` doesn't tell you the
+receiver took the tokens. If `ft_on_transfer` fails, the token's `ft_resolve_transfer`
 callback handles the failure and tries to refund the sender, so the
 transaction still succeeds. The refund is capped at what the receiver still
 holds, so check the amount the call returns (what the receiver kept, as a

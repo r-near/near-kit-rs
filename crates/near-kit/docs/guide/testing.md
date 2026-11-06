@@ -512,3 +512,25 @@ tests sharing it must use distinct account names, such as a counter in the
 name. `fresh()` starts a node with clean state. The crate docs cover
 creating accounts, patching state, fast-forwarding and choosing a nearcore
 version.
+
+A test that should fail when an action fails, and then assert on what the
+transaction did, can end the send with
+[`.checked()?`](crate::rpc::FinalExecutionOutcome::checked): it returns
+the same error as `.result()?` for a failed action, and the outcome
+otherwise:
+
+```rust,no_run
+use near_kit::transaction::FunctionCall;
+use near_kit::*;
+
+# async fn example(alice: &SigningNear) -> Result<(), Error> {
+let outcome = alice
+    .transaction(account!("counter.test.near"))
+    .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
+    .await?
+    .checked()?;
+assert!(outcome.logs().any(|log| log.contains("count")));
+assert_eq!(outcome.receipt_failures().count(), 0);
+# Ok(())
+# }
+```

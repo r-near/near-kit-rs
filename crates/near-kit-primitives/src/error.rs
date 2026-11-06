@@ -204,7 +204,8 @@ pub enum DecodeTransactionError {
 /// Error reading the result of a transaction from its outcome.
 ///
 /// Returned by
-/// [`FinalExecutionOutcome::result`](crate::rpc::FinalExecutionOutcome::result)
+/// [`FinalExecutionOutcome::result`](crate::rpc::FinalExecutionOutcome::result),
+/// [`FinalExecutionOutcome::checked`](crate::rpc::FinalExecutionOutcome::checked)
 /// and [`FinalExecutionOutcome::json`](crate::rpc::FinalExecutionOutcome::json),
 /// and by the wait levels when the RPC response has no usable outcome.
 #[derive(Debug, Error)]

@@ -699,9 +699,11 @@ impl<'de> Deserialize<'de> for RpcTransactionResponse {
 /// A failed action still arrives as `Ok(outcome)`, so the type is
 /// `#[must_use]`: check [`is_failure`](Self::is_failure) or
 /// [`receipt_failures`](Self::receipt_failures), or call
-/// [`result`](Self::result) to turn the failure into an `Err`.
+/// [`checked`](Self::checked) (keeps the outcome) or
+/// [`result`](Self::result) (keeps the return value) to turn the failure into
+/// an `Err`.
 #[derive(Debug, Clone, Deserialize)]
-#[must_use = "a failed action is still Ok(outcome): check is_failure(), receipt_failures() or call result()"]
+#[must_use = "a failed action is still Ok(outcome): check is_failure() or receipt_failures(), or call checked() or result()"]
 pub struct FinalExecutionOutcome {
     /// Overall transaction execution result.
     pub status: FinalExecutionStatus,
@@ -914,7 +916,8 @@ impl FinalExecutionOutcome {
     /// The return value as raw bytes, or the failure as an `Err`.
     ///
     /// A send returns `Ok(outcome)` even when an action failed, so
-    /// `.await?.result()?` is the usual way to make a failed action an error:
+    /// `.await?.result()?` is the usual way to make a failed action an error
+    /// ([`checked`](Self::checked) does the same and keeps the outcome):
     /// [`OutcomeError::ActionFailed`] (or `InvalidTx` for a transaction
     /// rejected when its chunk was applied). It is also `Err` if the status
     /// is not a finished `SuccessValue`, or the value is not valid base64. A
@@ -937,6 +940,42 @@ impl FinalExecutionOutcome {
                 .map_err(|e| OutcomeError::InvalidBase64(e.to_string())),
             other => Err(OutcomeError::NotSuccess(Box::new(other.clone()))),
         }
+    }
+
+    /// The outcome itself, or the failure as an `Err`.
+    ///
+    /// The same check as [`result`](Self::result), with the same error, but
+    /// it hands back the whole outcome on success instead of the return
+    /// value, so `.await?.checked()?` fails on a failed action and still
+    /// leaves the [`logs`](Self::logs), receipts and return value to read.
+    ///
+    /// Like `result()`, it reads the top-level [`status`](Self::status) only,
+    /// and is `Err` in the same cases: a failed action
+    /// ([`OutcomeError::ActionFailed`]), a transaction rejected when its chunk
+    /// was applied (`InvalidTx`), a status that is not a finished
+    /// `SuccessValue`, or a value that is not valid base64. It doesn't check
+    /// receipts that fail off the main chain: a relayed transaction whose
+    /// inner actions failed is still `Ok`, and so is a `transfer_call` whose
+    /// receiver failed and was refunded. Check
+    /// [`receipt_failures`](Self::receipt_failures) for those, and the
+    /// amount a token `transfer_call` returns.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use near_kit_primitives::rpc::{FinalExecutionOutcome, OutcomeError};
+    /// fn events(outcome: FinalExecutionOutcome) -> Result<Vec<String>, OutcomeError> {
+    ///     let outcome = outcome.checked()?;
+    ///     Ok(outcome
+    ///         .logs()
+    ///         .filter_map(|log| log.strip_prefix("EVENT_JSON:"))
+    ///         .map(str::to_owned)
+    ///         .collect())
+    /// }
+    /// ```
+    pub fn checked(self) -> Result<Self, OutcomeError> {
+        self.result()?;
+        Ok(self)
     }
 
     /// Deserialize the return value as JSON.
@@ -2736,6 +2775,83 @@ mod tests {
         let message = outcome.failure_message().unwrap();
         assert_eq!(message, "Action #0: execution error: boom");
         assert_eq!(outcome.result().unwrap_err().to_string(), message);
+    }
+
+    /// On success `checked()` hands back the outcome it was given: logs,
+    /// receipt outcomes, receipts and the return value are all still there.
+    #[test]
+    fn test_checked_success_keeps_outcome() {
+        let ok = serde_json::json!({"SuccessValue": "aGVsbG8="});
+        let mut json = outcome_json(
+            ok.clone(),
+            &[ok.clone(), ok],
+            &[&["tx"], &["a", "b"], &["c"]],
+        );
+        json["receipts"] = serde_json::json!([{
+            "predecessor_id": "alice.near",
+            "receiver_id": "bob.near",
+            "receipt_id": RECEIPT_ID,
+            "receipt": {"Action": {
+                "signer_id": "alice.near",
+                "signer_public_key": PK,
+                "gas_price": "100000000",
+                "output_data_receivers": [],
+                "input_data_ids": [],
+                "actions": []
+            }}
+        }]);
+        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+        let before = format!("{outcome:?}");
+
+        let checked = outcome.checked().unwrap();
+        assert_eq!(format!("{checked:?}"), before);
+        assert_eq!(checked.logs().collect::<Vec<_>>(), ["tx", "a", "b", "c"]);
+        assert_eq!(checked.receipts_outcome.len(), 2);
+        assert_eq!(checked.receipts.len(), 1);
+        assert_eq!(checked.result().unwrap(), b"hello");
+    }
+
+    /// A failed transaction gives the same `OutcomeError` from `checked()`
+    /// as from `result()`, for every way `result()` can fail.
+    #[test]
+    fn test_checked_failure_same_error_as_result() {
+        let invalid_tx = serde_json::json!({"Failure": {"InvalidTxError": "Expired"}});
+        let cases = [
+            (outcome_with_receipts(panicked("boom"), &[]), "ActionFailed"),
+            (outcome_with_receipts(invalid_tx, &[]), "InvalidTx"),
+            (
+                outcome_with_receipts(serde_json::json!("Started"), &[]),
+                "NotSuccess",
+            ),
+            (make_success_outcome("not-valid-base64!!!"), "InvalidBase64"),
+        ];
+        for (outcome, variant) in cases {
+            let expected = outcome.result().unwrap_err();
+            let err = outcome.checked().unwrap_err();
+            assert_eq!(format!("{err:?}"), format!("{expected:?}"));
+            assert_eq!(err.to_string(), expected.to_string());
+            assert!(format!("{err:?}").starts_with(variant), "{err:?}");
+        }
+    }
+
+    /// `checked()` reads the top-level status only, like `result()`: a
+    /// relayed transaction or `transfer_call` whose receipt failed off the
+    /// main chain is still `Ok`, and the failure is in `receipt_failures`.
+    #[test]
+    fn test_checked_ignores_receipt_failures_off_main_chain() {
+        let ok = serde_json::json!({"SuccessValue": ""});
+        let outcome = outcome_with_receipts(
+            ok.clone(),
+            &[
+                serde_json::json!({"SuccessReceiptId": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo"}),
+                panicked("ft_on_transfer panicked"),
+                ok,
+            ],
+        );
+        assert!(outcome.result().is_ok());
+
+        let checked = outcome.checked().unwrap();
+        assert_eq!(checked.receipt_failures().count(), 1);
     }
 
     #[test]

@@ -344,7 +344,7 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
     ///
     /// This calls `nft_on_transfer` on the receiver contract.
     ///
-    /// `.result()?` doesn't tell you the receiver kept the token: if
+    /// `.result()?` (or `.checked()?`) doesn't tell you the receiver kept the token: if
     /// `nft_on_transfer` fails, the contract's `nft_resolve_transfer`
     /// callback handles the failure and tries to return the token to the
     /// sender, so the transaction still succeeds. It can't return a token the

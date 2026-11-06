@@ -273,8 +273,8 @@ let outcome = alice
     .near()
     .tx_status(&response.transaction_hash, &response.sender_id)
     .wait_until::<Final>()
-    .await?;
-outcome.result()?;
+    .await?
+    .checked()?;
 println!("{} receipts", outcome.receipts.len());
 # Ok(())
 # }
