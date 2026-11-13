@@ -1,11 +1,11 @@
 # Checks that #[near_kit::contract] sends the bytes near-sdk's #[ext_contract]
 # sends for the same method signatures, and that near_kit::json_types are
 # near_sdk::json_types (one type, near-sdk's wire format), and that a NEP-297
-# event built with near-sdk-core alone logs what near-sdk's `#[near(event_json)]`
-# logs. A workspace of its own: near-sdk's
-# `unit-testing` feature pulls in nearcore crates (near-primitives,
-# near-vm-runner) the main workspace doesn't otherwise build. CI runs it in a
-# separate job:
+# event built with near_kit::events (or near-sdk-core alone) logs what
+# near-sdk's `#[near(event_json)]` logs and parses back. A workspace of its
+# own: near-sdk's `unit-testing` feature pulls in nearcore crates
+# (near-primitives, near-vm-runner) the main workspace doesn't otherwise
+# build. CI runs it in a separate job:
 #
 #     cargo test --manifest-path crates/near-kit-macros/tests/near-sdk-wire/Cargo.toml
 [package]

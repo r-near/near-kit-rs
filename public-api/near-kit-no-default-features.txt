@@ -13,6 +13,9 @@ pub use near_kit::TxSender
 pub use near_kit::View
 pub use near_kit::Viewer
 pub use near_kit::account
+pub mod near_kit::events
+pub use near_kit::events::Event
+pub use near_kit::events::RawEvent
 pub mod near_kit::json_types
 pub use near_kit::json_types::Base64VecU8
 pub use near_kit::json_types::I128
