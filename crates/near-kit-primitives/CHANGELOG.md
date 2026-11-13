@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.8](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0-rc.7...near-kit-primitives-v0.30.0-rc.8) - 2026-11-13
+
+### Added
+
+- [**breaking**] near_kit::json_types are near-sdk's own types, so values pass between contracts and clients ([#414](https://github.com/r-near/near-kit-rs/pull/414))
+
+### Other
+
+- build NEP-297 events with near-sdk-core alone, so near-kit-only clients can check them ([#415](https://github.com/r-near/near-kit-rs/pull/415))
+
 ## [0.30.0-rc.7](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0-rc.6...near-kit-primitives-v0.30.0-rc.7) - 2026-11-06
 
 ### Added
