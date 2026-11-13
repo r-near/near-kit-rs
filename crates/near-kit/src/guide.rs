@@ -11,7 +11,7 @@
 //! | [`meta_transactions`] | Signing delegate actions and relaying them |
 //! | [`offline_signing`] | Signing without sending, fully offline transactions, NEP-413 messages |
 //! | [`contracts_and_tokens`] | `#[contract]` clients, FT and NFT helpers |
-//! | [`testing`] | Mock backends, canned RPC responses, the Docker sandbox |
+//! | [`testing`] | Mock backends, canned RPC responses, the Docker sandbox, checking NEP-297 events |
 //! | [`platforms`] | Browsers, WASI, offline builds, near-kit-primitives in contracts, tracing |
 //!
 //! The chapters render on docs.rs with every documented feature enabled. A
