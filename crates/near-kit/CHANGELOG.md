@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0-rc.9](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.8...near-kit-v0.30.0-rc.9) - 2026-11-13
+
+### Added
+
+- read NEP-297 events as typed values, so near-kit-only clients can check them ([#419](https://github.com/r-near/near-kit-rs/pull/419))
+
 ## [0.30.0-rc.8](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.7...near-kit-v0.30.0-rc.8) - 2026-11-13
 
 ### Added

@@ -827,7 +827,7 @@ impl FinalExecutionOutcome {
     /// and that succeeded.
     ///
     /// To build the line a near-sdk contract logs for an event, without
-    /// near-sdk, and check it in a test, see [Checking NEP-297 events](https://docs.rs/near-kit/0.30.0-rc.8/near_kit/guide/testing/index.html#checking-nep-297-events)
+    /// near-sdk, and check it in a test, see [Checking NEP-297 events](https://docs.rs/near-kit/0.30.0-rc.9/near_kit/guide/testing/index.html#checking-nep-297-events)
     /// in the testing guide.
     ///
     /// # Example
@@ -1047,7 +1047,7 @@ impl FinalExecutionOutcome {
     /// [`receipt_failures`](Self::receipt_failures) for those, and the
     /// amount a token `transfer_call` returns.
     ///
-    /// [Checking NEP-297 events](https://docs.rs/near-kit/0.30.0-rc.8/near_kit/guide/testing/index.html#checking-nep-297-events)
+    /// [Checking NEP-297 events](https://docs.rs/near-kit/0.30.0-rc.9/near_kit/guide/testing/index.html#checking-nep-297-events)
     /// in the testing guide compares a checked outcome's events with the
     /// expected ones.
     ///
