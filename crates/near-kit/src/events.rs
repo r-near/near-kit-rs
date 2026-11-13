@@ -5,7 +5,7 @@
 //! [`FinalExecutionOutcome::events`](crate::rpc::FinalExecutionOutcome::events)
 //! reads a transaction's events. See [`near_kit_primitives::events`] for an
 //! example, and the testing guide's
-//! [Checking NEP-297 events](https://docs.rs/near-kit/0.30.0-rc.8/near_kit/guide/testing/index.html#checking-nep-297-events)
+//! [Checking NEP-297 events](https://docs.rs/near-kit/0.30.0-rc.9/near_kit/guide/testing/index.html#checking-nep-297-events)
 //! for checking them in a test.
 
 #[doc(inline)]
