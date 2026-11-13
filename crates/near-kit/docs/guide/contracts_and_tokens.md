@@ -313,13 +313,15 @@ method without parameters sends `{}`. In Borsh it is each parameter's
 encoding in order (the encoding of a struct with those fields), and nothing
 without parameters.
 
-near-sdk's `json_types` are in [`near_kit::json_types`](crate::json_types)
-under the same names, with the same JSON and Borsh: `U128`, `U64`, `I128`
-and `I64` are decimal strings in JSON, `Base64VecU8` is a base64 string. So
-`amount: U128` and `-> U128` copy over from the contract unchanged. They are
-for crates that don't depend on near-sdk: a JSON parameter can be any
-`Serialize` type and a return value any `Deserialize` type, so a crate that
-already depends on near-sdk can keep `near_sdk::json_types::U128` in its trait.
+near-sdk's `json_types` are in [`near_kit::json_types`](crate::json_types):
+`U128`, `U64`, `I128` and `I64` are decimal strings in JSON, `Base64VecU8`
+is a base64 string. They are near-sdk's own types, re-exported from
+`near-sdk-core`, so `amount: U128` and `-> U128` copy over from the
+contract unchanged, and `near_kit::json_types::U128` and
+`near_sdk::json_types::U128` are one type. A crate shared by a contract and
+its clients can put `U128`, `Vec<U128>` or `Option<U128>` in its structs
+(naming it through `near-sdk-core` or `near-kit-primitives`), and both sides
+use those values as they are.
 
 When you already have a struct whose fields are the contract's parameters,
 mark the parameter `#[args]` to send the struct as the whole argument

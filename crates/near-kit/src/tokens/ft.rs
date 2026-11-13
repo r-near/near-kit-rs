@@ -538,7 +538,7 @@ mod tests {
         let mock = Mock::default().answer("ft_total_supply", json!("ten"));
         let token = FungibleToken::client(mock, account!("token.near"));
         let error = token.total_supply().await.unwrap_err().to_string();
-        assert!(error.contains(r#"invalid number "ten": "#), "{error}");
+        assert!(error.contains("invalid digit found in string"), "{error}");
     }
 
     #[tokio::test]

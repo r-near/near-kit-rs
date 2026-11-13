@@ -166,7 +166,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `near_kit::{call, json, borsh}` attribute re-exports | Removed: `#[contract]` reads the markers itself |
 | `#[contract]` method with one parameter `args: Args`, sent as the whole argument object | Sent by name, `{"args": ..}`, with no compile error; `#[args] args: Args` keeps the whole object (see [below](#one-parameter-is-sent-by-name)) |
 | `#[contract]` method with several parameters (a compile error) | Each parameter sent by name, as near-sdk encodes them |
-| No JSON wrapper types: a contract's `U128`/`U64` passed as `String`, or a wrapper of your own | `near_kit::json_types::{U64, I64, U128, I128, Base64VecU8}`, with near-sdk's names, public field and wire format (decimal strings and standard base64 in JSON, the inner value in Borsh), so `amount: U128` copies from the contract unchanged |
+| No JSON wrapper types: a contract's `U128`/`U64` passed as `String`, or a wrapper of your own | `near_kit::json_types::{U64, I64, U128, I128, Base64VecU8}`, near-sdk's own types re-exported from `near-sdk-core` (decimal strings and standard base64 in JSON, the inner value in Borsh), so `amount: U128` copies from the contract unchanged and a value passes between near-sdk and near-kit code as is (see [below](#json-wrapper-types-are-near-sdks)) |
 | `standards::FungibleToken`, `standards::NonFungibleToken` (the clients) | `FungibleTokenClient<C = Near>`, `NonFungibleTokenClient<C = Near>`; `FungibleToken` and `NonFungibleToken` are now `Contract` markers |
 | `Near::ft(id)`, `Near::nft(id)` | `near.contract::<FungibleToken>(id)`, `near.contract::<NonFungibleToken>(id)` |
 | `FungibleToken::contract_id`, `is_registered`, `metadata`, `storage_balance_bounds`, `storage_balance_of`, `storage_deposit`, `transfer`, `transfer_call` | Same methods on `FungibleTokenClient<C>`; `transfer` takes a memo `Option` |
@@ -570,6 +570,33 @@ The macro now rejects declarations it used to compile into something wrong:
 | Generic methods, lifetime parameters, `async fn` | A compile error; use `impl Trait` or a concrete type, drop `async` |
 | `#[cfg]` / `#[cfg_attr]` on a method (ignored) | Applied to the generated client method and `FunctionCall` constructor; `#[call]`, `#[json]` or `#[borsh]` behind `#[cfg_attr]` is a compile error (declare the method twice, each under `#[cfg]`) |
 | `fn r#type(&self)` sent the method name `r#type` | It sends `type` |
+
+### JSON wrapper types are near-sdk's
+
+`near_kit::json_types::{U64, I64, U128, I128, Base64VecU8}` (and the same
+names in `near_kit_primitives::json_types`) are near-sdk's own types,
+re-exported from `near-sdk-core`: `near_kit::json_types::U128` and
+`near_sdk::json_types::U128` are one type. A crate shared by a contract and
+its clients can hold them in its structs (`Vec<U128>`, `Option<U128>`), and
+both sides use those values with no conversion. To use near-sdk in the same
+build, it must be near-sdk 5.30.x: 5.27 to 5.29 pin an older
+`near-sdk-core` and don't resolve with near-kit, and 5.26 and older have
+their own `json_types`, a different type.
+
+0.30.0-rc.5 to rc.7 had near-kit's own copies of these types. If you used
+one of those release candidates, these changed with no change to the JSON
+or Borsh:
+
+| 0.30.0-rc.5 to rc.7 | This release |
+|---|---|
+| `Hash` on `U64`, `I64`, `U128` and `I128` (a `HashMap` key or `HashSet` item) | Gone: key on the inner value, `amount.0` |
+| `Default`, `PartialOrd`, `Ord` and `Hash` on `Base64VecU8` | Gone: use the inner `Vec<u8>` (`bytes.0`), and `Base64VecU8(Vec::new())` for an empty one |
+| Separate impls of your own trait for near-kit's and near-sdk's `U128` | A conflicting-impl error (E0119): keep one, since it is now one type |
+| A bad value's JSON error read ``invalid number "ten": ..`` or ``invalid base64: ..`` | near-sdk's message: the parse error alone (`invalid digit found in string`), without the input or the prefix |
+
+The integers keep `Copy`, `Default`, `Eq`, `Ord`, `Debug`, `From` both ways
+and serde and Borsh; `Base64VecU8` keeps `Clone`, `Eq`, `Debug`,
+`AsRef<[u8]>`, `From` both ways and serde and Borsh.
 
 ### Your own backend
 

@@ -1,170 +1,208 @@
-//! `near_kit::json_types` are byte-equal to `near_sdk::json_types` in JSON
-//! and Borsh, and accept and reject the same JSON.
+//! `near_kit::json_types` are `near_sdk::json_types`: the same Rust types,
+//! so a value from a struct written against near-sdk passes into near-kit
+//! code with no conversion. They also keep near-sdk's JSON and Borsh.
 
-use std::fmt::Debug;
+use std::any::TypeId;
 
 use near_kit::json_types as kit;
+use near_kit::protocol::FunctionCallAction;
 use near_sdk::json_types as sdk;
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-
-/// Both encode `kit`/`sdk` to the same JSON and Borsh bytes.
-fn same_bytes<K, S>(kit: &K, sdk: &S)
-where
-    K: Serialize + borsh::BorshSerialize + Debug,
-    S: Serialize + borsh::BorshSerialize,
-{
-    assert_eq!(
-        serde_json::to_string(kit).unwrap(),
-        serde_json::to_string(sdk).unwrap(),
-        "JSON of {kit:?}"
-    );
-    assert_eq!(
-        borsh::to_vec(kit).unwrap(),
-        borsh::to_vec(sdk).unwrap(),
-        "Borsh of {kit:?}"
-    );
-}
-
-/// Both accept `json` or both reject it, and an accepted value is the same.
-fn same_parse<K, S, T>(json: &str, kit_inner: impl Fn(K) -> T, sdk_inner: impl Fn(S) -> T)
-where
-    K: DeserializeOwned,
-    S: DeserializeOwned,
-    T: PartialEq + Debug,
-{
-    let kit = serde_json::from_str::<K>(json).map(kit_inner);
-    let sdk = serde_json::from_str::<S>(json).map(sdk_inner);
-    match (kit, sdk) {
-        (Ok(kit), Ok(sdk)) => assert_eq!(kit, sdk, "{json}"),
-        (Err(_), Err(_)) => {}
-        (kit, sdk) => panic!("{json}: near-kit {kit:?}, near-sdk {sdk:?}"),
-    }
-}
-
-/// Integer inputs: in range, out of range, signs, padding, other notations
-/// and other JSON types.
-const INTEGER_INPUTS: &[&str] = &[
-    r#""0""#,
-    r#""1""#,
-    r#""+1""#,
-    r#""-1""#,
-    r#""-0""#,
-    r#""007""#,
-    r#"" 1""#,
-    r#""1 ""#,
-    r#""""#,
-    r#""1e3""#,
-    r#""0x10""#,
-    r#""1.0""#,
-    r#""1_000""#,
-    r#""9223372036854775807""#,
-    r#""9223372036854775808""#,
-    r#""-9223372036854775808""#,
-    r#""-9223372036854775809""#,
-    r#""18446744073709551615""#,
-    r#""18446744073709551616""#,
-    r#""170141183460469231731687303715884105727""#,
-    r#""170141183460469231731687303715884105728""#,
-    r#""-170141183460469231731687303715884105728""#,
-    r#""-170141183460469231731687303715884105729""#,
-    r#""340282366920938463463374607431768211455""#,
-    r#""340282366920938463463374607431768211456""#,
-    "1",
-    "-1",
-    "null",
-    "true",
-    "[]",
-];
+use serde::{Deserialize, Serialize};
 
 #[test]
-fn integers_encode_the_same() {
+fn json_types_are_near_sdks_types() {
+    assert_eq!(TypeId::of::<kit::U64>(), TypeId::of::<sdk::U64>());
+    assert_eq!(TypeId::of::<kit::I64>(), TypeId::of::<sdk::I64>());
+    assert_eq!(TypeId::of::<kit::U128>(), TypeId::of::<sdk::U128>());
+    assert_eq!(TypeId::of::<kit::I128>(), TypeId::of::<sdk::I128>());
+    assert_eq!(
+        TypeId::of::<kit::Base64VecU8>(),
+        TypeId::of::<sdk::Base64VecU8>()
+    );
+}
+
+/// A type from a crate that a contract and a client both depend on,
+/// written with near-sdk's `json_types`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Deposits {
+    pub amounts: Vec<sdk::U128>,
+    pub limit: Option<sdk::U128>,
+    pub deadline: sdk::U64,
+    pub memo: sdk::Base64VecU8,
+}
+
+/// The client side, written with near-kit's `json_types`.
+#[near_kit::contract]
+pub trait Vault {
+    #[call]
+    fn deposit_many(
+        &mut self,
+        amounts: Vec<kit::U128>,
+        limit: Option<kit::U128>,
+        deadline: kit::U64,
+        memo: kit::Base64VecU8,
+    );
+}
+
+fn total(amounts: &[kit::U128]) -> kit::U128 {
+    kit::U128(amounts.iter().map(|amount| amount.0).sum())
+}
+
+#[test]
+fn values_pass_between_near_sdk_and_near_kit_with_no_conversion() {
+    let deposits = Deposits {
+        amounts: vec![sdk::U128(10), sdk::U128(u128::MAX - 10)],
+        limit: Some(sdk::U128(5)),
+        deadline: sdk::U64(7),
+        memo: sdk::Base64VecU8(vec![1, 2, 3]),
+    };
+
+    // near-sdk values into near-kit parameters...
+    let call = Vault::deposit_many(
+        deposits.amounts.clone(),
+        deposits.limit,
+        deposits.deadline,
+        deposits.memo.clone(),
+    );
+    let action = FunctionCallAction::try_from(call).unwrap();
+    assert_eq!(action.method_name, "deposit_many");
+    assert_eq!(
+        action.args,
+        br#"{"amounts":["10","340282366920938463463374607431768211445"],"limit":"5","deadline":"7","memo":"AQID"}"#
+    );
+
+    // ...and near-kit values into the near-sdk struct.
+    let sum: sdk::U128 = total(&deposits.amounts);
+    assert_eq!(sum, sdk::U128(u128::MAX));
+    let rebuilt = Deposits {
+        amounts: vec![kit::U128(10), kit::U128(u128::MAX - 10)],
+        limit: Some(kit::U128(5)),
+        deadline: kit::U64(7),
+        memo: kit::Base64VecU8(vec![1, 2, 3]),
+    };
+    assert_eq!(rebuilt, deposits);
+}
+
+#[test]
+fn integers_are_decimal_strings_in_json_and_the_integer_in_borsh() {
     for value in [0, 1, 10u128.pow(24), u128::MAX] {
-        same_bytes(&kit::U128(value), &sdk::U128(value));
+        assert_eq!(
+            serde_json::to_string(&kit::U128(value)).unwrap(),
+            format!("\"{value}\"")
+        );
+        assert_eq!(
+            borsh::to_vec(&kit::U128(value)).unwrap(),
+            value.to_le_bytes()
+        );
     }
     for value in [i128::MIN, -1, 0, 1, i128::MAX] {
-        same_bytes(&kit::I128(value), &sdk::I128(value));
+        assert_eq!(
+            serde_json::to_string(&kit::I128(value)).unwrap(),
+            format!("\"{value}\"")
+        );
+        assert_eq!(
+            borsh::to_vec(&kit::I128(value)).unwrap(),
+            value.to_le_bytes()
+        );
     }
     for value in [0, 1, u64::MAX] {
-        same_bytes(&kit::U64(value), &sdk::U64(value));
+        assert_eq!(
+            serde_json::to_string(&kit::U64(value)).unwrap(),
+            format!("\"{value}\"")
+        );
+        assert_eq!(
+            borsh::to_vec(&kit::U64(value)).unwrap(),
+            value.to_le_bytes()
+        );
     }
     for value in [i64::MIN, -1, 0, 1, i64::MAX] {
-        same_bytes(&kit::I64(value), &sdk::I64(value));
-    }
-}
-
-#[test]
-fn integers_accept_the_same_json() {
-    for json in INTEGER_INPUTS {
-        same_parse(json, |kit::U128(v)| v, |sdk::U128(v)| v);
-        same_parse(json, |kit::I128(v)| v, |sdk::I128(v)| v);
-        same_parse(json, |kit::U64(v)| v, |sdk::U64(v)| v);
-        same_parse(json, |kit::I64(v)| v, |sdk::I64(v)| v);
-    }
-}
-
-#[test]
-fn integers_decode_each_others_borsh() {
-    let bytes = borsh::to_vec(&sdk::U128(u128::MAX)).unwrap();
-    assert_eq!(
-        borsh::from_slice::<kit::U128>(&bytes).unwrap(),
-        kit::U128(u128::MAX)
-    );
-    let bytes = borsh::to_vec(&kit::I128(i128::MIN)).unwrap();
-    assert_eq!(
-        borsh::from_slice::<sdk::I128>(&bytes).unwrap(),
-        sdk::I128(i128::MIN)
-    );
-}
-
-#[test]
-fn bytes_encode_the_same() {
-    for bytes in [
-        vec![],
-        vec![0],
-        vec![1, 2],
-        vec![1, 2, 3],
-        vec![0xfb, 0xff],
-        vec![100, 121, 31, 20, 0, 23, 32],
-        (0..=255).collect(),
-        vec![123; 16000],
-    ] {
-        same_bytes(
-            &kit::Base64VecU8(bytes.clone()),
-            &sdk::Base64VecU8(bytes.clone()),
-        );
-        let wire = borsh::to_vec(&sdk::Base64VecU8(bytes.clone())).unwrap();
         assert_eq!(
-            borsh::from_slice::<kit::Base64VecU8>(&wire).unwrap(),
-            kit::Base64VecU8(bytes)
+            serde_json::to_string(&kit::I64(value)).unwrap(),
+            format!("\"{value}\"")
+        );
+        assert_eq!(
+            borsh::to_vec(&kit::I64(value)).unwrap(),
+            value.to_le_bytes()
         );
     }
 }
 
 #[test]
-fn bytes_accept_the_same_json() {
-    for json in [
-        r#""""#,
-        r#""AA==""#,
-        r#""AQ==""#,
+fn integers_accept_decimal_strings_only() {
+    let u128 = |json: &str| serde_json::from_str::<kit::U128>(json).ok().map(|v| v.0);
+    let i64 = |json: &str| serde_json::from_str::<kit::I64>(json).ok().map(|v| v.0);
+
+    for (json, expected) in [
+        (r#""0""#, Some(0)),
+        (r#""+1""#, Some(1)),
+        (r#""007""#, Some(7)),
+        (
+            r#""340282366920938463463374607431768211455""#,
+            Some(u128::MAX),
+        ),
+        (r#""340282366920938463463374607431768211456""#, None),
+        (r#""-1""#, None),
+        (r#"" 1""#, None),
+        (r#""1 ""#, None),
+        (r#""""#, None),
+        (r#""1e3""#, None),
+        (r#""0x10""#, None),
+        (r#""1.0""#, None),
+        (r#""1_000""#, None),
+        ("1", None),
+        ("null", None),
+        ("true", None),
+        ("[]", None),
+    ] {
+        assert_eq!(u128(json), expected, "{json}");
+    }
+    for (json, expected) in [
+        (r#""-0""#, Some(0)),
+        (r#""-9223372036854775808""#, Some(i64::MIN)),
+        (r#""-9223372036854775809""#, None),
+        (r#""9223372036854775808""#, None),
+        ("-1", None),
+    ] {
+        assert_eq!(i64(json), expected, "{json}");
+    }
+}
+
+#[test]
+fn bytes_are_standard_padded_base64_in_json_and_the_vector_in_borsh() {
+    for (bytes, json) in [
+        (vec![], r#""""#),
+        (vec![1], r#""AQ==""#),
+        (vec![1, 2, 3], r#""AQID""#),
+        (vec![0xfb, 0xff], r#""+/8=""#),
+        (vec![100, 121, 31, 20, 0, 23, 32], r#""ZHkfFAAXIA==""#),
+    ] {
+        let value = kit::Base64VecU8(bytes.clone());
+        assert_eq!(serde_json::to_string(&value).unwrap(), json);
+        assert_eq!(
+            serde_json::from_str::<kit::Base64VecU8>(json).unwrap(),
+            value
+        );
+        let mut borsh = (bytes.len() as u32).to_le_bytes().to_vec();
+        borsh.extend(&bytes);
+        assert_eq!(borsh::to_vec(&value).unwrap(), borsh);
+    }
+    for rejected in [
         r#""AQ""#,
         r#""AQ=""#,
         r#""AQ===""#,
-        r#""AQI=""#,
-        r#""AQI""#,
-        r#""AQID""#,
-        r#""+/8=""#,
         r#""-_8=""#,
         r#""A Q==""#,
         r#""AQ==\n""#,
         r#""AQ==AQ==""#,
         r#""AR==""#,
         r#""=""#,
-        r#""ZHkfFAAXIA==""#,
         "null",
         "[1]",
         "1",
     ] {
-        same_parse(json, |kit::Base64VecU8(v)| v, |sdk::Base64VecU8(v)| v);
+        assert!(
+            serde_json::from_str::<kit::Base64VecU8>(rejected).is_err(),
+            "{rejected}"
+        );
     }
 }
