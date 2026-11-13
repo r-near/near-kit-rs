@@ -65,6 +65,8 @@ note: required for `BadContract::set::__NearKitArgs<NotSerializable>` to impleme
 note: required by a bound in `near_kit::transaction::FunctionCall::args`
  --> $WORKSPACE/crates/near-kit-primitives/src/transaction/function_call.rs
   |
+  | impl FunctionCall {
+...
   |     pub fn args(mut self, args: impl serde::Serialize) -> Self {
   |                                      ^^^^^^^^^^^^^^^^ required by this bound in `FunctionCall::args`
   = note: this error originates in the attribute macro `near_kit::contract` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -132,6 +134,8 @@ note: required for `BadContract::store::__NearKitArgs<u8, NotSerializable>` to i
 note: required by a bound in `near_kit::transaction::FunctionCall::args_borsh`
  --> $WORKSPACE/crates/near-kit-primitives/src/transaction/function_call.rs
   |
+  | impl FunctionCall {
+...
   |     pub fn args_borsh(mut self, args: impl borsh::BorshSerialize) -> Self {
   |                                            ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `FunctionCall::args_borsh`
   = note: this error originates in the attribute macro `near_kit::contract` (in Nightly builds, run with -Z macro-backtrace for more info)

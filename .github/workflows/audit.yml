@@ -28,4 +28,10 @@ jobs:
       - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2
         with:
           tool: cargo-audit@0.22.2
-      - run: cargo audit --deny warnings
+      # RUSTSEC-2026-0440: astral-tokio-tar is unmaintained, with no fixed
+      # release. It comes in only through testcontainers, which only
+      # near-kit-sandbox uses; near-kit and near-kit-primitives don't depend
+      # on it. testcontainers uses tar only to copy files into or out of a
+      # container and to build images, and near-kit-sandbox does none of
+      # these: it runs a prebuilt sandbox image. Drop the ignore once testcontainers moves off the crate.
+      - run: cargo audit --deny warnings --ignore RUSTSEC-2026-0440
