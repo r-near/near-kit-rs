@@ -119,6 +119,9 @@ Use conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`; `!` fo
 
 ## Design Philosophy
 
+The mission and the test for what belongs in near-kit are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 1. **Two clients**: `Near` reads; `near.with_signer(s)` returns a `SigningNear` that also sends
 2. **Configure once**: Network on `Near`, account and wait level on `SigningNear<W>`
 3. **One way to do each thing**: Typed values in, no duplicate shortcuts
