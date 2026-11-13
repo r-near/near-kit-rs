@@ -111,6 +111,7 @@ mod tokens;
 mod trace;
 mod types;
 
+pub mod events;
 pub mod guide;
 pub mod json_types;
 pub mod protocol;

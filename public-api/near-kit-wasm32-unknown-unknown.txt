@@ -15,6 +15,9 @@ pub use near_kit::Viewer
 pub use near_kit::account
 pub use near_kit::contract
 pub use near_kit::reqwest
+pub mod near_kit::events
+pub use near_kit::events::Event
+pub use near_kit::events::RawEvent
 pub mod near_kit::guide
 pub mod near_kit::guide::clients
 pub mod near_kit::guide::contracts_and_tokens

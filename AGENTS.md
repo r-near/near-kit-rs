@@ -143,10 +143,10 @@ Also allowed: `near-sdk-core`, for `json_types` only.
 near-sdk's (near-sdk 5.30 re-exports them too) and values pass between
 contract code and client code, including inside structs a crate shares
 between the two. Library code uses nothing else from it; don't widen the
-re-export (no glob). Docs and tests may use its other items to show user
-code, as near-kit's dev-dependency: the testing guide's NEP-297 recipe
-builds events with `near_sdk_core::events`, which a client depends on
-itself. It is already in the graph through
+re-export (no glob). NEP-297 events are near-kit's own
+`near_kit_primitives::events::Event`, not near-sdk-core's `Nep297Event`
+(borrowed and serialize-only); the near-sdk-wire tests check that both log
+the same line as near-sdk's `#[near(event_json)]`. It is already in the graph through
 `near-global-contracts`, which pins it to `~4.4`. Its types are part of
 near-kit's public API, so a `near-sdk-core` major bump is a breaking
 near-kit release. A minor move of that tilde pin keeps the types but

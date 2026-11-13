@@ -4,6 +4,46 @@ pub use near_kit_primitives::AccountIdRef
 pub use near_kit_primitives::Gas
 pub use near_kit_primitives::NearToken
 pub use near_kit_primitives::contract
+pub mod near_kit_primitives::events
+pub struct near_kit_primitives::events::Event<T>
+pub near_kit_primitives::events::Event::payload: T
+pub near_kit_primitives::events::Event::standard: alloc::string::String
+pub near_kit_primitives::events::Event::version: alloc::string::String
+impl near_kit_primitives::events::Event<near_kit_primitives::events::RawEvent>
+pub fn near_kit_primitives::events::Event<near_kit_primitives::events::RawEvent>::decode<T: serde_core::de::DeserializeOwned>(self) -> core::result::Result<near_kit_primitives::events::Event<T>, serde_json::error::Error>
+impl<T: serde_core::de::DeserializeOwned> near_kit_primitives::events::Event<T>
+pub fn near_kit_primitives::events::Event<T>::from_log(&str) -> core::option::Option<core::result::Result<Self, serde_json::error::Error>>
+impl<T: serde_core::ser::Serialize> near_kit_primitives::events::Event<T>
+pub fn near_kit_primitives::events::Event<T>::to_log(&self) -> alloc::string::String
+impl<T> near_kit_primitives::events::Event<T>
+pub fn near_kit_primitives::events::Event<T>::new(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>, T) -> Self
+impl<'de, T> serde_core::de::Deserialize<'de> for near_kit_primitives::events::Event<T> where T: serde_core::de::Deserialize<'de>
+pub fn near_kit_primitives::events::Event<T>::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl<T: core::clone::Clone> core::clone::Clone for near_kit_primitives::events::Event<T>
+pub fn near_kit_primitives::events::Event<T>::clone(&self) -> near_kit_primitives::events::Event<T>
+impl<T: core::cmp::Eq> core::cmp::Eq for near_kit_primitives::events::Event<T>
+impl<T: core::cmp::PartialEq> core::cmp::PartialEq for near_kit_primitives::events::Event<T>
+pub fn near_kit_primitives::events::Event<T>::eq(&self, &near_kit_primitives::events::Event<T>) -> bool
+impl<T: core::cmp::PartialEq> core::marker::StructuralPartialEq for near_kit_primitives::events::Event<T>
+impl<T: core::fmt::Debug> core::fmt::Debug for near_kit_primitives::events::Event<T>
+pub fn near_kit_primitives::events::Event<T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<T> serde_core::ser::Serialize for near_kit_primitives::events::Event<T> where T: serde_core::ser::Serialize
+pub fn near_kit_primitives::events::Event<T>::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub struct near_kit_primitives::events::RawEvent
+pub near_kit_primitives::events::RawEvent::data: core::option::Option<serde_json::value::Value>
+pub near_kit_primitives::events::RawEvent::event: alloc::string::String
+impl core::clone::Clone for near_kit_primitives::events::RawEvent
+pub fn near_kit_primitives::events::RawEvent::clone(&self) -> near_kit_primitives::events::RawEvent
+impl core::cmp::Eq for near_kit_primitives::events::RawEvent
+impl core::cmp::PartialEq for near_kit_primitives::events::RawEvent
+pub fn near_kit_primitives::events::RawEvent::eq(&self, &near_kit_primitives::events::RawEvent) -> bool
+impl core::fmt::Debug for near_kit_primitives::events::RawEvent
+pub fn near_kit_primitives::events::RawEvent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for near_kit_primitives::events::RawEvent
+impl serde_core::ser::Serialize for near_kit_primitives::events::RawEvent
+pub fn near_kit_primitives::events::RawEvent::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::events::RawEvent
+pub fn near_kit_primitives::events::RawEvent::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub mod near_kit_primitives::json_types
 pub use near_kit_primitives::json_types::Base64VecU8
 pub use near_kit_primitives::json_types::I128
@@ -2156,6 +2196,8 @@ pub near_kit_primitives::rpc::ExecutionOutcome::metadata: core::option::Option<n
 pub near_kit_primitives::rpc::ExecutionOutcome::receipt_ids: alloc::vec::Vec<near_kit_primitives::CryptoHash>
 pub near_kit_primitives::rpc::ExecutionOutcome::status: near_kit_primitives::rpc::ExecutionStatus
 pub near_kit_primitives::rpc::ExecutionOutcome::tokens_burnt: near_token::NearToken
+impl near_kit_primitives::rpc::ExecutionOutcome
+pub fn near_kit_primitives::rpc::ExecutionOutcome::events(&self) -> impl core::iter::traits::iterator::Iterator<Item = core::result::Result<near_kit_primitives::events::Event, serde_json::error::Error>>
 impl core::clone::Clone for near_kit_primitives::rpc::ExecutionOutcome
 pub fn near_kit_primitives::rpc::ExecutionOutcome::clone(&self) -> near_kit_primitives::rpc::ExecutionOutcome
 impl core::fmt::Debug for near_kit_primitives::rpc::ExecutionOutcome
@@ -2181,6 +2223,7 @@ pub near_kit_primitives::rpc::FinalExecutionOutcome::transaction: near_kit_primi
 pub near_kit_primitives::rpc::FinalExecutionOutcome::transaction_outcome: near_kit_primitives::rpc::ExecutionOutcomeWithId
 impl near_kit_primitives::rpc::FinalExecutionOutcome
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::checked(self) -> core::result::Result<Self, near_kit_primitives::rpc::OutcomeError>
+pub fn near_kit_primitives::rpc::FinalExecutionOutcome::events(&self, &near_account_id::account_id_ref::AccountIdRef) -> impl core::iter::traits::iterator::Iterator<Item = core::result::Result<near_kit_primitives::events::Event, serde_json::error::Error>>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::failure_error(&self) -> core::option::Option<&near_kit_primitives::protocol::TxExecutionError>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::failure_message(&self) -> core::option::Option<alloc::string::String>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::is_failure(&self) -> bool

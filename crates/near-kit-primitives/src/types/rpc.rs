@@ -19,8 +19,12 @@ use super::action::{
 use super::block_reference::TxExecutionStatus;
 use super::error::{ActionError, InvalidTxError, TxExecutionError};
 use super::transaction::{NonceMode, TransactionNonce};
-use super::{AccountId, CryptoHash, Gas, NearToken, Nonce, PublicKey, PublicKeyHandle, Signature};
+use super::{
+    AccountId, AccountIdRef, CryptoHash, Gas, NearToken, Nonce, PublicKey, PublicKeyHandle,
+    Signature,
+};
 use crate::error::ActionViewConversionError;
+use crate::events::Event;
 
 /// Cost per byte of storage in yoctoNEAR (0.00001 NEAR), a protocol constant
 /// used for the available balance. See
@@ -818,10 +822,9 @@ impl FinalExecutionOutcome {
     /// The lines don't say which account logged them. That's fine for a test
     /// that compares them with the exact lines it expects, but not for
     /// reading events: any contract can log an `EVENT_JSON:` line claiming
-    /// any `standard`. Read NEP-297 events from
-    /// [`receipts_outcome`](Self::receipts_outcome) instead, keeping the
-    /// receipts that the contract you expect executed and that succeeded (a
-    /// failed receipt's changes are rolled back, but its logs stay).
+    /// any `standard`. Read NEP-297 events with [`events`](Self::events)
+    /// instead, which keeps the receipts that the contract you name executed
+    /// and that succeeded.
     ///
     /// To build the line a near-sdk contract logs for an event, without
     /// near-sdk, and check it in a test, see [Checking NEP-297 events](https://docs.rs/near-kit/0.30.0-rc.8/near_kit/guide/testing/index.html#checking-nep-297-events)
@@ -830,34 +833,9 @@ impl FinalExecutionOutcome {
     /// # Example
     ///
     /// ```rust
+    /// use near_kit_primitives::account;
+    /// use near_kit_primitives::events::Event;
     /// use near_kit_primitives::rpc::FinalExecutionOutcome;
-    /// use near_kit_primitives::{AccountIdRef, account};
-    /// use serde::Deserialize;
-    ///
-    /// /// A NEP-297 event: the JSON after `EVENT_JSON:`.
-    /// #[derive(Debug, Deserialize)]
-    /// struct Event {
-    ///     standard: String,
-    ///     version: String,
-    ///     event: String,
-    ///     data: Option<serde_json::Value>,
-    /// }
-    ///
-    /// /// The events `contract` emitted in receipts that succeeded.
-    /// fn events_from(
-    ///     outcome: &FinalExecutionOutcome,
-    ///     contract: &AccountIdRef,
-    /// ) -> Result<Vec<Event>, serde_json::Error> {
-    ///     outcome
-    ///         .receipts_outcome
-    ///         .iter()
-    ///         .map(|r| &r.outcome)
-    ///         .filter(|o| o.executor_id == *contract && o.status.is_success())
-    ///         .flat_map(|o| &o.logs)
-    ///         .filter_map(|log| log.strip_prefix("EVENT_JSON:"))
-    ///         .map(serde_json::from_str)
-    ///         .collect()
-    /// }
     ///
     /// # fn receipt(executor_id: &str, log: &str) -> serde_json::Value {
     /// #     serde_json::json!({
@@ -891,19 +869,124 @@ impl FinalExecutionOutcome {
     /// # }))?;
     /// // `outcome` has a receipt on wrap.near that logged an `ft_transfer`
     /// // event, and one on mallory.near that logged a fake `nep141` mint.
-    /// let events = events_from(&outcome, &account!("wrap.near"))?;
-    /// assert_eq!(events.len(), 1);
-    /// assert_eq!(events[0].standard, "nep141");
-    /// assert_eq!(events[0].event, "ft_transfer");
-    ///
     /// // In a test, comparing every line with the expected ones is enough.
     /// assert_eq!(outcome.logs().collect::<Vec<_>>(), ["signed", transfer, fake]);
+    ///
+    /// // To read events, name the contract.
+    /// let events: Vec<Event> = outcome.events(&account!("wrap.near")).collect::<Result<_, _>>()?;
+    /// assert_eq!(events.len(), 1);
+    /// assert_eq!(events[0].standard, "nep141");
+    /// assert_eq!(events[0].payload.event, "ft_transfer");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn logs(&self) -> impl Iterator<Item = &str> {
         std::iter::once(&self.transaction_outcome)
             .chain(&self.receipts_outcome)
             .flat_map(|outcome| outcome.outcome.logs.iter().map(String::as_str))
+    }
+
+    /// The NEP-297 events `contract` emitted in receipts that succeeded, in
+    /// the order the RPC lists the receipt outcomes.
+    ///
+    /// This is the safe way to read events: any contract can log an
+    /// `EVENT_JSON:` line claiming any `standard`, and a failed receipt's
+    /// logs stay although its changes were rolled back. It applies
+    /// [`ExecutionOutcome::events`] to the
+    /// [`receipts_outcome`](Self::receipts_outcome) entries that `contract`
+    /// executed and that succeeded.
+    ///
+    /// The events are undecoded, since one transaction can carry several
+    /// standards: keep the one you expect and [`decode`](Event::decode) it.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use near_kit_primitives::events::Event;
+    /// use near_kit_primitives::rpc::FinalExecutionOutcome;
+    /// use near_kit_primitives::{AccountId, account};
+    /// use serde::Deserialize;
+    ///
+    /// /// The contract's events, as near-sdk's `#[near(event_json(..))]` writes them.
+    /// #[derive(Debug, PartialEq, Deserialize)]
+    /// #[serde(tag = "event", content = "data", rename_all = "snake_case")]
+    /// enum DefuseEvent {
+    ///     PublicKeyAdded { account_id: AccountId, public_key: String },
+    ///     FeeChanged { old_fee: u32, new_fee: u32 },
+    /// }
+    ///
+    /// # fn receipt(executor_id: &str, status: serde_json::Value, logs: &[&str]) -> serde_json::Value {
+    /// #     serde_json::json!({
+    /// #         "id": "3GTGoiN3FEoJenSw5ob4YMmFEV2Fbiichj3FDBnM78xK",
+    /// #         "block_hash": "A6DJpKBhmAMmBuQXtY3dWbo8dGVSQ9yH7BQSJBfn8rBo",
+    /// #         "outcome": {
+    /// #             "executor_id": executor_id,
+    /// #             "gas_burnt": 1,
+    /// #             "tokens_burnt": "0",
+    /// #             "logs": logs,
+    /// #             "receipt_ids": [],
+    /// #             "status": status,
+    /// #         },
+    /// #     })
+    /// # }
+    /// # let ok = serde_json::json!({"SuccessValue": ""});
+    /// # let failed = serde_json::json!({"Failure": {"ActionError": {
+    /// #     "index": 0,
+    /// #     "kind": {"FunctionCallError": {"ExecutionError": "Smart contract panicked: no"}},
+    /// # }}});
+    /// # let key_added = r#"EVENT_JSON:{"standard":"dip4","version":"0.4.3","event":"public_key_added","data":{"account_id":"alice.near","public_key":"ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"}}"#;
+    /// # let mt_burn = r#"EVENT_JSON:{"standard":"nep245","version":"1.0.0","event":"mt_burn","data":[{"owner_id":"alice.near","token_ids":["nep141:wrap.near"],"amounts":["10"]}]}"#;
+    /// # let fake = r#"EVENT_JSON:{"standard":"dip4","version":"0.3.0","event":"fee_changed","data":{"old_fee":1,"new_fee":0}}"#;
+    /// # let rolled_back = r#"EVENT_JSON:{"standard":"dip4","version":"0.3.0","event":"fee_changed","data":{"old_fee":1,"new_fee":2}}"#;
+    /// # let outcome: FinalExecutionOutcome = serde_json::from_value(serde_json::json!({
+    /// #     "status": {"SuccessValue": ""},
+    /// #     "transaction": {
+    /// #         "signer_id": "alice.near",
+    /// #         "public_key": "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp",
+    /// #         "nonce": 1,
+    /// #         "receiver_id": "intents.near",
+    /// #         "actions": [],
+    /// #         "signature": "ed25519:3s1dvMqNDCByoMnDnkhB4GPjTSXCRt4nt3Af5n1RX8W7aJ2FC6MfRf5BNXZ52EBifNJnNVBsGvke6GRYuaEYJXt5",
+    /// #         "hash": "9FtHUFBQsZ2MG77K3x3MJ9wjX3UT8zE1TczCrhZEcG8U",
+    /// #     },
+    /// #     "transaction_outcome": receipt("alice.near", ok.clone(), &[]),
+    /// #     "receipts_outcome": [
+    /// #         receipt("intents.near", ok.clone(), &["adding a key", key_added, mt_burn]),
+    /// #         receipt("mallory.near", ok.clone(), &[fake]),
+    /// #         receipt("intents.near", failed, &[rolled_back]),
+    /// #     ],
+    /// # }))?;
+    /// // intents.near logged a `dip4` event and a `nep245` one; mallory.near
+    /// // logged a fake `dip4` event, and a failed receipt on intents.near
+    /// // logged one too.
+    /// let defuse = account!("intents.near");
+    /// let events = outcome
+    ///     .checked()?
+    ///     .events(&defuse)
+    ///     .filter(|e| e.as_ref().map_or(true, |e| e.standard == "dip4"))
+    ///     .map(|e| e?.decode::<DefuseEvent>())
+    ///     .collect::<Result<Vec<_>, _>>()?;
+    /// assert_eq!(
+    ///     events,
+    ///     [Event::new(
+    ///         "dip4",
+    ///         "0.4.3",
+    ///         DefuseEvent::PublicKeyAdded {
+    ///             account_id: account!("alice.near"),
+    ///             public_key: "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".into(),
+    ///         },
+    ///     )]
+    /// );
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn events(
+        &self,
+        contract: &AccountIdRef,
+    ) -> impl Iterator<Item = Result<Event, serde_json::Error>> {
+        self.receipts_outcome
+            .iter()
+            .map(|receipt| &receipt.outcome)
+            .filter(move |outcome| outcome.executor_id == *contract && outcome.status.is_success())
+            .flat_map(ExecutionOutcome::events)
     }
 
     /// Get total gas used across all receipts.
@@ -971,14 +1054,17 @@ impl FinalExecutionOutcome {
     /// # Example
     ///
     /// ```rust
-    /// # use near_kit_primitives::rpc::{FinalExecutionOutcome, OutcomeError};
-    /// fn events(outcome: FinalExecutionOutcome) -> Result<Vec<String>, OutcomeError> {
+    /// use near_kit_primitives::AccountIdRef;
+    /// use near_kit_primitives::events::Event;
+    /// use near_kit_primitives::rpc::FinalExecutionOutcome;
+    ///
+    /// /// The events `contract` emitted, or an error if the transaction failed.
+    /// fn events(
+    ///     outcome: FinalExecutionOutcome,
+    ///     contract: &AccountIdRef,
+    /// ) -> Result<Vec<Event>, Box<dyn std::error::Error>> {
     ///     let outcome = outcome.checked()?;
-    ///     Ok(outcome
-    ///         .logs()
-    ///         .filter_map(|log| log.strip_prefix("EVENT_JSON:"))
-    ///         .map(str::to_owned)
-    ///         .collect())
+    ///     Ok(outcome.events(contract).collect::<Result<_, _>>()?)
     /// }
     /// ```
     pub fn checked(self) -> Result<Self, OutcomeError> {
@@ -1772,6 +1858,18 @@ pub struct ExecutionOutcome {
     pub status: ExecutionStatus,
     /// Execution metadata (gas profiling).
     pub metadata: Option<ExecutionMetadata>,
+}
+
+impl ExecutionOutcome {
+    /// The NEP-297 events in this outcome's [`logs`](Self::logs), in order,
+    /// parsed with [`Event::from_log`]: other lines are skipped, and a
+    /// malformed event is an `Err`.
+    ///
+    /// It doesn't check [`executor_id`](Self::executor_id) or
+    /// [`status`](Self::status); [`FinalExecutionOutcome::events`] does.
+    pub fn events(&self) -> impl Iterator<Item = Result<Event, serde_json::Error>> {
+        self.logs.iter().filter_map(|log| Event::from_log(log))
+    }
 }
 
 /// Execution metadata with gas profiling.
@@ -2610,6 +2708,56 @@ mod tests {
         );
         let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
         assert_eq!(outcome.logs().collect::<Vec<_>>(), ["tx", "a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_events_keep_the_contracts_successful_receipts_in_order() {
+        let event = |name: &str| {
+            format!(r#"EVENT_JSON:{{"standard":"nep141","version":"1.0.0","event":"{name}"}}"#)
+        };
+        let (a, b, fake, rolled_back, c) = (
+            event("a"),
+            event("b"),
+            event("fake"),
+            event("rolled_back"),
+            event("c"),
+        );
+        let ok = serde_json::json!({"SuccessValue": ""});
+        let receipts = [
+            (
+                "wrap.near",
+                ok.clone(),
+                vec!["plain line", &*a, "EVENT_JSON:{", &*b],
+            ),
+            ("mallory.near", ok.clone(), vec![&*fake]),
+            ("wrap.near", panicked("no"), vec![&*rolled_back]),
+            (
+                "wrap.near",
+                serde_json::json!({"SuccessReceiptId": RECEIPT_ID}),
+                vec![&*c],
+            ),
+        ];
+        let statuses: Vec<_> = receipts.iter().map(|(_, s, _)| s.clone()).collect();
+        let mut logs: Vec<&[&str]> = vec![&[]];
+        logs.extend(receipts.iter().map(|(_, _, l)| l.as_slice()));
+        let mut json = outcome_json(ok, &statuses, &logs);
+        for (i, (executor, _, _)) in receipts.iter().enumerate() {
+            json["receipts_outcome"][i]["outcome"]["executor_id"] = (*executor).into();
+        }
+        let outcome: FinalExecutionOutcome = serde_json::from_value(json).unwrap();
+
+        let wrap = AccountId::from(const { AccountIdRef::new_or_panic("wrap.near") });
+        let names: Vec<_> = outcome
+            .events(&wrap)
+            .map(|e| e.map(|e| e.payload.event).map_err(drop))
+            .collect();
+        assert_eq!(
+            names,
+            [Ok("a".into()), Err(()), Ok("b".into()), Ok("c".into())]
+        );
+        // One outcome's events, whoever executed it and however it ended.
+        let failed: Vec<_> = outcome.receipts_outcome[2].outcome.events().collect();
+        assert_eq!(failed[0].as_ref().unwrap().payload.event, "rolled_back");
     }
 
     #[test]

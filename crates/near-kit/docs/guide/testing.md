@@ -539,94 +539,75 @@ assert_eq!(outcome.receipt_failures().count(), 0);
 
 A contract built with near-sdk declares its events with
 `#[near(event_json(standard = ".."))]` and logs each one as an
-`EVENT_JSON:` line. A client doesn't need near-sdk to build the line it
-expects: near-sdk's events come from `near-sdk-core`, and a hand-written
-[`AsNep297Event`](https://docs.rs/near-sdk-core/4.4/near_sdk_core/events/trait.AsNep297Event.html)
-impl on a plain serde enum produces the same bytes as the derive.
+`EVENT_JSON:` line. [`near_kit::events::Event`](crate::events::Event) is
+that line's JSON, so a client can build the events it expects and read the
+ones a transaction logged as values, with no near-sdk.
 
-```sh
-cargo add near-sdk-core@4.4 --no-default-features --features serde
-```
-
-Write the enum as near-sdk's derive does: `tag = "event"`,
-`content = "data"`, snake_case names. The impl picks each variant's version
-(what `#[event_version(..)]` sets under near-sdk) and calls
-`Nep297Event::new(standard, version, event, self)`. The enum can live in a
-crate the contract and its clients share:
+Write the event enum as near-sdk's derive does: `tag = "event"`,
+`content = "data"`, snake_case names. Each variant's version (what
+`#[event_version(..)]` sets under near-sdk) goes in
+[`Event::new`](crate::events::Event::new) with the standard. The enum can
+live in a crate the contract and its clients share:
 
 ```rust
+use near_kit::events::Event;
 use near_kit::json_types::U128;
 use near_kit::transaction::FunctionCall;
 use near_kit::*;
-use near_sdk_core::events::{AsNep297Event, Nep297Event};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event", content = "data", rename_all = "snake_case")]
 pub enum VaultEvent {
     Deposited { account_id: AccountId, amount: U128 },
     Paused,
 }
 
-impl AsNep297Event for VaultEvent {
-    fn to_nep297_event(&self) -> Nep297Event<'_, Self> {
-        let (version, event) = match self {
-            Self::Deposited { .. } => ("1.1.0", "deposited"),
-            Self::Paused => ("1.0.0", "paused"),
-        };
-        Nep297Event::new("vault", version, event, self)
-    }
-}
-
-let expected = VaultEvent::Deposited { account_id: account!("alice.test.near"), amount: U128(10) }
-    .to_nep297_event()
-    .to_event_log();
+let deposited = VaultEvent::Deposited { account_id: account!("alice.test.near"), amount: U128(10) };
 assert_eq!(
-    expected,
+    Event::new("vault", "1.1.0", deposited).to_log(),
     r#"EVENT_JSON:{"standard":"vault","version":"1.1.0","event":"deposited","data":{"account_id":"alice.test.near","amount":"10"}}"#
 );
 
 /// Sends a deposit and checks that the vault logged the event.
-async fn deposit_logs_the_event(alice: &SigningNear) -> Result<(), Error> {
+async fn deposit_logs_the_event(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
     let vault = account!("vault.test.near");
-    let outcome = alice
+    let events = alice
         .transaction(vault.clone())
         .add_action(FunctionCall::new("deposit").deposit(NearToken::from_yoctonear(10)))
         .await?
-        .checked()?;
-    let expected = VaultEvent::Deposited { account_id: alice.account_id().clone(), amount: U128(10) }
-        .to_nep297_event()
-        .to_event_log();
-    // Only the lines the vault logged in receipts that succeeded.
-    let logs: Vec<&str> = outcome
-        .receipts_outcome
-        .iter()
-        .map(|receipt| &receipt.outcome)
-        .filter(|o| o.executor_id == vault && o.status.is_success())
-        .flat_map(|o| o.logs.iter().map(String::as_str))
-        .collect();
-    assert_eq!(logs, [expected]);
+        .checked()?
+        .events(&vault)
+        .filter(|e| e.as_ref().map_or(true, |e| e.standard == "vault"))
+        .map(|e| e?.decode::<VaultEvent>())
+        .collect::<Result<Vec<_>, _>>()?;
+    let expected = VaultEvent::Deposited { account_id: alice.account_id().clone(), amount: U128(10) };
+    assert_eq!(events, [Event::new("vault", "1.1.0", expected)]);
     Ok(())
 }
 # let _ = deposit_logs_the_event;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Read the lines from the receipts the contract you expect executed, as
-above: any contract can log an `EVENT_JSON:` line with any `standard`, and
-[`logs()`](crate::rpc::FinalExecutionOutcome::logs) doesn't say which
-account logged a line. near-kit's tests check that this impl and near-sdk
-5.30's `#[near(event_json)]` log the same line for the same enum. Comparing
-strings assumes the contract serializes its event the same way; for a
-contract that doesn't use near-sdk, parse the line and compare values (see
-the `logs()` example).
+[`events(&vault)`](crate::rpc::FinalExecutionOutcome::events) keeps the
+receipts the vault executed that succeeded: any contract can log an
+`EVENT_JSON:` line with any `standard`, and a failed receipt's logs stay
+although its changes were rolled back. The events come undecoded, since one
+transaction can carry several standards; the filter keeps the vault's, and
+a malformed event line stays an `Err` so the `collect` fails on it.
 
-`Nep297Event` only works with a tag/content enum payload. It takes `event`
-and `data` from the payload's own keys and ignores its `event` argument, so
-a plain struct logs neither:
-`Nep297Event::new("nep999", "1.0.0", "my_event", &Plain { amount: 5 })`
-logs `EVENT_JSON:{"standard":"nep999","version":"1.0.0","amount":5}`
+Comparing values doesn't depend on how the contract orders its JSON keys.
+For a near-sdk contract, comparing strings works too:
+[`to_log()`](crate::events::Event::to_log) is byte for byte the line
+near-sdk 5.30 logs for the same enum (near-kit's tests check it).
+
+The payload must write the `event` key itself, so use a tag/content enum:
+`Event::new("nep999", "1.0.0", Plain { amount: 5 })` with a plain struct
+serializes to `{"standard":"nep999","version":"1.0.0","amount":5}`, with no
+`event` or `data`, as near-sdk-core's `Nep297Event` does
 ([near/near-sdk-rs#1680](https://github.com/near/near-sdk-rs/issues/1680)).
-Wrap a struct payload in a one-variant enum. A derive that does this
-without near-sdk is
-[near/near-sdk-rs#1679](https://github.com/near/near-sdk-rs/issues/1679).
+
+A shared crate that already implements near-sdk-core's
+[`AsNep297Event`](https://docs.rs/near-sdk-core/4.4/near_sdk_core/events/trait.AsNep297Event.html)
+can keep it: `to_nep297_event().to_event_log()` logs the same line as
+`Event::new(..).to_log()`.
