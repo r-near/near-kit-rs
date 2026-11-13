@@ -1,11 +1,16 @@
-//! JSON wrappers for 64- and 128-bit integers and byte vectors, with
-//! near-sdk's names and wire format.
+//! near-sdk's JSON wrappers for 64- and 128-bit integers and byte vectors,
+//! re-exported from `near-sdk-core`.
 //!
 //! JSON numbers lose precision past 2^53, so NEAR contracts take and return
 //! `u64`/`u128` amounts as decimal strings and bytes as base64 strings.
 //! near-sdk's contracts use `near_sdk::json_types::U128` and friends for
-//! that; these are the same types for the client side, so a contract
-//! method's signature can be copied as is:
+//! that. These are those same types, not copies: near-sdk 5.30 re-exports
+//! them from `near-sdk-core`, and so does this module. A contract and a
+//! client share one `U128`, so a struct with a `U128`, `Vec<U128>` or
+//! `Option<U128>` field passes between near-sdk code and near-kit code with
+//! no conversion, and a contract method's signature can be copied as is. A
+//! crate shared by a contract and a client can name them through either
+//! `near_sdk_core::json_types` or `near_kit_primitives::json_types`.
 //!
 //! | Type | Holds | JSON | Borsh |
 //! |------|-------|------|-------|
@@ -14,9 +19,20 @@
 //! | [`Base64VecU8`] | `Vec<u8>` | `"AQID"` (standard base64, padded) | the vector |
 //!
 //! Each is a tuple struct with a public field (`U128(5).0 == 5`) and
-//! converts to and from its inner type with `From`. Deserializing accepts
-//! what near-sdk accepts: a JSON string that parses as the integer (so
-//! `"+5"` but not `5` or `" 5"`), or standard base64 with padding.
+//! converts to and from its inner type with `From`. Deserializing accepts a
+//! JSON string that parses as the integer (so `"+5"` but not `5` or
+//! `" 5"`), or standard base64 with padding.
+//!
+//! The traits are near-sdk's: the integers are `Copy`, `Default`, `Eq` and
+//! `Ord`, and `Base64VecU8` is `Eq` and `AsRef<[u8]>`. None of them is
+//! `Hash`, and `Base64VecU8` has no `Default` or `Ord`, so use the inner
+//! value (`amount.0`) as a `HashMap` key or to sort bytes.
+//!
+//! In one build with near-sdk, that means near-sdk 5.30.x, which uses the
+//! same `near-sdk-core` 4.4. near-sdk 5.27 to 5.29 pin an older
+//! `near-sdk-core`, so Cargo can't resolve them together with near-kit, and
+//! near-sdk 5.26 and older have `json_types` of their own, which are
+//! different types.
 //!
 //! ```rust
 //! use near_kit_primitives::json_types::{Base64VecU8, U128};
@@ -34,176 +50,13 @@
 //!
 //! let back: Transfer = serde_json::from_str(&json)?;
 //! assert_eq!(u128::from(back.amount), u128::MAX);
+//! // A JSON number is rejected, as in near-sdk.
+//! assert!(serde_json::from_str::<U128>("10").is_err());
 //! # Ok::<(), serde_json::Error>(())
 //! ```
 
-use base64::{Engine as _, engine::general_purpose::STANDARD};
-use borsh::{BorshDeserialize, BorshSerialize};
-
-macro_rules! string_integer {
-    ($(#[$doc:meta])* $name:ident, $inner:ty) => {
-        $(#[$doc])*
-        #[derive(
-            Debug,
-            Clone,
-            Copy,
-            Default,
-            PartialEq,
-            Eq,
-            PartialOrd,
-            Ord,
-            Hash,
-            BorshSerialize,
-            BorshDeserialize,
-        )]
-        pub struct $name(pub $inner);
-
-        impl From<$inner> for $name {
-            fn from(value: $inner) -> Self {
-                Self(value)
-            }
-        }
-
-        impl From<$name> for $inner {
-            fn from(value: $name) -> Self {
-                value.0
-            }
-        }
-
-        impl serde::Serialize for $name {
-            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                serializer.serialize_str(&self.0.to_string())
-            }
-        }
-
-        impl<'de> serde::Deserialize<'de> for $name {
-            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                let text = <String as serde::Deserialize>::deserialize(deserializer)?;
-                text.parse().map(Self).map_err(|error| {
-                    serde::de::Error::custom(format_args!("invalid number {text:?}: {error}"))
-                })
-            }
-        }
-    };
-}
-
-string_integer!(
-    /// A `u64` that is a decimal string in JSON (`"10"`) and a `u64` in
-    /// Borsh, like near-sdk's `json_types::U64`.
-    ///
-    /// ```rust
-    /// use near_kit_primitives::json_types::U64;
-    ///
-    /// assert_eq!(serde_json::to_string(&U64(u64::MAX))?, r#""18446744073709551615""#);
-    /// assert_eq!(serde_json::from_str::<U64>(r#""10""#)?, U64(10));
-    /// // A JSON number is rejected, as in near-sdk.
-    /// assert!(serde_json::from_str::<U64>("10").is_err());
-    /// # Ok::<(), serde_json::Error>(())
-    /// ```
-    U64,
-    u64
-);
-
-string_integer!(
-    /// An `i64` that is a decimal string in JSON (`"-10"`) and an `i64` in
-    /// Borsh, like near-sdk's `json_types::I64`.
-    ///
-    /// ```rust
-    /// use near_kit_primitives::json_types::I64;
-    ///
-    /// assert_eq!(serde_json::to_string(&I64(-10))?, r#""-10""#);
-    /// assert_eq!(serde_json::from_str::<I64>(r#""-10""#)?, I64(-10));
-    /// # Ok::<(), serde_json::Error>(())
-    /// ```
-    I64,
-    i64
-);
-
-string_integer!(
-    /// A `u128` that is a decimal string in JSON (`"10"`) and a `u128` in
-    /// Borsh, like near-sdk's `json_types::U128`. Token amounts (NEP-141
-    /// `ft_balance_of`, NEP-245 `mt_transfer`) use it.
-    ///
-    /// ```rust
-    /// use near_kit_primitives::json_types::U128;
-    ///
-    /// let amount = U128::from(10u128.pow(24));
-    /// assert_eq!(serde_json::to_string(&amount)?, r#""1000000000000000000000000""#);
-    /// assert_eq!(u128::from(amount), 10u128.pow(24));
-    /// # Ok::<(), serde_json::Error>(())
-    /// ```
-    U128,
-    u128
-);
-
-string_integer!(
-    /// An `i128` that is a decimal string in JSON (`"-10"`) and an `i128` in
-    /// Borsh, like near-sdk's `json_types::I128`.
-    ///
-    /// ```rust
-    /// use near_kit_primitives::json_types::I128;
-    ///
-    /// assert_eq!(serde_json::to_string(&I128(i128::MIN))?, format!("\"{}\"", i128::MIN));
-    /// assert_eq!(serde_json::from_str::<I128>(r#""-10""#)?, I128(-10));
-    /// # Ok::<(), serde_json::Error>(())
-    /// ```
-    I128,
-    i128
-);
-
-/// Bytes that are a standard base64 string in JSON (`"AQID"`) and a
-/// `Vec<u8>` in Borsh, like near-sdk's `json_types::Base64VecU8`.
-///
-/// Serializing pads the string; deserializing requires the padding and
-/// rejects the URL-safe alphabet, as near-sdk does.
-///
-/// ```rust
-/// use near_kit_primitives::json_types::Base64VecU8;
-///
-/// let bytes = Base64VecU8::from(vec![1, 2, 3]);
-/// assert_eq!(serde_json::to_string(&bytes)?, r#""AQID""#);
-/// assert_eq!(serde_json::from_str::<Base64VecU8>(r#""AQ==""#)?, Base64VecU8(vec![1]));
-/// assert_eq!(bytes.as_ref(), &[1, 2, 3]);
-/// # Ok::<(), serde_json::Error>(())
-/// ```
-#[derive(
-    Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, BorshSerialize, BorshDeserialize,
-)]
-pub struct Base64VecU8(pub Vec<u8>);
-
-impl From<Vec<u8>> for Base64VecU8 {
-    fn from(bytes: Vec<u8>) -> Self {
-        Self(bytes)
-    }
-}
-
-impl From<Base64VecU8> for Vec<u8> {
-    fn from(bytes: Base64VecU8) -> Self {
-        bytes.0
-    }
-}
-
-impl AsRef<[u8]> for Base64VecU8 {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl serde::Serialize for Base64VecU8 {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&STANDARD.encode(&self.0))
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for Base64VecU8 {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = <String as serde::Deserialize>::deserialize(deserializer)?;
-        STANDARD
-            .decode(&text)
-            .map(Self)
-            .map_err(|error| serde::de::Error::custom(format_args!("invalid base64: {error}")))
-    }
-}
+#[doc(inline)]
+pub use near_sdk_core::json_types::{Base64VecU8, I64, I128, U64, U128};
 
 #[cfg(test)]
 mod tests {
@@ -215,6 +68,51 @@ mod tests {
 
     fn parse<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, serde_json::Error> {
         serde_json::from_str(text)
+    }
+
+    /// The traits the module docs promise. The public-api snapshot lists a
+    /// re-export without its impls, so this is what notices one going away.
+    #[test]
+    fn types_keep_their_traits() {
+        fn integer<
+            T: std::fmt::Debug
+                + Copy
+                + Default
+                + Eq
+                + Ord
+                + serde::Serialize
+                + serde::de::DeserializeOwned
+                + borsh::BorshSerialize
+                + borsh::BorshDeserialize
+                + Send
+                + Sync
+                + Unpin
+                + 'static,
+        >() {
+        }
+        integer::<U64>();
+        integer::<I64>();
+        integer::<U128>();
+        integer::<I128>();
+
+        fn bytes<
+            T: std::fmt::Debug
+                + Clone
+                + Eq
+                + AsRef<[u8]>
+                + From<Vec<u8>>
+                + Into<Vec<u8>>
+                + serde::Serialize
+                + serde::de::DeserializeOwned
+                + borsh::BorshSerialize
+                + borsh::BorshDeserialize
+                + Send
+                + Sync
+                + Unpin
+                + 'static,
+        >() {
+        }
+        bytes::<Base64VecU8>();
     }
 
     #[test]
@@ -255,9 +153,9 @@ mod tests {
         }
     }
 
-    /// The inputs near-sdk accepts: a JSON string that `str::parse` reads.
+    /// A JSON string that `str::parse` reads, and nothing else.
     #[test]
-    fn integers_accept_what_near_sdk_accepts() {
+    fn integers_accept_only_decimal_strings() {
         assert_eq!(parse::<U128>(r#""+7""#).unwrap(), U128(7));
         assert_eq!(parse::<U128>(r#""007""#).unwrap(), U128(7));
         assert_eq!(parse::<I128>(r#""-0""#).unwrap(), I128(0));
@@ -282,12 +180,6 @@ mod tests {
         assert!(parse::<U64>(r#""18446744073709551616""#).is_err());
         assert!(parse::<I64>(r#""-9223372036854775809""#).is_err());
         assert!(parse::<I128>(r#""170141183460469231731687303715884105728""#).is_err());
-    }
-
-    #[test]
-    fn integer_errors_name_the_input() {
-        let error = parse::<U128>(r#""ten""#).unwrap_err().to_string();
-        assert!(error.starts_with(r#"invalid number "ten": "#), "{error}");
     }
 
     #[test]
@@ -367,5 +259,6 @@ mod tests {
             Base64VecU8(vec![7, 8])
         );
         assert_eq!(Vec::from(Base64VecU8::from(vec![9])), [9]);
+        assert_eq!(Base64VecU8(vec![1, 2]).as_ref(), &[1, 2]);
     }
 }

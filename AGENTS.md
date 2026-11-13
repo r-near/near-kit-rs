@@ -123,7 +123,7 @@ Use conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`; `!` fo
 2. **Configure once**: Network on `Near`, account and wait level on `SigningNear<W>`
 3. **One way to do each thing**: Typed values in, no duplicate shortcuts
 4. **Explicit units**: Must specify `NEAR`, `yocto`, `Tgas`, etc.
-5. **Minimal dependencies**: hand-roll the protocol types; the only NEAR crates used are the small shared value types (`near-account-id`, `near-token`, `near-gas`, `near-global-contracts`). See below
+5. **Minimal dependencies**: hand-roll the protocol types; the only NEAR crates used are the small shared value types (`near-account-id`, `near-token`, `near-gas`, `near-global-contracts`, and `near-sdk-core` for `json_types` only). See below
 
 ## Dependencies Policy
 
@@ -136,6 +136,20 @@ implements a standard primitive the protocol requires and is auditable.
 Also allowed: the NEAR value-type crates `near-account-id`, `near-token`,
 `near-gas` and `near-global-contracts`, re-exported as-is rather than
 newtyped.
+
+Also allowed: `near-sdk-core`, for `json_types` only.
+`near_kit_primitives::json_types` re-exports its `U64`, `I64`, `U128`,
+`I128` and `Base64VecU8` by name, so they are the same Rust types as
+near-sdk's (near-sdk 5.30 re-exports them too) and values pass between
+contract code and client code, including inside structs a crate shares
+between the two. Don't use anything else from it, and don't widen the
+re-export (no glob). It is already in the graph through
+`near-global-contracts`, which pins it to `~4.4`. Its types are part of
+near-kit's public API, so a `near-sdk-core` major bump is a breaking
+near-kit release. A minor move of that tilde pin keeps the types but
+changes which near-sdk releases resolve alongside near-kit (today near-sdk
+5.30.x shares the types; 5.27 to 5.29 don't resolve), so say so in the
+release notes.
 
 Also allowed: *platform bindings* for wasm targets, when they are the
 canonical thin binding to a host interface and are declared only in that

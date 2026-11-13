@@ -19,6 +19,10 @@ near-account-id = { version = "3", features = ["serde", "borsh"] }
 near-token = { version = "0.3", features = ["serde", "borsh"] }
 near-gas = { version = "0.3.1", features = ["serde", "borsh"] }
 near-global-contracts = { version = "0.3", features = ["serde", "borsh"] }
+# Only for `json_types`, which re-exports near-sdk's own `U128` and friends so
+# contracts and clients share one type. Already in the graph through
+# near-global-contracts (`~4.4.1`); a major bump is a breaking near-kit release.
+near-sdk-core = { version = "4.4.1", default-features = false, features = ["serde", "borsh"] }
 
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

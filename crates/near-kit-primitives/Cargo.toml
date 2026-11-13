@@ -25,6 +25,8 @@ near-account-id.workspace = true
 near-token.workspace = true
 near-gas.workspace = true
 near-global-contracts.workspace = true
+# Only for `json_types` (near-sdk's own JSON wrappers, re-exported as-is)
+near-sdk-core.workspace = true
 
 # Serialization
 serde.workspace = true

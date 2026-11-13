@@ -1537,7 +1537,7 @@ dependencies = [
 
 [[package]]
 name = "near-kit"
-version = "0.30.0-rc.5"
+version = "0.30.0-rc.7"
 dependencies = [
  "base64 0.23.1",
  "borsh",
@@ -1551,7 +1551,7 @@ dependencies = [
 
 [[package]]
 name = "near-kit-macros"
-version = "0.15.0-rc.5"
+version = "0.15.0-rc.6"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -1561,7 +1561,7 @@ dependencies = [
 
 [[package]]
 name = "near-kit-primitives"
-version = "0.30.0-rc.5"
+version = "0.30.0-rc.7"
 dependencies = [
  "base64 0.23.1",
  "borsh",
@@ -1575,6 +1575,7 @@ dependencies = [
  "near-account-id",
  "near-gas",
  "near-global-contracts",
+ "near-sdk-core",
  "near-token",
  "serde",
  "serde_json",

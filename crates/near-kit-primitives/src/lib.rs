@@ -27,7 +27,7 @@
 //! | [`transaction`] | [`transaction::FunctionCall`], [`transaction::CodecError`] and the typed wait levels |
 //! | [`rpc`] | JSON-RPC response views, [`rpc::BlockReference`], [`rpc::Finality`] |
 //! | [`standards`] | NEP-413 message signing and verification |
-//! | [`json_types`] | near-sdk's JSON wrappers: [`json_types::U128`] and the other string integers, [`json_types::Base64VecU8`] |
+//! | [`json_types`] | near-sdk's own JSON wrappers, re-exported from `near-sdk-core`: [`json_types::U128`] and the other string integers, [`json_types::Base64VecU8`] |
 //!
 //! ## Signing a transaction offline
 //!
