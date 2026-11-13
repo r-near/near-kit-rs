@@ -133,6 +133,9 @@ required-features = ["rpc", "contracts"]
 [dev-dependencies]
 bs58.workspace = true
 futures.workspace = true
+# The testing guide builds NEP-297 events with near-sdk-core's
+# `AsNep297Event`, as a client without near-sdk would.
+near-sdk-core.workspace = true
 # The tracing integration tests need the real `tracing` crate regardless of
 # how the optional main dependency is configured.
 tracing.workspace = true

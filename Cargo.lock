@@ -1897,6 +1897,7 @@ dependencies = [
  "keyring",
  "near-kit-macros",
  "near-kit-primitives",
+ "near-sdk-core",
  "reqwest",
  "secp256k1",
  "serde",

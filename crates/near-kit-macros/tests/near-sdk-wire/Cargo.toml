@@ -1,6 +1,8 @@
 # Checks that #[near_kit::contract] sends the bytes near-sdk's #[ext_contract]
 # sends for the same method signatures, and that near_kit::json_types are
-# near_sdk::json_types (one type, near-sdk's wire format). A workspace of its own: near-sdk's
+# near_sdk::json_types (one type, near-sdk's wire format), and that a NEP-297
+# event built with near-sdk-core alone logs what near-sdk's `#[near(event_json)]`
+# logs. A workspace of its own: near-sdk's
 # `unit-testing` feature pulls in nearcore crates (near-primitives,
 # near-vm-runner) the main workspace doesn't otherwise build. CI runs it in a
 # separate job:
@@ -17,6 +19,8 @@ publish = false
 [dev-dependencies]
 near-kit = { path = "../../../near-kit", default-features = false, features = ["contracts"] }
 near-sdk = { version = "=5.30.0", features = ["unit-testing"] }
+# The workspace's line (this crate is outside the workspace).
+near-sdk-core = { version = "4.4.1", default-features = false, features = ["serde", "borsh"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 borsh = { version = "1", features = ["derive"] }

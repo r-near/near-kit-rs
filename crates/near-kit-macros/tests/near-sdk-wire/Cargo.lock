@@ -1783,6 +1783,7 @@ dependencies = [
  "borsh",
  "near-kit",
  "near-sdk",
+ "near-sdk-core",
  "serde",
  "serde_json",
 ]
