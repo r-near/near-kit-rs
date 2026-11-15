@@ -1,0 +1,23 @@
+error: only `doc`, `cfg`, `cfg_attr`, `#[call]`, `#[json]` and `#[borsh]` are allowed on #[near_kit::contract] trait methods
+ --> tests/compile-fail/unsupported_method_attribute.rs:6:5
+  |
+6 |     #[deprecated = "use get_v2"]
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: only `doc`, `cfg`, `cfg_attr`, `#[call]`, `#[json]` and `#[borsh]` are allowed on #[near_kit::contract] trait methods
+  --> tests/compile-fail/unsupported_method_attribute.rs:12:5
+   |
+12 |     #[allow(clippy::too_many_arguments)]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: only `doc`, `cfg`, `cfg_attr`, `#[call]`, `#[json]` and `#[borsh]` are allowed on #[near_kit::contract] trait methods
+  --> tests/compile-fail/unsupported_method_attribute.rs:19:5
+   |
+19 |     #[must_use]
+   |     ^^^^^^^^^^^
+
+error: only `doc`, `cfg`, `cfg_attr`, `#[call]`, `#[json]` and `#[borsh]` are allowed on #[near_kit::contract] trait methods
+  --> tests/compile-fail/unsupported_method_attribute.rs:25:5
+   |
+25 |     #[rustfmt::skip]
+   |     ^^^^^^^^^^^^^^^^

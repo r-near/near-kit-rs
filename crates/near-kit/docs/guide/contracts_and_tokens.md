@@ -450,6 +450,10 @@ The macro rejects, with a compile error, what it can't generate correctly:
 - **Reserved names.** `client`, `contract_id`, `backend`, `into_parts`
   and `clone` collide with the generated items and are rejected; rename
   the method.
+- **Method attributes.** Only doc comments, `#[cfg]`, `#[cfg_attr]`,
+  `#[call]`, `#[json]` and `#[borsh]`; near-sdk's `#[payable]`,
+  `#[private]`, `#[init]`, `#[serializer]`, `#[result_serializer]` and
+  `#[handle_result]` are errors that say what to write instead.
 
 Two attributes carry through:
 

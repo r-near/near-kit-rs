@@ -1,0 +1,5 @@
+error: #[deny_unknown_arguments] is checked by the contract; the client sends only the parameters the method declares, so remove it
+ --> tests/compile-fail/near_sdk_deny_unknown_arguments.rs:6:5
+  |
+6 |     #[deny_unknown_arguments]
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,5 @@
+error: #[private] methods accept calls only from the contract's own account (callbacks, mostly), so they aren't part of its client interface; leave the method out of the trait
+ --> tests/compile-fail/near_sdk_private.rs:5:5
+  |
+5 |     #[private]
+  |     ^^^^^^^^^^
