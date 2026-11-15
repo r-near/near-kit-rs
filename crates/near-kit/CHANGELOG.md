@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.30.0-rc.10](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.9...near-kit-v0.30.0-rc.10) - 2026-11-15
+## [0.30.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.9...near-kit-v0.30.0) - 2026-11-15
+
+The first stable 0.30 release. Coming from 0.20.1, start with
+[MIGRATION.md](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md); the
+0.30.0-rc sections below list every change since 0.20.1.
 
 ### Added
 
