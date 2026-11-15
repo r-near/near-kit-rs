@@ -8,7 +8,7 @@ This release is a clean break with no deprecated aliases. `Near` only reads;
 `account!("..")` checks a literal at compile time. The protocol types moved
 into `near-kit-primitives`, re-exported at the same `near_kit::` paths. Each
 layer has its own error type that converts into `near_kit::Error` with `?`.
-The [guide](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/index.html)
+The [guide](https://docs.rs/near-kit/latest/near_kit/guide/index.html)
 explains the model.
 
 You can adopt 0.30 as a plain version bump: update your call sites to the
@@ -52,7 +52,7 @@ cover each one.
 | `Near::rpc_url()` | `near.rpc().url()` |
 | `Near::from(builder)`, `builder.into()` | `builder.build()` |
 | `Near::max_nonce_retries(n)` | `NearBuilder::max_nonce_retries(n)` before `build()`, or `alice.clone().max_nonce_retries(n)` |
-| `Near::sign_message(params)` | `alice.signer().key().sign_nep413(alice.account_id(), &params).await?`: the signer's key, signing as the account (see [keys](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/keys/index.html#signing-a-nep-413-message)) |
+| `Near::sign_message(params)` | `alice.signer().key().sign_nep413(alice.account_id(), &params).await?`: the signer's key, signing as the account (see [keys](https://docs.rs/near-kit/latest/near_kit/guide/keys/index.html#signing-a-nep-413-message)) |
 | `Near::send(&signed)` | `near.send_signed(&signed)` |
 | `Near::balance`, `account_exists`, `view`, `tx_status`, `contract`, `chain_id`, `rpc` called on a signing client | Still on `Near`; from a `SigningNear`, `alice.near().balance(id)` and so on. `alice.contract::<T>(id)` stays. |
 | `Near::with_signer(s)` on a client that already had a signer | `alice.with_signer(s)`, which keeps `alice`'s wait level and nonce retries (`alice.near().with_signer(s)` waits for `Final`) |
@@ -76,7 +76,7 @@ cover each one.
 | `TransactionBuilder::add_actions(iter)` | `add_action` in a loop, or `TxSender::send(&alice, rx, actions)` |
 | `TransactionBuilder::send()`, `CallBuilder::send()`, `TransactionSend` | `.await` the `Tx` |
 | `TransactionBuilder::wait_until::<W>()`, `TransactionSend::wait_until::<W>()` | `alice.transaction(rx).add_action(a).wait_until::<W>()` for one transaction, `alice.wait_until::<W>()` for every send |
-| `TransactionBuilder::max_nonce_retries(n)`, `TransactionSend::max_nonce_retries(n)` | `alice.clone().max_nonce_retries(n).transaction(rx)`: the clone shares `alice`'s connection and signer, and `alice` keeps its own limit (see [nonces](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/nonces/index.html)) |
+| `TransactionBuilder::max_nonce_retries(n)`, `TransactionSend::max_nonce_retries(n)` | `alice.clone().max_nonce_retries(n).transaction(rx)`: the clone shares `alice`'s connection and signer, and `alice` keeps its own limit (see [nonces](https://docs.rs/near-kit/latest/near_kit/guide/nonces/index.html)) |
 | `TransactionBuilder::sign_with(other)` | `alice.with_signer(other).transaction(rx)` |
 | `TransactionBuilder::sign()` | `alice.sign(rx, actions).await?` |
 | `TransactionBuilder::build()`, `build_offline(..)`, `sign_offline(..)`, `into_parts()` | Keep the receiver and `Vec<Action>` yourself; `Transaction::new(signer_id, public_key, nonce, receiver_id, block_hash, actions).sign(&secret_key)` |
@@ -419,7 +419,7 @@ actions.
 `near.send_signed(..)`. This is not a compile error. Sends take longer, and a
 default (final) read afterwards sees the write. To keep the 0.20.1 behavior,
 use `.wait_until::<ExecutedOptimistic>()`. See
-[finality](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/finality/index.html).
+[finality](https://docs.rs/near-kit/latest/near_kit/guide/finality/index.html).
 
 ```rust
 // 0.20.1
@@ -449,7 +449,7 @@ and sending ones for `MyWrapper<SigningNear<W>>`.
 
 ### Nonces
 
-See [nonces](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/nonces/index.html)
+See [nonces](https://docs.rs/near-kit/latest/near_kit/guide/nonces/index.html)
 for the full picture. What changed:
 
 - **Cached nonces are shared per chain.** The cache is keyed by the chain's
@@ -583,9 +583,10 @@ build, it must be near-sdk 5.30.x: 5.27 to 5.29 pin an older
 `near-sdk-core` and don't resolve with near-kit, and 5.26 and older have
 their own `json_types`, a different type.
 
-0.30.0-rc.5 to rc.7 had near-kit's own copies of these types. If you used
-one of those release candidates, these changed with no change to the JSON
-or Borsh:
+Coming from 0.20.1, which had no JSON wrapper types, you can skip this
+table. It is for anyone who used a 0.30.0 release candidate from rc.5 to
+rc.7: those had near-kit's own copies of these types, and the following
+changed with no change to the JSON or Borsh:
 
 | 0.30.0-rc.5 to rc.7 | This release |
 |---|---|
@@ -617,7 +618,7 @@ any backend; clones of a client share its metadata cache. `balance_of` and
 `total_supply` return `u128` in the token's smallest unit and no longer read
 the metadata first. A non-numeric `U128`/`U64` string from a token contract is
 now `ContractError::Codec`, not an RPC error. See
-[contracts and tokens](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/contracts_and_tokens/index.html).
+[contracts and tokens](https://docs.rs/near-kit/latest/near_kit/guide/contracts_and_tokens/index.html).
 
 ```rust
 // 0.20.1
@@ -641,7 +642,7 @@ alice
 `SignedDelegateAction` itself. The relayer sends it to the delegate's sender;
 any other receiver fails with `Error::Validation` before signing (nearcore
 would reject it on chain, at the relayer's cost). See
-[meta-transactions](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/meta_transactions/index.html).
+[meta-transactions](https://docs.rs/near-kit/latest/near_kit/guide/meta_transactions/index.html).
 
 ```rust
 // 0.20.1
@@ -707,7 +708,7 @@ Behavior changes:
 ## Keys and signers
 
 The loader types are now functions; the tables above map each one. See
-[keys](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/keys/index.html).
+[keys](https://docs.rs/near-kit/latest/near_kit/guide/keys/index.html).
 
 Key parsing and printing changed too, mostly without a compile error:
 
@@ -744,7 +745,7 @@ Key parsing and printing changed too, mostly without a compile error:
 ## Errors
 
 Each layer returns its own error, and each converts into `near_kit::Error`
-with `?`. See [errors](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/errors/index.html).
+with `?`. See [errors](https://docs.rs/near-kit/latest/near_kit/guide/errors/index.html).
 
 | API | Now returns |
 |---|---|
@@ -865,12 +866,12 @@ let near = Near::custom(RpcEndpoint::new(primary_url).bearer(key), "mainnet")
 `sandbox.patch_state(records)` replaces the `RpcClient` method. It still
 sends the patch twice but no longer sleeps 100 ms afterwards, so poll for the
 state you wrote, or use `sandbox.set_balance(..)`, which does. See
-[testing](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/testing/index.html).
+[testing](https://docs.rs/near-kit/latest/near_kit/guide/testing/index.html).
 
 ## Platforms and features
 
 The feature names are unchanged. See
-[platforms](https://docs.rs/near-kit/0.30.0-rc.5/near_kit/guide/platforms/index.html).
+[platforms](https://docs.rs/near-kit/latest/near_kit/guide/platforms/index.html).
 
 - **`near-kit-primitives`** holds the protocol types, signers, `Viewer` and
   `TxSender`, and (with its `contracts` feature) `#[contract]`. It has no RPC
