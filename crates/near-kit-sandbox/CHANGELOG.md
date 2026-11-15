@@ -4,6 +4,16 @@ All notable changes to `near-kit-sandbox` are documented in this file.
 
 ## [Unreleased]
 
+## [0.30.0-rc.10](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.30.0-rc.9...near-kit-sandbox-v0.30.0-rc.10) - 2026-11-15
+
+### Added
+
+- [**breaking**] mark node-produced types #[non_exhaustive], so nearcore additions can ship as patch releases ([#427](https://github.com/r-near/near-kit-rs/pull/427))
+
+### Other
+
+- point links at the latest docs, so stable readers don't land on the rc.5 guide ([#424](https://github.com/r-near/near-kit-rs/pull/424))
+
 ## [0.30.0-rc.5](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.30.0-rc.4...near-kit-sandbox-v0.30.0-rc.5) - 2026-11-04
 
 Depends on near-kit 0.30.0-rc.5. No user-facing changes; version bumped with

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0-rc.7](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0-rc.6...near-kit-macros-v0.15.0-rc.7) - 2026-11-15
+
+### Added
+
+- [**breaking**] #[contract] rejects near-sdk method attributes instead of silently ignoring them ([#426](https://github.com/r-near/near-kit-rs/pull/426))
+
+### Other
+
+- point links at the latest docs, so stable readers don't land on the rc.5 guide ([#424](https://github.com/r-near/near-kit-rs/pull/424))
+
 ## [0.15.0-rc.6](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0-rc.5...near-kit-macros-v0.15.0-rc.6) - 2026-11-05
 
 ### Added
