@@ -1,0 +1,5 @@
+error: #[handle_result] is near-sdk's side of the contract, which returns the `Ok` value and fails on `Err`; declare the `Ok` type as the return type (a #[call] declares none) and remove #[handle_result]
+ --> tests/compile-fail/near_sdk_handle_result.rs:6:5
+  |
+6 |     #[handle_result]
+  |     ^^^^^^^^^^^^^^^^

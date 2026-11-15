@@ -574,6 +574,7 @@ The macro now rejects declarations it used to compile into something wrong:
 | Generic methods, lifetime parameters, `async fn` | A compile error; use `impl Trait` or a concrete type, drop `async` |
 | `#[cfg]` / `#[cfg_attr]` on a method (ignored) | Applied to the generated client method and `FunctionCall` constructor; `#[call]`, `#[json]` or `#[borsh]` behind `#[cfg_attr]` is a compile error (declare the method twice, each under `#[cfg]`) |
 | `fn r#type(&self)` sent the method name `r#type` | It sends `type` |
+| Any method attribute other than doc comments, `#[cfg]`, `#[cfg_attr]`, `#[call]`, `#[json]` and `#[borsh]` (ignored), including near-sdk's `#[payable]`, `#[private]`, `#[init]`, `#[serializer(..)]`, `#[result_serializer(..)]`, `#[handle_result]` and generic ones such as `#[allow]` or `#[deprecated]` | A compile error; near-sdk's say what to write instead (`#[call(deposit = ..)]` for `#[payable]`, `#[borsh]` for the serializers, leaving `#[private]` and `#[init]` methods out of the trait) |
 
 ### JSON wrapper types are near-sdk's
 

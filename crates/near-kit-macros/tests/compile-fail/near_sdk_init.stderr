@@ -1,0 +1,11 @@
+error: #[init] methods initialize the contract once, usually in the transaction that deploys it, so they aren't part of its client interface; leave the method out of the trait and add `FunctionCall::new("new")` to the deploy transaction
+ --> tests/compile-fail/near_sdk_init.rs:6:5
+  |
+6 |     #[init]
+  |     ^^^^^^^
+
+error: #[init] methods initialize the contract once, usually in the transaction that deploys it, so they aren't part of its client interface; leave the method out of the trait and add `FunctionCall::new("migrate")` to the deploy transaction
+  --> tests/compile-fail/near_sdk_init.rs:12:5
+   |
+12 |     #[init(ignore_state)]
+   |     ^^^^^^^^^^^^^^^^^^^^^

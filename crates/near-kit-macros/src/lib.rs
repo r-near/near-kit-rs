@@ -121,9 +121,80 @@ struct MethodInfo {
 /// the client's accessors and the marker's `Contract::client`.
 const CLIENT_RESERVED: [&str; 4] = ["client", "contract_id", "backend", "into_parts"];
 
+/// The method attributes `#[contract]` reads (`call`, `json`, `borsh`) or
+/// copies onto the generated items (`doc`, `cfg`, `cfg_attr`).
+const METHOD_ATTRIBUTES: [&str; 6] = ["doc", "cfg", "cfg_attr", "call", "json", "borsh"];
+
+/// near-kit's per-method format, for near-sdk's per-parameter
+/// `#[serializer(..)]`, on a method or a parameter.
+const SERIALIZER_HINT: &str = "near-kit picks the format per method, not per parameter: replace \
+     #[serializer(..)] with #[borsh] on the method (JSON is the default); on a view, #[borsh] \
+     also decodes the result as Borsh";
+
+/// Rejects a method attribute that isn't in [`METHOD_ATTRIBUTES`].
+///
+/// The trait is replaced by the generated items, so any other attribute
+/// would do nothing. near-sdk's own (copied with a contract's signature) get
+/// the near-kit way to do the same; giving one a meaning later must not
+/// change code that compiles today.
+fn check_method_attribute(attr: &syn::Attribute, method: &Ident) -> syn::Result<()> {
+    let path = attr.path();
+    if METHOD_ATTRIBUTES
+        .iter()
+        .any(|allowed| path.is_ident(allowed))
+    {
+        return Ok(());
+    }
+    let name = path.get_ident().map(ToString::to_string);
+    let message = match name.as_deref() {
+        Some("args") => "#[args] goes on the parameter, not the method: \
+             `fn method(&self, #[args] args: Args)`"
+            .to_owned(),
+        Some("payable") => "#[payable] lets a near-sdk contract accept a deposit; a client sets \
+             the deposit instead: `#[call(deposit = ..)]` for the call's default, or \
+             `.deposit(..)` on each call"
+            .to_owned(),
+        Some("private") => "#[private] methods accept calls only from the contract's own \
+             account (callbacks, mostly), so they aren't part of its client interface; leave \
+             the method out of the trait"
+            .to_owned(),
+        Some("init") => format!(
+            "#[init] methods initialize the contract once, usually in the transaction that \
+             deploys it, so they aren't part of its client interface; leave the method out of \
+             the trait and add `FunctionCall::new(\"{}\")` to the deploy transaction",
+            method.unraw()
+        ),
+        Some("serializer") => SERIALIZER_HINT.to_owned(),
+        Some("result_serializer") => "near-kit picks the format per method: #[borsh] on a view \
+             sends its arguments as Borsh and decodes its result as Borsh (JSON is the default). \
+             For JSON arguments and a Borsh result, build the view with \
+             `View::borsh(..).args(..)`; a #[call]'s result is decoded from its outcome, with \
+             `borsh::from_slice(&outcome.result()?)`"
+            .to_owned(),
+        Some("handle_result") => "#[handle_result] is near-sdk's side of the contract, which \
+             returns the `Ok` value and fails on `Err`; declare the `Ok` type as the return type \
+             (a #[call] declares none) and remove #[handle_result]"
+            .to_owned(),
+        Some("deny_unknown_arguments") => "#[deny_unknown_arguments] is checked by the \
+             contract; the client sends only the parameters the method declares, so remove it"
+            .to_owned(),
+        _ => "only `doc`, `cfg`, `cfg_attr`, `#[call]`, `#[json]` and `#[borsh]` are allowed on \
+             #[near_kit::contract] trait methods"
+            .to_owned(),
+    };
+    Err(syn::Error::new_spanned(attr, message))
+}
+
 fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
     let name = method.sig.ident.clone();
     let unraw_name = name.unraw().to_string();
+
+    // First, so a method copied from a near-sdk contract (`#[init] fn
+    // new(..) -> Self`, `#[payable]` without `#[call]`) is told about the
+    // attribute rather than about its signature.
+    for attr in &method.attrs {
+        check_method_attribute(attr, &name)?;
+    }
 
     // `contract_id`, `backend` and `into_parts` are the generated client's
     // accessors and `client` is the `Contract` constructor on the marker
@@ -292,20 +363,6 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         }
     }
 
-    // Only `#[doc]`, `#[cfg]` and `#[cfg_attr]` are carried to the generated
-    // items, so `#[args]` here would be dropped without a word.
-    if let Some(attr) = method
-        .attrs
-        .iter()
-        .find(|attr| attr.path().is_ident("args"))
-    {
-        return Err(syn::Error::new_spanned(
-            attr,
-            "#[args] goes on the parameter, not the method: \
-             `fn method(&self, #[args] args: Args)`",
-        ));
-    }
-
     let is_call = call_attr.is_some();
     if let Some(attr) = call_attr
         && is_view
@@ -343,7 +400,10 @@ fn parse_method(method: &TraitItemFn) -> syn::Result<MethodInfo> {
         for attr in &pat_type.attrs {
             // The trait is replaced by the generated items, so any other
             // attribute here would silently do nothing (`#[serde(..)]`
-            // included).
+            // included). near-sdk's `#[serializer(..)]` goes here.
+            if attr.path().is_ident("serializer") {
+                return Err(syn::Error::new_spanned(attr, SERIALIZER_HINT));
+            }
             if !attr.path().is_ident("args") {
                 return Err(syn::Error::new_spanned(
                     attr,
@@ -848,6 +908,11 @@ fn generate_function_call_method(
 /// method twice, each under its own `#[cfg]`. A raw identifier (`fn
 /// r#type`) calls the contract method without the `r#` (`type`).
 ///
+/// A method takes no attributes but doc comments, `#[cfg]`, `#[cfg_attr]`,
+/// `#[call]`, `#[json]` and `#[borsh]`: any other is a compile error, and
+/// near-sdk's (`#[payable]`, `#[private]`, `#[init]`, `#[serializer]`,
+/// `#[result_serializer]`, `#[handle_result]`) say what to write instead.
+///
 /// Everything it names is in near-kit-primitives, so it works without the
 /// RPC client (e.g. in contracts built for wasm).
 #[proc_macro_attribute]
@@ -1105,6 +1170,74 @@ mod tests {
                 .starts_with("`gas` and `deposit` apply only to calls")
         );
         assert!(error(parse_quote! { #[call(gas)] fn f(&mut self); }).contains("expected `=`"));
+    }
+
+    #[test]
+    fn only_the_macros_own_method_attributes_are_accepted() {
+        parse(parse_quote! {
+            /// Docs.
+            #[doc(alias = "fetch")]
+            #[cfg(all())]
+            #[cfg_attr(all(), deprecated)]
+            #[json]
+            fn get(&self) -> u64;
+        })
+        .unwrap();
+        parse(parse_quote! { #[call(gas = A)] #[borsh] fn set(&mut self); }).unwrap();
+
+        // Each is checked before the signature, with or without options.
+        let starts = |method, prefix: &str| {
+            let message = error(method);
+            assert!(message.starts_with(prefix), "{message}");
+        };
+        starts(
+            parse_quote! { #[payable] fn f(&mut self); },
+            "#[payable] lets a near-sdk contract accept a deposit",
+        );
+        starts(
+            parse_quote! { #[private] fn f(self); },
+            "#[private] methods",
+        );
+        starts(
+            parse_quote! { #[init(ignore_state)] fn f() -> Self; },
+            "#[init] methods",
+        );
+        assert!(
+            error(parse_quote! { #[init] fn r#new() -> Self; })
+                .ends_with("add `FunctionCall::new(\"new\")` to the deploy transaction")
+        );
+        for method in [
+            parse_quote! { #[serializer(borsh)] fn f(&self); },
+            parse_quote! { fn f(&self, #[serializer(borsh)] a: u64); },
+        ] {
+            assert_eq!(error(method), SERIALIZER_HINT);
+        }
+        starts(
+            parse_quote! { #[result_serializer(borsh)] async fn f(&self) -> u64; },
+            "near-kit picks the format per method: #[borsh] on a view",
+        );
+        starts(
+            parse_quote! { #[handle_result(aliased)] #[call] fn f(&mut self) -> R; },
+            "#[handle_result] is near-sdk's side",
+        );
+        starts(
+            parse_quote! { #[deny_unknown_arguments] fn f(&self); },
+            "#[deny_unknown_arguments] is checked",
+        );
+        for method in [
+            parse_quote! { #[deprecated] fn f(&self); },
+            parse_quote! { #[allow(unused)] fn f(&self); },
+            parse_quote! { #[must_use] fn f(&self) -> u64; },
+            parse_quote! { #[inline] fn f(&self); },
+            parse_quote! { #[near_sdk::payable] fn f(&mut self); },
+            parse_quote! { #[callback_unwrap] fn f(&self); },
+        ] {
+            assert_eq!(
+                error(method),
+                "only `doc`, `cfg`, `cfg_attr`, `#[call]`, `#[json]` and `#[borsh]` are \
+                 allowed on #[near_kit::contract] trait methods"
+            );
+        }
     }
 
     #[test]

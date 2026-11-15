@@ -1,0 +1,5 @@
+error: near-kit picks the format per method: #[borsh] on a view sends its arguments as Borsh and decodes its result as Borsh (JSON is the default). For JSON arguments and a Borsh result, build the view with `View::borsh(..).args(..)`; a #[call]'s result is decoded from its outcome, with `borsh::from_slice(&outcome.result()?)`
+ --> tests/compile-fail/near_sdk_result_serializer.rs:6:5
+  |
+6 |     #[result_serializer(borsh)]
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^

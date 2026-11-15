@@ -1,0 +1,5 @@
+error: #[payable] lets a near-sdk contract accept a deposit; a client sets the deposit instead: `#[call(deposit = ..)]` for the call's default, or `.deposit(..)` on each call
+ --> tests/compile-fail/near_sdk_payable.rs:6:5
+  |
+6 |     #[payable]
+  |     ^^^^^^^^^^

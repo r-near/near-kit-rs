@@ -1,0 +1,11 @@
+error: near-kit picks the format per method, not per parameter: replace #[serializer(..)] with #[borsh] on the method (JSON is the default); on a view, #[borsh] also decodes the result as Borsh
+ --> tests/compile-fail/near_sdk_serializer.rs:6:5
+  |
+6 |     #[serializer(borsh)]
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+error: near-kit picks the format per method, not per parameter: replace #[serializer(..)] with #[borsh] on the method (JSON is the default); on a view, #[borsh] also decodes the result as Borsh
+  --> tests/compile-fail/near_sdk_serializer.rs:14:23
+   |
+14 |     fn set(&mut self, #[serializer(borsh)] value: u64);
+   |                       ^^^^^^^^^^^^^^^^^^^^
