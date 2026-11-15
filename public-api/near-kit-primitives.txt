@@ -773,7 +773,7 @@ impl serde_core::ser::Serialize for near_kit_primitives::protocol::TransactionNo
 pub fn near_kit_primitives::protocol::TransactionNonce::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::protocol::TransactionNonce
 pub fn near_kit_primitives::protocol::TransactionNonce::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-pub enum near_kit_primitives::protocol::TxExecutionError
+#[non_exhaustive] pub enum near_kit_primitives::protocol::TxExecutionError
 pub near_kit_primitives::protocol::TxExecutionError::ActionError(near_kit_primitives::protocol::ActionError)
 pub near_kit_primitives::protocol::TxExecutionError::InvalidTxError(near_kit_primitives::protocol::InvalidTxError)
 impl core::clone::Clone for near_kit_primitives::protocol::TxExecutionError
@@ -1575,7 +1575,7 @@ pub fn near_kit_primitives::rpc::AccountContractView::fmt(&self, &mut core::fmt:
 impl core::marker::StructuralPartialEq for near_kit_primitives::rpc::AccountContractView
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::AccountContractView
 pub fn near_kit_primitives::rpc::AccountContractView::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-pub enum near_kit_primitives::rpc::AccountState
+#[non_exhaustive] pub enum near_kit_primitives::rpc::AccountState
 pub near_kit_primitives::rpc::AccountState::Initialized
 pub near_kit_primitives::rpc::AccountState::Uninitialized
 impl core::clone::Clone for near_kit_primitives::rpc::AccountState
@@ -1825,7 +1825,7 @@ pub fn near_kit_primitives::rpc::TransactionNonceView::fmt(&self, &mut core::fmt
 impl core::marker::StructuralPartialEq for near_kit_primitives::rpc::TransactionNonceView
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::TransactionNonceView
 pub fn near_kit_primitives::rpc::TransactionNonceView::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-#[non_exhaustive] pub enum near_kit_primitives::rpc::TxExecutionStatus
+pub enum near_kit_primitives::rpc::TxExecutionStatus
 pub near_kit_primitives::rpc::TxExecutionStatus::Executed
 pub near_kit_primitives::rpc::TxExecutionStatus::ExecutedOptimistic
 pub near_kit_primitives::rpc::TxExecutionStatus::Final
@@ -2618,7 +2618,7 @@ impl serde_core::ser::Serialize for near_kit_primitives::signer::PublicKey where
 pub fn near_kit_primitives::signer::PublicKey::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::signer::PublicKey where Self: core::str::traits::FromStr, <Self as core::str::traits::FromStr>::Err: core::fmt::Display
 pub fn near_kit_primitives::signer::PublicKey::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-pub enum near_kit_primitives::signer::PublicKeyHandle
+#[non_exhaustive] pub enum near_kit_primitives::signer::PublicKeyHandle
 pub near_kit_primitives::signer::PublicKeyHandle::Full(near_kit_primitives::signer::PublicKey)
 pub near_kit_primitives::signer::PublicKeyHandle::MlDsa65Hash([u8; 32])
 impl near_kit_primitives::signer::PublicKeyHandle

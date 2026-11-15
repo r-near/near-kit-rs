@@ -402,6 +402,7 @@ const ML_DSA_65_HASH_PREFIX: &str = "ml-dsa-65-hash:";
 /// # Ok::<(), near_kit_primitives::signer::ParseKeyError>(())
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash, SerializeDisplay, DeserializeFromStr)]
+#[non_exhaustive]
 pub enum PublicKeyHandle {
     /// A full public key, as stored on-chain for ed25519/secp256k1 access keys.
     Full(PublicKey),

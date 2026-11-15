@@ -105,7 +105,8 @@ Types decoded from the node are `#[non_exhaustive]`: RPC views and
 responses, the nearcore error enums, the protocol and key enums (`Action`,
 `VersionedTransaction`, `PublicKey`, ...), and the struct-like variants of
 the view and error enums. Borsh wire structs and fixed envelopes
-(`BlockReference`, NEP-297 `Event`, NEP-413) stay exhaustive. Additive
+(`BlockReference`, NEP-297 `Event`, NEP-413) stay exhaustive, and so does
+`TxExecutionStatus`, so a new wait level forces a decision. Additive
 nearcore changes ship as patch releases.
 
 ### Where code goes

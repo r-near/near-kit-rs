@@ -38,6 +38,7 @@ impl std::fmt::Display for UnknownError {
 ///
 /// Displays as the inner error, as nearcore's does.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum TxExecutionError {
     #[error("{0}")]
     ActionError(ActionError),

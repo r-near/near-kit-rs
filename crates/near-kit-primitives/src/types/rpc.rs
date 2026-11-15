@@ -69,6 +69,7 @@ pub struct AccountView {
 /// but with no keys, code, or data until `UniversalStateInit` is applied.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum AccountState {
     /// The account's state is installed.
     #[default]
