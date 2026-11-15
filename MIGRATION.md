@@ -195,7 +195,7 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `SecretKey::from_seed_phrase_with_path`, `SecretKey::from_seed_phrase_with_path_and_passphrase`, `SecretKey::ml_dsa65_from_seed_phrase`, `ml_dsa65_from_seed_phrase_with_path`, `ml_dsa65_from_seed_phrase_with_path_and_passphrase` | `SecretKey::from_seed_phrase(key_type, phrase, hd_path, passphrase)`, with `KeyType::Ed25519` or `KeyType::MlDsa65`; `None` for the default path or no passphrase |
 | `SecretKey::generate_with_seed_phrase_words`, `generate_with_seed_phrase_custom`, `ml_dsa65_generate_with_seed_phrase`, `ml_dsa65_generate_with_seed_phrase_words`, `ml_dsa65_generate_with_seed_phrase_custom`, `signer::generate_seed_phrase` | `SecretKey::generate_with_seed_phrase(key_type, word_count)`; `None` words is 12 (Ed25519) or 24 (ML-DSA-65). For another path or a passphrase, derive again from the returned phrase |
 | `signer::DEFAULT_HD_PATH`, `signer::DEFAULT_WORD_COUNT`, `signer::DEFAULT_ML_DSA_65_WORD_COUNT` | Removed; pass `None` |
-| `RotatingSigner::from_key_strings(id, &keys)` | `RotatingSigner::new(id, keys.iter().map(|k| k.parse()).collect::<Result<_, _>>()?)` |
+| `RotatingSigner::from_key_strings(id, &keys)` | `RotatingSigner::new(id, keys.iter().map(\|k\| k.parse()).collect::<Result<_, _>>()?)` |
 | `RotatingSigner::key_count()` | `public_keys().len()` |
 | `RotatingSigner::signing_keys()` | Removed: `public_keys()` lists the keys, `into_per_key_signers()` gives a signer for each |
 | `signer::EnvSigner` (`new()`, `from_env_vars(a, k)`) | `signer::from_env()`, `signer::from_env_vars(a, k)`, returning an `InMemorySigner` |
