@@ -197,6 +197,7 @@ const V1_TAG: u8 = 1;
     BorshSerialize,
     BorshDeserialize,
 )]
+#[non_exhaustive]
 pub enum TransactionNonce {
     /// Simple nonce without index, used by ordinary access keys. (discriminant = 0)
     Nonce {
@@ -258,6 +259,7 @@ impl TransactionNonce {
     BorshDeserialize,
 )]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum NonceMode {
     /// Any nonce strictly greater than the current access key nonce (default).
     /// (discriminant = 0)
@@ -372,6 +374,7 @@ impl Transaction {
 /// the 2nd is non-zero it's a V1. A naive 2-variant derive would tag V0 as
 /// `0x00` and break compatibility — hence the hand-rolled codec.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum VersionedTransaction {
     /// Legacy tag-less transaction.
     V0(Transaction),

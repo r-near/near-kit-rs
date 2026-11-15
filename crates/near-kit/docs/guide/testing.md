@@ -139,7 +139,7 @@ impl Viewer for MockViewer {
 
     async fn view_function(
         &self,
-        _contract_id: &AccountId,
+        _contract_id: &AccountIdRef,
         method: &str,
         args: &[u8],
         _block: BlockReference,
@@ -190,7 +190,7 @@ calls views by name rather than through a typed client:
 # struct MockViewer;
 # impl Viewer for MockViewer {
 #     type ViewError = String;
-#     async fn view_function(&self, _: &AccountId, _: &str, _: &[u8], _: BlockReference) -> Result<ViewFunctionResult, String> {
+#     async fn view_function(&self, _: &AccountIdRef, _: &str, _: &[u8], _: BlockReference) -> Result<ViewFunctionResult, String> {
 #         Ok(ViewFunctionResult::new(b"3".to_vec(), 1, CryptoHash::ZERO))
 #     }
 # }

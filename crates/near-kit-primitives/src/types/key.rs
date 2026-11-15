@@ -37,9 +37,16 @@ pub(crate) const ML_DSA_65_HASH_LENGTH: usize = 32;
 /// key into its on-trie handle (`core/crypto/src/hash_domain.rs`).
 const ML_DSA_65_PUBKEY_HASH_DOMAIN: &[u8] = b"near:ml-dsa-65-pubkey-hash:v1";
 
-/// Key type identifier.
+/// Key type identifier. The discriminant is the Borsh tag:
+///
+/// ```rust
+/// use near_kit_primitives::signer::KeyType;
+///
+/// assert_eq!(KeyType::MlDsa65 as u8, 2);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
+#[non_exhaustive]
 pub enum KeyType {
     /// Ed25519 key (most common).
     Ed25519 = 0,
@@ -85,7 +92,8 @@ impl KeyType {
 /// - Secp256k1: 64-byte uncompressed point (x, y coordinates, no `0x04` prefix)
 /// - ML-DSA-65: 1952-byte FIPS-204 public key (boxed to keep the enum small)
 ///
-/// Match on the variants to get at the raw bytes:
+/// Match on the variants to get at the raw bytes. The enum is
+/// `#[non_exhaustive]` (NEAR adds key types), so a `match` needs a `_` arm:
 ///
 /// ```rust
 /// use near_kit_primitives::signer::{PublicKey, SecretKey};
@@ -93,7 +101,7 @@ impl KeyType {
 /// let public_key = SecretKey::generate_ed25519().public_key();
 /// match public_key {
 ///     PublicKey::Ed25519(bytes) => assert_eq!(bytes.len(), 32),
-///     PublicKey::Secp256k1(_) | PublicKey::MlDsa65(_) => unreachable!(),
+///     _ => unreachable!("generated an Ed25519 key"),
 /// }
 /// ```
 ///
@@ -128,6 +136,7 @@ impl KeyType {
     BorshSerialize,
     BorshDeserialize,
 )]
+#[non_exhaustive]
 pub enum PublicKey {
     /// Ed25519 public key (32 bytes).
     Ed25519([u8; 32]),
@@ -393,6 +402,7 @@ const ML_DSA_65_HASH_PREFIX: &str = "ml-dsa-65-hash:";
 /// # Ok::<(), near_kit_primitives::signer::ParseKeyError>(())
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash, SerializeDisplay, DeserializeFromStr)]
+#[non_exhaustive]
 pub enum PublicKeyHandle {
     /// A full public key, as stored on-chain for ed25519/secp256k1 access keys.
     Full(PublicKey),
@@ -981,6 +991,7 @@ impl Debug for SecretKey {
 #[derive(
     Clone, PartialEq, Eq, SerializeDisplay, DeserializeFromStr, BorshSerialize, BorshDeserialize,
 )]
+#[non_exhaustive]
 pub enum Signature {
     /// Ed25519 signature (64 bytes).
     Ed25519([u8; 64]),

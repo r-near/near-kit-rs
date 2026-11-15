@@ -169,6 +169,7 @@ async fn test_delegate_v2_rejected_as_removed_protocol_feature() {
             InvalidTxError::ActionsValidation(ActionsValidationError::RemovedProtocolFeature {
                 protocol_feature,
                 version,
+                ..
             }) => {
                 assert_eq!(protocol_feature, "DelegateV2");
                 assert_eq!(version, status.protocol_version);

@@ -8,8 +8,8 @@ use std::sync::Arc;
 use crate::MaybeSend;
 use crate::error::{Error, RpcError};
 use crate::types::{
-    AccountId, Action, BlockReference, Final, SignedDelegateAction, SignedTransaction, Signer,
-    ViewFunctionResult, WaitLevel,
+    AccountId, AccountIdRef, Action, BlockReference, Final, SignedDelegateAction,
+    SignedTransaction, Signer, ViewFunctionResult, WaitLevel,
 };
 
 use super::near::Near;
@@ -515,7 +515,7 @@ impl<W: WaitLevel> crate::Viewer for SigningNear<W> {
 
     fn view_function(
         &self,
-        contract_id: &AccountId,
+        contract_id: &AccountIdRef,
         method: &str,
         args: &[u8],
         block: BlockReference,
@@ -633,7 +633,6 @@ mod tests {
     #[test]
     fn token_clients_take_account_ids_without_network() {
         use crate::tokens::{FungibleToken, NonFungibleToken};
-        use crate::types::AccountIdRef;
 
         const WRAP: &AccountIdRef = AccountIdRef::new_or_panic("wrap.testnet");
 

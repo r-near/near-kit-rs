@@ -44,7 +44,7 @@ async fn test_delete_nonexistent_key_deserializes_as_typed_error() {
     assert!(
         matches!(
             &ae.kind,
-            ActionErrorKind::DeleteKeyDoesNotExist { account_id, public_key }
+            ActionErrorKind::DeleteKeyDoesNotExist { account_id, public_key, .. }
                 if account_id == &id && public_key == &fake_key.public_key()
         ),
         "expected DeleteKeyDoesNotExist, got: {:?}",
@@ -86,7 +86,7 @@ async fn test_add_duplicate_key_deserializes_as_typed_error() {
     assert!(
         matches!(
             &ae.kind,
-            ActionErrorKind::AddKeyAlreadyExists { account_id, public_key }
+            ActionErrorKind::AddKeyAlreadyExists { account_id, public_key, .. }
                 if account_id == &id && public_key == &key.public_key()
         ),
         "expected AddKeyAlreadyExists, got: {:?}",

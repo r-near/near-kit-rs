@@ -36,7 +36,8 @@ use near_kit::protocol::{Action, FunctionCallAction};
 use near_kit::rpc::{BlockReference, FinalExecutionOutcome, ViewFunctionResult};
 use near_kit::standards::{FungibleToken, FungibleTokenClient};
 use near_kit::{
-    AccountId, Contract, ContractError, CryptoHash, Gas, NearToken, TxSender, Viewer, account,
+    AccountId, AccountIdRef, Contract, ContractError, CryptoHash, Gas, NearToken, TxSender, Viewer,
+    account,
 };
 
 // --- The contract and the app code under test ---
@@ -182,14 +183,14 @@ impl Viewer for MockChain {
 
     async fn view_function(
         &self,
-        contract_id: &AccountId,
+        contract_id: &AccountIdRef,
         method: &str,
         _args: &[u8],
         _block: BlockReference,
     ) -> Result<ViewFunctionResult, String> {
         let views = self.views.lock().unwrap();
         let value = views
-            .get(&(contract_id.clone(), method.to_owned()))
+            .get(&(contract_id.to_owned(), method.to_owned()))
             .ok_or_else(|| format!("no answer for {contract_id}.{method}"))?;
         let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
         // Any block height and hash will do for a mock.

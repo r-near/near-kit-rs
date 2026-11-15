@@ -229,7 +229,8 @@ fn apply_time_rejection_resolves_to_invalid_tx() {
                 *e,
                 InvalidTxError::InvalidNonce {
                     ak_nonce: 28_000_000,
-                    tx_nonce: 28_000_000
+                    tx_nonce: 28_000_000,
+                    ..
                 }
             ),
             "{e:?}"

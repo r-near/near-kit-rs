@@ -8,7 +8,7 @@ use crate::error::RpcError;
 use serde::de::DeserializeOwned;
 
 use crate::View;
-use crate::types::{AccountId, BlockReference, ChainId, ViewFunctionResult};
+use crate::types::{AccountId, AccountIdRef, BlockReference, ChainId, ViewFunctionResult};
 
 use super::endpoint::RpcEndpoint;
 use super::nonce_manager::GenesisHash;
@@ -383,7 +383,7 @@ impl crate::Viewer for Near {
 
     fn view_function(
         &self,
-        contract_id: &AccountId,
+        contract_id: &AccountIdRef,
         method: &str,
         args: &[u8],
         block: BlockReference,

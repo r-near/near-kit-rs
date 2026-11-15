@@ -53,6 +53,8 @@ pub use near_kit::protocol::HostError
 pub use near_kit::protocol::InvalidAccessKeyError
 pub use near_kit::protocol::InvalidTxError
 pub use near_kit::protocol::MethodResolveError
+pub use near_kit::protocol::MissingTrieValue
+pub use near_kit::protocol::MissingTrieValueContext
 pub use near_kit::protocol::NonDelegateAction
 pub use near_kit::protocol::Nonce
 pub use near_kit::protocol::NonceIndex

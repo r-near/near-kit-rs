@@ -67,6 +67,8 @@ pub use near_kit::protocol::HostError
 pub use near_kit::protocol::InvalidAccessKeyError
 pub use near_kit::protocol::InvalidTxError
 pub use near_kit::protocol::MethodResolveError
+pub use near_kit::protocol::MissingTrieValue
+pub use near_kit::protocol::MissingTrieValueContext
 pub use near_kit::protocol::NonDelegateAction
 pub use near_kit::protocol::Nonce
 pub use near_kit::protocol::NonceIndex
@@ -715,7 +717,7 @@ impl core::fmt::Debug for near_kit::Near
 pub fn near_kit::Near::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl near_kit_primitives::backend::Viewer for near_kit::Near
 pub type near_kit::Near::ViewError = near_kit::rpc::RpcError
-pub fn near_kit::Near::view_function(&self, &near_account_id::account_id::AccountId, &str, &[u8], near_kit_primitives::types::block_reference::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::types::rpc::ViewFunctionResult, near_kit::rpc::RpcError>> + near_kit_primitives::platform::MaybeSend
+pub fn near_kit::Near::view_function(&self, &near_account_id::account_id_ref::AccountIdRef, &str, &[u8], near_kit_primitives::types::block_reference::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::types::rpc::ViewFunctionResult, near_kit::rpc::RpcError>> + near_kit_primitives::platform::MaybeSend
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::convert::AsRef<near_kit::Near> for near_kit::SigningNear<W>
 pub fn near_kit::SigningNear<W>::as_ref(&self) -> &near_kit::Near
 pub struct near_kit::NearBuilder
@@ -752,4 +754,4 @@ pub fn near_kit::SigningNear<W>::account_id(&self) -> &near_account_id::account_
 pub fn near_kit::SigningNear<W>::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::types::action::Action>) -> impl core::future::future::Future<Output = core::result::Result<<W as near_kit_primitives::types::wait_level::WaitLevel>::Response, near_kit::Error>> + near_kit_primitives::platform::MaybeSend
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit_primitives::backend::Viewer for near_kit::SigningNear<W>
 pub type near_kit::SigningNear<W>::ViewError = near_kit::rpc::RpcError
-pub fn near_kit::SigningNear<W>::view_function(&self, &near_account_id::account_id::AccountId, &str, &[u8], near_kit_primitives::types::block_reference::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::types::rpc::ViewFunctionResult, near_kit::rpc::RpcError>> + near_kit_primitives::platform::MaybeSend
+pub fn near_kit::SigningNear<W>::view_function(&self, &near_account_id::account_id_ref::AccountIdRef, &str, &[u8], near_kit_primitives::types::block_reference::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::types::rpc::ViewFunctionResult, near_kit::rpc::RpcError>> + near_kit_primitives::platform::MaybeSend

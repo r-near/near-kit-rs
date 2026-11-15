@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use near_kit::rpc::{BlockReference, ViewFunctionResult};
-use near_kit::{AccountId, ContractError, CryptoHash, View, Viewer, account};
+use near_kit::{AccountIdRef, ContractError, CryptoHash, View, Viewer, account};
 use serde::{Deserialize, Deserializer};
 
 thread_local! {
@@ -51,7 +51,7 @@ impl Viewer for Scripted {
 
     async fn view_function(
         &self,
-        _contract_id: &AccountId,
+        _contract_id: &AccountIdRef,
         _method: &str,
         _args: &[u8],
         _block: BlockReference,

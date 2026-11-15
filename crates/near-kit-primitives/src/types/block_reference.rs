@@ -91,6 +91,10 @@ impl Finality {
 /// This mirrors the RPC's values, and its `Default` (`ExecutedOptimistic`) is
 /// the RPC's default when a request names none. near-kit's sends default to
 /// `Final` instead (see `near_kit::transaction::Final`).
+///
+/// Deliberately exhaustive, unlike the other node types: code that maps each
+/// wait level (say, to a view finality) should have to decide for a new one,
+/// so a new level would be a breaking release.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {

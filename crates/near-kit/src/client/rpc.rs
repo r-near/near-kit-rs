@@ -225,13 +225,14 @@ fn classify_function_call_error(
     block_hash: Option<CryptoHash>,
 ) -> Option<RpcError> {
     match error {
-        FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist { account_id }) => {
-            Some(RpcError::ContractNotDeployed {
-                account_id: account_id.to_owned(),
-                block_height,
-                block_hash,
-            })
-        }
+        FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+            account_id,
+            ..
+        }) => Some(RpcError::ContractNotDeployed {
+            account_id: account_id.to_owned(),
+            block_height,
+            block_hash,
+        }),
         FunctionCallError::MethodResolveError(MethodResolveError::MethodNotFound) => {
             Some(RpcError::MethodNotFound {
                 contract_id: contract_id.clone(),
@@ -240,7 +241,7 @@ fn classify_function_call_error(
                 block_hash,
             })
         }
-        FunctionCallError::HostError(HostError::GuestPanic { panic_msg }) => {
+        FunctionCallError::HostError(HostError::GuestPanic { panic_msg, .. }) => {
             Some(RpcError::ContractPanic {
                 message: panic_msg.clone(),
                 block_height,
@@ -1421,11 +1422,7 @@ impl RpcClient {
             values.extend(page.values);
             after_key = page.last_key;
         }
-        Ok(ViewStateAllResult {
-            values,
-            block_height,
-            block_hash,
-        })
+        Ok(ViewStateAllResult::new(values, block_height, block_hash))
     }
 
     /// Get block information.
@@ -1989,7 +1986,8 @@ mod tests {
                 err,
                 RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {
                     tx_nonce: 6,
-                    ak_nonce: 20
+                    ak_nonce: 20,
+                    ..
                 })
             ),
             "expected InvalidTx(InvalidNonce), got {err:?}"
@@ -3831,7 +3829,9 @@ mod tests {
         });
         let err = RpcError::invalid_tx("invalid nonce", Some(data));
         match err {
-            RpcError::InvalidTx(InvalidTxError::InvalidNonce { tx_nonce, ak_nonce }) => {
+            RpcError::InvalidTx(InvalidTxError::InvalidNonce {
+                tx_nonce, ak_nonce, ..
+            }) => {
                 assert_eq!(tx_nonce, 5);
                 assert_eq!(ak_nonce, 10);
             }

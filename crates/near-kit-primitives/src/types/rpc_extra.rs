@@ -9,6 +9,7 @@ use super::{AccountId, NearToken, PublicKey};
 
 /// Epoch validator info from `validators` RPC.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct EpochValidatorInfo {
     /// Current epoch validators.
     pub current_validators: Vec<CurrentEpochValidatorInfo>,
@@ -38,6 +39,7 @@ pub struct EpochValidatorInfo {
 
 /// Current epoch validator information.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct CurrentEpochValidatorInfo {
     /// Validator account ID.
     pub account_id: AccountId,
@@ -85,6 +87,7 @@ pub struct CurrentEpochValidatorInfo {
 
 /// Next epoch validator information.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct NextEpochValidatorInfo {
     /// Validator account ID.
     pub account_id: AccountId,
@@ -99,6 +102,7 @@ pub struct NextEpochValidatorInfo {
 
 /// Validator kickout information.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ValidatorKickoutView {
     /// Account ID of the kicked validator.
     pub account_id: AccountId,
@@ -108,10 +112,12 @@ pub struct ValidatorKickoutView {
 
 /// Reason a validator was kicked out.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub enum ValidatorKickoutReason {
     /// Slashed (deprecated, unused).
     Slashed,
     /// Not enough blocks produced.
+    #[non_exhaustive]
     NotEnoughBlocks {
         /// Blocks produced.
         produced: u64,
@@ -119,6 +125,7 @@ pub enum ValidatorKickoutReason {
         expected: u64,
     },
     /// Not enough chunks produced.
+    #[non_exhaustive]
     NotEnoughChunks {
         /// Chunks produced.
         produced: u64,
@@ -128,6 +135,7 @@ pub enum ValidatorKickoutReason {
     /// Validator unstaked.
     Unstaked,
     /// Not enough stake.
+    #[non_exhaustive]
     NotEnoughStake {
         /// Validator's stake.
         stake: NearToken,
@@ -137,6 +145,7 @@ pub enum ValidatorKickoutReason {
     /// Did not get a seat.
     DidNotGetASeat,
     /// Not enough chunk endorsements.
+    #[non_exhaustive]
     NotEnoughChunkEndorsements {
         /// Endorsements produced.
         produced: u64,
@@ -144,6 +153,7 @@ pub enum ValidatorKickoutReason {
         expected: u64,
     },
     /// Protocol version too old.
+    #[non_exhaustive]
     ProtocolVersionTooOld {
         /// Validator's protocol version.
         version: u32,

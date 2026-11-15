@@ -38,6 +38,7 @@ impl std::fmt::Display for UnknownError {
 ///
 /// Displays as the inner error, as nearcore's does.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum TxExecutionError {
     #[error("{0}")]
     ActionError(ActionError),
@@ -69,14 +70,18 @@ impl std::fmt::Display for ActionError {
 
 /// Specific kind of action error.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum ActionErrorKind {
     #[error("account {account_id} already exists")]
+    #[non_exhaustive]
     AccountAlreadyExists { account_id: AccountId },
     #[error("account {account_id} does not exist")]
+    #[non_exhaustive]
     AccountDoesNotExist { account_id: AccountId },
     #[error(
         "top-level account {account_id} can only be created by registrar {registrar_account_id}, not by {predecessor_id}"
     )]
+    #[non_exhaustive]
     CreateAccountOnlyByRegistrar {
         account_id: AccountId,
         predecessor_id: AccountId,
@@ -85,42 +90,50 @@ pub enum ActionErrorKind {
     #[error(
         "account {account_id} must be under a namespace of the creator account {predecessor_id}"
     )]
+    #[non_exhaustive]
     CreateAccountNotAllowed {
         account_id: AccountId,
         predecessor_id: AccountId,
     },
     #[error("actor {actor_id} does not have permission to act on account {account_id}")]
+    #[non_exhaustive]
     ActorNoPermission {
         account_id: AccountId,
         actor_id: AccountId,
     },
     #[error("account {account_id} tries to remove an access key {public_key} that doesn't exist")]
+    #[non_exhaustive]
     DeleteKeyDoesNotExist {
         account_id: AccountId,
         public_key: PublicKey,
     },
     #[error("public key {public_key} already exists for account {account_id}")]
+    #[non_exhaustive]
     AddKeyAlreadyExists {
         account_id: AccountId,
         public_key: PublicKey,
     },
     #[error("account {account_id} is staking and cannot be deleted")]
+    #[non_exhaustive]
     DeleteAccountStaking { account_id: AccountId },
     #[error(
         "account {account_id} needs {} to cover storage cost",
         .amount.exact_amount_display()
     )]
+    #[non_exhaustive]
     LackBalanceForState {
         account_id: AccountId,
         amount: NearToken,
     },
     #[error("account {account_id} is not staked but tries to unstake")]
+    #[non_exhaustive]
     TriesToUnstake { account_id: AccountId },
     #[error(
         "account {account_id} doesn't have enough balance ({}) to increase the stake ({})",
         .balance.exact_amount_display(),
         .stake.exact_amount_display()
     )]
+    #[non_exhaustive]
     TriesToStake {
         account_id: AccountId,
         balance: NearToken,
@@ -132,6 +145,7 @@ pub enum ActionErrorKind {
         .stake.exact_amount_display(),
         .minimum_stake.exact_amount_display()
     )]
+    #[non_exhaustive]
     InsufficientStake {
         account_id: AccountId,
         minimum_stake: NearToken,
@@ -142,12 +156,15 @@ pub enum ActionErrorKind {
     #[error("receipt validation error: {0}")]
     NewReceiptValidationError(ReceiptValidationError),
     #[error("only implicit account creation is allowed for {account_id}")]
+    #[non_exhaustive]
     OnlyImplicitAccountCreationAllowed { account_id: AccountId },
     #[error("deleting account {account_id} with large state is temporarily banned")]
+    #[non_exhaustive]
     DeleteAccountWithLargeState { account_id: AccountId },
     #[error("invalid signature on delegate action")]
     DelegateActionInvalidSignature,
     #[error("delegate action sender {sender_id} does not match transaction receiver {receiver_id}")]
+    #[non_exhaustive]
     DelegateActionSenderDoesNotMatchTxReceiver {
         receiver_id: AccountId,
         sender_id: AccountId,
@@ -159,17 +176,21 @@ pub enum ActionErrorKind {
     #[error(
         "delegate action nonce {delegate_nonce} must be larger than access key nonce {ak_nonce}"
     )]
+    #[non_exhaustive]
     DelegateActionInvalidNonce { ak_nonce: u64, delegate_nonce: u64 },
     #[error("delegate action nonce {delegate_nonce} is larger than the upper bound {upper_bound}")]
+    #[non_exhaustive]
     DelegateActionNonceTooLarge {
         delegate_nonce: u64,
         upper_bound: u64,
     },
     #[error("global contract {identifier} does not exist")]
+    #[non_exhaustive]
     GlobalContractDoesNotExist {
         identifier: GlobalContractIdentifierView,
     },
     #[error("gas key {public_key} does not exist for account {account_id}")]
+    #[non_exhaustive]
     GasKeyDoesNotExist {
         account_id: AccountId,
         public_key: PublicKey,
@@ -179,6 +200,7 @@ pub enum ActionErrorKind {
         .balance.exact_amount_display(),
         .required.exact_amount_display()
     )]
+    #[non_exhaustive]
     InsufficientGasKeyBalance {
         account_id: AccountId,
         balance: NearToken,
@@ -190,6 +212,7 @@ pub enum ActionErrorKind {
         .balance.exact_amount_display(),
         gas_key_label(.public_key.as_ref())
     )]
+    #[non_exhaustive]
     GasKeyBalanceTooHigh {
         account_id: AccountId,
         balance: NearToken,
@@ -199,14 +222,18 @@ pub enum ActionErrorKind {
     #[error(
         "delegate action nonce index {nonce_index} must be smaller than the gas key nonce count {num_nonces}"
     )]
+    #[non_exhaustive]
     DelegateActionInvalidNonceIndex { nonce_index: u16, num_nonces: u16 },
     #[error("combined size of the receipt's promise inputs ({size}) exceeded the limit ({limit})")]
+    #[non_exhaustive]
     TotalPromiseInputSizeExceeded { size: u64, limit: u64 },
     #[error("receipt exceeded the storage proof size limit of {limit} bytes")]
+    #[non_exhaustive]
     ReceiptStorageProofSizeExceeded { limit: u64 },
     #[error("universal state init payload is not a canonical state init")]
     MalformedUniversalStateInit,
     #[error("account {account_id} has no state init applied yet")]
+    #[non_exhaustive]
     AccountNotInitialized { account_id: AccountId },
     /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
@@ -223,18 +250,24 @@ fn gas_key_label(public_key: Option<&PublicKey>) -> String {
 
 /// An error during transaction validation (before execution).
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum InvalidTxError {
     #[error("{0}")]
     InvalidAccessKeyError(InvalidAccessKeyError),
     #[error("signer ID {signer_id} is not a valid account ID")]
+    #[non_exhaustive]
     InvalidSignerId { signer_id: String },
     #[error("signer account {signer_id} does not exist")]
+    #[non_exhaustive]
     SignerDoesNotExist { signer_id: AccountId },
     #[error("transaction nonce {tx_nonce} must be larger than access key nonce {ak_nonce}")]
+    #[non_exhaustive]
     InvalidNonce { ak_nonce: u64, tx_nonce: u64 },
     #[error("transaction nonce {tx_nonce} is larger than the upper bound {upper_bound}")]
+    #[non_exhaustive]
     NonceTooLarge { tx_nonce: u64, upper_bound: u64 },
     #[error("receiver ID {receiver_id} is not a valid account ID")]
+    #[non_exhaustive]
     InvalidReceiverId { receiver_id: String },
     #[error("transaction signature is not valid")]
     InvalidSignature,
@@ -243,6 +276,7 @@ pub enum InvalidTxError {
         .balance.exact_amount_display(),
         .cost.exact_amount_display()
     )]
+    #[non_exhaustive]
     NotEnoughBalance {
         balance: NearToken,
         cost: NearToken,
@@ -252,6 +286,7 @@ pub enum InvalidTxError {
         "account {signer_id} doesn't have enough balance ({}) after transaction",
         .amount.exact_amount_display()
     )]
+    #[non_exhaustive]
     LackBalanceForState {
         amount: NearToken,
         signer_id: AccountId,
@@ -265,6 +300,7 @@ pub enum InvalidTxError {
     #[error("{0}")]
     ActionsValidation(ActionsValidationError),
     #[error("serialized transaction size ({size}) exceeded the limit ({limit})")]
+    #[non_exhaustive]
     TransactionSizeExceeded { limit: u64, size: u64 },
     #[error("invalid transaction version")]
     InvalidTransactionVersion,
@@ -273,13 +309,16 @@ pub enum InvalidTxError {
     #[error(
         "shard {shard_id} is too congested ({congestion_level:.2}/1.00) to accept new transactions"
     )]
+    #[non_exhaustive]
     ShardCongested {
         congestion_level: f64,
         shard_id: u64,
     },
     #[error("shard {shard_id} is {missed_chunks} blocks behind and can't accept transactions")]
+    #[non_exhaustive]
     ShardStuck { missed_chunks: u64, shard_id: u64 },
     #[error("{}", nonce_index_message(*.tx_nonce_index, *.num_nonces))]
+    #[non_exhaustive]
     InvalidNonceIndex {
         num_nonces: u16,
         #[serde(default)]
@@ -290,6 +329,7 @@ pub enum InvalidTxError {
         .balance.exact_amount_display(),
         .cost.exact_amount_display()
     )]
+    #[non_exhaustive]
     NotEnoughGasKeyBalance {
         balance: NearToken,
         cost: NearToken,
@@ -300,6 +340,7 @@ pub enum InvalidTxError {
         .balance.exact_amount_display(),
         .cost.exact_amount_display()
     )]
+    #[non_exhaustive]
     NotEnoughBalanceForDeposit {
         balance: NearToken,
         cost: NearToken,
@@ -334,18 +375,22 @@ impl InvalidTxError {
 
 /// Error related to access key validation.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum InvalidAccessKeyError {
     #[error("public key {public_key} doesn't exist for account {account_id}")]
+    #[non_exhaustive]
     AccessKeyNotFound {
         account_id: AccountId,
         public_key: PublicKey,
     },
     #[error("transaction receiver {tx_receiver} doesn't match access key receiver {ak_receiver}")]
+    #[non_exhaustive]
     ReceiverMismatch {
         ak_receiver: String,
         tx_receiver: AccountId,
     },
     #[error("method {method_name} isn't allowed by the access key")]
+    #[non_exhaustive]
     MethodNameMismatch { method_name: String },
     #[error("transaction requires a full access key")]
     RequiresFullAccess,
@@ -354,6 +399,7 @@ pub enum InvalidAccessKeyError {
         .allowance.exact_amount_display(),
         .cost.exact_amount_display()
     )]
+    #[non_exhaustive]
     NotEnoughAllowance {
         account_id: AccountId,
         allowance: NearToken,
@@ -374,6 +420,7 @@ pub enum InvalidAccessKeyError {
 
 /// An error during function call execution.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum FunctionCallError {
     #[error("unknown Wasm error")]
     WasmUnknownError,
@@ -383,6 +430,7 @@ pub enum FunctionCallError {
     #[error("compilation error: {0}")]
     CompilationError(CompilationError),
     #[error("link error: {msg}")]
+    #[non_exhaustive]
     LinkError { msg: String },
     #[error("method resolve error: {0}")]
     MethodResolveError(MethodResolveError),
@@ -400,12 +448,15 @@ pub enum FunctionCallError {
 
 /// Wasm compilation error.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum CompilationError {
     #[error("contract code does not exist for account {account_id}")]
+    #[non_exhaustive]
     CodeDoesNotExist { account_id: AccountId },
     #[error("{0}")]
     PrepareError(PrepareError),
     #[error("Wasmer compilation error: {msg}")]
+    #[non_exhaustive]
     WasmerCompileError { msg: String },
     /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
@@ -415,6 +466,7 @@ pub enum CompilationError {
 
 /// Error preparing a Wasm module.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum PrepareError {
     #[error("Wasm serialization error")]
     Serialization,
@@ -464,6 +516,7 @@ pub enum PrepareError {
 
 /// Error resolving a method in Wasm.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum MethodResolveError {
     #[error("method name is empty")]
     MethodEmptyName,
@@ -479,6 +532,7 @@ pub enum MethodResolveError {
 
 /// A trap during Wasm execution.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum WasmTrap {
     #[error("unreachable instruction executed")]
     Unreachable,
@@ -507,6 +561,7 @@ pub enum WasmTrap {
 
 /// Error from a host function call.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum HostError {
     #[serde(rename = "BadUTF16")]
     #[error("bad UTF-16 string")]
@@ -523,26 +578,33 @@ pub enum HostError {
     #[error("method name is empty")]
     EmptyMethodName,
     #[error("smart contract panicked: {panic_msg}")]
+    #[non_exhaustive]
     GuestPanic { panic_msg: String },
     #[error("integer overflow")]
     IntegerOverflow,
     #[error("invalid promise index {promise_idx}")]
+    #[non_exhaustive]
     InvalidPromiseIndex { promise_idx: u64 },
     #[error("cannot append action to joint promise")]
     CannotAppendActionToJointPromise,
     #[error("cannot return joint promise")]
     CannotReturnJointPromise,
     #[error("invalid promise result index {result_idx}")]
+    #[non_exhaustive]
     InvalidPromiseResultIndex { result_idx: u64 },
     #[error("invalid register ID {register_id}")]
+    #[non_exhaustive]
     InvalidRegisterId { register_id: u64 },
     #[error("iterator {iterator_index} was invalidated")]
+    #[non_exhaustive]
     IteratorWasInvalidated { iterator_index: u64 },
     #[error("memory access violation")]
     MemoryAccessViolation,
     #[error("invalid receipt index {receipt_index}")]
+    #[non_exhaustive]
     InvalidReceiptIndex { receipt_index: u64 },
     #[error("invalid iterator index {iterator_index}")]
+    #[non_exhaustive]
     InvalidIteratorIndex { iterator_index: u64 },
     #[error("invalid account ID")]
     InvalidAccountId,
@@ -551,40 +613,55 @@ pub enum HostError {
     #[error("invalid public key")]
     InvalidPublicKey,
     #[error("method {method_name} is not allowed in a view call")]
+    #[non_exhaustive]
     ProhibitedInView { method_name: String },
     #[error("number of logs exceeded the limit of {limit}")]
+    #[non_exhaustive]
     NumberOfLogsExceeded { limit: u64 },
     #[error("key length {length} exceeded the limit of {limit}")]
+    #[non_exhaustive]
     KeyLengthExceeded { length: u64, limit: u64 },
     #[error("value length {length} exceeded the limit of {limit}")]
+    #[non_exhaustive]
     ValueLengthExceeded { length: u64, limit: u64 },
     #[error("total log length {length} exceeded the limit of {limit}")]
+    #[non_exhaustive]
     TotalLogLengthExceeded { length: u64, limit: u64 },
     #[error("number of promises {number_of_promises} exceeded the limit of {limit}")]
+    #[non_exhaustive]
     NumberPromisesExceeded { limit: u64, number_of_promises: u64 },
     #[error(
         "number of input data dependencies {number_of_input_data_dependencies} exceeded the limit of {limit}"
     )]
+    #[non_exhaustive]
     NumberInputDataDependenciesExceeded {
         limit: u64,
         number_of_input_data_dependencies: u64,
     },
     #[error("returned value length {length} exceeded the limit of {limit}")]
+    #[non_exhaustive]
     ReturnedValueLengthExceeded { length: u64, limit: u64 },
     #[error("contract size {size} exceeded the limit of {limit}")]
+    #[non_exhaustive]
     ContractSizeExceeded { limit: u64, size: u64 },
     #[error("method {method_name} is deprecated")]
+    #[non_exhaustive]
     Deprecated { method_name: String },
     #[serde(rename = "ECRecoverError")]
     #[error("EC recover error: {msg}")]
+    #[non_exhaustive]
     EcRecoverError { msg: String },
     #[error("AltBn128 invalid input: {msg}")]
+    #[non_exhaustive]
     AltBn128InvalidInput { msg: String },
     #[error("Ed25519 verification invalid input: {msg}")]
+    #[non_exhaustive]
     Ed25519VerifyInvalidInput { msg: String },
     #[error("P-256 verification invalid input: {msg}")]
+    #[non_exhaustive]
     P256VerifyInvalidInput { msg: String },
     #[error("ML-DSA verification invalid input: {msg}")]
+    #[non_exhaustive]
     MlDsaVerifyInvalidInput { msg: String },
     /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
@@ -594,12 +671,15 @@ pub enum HostError {
 
 /// Error validating actions in a transaction or receipt.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum ActionsValidationError {
     #[error("delete action must be the final action in a transaction")]
     DeleteActionMustBeFinal,
     #[error("total prepaid gas ({total_prepaid_gas}) exceeded the limit ({limit})")]
+    #[non_exhaustive]
     TotalPrepaidGasExceeded { limit: Gas, total_prepaid_gas: Gas },
     #[error("number of actions ({total_number_of_actions}) exceeded the limit ({limit})")]
+    #[non_exhaustive]
     TotalNumberOfActionsExceeded {
         limit: u64,
         total_number_of_actions: u64,
@@ -607,54 +687,68 @@ pub enum ActionsValidationError {
     #[error(
         "total size of method names ({total_number_of_bytes} bytes) exceeded the limit ({limit}) in add key action"
     )]
+    #[non_exhaustive]
     AddKeyMethodNamesNumberOfBytesExceeded {
         limit: u64,
         total_number_of_bytes: u64,
     },
     #[error("method name length ({length}) exceeded the limit ({limit}) in add key action")]
+    #[non_exhaustive]
     AddKeyMethodNameLengthExceeded { length: u64, limit: u64 },
     #[error("integer overflow")]
     IntegerOverflow,
     #[error("invalid account ID {account_id}")]
+    #[non_exhaustive]
     InvalidAccountId { account_id: String },
     #[error("contract size ({size}) exceeded the limit ({limit}) in deploy action")]
+    #[non_exhaustive]
     ContractSizeExceeded { limit: u64, size: u64 },
     #[error("method name length ({length}) exceeded the limit ({limit}) in function call action")]
+    #[non_exhaustive]
     FunctionCallMethodNameLengthExceeded { length: u64, limit: u64 },
     #[error("arguments length ({length}) exceeded the limit ({limit}) in function call action")]
+    #[non_exhaustive]
     FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
     #[error("public key {public_key} is not suitable for staking")]
+    #[non_exhaustive]
     UnsuitableStakingKey { public_key: PublicKey },
     #[error("function call must have a positive amount of gas attached")]
     FunctionCallZeroAttachedGas,
     #[error("transaction must contain only one delegate action")]
     DelegateActionMustBeOnlyOne,
     #[error("protocol feature {protocol_feature} is unsupported in version {version}")]
+    #[non_exhaustive]
     UnsupportedProtocolFeature {
         protocol_feature: String,
         version: u32,
     },
     #[error("invalid receiver {receiver_id} for deterministic account {derived_id}")]
+    #[non_exhaustive]
     InvalidDeterministicStateInitReceiver {
         derived_id: AccountId,
         receiver_id: AccountId,
     },
     #[error("deterministic state init key length ({length}) exceeded the limit ({limit})")]
+    #[non_exhaustive]
     DeterministicStateInitKeyLengthExceeded { length: u64, limit: u64 },
     #[error("deterministic state init value length ({length}) exceeded the limit ({limit})")]
+    #[non_exhaustive]
     DeterministicStateInitValueLengthExceeded { length: u64, limit: u64 },
     #[error(
         "gas key requested invalid number of nonces: {requested_nonces} (must be between 1 and {limit})"
     )]
+    #[non_exhaustive]
     GasKeyInvalidNumNonces { limit: u16, requested_nonces: u16 },
     #[error(
         "adding a gas key with non-zero balance ({}) is not allowed",
         .balance.exact_amount_display()
     )]
+    #[non_exhaustive]
     AddGasKeyWithNonZeroBalance { balance: NearToken },
     #[error("gas keys with function call permission cannot have an allowance")]
     GasKeyFunctionCallAllowanceNotAllowed,
     #[error("number of deploy actions ({number_of_deploy_actions}) exceeded the limit ({limit})")]
+    #[non_exhaustive]
     TotalNumberOfDeployActionsExceeded {
         limit: u64,
         number_of_deploy_actions: u64,
@@ -662,19 +756,23 @@ pub enum ActionsValidationError {
     #[error("method name in a function call action must not be empty")]
     FunctionCallEmptyMethodName,
     #[error("invalid receiver {receiver_id} for universal account {derived_id}")]
+    #[non_exhaustive]
     InvalidUniversalStateInitReceiver {
         derived_id: AccountId,
         receiver_id: AccountId,
     },
     #[error("universal state init key length ({length}) exceeded the limit ({limit})")]
+    #[non_exhaustive]
     UniversalStateInitKeyLengthExceeded { length: u64, limit: u64 },
     #[error("universal state init value length ({length}) exceeded the limit ({limit})")]
+    #[non_exhaustive]
     UniversalStateInitValueLengthExceeded { length: u64, limit: u64 },
     #[error("universal state init bytes are not a canonical borsh encoding of a state init")]
     MalformedUniversalStateInit,
     #[error(
         "protocol feature {protocol_feature} was removed and is not supported in version {version}"
     )]
+    #[non_exhaustive]
     RemovedProtocolFeature {
         protocol_feature: String,
         version: u32,
@@ -684,12 +782,15 @@ pub enum ActionsValidationError {
     #[error(
         "state inits in this receipt commit to {number_of_keys} access keys, exceeding the limit ({limit})"
     )]
+    #[non_exhaustive]
     TotalNumberOfStateInitKeysExceeded { limit: u64, number_of_keys: u64 },
     #[error(
         "state inits in this receipt carry {number_of_entries} storage entries, exceeding the limit ({limit})"
     )]
+    #[non_exhaustive]
     TotalNumberOfStateInitEntriesExceeded { limit: u64, number_of_entries: u64 },
     #[error("transfers to the universal account {account_id} are not allowed yet")]
+    #[non_exhaustive]
     TransferToUniversalAccountNotAllowed { account_id: AccountId },
     /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
@@ -699,20 +800,27 @@ pub enum ActionsValidationError {
 
 /// Error validating a receipt.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum ReceiptValidationError {
     #[error("invalid predecessor ID {account_id}")]
+    #[non_exhaustive]
     InvalidPredecessorId { account_id: String },
     #[error("invalid receiver ID {account_id}")]
+    #[non_exhaustive]
     InvalidReceiverId { account_id: String },
     #[error("invalid signer ID {account_id}")]
+    #[non_exhaustive]
     InvalidSignerId { account_id: String },
     #[error("invalid data receiver ID {account_id}")]
+    #[non_exhaustive]
     InvalidDataReceiverId { account_id: String },
     #[error("returned value length ({length}) exceeded the limit ({limit})")]
+    #[non_exhaustive]
     ReturnedValueLengthExceeded { length: u64, limit: u64 },
     #[error(
         "number of input data dependencies ({number_of_input_data_dependencies}) exceeded the limit ({limit})"
     )]
+    #[non_exhaustive]
     NumberInputDataDependenciesExceeded {
         limit: u64,
         number_of_input_data_dependencies: u64,
@@ -720,8 +828,10 @@ pub enum ReceiptValidationError {
     #[error("{0}")]
     ActionsValidation(ActionsValidationError),
     #[error("receipt size ({size}) exceeded the limit ({limit})")]
+    #[non_exhaustive]
     ReceiptSizeExceeded { limit: u64, size: u64 },
     #[error("invalid refund-to account ID {account_id}")]
+    #[non_exhaustive]
     InvalidRefundTo { account_id: String },
     /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
@@ -731,6 +841,7 @@ pub enum ReceiptValidationError {
 
 /// Internal storage error.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum StorageError {
     #[error("internal storage error")]
     StorageInternalError,
@@ -752,6 +863,7 @@ pub enum StorageError {
 
 /// Details about a missing trie value.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct MissingTrieValue {
     pub context: MissingTrieValueContext,
     pub hash: CryptoHash,
@@ -760,6 +872,7 @@ pub struct MissingTrieValue {
 /// Context in which a trie value was missing.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
 #[allow(clippy::enum_variant_names)] // Matches nearcore naming
+#[non_exhaustive]
 pub enum MissingTrieValueContext {
     #[error("trie iterator")]
     TrieIterator,
@@ -773,6 +886,7 @@ pub enum MissingTrieValueContext {
 
 /// Reason a deposit cost check failed on a gas key transaction.
 #[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
 pub enum DepositCostFailureReason {
     #[error("not enough balance")]
     NotEnoughBalance,

@@ -12,7 +12,9 @@ use std::sync::Arc;
 use crate::error::CodecError;
 use crate::platform::{BoxFuture, MaybeSend, MaybeSync};
 use crate::transaction::FunctionCall;
-use crate::types::{AccountId, Action, BlockReference, Gas, NearToken, ViewFunctionResult};
+use crate::types::{
+    AccountId, AccountIdRef, Action, BlockReference, Gas, NearToken, ViewFunctionResult,
+};
 
 /// A backend that can run contract view functions.
 ///
@@ -39,7 +41,7 @@ pub trait Viewer: MaybeSend + MaybeSync {
     /// state at `block`.
     fn view_function(
         &self,
-        contract_id: &AccountId,
+        contract_id: &AccountIdRef,
         method: &str,
         args: &[u8],
         block: BlockReference,
@@ -145,7 +147,7 @@ pub enum ContractError<E> {
 /// ```rust
 /// use near_kit_primitives::View;
 /// use near_kit_primitives::rpc::{BlockReference, ViewFunctionResult};
-/// use near_kit_primitives::{AccountId, CryptoHash, Viewer, account};
+/// use near_kit_primitives::{AccountIdRef, CryptoHash, Viewer, account};
 ///
 /// struct Fixed;
 ///
@@ -154,7 +156,7 @@ pub enum ContractError<E> {
 ///
 ///     async fn view_function(
 ///         &self,
-///         _contract_id: &AccountId,
+///         _contract_id: &AccountIdRef,
 ///         _method: &str,
 ///         _args: &[u8],
 ///         _block: BlockReference,
@@ -503,7 +505,7 @@ macro_rules! forward {
 
             fn view_function(
                 &self,
-                contract_id: &AccountId,
+                contract_id: &AccountIdRef,
                 method: &str,
                 args: &[u8],
                 block: BlockReference,
@@ -640,13 +642,17 @@ mod tests {
 
         async fn view_function(
             &self,
-            contract_id: &AccountId,
+            contract_id: &AccountIdRef,
             method: &str,
             args: &[u8],
             block: BlockReference,
         ) -> Result<ViewFunctionResult, String> {
-            *self.seen.lock().unwrap() =
-                Some((contract_id.clone(), method.to_owned(), args.to_vec(), block));
+            *self.seen.lock().unwrap() = Some((
+                contract_id.to_owned(),
+                method.to_owned(),
+                args.to_vec(),
+                block,
+            ));
             if method == "fail" {
                 return Err("backend down".to_owned());
             }
@@ -1055,7 +1061,7 @@ mod tests {
             type ViewError = std::rc::Rc<str>;
             async fn view_function(
                 &self,
-                _: &AccountId,
+                _: &AccountIdRef,
                 _: &str,
                 _: &[u8],
                 _: BlockReference,

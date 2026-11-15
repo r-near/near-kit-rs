@@ -268,6 +268,7 @@ async fn test_transfer_to_universal_account() {
                 InvalidTxError::ActionsValidation(
                     ActionsValidationError::TransferToUniversalAccountNotAllowed {
                         account_id: rejected,
+                        ..
                     },
                 ) => assert_eq!(rejected, account_id),
                 other => panic!("expected TransferToUniversalAccountNotAllowed, got {other:?}"),

@@ -126,6 +126,8 @@ cover each one.
 | `AccountState::is_initialized()` | `view.state == AccountState::Initialized` |
 | `ExecutionStatus::success_value()` | `match status { ExecutionStatus::SuccessValue(v) => Some(v), _ => None }` |
 | `FinalExecutionStatus::default()` | `FinalExecutionStatus::NotStarted` |
+| A struct literal of a type read from the node (`AccountView { .. }`, `FinalExecutionOutcome { .. }`, `ExecutionOutcome { .. }`, `StatusResponse { .. }` and every other `rpc::*View`, response and outcome struct; error E0639), or a pattern that names all its fields | These structs are `#[non_exhaustive]`, so nearcore can add a field in a patch release; their fields stay readable. Build a test fixture from the node's JSON, `serde_json::from_value::<AccountView>(json!({ .. }))?`; `ViewStateAllResult::new(values, block_height, block_hash)`, `SendTxResponse::new(transaction_hash, sender_id, outcome)` and `AccountBalance::from(view)` build the three that aren't decoded from JSON. A pattern needs `..` |
+| `rpc::STORAGE_AMOUNT_PER_BYTE` (a `u128` of yoctoNEAR) | A `NearToken`: `STORAGE_AMOUNT_PER_BYTE.saturating_mul(u128::from(bytes))` for a cost, `.as_yoctonear()` for the `u128` |
 
 ### RPC client
 
@@ -242,10 +244,12 @@ clients and near-kit-sandbox. `RpcClient` reads take `&AccountIdRef` and
 | `ChainId::default()` (mainnet) | `ChainId::mainnet()` |
 | `ChainId::from_str(s)` (`s.parse::<ChainId>()`), `AsRef<str> for ChainId` | `ChainId::from(s)` or `ChainId::new(s)`; `chain_id.as_str()` |
 | `AccessKeyPermission::function_call(rx, methods, allowance)`, `AccessKeyPermission::full_access()`, `AccessKey::function_call(..)` | `AccessKeyPermission::FunctionCall(FunctionCallPermission { allowance, receiver_id, method_names })`, `AccessKeyPermission::FullAccess`, `AccessKey { nonce: 0, permission }`; or `Action::add_function_call_key(..)` |
-| `VersionedDelegateActionPayload::get_actions()` | `let VersionedDelegateActionPayload::V2(d) = payload;` then `d.actions.iter().cloned().map(Action::from)` |
+| `VersionedDelegateActionPayload::get_actions()` | `let VersionedDelegateActionPayload::V2(d) = payload else { .. };` (the enum is `#[non_exhaustive]`) then `d.actions.iter().cloned().map(Action::from)` |
 | `NonDelegateAction::into_inner()`, `NonDelegateAction::try_from(action)` (`Error = ()`) | `Action::from(non_delegate)`; `NonDelegateAction::from_action(action)`, which returns an `Option` |
 | `UniversalStateInit::from_raw_lenient(raw)` | `UniversalStateInit::from_raw(raw)`, which rejects a non-canonical encoding as nearcore does; to inspect such bytes, `borsh::from_slice::<UniversalStateInit>(raw.as_ref())` |
 | `Transaction::get_hash_and_size()` | `tx.get_hash()`; `borsh::to_vec(&tx)?.len()` for the size |
+| An exhaustive `match` on `Action`, `AccessKeyPermission`, `VersionedDelegateActionPayload`, `VersionedTransaction`, `TransactionNonce`, `NonceMode`, `KeyType`, `PublicKey`, `PublicKeyHandle`, `Signature`, the `rpc` view enums (`ActionView`, `AccessKeyPermissionView`, `AccountState`, `ExecutionStatus`, `FinalExecutionStatus`, `ReceiptContent`, ...), `TxExecutionError` or the nearcore error enums (`InvalidTxError`, `ActionErrorKind`, `ActionsValidationError`, `HostError`, ...), or on `ParseKeyError` or `ActionViewConversionError` (error E0004) | These enums are `#[non_exhaustive]`, so a new action, key type or nearcore error ships in a patch release: add a `_` arm. `TxExecutionStatus` stays exhaustive, so a `match` on wait levels still covers them all. A struct-like variant of a view or error enum needs `..` in a pattern (`InvalidTxError::InvalidNonce { tx_nonce, ak_nonce, .. }`, error E0638) and can't be built with a struct expression (E0639): decode it from the node's JSON with `serde_json::from_value` |
+| `StorageError::MissingTrieValue(v)`: `v`'s type couldn't be named | `protocol::MissingTrieValue` and `protocol::MissingTrieValueContext` |
 
 ### Sandbox (near-kit-sandbox)
 
@@ -607,6 +611,12 @@ implemented for `&T`, `Box<T>` and `Arc<T>` (with `T: ?Sized`), so
 `Arc<dyn MySender>` works once you implement `TxSender for dyn MySender`.
 Awaiting a `View` or `Call` needs a `'static` backend; through a shorter
 `&T` borrow, use `.with_metadata()` on a view and `.send()` on a call.
+
+If you implemented `Viewer` against an earlier 0.30 release candidate:
+
+| 0.30.0-rc.1 to rc.9 | This release |
+|---|---|
+| `fn view_function(&self, contract_id: &AccountId, method: &str, args: &[u8], block: BlockReference)` in a custom `Viewer` (error E0053) | `contract_id: &AccountIdRef` (crate root), as `RpcClient::view_function` takes it; `contract_id.to_owned()` gives an `AccountId`. Callers are unchanged: `&AccountId` derefs to `&AccountIdRef` |
 
 ### Fungible and non-fungible tokens
 
