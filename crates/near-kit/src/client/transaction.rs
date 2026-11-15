@@ -58,6 +58,7 @@ fn actions_summary(actions: &[Action]) -> String {
             Action::WithdrawFromGasKey(_) => out.push_str("withdraw_from_gas_key"),
             Action::DelegateV2(_) => out.push_str("delegate_v2"),
             Action::UniversalStateInit(_) => out.push_str("universal_state_init"),
+            _ => out.push_str("other"),
         }
     }
     out
@@ -166,6 +167,15 @@ impl PreparedTransaction {
                 Action::DelegateV2(action) => match &action.delegate_action {
                     VersionedDelegateActionPayload::V2(payload) => {
                         ("delegate action is from", payload.sender_id.clone())
+                    }
+                    // A delegate payload version this near-kit predates: its
+                    // sender can't be read, so the receiver can't be checked.
+                    _ => {
+                        return Err(Error::Validation(
+                            "unsupported delegate action payload version; \
+                             upgrade near-kit to send it"
+                                .to_string(),
+                        ));
                     }
                 },
                 _ => continue,
@@ -402,6 +412,7 @@ impl PreparedTransaction {
                     Err(RpcError::InvalidTx(crate::types::InvalidTxError::InvalidNonce {
                         tx_nonce: _tx_nonce,
                         ak_nonce,
+                        ..
                     })) if attempt < max_nonce_retries => {
                         trace::debug!(
                             tx_nonce = _tx_nonce,
@@ -433,6 +444,7 @@ impl PreparedTransaction {
                     Err(RpcError::InvalidTx(crate::types::InvalidTxError::NonceTooLarge {
                         tx_nonce,
                         upper_bound: _upper_bound,
+                        ..
                     })) if attempt < max_nonce_retries => {
                         trace::debug!(
                             tx_nonce = tx_nonce,

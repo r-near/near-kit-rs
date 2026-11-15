@@ -99,6 +99,16 @@ use crate::types::AccountId;
 - Use `borsh` for binary (NEAR's on-chain format)
 - When both traits are in scope, fully qualify: `serde::Deserialize::deserialize(...)`
 
+### Semver for node types
+
+Types decoded from the node are `#[non_exhaustive]`: RPC views and
+responses, the nearcore error enums, the protocol and key enums (`Action`,
+`VersionedTransaction`, `PublicKey`, ...), and the struct-like variants of
+the view and error enums. Borsh wire structs and fixed envelopes
+(`BlockReference`, NEP-297 `Event`, NEP-413) stay exhaustive, and so does
+`TxExecutionStatus`, so a new wait level forces a decision. Additive
+nearcore changes ship as patch releases.
+
 ### Where code goes
 
 Anything that needs no RPC client, async runtime, or I/O belongs in
@@ -127,11 +137,16 @@ Use conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`; `!` fo
 
 ## Dependencies Policy
 
-**Allowed**: tokio, reqwest, serde, borsh, thiserror, bs58, base64, and
+**Allowed**: tokio, reqwest, serde, serde_json, borsh, thiserror, bs58, base64, and
 well-maintained cryptographic *primitive* crates for the curves/hashes NEAR
 uses — e.g. ed25519-dalek, k256 (secp256k1), sha2, sha3, ml-dsa (FIPS-204
 ML-DSA-65), bip39, hmac. The bar for a new crypto dependency is that it
 implements a standard primitive the protocol requires and is auditable.
+
+`serde_json` types are part of the public API: `serde_json::Value` and
+`serde_json::Error` appear in `Error::Json`, `RpcError::Rpc`,
+`UnknownError`, `RawEvent::data` and `Sandbox::patch_state`, so a
+`serde_json` major bump is a breaking near-kit release.
 
 Also allowed: the NEAR value-type crates `near-account-id`, `near-token`,
 `near-gas` and `near-global-contracts`, re-exported as-is rather than

@@ -123,7 +123,7 @@ impl Viewer for Recorder {
 
     async fn view_function(
         &self,
-        _contract_id: &AccountId,
+        _contract_id: &AccountIdRef,
         _method: &str,
         args: &[u8],
         _block: BlockReference,

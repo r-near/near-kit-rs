@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use near_kit::protocol::Action;
 use near_kit::rpc::{BlockReference, ViewFunctionResult};
-use near_kit::{AccountId, Contract, CryptoHash, TxSender, Viewer, account};
+use near_kit::{AccountId, AccountIdRef, Contract, CryptoHash, TxSender, Viewer, account};
 
 #[near_kit::contract]
 pub trait Counter {
@@ -30,7 +30,7 @@ impl Viewer for Recorder {
 
     async fn view_function(
         &self,
-        _contract_id: &AccountId,
+        _contract_id: &AccountIdRef,
         method: &str,
         _args: &[u8],
         _block: BlockReference,

@@ -11,7 +11,7 @@ use near_kit_primitives::protocol::Action;
 use near_kit_primitives::rpc::{BlockReference, Finality, ViewFunctionResult};
 use near_kit_primitives::transaction::CodecError;
 use near_kit_primitives::{
-    AccountId, Contract, CryptoHash, Gas, NearToken, TxSender, Viewer, account,
+    AccountId, AccountIdRef, Contract, CryptoHash, Gas, NearToken, TxSender, Viewer, account,
 };
 use serde::Serialize;
 
@@ -141,7 +141,7 @@ impl Viewer for Backend {
 
     async fn view_function(
         &self,
-        _contract_id: &AccountId,
+        _contract_id: &AccountIdRef,
         method: &str,
         args: &[u8],
         block: BlockReference,
@@ -232,7 +232,7 @@ impl Viewer for Unclonable {
 
     async fn view_function(
         &self,
-        _contract_id: &AccountId,
+        _contract_id: &AccountIdRef,
         _method: &str,
         _args: &[u8],
         _block: BlockReference,

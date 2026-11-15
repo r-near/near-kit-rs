@@ -34,8 +34,8 @@ pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionS
 pub use error::{
     ActionError, ActionErrorKind, ActionsValidationError, CompilationError,
     DepositCostFailureReason, FunctionCallError, HostError, InvalidAccessKeyError, InvalidTxError,
-    MethodResolveError, PrepareError, ReceiptValidationError, StorageError, TxExecutionError,
-    UnknownError, WasmTrap,
+    MethodResolveError, MissingTrieValue, MissingTrieValueContext, PrepareError,
+    ReceiptValidationError, StorageError, TxExecutionError, UnknownError, WasmTrap,
 };
 pub use hash::CryptoHash;
 pub use key::{KeyType, PublicKey, PublicKeyHandle, SecretKey, Signature};
