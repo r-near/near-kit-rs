@@ -13,6 +13,7 @@ pub type ParseAccountIdError = near_account_id::ParseAccountError;
 
 /// Error parsing a public or secret key.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ParseKeyError {
     /// The string has no `<key type>:` prefix.
     #[error("Invalid key format: expected 'ed25519:...', 'secp256k1:...', or 'ml-dsa-65:...'")]
@@ -76,6 +77,7 @@ pub enum ParseHashError {
 /// (`TryFrom<ActionView> for Action`): the few views that can't become an
 /// action the chain would accept.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ActionViewConversionError {
     /// A base64-encoded field of the view failed to decode.
     #[error("Invalid base64 in `{field}`: {message}")]

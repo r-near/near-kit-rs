@@ -79,6 +79,7 @@ pub struct GasKeyInfo {
 ///
 /// Variant order is the borsh tag; never reorder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[non_exhaustive]
 pub enum AccessKeyPermission {
     /// Function call access with restrictions.
     FunctionCall(FunctionCallPermission),
@@ -137,6 +138,7 @@ impl AccessKey {
 /// It is not the [`ActionView`](crate::rpc::ActionView) shape the node uses
 /// for a transaction's top-level actions.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[non_exhaustive]
 pub enum Action {
     /// Create a new account.
     CreateAccount(CreateAccountAction),
@@ -468,6 +470,7 @@ pub struct DelegateActionV2 {
 ///
 /// Borsh discriminant is significant and must match nearcore: `V2 = 0`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, BorshSerialize, BorshDeserialize)]
+#[non_exhaustive]
 pub enum VersionedDelegateActionPayload {
     /// The V2 (gas-key) delegate action.
     V2(DelegateActionV2),

@@ -26,13 +26,15 @@ use super::{
 use crate::error::ActionViewConversionError;
 use crate::events::Event;
 
-/// Cost per byte of storage in yoctoNEAR (0.00001 NEAR), a protocol constant
-/// used for the available balance. See
+/// Cost per byte of storage (10^19 yoctoNEAR, 0.00001 NEAR), a protocol
+/// constant used for the available balance. See
 /// <https://docs.near.org/concepts/storage/storage-staking>.
-pub const STORAGE_AMOUNT_PER_BYTE: u128 = 10_000_000_000_000_000_000;
+pub const STORAGE_AMOUNT_PER_BYTE: NearToken =
+    NearToken::from_yoctonear(10_000_000_000_000_000_000);
 
 /// Account information from view_account RPC.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct AccountView {
     /// Liquid balance: everything except `locked` (staked), including the
     /// part reserved for storage, so `available + storage_cost`.
@@ -87,8 +89,9 @@ impl AccountView {
     /// Get the amount of NEAR reserved for storage costs:
     /// `max(0, storage_usage * STORAGE_AMOUNT_PER_BYTE - locked)`.
     pub fn storage_cost(&self) -> NearToken {
-        let required = STORAGE_AMOUNT_PER_BYTE.saturating_mul(u128::from(self.storage_usage));
-        NearToken::from_yoctonear(required).saturating_sub(self.locked)
+        STORAGE_AMOUNT_PER_BYTE
+            .saturating_mul(u128::from(self.storage_usage))
+            .saturating_sub(self.locked)
     }
 
     /// Check if this account has a deployed contract.
@@ -99,6 +102,7 @@ impl AccountView {
 
 /// Simplified balance info.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AccountBalance {
     /// The account's [`amount`](AccountView::amount): its liquid balance,
     /// `available + storage_cost`. Excludes `locked`.
@@ -133,6 +137,7 @@ impl From<AccountView> for AccountBalance {
 
 /// Access key information from view_access_key RPC.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct AccessKeyView {
     /// Nonce for replay protection.
     pub nonce: u64,
@@ -146,6 +151,7 @@ pub struct AccessKeyView {
 
 /// Access key details (without block info, used in lists).
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct AccessKeyDetails {
     /// Nonce for replay protection.
     pub nonce: u64,
@@ -155,10 +161,12 @@ pub struct AccessKeyDetails {
 
 /// Access key permission from RPC.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub enum AccessKeyPermissionView {
     /// Full access.
     FullAccess,
     /// Function call access with restrictions.
+    #[non_exhaustive]
     FunctionCall {
         /// Maximum amount this key can spend.
         allowance: Option<NearToken>,
@@ -168,6 +176,7 @@ pub enum AccessKeyPermissionView {
         method_names: Vec<String>,
     },
     /// Gas key with function call access.
+    #[non_exhaustive]
     GasKeyFunctionCall {
         /// Gas key balance.
         balance: NearToken,
@@ -181,6 +190,7 @@ pub enum AccessKeyPermissionView {
         method_names: Vec<String>,
     },
     /// Gas key with full access.
+    #[non_exhaustive]
     GasKeyFullAccess {
         /// Gas key balance.
         balance: NearToken,
@@ -198,6 +208,7 @@ pub enum AccessKeyPermissionView {
 /// cursor for you and always returns `last_key: None`; only
 /// `RpcClient::view_access_key_list_page` hands it back for manual paging.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct AccessKeyListView {
     /// List of access keys.
     pub keys: Vec<AccessKeyInfoView>,
@@ -213,6 +224,7 @@ pub struct AccessKeyListView {
 
 /// Single access key info in list.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct AccessKeyInfoView {
     /// How the chain identifies the key: the full public key for
     /// ed25519/secp256k1, or the `ml-dsa-65-hash:` digest for ML-DSA-65 (the
@@ -227,6 +239,7 @@ pub struct AccessKeyInfoView {
 
 /// Parallel nonces assigned to a gas key by `view_gas_key_nonces`.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct GasKeyNoncesView {
     /// Nonces indexed in the same order as the gas key's nonce slots.
     pub nonces: Vec<Nonce>,
@@ -241,6 +254,7 @@ pub struct GasKeyNoncesView {
 /// `key` and `value` are raw bytes; they are base64-encoded on the wire.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
 pub struct StateItem {
     /// Raw state key bytes.
     #[serde_as(as = "Base64")]
@@ -259,6 +273,7 @@ pub struct StateItem {
 /// Like every `query` view, it carries the block the page was read at.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
 pub struct ViewStateResult {
     /// The contract state entries in this page.
     pub values: Vec<StateItem>,
@@ -283,6 +298,7 @@ pub struct ViewStateResult {
 /// It iterates over its entries, so `for item in &result` and
 /// `for item in result` work directly; `result.values` is the `Vec` itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ViewStateAllResult {
     /// Every contract state entry matching the prefix, in trie order.
     pub values: Vec<StateItem>,
@@ -291,6 +307,18 @@ pub struct ViewStateAllResult {
     /// Block hash the state was read at (taken from the first page); every
     /// page was read against this hash.
     pub block_hash: CryptoHash,
+}
+
+impl ViewStateAllResult {
+    /// Collect `values` read at `block_height`/`block_hash`, for a client
+    /// that pages through `view_state` itself or a test fixture.
+    pub fn new(values: Vec<StateItem>, block_height: u64, block_hash: CryptoHash) -> Self {
+        Self {
+            values,
+            block_height,
+            block_hash,
+        }
+    }
 }
 
 impl IntoIterator for ViewStateAllResult {
@@ -319,6 +347,7 @@ impl<'a> IntoIterator for &'a ViewStateAllResult {
 /// code was read at.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
 pub struct ContractCodeView {
     /// Raw WASM bytes of the contract.
     #[serde(rename = "code_base64")]
@@ -334,6 +363,7 @@ pub struct ContractCodeView {
 
 /// Block information from block RPC.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct BlockView {
     /// Block author (validator account ID).
     pub author: AccountId,
@@ -345,6 +375,7 @@ pub struct BlockView {
 
 /// Block header with full details.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct BlockHeaderView {
     /// Block height.
     pub height: u64,
@@ -425,6 +456,7 @@ pub struct BlockHeaderView {
 /// Validator stake, as listed in validator proposals in block and chunk
 /// headers.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ValidatorStakeView {
     /// Validator account ID.
     pub account_id: AccountId,
@@ -436,6 +468,7 @@ pub struct ValidatorStakeView {
 
 /// Slashed validator from challenge results.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct SlashedValidator {
     /// Validator account ID.
     pub account_id: AccountId,
@@ -445,6 +478,7 @@ pub struct SlashedValidator {
 
 /// Chunk header with full details.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ChunkHeaderView {
     /// Chunk hash.
     pub chunk_hash: CryptoHash,
@@ -493,6 +527,7 @@ pub struct ChunkHeaderView {
 
 /// Bandwidth requests for a chunk (versioned).
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub enum BandwidthRequests {
     /// Version 1.
     V1(BandwidthRequestsV1),
@@ -500,6 +535,7 @@ pub enum BandwidthRequests {
 
 /// Bandwidth requests data (V1).
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct BandwidthRequestsV1 {
     /// List of bandwidth requests.
     pub requests: Vec<BandwidthRequest>,
@@ -507,6 +543,7 @@ pub struct BandwidthRequestsV1 {
 
 /// A single bandwidth request to a target shard.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct BandwidthRequest {
     /// Target shard index.
     pub to_shard: u16,
@@ -516,6 +553,7 @@ pub struct BandwidthRequest {
 
 /// Bitmap for bandwidth request values.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct BandwidthRequestBitmap {
     /// Raw bitmap data.
     pub data: [u8; 5],
@@ -523,6 +561,7 @@ pub struct BandwidthRequestBitmap {
 
 /// Trie split information for resharding.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct TrieSplit {
     /// Account boundary for the split.
     pub boundary_account: AccountId,
@@ -535,6 +574,7 @@ pub struct TrieSplit {
 /// Congestion information for a shard.
 #[serde_as]
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct CongestionInfoView {
     /// Gas used by delayed receipts.
     #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
@@ -554,6 +594,7 @@ pub struct CongestionInfoView {
 
 /// Gas price response.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct GasPrice {
     /// Gas price in yoctoNEAR.
     pub gas_price: NearToken,
@@ -564,6 +605,7 @@ pub struct GasPrice {
 /// Represents the final result of a transaction, matching nearcore's `FinalExecutionStatus`.
 /// This is the `status` field in `FinalExecutionOutcome`.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub enum FinalExecutionStatus {
     /// The transaction has not yet started execution.
     NotStarted,
@@ -581,6 +623,7 @@ pub enum FinalExecutionStatus {
 /// [`IncludedFinal`](crate::transaction::IncludedFinal)): enough to poll for
 /// the final result later via `Near::tx_status`.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SendTxResponse {
     /// Hash of the submitted transaction.
     pub transaction_hash: CryptoHash,
@@ -603,8 +646,26 @@ pub struct SendTxResponse {
     pub outcome: Option<FinalExecutionOutcome>,
 }
 
+impl SendTxResponse {
+    /// A response for `transaction_hash` sent by `sender_id`, with the
+    /// outcome the node had so far. For a backend that returns one (a test
+    /// mock of a `TxSender` at an early wait level, say).
+    pub fn new(
+        transaction_hash: CryptoHash,
+        sender_id: AccountId,
+        outcome: Option<FinalExecutionOutcome>,
+    ) -> Self {
+        Self {
+            transaction_hash,
+            sender_id,
+            outcome,
+        }
+    }
+}
+
 /// Response from `EXPERIMENTAL_receipt_to_tx`: the transaction that produced a receipt.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ReceiptToTxResponse {
     /// Hash of the transaction that produced the receipt.
     pub transaction_hash: CryptoHash,
@@ -626,6 +687,7 @@ pub struct ReceiptToTxResponse {
 /// (or only some of its fields); `outcome` is `None` only when the JSON has
 /// no outcome fields at all.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RpcTransactionResponse {
     /// Hash of the transaction. Not part of the JSON: `send_tx` fills it in
     /// from the signed transaction and `tx_status` from the outcome or the
@@ -708,6 +770,7 @@ impl<'de> Deserialize<'de> for RpcTransactionResponse {
 /// an `Err`.
 #[derive(Debug, Clone, Deserialize)]
 #[must_use = "a failed action is still Ok(outcome): check is_failure() or receipt_failures(), or call checked() or result()"]
+#[non_exhaustive]
 pub struct FinalExecutionOutcome {
     /// Overall transaction execution result.
     pub status: FinalExecutionStatus,
@@ -1098,6 +1161,7 @@ impl FinalExecutionOutcome {
 /// `{"Failure": {"InvalidTxError": {…}}}`. A custom [`Deserialize`] impl
 /// unwraps the outer `TxExecutionError` envelope.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum ExecutionStatus {
     /// The execution is pending or unknown.
     Unknown,
@@ -1156,6 +1220,7 @@ impl<'de> serde::Deserialize<'de> for ExecutionStatus {
 
 /// Transaction view in outcome.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct TransactionView {
     /// Signer account.
     pub signer_id: AccountId,
@@ -1208,6 +1273,7 @@ enum GlobalContractIdCompat {
 /// JSON serialization formats from nearcore.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(from = "GlobalContractIdCompat")]
+#[non_exhaustive]
 pub enum GlobalContractIdentifierView {
     /// Referenced by code hash.
     CodeHash(CryptoHash),
@@ -1242,6 +1308,7 @@ impl std::fmt::Display for GlobalContractIdentifierView {
 /// The node renders the inner actions as protocol [`Action`]s, not as
 /// [`ActionView`]s: an inner deploy carries the full WASM, not its hash.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct DelegateActionView {
     /// The account that signed the delegate action.
     pub sender_id: AccountId,
@@ -1263,13 +1330,16 @@ pub struct DelegateActionView {
 /// `{"Nonce": {"nonce": N}}` for an ordinary key, or
 /// `{"GasKeyNonce": {"nonce": N, "nonce_index": I}}` for a gas key.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TransactionNonceView {
     /// Ordinary access-key nonce.
+    #[non_exhaustive]
     Nonce {
         /// The nonce value.
         nonce: u64,
     },
     /// Gas-key nonce selecting one of the key's parallel nonces.
+    #[non_exhaustive]
     GasKeyNonce {
         /// The nonce value for the selected parallel nonce.
         nonce: u64,
@@ -1283,6 +1353,7 @@ pub enum TransactionNonceView {
 /// Mirrors nearcore's `DelegateActionV2`: like [`DelegateActionView`] but its
 /// `nonce` is a gas-key-capable [`TransactionNonceView`].
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct DelegateActionV2View {
     /// The account that signed the delegate action.
     pub sender_id: AccountId,
@@ -1303,6 +1374,7 @@ pub struct DelegateActionV2View {
 /// Externally tagged to match the node's JSON for nearcore's
 /// `VersionedDelegateActionPayload`: `{"V2": { ...DelegateActionV2View... }}`.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub enum VersionedDelegateActionPayloadView {
     /// The V2 (gas-key) delegate action.
     V2(DelegateActionV2View),
@@ -1333,15 +1405,18 @@ pub enum VersionedDelegateActionPayloadView {
 /// [`ActionViewConversionError::DeployCodeUnavailable`]; do not treat the
 /// decoded bytes as WASM, and do not hash them again.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub enum ActionView {
     /// Create the receiver account.
     CreateAccount,
     /// Deploy a contract to the account.
+    #[non_exhaustive]
     DeployContract {
         /// Base64 of the 32-byte code hash (not the WASM).
         code: String,
     },
     /// Call a contract method.
+    #[non_exhaustive]
     FunctionCall {
         /// The method called.
         method_name: String,
@@ -1353,11 +1428,13 @@ pub enum ActionView {
         deposit: NearToken,
     },
     /// Transfer NEAR to the receiver.
+    #[non_exhaustive]
     Transfer {
         /// The amount transferred.
         deposit: NearToken,
     },
     /// Stake NEAR as a validator.
+    #[non_exhaustive]
     Stake {
         /// The total amount to stake.
         stake: NearToken,
@@ -1365,6 +1442,7 @@ pub enum ActionView {
         public_key: PublicKey,
     },
     /// Add an access key to the account.
+    #[non_exhaustive]
     AddKey {
         /// The key added.
         public_key: PublicKey,
@@ -1372,17 +1450,20 @@ pub enum ActionView {
         access_key: AccessKeyDetails,
     },
     /// Delete an access key from the account.
+    #[non_exhaustive]
     DeleteKey {
         /// The key deleted.
         public_key: PublicKey,
     },
     /// Delete the account and send its balance to `beneficiary_id`.
+    #[non_exhaustive]
     DeleteAccount {
         /// The account that receives the remaining balance.
         beneficiary_id: AccountId,
     },
     /// A signed delegate action (NEP-366 meta-transaction) submitted by a
     /// relayer.
+    #[non_exhaustive]
     Delegate {
         /// The delegate action.
         delegate_action: DelegateActionView,
@@ -1390,6 +1471,7 @@ pub enum ActionView {
         signature: Signature,
     },
     /// A versioned signed delegate action.
+    #[non_exhaustive]
     DelegateV2 {
         /// The versioned delegate action payload.
         delegate_action: VersionedDelegateActionPayloadView,
@@ -1397,29 +1479,34 @@ pub enum ActionView {
         signature: Signature,
     },
     /// Publish a global contract, identified by its code hash.
+    #[non_exhaustive]
     DeployGlobalContract {
         /// Base64 of the 32-byte code hash (not the WASM).
         code: String,
     },
     /// Publish a global contract, identified by the publisher's account ID.
+    #[non_exhaustive]
     DeployGlobalContractByAccountId {
         /// Base64 of the 32-byte code hash (not the WASM).
         code: String,
     },
     /// Use a global contract published under a code hash as the account's
     /// contract.
+    #[non_exhaustive]
     UseGlobalContract {
         /// The global contract's code hash.
         code_hash: CryptoHash,
     },
     /// Use the global contract published by an account as the account's
     /// contract.
+    #[non_exhaustive]
     UseGlobalContractByAccountId {
         /// The publishing account.
         account_id: AccountId,
     },
     /// Initialize an account whose ID is derived from its contract and
     /// initial state (NEP-616).
+    #[non_exhaustive]
     DeterministicStateInit {
         /// The global contract the account uses.
         code: GlobalContractIdentifierView,
@@ -1430,6 +1517,7 @@ pub enum ActionView {
         deposit: NearToken,
     },
     /// Transfer NEAR to a gas key.
+    #[non_exhaustive]
     TransferToGasKey {
         /// The gas key funded.
         public_key: PublicKey,
@@ -1437,6 +1525,7 @@ pub enum ActionView {
         deposit: NearToken,
     },
     /// Withdraw NEAR from a gas key.
+    #[non_exhaustive]
     WithdrawFromGasKey {
         /// The gas key withdrawn from.
         public_key: PublicKey,
@@ -1444,6 +1533,7 @@ pub enum ActionView {
         amount: NearToken,
     },
     /// Create a `0u` universal account from its state init.
+    #[non_exhaustive]
     UniversalStateInit {
         /// Base64 of the borsh-encoded `UniversalStateInit` bytes.
         state_init: String,
@@ -1811,6 +1901,7 @@ impl TryFrom<ActionView> for NonDelegateAction {
 
 /// Merkle path item for cryptographic proofs.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct MerklePathItem {
     /// Hash at this node.
     pub hash: CryptoHash,
@@ -1829,6 +1920,7 @@ pub enum MerkleDirection {
 
 /// Execution outcome with ID.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ExecutionOutcomeWithId {
     /// Receipt or transaction ID.
     pub id: CryptoHash,
@@ -1843,6 +1935,7 @@ pub struct ExecutionOutcomeWithId {
 
 /// Execution outcome details.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ExecutionOutcome {
     /// Executor account.
     pub executor_id: AccountId,
@@ -1874,6 +1967,7 @@ impl ExecutionOutcome {
 
 /// Execution metadata with gas profiling.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ExecutionMetadata {
     /// Metadata version (V1=1, V2=2, V3=3, V4=4).
     pub version: u32,
@@ -1898,6 +1992,7 @@ pub struct ExecutionMetadata {
 /// was present.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum AccountContractView {
     /// A regular contract deployed to the account, identified by its code hash.
     Local(CryptoHash),
@@ -1909,6 +2004,7 @@ pub enum AccountContractView {
 
 /// Gas profile entry for detailed gas accounting.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct GasProfileEntry {
     /// Cost category (ACTION_COST or WASM_HOST_COST).
     pub cost_category: String,
@@ -2022,6 +2118,7 @@ impl ViewFunctionResult {
 /// A receipt, as `EXPERIMENTAL_receipt` returns it and
 /// `EXPERIMENTAL_tx_status` lists it in [`FinalExecutionOutcome::receipts`].
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct Receipt {
     /// Predecessor account that created this receipt.
     pub predecessor_id: AccountId,
@@ -2037,12 +2134,14 @@ pub struct Receipt {
 
 /// Receipt content - action, data, or global contract distribution.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub enum ReceiptContent {
     /// Action receipt.
     Action(ActionReceiptData),
     /// Data receipt.
     Data(DataReceiptData),
     /// Global contract distribution receipt.
+    #[non_exhaustive]
     GlobalContractDistribution {
         /// Global contract identifier.
         id: GlobalContractIdentifierView,
@@ -2060,6 +2159,7 @@ pub enum ReceiptContent {
 
 /// Data receiver for output data in action receipts.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct DataReceiverView {
     /// Data ID.
     pub data_id: CryptoHash,
@@ -2069,6 +2169,7 @@ pub struct DataReceiverView {
 
 /// Action receipt data.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ActionReceiptData {
     /// Signer account ID.
     pub signer_id: AccountId,
@@ -2090,6 +2191,7 @@ pub struct ActionReceiptData {
 
 /// Data receipt data.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct DataReceiptData {
     /// Data ID.
     pub data_id: CryptoHash,
@@ -2099,6 +2201,7 @@ pub struct DataReceiptData {
 
 /// Node status response.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct StatusResponse {
     /// Protocol version.
     pub protocol_version: u32,
@@ -2131,6 +2234,7 @@ pub struct StatusResponse {
 
 /// Validator information.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ValidatorInfo {
     /// Validator account ID.
     pub account_id: AccountId,
@@ -2138,6 +2242,7 @@ pub struct ValidatorInfo {
 
 /// Sync information.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct SyncInfo {
     /// Latest block hash.
     pub latest_block_hash: CryptoHash,
@@ -2163,6 +2268,7 @@ pub struct SyncInfo {
 
 /// Node version information.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct NodeVersion {
     /// Version string.
     pub version: String,
@@ -2386,7 +2492,7 @@ mod tests {
         // Available should be: 1 NEAR - 0.01 NEAR = 0.99 NEAR
         let amount = 1_000_000_000_000_000_000_000_000u128; // 1 NEAR
         let storage_usage = 1000u64;
-        let storage_cost = STORAGE_AMOUNT_PER_BYTE * storage_usage as u128; // 10^22
+        let storage_cost = STORAGE_AMOUNT_PER_BYTE.as_yoctonear() * storage_usage as u128; // 10^22
 
         let view = make_account_view(amount, 0, storage_usage);
         let expected = NearToken::from_yoctonear(amount - storage_cost);
@@ -2417,7 +2523,7 @@ mod tests {
         let amount = 1_000_000_000_000_000_000_000_000u128; // 1 NEAR
         let locked = 5_000_000_000_000_000_000_000u128; // 0.005 NEAR
         let storage_usage = 1000u64;
-        let storage_cost = STORAGE_AMOUNT_PER_BYTE * storage_usage as u128; // 10^22
+        let storage_cost = STORAGE_AMOUNT_PER_BYTE.as_yoctonear() * storage_usage as u128; // 10^22
         let reserved = storage_cost - locked; // 5 * 10^21
 
         let view = make_account_view(amount, locked, storage_usage);
@@ -2430,7 +2536,7 @@ mod tests {
         let storage_usage = 1000u64;
         let view = make_account_view(1_000_000_000_000_000_000_000_000, 0, storage_usage);
 
-        let expected_cost = STORAGE_AMOUNT_PER_BYTE * storage_usage as u128;
+        let expected_cost = STORAGE_AMOUNT_PER_BYTE.as_yoctonear() * storage_usage as u128;
         assert_eq!(
             view.storage_cost(),
             NearToken::from_yoctonear(expected_cost)

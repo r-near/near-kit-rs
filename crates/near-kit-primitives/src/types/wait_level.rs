@@ -72,11 +72,11 @@ macro_rules! wait_level {
                 response: RpcTransactionResponse,
                 sender_id: &AccountId,
             ) -> Result<Self::Response, OutcomeError> {
-                Ok(SendTxResponse {
-                    transaction_hash: response.transaction_hash,
-                    sender_id: sender_id.clone(),
-                    outcome: response.outcome,
-                })
+                Ok(SendTxResponse::new(
+                    response.transaction_hash,
+                    sender_id.clone(),
+                    response.outcome,
+                ))
             }
         }
     };

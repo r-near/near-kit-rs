@@ -1057,10 +1057,14 @@ mod tests {
     use super::*;
     use crate::types::FinalExecutionStatus;
 
+    /// nearcore's struct-like error variants are `#[non_exhaustive]`, so
+    /// tests decode them from the node's JSON shape.
+    fn invalid_tx(json: serde_json::Value) -> InvalidTxError {
+        serde_json::from_value(json).unwrap()
+    }
+
     #[test]
     fn test_rpc_error_is_retryable() {
-        use crate::types::InvalidTxError;
-
         // Retryable errors
         assert!(RpcError::ShardUnavailable("shard 0".to_string()).is_retryable());
         assert!(RpcError::NodeNotSynced("syncing".to_string()).is_retryable());
@@ -1075,17 +1079,15 @@ mod tests {
         );
         // Shard congestion can clear while the same signed bytes are re-sent.
         assert!(
-            RpcError::InvalidTx(InvalidTxError::ShardCongested {
-                congestion_level: 1.0,
-                shard_id: 0,
-            })
+            RpcError::InvalidTx(invalid_tx(serde_json::json!({
+                "ShardCongested": { "congestion_level": 1.0, "shard_id": 0 }
+            })))
             .is_retryable()
         );
         assert!(
-            RpcError::InvalidTx(InvalidTxError::ShardStuck {
-                missed_chunks: 3,
-                shard_id: 0,
-            })
+            RpcError::InvalidTx(invalid_tx(serde_json::json!({
+                "ShardStuck": { "missed_chunks": 3, "shard_id": 0 }
+            })))
             .is_retryable()
         );
         assert!(
@@ -1142,18 +1144,19 @@ mod tests {
         // fresh nonce) but terminal here: the signed payload can't change
         // between attempts, so re-sending it can't succeed.
         assert!(
-            !RpcError::InvalidTx(InvalidTxError::InvalidNonce {
-                tx_nonce: 5,
-                ak_nonce: 10
-            })
+            !RpcError::InvalidTx(invalid_tx(serde_json::json!({
+                "InvalidNonce": { "tx_nonce": 5, "ak_nonce": 10 }
+            })))
             .is_retryable()
         );
         assert!(
-            !RpcError::InvalidTx(InvalidTxError::NotEnoughBalance {
-                signer_id: account_id.clone(),
-                balance: crate::types::NearToken::from_near(1),
-                cost: crate::types::NearToken::from_near(100),
-            })
+            !RpcError::InvalidTx(invalid_tx(serde_json::json!({
+                "NotEnoughBalance": {
+                    "signer_id": account_id,
+                    "balance": crate::types::NearToken::from_near(1),
+                    "cost": crate::types::NearToken::from_near(100),
+                }
+            })))
             .is_retryable()
         );
         assert!(
@@ -1318,10 +1321,9 @@ mod tests {
     fn test_error_from_rpc_invalid_tx_promotes() {
         use crate::types::InvalidTxError;
         // RpcError::InvalidTx should become Error::InvalidTx, not Error::Rpc
-        let rpc_err = RpcError::InvalidTx(InvalidTxError::InvalidNonce {
-            tx_nonce: 5,
-            ak_nonce: 10,
-        });
+        let rpc_err = RpcError::InvalidTx(invalid_tx(serde_json::json!({
+            "InvalidNonce": { "tx_nonce": 5, "ak_nonce": 10 }
+        })));
         let err: Error = rpc_err.into();
         assert!(matches!(
             err,

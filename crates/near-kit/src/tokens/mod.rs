@@ -41,7 +41,7 @@ pub(crate) mod mock {
     use std::sync::{Arc, Mutex};
 
     use crate::rpc::{BlockReference, ViewFunctionResult};
-    use crate::types::{AccountId, Action, CryptoHash};
+    use crate::types::{AccountId, AccountIdRef, Action, CryptoHash};
     use crate::{TxSender, Viewer};
 
     #[derive(Clone, Default)]
@@ -62,7 +62,7 @@ pub(crate) mod mock {
 
         async fn view_function(
             &self,
-            _contract_id: &AccountId,
+            _contract_id: &AccountIdRef,
             method: &str,
             args: &[u8],
             _block: BlockReference,

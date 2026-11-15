@@ -93,6 +93,7 @@ impl Finality {
 /// `Final` instead (see `near_kit::transaction::Final`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[non_exhaustive]
 pub enum TxExecutionStatus {
     /// Don't wait, return immediately after RPC accepts.
     None,

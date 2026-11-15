@@ -53,7 +53,7 @@ impl near_kit::Viewer for Fixed {
 
     async fn view_function(
         &self,
-        _contract_id: &near_kit::AccountId,
+        _contract_id: &near_kit::AccountIdRef,
         _method: &str,
         _args: &[u8],
         _block: near_kit::rpc::BlockReference,
