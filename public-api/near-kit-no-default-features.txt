@@ -109,6 +109,7 @@ pub use near_kit::rpc::BandwidthRequestsV1
 pub use near_kit::rpc::BlockHeaderView
 pub use near_kit::rpc::BlockReference
 pub use near_kit::rpc::BlockView
+pub use near_kit::rpc::CheckedOutcome
 pub use near_kit::rpc::ChunkHeaderView
 pub use near_kit::rpc::CongestionInfoView
 pub use near_kit::rpc::ContractCodeView

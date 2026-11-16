@@ -1,3 +1,24 @@
+# Upgrading from near-kit 0.30 to 0.31
+
+**`checked()` returns a `CheckedOutcome`.**
+`FinalExecutionOutcome::checked()` now returns
+`Result<CheckedOutcome, OutcomeError>` instead of
+`Result<FinalExecutionOutcome, OutcomeError>`. `FinalExecutionOutcome` is
+`#[must_use]`, so a helper that checked an outcome and returned it still
+warned at every call site that dropped its result. `CheckedOutcome` isn't
+`#[must_use]`: return `near_kit::rpc::CheckedOutcome` from such a helper and
+`helper().await?;` no longer warns.
+
+Method calls still work through `Deref`: `outcome.logs()`,
+`.events(..)`, `.json()`, `.receipt_failures()` and field reads such as
+`outcome.receipts_outcome.len()` are unchanged. Where you need the
+`FinalExecutionOutcome` itself, to pass it to a function or store it in a
+field of that type, or to move a field out
+(`for r in outcome.receipts_outcome`), use `.into_inner()` or `.into()`.
+The check is the same as before: it reads the top-level status only, so
+check `receipt_failures()` for a relayed transaction or a token
+`transfer_call`.
+
 # Upgrading from near-kit 0.20.1 to 0.30
 
 ## What changed and why

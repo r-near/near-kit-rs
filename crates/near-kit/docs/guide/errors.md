@@ -74,7 +74,8 @@ let new_count: u64 = alice
 To make a failed action an `Err` and still read the outcome afterward, call
 [`checked`](crate::rpc::FinalExecutionOutcome::checked). It makes the same
 check as `result()` and returns the same error, but hands back the outcome
-itself, so its logs and receipts are still there:
+itself as a [`CheckedOutcome`](crate::rpc::CheckedOutcome), so its logs and
+receipts are still there:
 
 ```rust,no_run
 use near_kit::transaction::FunctionCall;

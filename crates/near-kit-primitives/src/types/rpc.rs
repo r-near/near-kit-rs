@@ -1226,12 +1226,14 @@ impl FinalExecutionOutcome {
         }
     }
 
-    /// The outcome itself, or the failure as an `Err`.
+    /// The outcome as a [`CheckedOutcome`], or the failure as an `Err`.
     ///
     /// The same check as [`result`](Self::result), with the same error, but
     /// it hands back the whole outcome on success instead of the return
     /// value, so `.await?.checked()?` fails on a failed action and still
     /// leaves the [`logs`](Self::logs), receipts and return value to read.
+    /// `CheckedOutcome` derefs to the outcome and isn't `#[must_use]`, so a
+    /// helper that returns it can be called without using the result.
     ///
     /// Like `result()`, it reads the top-level [`status`](Self::status) only,
     /// and is `Err` in the same cases: a failed action
@@ -1264,9 +1266,9 @@ impl FinalExecutionOutcome {
     ///     Ok(outcome.events(contract).collect::<Result<_, _>>()?)
     /// }
     /// ```
-    pub fn checked(self) -> Result<Self, OutcomeError> {
+    pub fn checked(self) -> Result<CheckedOutcome, OutcomeError> {
         self.result()?;
-        Ok(self)
+        Ok(CheckedOutcome(self))
     }
 
     /// Deserialize the return value as JSON.
@@ -1278,6 +1280,76 @@ impl FinalExecutionOutcome {
         // Empty SuccessValue (void change method) -> treat as null.
         let bytes: &[u8] = if bytes.is_empty() { b"null" } else { &bytes };
         Ok(serde_json::from_slice(bytes)?)
+    }
+}
+
+/// A [`FinalExecutionOutcome`] that [`checked`](FinalExecutionOutcome::checked)
+/// has passed.
+///
+/// `checked()` is the only way to get one, and it is read-only: it derefs to
+/// the outcome, so its methods (`logs()`, `events(..)`, `json()`, ...) and
+/// fields read as before, but it has no `DerefMut` or public field. Holding a
+/// `CheckedOutcome` means the transaction's top-level
+/// [`status`](FinalExecutionOutcome::status) is a finished `SuccessValue`
+/// with a valid base64 value, so [`result`](FinalExecutionOutcome::result) is
+/// `Ok`.
+///
+/// It says nothing about receipts that fail off the main chain: a relayed
+/// transaction whose inner actions failed is still checked, and so is a
+/// `transfer_call` whose receiver failed and was refunded. Check
+/// [`receipt_failures`](FinalExecutionOutcome::receipt_failures) for those,
+/// and the amount a token `transfer_call` returns.
+///
+/// Unlike `FinalExecutionOutcome`, it isn't `#[must_use]`: a helper that
+/// checks an outcome and returns it can be called for its check alone.
+/// [`into_inner`](Self::into_inner) (or `.into()`) hands back the
+/// `FinalExecutionOutcome`, to move a field out or pass it on.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// #![deny(unused_must_use)]
+/// use near_kit_primitives::rpc::{CheckedOutcome, FinalExecutionOutcome, OutcomeError};
+///
+/// /// Fails if the transaction failed, and hands back the outcome.
+/// fn check(outcome: FinalExecutionOutcome) -> Result<CheckedOutcome, OutcomeError> {
+///     outcome.checked()
+/// }
+///
+/// fn send(outcome: FinalExecutionOutcome) -> Result<(), OutcomeError> {
+///     // Dropping the checked outcome doesn't warn.
+///     check(outcome)?;
+///     Ok(())
+/// }
+/// # fn main() {}
+/// ```
+#[derive(Debug, Clone)]
+pub struct CheckedOutcome(FinalExecutionOutcome);
+
+impl CheckedOutcome {
+    /// The checked [`FinalExecutionOutcome`], which is `#[must_use]` again.
+    pub fn into_inner(self) -> FinalExecutionOutcome {
+        self.0
+    }
+}
+
+impl std::ops::Deref for CheckedOutcome {
+    type Target = FinalExecutionOutcome;
+
+    fn deref(&self) -> &FinalExecutionOutcome {
+        &self.0
+    }
+}
+
+impl AsRef<FinalExecutionOutcome> for CheckedOutcome {
+    fn as_ref(&self) -> &FinalExecutionOutcome {
+        &self.0
+    }
+}
+
+impl From<CheckedOutcome> for FinalExecutionOutcome {
+    fn from(outcome: CheckedOutcome) -> Self {
+        outcome.0
     }
 }
 
@@ -3390,11 +3462,16 @@ mod tests {
         let before = format!("{outcome:?}");
 
         let checked = outcome.checked().unwrap();
-        assert_eq!(format!("{checked:?}"), before);
+        assert_eq!(format!("{:?}", *checked), before);
         assert_eq!(checked.logs().collect::<Vec<_>>(), ["tx", "a", "b", "c"]);
         assert_eq!(checked.receipts_outcome.len(), 2);
         assert_eq!(checked.receipts.len(), 1);
         assert_eq!(checked.result().unwrap(), b"hello");
+        assert_eq!(format!("{:?}", checked.as_ref()), before);
+
+        let inner: FinalExecutionOutcome = checked.clone().into();
+        assert_eq!(format!("{inner:?}"), before);
+        assert_eq!(format!("{:?}", checked.into_inner()), before);
     }
 
     /// A failed transaction gives the same `OutcomeError` from `checked()`
