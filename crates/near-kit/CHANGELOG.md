@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0...near-kit-v0.30.1) - 2026-11-16
+
+### Added
+
+- constructors for outcome and receipt types, so tests outside near-kit can build them again ([#429](https://github.com/r-near/near-kit-rs/pull/429))
+
 ## [0.30.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.0-rc.9...near-kit-v0.30.0) - 2026-11-15
 
 The first stable 0.30 release. Coming from 0.20.1, start with
