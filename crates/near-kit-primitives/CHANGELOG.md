@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.1...near-kit-primitives-v0.31.0) - 2026-11-16
+
+### Added
+
+- [**breaking**] checked() returns a CheckedOutcome, so an outcome you've already checked doesn't warn as unused ([#430](https://github.com/r-near/near-kit-rs/pull/430))
+
 ## [0.30.1](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.30.0...near-kit-primitives-v0.30.1) - 2026-11-16
 
 ### Added
