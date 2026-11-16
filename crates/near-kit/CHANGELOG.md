@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.31.0...near-kit-v0.31.1) - 2026-11-16
+
+### Fixed
+
+- #[contract] reports unencodable parameters and return types at the parameter or type, not the attribute ([#434](https://github.com/r-near/near-kit-rs/pull/434))
+
 ## [0.31.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.30.1...near-kit-v0.31.0) - 2026-11-16
 
 ### Added
