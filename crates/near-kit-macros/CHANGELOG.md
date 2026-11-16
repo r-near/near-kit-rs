@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0...near-kit-macros-v0.15.1) - 2026-11-16
+
+### Fixed
+
+- #[contract] reports unencodable parameters and return types at the parameter or type, not the attribute ([#434](https://github.com/r-near/near-kit-rs/pull/434))
+
 ## [0.15.0](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0-rc.6...near-kit-macros-v0.15.0) - 2026-11-15
 
 The first stable 0.15 release, used through near-kit 0.30's `contracts` feature.
