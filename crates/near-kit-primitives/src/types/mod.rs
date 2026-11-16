@@ -40,6 +40,7 @@ pub use error::{
 pub use hash::CryptoHash;
 pub use key::{KeyType, PublicKey, PublicKeyHandle, SecretKey, Signature};
 pub use network::ChainId;
+pub use rpc::CheckedOutcome;
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountContractView, AccountState, AccountView, ActionReceiptData, ActionView,

@@ -42,7 +42,9 @@
 //! A failed action still arrives as `Ok(outcome)`.
 //! [`FinalExecutionOutcome::checked`] turns it into an `Err` with the same
 //! check and error as [`FinalExecutionOutcome::result`], and on success hands
-//! back the outcome, so its logs and receipts are still there to read:
+//! back the outcome as a [`CheckedOutcome`], so its logs and receipts are
+//! still there to read (unlike the outcome a send returns, a
+//! `CheckedOutcome` isn't `#[must_use]`):
 //!
 #![cfg_attr(feature = "rpc", doc = "```rust,no_run")]
 #![cfg_attr(not(feature = "rpc"), doc = "```rust,ignore")]
@@ -77,6 +79,8 @@
 )]
 
 pub use crate::error::{ReceiptToTxError, RpcError, TimeoutCause};
+#[doc(inline)]
+pub use near_kit_primitives::rpc::CheckedOutcome;
 #[doc(inline)]
 pub use near_kit_primitives::rpc::OutcomeError;
 #[doc(inline)]

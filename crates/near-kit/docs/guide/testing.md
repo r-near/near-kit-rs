@@ -525,8 +525,8 @@ version.
 A test that should fail when an action fails, and then assert on what the
 transaction did, can end the send with
 [`.checked()?`](crate::rpc::FinalExecutionOutcome::checked): it returns
-the same error as `.result()?` for a failed action, and the outcome
-otherwise:
+the same error as `.result()?` for a failed action, and the outcome as a
+[`CheckedOutcome`](crate::rpc::CheckedOutcome) otherwise:
 
 ```rust,no_run
 use near_kit::transaction::FunctionCall;
@@ -561,6 +561,7 @@ live in a crate the contract and its clients share:
 ```rust
 use near_kit::events::Event;
 use near_kit::json_types::U128;
+use near_kit::rpc::CheckedOutcome;
 use near_kit::transaction::FunctionCall;
 use near_kit::*;
 use serde::{Deserialize, Serialize};
@@ -578,14 +579,20 @@ assert_eq!(
     r#"EVENT_JSON:{"standard":"vault","version":"1.1.0","event":"deposited","data":{"account_id":"alice.test.near","amount":"10"}}"#
 );
 
-/// Sends a deposit and checks that the vault logged the event.
-async fn deposit_logs_the_event(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
-    let vault = account!("vault.test.near");
-    let events = alice
+/// Deposits 10 yoctoNEAR in the vault, failing if the deposit failed.
+async fn deposit(alice: &SigningNear, vault: &AccountId) -> Result<CheckedOutcome, Error> {
+    Ok(alice
         .transaction(vault.clone())
         .add_action(FunctionCall::new("deposit").deposit(NearToken::from_yoctonear(10)))
         .await?
-        .checked()?
+        .checked()?)
+}
+
+/// Sends a deposit and checks that the vault logged the event.
+async fn deposit_logs_the_event(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
+    let vault = account!("vault.test.near");
+    let events = deposit(alice, &vault)
+        .await?
         .events(&vault)
         .filter(|e| e.as_ref().map_or(true, |e| e.standard == "vault"))
         .map(|e| e?.decode::<VaultEvent>())
@@ -594,9 +601,23 @@ async fn deposit_logs_the_event(alice: &SigningNear) -> Result<(), Box<dyn std::
     assert_eq!(events, [Event::new("vault", "1.1.0", expected)]);
     Ok(())
 }
-# let _ = deposit_logs_the_event;
+
+/// A test that needs two deposits to go through and reads neither outcome.
+async fn deposit_twice(alice: &SigningNear) -> Result<(), Box<dyn std::error::Error>> {
+    let vault = account!("vault.test.near");
+    deposit(alice, &vault).await?;
+    deposit(alice, &vault).await?;
+    Ok(())
+}
+# let _ = (deposit_logs_the_event, deposit_twice);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
+
+The `deposit` helper returns the
+[`CheckedOutcome`](crate::rpc::CheckedOutcome) that `checked()` gives,
+which reads like the outcome (`events`, `logs`, `receipt_failures`). Unlike
+the `FinalExecutionOutcome` a send returns, it isn't `#[must_use]`: the
+outcome is checked, so `deposit(..).await?;` drops it without a warning.
 
 [`events(&vault)`](crate::rpc::FinalExecutionOutcome::events) keeps the
 receipts the vault executed that succeeded: any contract can log an

@@ -2062,6 +2062,20 @@ impl core::fmt::Debug for near_kit_primitives::rpc::BlockView
 pub fn near_kit_primitives::rpc::BlockView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::BlockView
 pub fn near_kit_primitives::rpc::BlockView::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct near_kit_primitives::rpc::CheckedOutcome(_)
+impl near_kit_primitives::rpc::CheckedOutcome
+pub fn near_kit_primitives::rpc::CheckedOutcome::into_inner(self) -> near_kit_primitives::rpc::FinalExecutionOutcome
+impl core::clone::Clone for near_kit_primitives::rpc::CheckedOutcome
+pub fn near_kit_primitives::rpc::CheckedOutcome::clone(&self) -> near_kit_primitives::rpc::CheckedOutcome
+impl core::convert::AsRef<near_kit_primitives::rpc::FinalExecutionOutcome> for near_kit_primitives::rpc::CheckedOutcome
+pub fn near_kit_primitives::rpc::CheckedOutcome::as_ref(&self) -> &near_kit_primitives::rpc::FinalExecutionOutcome
+impl core::convert::From<near_kit_primitives::rpc::CheckedOutcome> for near_kit_primitives::rpc::FinalExecutionOutcome
+pub fn near_kit_primitives::rpc::FinalExecutionOutcome::from(near_kit_primitives::rpc::CheckedOutcome) -> Self
+impl core::fmt::Debug for near_kit_primitives::rpc::CheckedOutcome
+pub fn near_kit_primitives::rpc::CheckedOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::deref::Deref for near_kit_primitives::rpc::CheckedOutcome
+pub type near_kit_primitives::rpc::CheckedOutcome::Target = near_kit_primitives::rpc::FinalExecutionOutcome
+pub fn near_kit_primitives::rpc::CheckedOutcome::deref(&self) -> &near_kit_primitives::rpc::FinalExecutionOutcome
 #[non_exhaustive] pub struct near_kit_primitives::rpc::ChunkHeaderView
 pub near_kit_primitives::rpc::ChunkHeaderView::balance_burnt: near_token::NearToken
 pub near_kit_primitives::rpc::ChunkHeaderView::bandwidth_requests: core::option::Option<near_kit_primitives::rpc::BandwidthRequests>
@@ -2256,7 +2270,7 @@ pub near_kit_primitives::rpc::FinalExecutionOutcome::status: near_kit_primitives
 pub near_kit_primitives::rpc::FinalExecutionOutcome::transaction: near_kit_primitives::rpc::TransactionView
 pub near_kit_primitives::rpc::FinalExecutionOutcome::transaction_outcome: near_kit_primitives::rpc::ExecutionOutcomeWithId
 impl near_kit_primitives::rpc::FinalExecutionOutcome
-pub fn near_kit_primitives::rpc::FinalExecutionOutcome::checked(self) -> core::result::Result<Self, near_kit_primitives::rpc::OutcomeError>
+pub fn near_kit_primitives::rpc::FinalExecutionOutcome::checked(self) -> core::result::Result<near_kit_primitives::rpc::CheckedOutcome, near_kit_primitives::rpc::OutcomeError>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::events(&self, &near_account_id::account_id_ref::AccountIdRef) -> impl core::iter::traits::iterator::Iterator<Item = core::result::Result<near_kit_primitives::events::Event, serde_json::error::Error>>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::failure_error(&self) -> core::option::Option<&near_kit_primitives::protocol::TxExecutionError>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::failure_message(&self) -> core::option::Option<alloc::string::String>
@@ -2271,6 +2285,10 @@ pub fn near_kit_primitives::rpc::FinalExecutionOutcome::total_gas_used(&self) ->
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::transaction_hash(&self) -> &near_kit_primitives::CryptoHash
 impl core::clone::Clone for near_kit_primitives::rpc::FinalExecutionOutcome
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::clone(&self) -> near_kit_primitives::rpc::FinalExecutionOutcome
+impl core::convert::AsRef<near_kit_primitives::rpc::FinalExecutionOutcome> for near_kit_primitives::rpc::CheckedOutcome
+pub fn near_kit_primitives::rpc::CheckedOutcome::as_ref(&self) -> &near_kit_primitives::rpc::FinalExecutionOutcome
+impl core::convert::From<near_kit_primitives::rpc::CheckedOutcome> for near_kit_primitives::rpc::FinalExecutionOutcome
+pub fn near_kit_primitives::rpc::FinalExecutionOutcome::from(near_kit_primitives::rpc::CheckedOutcome) -> Self
 impl core::fmt::Debug for near_kit_primitives::rpc::FinalExecutionOutcome
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::FinalExecutionOutcome

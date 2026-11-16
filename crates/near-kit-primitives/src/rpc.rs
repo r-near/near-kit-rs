@@ -6,6 +6,7 @@
 //! deserialize from any NEAR RPC response you fetch some other way.
 
 pub use crate::error::OutcomeError;
+pub use crate::types::CheckedOutcome;
 pub use crate::types::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountContractView, AccountState, AccountView, ActionReceiptData, ActionView,
