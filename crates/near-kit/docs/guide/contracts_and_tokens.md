@@ -442,7 +442,8 @@ The macro rejects, with a compile error, what it can't generate correctly:
   encoded is reported at its parameter.
 - **Return types.** A view's return type is what its result decodes into
   (`()` when there is none; an empty result decodes as `null`, so `()` and
-  `Option<_>` work). A `#[call]` can't declare one, since it resolves to the
+  `Option<_>` work), and a type that can't be decoded is reported at the
+  return type. A `#[call]` can't declare one, since it resolves to the
   sender's output; decode the outcome with `.json::<T>()` instead (see
   [A call's return value](#a-calls-return-value)).
 - **Not supported:** `async fn`, default method bodies, generic or

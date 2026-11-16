@@ -1,0 +1,58 @@
+error[E0277]: the trait bound `NotDeserializable: serde::de::DeserializeOwned` is not satisfied
+ --> tests/compile-fail/return_type_not_deserializable.rs:7:22
+  |
+7 |     fn get(&self) -> NotDeserializable;
+  |                      ^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `for<'de> near_kit::__private::serde::Deserialize<'de>` is not implemented for `NotDeserializable`
+ --> tests/compile-fail/return_type_not_deserializable.rs:3:1
+  |
+3 | pub struct NotDeserializable;
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = help: the following other types implement trait `near_kit::__private::serde::Deserialize<'de>`:
+            &'a Path
+            &'a [u8]
+            &'a str
+            &'de AccountIdRef
+            ()
+            (T,)
+            (T0, T1)
+            (T0, T1, T2)
+          and $N others
+  = note: required for `NotDeserializable` to implement `near_kit::__private::serde::de::DeserializeOwned`
+note: required by a bound in `near_kit::__private::view_json`
+ --> $WORKSPACE/crates/near-kit-primitives/src/backend.rs
+  |
+  |     pub fn view_json<C, T>(
+...
+  |         T: serde::de::DeserializeOwned,
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `view_json`
+
+error[E0277]: the trait bound `NotDeserializable: near_kit::__private::borsh::BorshDeserialize` is not satisfied
+  --> tests/compile-fail/return_type_not_deserializable.rs:10:32
+   |
+10 |     fn find(&self, key: u8) -> NotDeserializable;
+   |                                ^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `near_kit::__private::borsh::BorshDeserialize` is not implemented for `NotDeserializable`
+  --> tests/compile-fail/return_type_not_deserializable.rs:3:1
+   |
+ 3 | pub struct NotDeserializable;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: the following other types implement trait `near_kit::__private::borsh::BorshDeserialize`:
+             ()
+             (T0, T1)
+             (T0, T1, T2)
+             (T0, T1, T2, T3)
+             (T0, T1, T2, T3, T4)
+             (T0, T1, T2, T3, T4, T5)
+             (T0, T1, T2, T3, T4, T5, T6)
+             (T0, T1, T2, T3, T4, T5, T6, T7)
+           and $N others
+note: required by a bound in `near_kit::__private::view_borsh`
+  --> $WORKSPACE/crates/near-kit-primitives/src/backend.rs
+   |
+   |     pub fn view_borsh<C, T>(
+...
+   |         T: borsh::BorshDeserialize,
+   |            ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `view_borsh`

@@ -553,13 +553,18 @@ fn generate_view_method(
 
     // Arguments are encoded now, so borrowed argument types never enter the
     // future. Without arguments, JSON views send `{}` and Borsh views nothing.
-    let params = param_list(&method.params);
-    let args = match (args_value(method, &names(method), format, near_kit), format) {
-        (Some(value), SerializationFormat::Json) => {
-            quote! { #near_kit::__private::json_args(&#value) }
-        }
-        (Some(value), SerializationFormat::Borsh) => {
-            quote! { #near_kit::__private::borsh_args(&#value) }
+    let hygienic = hygienic_params(method);
+    let params = param_list(&hygienic);
+    let names: Vec<Ident> = hygienic.iter().map(|(name, _)| name.clone()).collect();
+    let args = match (args_value(method, &names, format, near_kit), format) {
+        // Passed by value: behind a `&`, rustc would report a parameter that
+        // can't be encoded at the attribute instead of at the parameter.
+        (Some(ArgsValue { prelude, value }), format) => {
+            let encode = match format {
+                SerializationFormat::Json => quote! { json_args },
+                SerializationFormat::Borsh => quote! { borsh_args },
+            };
+            quote! { { #prelude #near_kit::__private::#encode(#value) } }
         }
         (None, SerializationFormat::Json) => quote! { Ok(b"{}".to_vec()) },
         (None, SerializationFormat::Borsh) => quote! { Ok(::std::vec::Vec::new()) },
@@ -574,7 +579,9 @@ fn generate_view_method(
         where
             #backend: #near_kit::Viewer + ::core::clone::Clone,
         {
-            #constructor(
+            // Naming the return type here makes rustc report one that can't
+            // be decoded at the type, not at the attribute.
+            #constructor::<_, #return_type>(
                 ::core::clone::Clone::clone(&self.backend),
                 self.contract_id.clone(),
                 #method_name_str,
@@ -589,10 +596,38 @@ fn names(method: &MethodInfo) -> Vec<Ident> {
     method.params.iter().map(|(name, _)| name.clone()).collect()
 }
 
+/// The method's parameters with mixed-site hygiene, still located at the
+/// user's names.
+///
+/// [`args_value`] passes them to the argument struct's constructor, and rustc
+/// narrows a failed bound on that struct to the field's own span only when it
+/// shares the constructor's (mixed-site) context. Narrowed there, it lands on
+/// the same span as the parameter's own check, which rustc reports once.
+fn hygienic_params(method: &MethodInfo) -> Vec<(Ident, Type)> {
+    method
+        .params
+        .iter()
+        .map(|(name, ty)| {
+            let mut name = name.clone();
+            name.set_span(Span::mixed_site().located_at(name.span()));
+            (name, ty.clone())
+        })
+        .collect()
+}
+
 /// `name: Type, ..` for the generated method's parameters.
 fn param_list(params: &[(Ident, Type)]) -> TokenStream2 {
     let params = params.iter().map(|(name, ty)| quote! { #name: #ty });
     quote! { #(#params),* }
+}
+
+/// A method's arguments as [`args_value`] builds them.
+struct ArgsValue {
+    /// Items and statements that go before `value` in the block that
+    /// encodes it.
+    prelude: TokenStream2,
+    /// The value encoded.
+    value: TokenStream2,
 }
 
 /// The value a method's arguments are encoded from, moving the parameters
@@ -610,12 +645,15 @@ fn args_value(
     names: &[Ident],
     format: SerializationFormat,
     near_kit: &TokenStream2,
-) -> Option<TokenStream2> {
+) -> Option<ArgsValue> {
     match method.shape {
         ArgsShape::None => None,
         ArgsShape::Whole => {
             let name = &names[0];
-            Some(quote! { #name })
+            Some(ArgsValue {
+                prelude: TokenStream2::new(),
+                value: quote! { #name },
+            })
         }
         ArgsShape::Named => {
             let args = format_ident!("__NearKitArgs", span = Span::mixed_site());
@@ -625,13 +663,15 @@ fn args_value(
             let indices = (0..names.len()).map(syn::Index::from);
             // Each value passes through an identity function bounded on the
             // format's trait, spanned at the parameter, so a parameter type
-            // that can't be encoded is reported there.
+            // that can't be encoded is reported there. The struct's own bound
+            // fails at the same span (see `hygienic_params`), so rustc
+            // reports it once.
             let check = match format {
                 SerializationFormat::Json => quote! { json_param },
                 SerializationFormat::Borsh => quote! { borsh_param },
             };
-            let values = names.iter().map(|name| {
-                quote::quote_spanned! {name.span()=> #near_kit::__private::#check(#name) }
+            let checks = names.iter().map(|name| {
+                quote::quote_spanned! {name.span()=> let #name = #near_kit::__private::#check(#name); }
             });
             let encode = match format {
                 SerializationFormat::Json => {
@@ -676,12 +716,13 @@ fn args_value(
                     }
                 }
             };
-            Some(quote! {
-                {
+            Some(ArgsValue {
+                prelude: quote! {
                     struct #args<#(#tys),*>(#(#tys),*);
                     #encode
-                    #args(#(#values),*)
-                }
+                    #(#checks)*
+                },
+                value: quote! { #args(#(#names),*) },
             })
         }
     }
@@ -736,29 +777,30 @@ fn generate_function_call_method(
     let method_name_str = method_name.unraw().to_string();
     let docs = &method.docs;
     let cfgs = &method.cfgs;
-    // The parameters get mixed-site hygiene, so a `gas` or `deposit`
-    // expression, which keeps the trait's own hygiene, can't see them: the
-    // defaults are per method, not per argument.
-    let hygienic: Vec<(Ident, Type)> = method
-        .params
-        .iter()
-        .map(|(name, ty)| {
-            let mut name = name.clone();
-            name.set_span(Span::mixed_site().located_at(name.span()));
-            (name, ty.clone())
-        })
-        .collect();
+    // Hygienic, so a `gas` or `deposit` expression, which keeps the trait's
+    // own hygiene, can't see them: the defaults are per method, not per
+    // argument.
+    let hygienic = hygienic_params(method);
     let params = param_list(&hygienic);
     let names: Vec<Ident> = hygienic.iter().map(|(name, _)| name.clone()).collect();
     let format = method.format_override.unwrap_or(contract_format);
 
-    let args_call = match (args_value(method, &names, format, near_kit), format) {
-        (Some(value), SerializationFormat::Json) => quote! { .args(#value) },
-        (Some(value), SerializationFormat::Borsh) => quote! { .args_borsh(#value) },
-        (None, SerializationFormat::Json) => quote! { .args_raw(b"{}".to_vec()) },
+    let (prelude, args_call) = match (args_value(method, &names, format, near_kit), format) {
+        (Some(ArgsValue { prelude, value }), SerializationFormat::Json) => {
+            (prelude, quote! { .args(#value) })
+        }
+        (Some(ArgsValue { prelude, value }), SerializationFormat::Borsh) => {
+            (prelude, quote! { .args_borsh(#value) })
+        }
+        (None, SerializationFormat::Json) => {
+            (TokenStream2::new(), quote! { .args_raw(b"{}".to_vec()) })
+        }
         // Borsh's encoding of no arguments is no bytes, not `FunctionCall`'s
         // JSON default.
-        (None, SerializationFormat::Borsh) => quote! { .args_raw(::std::vec::Vec::new()) },
+        (None, SerializationFormat::Borsh) => (
+            TokenStream2::new(),
+            quote! { .args_raw(::std::vec::Vec::new()) },
+        ),
     };
     // Evaluated each time the constructor runs.
     let gas = method.gas.as_ref().map(|gas| quote! { .gas(#gas) });
@@ -772,6 +814,7 @@ fn generate_function_call_method(
         #(#docs)*
         #[allow(clippy::too_many_arguments)]
         pub fn #method_name(#params) -> #near_kit::transaction::FunctionCall {
+            #prelude
             #near_kit::transaction::FunctionCall::new(#method_name_str) #args_call #gas #deposit
         }
     }
@@ -870,8 +913,9 @@ fn generate_function_call_method(
 /// ```
 ///
 /// Parameters may be borrowed (`token_id: &str`) or `impl Trait`; the
-/// arguments are encoded when the method is called, and a parameter type
-/// that can't be encoded is reported at the parameter. Repeated names and
+/// arguments are encoded when the method is called. A parameter type that
+/// can't be encoded is reported at the parameter, and a view's return type
+/// that can't be decoded at the type. Repeated names and
 /// attributes other than `#[args]` on parameters (`#[serde(..)]` included)
 /// are rejected.
 ///

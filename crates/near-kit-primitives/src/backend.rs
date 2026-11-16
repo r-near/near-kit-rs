@@ -588,8 +588,12 @@ pub(crate) mod expansion {
     }
 
     /// JSON-encode view arguments.
-    pub fn json_args<A: serde::Serialize + ?Sized>(args: &A) -> Result<Vec<u8>, CodecError> {
-        Ok(serde_json::to_vec(args)?)
+    ///
+    /// Takes the arguments by value, as `FunctionCall::args` does: rustc
+    /// reports a parameter type that can't be encoded at the parameter only
+    /// when the argument struct is passed directly, not behind a `&`.
+    pub fn json_args<A: serde::Serialize>(args: A) -> Result<Vec<u8>, CodecError> {
+        Ok(serde_json::to_vec(&args)?)
     }
 
     /// A parameter sent by name in JSON, passed through so a type that
@@ -603,9 +607,9 @@ pub(crate) mod expansion {
         param
     }
 
-    /// Borsh-encode view arguments.
-    pub fn borsh_args<A: borsh::BorshSerialize + ?Sized>(args: &A) -> Result<Vec<u8>, CodecError> {
-        borsh::to_vec(args).map_err(CodecError::Borsh)
+    /// Borsh-encode view arguments, taken by value like [`json_args`].
+    pub fn borsh_args<A: borsh::BorshSerialize>(args: A) -> Result<Vec<u8>, CodecError> {
+        borsh::to_vec(&args).map_err(CodecError::Borsh)
     }
 }
 
@@ -741,7 +745,7 @@ mod tests {
     #[test]
     fn borsh_view_decodes() {
         let viewer = MockViewer::new(&borsh::to_vec(&7_u32).unwrap());
-        let args = borsh_args(&1_u8);
+        let args = borsh_args(1_u8);
         let value: u32 = run(view_borsh(viewer.clone(), contract(), "get", args)).unwrap();
         assert_eq!(value, 7);
         let (_, _, args, _) = viewer.seen.lock().unwrap().take().unwrap();
@@ -772,7 +776,7 @@ mod tests {
             viewer.clone(),
             contract(),
             "get",
-            json_args(&FailingJson),
+            json_args(FailingJson),
         ))
         .unwrap_err();
         assert!(matches!(error, ContractError::Codec(CodecError::Json(_))));

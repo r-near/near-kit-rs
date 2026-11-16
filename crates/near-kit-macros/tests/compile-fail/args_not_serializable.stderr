@@ -1,0 +1,143 @@
+error[E0277]: the trait bound `NotSerializable: serde::Serialize` is not satisfied
+  --> tests/compile-fail/args_not_serializable.rs:14:31
+   |
+ 6 | #[near_kit::contract]
+   | ---------------------
+   | |
+   | required by a bound introduced by this call
+   | in this attribute macro expansion
+...
+14 |     fn set(&mut self, #[args] args: NotSerializable);
+   |                               ^^^^ unsatisfied trait bound
+   |
+help: the trait `near_kit::__private::serde::Serialize` is not implemented for `NotSerializable`
+  --> tests/compile-fail/args_not_serializable.rs:4:1
+   |
+ 4 | pub struct NotSerializable;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: for local types consider adding `#[derive(serde::Serialize)]` to your `NotSerializable` type
+   = note: for types from other crates check whether the crate offers a `serde` feature flag
+   = help: the following other types implement trait `near_kit::__private::serde::Serialize`:
+             &'a T
+             &'a mut T
+             ()
+             (T,)
+             (T0, T1)
+             (T0, T1, T2)
+             (T0, T1, T2, T3)
+             (T0, T1, T2, T3, T4)
+           and $N others
+note: required by a bound in `near_kit::transaction::FunctionCall::args`
+  --> $WORKSPACE/crates/near-kit-primitives/src/transaction/function_call.rs
+   |
+   | impl FunctionCall {
+...
+   |     pub fn args(mut self, args: impl serde::Serialize) -> Self {
+   |                                      ^^^^^^^^^^^^^^^^ required by this bound in `FunctionCall::args`
+   = note: this error originates in the attribute macro `near_kit::contract` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `NotSerializable: near_kit::__private::borsh::BorshSerialize` is not satisfied
+  --> tests/compile-fail/args_not_serializable.rs:18:33
+   |
+ 6 | #[near_kit::contract]
+   | ---------------------
+   | |
+   | required by a bound introduced by this call
+   | in this attribute macro expansion
+...
+18 |     fn store(&mut self, #[args] args: NotSerializable);
+   |                                 ^^^^ unsatisfied trait bound
+   |
+help: the trait `near_kit::__private::borsh::BorshSerialize` is not implemented for `NotSerializable`
+  --> tests/compile-fail/args_not_serializable.rs:4:1
+   |
+ 4 | pub struct NotSerializable;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: the following other types implement trait `near_kit::__private::borsh::BorshSerialize`:
+             &T
+             ()
+             (T0, T1)
+             (T0, T1, T2)
+             (T0, T1, T2, T3)
+             (T0, T1, T2, T3, T4)
+             (T0, T1, T2, T3, T4, T5)
+             (T0, T1, T2, T3, T4, T5, T6)
+           and $N others
+note: required by a bound in `near_kit::transaction::FunctionCall::args_borsh`
+  --> $WORKSPACE/crates/near-kit-primitives/src/transaction/function_call.rs
+   |
+   | impl FunctionCall {
+...
+   |     pub fn args_borsh(mut self, args: impl borsh::BorshSerialize) -> Self {
+   |                                            ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `FunctionCall::args_borsh`
+   = note: this error originates in the attribute macro `near_kit::contract` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `NotSerializable: serde::Serialize` is not satisfied
+ --> tests/compile-fail/args_not_serializable.rs:8:27
+  |
+6 | #[near_kit::contract]
+  | ---------------------
+  | |
+  | required by a bound introduced by this call
+  | in this attribute macro expansion
+7 | pub trait BadContract {
+8 |     fn get(&self, #[args] args: NotSerializable) -> u64;
+  |                           ^^^^ unsatisfied trait bound
+  |
+help: the trait `near_kit::__private::serde::Serialize` is not implemented for `NotSerializable`
+ --> tests/compile-fail/args_not_serializable.rs:4:1
+  |
+4 | pub struct NotSerializable;
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: for local types consider adding `#[derive(serde::Serialize)]` to your `NotSerializable` type
+  = note: for types from other crates check whether the crate offers a `serde` feature flag
+  = help: the following other types implement trait `near_kit::__private::serde::Serialize`:
+            &'a T
+            &'a mut T
+            ()
+            (T,)
+            (T0, T1)
+            (T0, T1, T2)
+            (T0, T1, T2, T3)
+            (T0, T1, T2, T3, T4)
+          and $N others
+note: required by a bound in `near_kit::__private::json_args`
+ --> $WORKSPACE/crates/near-kit-primitives/src/backend.rs
+  |
+  |     pub fn json_args<A: serde::Serialize>(args: A) -> Result<Vec<u8>, CodecError> {
+  |                         ^^^^^^^^^^^^^^^^ required by this bound in `json_args`
+  = note: this error originates in the attribute macro `near_kit::contract` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `NotSerializable: near_kit::__private::borsh::BorshSerialize` is not satisfied
+  --> tests/compile-fail/args_not_serializable.rs:11:28
+   |
+ 6 | #[near_kit::contract]
+   | ---------------------
+   | |
+   | required by a bound introduced by this call
+   | in this attribute macro expansion
+...
+11 |     fn find(&self, #[args] args: NotSerializable) -> u64;
+   |                            ^^^^ unsatisfied trait bound
+   |
+help: the trait `near_kit::__private::borsh::BorshSerialize` is not implemented for `NotSerializable`
+  --> tests/compile-fail/args_not_serializable.rs:4:1
+   |
+ 4 | pub struct NotSerializable;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: the following other types implement trait `near_kit::__private::borsh::BorshSerialize`:
+             &T
+             ()
+             (T0, T1)
+             (T0, T1, T2)
+             (T0, T1, T2, T3)
+             (T0, T1, T2, T3, T4)
+             (T0, T1, T2, T3, T4, T5)
+             (T0, T1, T2, T3, T4, T5, T6)
+           and $N others
+note: required by a bound in `near_kit::__private::borsh_args`
+  --> $WORKSPACE/crates/near-kit-primitives/src/backend.rs
+   |
+   |     pub fn borsh_args<A: borsh::BorshSerialize>(args: A) -> Result<Vec<u8>, CodecError> {
+   |                          ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `borsh_args`
+   = note: this error originates in the attribute macro `near_kit::contract` (in Nightly builds, run with -Z macro-backtrace for more info)
