@@ -703,9 +703,9 @@ pub struct RpcTransactionResponse {
 
 impl RpcTransactionResponse {
     /// A response for `transaction_hash` that reached
-    /// `final_execution_status`, with no outcome yet. For a test fixture or a
-    /// mock transport; set [`outcome`](Self::outcome) afterwards once the
-    /// transaction has executed:
+    /// `final_execution_status`, with no outcome yet. For a test fixture; set
+    /// [`outcome`](Self::outcome) afterwards once the transaction has
+    /// executed:
     ///
     /// ```rust
     /// # fn outcome() -> near_kit_primitives::rpc::FinalExecutionOutcome { unimplemented!() }
