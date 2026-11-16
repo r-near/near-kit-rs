@@ -701,6 +701,34 @@ pub struct RpcTransactionResponse {
     pub outcome: Option<FinalExecutionOutcome>,
 }
 
+impl RpcTransactionResponse {
+    /// A response for `transaction_hash` that reached
+    /// `final_execution_status`, with no outcome yet. For a test fixture or a
+    /// mock transport; set [`outcome`](Self::outcome) afterwards once the
+    /// transaction has executed:
+    ///
+    /// ```rust
+    /// # fn outcome() -> near_kit_primitives::rpc::FinalExecutionOutcome { unimplemented!() }
+    /// # fn run() {
+    /// use near_kit_primitives::CryptoHash;
+    /// use near_kit_primitives::rpc::{RpcTransactionResponse, TxExecutionStatus};
+    ///
+    /// let tx_hash = CryptoHash::hash(b"tx");
+    /// let mut response = RpcTransactionResponse::new(tx_hash, TxExecutionStatus::Final);
+    /// response.outcome = Some(outcome());
+    /// # }
+    /// ```
+    ///
+    /// [`FinalExecutionOutcome::new`] builds the outcome.
+    pub fn new(transaction_hash: CryptoHash, final_execution_status: TxExecutionStatus) -> Self {
+        Self {
+            transaction_hash,
+            final_execution_status,
+            outcome: None,
+        }
+    }
+}
+
 // nearcore flattens an `Option<FinalExecutionOutcomeViewEnum>` into the
 // response. A derived `#[serde(flatten)] Option<_>` would turn any decode
 // error inside the outcome into `None`, so decode the outcome fields
@@ -813,6 +841,111 @@ pub struct FinalExecutionOutcome {
 struct FinalExecutionOutcomeMustUse;
 
 impl FinalExecutionOutcome {
+    /// An outcome with `status`, for `transaction` and the outcomes of the
+    /// transaction and its receipts. For a test fixture or a mock
+    /// [`TxSender`](crate::TxSender) that returns one.
+    ///
+    /// [`receipts`](Self::receipts) starts empty, as from `send_tx`; push
+    /// [`Receipt`]s onto it to mimic `tx_status`.
+    ///
+    /// # Example
+    ///
+    /// A function call that succeeded and logged a line:
+    ///
+    /// ```rust
+    /// use near_kit_primitives::rpc::{
+    ///     ActionReceiptData, ActionView, ExecutionOutcome, ExecutionOutcomeWithId,
+    ///     ExecutionStatus, FinalExecutionOutcome, FinalExecutionStatus, Receipt, ReceiptContent,
+    ///     TransactionView,
+    /// };
+    /// use near_kit_primitives::signer::SecretKey;
+    /// use near_kit_primitives::{CryptoHash, Gas, NearToken, account};
+    ///
+    /// let key = SecretKey::ed25519_from_bytes([1; 32]);
+    /// let tx_hash = CryptoHash::hash(b"tx");
+    /// let receipt_id = CryptoHash::hash(b"receipt");
+    /// let block_hash = CryptoHash::hash(b"block");
+    ///
+    /// let transaction = TransactionView::new(
+    ///     account!("alice.near"),
+    ///     key.public_key(),
+    ///     1,
+    ///     account!("guestbook.near"),
+    ///     tx_hash,
+    ///     key.sign(tx_hash.as_bytes()),
+    /// );
+    /// // The transaction turns into a receipt...
+    /// let transaction_outcome = ExecutionOutcomeWithId::new(
+    ///     tx_hash,
+    ///     ExecutionOutcome::new(
+    ///         account!("alice.near"),
+    ///         Gas::from_tgas(1),
+    ///         NearToken::from_millinear(1),
+    ///         vec![],
+    ///         vec![receipt_id],
+    ///         ExecutionStatus::SuccessReceiptId(receipt_id),
+    ///     ),
+    ///     block_hash,
+    /// );
+    /// // ...which runs the call on guestbook.near.
+    /// let receipt_outcome = ExecutionOutcomeWithId::new(
+    ///     receipt_id,
+    ///     ExecutionOutcome::new(
+    ///         account!("guestbook.near"),
+    ///         Gas::from_tgas(3),
+    ///         NearToken::from_millinear(3),
+    ///         vec!["message added".to_string()],
+    ///         vec![],
+    ///         ExecutionStatus::SuccessValue(vec![]),
+    ///     ),
+    ///     block_hash,
+    /// );
+    ///
+    /// let mut outcome = FinalExecutionOutcome::new(
+    ///     FinalExecutionStatus::SuccessValue(String::new()),
+    ///     transaction,
+    ///     transaction_outcome,
+    ///     vec![receipt_outcome],
+    /// );
+    /// // The receipt itself, as `tx_status` lists it.
+    /// outcome.receipts.push(Receipt::new(
+    ///     account!("alice.near"),
+    ///     account!("guestbook.near"),
+    ///     receipt_id,
+    ///     ReceiptContent::Action(ActionReceiptData::new(
+    ///         account!("alice.near"),
+    ///         key.public_key(),
+    ///         NearToken::from_yoctonear(100_000_000),
+    ///         vec![ActionView::function_call(
+    ///             "add_message".to_string(),
+    ///             "eyJ0ZXh0IjoiaGkifQ==".to_string(), // base64 of {"text":"hi"}
+    ///             Gas::from_tgas(30),
+    ///             NearToken::from_yoctonear(0),
+    ///         )],
+    ///     )),
+    /// ));
+    ///
+    /// assert!(outcome.is_success());
+    /// assert_eq!(outcome.transaction_hash(), &tx_hash);
+    /// assert_eq!(outcome.logs().collect::<Vec<_>>(), ["message added"]);
+    /// ```
+    ///
+    /// [`ExecutionOutcome::new`] shows a receipt that failed.
+    pub fn new(
+        status: FinalExecutionStatus,
+        transaction: TransactionView,
+        transaction_outcome: ExecutionOutcomeWithId,
+        receipts_outcome: Vec<ExecutionOutcomeWithId>,
+    ) -> Self {
+        Self {
+            status,
+            transaction,
+            transaction_outcome,
+            receipts_outcome,
+            receipts: Vec::new(),
+        }
+    }
+
     /// Whether the transaction's top-level [`status`](Self::status) is a
     /// success.
     ///
@@ -1246,6 +1379,38 @@ pub struct TransactionView {
     pub nonce_mode: Option<NonceMode>,
 }
 
+impl TransactionView {
+    /// The view of a transaction `signer_id` signed with `public_key` and
+    /// sent to `receiver_id`, for a test fixture.
+    ///
+    /// [`actions`](Self::actions) starts empty, and the optional fields
+    /// ([`priority_fee`](Self::priority_fee),
+    /// [`nonce_index`](Self::nonce_index), [`nonce_mode`](Self::nonce_mode))
+    /// start as `None`; set them afterwards. See
+    /// [`FinalExecutionOutcome::new`] for a complete outcome.
+    pub fn new(
+        signer_id: AccountId,
+        public_key: PublicKey,
+        nonce: u64,
+        receiver_id: AccountId,
+        hash: CryptoHash,
+        signature: Signature,
+    ) -> Self {
+        Self {
+            signer_id,
+            public_key,
+            nonce,
+            receiver_id,
+            hash,
+            actions: Vec::new(),
+            signature,
+            priority_fee: None,
+            nonce_index: None,
+            nonce_mode: None,
+        }
+    }
+}
+
 /// Backward-compatible deserialization helper for `GlobalContractIdentifierView`.
 ///
 /// Handles the view format (`{"hash": "<base58>"}` / `{"account_id": "alice.near"}`),
@@ -1625,6 +1790,24 @@ impl From<TransactionNonceView> for TransactionNonce {
 }
 
 impl ActionView {
+    /// A [`FunctionCall`](Self::FunctionCall) view of a call to
+    /// `method_name`, for a test fixture. `args` is the base64 of the
+    /// argument bytes, as the node serves it.
+    pub fn function_call(method_name: String, args: String, gas: Gas, deposit: NearToken) -> Self {
+        Self::FunctionCall {
+            method_name,
+            args,
+            gas,
+            deposit,
+        }
+    }
+
+    /// A [`Transfer`](Self::Transfer) view of `deposit`, for a test fixture
+    /// (a refund receipt carries one).
+    pub fn transfer(deposit: NearToken) -> Self {
+        Self::Transfer { deposit }
+    }
+
     /// The code hash carried by a `DeployContract` / `DeployGlobalContract` /
     /// `DeployGlobalContractByAccountId` view; `None` for every other variant.
     ///
@@ -1934,6 +2117,19 @@ pub struct ExecutionOutcomeWithId {
     pub block_hash: CryptoHash,
 }
 
+impl ExecutionOutcomeWithId {
+    /// The `outcome` of the transaction or receipt `id`, executed in
+    /// `block_hash`, for a test fixture. [`proof`](Self::proof) starts empty.
+    pub fn new(id: CryptoHash, outcome: ExecutionOutcome, block_hash: CryptoHash) -> Self {
+        Self {
+            id,
+            outcome,
+            proof: Vec::new(),
+            block_hash,
+        }
+    }
+}
+
 /// Execution outcome details.
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
@@ -1955,6 +2151,65 @@ pub struct ExecutionOutcome {
 }
 
 impl ExecutionOutcome {
+    /// What `executor_id` did with a transaction or receipt: the gas and
+    /// tokens it burnt, the lines it logged, the receipts it created and how
+    /// it ended. For a test fixture. [`metadata`](Self::metadata) starts as
+    /// `None`.
+    ///
+    /// # Example
+    ///
+    /// A contract call that panicked, and the transaction status it leads
+    /// to (see [`FinalExecutionOutcome::new`] for the whole outcome):
+    ///
+    /// ```rust
+    /// use near_kit_primitives::protocol::{
+    ///     ActionError, ActionErrorKind, FunctionCallError, TxExecutionError,
+    /// };
+    /// use near_kit_primitives::rpc::{ExecutionOutcome, ExecutionStatus, FinalExecutionStatus};
+    /// use near_kit_primitives::{Gas, NearToken, account};
+    ///
+    /// let error = ActionError {
+    ///     index: Some(0),
+    ///     kind: ActionErrorKind::FunctionCallError(FunctionCallError::ExecutionError(
+    ///         "Smart contract panicked: message too long".to_string(),
+    ///     )),
+    /// };
+    /// let receipt_outcome = ExecutionOutcome::new(
+    ///     account!("guestbook.near"),
+    ///     Gas::from_tgas(3),
+    ///     NearToken::from_millinear(3),
+    ///     vec![],
+    ///     vec![],
+    ///     ExecutionStatus::Failure(error.clone()),
+    /// );
+    /// let status = FinalExecutionStatus::Failure(TxExecutionError::ActionError(error));
+    ///
+    /// assert!(receipt_outcome.status.is_failure());
+    /// assert_eq!(
+    ///     receipt_outcome.status.failure().map(ToString::to_string).as_deref(),
+    ///     Some("Action #0: execution error: Smart contract panicked: message too long"),
+    /// );
+    /// assert!(matches!(status, FinalExecutionStatus::Failure(_)));
+    /// ```
+    pub fn new(
+        executor_id: AccountId,
+        gas_burnt: Gas,
+        tokens_burnt: NearToken,
+        logs: Vec<String>,
+        receipt_ids: Vec<CryptoHash>,
+        status: ExecutionStatus,
+    ) -> Self {
+        Self {
+            executor_id,
+            gas_burnt,
+            tokens_burnt,
+            logs,
+            receipt_ids,
+            status,
+            metadata: None,
+        }
+    }
+
     /// The NEP-297 events in this outcome's [`logs`](Self::logs), in order,
     /// parsed with [`Event::from_log`]: other lines are skipped, and a
     /// malformed event is an `Err`.
@@ -2133,6 +2388,25 @@ pub struct Receipt {
     pub priority: Option<u64>,
 }
 
+impl Receipt {
+    /// Receipt `receipt_id` from `predecessor_id` to `receiver_id`, for a
+    /// test fixture. [`priority`](Self::priority) starts as `None`.
+    pub fn new(
+        predecessor_id: AccountId,
+        receiver_id: AccountId,
+        receipt_id: CryptoHash,
+        receipt: ReceiptContent,
+    ) -> Self {
+        Self {
+            predecessor_id,
+            receiver_id,
+            receipt_id,
+            receipt,
+            priority: None,
+        }
+    }
+}
+
 /// Receipt content - action, data, or global contract distribution.
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
@@ -2168,6 +2442,17 @@ pub struct DataReceiverView {
     pub receiver_id: AccountId,
 }
 
+impl DataReceiverView {
+    /// A receiver that gets the data `data_id` on `receiver_id`, for a test
+    /// fixture.
+    pub fn new(data_id: CryptoHash, receiver_id: AccountId) -> Self {
+        Self {
+            data_id,
+            receiver_id,
+        }
+    }
+}
+
 /// Action receipt data.
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
@@ -2190,6 +2475,32 @@ pub struct ActionReceiptData {
     pub is_promise_yield: Option<bool>,
 }
 
+impl ActionReceiptData {
+    /// An action receipt that runs `actions` for `signer_id`, signed with
+    /// `signer_public_key` and paid at `gas_price`, for a test fixture.
+    ///
+    /// [`output_data_receivers`](Self::output_data_receivers) and
+    /// [`input_data_ids`](Self::input_data_ids) start empty and
+    /// [`is_promise_yield`](Self::is_promise_yield) as `None`; set them
+    /// afterwards. See [`FinalExecutionOutcome::new`] for an example.
+    pub fn new(
+        signer_id: AccountId,
+        signer_public_key: PublicKey,
+        gas_price: NearToken,
+        actions: Vec<ActionView>,
+    ) -> Self {
+        Self {
+            signer_id,
+            signer_public_key,
+            gas_price,
+            output_data_receivers: Vec::new(),
+            input_data_ids: Vec::new(),
+            actions,
+            is_promise_yield: None,
+        }
+    }
+}
+
 /// Data receipt data.
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
@@ -2198,6 +2509,18 @@ pub struct DataReceiptData {
     pub data_id: CryptoHash,
     /// Data content (optional).
     pub data: Option<String>,
+}
+
+impl DataReceiptData {
+    /// A data receipt for `data_id`, for a test fixture.
+    /// [`data`](Self::data) starts as `None`; set it to the base64 of the
+    /// bytes the receipt carries.
+    pub fn new(data_id: CryptoHash) -> Self {
+        Self {
+            data_id,
+            data: None,
+        }
+    }
 }
 
 /// Node status response.

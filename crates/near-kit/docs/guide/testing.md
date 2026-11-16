@@ -296,6 +296,14 @@ To test failure handling, return an error from `send`. The caller sees it as
 `ContractError::Backend(e)` from a typed call, or `e` from
 `TxSender::send`.
 
+A recorder that stands in for a real sender can return a
+[`FinalExecutionOutcome`](crate::rpc::FinalExecutionOutcome) instead, for
+code that reads logs or checks for failed receipts. Build it with
+[`FinalExecutionOutcome::new`](crate::rpc::FinalExecutionOutcome::new) and
+the `new` constructors of its parts; its docs build a complete successful
+outcome, and [`ExecutionOutcome::new`](crate::rpc::ExecutionOutcome::new)'s
+a receipt that failed.
+
 ## Shared and borrowed backends
 
 Both traits are implemented for `&T`, `Box<T>` and `Arc<T>` whenever `T`

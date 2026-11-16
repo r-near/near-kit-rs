@@ -1641,6 +1641,8 @@ pub near_kit_primitives::rpc::ActionView::WithdrawFromGasKey::amount: near_token
 pub near_kit_primitives::rpc::ActionView::WithdrawFromGasKey::public_key: near_kit_primitives::signer::PublicKey
 impl near_kit_primitives::rpc::ActionView
 pub fn near_kit_primitives::rpc::ActionView::deploy_code_hash(&self) -> core::option::Option<core::result::Result<near_kit_primitives::CryptoHash, near_kit_primitives::protocol::ActionViewConversionError>>
+pub fn near_kit_primitives::rpc::ActionView::function_call(alloc::string::String, alloc::string::String, near_gas::NearGas, near_token::NearToken) -> Self
+pub fn near_kit_primitives::rpc::ActionView::transfer(near_token::NearToken) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::ActionView
 pub fn near_kit_primitives::rpc::ActionView::clone(&self) -> near_kit_primitives::rpc::ActionView
 impl core::convert::TryFrom<near_kit_primitives::rpc::ActionView> for near_kit_primitives::protocol::Action
@@ -1975,6 +1977,8 @@ pub near_kit_primitives::rpc::ActionReceiptData::is_promise_yield: core::option:
 pub near_kit_primitives::rpc::ActionReceiptData::output_data_receivers: alloc::vec::Vec<near_kit_primitives::rpc::DataReceiverView>
 pub near_kit_primitives::rpc::ActionReceiptData::signer_id: near_account_id::account_id::AccountId
 pub near_kit_primitives::rpc::ActionReceiptData::signer_public_key: near_kit_primitives::signer::PublicKey
+impl near_kit_primitives::rpc::ActionReceiptData
+pub fn near_kit_primitives::rpc::ActionReceiptData::new(near_account_id::account_id::AccountId, near_kit_primitives::signer::PublicKey, near_token::NearToken, alloc::vec::Vec<near_kit_primitives::rpc::ActionView>) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::ActionReceiptData
 pub fn near_kit_primitives::rpc::ActionReceiptData::clone(&self) -> near_kit_primitives::rpc::ActionReceiptData
 impl core::fmt::Debug for near_kit_primitives::rpc::ActionReceiptData
@@ -2138,6 +2142,8 @@ pub fn near_kit_primitives::rpc::CurrentEpochValidatorInfo::deserialize<__D>(__D
 #[non_exhaustive] pub struct near_kit_primitives::rpc::DataReceiptData
 pub near_kit_primitives::rpc::DataReceiptData::data: core::option::Option<alloc::string::String>
 pub near_kit_primitives::rpc::DataReceiptData::data_id: near_kit_primitives::CryptoHash
+impl near_kit_primitives::rpc::DataReceiptData
+pub fn near_kit_primitives::rpc::DataReceiptData::new(near_kit_primitives::CryptoHash) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::DataReceiptData
 pub fn near_kit_primitives::rpc::DataReceiptData::clone(&self) -> near_kit_primitives::rpc::DataReceiptData
 impl core::fmt::Debug for near_kit_primitives::rpc::DataReceiptData
@@ -2147,6 +2153,8 @@ pub fn near_kit_primitives::rpc::DataReceiptData::deserialize<__D>(__D) -> core:
 #[non_exhaustive] pub struct near_kit_primitives::rpc::DataReceiverView
 pub near_kit_primitives::rpc::DataReceiverView::data_id: near_kit_primitives::CryptoHash
 pub near_kit_primitives::rpc::DataReceiverView::receiver_id: near_account_id::account_id::AccountId
+impl near_kit_primitives::rpc::DataReceiverView
+pub fn near_kit_primitives::rpc::DataReceiverView::new(near_kit_primitives::CryptoHash, near_account_id::account_id::AccountId) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::DataReceiverView
 pub fn near_kit_primitives::rpc::DataReceiverView::clone(&self) -> near_kit_primitives::rpc::DataReceiverView
 impl core::fmt::Debug for near_kit_primitives::rpc::DataReceiverView
@@ -2221,6 +2229,7 @@ pub near_kit_primitives::rpc::ExecutionOutcome::status: near_kit_primitives::rpc
 pub near_kit_primitives::rpc::ExecutionOutcome::tokens_burnt: near_token::NearToken
 impl near_kit_primitives::rpc::ExecutionOutcome
 pub fn near_kit_primitives::rpc::ExecutionOutcome::events(&self) -> impl core::iter::traits::iterator::Iterator<Item = core::result::Result<near_kit_primitives::events::Event, serde_json::error::Error>>
+pub fn near_kit_primitives::rpc::ExecutionOutcome::new(near_account_id::account_id::AccountId, near_gas::NearGas, near_token::NearToken, alloc::vec::Vec<alloc::string::String>, alloc::vec::Vec<near_kit_primitives::CryptoHash>, near_kit_primitives::rpc::ExecutionStatus) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::ExecutionOutcome
 pub fn near_kit_primitives::rpc::ExecutionOutcome::clone(&self) -> near_kit_primitives::rpc::ExecutionOutcome
 impl core::fmt::Debug for near_kit_primitives::rpc::ExecutionOutcome
@@ -2232,6 +2241,8 @@ pub near_kit_primitives::rpc::ExecutionOutcomeWithId::block_hash: near_kit_primi
 pub near_kit_primitives::rpc::ExecutionOutcomeWithId::id: near_kit_primitives::CryptoHash
 pub near_kit_primitives::rpc::ExecutionOutcomeWithId::outcome: near_kit_primitives::rpc::ExecutionOutcome
 pub near_kit_primitives::rpc::ExecutionOutcomeWithId::proof: alloc::vec::Vec<near_kit_primitives::rpc::MerklePathItem>
+impl near_kit_primitives::rpc::ExecutionOutcomeWithId
+pub fn near_kit_primitives::rpc::ExecutionOutcomeWithId::new(near_kit_primitives::CryptoHash, near_kit_primitives::rpc::ExecutionOutcome, near_kit_primitives::CryptoHash) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::ExecutionOutcomeWithId
 pub fn near_kit_primitives::rpc::ExecutionOutcomeWithId::clone(&self) -> near_kit_primitives::rpc::ExecutionOutcomeWithId
 impl core::fmt::Debug for near_kit_primitives::rpc::ExecutionOutcomeWithId
@@ -2253,6 +2264,7 @@ pub fn near_kit_primitives::rpc::FinalExecutionOutcome::is_failure(&self) -> boo
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::is_success(&self) -> bool
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::json<T: serde_core::de::DeserializeOwned>(&self) -> core::result::Result<T, near_kit_primitives::rpc::OutcomeError>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::logs(&self) -> impl core::iter::traits::iterator::Iterator<Item = &str>
+pub fn near_kit_primitives::rpc::FinalExecutionOutcome::new(near_kit_primitives::rpc::FinalExecutionStatus, near_kit_primitives::rpc::TransactionView, near_kit_primitives::rpc::ExecutionOutcomeWithId, alloc::vec::Vec<near_kit_primitives::rpc::ExecutionOutcomeWithId>) -> Self
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::receipt_failures(&self) -> impl core::iter::traits::iterator::Iterator<Item = &near_kit_primitives::protocol::ActionError>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::result(&self) -> core::result::Result<alloc::vec::Vec<u8>, near_kit_primitives::rpc::OutcomeError>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::total_gas_used(&self) -> near_gas::NearGas
@@ -2328,6 +2340,8 @@ pub near_kit_primitives::rpc::Receipt::priority: core::option::Option<u64>
 pub near_kit_primitives::rpc::Receipt::receipt: near_kit_primitives::rpc::ReceiptContent
 pub near_kit_primitives::rpc::Receipt::receipt_id: near_kit_primitives::CryptoHash
 pub near_kit_primitives::rpc::Receipt::receiver_id: near_account_id::account_id::AccountId
+impl near_kit_primitives::rpc::Receipt
+pub fn near_kit_primitives::rpc::Receipt::new(near_account_id::account_id::AccountId, near_account_id::account_id::AccountId, near_kit_primitives::CryptoHash, near_kit_primitives::rpc::ReceiptContent) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::Receipt
 pub fn near_kit_primitives::rpc::Receipt::clone(&self) -> near_kit_primitives::rpc::Receipt
 impl core::fmt::Debug for near_kit_primitives::rpc::Receipt
@@ -2347,6 +2361,8 @@ pub fn near_kit_primitives::rpc::ReceiptToTxResponse::deserialize<__D>(__D) -> c
 pub near_kit_primitives::rpc::RpcTransactionResponse::final_execution_status: near_kit_primitives::rpc::TxExecutionStatus
 pub near_kit_primitives::rpc::RpcTransactionResponse::outcome: core::option::Option<near_kit_primitives::rpc::FinalExecutionOutcome>
 pub near_kit_primitives::rpc::RpcTransactionResponse::transaction_hash: near_kit_primitives::CryptoHash
+impl near_kit_primitives::rpc::RpcTransactionResponse
+pub fn near_kit_primitives::rpc::RpcTransactionResponse::new(near_kit_primitives::CryptoHash, near_kit_primitives::rpc::TxExecutionStatus) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::RpcTransactionResponse
 pub fn near_kit_primitives::rpc::RpcTransactionResponse::clone(&self) -> near_kit_primitives::rpc::RpcTransactionResponse
 impl core::fmt::Debug for near_kit_primitives::rpc::RpcTransactionResponse
@@ -2433,6 +2449,8 @@ pub near_kit_primitives::rpc::TransactionView::public_key: near_kit_primitives::
 pub near_kit_primitives::rpc::TransactionView::receiver_id: near_account_id::account_id::AccountId
 pub near_kit_primitives::rpc::TransactionView::signature: near_kit_primitives::signer::Signature
 pub near_kit_primitives::rpc::TransactionView::signer_id: near_account_id::account_id::AccountId
+impl near_kit_primitives::rpc::TransactionView
+pub fn near_kit_primitives::rpc::TransactionView::new(near_account_id::account_id::AccountId, near_kit_primitives::signer::PublicKey, u64, near_account_id::account_id::AccountId, near_kit_primitives::CryptoHash, near_kit_primitives::signer::Signature) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::TransactionView
 pub fn near_kit_primitives::rpc::TransactionView::clone(&self) -> near_kit_primitives::rpc::TransactionView
 impl core::fmt::Debug for near_kit_primitives::rpc::TransactionView
