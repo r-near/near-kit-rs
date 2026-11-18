@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.0](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.31.1...near-kit-primitives-v0.32.0) - 2026-11-18
+
+### Added
+
+- [**breaking**] ActionView decodes its base64 fields, so function-call args and state-init data are bytes, as in nearcore ([#436](https://github.com/r-near/near-kit-rs/pull/436))
+
 ## [0.31.1](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.31.0...near-kit-primitives-v0.31.1) - 2026-11-16
 
 ### Fixed
