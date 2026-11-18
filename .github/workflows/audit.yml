@@ -34,4 +34,8 @@ jobs:
       # on it. testcontainers uses tar only to copy files into or out of a
       # container and to build images, and near-kit-sandbox does none of
       # these: it runs a prebuilt sandbox image. Drop the ignore once testcontainers moves off the crate.
-      - run: cargo audit --deny warnings --ignore RUSTSEC-2026-0440
+      # RUSTSEC-2026-0543: chrono is unmaintained. It's in Cargo.lock only as
+      # an optional dependency of serde_with (its chrono_0_4 feature), which
+      # nothing here enables, so no crate in the workspace compiles it
+      # (`cargo tree -i chrono --all-features --target all` prints nothing).
+      - run: cargo audit --deny warnings --ignore RUSTSEC-2026-0440 --ignore RUSTSEC-2026-0543
