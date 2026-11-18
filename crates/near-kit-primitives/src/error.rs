@@ -79,23 +79,6 @@ pub enum ParseHashError {
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ActionViewConversionError {
-    /// A base64-encoded field of the view failed to decode.
-    #[error("Invalid base64 in `{field}`: {message}")]
-    InvalidBase64 {
-        /// Name of the view field that failed to decode.
-        field: &'static str,
-        /// The base64 decoder's message.
-        message: String,
-    },
-
-    /// A `DeployContract` / `DeployGlobalContract*` view's `code` isn't a
-    /// 32-byte code hash, which the node puts in place of the WASM.
-    #[error("Expected a 32-byte code hash in the deploy action view's `code`, got {actual} bytes")]
-    InvalidCodeHash {
-        /// Number of bytes `code` actually decoded to.
-        actual: usize,
-    },
-
     /// A deploy action view contains only the code hash, not the contract code
     /// required to construct a wire action.
     #[error(

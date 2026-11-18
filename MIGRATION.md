@@ -1,3 +1,19 @@
+# Upgrading from near-kit 0.31 to 0.32
+
+**`ActionView` decodes its base64 fields.**
+The actions in a `tx_status` transaction or receipt now hold bytes, as
+nearcore's own `ActionView` does, instead of the node's base64 strings:
+
+| 0.31 | 0.32 |
+|---|---|
+| `FunctionCall { args: String }` (base64) | `args: Vec<u8>`, the raw argument bytes: `serde_json::from_slice(&args)` for JSON args |
+| `DeterministicStateInit { data: BTreeMap<String, String> }` | `data: BTreeMap<Vec<u8>, Vec<u8>>` |
+| `UniversalStateInit { state_init: String }` | `state_init: Vec<u8>` |
+| `DeployContract { code: String }`, same for `DeployGlobalContract` and `DeployGlobalContractByAccountId` (base64 of the code hash) | `code_hash: CryptoHash` |
+| `ActionView::deploy_code_hash()` returning `Option<Result<CryptoHash, _>>` | `Option<CryptoHash>` |
+| `ActionView::function_call(name, base64_args, gas, deposit)` | `function_call(name, args_bytes, gas, deposit)`: pass the raw bytes, such as `br#"{"text":"hi"}"#.to_vec()` |
+| `ActionViewConversionError::InvalidBase64`, `InvalidCodeHash` | Removed: a malformed field now fails deserialization, so `Action::try_from(view)` can't hit them |
+
 # Upgrading from near-kit 0.30 to 0.31
 
 **`checked()` returns a `CheckedOutcome`.**

@@ -918,7 +918,7 @@ impl FinalExecutionOutcome {
     ///         NearToken::from_yoctonear(100_000_000),
     ///         vec![ActionView::function_call(
     ///             "add_message".to_string(),
-    ///             "eyJ0ZXh0IjoiaGkifQ==".to_string(), // base64 of {"text":"hi"}
+    ///             br#"{"text":"hi"}"#.to_vec(),
     ///             Gas::from_tgas(30),
     ///             NearToken::from_yoctonear(0),
     ///         )],
@@ -1630,6 +1630,11 @@ pub enum VersionedDelegateActionPayloadView {
 /// [`DelegateV2`](Self::DelegateV2) view are not `ActionView`s: the node sends
 /// them as protocol [`Action`]s (see [`DelegateActionView`]).
 ///
+/// Byte fields arrive as base64 and are decoded during deserialization:
+/// `FunctionCall`'s `args`, `DeterministicStateInit`'s `data` and
+/// `UniversalStateInit`'s `state_init` are raw bytes, as nearcore's own
+/// `ActionView` holds them.
+///
 /// # Deploy views carry the code *hash*, not the WASM
 ///
 /// [`DeployContract`](Self::DeployContract),
@@ -1637,11 +1642,11 @@ pub enum VersionedDelegateActionPayloadView {
 /// [`DeployGlobalContractByAccountId`](Self::DeployGlobalContractByAccountId)
 /// do **not** contain the contract code. The node replaces the WASM with the
 /// base64 of its 32-byte SHA-256 code hash before serving the view (nearcore
-/// `views.rs`: `hash(&action.code).as_ref().to_vec()`). Use
-/// [`deploy_code_hash`](Self::deploy_code_hash) to read it as a
-/// [`CryptoHash`]. Converting the view into an [`Action`] returns
-/// [`ActionViewConversionError::DeployCodeUnavailable`]; do not treat the
-/// decoded bytes as WASM, and do not hash them again.
+/// `views.rs`: `hash(&action.code).as_ref().to_vec()`), and near-kit decodes it
+/// into the variant's `code_hash`. [`deploy_code_hash`](Self::deploy_code_hash)
+/// reads it from any of the three. Converting the view into an [`Action`]
+/// returns [`ActionViewConversionError::DeployCodeUnavailable`].
+#[serde_as]
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
 pub enum ActionView {
@@ -1650,16 +1655,18 @@ pub enum ActionView {
     /// Deploy a contract to the account.
     #[non_exhaustive]
     DeployContract {
-        /// Base64 of the 32-byte code hash (not the WASM).
-        code: String,
+        /// Hash of the deployed code (the node sends it in place of the WASM).
+        #[serde(rename = "code", deserialize_with = "base64_code_hash")]
+        code_hash: CryptoHash,
     },
     /// Call a contract method.
     #[non_exhaustive]
     FunctionCall {
         /// The method called.
         method_name: String,
-        /// The call's arguments, base64-encoded.
-        args: String,
+        /// The call's arguments, as raw bytes (base64 on the wire).
+        #[serde_as(as = "Base64")]
+        args: Vec<u8>,
         /// Gas attached to the call.
         gas: Gas,
         /// NEAR attached to the call.
@@ -1719,14 +1726,16 @@ pub enum ActionView {
     /// Publish a global contract, identified by its code hash.
     #[non_exhaustive]
     DeployGlobalContract {
-        /// Base64 of the 32-byte code hash (not the WASM).
-        code: String,
+        /// Hash of the published code (the node sends it in place of the WASM).
+        #[serde(rename = "code", deserialize_with = "base64_code_hash")]
+        code_hash: CryptoHash,
     },
     /// Publish a global contract, identified by the publisher's account ID.
     #[non_exhaustive]
     DeployGlobalContractByAccountId {
-        /// Base64 of the 32-byte code hash (not the WASM).
-        code: String,
+        /// Hash of the published code (the node sends it in place of the WASM).
+        #[serde(rename = "code", deserialize_with = "base64_code_hash")]
+        code_hash: CryptoHash,
     },
     /// Use a global contract published under a code hash as the account's
     /// contract.
@@ -1748,9 +1757,11 @@ pub enum ActionView {
     DeterministicStateInit {
         /// The global contract the account uses.
         code: GlobalContractIdentifierView,
-        /// Initial storage entries, base64 key to base64 value.
+        /// Initial storage entries, as raw key and value bytes (base64 on the
+        /// wire).
         #[serde(default)]
-        data: BTreeMap<String, String>,
+        #[serde_as(as = "BTreeMap<Base64, Base64>")]
+        data: BTreeMap<Vec<u8>, Vec<u8>>,
         /// NEAR attached to the account.
         deposit: NearToken,
     },
@@ -1773,8 +1784,9 @@ pub enum ActionView {
     /// Create a `0u` universal account from its state init.
     #[non_exhaustive]
     UniversalStateInit {
-        /// Base64 of the borsh-encoded `UniversalStateInit` bytes.
-        state_init: String,
+        /// The borsh-encoded `UniversalStateInit` bytes (base64 on the wire).
+        #[serde_as(as = "Base64")]
+        state_init: Vec<u8>,
         /// NEAR attached to the account.
         deposit: NearToken,
     },
@@ -1863,9 +1875,8 @@ impl From<TransactionNonceView> for TransactionNonce {
 
 impl ActionView {
     /// A [`FunctionCall`](Self::FunctionCall) view of a call to
-    /// `method_name`, for a test fixture. `args` is the base64 of the
-    /// argument bytes, as the node serves it.
-    pub fn function_call(method_name: String, args: String, gas: Gas, deposit: NearToken) -> Self {
+    /// `method_name` with the raw argument bytes `args`, for a test fixture.
+    pub fn function_call(method_name: String, args: Vec<u8>, gas: Gas, deposit: NearToken) -> Self {
         Self::FunctionCall {
             method_name,
             args,
@@ -1881,11 +1892,9 @@ impl ActionView {
     }
 
     /// The code hash carried by a `DeployContract` / `DeployGlobalContract` /
-    /// `DeployGlobalContractByAccountId` view; `None` for every other variant.
-    ///
-    /// Decodes `code` (see the
-    /// [enum-level note](ActionView#deploy-views-carry-the-code-hash-not-the-wasm)),
-    /// failing if it is not valid base64 or not exactly 32 bytes.
+    /// `DeployGlobalContractByAccountId` view; `None` for every other variant
+    /// (see the
+    /// [enum-level note](ActionView#deploy-views-carry-the-code-hash-not-the-wasm)).
     ///
     /// # Example
     ///
@@ -1898,35 +1907,27 @@ impl ActionView {
     ///     "DeployContract": { "code": "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=" }
     /// }))?;
     ///
-    /// let hash = view.deploy_code_hash().expect("a deploy view")?;
-    /// assert_eq!(hash, CryptoHash::hash(b""));
+    /// assert_eq!(view.deploy_code_hash(), Some(CryptoHash::hash(b"")));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn deploy_code_hash(&self) -> Option<Result<CryptoHash, ActionViewConversionError>> {
+    pub fn deploy_code_hash(&self) -> Option<CryptoHash> {
         match self {
-            Self::DeployContract { code }
-            | Self::DeployGlobalContract { code }
-            | Self::DeployGlobalContractByAccountId { code } => Some(decode_code_hash(code)),
+            Self::DeployContract { code_hash }
+            | Self::DeployGlobalContract { code_hash }
+            | Self::DeployGlobalContractByAccountId { code_hash } => Some(*code_hash),
             _ => None,
         }
     }
 }
 
-/// Decode a base64 view field, naming the field in the error.
-fn decode_view_base64(field: &'static str, s: &str) -> Result<Vec<u8>, ActionViewConversionError> {
-    STANDARD
-        .decode(s)
-        .map_err(|e| ActionViewConversionError::InvalidBase64 {
-            field,
-            message: e.to_string(),
-        })
-}
-
-/// Decode the `code` field of a deploy view into the 32-byte code hash it holds.
-fn decode_code_hash(code: &str) -> Result<CryptoHash, ActionViewConversionError> {
-    let bytes = decode_view_base64("code", code)?;
-    CryptoHash::try_from(bytes.as_slice()).map_err(|_| ActionViewConversionError::InvalidCodeHash {
-        actual: bytes.len(),
+/// Deserialize a deploy view's `code`: the base64 of a 32-byte code hash.
+fn base64_code_hash<'de, D: serde::Deserializer<'de>>(d: D) -> Result<CryptoHash, D::Error> {
+    let bytes = <Base64 as serde_with::DeserializeAs<'de, Vec<u8>>>::deserialize_as(d)?;
+    CryptoHash::try_from(bytes.as_slice()).map_err(|_| {
+        serde::de::Error::custom(format_args!(
+            "expected a 32-byte code hash in a deploy action view's `code`, got {} bytes",
+            bytes.len()
+        ))
     })
 }
 
@@ -1990,8 +1991,6 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 /// * A deploy view, which carries only the code hash (see [`ActionView`]) →
 ///   [`ActionViewConversionError::DeployCodeUnavailable`]. Fetch the code
 ///   separately, for example with `view_code` on an archival node.
-/// * Invalid base64 in `args`, `code`, `data`, or `state_init` →
-///   [`ActionViewConversionError::InvalidBase64`].
 /// * A delegate action nested inside a `Delegate` / `DelegateV2` view →
 ///   [`ActionViewConversionError::NestedDelegate`].
 ///
@@ -2044,12 +2043,10 @@ impl TryFrom<ActionView> for Action {
     fn try_from(view: ActionView) -> Result<Self, Self::Error> {
         Ok(match view {
             ActionView::CreateAccount => Self::CreateAccount(CreateAccountAction),
-            ActionView::DeployContract { code }
-            | ActionView::DeployGlobalContract { code }
-            | ActionView::DeployGlobalContractByAccountId { code } => {
-                return Err(ActionViewConversionError::DeployCodeUnavailable {
-                    code_hash: decode_code_hash(&code)?,
-                });
+            ActionView::DeployContract { code_hash }
+            | ActionView::DeployGlobalContract { code_hash }
+            | ActionView::DeployGlobalContractByAccountId { code_hash } => {
+                return Err(ActionViewConversionError::DeployCodeUnavailable { code_hash });
             }
             ActionView::FunctionCall {
                 method_name,
@@ -2058,7 +2055,7 @@ impl TryFrom<ActionView> for Action {
                 deposit,
             } => Self::FunctionCall(FunctionCallAction {
                 method_name,
-                args: decode_view_base64("args", &args)?,
+                args,
                 gas,
                 deposit,
             }),
@@ -2105,24 +2102,13 @@ impl TryFrom<ActionView> for Action {
                 code,
                 data,
                 deposit,
-            } => {
-                let data = data
-                    .into_iter()
-                    .map(|(k, v)| {
-                        Ok((
-                            decode_view_base64("data", &k)?,
-                            decode_view_base64("data", &v)?,
-                        ))
-                    })
-                    .collect::<Result<BTreeMap<_, _>, ActionViewConversionError>>()?;
-                Self::DeterministicStateInit(DeterministicStateInitAction {
-                    state_init: StateInit::V1(StateInitV1 {
-                        code: code.into(),
-                        data,
-                    }),
-                    deposit,
-                })
-            }
+            } => Self::DeterministicStateInit(DeterministicStateInitAction {
+                state_init: StateInit::V1(StateInitV1 {
+                    code: code.into(),
+                    data,
+                }),
+                deposit,
+            }),
             ActionView::TransferToGasKey {
                 public_key,
                 deposit,
@@ -2137,7 +2123,7 @@ impl TryFrom<ActionView> for Action {
                 state_init,
                 deposit,
             } => Self::UniversalStateInit(UniversalStateInitAction {
-                state_init: decode_view_base64("state_init", &state_init)?,
+                state_init,
                 deposit,
             }),
         })
@@ -3711,19 +3697,42 @@ mod tests {
     }
 
     #[test]
-    fn function_call_rejects_invalid_base64_args() {
+    fn function_call_view_holds_decoded_args() {
         let json = serde_json::json!({
             "FunctionCall": {
-                "method_name": "m",
-                "args": "not*base64",
+                "method_name": "set_greeting",
+                "args": "eyJncmVldGluZyI6ImhpIn0=",
                 "gas": 1_u64,
                 "deposit": "0"
             }
         });
-        assert!(matches!(
-            convert(json),
-            Err(ActionViewConversionError::InvalidBase64 { field: "args", .. })
-        ));
+        let view: ActionView = serde_json::from_value(json).unwrap();
+        let ActionView::FunctionCall { args, .. } = view else {
+            panic!("expected FunctionCall");
+        };
+        assert_eq!(args, br#"{"greeting":"hi"}"#);
+    }
+
+    #[test]
+    fn invalid_base64_fails_deserialization() {
+        for json in [
+            serde_json::json!({
+                "FunctionCall": { "method_name": "m", "args": "not*base64", "gas": 1_u64, "deposit": "0" }
+            }),
+            serde_json::json!({
+                "UniversalStateInit": { "state_init": "not base64!", "deposit": "0" }
+            }),
+            serde_json::json!({
+                "DeterministicStateInit": {
+                    "code": {"account_id": "publisher.near"},
+                    "data": { "not base64!": "AA==" },
+                    "deposit": "0"
+                }
+            }),
+            serde_json::json!({ "DeployContract": { "code": "not base64!" } }),
+        ] {
+            assert!(serde_json::from_value::<ActionView>(json).is_err());
+        }
     }
 
     #[test]
@@ -3741,16 +3750,6 @@ mod tests {
                 deposit: NearToken::from_near(1),
             })
         );
-        let json = serde_json::json!({
-            "UniversalStateInit": { "state_init": "not base64!", "deposit": "0" }
-        });
-        assert!(matches!(
-            convert(json),
-            Err(ActionViewConversionError::InvalidBase64 {
-                field: "state_init",
-                ..
-            })
-        ));
     }
 
     #[test]
@@ -3908,7 +3907,7 @@ mod tests {
         ] {
             let json = serde_json::json!({ tag: { "code": STANDARD.encode(hash) } });
             let view: ActionView = serde_json::from_value(json).unwrap();
-            assert_eq!(view.deploy_code_hash().unwrap().unwrap(), hash);
+            assert_eq!(view.deploy_code_hash(), Some(hash));
             let error = Action::try_from(view).unwrap_err();
             assert_eq!(
                 error,
@@ -3930,14 +3929,12 @@ mod tests {
     fn deploy_view_with_wrong_length_code_is_rejected() {
         // Someone (or some tool) put actual WASM bytes in `code` instead of the hash.
         let json = serde_json::json!({ "DeployContract": { "code": STANDARD.encode(b"\0asm\x01\0\0\0") } });
-        let view: ActionView = serde_json::from_value(json).unwrap();
-        assert_eq!(
-            view.deploy_code_hash().unwrap(),
-            Err(ActionViewConversionError::InvalidCodeHash { actual: 8 })
-        );
-        assert_eq!(
-            Action::try_from(view),
-            Err(ActionViewConversionError::InvalidCodeHash { actual: 8 })
+        let error = serde_json::from_value::<ActionView>(json).unwrap_err();
+        assert!(
+            error.to_string().contains(
+                "expected a 32-byte code hash in a deploy action view's `code`, got 8 bytes"
+            ),
+            "{error}"
         );
     }
 

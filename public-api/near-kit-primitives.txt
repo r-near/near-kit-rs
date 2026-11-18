@@ -241,11 +241,6 @@ pub fn near_kit_primitives::protocol::ActionErrorKind::deserialize<__D>(__D) -> 
 #[non_exhaustive] pub enum near_kit_primitives::protocol::ActionViewConversionError
 pub near_kit_primitives::protocol::ActionViewConversionError::DeployCodeUnavailable
 pub near_kit_primitives::protocol::ActionViewConversionError::DeployCodeUnavailable::code_hash: near_kit_primitives::CryptoHash
-pub near_kit_primitives::protocol::ActionViewConversionError::InvalidBase64
-pub near_kit_primitives::protocol::ActionViewConversionError::InvalidBase64::field: &'static str
-pub near_kit_primitives::protocol::ActionViewConversionError::InvalidBase64::message: alloc::string::String
-pub near_kit_primitives::protocol::ActionViewConversionError::InvalidCodeHash
-pub near_kit_primitives::protocol::ActionViewConversionError::InvalidCodeHash::actual: usize
 pub near_kit_primitives::protocol::ActionViewConversionError::NestedDelegate
 impl core::clone::Clone for near_kit_primitives::protocol::ActionViewConversionError
 pub fn near_kit_primitives::protocol::ActionViewConversionError::clone(&self) -> near_kit_primitives::protocol::ActionViewConversionError
@@ -1607,17 +1602,17 @@ pub near_kit_primitives::rpc::ActionView::DeleteAccount::beneficiary_id: near_ac
 #[non_exhaustive] pub near_kit_primitives::rpc::ActionView::DeleteKey
 pub near_kit_primitives::rpc::ActionView::DeleteKey::public_key: near_kit_primitives::signer::PublicKey
 #[non_exhaustive] pub near_kit_primitives::rpc::ActionView::DeployContract
-pub near_kit_primitives::rpc::ActionView::DeployContract::code: alloc::string::String
+pub near_kit_primitives::rpc::ActionView::DeployContract::code_hash: near_kit_primitives::CryptoHash
 #[non_exhaustive] pub near_kit_primitives::rpc::ActionView::DeployGlobalContract
-pub near_kit_primitives::rpc::ActionView::DeployGlobalContract::code: alloc::string::String
+pub near_kit_primitives::rpc::ActionView::DeployGlobalContract::code_hash: near_kit_primitives::CryptoHash
 #[non_exhaustive] pub near_kit_primitives::rpc::ActionView::DeployGlobalContractByAccountId
-pub near_kit_primitives::rpc::ActionView::DeployGlobalContractByAccountId::code: alloc::string::String
+pub near_kit_primitives::rpc::ActionView::DeployGlobalContractByAccountId::code_hash: near_kit_primitives::CryptoHash
 #[non_exhaustive] pub near_kit_primitives::rpc::ActionView::DeterministicStateInit
 pub near_kit_primitives::rpc::ActionView::DeterministicStateInit::code: near_kit_primitives::rpc::GlobalContractIdentifierView
-pub near_kit_primitives::rpc::ActionView::DeterministicStateInit::data: alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>
+pub near_kit_primitives::rpc::ActionView::DeterministicStateInit::data: alloc::collections::btree::map::BTreeMap<alloc::vec::Vec<u8>, alloc::vec::Vec<u8>>
 pub near_kit_primitives::rpc::ActionView::DeterministicStateInit::deposit: near_token::NearToken
 #[non_exhaustive] pub near_kit_primitives::rpc::ActionView::FunctionCall
-pub near_kit_primitives::rpc::ActionView::FunctionCall::args: alloc::string::String
+pub near_kit_primitives::rpc::ActionView::FunctionCall::args: alloc::vec::Vec<u8>
 pub near_kit_primitives::rpc::ActionView::FunctionCall::deposit: near_token::NearToken
 pub near_kit_primitives::rpc::ActionView::FunctionCall::gas: near_gas::NearGas
 pub near_kit_primitives::rpc::ActionView::FunctionCall::method_name: alloc::string::String
@@ -1631,7 +1626,7 @@ pub near_kit_primitives::rpc::ActionView::TransferToGasKey::deposit: near_token:
 pub near_kit_primitives::rpc::ActionView::TransferToGasKey::public_key: near_kit_primitives::signer::PublicKey
 #[non_exhaustive] pub near_kit_primitives::rpc::ActionView::UniversalStateInit
 pub near_kit_primitives::rpc::ActionView::UniversalStateInit::deposit: near_token::NearToken
-pub near_kit_primitives::rpc::ActionView::UniversalStateInit::state_init: alloc::string::String
+pub near_kit_primitives::rpc::ActionView::UniversalStateInit::state_init: alloc::vec::Vec<u8>
 #[non_exhaustive] pub near_kit_primitives::rpc::ActionView::UseGlobalContract
 pub near_kit_primitives::rpc::ActionView::UseGlobalContract::code_hash: near_kit_primitives::CryptoHash
 #[non_exhaustive] pub near_kit_primitives::rpc::ActionView::UseGlobalContractByAccountId
@@ -1640,8 +1635,8 @@ pub near_kit_primitives::rpc::ActionView::UseGlobalContractByAccountId::account_
 pub near_kit_primitives::rpc::ActionView::WithdrawFromGasKey::amount: near_token::NearToken
 pub near_kit_primitives::rpc::ActionView::WithdrawFromGasKey::public_key: near_kit_primitives::signer::PublicKey
 impl near_kit_primitives::rpc::ActionView
-pub fn near_kit_primitives::rpc::ActionView::deploy_code_hash(&self) -> core::option::Option<core::result::Result<near_kit_primitives::CryptoHash, near_kit_primitives::protocol::ActionViewConversionError>>
-pub fn near_kit_primitives::rpc::ActionView::function_call(alloc::string::String, alloc::string::String, near_gas::NearGas, near_token::NearToken) -> Self
+pub fn near_kit_primitives::rpc::ActionView::deploy_code_hash(&self) -> core::option::Option<near_kit_primitives::CryptoHash>
+pub fn near_kit_primitives::rpc::ActionView::function_call(alloc::string::String, alloc::vec::Vec<u8>, near_gas::NearGas, near_token::NearToken) -> Self
 pub fn near_kit_primitives::rpc::ActionView::transfer(near_token::NearToken) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::ActionView
 pub fn near_kit_primitives::rpc::ActionView::clone(&self) -> near_kit_primitives::rpc::ActionView
