@@ -623,6 +623,31 @@ pub enum FinalExecutionStatus {
 /// [`Included`](crate::transaction::Included),
 /// [`IncludedFinal`](crate::transaction::IncludedFinal)): enough to poll for
 /// the final result later via `Near::tx_status`.
+///
+/// An executed outcome converts into one too, keeping the outcome
+/// (`From<FinalExecutionOutcome>`, `From<CheckedOutcome>`). So code that
+/// sends through any [`TxSender`](crate::TxSender) and polls the
+/// transaction itself can take every sender whose output converts, whatever
+/// its wait level, and still reject one that never sends (a test recorder
+/// returning `()`):
+///
+/// ```rust
+/// use near_kit_primitives::protocol::Action;
+/// use near_kit_primitives::rpc::SendTxResponse;
+/// use near_kit_primitives::{AccountId, TxSender};
+///
+/// /// Send `actions`, returning what `tx_status` needs to follow them.
+/// async fn submit<S>(
+///     sender: &S,
+///     receiver_id: AccountId,
+///     actions: Vec<Action>,
+/// ) -> Result<SendTxResponse, S::SendError>
+/// where
+///     S: TxSender<Output: Into<SendTxResponse>>,
+/// {
+///     Ok(sender.send(receiver_id, actions).await?.into())
+/// }
+/// ```
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SendTxResponse {
@@ -1344,6 +1369,26 @@ impl std::ops::Deref for CheckedOutcome {
 impl AsRef<FinalExecutionOutcome> for CheckedOutcome {
     fn as_ref(&self) -> &FinalExecutionOutcome {
         &self.0
+    }
+}
+
+/// The transaction's hash and signer, keeping the outcome, so the result of a
+/// send at any wait level converts into a [`SendTxResponse`] (see its
+/// docs for a sender-generic example).
+impl From<FinalExecutionOutcome> for SendTxResponse {
+    fn from(outcome: FinalExecutionOutcome) -> Self {
+        Self::new(
+            outcome.transaction.hash,
+            outcome.transaction.signer_id.clone(),
+            Some(outcome),
+        )
+    }
+}
+
+/// Like `From<FinalExecutionOutcome>`.
+impl From<CheckedOutcome> for SendTxResponse {
+    fn from(outcome: CheckedOutcome) -> Self {
+        outcome.0.into()
     }
 }
 
@@ -3337,6 +3382,31 @@ mod tests {
         let response: RpcTransactionResponse = serde_json::from_value(json).unwrap();
         assert_eq!(response.final_execution_status, TxExecutionStatus::Final);
         response.outcome.unwrap()
+    }
+
+    #[test]
+    fn send_tx_response_from_outcome_keeps_hash_signer_and_outcome() {
+        let outcome = make_success_outcome("");
+        let hash = outcome.transaction.hash;
+        let signer = outcome.transaction.signer_id.clone();
+
+        let response = SendTxResponse::from(outcome.clone());
+        assert_eq!(response.transaction_hash, hash);
+        assert_eq!(response.transaction_hash, *outcome.transaction_hash());
+        assert_eq!(response.sender_id, signer);
+        assert_eq!(
+            response
+                .outcome
+                .as_ref()
+                .map(FinalExecutionOutcome::transaction_hash),
+            Some(&hash)
+        );
+
+        let checked = outcome.checked().unwrap();
+        let response = SendTxResponse::from(checked);
+        assert_eq!(response.transaction_hash, hash);
+        assert_eq!(response.sender_id, signer);
+        assert!(response.outcome.is_some());
     }
 
     #[test]

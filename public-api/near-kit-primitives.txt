@@ -2066,6 +2066,8 @@ impl core::convert::AsRef<near_kit_primitives::rpc::FinalExecutionOutcome> for n
 pub fn near_kit_primitives::rpc::CheckedOutcome::as_ref(&self) -> &near_kit_primitives::rpc::FinalExecutionOutcome
 impl core::convert::From<near_kit_primitives::rpc::CheckedOutcome> for near_kit_primitives::rpc::FinalExecutionOutcome
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::from(near_kit_primitives::rpc::CheckedOutcome) -> Self
+impl core::convert::From<near_kit_primitives::rpc::CheckedOutcome> for near_kit_primitives::rpc::SendTxResponse
+pub fn near_kit_primitives::rpc::SendTxResponse::from(near_kit_primitives::rpc::CheckedOutcome) -> Self
 impl core::fmt::Debug for near_kit_primitives::rpc::CheckedOutcome
 pub fn near_kit_primitives::rpc::CheckedOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::ops::deref::Deref for near_kit_primitives::rpc::CheckedOutcome
@@ -2284,6 +2286,8 @@ impl core::convert::AsRef<near_kit_primitives::rpc::FinalExecutionOutcome> for n
 pub fn near_kit_primitives::rpc::CheckedOutcome::as_ref(&self) -> &near_kit_primitives::rpc::FinalExecutionOutcome
 impl core::convert::From<near_kit_primitives::rpc::CheckedOutcome> for near_kit_primitives::rpc::FinalExecutionOutcome
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::from(near_kit_primitives::rpc::CheckedOutcome) -> Self
+impl core::convert::From<near_kit_primitives::rpc::FinalExecutionOutcome> for near_kit_primitives::rpc::SendTxResponse
+pub fn near_kit_primitives::rpc::SendTxResponse::from(near_kit_primitives::rpc::FinalExecutionOutcome) -> Self
 impl core::fmt::Debug for near_kit_primitives::rpc::FinalExecutionOutcome
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::FinalExecutionOutcome
@@ -2390,6 +2394,10 @@ impl near_kit_primitives::rpc::SendTxResponse
 pub fn near_kit_primitives::rpc::SendTxResponse::new(near_kit_primitives::CryptoHash, near_account_id::account_id::AccountId, core::option::Option<near_kit_primitives::rpc::FinalExecutionOutcome>) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::SendTxResponse
 pub fn near_kit_primitives::rpc::SendTxResponse::clone(&self) -> near_kit_primitives::rpc::SendTxResponse
+impl core::convert::From<near_kit_primitives::rpc::CheckedOutcome> for near_kit_primitives::rpc::SendTxResponse
+pub fn near_kit_primitives::rpc::SendTxResponse::from(near_kit_primitives::rpc::CheckedOutcome) -> Self
+impl core::convert::From<near_kit_primitives::rpc::FinalExecutionOutcome> for near_kit_primitives::rpc::SendTxResponse
+pub fn near_kit_primitives::rpc::SendTxResponse::from(near_kit_primitives::rpc::FinalExecutionOutcome) -> Self
 impl core::fmt::Debug for near_kit_primitives::rpc::SendTxResponse
 pub fn near_kit_primitives::rpc::SendTxResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub struct near_kit_primitives::rpc::SlashedValidator

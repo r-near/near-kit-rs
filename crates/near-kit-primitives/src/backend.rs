@@ -72,6 +72,9 @@ pub trait TxSender: MaybeSend + MaybeSync {
     fn account_id(&self) -> &AccountId;
 
     /// Send one transaction with `actions` to `receiver_id`.
+    ///
+    /// The returned future may borrow `self`: implement it as
+    /// `async fn send(&self, ..)`.
     fn send(
         &self,
         receiver_id: AccountId,
