@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.32.0...near-kit-v0.33.0) - 2026-11-19
+
+### Added
+
+- [**breaking**] a TxSender's output names the transaction it sent and the sender names its chain, so code generic over any sender can poll what it sent ([#439](https://github.com/r-near/near-kit-rs/pull/439))
+
 ## [0.31.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.31.0...near-kit-v0.31.1) - 2026-11-16
 
 ### Fixed
