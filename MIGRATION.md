@@ -1,3 +1,19 @@
+# Upgrading from near-kit 0.32 to 0.33
+
+**A `TxSender` names the transaction it sent and the chain it sends on.**
+`TxSender::Output` now has to convert into a `SendTxResponse` (the
+transaction hash and signer), so code generic over any sender can poll what
+it sent with `near.tx_status(..)`. The trait also gains a required
+`fn chain_id(&self) -> &ChainId`. Only your own `TxSender` impls change;
+`SigningNear` at every wait level already satisfies both, and an executed
+`FinalExecutionOutcome` or `CheckedOutcome` now converts with `.into()`.
+
+| 0.32 | 0.33 |
+|---|---|
+| A test double with `type Output = ()` (or a count, or the recorded actions) | Return `SendTxResponse::new(CryptoHash::ZERO, account_id, None)`, or keep your own type and implement `From<YourOutput> for SendTxResponse` with a placeholder hash |
+| A `TxSender` impl without `chain_id` | Add `fn chain_id(&self) -> &ChainId` (`near_kit::protocol::ChainId`); a sender built on `SigningNear` returns `self.near().chain_id()` |
+| An object-safe trait in front of `TxSender` (`impl TxSender for dyn MySender`) | Give it a method for the chain ID too and forward `chain_id` to it |
+
 # Upgrading from near-kit 0.31 to 0.32
 
 **`ActionView` decodes its base64 fields.**

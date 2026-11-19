@@ -10,6 +10,8 @@
 //!
 //! - `MockChain`: a `Viewer` that answers views from a table, and a `TxSender`
 //!   that records each transaction (receiver and actions) instead of sending.
+//!   Its output converts into a `SendTxResponse` like every sender's, with a
+//!   placeholder hash since nothing was sent.
 //! - A `#[contract]` client and a `FungibleTokenClient` built on it with
 //!   `Contract::client(backend, contract_id)`.
 //! - App code (`tip`) generic over the backend, which checks each call's
@@ -32,8 +34,8 @@ use std::error::Error;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::{Action, FunctionCallAction};
-use near_kit::rpc::{BlockReference, FinalExecutionOutcome, ViewFunctionResult};
+use near_kit::protocol::{Action, ChainId, FunctionCallAction};
+use near_kit::rpc::{BlockReference, FinalExecutionOutcome, SendTxResponse, ViewFunctionResult};
 use near_kit::standards::{FungibleToken, FungibleTokenClient};
 use near_kit::{
     AccountId, AccountIdRef, Contract, ContractError, CryptoHash, Gas, NearToken, TxSender, Viewer,
@@ -115,7 +117,15 @@ type SentLog = Vec<(AccountId, Vec<Action>)>;
 /// method the mock was told to fail.
 #[derive(Debug)]
 struct MockOutcome {
+    sender_id: AccountId,
     failure: Option<String>,
+}
+
+/// Nothing was sent, so there is no transaction to poll: a placeholder hash.
+impl From<MockOutcome> for SendTxResponse {
+    fn from(outcome: MockOutcome) -> Self {
+        SendTxResponse::new(CryptoHash::ZERO, outcome.sender_id, None)
+    }
 }
 
 impl CheckOutput for MockOutcome {
@@ -134,6 +144,7 @@ impl CheckOutput for MockOutcome {
 #[derive(Clone)]
 struct MockChain {
     account_id: AccountId,
+    chain_id: ChainId,
     views: Arc<Mutex<ViewTable>>,
     sent: Arc<Mutex<SentLog>>,
     failing: Arc<Mutex<HashSet<String>>>,
@@ -143,6 +154,7 @@ impl MockChain {
     fn new(account_id: AccountId) -> Self {
         Self {
             account_id,
+            chain_id: ChainId::new("mock"),
             views: Arc::default(),
             sent: Arc::default(),
             failing: Arc::default(),
@@ -207,6 +219,10 @@ impl TxSender for MockChain {
         &self.account_id
     }
 
+    fn chain_id(&self) -> &ChainId {
+        &self.chain_id
+    }
+
     async fn send(
         &self,
         receiver_id: AccountId,
@@ -220,7 +236,10 @@ impl TxSender for MockChain {
             _ => None,
         });
         self.sent.lock().unwrap().push((receiver_id, actions));
-        Ok(MockOutcome { failure })
+        Ok(MockOutcome {
+            sender_id: self.account_id.clone(),
+            failure,
+        })
     }
 }
 

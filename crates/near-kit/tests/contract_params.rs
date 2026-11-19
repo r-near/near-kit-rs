@@ -13,8 +13,8 @@
 use std::sync::{Arc, Mutex};
 
 use borsh::BorshSerialize;
-use near_kit::protocol::Action;
-use near_kit::rpc::{BlockReference, ViewFunctionResult};
+use near_kit::protocol::{Action, ChainId};
+use near_kit::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
 use near_kit::transaction::FunctionCall;
 use near_kit::{
     AccountId, AccountIdRef, Contract, CryptoHash, Gas, NearToken, TxSender, Viewer, account,
@@ -135,25 +135,33 @@ impl Viewer for Recorder {
 }
 
 impl TxSender for Recorder {
-    type Output = ();
+    type Output = SendTxResponse;
     type SendError = std::convert::Infallible;
 
     fn account_id(&self) -> &AccountId {
         unreachable!("not used by Call")
     }
 
+    fn chain_id(&self) -> &ChainId {
+        unreachable!("not used by these tests")
+    }
+
     async fn send(
         &self,
         _receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<(), Self::SendError> {
+    ) -> Result<SendTxResponse, Self::SendError> {
         for action in actions {
             let Action::FunctionCall(call) = action else {
                 panic!("expected a function call, got {action:?}");
             };
             self.args.lock().unwrap().push(call.args);
         }
-        Ok(())
+        Ok(SendTxResponse::new(
+            CryptoHash::ZERO,
+            account!("mock.near"),
+            None,
+        ))
     }
 }
 

@@ -262,8 +262,8 @@ mod custom_backend {
     use std::sync::Arc;
 
     use near_kit::ContractError;
-    use near_kit::protocol::Action;
-    use near_kit::rpc::{BlockReference, ViewFunctionResult};
+    use near_kit::protocol::{Action, ChainId};
+    use near_kit::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
     use near_kit::*;
 
     #[near_kit::contract]
@@ -292,15 +292,27 @@ mod custom_backend {
     }
 
     impl TxSender for Mock {
-        type Output = ();
+        type Output = SendTxResponse;
         type SendError = String;
 
         fn account_id(&self) -> &AccountId {
             &self.0
         }
 
-        async fn send(&self, _receiver_id: AccountId, _actions: Vec<Action>) -> Result<(), String> {
-            Ok(())
+        fn chain_id(&self) -> &ChainId {
+            unreachable!("not used by these tests")
+        }
+
+        async fn send(
+            &self,
+            _receiver_id: AccountId,
+            _actions: Vec<Action>,
+        ) -> Result<SendTxResponse, String> {
+            Ok(SendTxResponse::new(
+                CryptoHash::ZERO,
+                account!("mock.near"),
+                None,
+            ))
         }
     }
 
@@ -327,15 +339,27 @@ mod custom_backend {
     }
 
     impl TxSender for dyn UserSender {
-        type Output = ();
+        type Output = SendTxResponse;
         type SendError = String;
 
         fn account_id(&self) -> &AccountId {
             self.id()
         }
 
-        async fn send(&self, _receiver_id: AccountId, _actions: Vec<Action>) -> Result<(), String> {
-            Ok(())
+        fn chain_id(&self) -> &ChainId {
+            unreachable!("not used by these tests")
+        }
+
+        async fn send(
+            &self,
+            _receiver_id: AccountId,
+            _actions: Vec<Action>,
+        ) -> Result<SendTxResponse, String> {
+            Ok(SendTxResponse::new(
+                CryptoHash::ZERO,
+                account!("mock.near"),
+                None,
+            ))
         }
     }
 

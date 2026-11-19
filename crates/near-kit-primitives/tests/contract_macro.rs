@@ -7,8 +7,8 @@ use std::future::IntoFuture;
 use std::sync::{Arc, Mutex};
 
 use near_kit_primitives::ContractError;
-use near_kit_primitives::protocol::Action;
-use near_kit_primitives::rpc::{BlockReference, Finality, ViewFunctionResult};
+use near_kit_primitives::protocol::{Action, ChainId};
+use near_kit_primitives::rpc::{BlockReference, Finality, SendTxResponse, ViewFunctionResult};
 use near_kit_primitives::transaction::CodecError;
 use near_kit_primitives::{
     AccountId, AccountIdRef, Contract, CryptoHash, Gas, NearToken, TxSender, Viewer, account,
@@ -155,16 +155,28 @@ impl Viewer for Backend {
 }
 
 impl TxSender for Backend {
-    type Output = ();
+    type Output = SendTxResponse;
     type SendError = String;
 
     fn account_id(&self) -> &AccountId {
         unreachable!("not used by generated clients")
     }
 
-    async fn send(&self, receiver_id: AccountId, actions: Vec<Action>) -> Result<(), String> {
+    fn chain_id(&self) -> &ChainId {
+        unreachable!("not used by these tests")
+    }
+
+    async fn send(
+        &self,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> Result<SendTxResponse, String> {
         self.sent.lock().unwrap().push((receiver_id, actions));
-        Ok(())
+        Ok(SendTxResponse::new(
+            CryptoHash::ZERO,
+            account!("mock.near"),
+            None,
+        ))
     }
 }
 

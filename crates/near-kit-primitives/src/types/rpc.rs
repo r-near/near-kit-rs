@@ -625,29 +625,9 @@ pub enum FinalExecutionStatus {
 /// the final result later via `Near::tx_status`.
 ///
 /// An executed outcome converts into one too, keeping the outcome
-/// (`From<FinalExecutionOutcome>`, `From<CheckedOutcome>`). So code that
-/// sends through any [`TxSender`](crate::TxSender) and polls the
-/// transaction itself can take every sender whose output converts, whatever
-/// its wait level, and still reject one that never sends (a test recorder
-/// returning `()`):
-///
-/// ```rust
-/// use near_kit_primitives::protocol::Action;
-/// use near_kit_primitives::rpc::SendTxResponse;
-/// use near_kit_primitives::{AccountId, TxSender};
-///
-/// /// Send `actions`, returning what `tx_status` needs to follow them.
-/// async fn submit<S>(
-///     sender: &S,
-///     receiver_id: AccountId,
-///     actions: Vec<Action>,
-/// ) -> Result<SendTxResponse, S::SendError>
-/// where
-///     S: TxSender<Output: Into<SendTxResponse>>,
-/// {
-///     Ok(sender.send(receiver_id, actions).await?.into())
-/// }
-/// ```
+/// (`From<FinalExecutionOutcome>`, `From<CheckedOutcome>`), and every
+/// [`TxSender::Output`](crate::TxSender::Output) converts into one, so code
+/// generic over any sender can poll what it sent.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SendTxResponse {
@@ -1373,8 +1353,7 @@ impl AsRef<FinalExecutionOutcome> for CheckedOutcome {
 }
 
 /// The transaction's hash and signer, keeping the outcome, so the result of a
-/// send at any wait level converts into a [`SendTxResponse`] (see its
-/// docs for a sender-generic example).
+/// send at any wait level converts into a [`SendTxResponse`].
 impl From<FinalExecutionOutcome> for SendTxResponse {
     fn from(outcome: FinalExecutionOutcome) -> Self {
         Self::new(

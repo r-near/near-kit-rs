@@ -532,6 +532,10 @@ impl<W: WaitLevel> crate::TxSender for SigningNear<W> {
         self.signer.account_id()
     }
 
+    fn chain_id(&self) -> &crate::protocol::ChainId {
+        self.near.chain_id()
+    }
+
     fn send(
         &self,
         receiver_id: AccountId,

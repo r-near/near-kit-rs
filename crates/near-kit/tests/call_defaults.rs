@@ -7,9 +7,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use borsh::BorshSerialize;
-use near_kit::protocol::Action;
+use near_kit::protocol::{Action, ChainId};
+use near_kit::rpc::SendTxResponse;
 use near_kit::transaction::FunctionCall;
-use near_kit::{AccountId, Contract, Gas, NearToken, TxSender, account};
+use near_kit::{AccountId, Contract, CryptoHash, Gas, NearToken, TxSender, account};
 use serde::Serialize;
 
 const TRANSFER_CALL_GAS: Gas = Gas::from_tgas(300);
@@ -64,25 +65,33 @@ impl Recorder {
 }
 
 impl TxSender for Recorder {
-    type Output = ();
+    type Output = SendTxResponse;
     type SendError = std::convert::Infallible;
 
     fn account_id(&self) -> &AccountId {
         unreachable!("not used by Call")
     }
 
+    fn chain_id(&self) -> &ChainId {
+        unreachable!("not used by these tests")
+    }
+
     async fn send(
         &self,
         _receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<(), Self::SendError> {
+    ) -> Result<SendTxResponse, Self::SendError> {
         for action in actions {
             let Action::FunctionCall(call) = action else {
                 panic!("expected a function call, got {action:?}");
             };
             self.sent.lock().unwrap().push((call.gas, call.deposit));
         }
-        Ok(())
+        Ok(SendTxResponse::new(
+            CryptoHash::ZERO,
+            account!("mock.near"),
+            None,
+        ))
     }
 }
 

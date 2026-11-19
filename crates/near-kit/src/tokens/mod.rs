@@ -40,7 +40,8 @@ pub(crate) mod mock {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
-    use crate::rpc::{BlockReference, ViewFunctionResult};
+    use crate::protocol::ChainId;
+    use crate::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
     use crate::types::{AccountId, AccountIdRef, Action, CryptoHash};
     use crate::{TxSender, Viewer};
 
@@ -83,28 +84,40 @@ pub(crate) mod mock {
         }
     }
 
+    /// The actions of a transaction the mock didn't send.
+    pub(crate) struct Sent(Vec<Action>);
+
+    /// A placeholder: nothing was sent.
+    impl From<Sent> for SendTxResponse {
+        fn from(_: Sent) -> Self {
+            SendTxResponse::new(CryptoHash::ZERO, "mock.near".parse().unwrap(), None)
+        }
+    }
+
     impl TxSender for Mock {
-        type Output = (AccountId, Vec<Action>);
+        type Output = Sent;
         type SendError = String;
 
         fn account_id(&self) -> &AccountId {
             unimplemented!("tokens never ask for the sender")
         }
 
+        fn chain_id(&self) -> &ChainId {
+            unimplemented!("tokens never ask for the chain")
+        }
+
         async fn send(
             &self,
-            receiver_id: AccountId,
+            _receiver_id: AccountId,
             actions: Vec<Action>,
-        ) -> Result<Self::Output, String> {
-            Ok((receiver_id, actions))
+        ) -> Result<Sent, String> {
+            Ok(Sent(actions))
         }
     }
 
     /// The JSON arguments, deposit and gas of a single sent function call.
-    pub(crate) fn sent_call(
-        sent: (AccountId, Vec<Action>),
-    ) -> (String, serde_json::Value, u128, u64) {
-        let (_, actions) = sent;
+    pub(crate) fn sent_call(sent: Sent) -> (String, serde_json::Value, u128, u64) {
+        let Sent(actions) = sent;
         assert_eq!(actions.len(), 1);
         match actions.into_iter().next().unwrap() {
             Action::FunctionCall(call) => (

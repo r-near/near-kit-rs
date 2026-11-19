@@ -3000,7 +3000,7 @@ impl near_kit_primitives::transaction::WaitLevel for near_kit_primitives::transa
 pub type near_kit_primitives::transaction::Submitted::Response = near_kit_primitives::rpc::SendTxResponse
 pub const near_kit_primitives::transaction::Submitted::STATUS: near_kit_primitives::rpc::TxExecutionStatus
 pub trait near_kit_primitives::transaction::WaitLevel: near_kit_primitives::types::wait_level::sealed::Sealed + core::marker::Send + core::marker::Sync + 'static
-pub type near_kit_primitives::transaction::WaitLevel::Response: core::marker::Send + 'static
+pub type near_kit_primitives::transaction::WaitLevel::Response: core::convert::Into<near_kit_primitives::rpc::SendTxResponse> + core::marker::Send + 'static
 pub const near_kit_primitives::transaction::WaitLevel::STATUS: near_kit_primitives::rpc::TxExecutionStatus
 impl near_kit_primitives::transaction::WaitLevel for near_kit_primitives::transaction::Executed
 pub type near_kit_primitives::transaction::Executed::Response = near_kit_primitives::rpc::FinalExecutionOutcome
@@ -3119,24 +3119,28 @@ impl<T: core::marker::Send + ?core::marker::Sized> near_kit_primitives::MaybeSen
 pub trait near_kit_primitives::MaybeSync: core::marker::Sync
 impl<T: core::marker::Sync + ?core::marker::Sized> near_kit_primitives::MaybeSync for T
 pub trait near_kit_primitives::TxSender: near_kit_primitives::MaybeSend + near_kit_primitives::MaybeSync
-pub type near_kit_primitives::TxSender::Output
+pub type near_kit_primitives::TxSender::Output: core::convert::Into<near_kit_primitives::rpc::SendTxResponse>
 pub type near_kit_primitives::TxSender::SendError
 pub fn near_kit_primitives::TxSender::account_id(&self) -> &near_account_id::account_id::AccountId
+pub fn near_kit_primitives::TxSender::chain_id(&self) -> &near_kit_primitives::protocol::ChainId
 pub fn near_kit_primitives::TxSender::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
 impl<T: near_kit_primitives::TxSender + ?core::marker::Sized> near_kit_primitives::TxSender for &T
 pub type &T::Output = <T as near_kit_primitives::TxSender>::Output
 pub type &T::SendError = <T as near_kit_primitives::TxSender>::SendError
 pub fn &T::account_id(&self) -> &near_account_id::account_id::AccountId
+pub fn &T::chain_id(&self) -> &near_kit_primitives::protocol::ChainId
 pub fn &T::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
 impl<T: near_kit_primitives::TxSender + ?core::marker::Sized> near_kit_primitives::TxSender for alloc::boxed::Box<T>
 pub type alloc::boxed::Box<T>::Output = <T as near_kit_primitives::TxSender>::Output
 pub type alloc::boxed::Box<T>::SendError = <T as near_kit_primitives::TxSender>::SendError
 pub fn alloc::boxed::Box<T>::account_id(&self) -> &near_account_id::account_id::AccountId
+pub fn alloc::boxed::Box<T>::chain_id(&self) -> &near_kit_primitives::protocol::ChainId
 pub fn alloc::boxed::Box<T>::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
 impl<T: near_kit_primitives::TxSender + ?core::marker::Sized> near_kit_primitives::TxSender for alloc::sync::Arc<T>
 pub type alloc::sync::Arc<T>::Output = <T as near_kit_primitives::TxSender>::Output
 pub type alloc::sync::Arc<T>::SendError = <T as near_kit_primitives::TxSender>::SendError
 pub fn alloc::sync::Arc<T>::account_id(&self) -> &near_account_id::account_id::AccountId
+pub fn alloc::sync::Arc<T>::chain_id(&self) -> &near_kit_primitives::protocol::ChainId
 pub fn alloc::sync::Arc<T>::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
 pub trait near_kit_primitives::Viewer: near_kit_primitives::MaybeSend + near_kit_primitives::MaybeSync
 pub type near_kit_primitives::Viewer::ViewError

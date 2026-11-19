@@ -13,7 +13,7 @@ use crate::error::CodecError;
 use crate::platform::{BoxFuture, MaybeSend, MaybeSync};
 use crate::transaction::FunctionCall;
 use crate::types::{
-    AccountId, AccountIdRef, Action, BlockReference, Gas, NearToken, ViewFunctionResult,
+    AccountId, AccountIdRef, Action, BlockReference, ChainId, Gas, NearToken, ViewFunctionResult,
 };
 
 /// A backend that can run contract view functions.
@@ -48,11 +48,28 @@ pub trait Viewer: MaybeSend + MaybeSync {
     ) -> impl Future<Output = Result<ViewFunctionResult, Self::ViewError>> + MaybeSend;
 }
 
-/// A backend that can send transactions from a fixed account.
+/// A backend that can send transactions from a fixed account on a fixed
+/// chain.
 ///
 /// This is the write verb: a transaction is a receiver plus actions, and the
 /// backend decides how to sign, how long to wait and what to return
-/// ([`Output`](Self::Output)).
+/// ([`Output`](Self::Output)). Whatever it returns identifies the transaction
+/// it sent, so code generic over any sender can follow it up with
+/// `tx_status`:
+///
+/// ```rust
+/// use near_kit_primitives::protocol::Action;
+/// use near_kit_primitives::rpc::SendTxResponse;
+/// use near_kit_primitives::{AccountId, TxSender};
+///
+/// async fn submit<S: TxSender>(
+///     sender: &S,
+///     receiver_id: AccountId,
+///     actions: Vec<Action>,
+/// ) -> Result<SendTxResponse, S::SendError> {
+///     Ok(sender.send(receiver_id, actions).await?.into())
+/// }
+/// ```
 ///
 /// Generated clients need a `Clone` backend; `&T`, `Box<T>` and `Arc<T>`
 /// forward to `T`. Through a short borrow, send with [`Call::send`].
@@ -63,13 +80,23 @@ pub trait Viewer: MaybeSend + MaybeSync {
 )]
 pub trait TxSender: MaybeSend + MaybeSync {
     /// What a sent transaction resolves to, such as an execution outcome or
-    /// just a transaction hash.
-    type Output;
+    /// just its hash and signer.
+    ///
+    /// It converts into a [`SendTxResponse`](crate::rpc::SendTxResponse)
+    /// naming a transaction that was really sent. A test double that sends
+    /// nothing has no such hash and returns a placeholder.
+    type Output: Into<crate::rpc::SendTxResponse>;
     /// The backend's error. Unbounded.
     type SendError;
 
     /// The account transactions are sent from.
     fn account_id(&self) -> &AccountId;
+
+    /// The chain transactions are sent on.
+    ///
+    /// For `near-kit`'s `SigningNear` this is the chain ID its `Near` client
+    /// was built with, which nothing checks against the RPC node.
+    fn chain_id(&self) -> &ChainId;
 
     /// Send one transaction with `actions` to `receiver_id`.
     ///
@@ -526,6 +553,10 @@ macro_rules! forward {
                 (**self).account_id()
             }
 
+            fn chain_id(&self) -> &ChainId {
+                (**self).chain_id()
+            }
+
             fn send(
                 &self,
                 receiver_id: AccountId,
@@ -622,6 +653,7 @@ mod tests {
 
     use super::expansion::{borsh_args, call, json_args, view_borsh, view_json};
     use super::*;
+    use crate::rpc::SendTxResponse;
     use crate::types::{CryptoHash, Finality, FunctionCallAction};
 
     /// A view request as the backend saw it.
@@ -676,11 +708,26 @@ mod tests {
         sent: Mutex<Vec<(AccountId, Vec<Action>)>>,
     }
 
+    /// A sender-specific output, which a `Call` hands back unchanged.
+    #[derive(Debug, PartialEq)]
+    struct ActionCount(usize);
+
+    /// A placeholder: nothing was sent.
+    impl From<ActionCount> for SendTxResponse {
+        fn from(_: ActionCount) -> Self {
+            SendTxResponse::new(CryptoHash::ZERO, "mock.near".parse().unwrap(), None)
+        }
+    }
+
     impl TxSender for MockSender {
-        type Output = usize;
+        type Output = ActionCount;
         type SendError = String;
 
         fn account_id(&self) -> &AccountId {
+            unreachable!("not used by Call")
+        }
+
+        fn chain_id(&self) -> &ChainId {
             unreachable!("not used by Call")
         }
 
@@ -688,10 +735,10 @@ mod tests {
             &self,
             receiver_id: AccountId,
             actions: Vec<Action>,
-        ) -> Result<usize, String> {
+        ) -> Result<ActionCount, String> {
             let count = actions.len();
             self.sent.lock().unwrap().push((receiver_id, actions));
-            Ok(count)
+            Ok(ActionCount(count))
         }
     }
 
@@ -995,7 +1042,7 @@ mod tests {
         assert_eq!(FunctionCall::from(typed()).into_action().unwrap(), expected);
         assert!(sender.sent.lock().unwrap().is_empty());
 
-        assert_eq!(run(typed()).unwrap(), 1);
+        assert_eq!(run(typed()).unwrap(), ActionCount(1));
         let (receiver, actions) = sender.sent.lock().unwrap().pop().unwrap();
         assert_eq!(receiver, contract());
         assert_eq!(actions, [expected]);
@@ -1099,7 +1146,7 @@ mod tests {
         let sent =
             futures::executor::block_on(call(&sender, contract(), FunctionCall::new("add")).send())
                 .unwrap();
-        assert_eq!(sent, 1);
+        assert_eq!(sent, ActionCount(1));
         let recorded = sender.sent.lock().unwrap();
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0].0, contract());

@@ -97,7 +97,9 @@ backend's [`Output`](crate::TxSender::Output): for a `SigningNear` at the
 default level that is a [`FinalExecutionOutcome`](crate::rpc::FinalExecutionOutcome),
 which can hold a failed action, as with any send (see the
 [errors chapter](crate::guide::errors)). To decode a call's return value,
-use `outcome.json::<T>()`.
+use `outcome.json::<T>()`. Whatever the backend, its output converts into a
+[`SendTxResponse`](crate::rpc::SendTxResponse), the transaction's hash and
+signer, for polling with [`Near::tx_status`](crate::Near::tx_status).
 
 A client over a `Near` has no call methods: calling one is a compile error
 saying the backend "cannot send transactions". For another wait level, build
