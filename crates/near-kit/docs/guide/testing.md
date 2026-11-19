@@ -205,8 +205,11 @@ assert_eq!(total, 3);
 ## Record sends
 
 A [`TxSender`](crate::TxSender) picks its own
-[`Output`](crate::TxSender::Output). A recorder can return `()` and keep
-the receiver and actions of each transaction for the test to inspect:
+[`Output`](crate::TxSender::Output), as long as it converts into a
+[`SendTxResponse`](crate::rpc::SendTxResponse): the hash and signer of the
+transaction it sent. A recorder sends nothing, so it returns a placeholder
+hash and keeps the receiver and actions of each transaction for the test to
+inspect:
 
 ```rust
 # use serde::Deserialize;
@@ -221,7 +224,8 @@ the receiver and actions of each transaction for the test to inspect:
 # pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::Action;
+use near_kit::protocol::{Action, ChainId};
+use near_kit::rpc::SendTxResponse;
 use near_kit::standards::FungibleToken;
 use near_kit::*;
 use serde_json::json;
@@ -229,12 +233,13 @@ use serde_json::json;
 #[derive(Clone)]
 struct Recorder {
     account_id: AccountId,
+    chain_id: ChainId,
     sent: Arc<Mutex<Vec<(AccountId, Vec<Action>)>>>,
 }
 
 impl Recorder {
     fn new(account_id: AccountId) -> Self {
-        Self { account_id, sent: Default::default() }
+        Self { account_id, chain_id: ChainId::testnet(), sent: Default::default() }
     }
 
     fn sent(&self) -> Vec<(AccountId, Vec<Action>)> {
@@ -243,16 +248,24 @@ impl Recorder {
 }
 
 impl TxSender for Recorder {
-    type Output = ();
+    type Output = SendTxResponse;
     type SendError = std::convert::Infallible;
 
     fn account_id(&self) -> &AccountId {
         &self.account_id
     }
 
-    async fn send(&self, receiver_id: AccountId, actions: Vec<Action>) -> Result<(), Self::SendError> {
+    fn chain_id(&self) -> &ChainId {
+        &self.chain_id
+    }
+
+    async fn send(
+        &self,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> Result<SendTxResponse, Self::SendError> {
         self.sent.lock().unwrap().push((receiver_id, actions));
-        Ok(())
+        Ok(SendTxResponse::new(CryptoHash::ZERO, self.account_id.clone(), None))
     }
 }
 
@@ -323,7 +336,7 @@ implements them, including unsized `T`. Two consequences:
 use std::future::Future;
 use std::sync::Arc;
 
-use near_kit::protocol::Action;
+use near_kit::protocol::{Action, ChainId};
 use near_kit::rpc::{BoxFuture, FinalExecutionOutcome};
 use near_kit::standards::FungibleToken;
 use near_kit::*;
@@ -331,6 +344,7 @@ use near_kit::*;
 /// Any sender that waits for `Final` and fails with `near_kit::Error`.
 trait Wallet: MaybeSend + MaybeSync {
     fn account(&self) -> &AccountId;
+    fn chain(&self) -> &ChainId;
     fn send_boxed(
         &self,
         receiver_id: AccountId,
@@ -344,6 +358,10 @@ where
 {
     fn account(&self) -> &AccountId {
         self.account_id()
+    }
+
+    fn chain(&self) -> &ChainId {
+        self.chain_id()
     }
 
     fn send_boxed(
@@ -361,6 +379,10 @@ impl TxSender for dyn Wallet {
 
     fn account_id(&self) -> &AccountId {
         self.account()
+    }
+
+    fn chain_id(&self) -> &ChainId {
+        self.chain()
     }
 
     fn send(

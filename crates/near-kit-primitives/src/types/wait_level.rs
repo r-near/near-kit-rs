@@ -44,7 +44,9 @@ mod sealed {
 /// This trait is sealed and cannot be implemented outside this crate.
 pub trait WaitLevel: sealed::Sealed + Send + Sync + 'static {
     /// The type returned when awaiting a transaction with this wait level.
-    type Response: Send + 'static;
+    /// It converts into a [`SendTxResponse`], which is what lets
+    /// `SigningNear<W>` be a [`TxSender`](crate::TxSender) at every level.
+    type Response: Into<SendTxResponse> + Send + 'static;
 
     /// The RPC `wait_until` value.
     const STATUS: TxExecutionStatus;

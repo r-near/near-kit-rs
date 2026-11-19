@@ -5,8 +5,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::Action;
-use near_kit::rpc::{BlockReference, ViewFunctionResult};
+use near_kit::protocol::{Action, ChainId};
+use near_kit::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
 use near_kit::{AccountId, AccountIdRef, Contract, CryptoHash, TxSender, Viewer, account};
 
 #[near_kit::contract]
@@ -17,11 +17,12 @@ pub trait Counter {
     fn increment(&mut self);
 }
 
-/// Records the method of every view and call; views answer `7`, calls the
-/// number of actions sent.
+/// Records the method of every view and call; views answer `7`, calls a
+/// placeholder transaction from the recorder's account.
 #[derive(Clone)]
 struct Recorder {
     account_id: AccountId,
+    chain_id: ChainId,
     methods: Arc<Mutex<Vec<String>>>,
 }
 
@@ -41,25 +42,33 @@ impl Viewer for Recorder {
 }
 
 impl TxSender for Recorder {
-    type Output = usize;
+    type Output = SendTxResponse;
     type SendError = std::convert::Infallible;
 
     fn account_id(&self) -> &AccountId {
         &self.account_id
     }
 
+    fn chain_id(&self) -> &ChainId {
+        &self.chain_id
+    }
+
     async fn send(
         &self,
         _receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<usize, Self::SendError> {
+    ) -> Result<SendTxResponse, Self::SendError> {
         for action in &actions {
             let Action::FunctionCall(call) = action else {
                 panic!("expected a function call, got {action:?}");
             };
             self.methods.lock().unwrap().push(call.method_name.clone());
         }
-        Ok(actions.len())
+        Ok(SendTxResponse::new(
+            CryptoHash::ZERO,
+            self.account_id.clone(),
+            None,
+        ))
     }
 }
 
@@ -67,14 +76,17 @@ impl TxSender for Recorder {
 async fn a_boxed_backend_drives_a_contract_view_and_call() {
     let recorder = Recorder {
         account_id: account!("alice.testnet"),
+        chain_id: ChainId::testnet(),
         methods: Arc::default(),
     };
     let backend: Box<Recorder> = Box::new(recorder.clone());
     assert_eq!(TxSender::account_id(&backend).as_str(), "alice.testnet");
+    assert!(TxSender::chain_id(&backend).is_testnet());
 
     let counter = Counter::client(backend, account!("counter.testnet"));
     assert_eq!(counter.get().await.unwrap(), 7);
-    assert_eq!(counter.increment().await.unwrap(), 1);
+    let sent = counter.increment().await.unwrap();
+    assert_eq!(sent.sender_id, "alice.testnet");
 
     assert_eq!(*recorder.methods.lock().unwrap(), ["get", "increment"]);
 }

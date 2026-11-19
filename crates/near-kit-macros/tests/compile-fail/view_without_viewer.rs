@@ -1,7 +1,8 @@
 //! A view method on a client whose backend can't view reports the `Viewer`
 //! diagnostic.
 
-use near_kit::protocol::Action;
+use near_kit::protocol::{Action, ChainId};
+use near_kit::rpc::SendTxResponse;
 use near_kit::*;
 
 #[near_kit::contract]
@@ -16,15 +17,19 @@ pub trait Counter {
 struct SendOnly(AccountId);
 
 impl TxSender for SendOnly {
-    type Output = ();
+    type Output = SendTxResponse;
     type SendError = String;
 
     fn account_id(&self) -> &AccountId {
         &self.0
     }
 
-    async fn send(&self, _receiver_id: AccountId, _actions: Vec<Action>) -> Result<(), String> {
-        Ok(())
+    fn chain_id(&self) -> &ChainId {
+        unreachable!("the test only compiles")
+    }
+
+    async fn send(&self, _receiver: AccountId, _: Vec<Action>) -> Result<SendTxResponse, String> {
+        Ok(SendTxResponse::new(CryptoHash::ZERO, self.0.clone(), None))
     }
 }
 

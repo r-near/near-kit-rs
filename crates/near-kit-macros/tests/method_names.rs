@@ -2,8 +2,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::{Action, FunctionCallAction};
-use near_kit::rpc::{BlockReference, ViewFunctionResult};
+use near_kit::protocol::{Action, ChainId, FunctionCallAction};
+use near_kit::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
 use near_kit::*;
 
 /// Methods named after Rust keywords, declared with raw identifiers.
@@ -47,14 +47,22 @@ impl Viewer for Recorder {
 }
 
 impl TxSender for Recorder {
-    type Output = ();
+    type Output = SendTxResponse;
     type SendError = String;
 
     fn account_id(&self) -> &AccountId {
         unreachable!("the generated client doesn't ask for the sender")
     }
 
-    async fn send(&self, _receiver_id: AccountId, actions: Vec<Action>) -> Result<(), String> {
+    fn chain_id(&self) -> &ChainId {
+        unreachable!("not used by these tests")
+    }
+
+    async fn send(
+        &self,
+        _receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> Result<SendTxResponse, String> {
         let mut methods = self.methods.lock().unwrap();
         for action in actions {
             match action {
@@ -62,7 +70,11 @@ impl TxSender for Recorder {
                 other => panic!("expected a function call, got {other:?}"),
             }
         }
-        Ok(())
+        Ok(SendTxResponse::new(
+            CryptoHash::ZERO,
+            account!("mock.near"),
+            None,
+        ))
     }
 }
 
