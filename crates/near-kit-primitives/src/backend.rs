@@ -162,8 +162,7 @@ pub trait WithWaitLevel: TxSender {
 ///
 /// # async fn count<V>(backend: V, contract_id: AccountId) -> Result<u64, ContractError<V::ViewError>>
 /// # where
-/// #     V: Viewer + Clone + 'static,
-/// #     V::ViewError: 'static,
+/// #     V: Viewer + Clone,
 /// # {
 /// // `backend` is any `Viewer` (and `TxSender`, for `#[call]` methods).
 /// let counter = Counter::client(backend, contract_id);
@@ -180,7 +179,11 @@ pub trait Contract {
     fn client<C>(backend: C, contract_id: AccountId) -> Self::Client<C>;
 }
 
-/// Error from a [`View`] or [`Call`].
+/// Error from a [`View`].
+///
+/// A [`Call`] or [`Tx`] fails with its sender's
+/// [`SendError`](TxSender::SendError) instead, which takes encoding errors
+/// itself.
 ///
 /// Displays as the underlying error. It is a [`std::error::Error`] whenever
 /// the backend error is `Debug + Display`, not only when it is itself an

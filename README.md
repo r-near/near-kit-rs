@@ -58,11 +58,13 @@ async fn main() -> Result<(), Error> {
 
 - `Near` reads. `near.with_signer(signer)` gives a `SigningNear`, which reads and sends.
 - A transaction is a receiver plus `Action`s: `alice.transaction(id).add_action(..).await`.
-  It waits for `Final` execution unless `alice.wait_until::<W>()` picks another level.
+  It waits for `Final` execution unless `alice.wait_until::<W>()`, or `.wait_until::<W>()`
+  on one transaction, picks another level.
 - Reads are `View` values: `.args(..)`, `.at(block)`, then `.await`.
 - `#[near_kit::contract]` turns a trait describing a contract into a typed client.
 - Everything above is written against two traits, `Viewer` and `TxSender`, so it
-  also runs on your own backend: a mock, a gateway, or a send queue.
+  also runs on your own backend: a mock, a gateway, a wallet, or a send queue. Any
+  `TxSender` builds transactions with the same `.transaction(id)`.
 
 ## Examples
 

@@ -68,6 +68,37 @@ The protocol caps the total gas one transaction can prepay for its
 function calls, so a long batch may need splitting into several
 transactions.
 
+### Through any sender
+
+`Tx` works with any [`TxSender`](crate::TxSender), not only `SigningNear`:
+a wallet, a gateway or a test double builds transactions with the same
+[`transaction`](crate::TxSender::transaction) and `add_action`, and
+`.await` returns that sender's own output and error. A function generic
+over its sender takes it by reference:
+
+```rust,no_run
+use near_kit::protocol::Action;
+use near_kit::transaction::FunctionCall;
+use near_kit::*;
+
+async fn bump<S: TxSender>(sender: &S) -> Result<S::Output, S::SendError> {
+    sender
+        .transaction(account!("counter.testnet"))
+        .add_action(FunctionCall::new("bump").args(serde_json::json!({ "by": 2 })))
+        .add_action(Action::transfer(NearToken::from_millinear(10)))
+        .await
+}
+```
+
+`TxSender::transaction` borrows the sender, so its `Tx` awaits but can't
+outlive it. `SigningNear::transaction` clones the client into the `Tx`
+instead, so that one can be spawned or returned; through an
+`Arc<SigningNear>`, write `(*alice).transaction(..)` to get it. For any
+other owned sender, start from [`Tx::new`](crate::Tx::new). A sender that
+implements [`WithWaitLevel`](crate::WithWaitLevel), as `SigningNear` does,
+also supports [`Tx::wait_until`](crate::Tx::wait_until) for one
+transaction.
+
 ## The actions
 
 | Constructor | Does | Send to |

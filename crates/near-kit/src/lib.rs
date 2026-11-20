@@ -16,8 +16,9 @@
 //!
 //! `Near` reads. `near.with_signer(signer)` returns a `SigningNear`, which
 //! reads and sends; `alice.near()` gets the `Near` back. Typed contract
-//! clients, the token clients and the awaitable [`View`] and [`Call`] values
-//! are written against the two traits, so they run on your own backend too.
+//! clients, the token clients, the [`Tx`] builder and the awaitable [`View`]
+//! and [`Call`] values are written against the two traits, so they run on
+//! your own backend too.
 //!
 //! The offline core (types, keys, signing, transaction building) is also
 //! published alone as [`near-kit-primitives`](https://docs.rs/near-kit-primitives);

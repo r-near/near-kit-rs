@@ -1,3 +1,67 @@
+# Upgrading from near-kit 0.33 to 0.34
+
+**One `Tx` builder for every sender, and one error type per layer.**
+`Tx` moved to the crate root as `near_kit::Tx<'a, C>`, generic over any
+`TxSender`: a wallet, a gateway or a test double builds transactions with
+`sender.transaction(id).add_action(..).await`, just as `SigningNear` does,
+and gets back that sender's own output and error. A `#[contract]` call
+now fails with the sender's error too (`near_kit::Error` through a
+`SigningNear`) instead of `ContractError<_>`, and calls and views `.await`
+through a borrowed backend. To let an argument that fails to encode come
+back as the sender's error, every `TxSender::SendError` now implements
+`From<CodecError>`.
+
+Code that uses `SigningNear` directly mostly compiles unchanged:
+`alice.transaction(id).add_action(..).await`, `.wait_until::<W>()` on a
+transaction or a client, typed calls with `?` into `near_kit::Error`, and
+`let` bindings without a type annotation all keep working. The rows below
+cover what does change.
+
+**Your own `TxSender`**
+
+| 0.33 | 0.34 |
+|---|---|
+| `type SendError = Infallible` (a test double that never fails) | `type SendError = near_kit::transaction::CodecError` |
+| `type SendError = String`, or another type without `From<CodecError>` | Your own error type with `impl From<CodecError> for MyError`; `near_kit::Error`, `anyhow::Error`, `Box<dyn std::error::Error + Send + Sync>` and `CodecError` already qualify. A wrapper sender routes it to its inner sender's error: `MyError::Inner(E::from(error))` |
+| `impl TxSender for MySender` and nothing else | Unchanged, and `my_sender.transaction(id)` now works on it. Implement `WithWaitLevel` (`type At<L: WaitLevel>`, the same sender waiting for `L`) if it should support `Tx::wait_until` |
+
+**Naming the types**
+
+`Tx`, `Call` and `View` now carry a lifetime: how long their `.await`
+future may live. Values built from an owned backend are `'static`; a
+borrowed one shrinks to the borrow when awaited. A signature has to name
+the lifetime; an `async fn` parameter without it fails with E0726
+("implicit elided lifetime not allowed here").
+
+| 0.33 | 0.34 |
+|---|---|
+| `use near_kit::transaction::Tx` | `use near_kit::Tx` |
+| `Tx` or `Tx<W>`, including `let tx: Tx = ..` | `Tx<'static, SigningNear>` or `Tx<'static, SigningNear<W>>`; `Tx` has no default sender |
+| `async fn f(tx: Tx)` | `async fn f(tx: Tx<'_, SigningNear>)` |
+| `fn f(..) -> Call<C>`, `fn f(..) -> View<C, T>` | `-> Call<'static, C>`, `-> View<'static, C, T>` |
+| `async fn f(call: Call<C>)`, `async fn f(view: View<C, T>)` | `Call<'_, C>`, `View<'_, C, T>` |
+| A struct field of type `Tx<W>`, `Call<C>` or `View<C, T>` | Add `'static`, or a lifetime parameter on the struct |
+| `Tx::wait_until::<W2>()` on `Tx<W>` | Unchanged for `SigningNear`; on another sender it needs `C: WithWaitLevel` |
+
+**Errors from typed calls**
+
+| 0.33 | 0.34 |
+|---|---|
+| `Err(ContractError::Backend(e))` from a `#[call]` method or a token call | `Err(e)`: `near_kit::Error` through a `SigningNear`, `C::SendError` in generic code |
+| `Err(ContractError::Codec(e))` from a call | `Err(Error::Json(_))` or `Err(Error::Borsh(_))` through a `SigningNear`; `C::SendError::from(codec_error)` in generic code |
+| `Result<C::Output, ContractError<C::SendError>>` in a generic helper | `Result<C::Output, C::SendError>` |
+| `impl From<ContractError<Error>> for AppError`, used only for calls | Not needed: `From<near_kit::Error>` covers calls. Views still return `ContractError<_>` |
+
+**Spawning and borrowing**
+
+| 0.33 | 0.34 |
+|---|---|
+| `call.send().await` (`Call::send`), to send through a borrowed backend | `call.await`; `Call::send` is removed |
+| `view.with_metadata().await?.result`, to read through a borrowed backend | `view.await`; `with_metadata` stays for the block it was read at |
+| `C: 'static`, `C::ViewError: 'static`, `C::Output: 'static` and `C::SendError: 'static` on a helper only so it could `.await` | Drop them, unless the helper spawns the future |
+| `tokio::spawn(arc_alice.transaction(id).add_action(a).into_future())` with `arc_alice: Arc<SigningNear>` | `(*arc_alice).transaction(id)`: through an `Arc`, `Box` or `&&SigningNear`, `.transaction` is now `TxSender::transaction`, which borrows the sender, so spawning it fails with E0597. `SigningNear::transaction` still clones the client into an owned `Tx` |
+| A generic `sender: &S` couldn't build a `Tx` | `sender.transaction(id)` borrows it and awaits in place. To spawn, use `Tx::new(sender.clone(), id)`; or, for `S: WithWaitLevel`, call `.wait_until::<W>()`, which gives the `Tx` an owned `S::At<W>` |
+
 # Upgrading from near-kit 0.32 to 0.33
 
 **A `TxSender` names the transaction it sent and the chain it sends on.**

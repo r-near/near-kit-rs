@@ -302,8 +302,8 @@ the encoded arguments, the gas and the deposit. That's where most mistakes
 in calling code are, such as a missing 1 yoctoNEAR deposit or an amount
 sent as a number instead of a string.
 
-To test failure handling, return an error from `send`. The caller sees it as
-`ContractError::Backend(e)` from a typed call, or `e` from
+To test failure handling, return an error from `send`. The caller sees that
+same error from a typed call, from awaiting a `Tx` and from
 `TxSender::send`.
 
 A recorder that stands in for a real sender can return a

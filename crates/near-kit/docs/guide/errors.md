@@ -109,10 +109,9 @@ lists every failed receipt's action error, in RPC order.
 
 | You call | Error type |
 |---|---|
-| `Near::balance`, `account_exists`, `tx_status`, `send_signed`; awaiting a `Tx`; `SigningNear::sign`, `sign_delegate`, `from_env` | [`Error`](crate::Error) |
+| `Near::balance`, `account_exists`, `tx_status`, `send_signed`; awaiting a `Tx`, a `#[call]` method or a token call through a `SigningNear`; `SigningNear::sign`, `sign_delegate`, `from_env` | [`Error`](crate::Error) |
 | `near.rpc().view_account(..)` and every other [`RpcClient`](crate::rpc::RpcClient) method | [`RpcError`](crate::rpc::RpcError) |
 | `Near::view`, and the views of typed contract and token clients | [`ContractError<RpcError>`](crate::ContractError) |
-| `#[call]` methods and token calls through a `SigningNear` | [`ContractError<Error>`](crate::ContractError) |
 | `FinalExecutionOutcome::result` / `checked` / `json` | [`OutcomeError`](crate::rpc::OutcomeError) |
 | Client-free code: `FunctionCall::into_action`, key parsing, `RotatingSigner::new`, `SignedTransaction::from_base64`, `SignedDelegateAction::from_base64` | [`CodecError`](crate::transaction::CodecError), [`ParseKeyError`](crate::signer::ParseKeyError), [`SignerError`](crate::signer::SignerError), [`DecodeTransactionError`](crate::protocol::DecodeTransactionError), [`DecodeDelegateError`](crate::protocol::DecodeDelegateError) |
 
@@ -123,9 +122,13 @@ returning `Result<_, near_kit::Error>` can mix them freely. A
 
 [`ContractError<E>`](crate::ContractError) has two cases: `Codec` (the
 arguments didn't encode or the result didn't decode as the type you asked
-for) and `Backend(E)` (the backend's own error). It exists because a typed
-client runs on any [`Viewer`](crate::Viewer) or
-[`TxSender`](crate::TxSender), whose error types near-kit doesn't know.
+for) and `Backend(E)` (the backend's own error). It exists because a view
+runs on any [`Viewer`](crate::Viewer), whose error type near-kit doesn't
+know. Calls and transactions don't need it: they fail with the
+[`TxSender`](crate::TxSender)'s own error, which takes an encoding error
+through `From<CodecError>`, so a typed call through a `SigningNear` fails
+with `Error`, and arguments that don't encode are
+[`Error::Json`](crate::Error::Json) or [`Error::Borsh`](crate::Error::Borsh).
 
 ```rust,no_run
 use near_kit::rpc::RpcError;
@@ -339,9 +342,9 @@ safe then. `TimeoutCause::Pending` means it was accepted: wait for it.
 ## Your own error type
 
 If your error enum wraps `near_kit::Error` with a `From` impl, `?` reaches
-it from anything that returns `Error`. It doesn't reach it from a view or a
-typed call: `ContractError<RpcError>` to `Error` to your enum is two
-conversions, and `?` makes one. Convert first, or add the second `From`
+it from anything that returns `Error`, typed calls included. It doesn't
+reach it from a view: `ContractError<RpcError>` to `Error` to your enum is
+two conversions, and `?` makes one. Convert first, or add the second `From`
 once:
 
 ```rust,no_run
