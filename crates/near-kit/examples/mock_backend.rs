@@ -34,7 +34,7 @@ use std::error::Error;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::{Action, ChainId, FunctionCallAction};
+use near_kit::protocol::{Action, FunctionCallAction};
 use near_kit::rpc::{BlockReference, FinalExecutionOutcome, SendTxResponse, ViewFunctionResult};
 use near_kit::standards::{FungibleToken, FungibleTokenClient};
 use near_kit::{
@@ -141,7 +141,6 @@ impl CheckOutput for MockOutcome {
 #[derive(Clone)]
 struct MockChain {
     account_id: AccountId,
-    chain_id: ChainId,
     views: Arc<Mutex<ViewTable>>,
     sent: Arc<Mutex<SentLog>>,
     failing: Arc<Mutex<HashSet<String>>>,
@@ -151,7 +150,6 @@ impl MockChain {
     fn new(account_id: AccountId) -> Self {
         Self {
             account_id,
-            chain_id: ChainId::new("mock"),
             views: Arc::default(),
             sent: Arc::default(),
             failing: Arc::default(),
@@ -216,8 +214,8 @@ impl TxSender for MockChain {
         &self.account_id
     }
 
-    fn chain_id(&self) -> &ChainId {
-        &self.chain_id
+    fn chain_id(&self) -> &str {
+        "mock"
     }
 
     async fn send(

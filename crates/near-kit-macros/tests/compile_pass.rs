@@ -262,7 +262,7 @@ mod custom_backend {
     use std::sync::Arc;
 
     use near_kit::ContractError;
-    use near_kit::protocol::{Action, ChainId};
+    use near_kit::protocol::Action;
     use near_kit::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
     use near_kit::*;
 
@@ -299,7 +299,7 @@ mod custom_backend {
             &self.0
         }
 
-        fn chain_id(&self) -> &ChainId {
+        fn chain_id(&self) -> &str {
             unreachable!("not used by these tests")
         }
 
@@ -346,7 +346,7 @@ mod custom_backend {
             self.id()
         }
 
-        fn chain_id(&self) -> &ChainId {
+        fn chain_id(&self) -> &str {
             unreachable!("not used by these tests")
         }
 

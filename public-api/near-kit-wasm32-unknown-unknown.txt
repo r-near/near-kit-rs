@@ -745,7 +745,7 @@ impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit_primitives::
 pub type near_kit::SigningNear<W>::Output = <W as near_kit_primitives::types::wait_level::WaitLevel>::Response
 pub type near_kit::SigningNear<W>::SendError = near_kit::Error
 pub fn near_kit::SigningNear<W>::account_id(&self) -> &near_account_id::account_id::AccountId
-pub fn near_kit::SigningNear<W>::chain_id(&self) -> &near_kit_primitives::types::network::ChainId
+pub fn near_kit::SigningNear<W>::chain_id(&self) -> &str
 pub fn near_kit::SigningNear<W>::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::types::action::Action>) -> impl core::future::future::Future<Output = core::result::Result<<W as near_kit_primitives::types::wait_level::WaitLevel>::Response, near_kit::Error>> + near_kit_primitives::platform::MaybeSend
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit_primitives::backend::Viewer for near_kit::SigningNear<W>
 pub type near_kit::SigningNear<W>::ViewError = near_kit::rpc::RpcError

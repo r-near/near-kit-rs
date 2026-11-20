@@ -8,7 +8,7 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::{Action, ChainId};
+use near_kit::protocol::Action;
 use near_kit::rpc::{SendTxResponse, TxExecutionStatus};
 use near_kit::transaction::{CodecError, Final, FunctionCall, Included, WaitLevel};
 use near_kit::{
@@ -24,7 +24,7 @@ type Sent = (AccountId, Vec<Action>, TxExecutionStatus);
 /// an encoding error.
 struct Mock<W: WaitLevel = Final> {
     account_id: AccountId,
-    chain_id: ChainId,
+    chain_id: String,
     sent: Arc<Mutex<Vec<Sent>>>,
     _wait: PhantomData<fn() -> W>,
 }
@@ -33,7 +33,7 @@ impl Mock {
     fn new() -> Self {
         Self {
             account_id: account!("alice.testnet"),
-            chain_id: ChainId::testnet(),
+            chain_id: "testnet".to_owned(),
             sent: Arc::default(),
             _wait: PhantomData,
         }
@@ -54,7 +54,7 @@ impl<W: WaitLevel> TxSender for Mock<W> {
         &self.account_id
     }
 
-    fn chain_id(&self) -> &ChainId {
+    fn chain_id(&self) -> &str {
         &self.chain_id
     }
 
@@ -183,7 +183,7 @@ impl<S: TxSender> TxSender for Wallet<S> {
         self.inner.account_id()
     }
 
-    fn chain_id(&self) -> &ChainId {
+    fn chain_id(&self) -> &str {
         self.inner.chain_id()
     }
 

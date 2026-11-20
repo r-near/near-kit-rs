@@ -40,7 +40,6 @@ pub(crate) mod mock {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
-    use crate::protocol::ChainId;
     use crate::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
     use crate::types::{AccountId, AccountIdRef, Action, CryptoHash};
     use crate::{TxSender, Viewer};
@@ -102,7 +101,7 @@ pub(crate) mod mock {
             unimplemented!("tokens never ask for the sender")
         }
 
-        fn chain_id(&self) -> &ChainId {
+        fn chain_id(&self) -> &str {
             unimplemented!("tokens never ask for the chain")
         }
 

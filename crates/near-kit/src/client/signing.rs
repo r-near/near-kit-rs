@@ -574,8 +574,8 @@ impl<W: WaitLevel> crate::TxSender for SigningNear<W> {
         self.signer.account_id()
     }
 
-    fn chain_id(&self) -> &crate::protocol::ChainId {
-        self.near.chain_id()
+    fn chain_id(&self) -> &str {
+        self.near.chain_id().as_str()
     }
 
     fn send(

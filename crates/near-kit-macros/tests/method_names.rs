@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::{Action, ChainId, FunctionCallAction};
+use near_kit::protocol::{Action, FunctionCallAction};
 use near_kit::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
 use near_kit::*;
 
@@ -54,7 +54,7 @@ impl TxSender for Recorder {
         unreachable!("the generated client doesn't ask for the sender")
     }
 
-    fn chain_id(&self) -> &ChainId {
+    fn chain_id(&self) -> &str {
         unreachable!("not used by these tests")
     }
 

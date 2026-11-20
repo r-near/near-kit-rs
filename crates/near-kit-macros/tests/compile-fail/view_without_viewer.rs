@@ -1,7 +1,7 @@
 //! A view method on a client whose backend can't view reports the `Viewer`
 //! diagnostic.
 
-use near_kit::protocol::{Action, ChainId};
+use near_kit::protocol::Action;
 use near_kit::rpc::SendTxResponse;
 use near_kit::*;
 
@@ -24,7 +24,7 @@ impl TxSender for SendOnly {
         &self.0
     }
 
-    fn chain_id(&self) -> &ChainId {
+    fn chain_id(&self) -> &str {
         unreachable!("the test only compiles")
     }
 

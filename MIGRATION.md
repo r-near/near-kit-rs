@@ -9,7 +9,9 @@ now fails with the sender's error too (`near_kit::Error` through a
 `SigningNear`) instead of `ContractError<_>`, and calls and views `.await`
 through a borrowed backend. To let an argument that fails to encode come
 back as the sender's error, every `TxSender::SendError` now implements
-`From<CodecError>`.
+`From<CodecError>`. `TxSender::chain_id` returns a `&str` instead of a
+`&ChainId`, so a sender that keeps its chain ID as a `String` can
+implement it.
 
 Code that uses `SigningNear` directly mostly compiles unchanged:
 `alice.transaction(id).add_action(..).await`, `.wait_until::<W>()` on a
@@ -23,7 +25,14 @@ cover what does change.
 |---|---|
 | `type SendError = Infallible` (a test double that never fails) | `type SendError = near_kit::transaction::CodecError` |
 | `type SendError = String`, or another type without `From<CodecError>` | Your own error type with `impl From<CodecError> for MyError`; `near_kit::Error`, `anyhow::Error`, `Box<dyn std::error::Error + Send + Sync>` and `CodecError` already qualify. A wrapper sender routes it to its inner sender's error: `MyError::Inner(E::from(error))` |
+| `fn chain_id(&self) -> &ChainId { &self.chain_id }` | `fn chain_id(&self) -> &str { self.chain_id.as_str() }`; a field can now be a plain `String`, and a sender built on `SigningNear` returns `self.near().chain_id().as_str()` |
+| `fn chain(&self) -> &ChainId` on an object-safe trait in front of `TxSender` | `fn chain(&self) -> &str` |
 | `impl TxSender for MySender` and nothing else | Unchanged, and `my_sender.transaction(id)` now works on it. Implement `WithWaitLevel` (`type At<L: WaitLevel>`, the same sender waiting for `L`) if it should support `Tx::wait_until` |
+
+Code that reads the chain ID through the trait now gets a `&str`. Compare
+it directly (`sender.chain_id() == "mainnet"`) or convert it
+(`ChainId::from(sender.chain_id()).is_mainnet()`). On a `SigningNear`,
+`alice.near().chain_id()` still returns a `&ChainId`.
 
 **Naming the types**
 

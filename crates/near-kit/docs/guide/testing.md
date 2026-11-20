@@ -221,7 +221,7 @@ inspect:
 # pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::{Action, ChainId};
+use near_kit::protocol::Action;
 use near_kit::rpc::SendTxResponse;
 use near_kit::standards::FungibleToken;
 use near_kit::*;
@@ -230,13 +230,12 @@ use serde_json::json;
 #[derive(Clone)]
 struct Recorder {
     account_id: AccountId,
-    chain_id: ChainId,
     sent: Arc<Mutex<Vec<(AccountId, Vec<Action>)>>>,
 }
 
 impl Recorder {
     fn new(account_id: AccountId) -> Self {
-        Self { account_id, chain_id: ChainId::testnet(), sent: Default::default() }
+        Self { account_id, sent: Default::default() }
     }
 
     fn sent(&self) -> Vec<(AccountId, Vec<Action>)> {
@@ -252,8 +251,8 @@ impl TxSender for Recorder {
         &self.account_id
     }
 
-    fn chain_id(&self) -> &ChainId {
-        &self.chain_id
+    fn chain_id(&self) -> &str {
+        "testnet"
     }
 
     async fn send(
@@ -333,7 +332,7 @@ implements them, including unsized `T`. Two consequences:
 use std::future::Future;
 use std::sync::Arc;
 
-use near_kit::protocol::{Action, ChainId};
+use near_kit::protocol::Action;
 use near_kit::rpc::{BoxFuture, FinalExecutionOutcome};
 use near_kit::standards::FungibleToken;
 use near_kit::*;
@@ -341,7 +340,7 @@ use near_kit::*;
 /// Any sender that waits for `Final` and fails with `near_kit::Error`.
 trait Wallet: MaybeSend + MaybeSync {
     fn account(&self) -> &AccountId;
-    fn chain(&self) -> &ChainId;
+    fn chain(&self) -> &str;
     fn send_boxed(
         &self,
         receiver_id: AccountId,
@@ -357,7 +356,7 @@ where
         self.account_id()
     }
 
-    fn chain(&self) -> &ChainId {
+    fn chain(&self) -> &str {
         self.chain_id()
     }
 
@@ -378,7 +377,7 @@ impl TxSender for dyn Wallet {
         self.account()
     }
 
-    fn chain_id(&self) -> &ChainId {
+    fn chain_id(&self) -> &str {
         self.chain()
     }
 

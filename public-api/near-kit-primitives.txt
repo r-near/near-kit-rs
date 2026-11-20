@@ -3135,28 +3135,28 @@ pub trait near_kit_primitives::TxSender: near_kit_primitives::MaybeSend + near_k
 pub type near_kit_primitives::TxSender::Output: core::convert::Into<near_kit_primitives::rpc::SendTxResponse>
 pub type near_kit_primitives::TxSender::SendError: core::convert::From<near_kit_primitives::transaction::CodecError>
 pub fn near_kit_primitives::TxSender::account_id(&self) -> &near_account_id::account_id::AccountId
-pub fn near_kit_primitives::TxSender::chain_id(&self) -> &near_kit_primitives::protocol::ChainId
+pub fn near_kit_primitives::TxSender::chain_id(&self) -> &str
 pub fn near_kit_primitives::TxSender::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
 pub fn near_kit_primitives::TxSender::transaction(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit_primitives::Tx<'_, &Self>
 impl<T: near_kit_primitives::TxSender + ?core::marker::Sized> near_kit_primitives::TxSender for &T
 pub type &T::Output = <T as near_kit_primitives::TxSender>::Output
 pub type &T::SendError = <T as near_kit_primitives::TxSender>::SendError
 pub fn &T::account_id(&self) -> &near_account_id::account_id::AccountId
-pub fn &T::chain_id(&self) -> &near_kit_primitives::protocol::ChainId
+pub fn &T::chain_id(&self) -> &str
 pub fn &T::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
 pub fn &T::transaction(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit_primitives::Tx<'_, &Self>
 impl<T: near_kit_primitives::TxSender + ?core::marker::Sized> near_kit_primitives::TxSender for alloc::boxed::Box<T>
 pub type alloc::boxed::Box<T>::Output = <T as near_kit_primitives::TxSender>::Output
 pub type alloc::boxed::Box<T>::SendError = <T as near_kit_primitives::TxSender>::SendError
 pub fn alloc::boxed::Box<T>::account_id(&self) -> &near_account_id::account_id::AccountId
-pub fn alloc::boxed::Box<T>::chain_id(&self) -> &near_kit_primitives::protocol::ChainId
+pub fn alloc::boxed::Box<T>::chain_id(&self) -> &str
 pub fn alloc::boxed::Box<T>::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
 pub fn alloc::boxed::Box<T>::transaction(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit_primitives::Tx<'_, &Self>
 impl<T: near_kit_primitives::TxSender + ?core::marker::Sized> near_kit_primitives::TxSender for alloc::sync::Arc<T>
 pub type alloc::sync::Arc<T>::Output = <T as near_kit_primitives::TxSender>::Output
 pub type alloc::sync::Arc<T>::SendError = <T as near_kit_primitives::TxSender>::SendError
 pub fn alloc::sync::Arc<T>::account_id(&self) -> &near_account_id::account_id::AccountId
-pub fn alloc::sync::Arc<T>::chain_id(&self) -> &near_kit_primitives::protocol::ChainId
+pub fn alloc::sync::Arc<T>::chain_id(&self) -> &str
 pub fn alloc::sync::Arc<T>::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
 pub fn alloc::sync::Arc<T>::transaction(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit_primitives::Tx<'_, &Self>
 pub trait near_kit_primitives::Viewer: near_kit_primitives::MaybeSend + near_kit_primitives::MaybeSync

@@ -14,8 +14,7 @@ use crate::error::CodecError;
 use crate::platform::{BoxFuture, MaybeSend, MaybeSync};
 use crate::transaction::FunctionCall;
 use crate::types::{
-    AccountId, AccountIdRef, Action, BlockReference, ChainId, Gas, NearToken, ViewFunctionResult,
-    WaitLevel,
+    AccountId, AccountIdRef, Action, BlockReference, Gas, NearToken, ViewFunctionResult, WaitLevel,
 };
 
 /// A backend that can run contract view functions.
@@ -100,11 +99,15 @@ pub trait TxSender: MaybeSend + MaybeSync {
     /// The account transactions are sent from.
     fn account_id(&self) -> &AccountId;
 
-    /// The chain transactions are sent on.
+    /// The ID of the chain transactions are sent on, such as `"mainnet"`.
     ///
+    /// It is a plain `&str`, so a sender that keeps the chain ID as a
+    /// `String`, or as a constant, can return it. Compare it with
+    /// `"mainnet"`, or convert it into a
+    /// [`ChainId`](crate::protocol::ChainId) for `is_mainnet()`.
     /// For `near-kit`'s `SigningNear` this is the chain ID its `Near` client
     /// was built with, which nothing checks against the RPC node.
-    fn chain_id(&self) -> &ChainId;
+    fn chain_id(&self) -> &str;
 
     /// Send one transaction with `actions` to `receiver_id`.
     ///
@@ -743,7 +746,7 @@ macro_rules! forward {
                 (**self).account_id()
             }
 
-            fn chain_id(&self) -> &ChainId {
+            fn chain_id(&self) -> &str {
                 (**self).chain_id()
             }
 
@@ -918,7 +921,7 @@ mod tests {
             unreachable!("not used by Call")
         }
 
-        fn chain_id(&self) -> &ChainId {
+        fn chain_id(&self) -> &str {
             unreachable!("not used by Call")
         }
 

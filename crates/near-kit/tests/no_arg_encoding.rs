@@ -7,7 +7,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::{Action, ChainId};
+use near_kit::protocol::Action;
 use near_kit::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
 use near_kit::transaction::FunctionCall;
 use near_kit::{AccountId, AccountIdRef, Contract, CryptoHash, TxSender, View, Viewer, account};
@@ -73,7 +73,7 @@ impl TxSender for Recorder {
         unreachable!("not used by Call")
     }
 
-    fn chain_id(&self) -> &ChainId {
+    fn chain_id(&self) -> &str {
         unreachable!("not used by these tests")
     }
 

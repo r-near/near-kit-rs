@@ -7,7 +7,7 @@ use std::future::IntoFuture;
 use std::sync::{Arc, Mutex};
 
 use near_kit_primitives::ContractError;
-use near_kit_primitives::protocol::{Action, ChainId};
+use near_kit_primitives::protocol::Action;
 use near_kit_primitives::rpc::{BlockReference, Finality, SendTxResponse, ViewFunctionResult};
 use near_kit_primitives::transaction::CodecError;
 use near_kit_primitives::{
@@ -162,7 +162,7 @@ impl TxSender for Backend {
         unreachable!("not used by generated clients")
     }
 
-    fn chain_id(&self) -> &ChainId {
+    fn chain_id(&self) -> &str {
         unreachable!("not used by these tests")
     }
 
