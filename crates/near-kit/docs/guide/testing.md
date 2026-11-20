@@ -42,8 +42,7 @@ use near_kit::*;
 /// How many of the latest 100 messages are premium.
 async fn premium_count<C>(guestbook: &GuestbookClient<C>) -> Result<usize, ContractError<C::ViewError>>
 where
-    C: Viewer + Clone + 'static,
-    C::ViewError: 'static,
+    C: Viewer + Clone,
 {
     let messages = guestbook
         .get_messages(Some("0"), Some("100"))
@@ -60,13 +59,10 @@ let count = premium_count(&guestbook).await?;
 ```
 
 The bounds come from the generated client: view methods need
-`C: Viewer + Clone`, and awaiting the returned `View` needs the backend and
-its error to be `'static`, because the future owns a clone of the backend.
-`#[call]` methods need `C: TxSender + Clone`, and the returned `Call`
-`.await`s through a borrowed backend. Code that only borrows its backend
-can drop the `'static` bounds by finishing views with
-[`View::with_metadata`](crate::View::with_metadata), which doesn't box the
-future.
+`C: Viewer + Clone` and `#[call]` methods need `C: TxSender + Clone`. The
+returned [`View`](crate::View) and [`Call`](crate::Call) `.await` through a
+borrowed backend too, so a helper like this one needs no `'static` bounds;
+add them only to spawn the future.
 
 Code that sends transactions without a contract client can still be
 generic: [`TxSender::send`](crate::TxSender::send) takes a receiver and a
@@ -108,7 +104,7 @@ generated client, and the clones share the record:
 # #[derive(Debug, Deserialize)]
 # pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 # async fn premium_count<C>(guestbook: &GuestbookClient<C>) -> Result<usize, ContractError<C::ViewError>>
-# where C: Viewer + Clone + 'static, C::ViewError: 'static {
+# where C: Viewer + Clone {
 #     let messages = guestbook.get_messages(Some("0"), Some("100")).await?;
 #     Ok(messages.iter().filter(|m| m.premium).count())
 # }

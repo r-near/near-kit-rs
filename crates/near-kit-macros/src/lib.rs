@@ -575,7 +575,7 @@ fn generate_view_method(
         #(#docs)*
         // A method mirrors the contract's signature, however long it is.
         #[allow(clippy::too_many_arguments)]
-        pub fn #method_name(&self, #params) -> #near_kit::View<#backend, #return_type>
+        pub fn #method_name(&self, #params) -> #near_kit::View<'static, #backend, #return_type>
         where
             #backend: #near_kit::Viewer + ::core::clone::Clone,
         {
@@ -831,11 +831,10 @@ fn generate_function_call_method(
 ///   `C: Viewer + Clone` and return a `View`, `#[call]` methods need
 ///   `C: TxSender + Clone` and return a `Call`; each owns a clone of the
 ///   backend (`&T` and `Arc<T>` are `Clone` backends when `T` isn't).
-///   A call `.await`s through a borrowed backend; awaiting a view needs a
-///   `'static` backend, so through a shorter `&T` borrow, finish a view
-///   with `.with_metadata()`. When
-///   the expansion resolves to near-kit with its `rpc` feature, `C`
-///   defaults to `near_kit::Near`. Besides the contract's methods it has
+///   Views and calls `.await` through a borrowed backend, and can be
+///   spawned when the backend is owned and `'static`. When the expansion
+///   resolves to near-kit with its `rpc` feature, `C` defaults to
+///   `near_kit::Near`. Besides the contract's methods it has
 ///   `contract_id()`, `backend()` and `into_parts()`;
 /// - `impl Contract for Counter`, which `Near::contract::<Counter>(id)` uses
 ///   to build the client.
@@ -1048,8 +1047,8 @@ fn contract_impl(format: SerializationFormat, input: ItemTrait) -> syn::Result<T
     let client_doc = format!(
         " Client for the [`{trait_name}`] contract, sending through a backend.\n\n \
          View methods need a `Viewer + Clone` backend; `#[call]` methods need `TxSender + Clone`. \
-         For a backend that isn't `Clone`, use `&T` or `Arc<T>`; through a borrow that isn't \
-         `'static`, finish a view with `.with_metadata()` instead of `.await`."
+         For a backend that isn't `Clone`, use `&T` or `Arc<T>`; views and calls `.await` \
+         through the borrow."
     );
 
     let expanded = quote! {

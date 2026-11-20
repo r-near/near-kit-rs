@@ -240,18 +240,19 @@ pub enum ContractError<E> {
 /// ```
 ///
 /// A `View` owns its backend (generated clients clone theirs into it), so a
-/// helper can return one and its future is `'static` whenever the backend
-/// is: it can be spawned. To share a backend that isn't `Clone`, hand the
-/// client an `Arc` of it. A borrowed backend (`&B`) works too, but then
-/// `.await` needs a `'static` borrow; [`with_metadata`](Self::with_metadata)
-/// has no such bound, and its `.result` is the value `.await` would give.
+/// helper can return one. `'a` is how long the `.await` future may live, as
+/// for [`Call`] and [`Tx`]: generated clients and `near_kit::Near::view`
+/// return `View<'static, C, T>`, which shrinks to the backend's borrow when
+/// the backend is `&B`. So `.await` works through a borrowed backend, and a
+/// view over an owned `'static` backend can be spawned. To share a backend
+/// that isn't `Clone`, hand the client a `&B` or an `Arc` of it.
 ///
 /// A `View` is [`Clone`] when its backend is, so one view can be run again
 /// and again. [`fetch_raw`](Self::fetch_raw) runs it without decoding and
 /// [`decode`](Self::decode) decodes later, for instance only when a polled
 /// result changed.
 #[must_use = "a view does nothing until it is awaited"]
-pub struct View<C, T> {
+pub struct View<'a, C, T> {
     backend: C,
     contract_id: AccountId,
     method: String,
@@ -260,9 +261,10 @@ pub struct View<C, T> {
     args: Result<Vec<u8>, CodecError>,
     block: BlockReference,
     decode: fn(&[u8]) -> Result<T, CodecError>,
+    _future: PhantomData<&'a ()>,
 }
 
-impl<C, T> View<C, T> {
+impl<C, T> View<'_, C, T> {
     fn new(
         backend: C,
         contract_id: AccountId,
@@ -277,6 +279,7 @@ impl<C, T> View<C, T> {
             args: Ok(args),
             block: BlockReference::default(),
             decode,
+            _future: PhantomData,
         }
     }
 
@@ -372,7 +375,7 @@ impl<C, T> View<C, T> {
     ///
     /// ```rust
     /// # use near_kit_primitives::{ContractError, View, Viewer};
-    /// # async fn poll<C: Viewer + Clone>(view: View<C, u64>, last: &mut Vec<u8>)
+    /// # async fn poll<C: Viewer + Clone>(view: View<'_, C, u64>, last: &mut Vec<u8>)
     /// #     -> Result<Option<u64>, ContractError<C::ViewError>> {
     /// let raw = view.clone().fetch_raw().await?;
     /// if raw.result == *last {
@@ -419,7 +422,7 @@ impl<C, T> View<C, T> {
 /// same way: same [`CodecError`] variant and message (and Borsh
 /// [`io::ErrorKind`](std::io::ErrorKind)), without the original's source
 /// chain.
-impl<C: Clone, T> Clone for View<C, T> {
+impl<C: Clone, T> Clone for View<'_, C, T> {
     fn clone(&self) -> Self {
         Self {
             backend: self.backend.clone(),
@@ -431,6 +434,7 @@ impl<C: Clone, T> Clone for View<C, T> {
             },
             block: self.block,
             decode: self.decode,
+            _future: PhantomData,
         }
     }
 }
@@ -446,7 +450,7 @@ fn copy_codec_error(error: &CodecError) -> CodecError {
     }
 }
 
-impl<C, T> fmt::Debug for View<C, T> {
+impl<C, T> fmt::Debug for View<'_, C, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("View")
             .field("contract_id", &self.contract_id)
@@ -457,14 +461,13 @@ impl<C, T> fmt::Debug for View<C, T> {
     }
 }
 
-impl<C, T> IntoFuture for View<C, T>
+impl<'a, C, T> IntoFuture for View<'a, C, T>
 where
-    C: Viewer + 'static,
-    C::ViewError: 'static,
-    T: 'static,
+    C: Viewer + 'a,
+    T: 'a,
 {
     type Output = Result<T, ContractError<C::ViewError>>;
-    type IntoFuture = BoxFuture<'static, Self::Output>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move { self.with_metadata().await.map(|view| view.result) })
@@ -477,10 +480,10 @@ where
 /// sends one transaction with this function call through the client's
 /// [`TxSender`] and resolves to the sender's [`Output`](TxSender::Output).
 ///
-/// Like [`View`], it owns its backend. `'a` is how long the `.await` future
-/// may live, as for [`Tx`]: generated clients return `Call<'static, C>`,
-/// which shrinks to the backend's borrow when the backend is `&S`, so
-/// `.await` works through a borrow and spawns for an owned `'static` one.
+/// Like [`View`], it owns its backend, and `'a` is how long the `.await`
+/// future may live: generated clients return `Call<'static, C>`, which
+/// shrinks to the backend's borrow when the backend is `&S`, so `.await`
+/// works through a borrow and spawns for an owned `'static` one.
 #[must_use = "a call does nothing until it is awaited"]
 pub struct Call<'a, C> {
     backend: C,
@@ -760,12 +763,12 @@ pub(crate) mod expansion {
     use super::*;
 
     /// A JSON-decoded view.
-    pub fn view_json<C, T>(
+    pub fn view_json<'a, C, T>(
         backend: C,
         contract_id: AccountId,
         method: &'static str,
         args: Result<Vec<u8>, CodecError>,
-    ) -> View<C, T>
+    ) -> View<'a, C, T>
     where
         C: Viewer,
         T: serde::de::DeserializeOwned,
@@ -777,12 +780,12 @@ pub(crate) mod expansion {
     }
 
     /// A Borsh-decoded view.
-    pub fn view_borsh<C, T>(
+    pub fn view_borsh<'a, C, T>(
         backend: C,
         contract_id: AccountId,
         method: &'static str,
         args: Result<Vec<u8>, CodecError>,
-    ) -> View<C, T>
+    ) -> View<'a, C, T>
     where
         C: Viewer,
         T: borsh::BorshDeserialize,
@@ -1093,7 +1096,7 @@ mod tests {
 
     #[test]
     fn last_argument_setter_wins() {
-        type MockView = View<Arc<MockViewer>, u64>;
+        type MockView = View<'static, Arc<MockViewer>, u64>;
         let viewer = MockViewer::new(b"1");
         let view =
             |set: fn(MockView) -> MockView| set(View::json(viewer.clone(), contract(), "get")).args;
@@ -1317,10 +1320,9 @@ mod tests {
     fn borrowed_backends_forward() {
         let viewer = MockViewer::new(b"5");
         let by_ref: u64 = futures::executor::block_on(
-            view_json::<_, u64>(&*viewer, contract(), "get", Ok(Vec::new())).with_metadata(),
+            view_json::<_, u64>(&*viewer, contract(), "get", Ok(Vec::new())).into_future(),
         )
-        .unwrap()
-        .result;
+        .unwrap();
         assert_eq!(by_ref, 5);
     }
 

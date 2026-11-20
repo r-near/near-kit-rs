@@ -242,7 +242,7 @@ impl Near {
         &self,
         contract_id: impl Into<AccountId>,
         method: impl Into<String>,
-    ) -> View<Near, T> {
+    ) -> View<'static, Near, T> {
         View::json(self.clone(), contract_id, method)
     }
 

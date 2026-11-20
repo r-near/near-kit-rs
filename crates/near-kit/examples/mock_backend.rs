@@ -74,16 +74,14 @@ impl CheckOutput for FinalExecutionOutcome {
 /// first if it can't hold the token yet.
 ///
 /// Generic over the backend: in production `C` is a `SigningNear`. The
-/// `'static` bounds are there because awaiting a `View` boxes a `'static`
-/// future that owns a clone of the backend. Code that only borrows its
-/// backend can drop them by finishing views with `.with_metadata()`.
+/// errors are `'static` only because they end up in a `Box<dyn Error>`.
 async fn tip<C>(
     token: &FungibleTokenClient<C>,
     receiver: AccountId,
     whole_tokens: u128,
 ) -> Result<(), Box<dyn Error>>
 where
-    C: Viewer + TxSender + Clone + 'static,
+    C: Viewer + TxSender + Clone,
     C::Output: CheckOutput,
     C::ViewError: fmt::Debug + fmt::Display + 'static,
     C::SendError: Error + 'static,

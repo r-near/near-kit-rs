@@ -30,7 +30,7 @@ where
     if let Some(args) = args {
         view = view.args(args);
     }
-    Ok(view.with_metadata().await?.result)
+    view.await
 }
 
 #[cfg(test)]
