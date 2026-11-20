@@ -232,10 +232,13 @@ impl PreparedTransaction {
             Ok(access_key) => (access_key.nonce, access_key.block_hash),
             // A self-signed universal state init installs its own signing key,
             // so the key isn't on chain yet: the nonce comes from the
-            // uninitialized account's `bootstrap_nonce` instead.
-            Err(error @ RpcError::AccessKeyNotFound { .. })
-                if self.bootstraps(signer_id, public_key) =>
-            {
+            // uninitialized account's `bootstrap_nonce` instead. Nodes after
+            // nearcore 2.14 report the key view of an uninitialized account as
+            // `UninitializedAccount`; older ones as `AccessKeyNotFound`.
+            Err(
+                error
+                @ (RpcError::AccessKeyNotFound { .. } | RpcError::UninitializedAccount { .. }),
+            ) if self.bootstraps(signer_id, public_key) => {
                 let account = self
                     .rpc
                     .view_account(signer_id, BlockReference::Finality(Finality::Final))
@@ -1032,6 +1035,18 @@ mod tests {
         sent: Mutex<Vec<String>>,
         /// Scripted `send_tx` responses; accepted once these run out.
         send_tx_responses: Mutex<VecDeque<Vec<u8>>>,
+        /// Answer the key view as nodes after nearcore 2.14 do
+        /// (`UNINITIALIZED_ACCOUNT`) instead of with `UNKNOWN_ACCESS_KEY`.
+        uninitialized_account_error: bool,
+    }
+
+    impl UninitializedUniversalTransport {
+        fn reporting_uninitialized_account() -> Self {
+            Self {
+                uninitialized_account_error: true,
+                ..Self::default()
+            }
+        }
     }
 
     impl RpcTransport for UninitializedUniversalTransport {
@@ -1042,6 +1057,19 @@ mod tests {
         ) -> BoxFuture<'_, Result<TransportResponse, RpcError>> {
             let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
             let body = match request["method"].as_str().unwrap() {
+                // nearcore's `RpcViewAccessKeyError::UninitializedAccount`.
+                "EXPERIMENTAL_view_access_key" if self.uninitialized_account_error => {
+                    let account_id = request["params"]["account_id"].as_str().unwrap();
+                    rpc_error(
+                        Some("UNINITIALIZED_ACCOUNT"),
+                        serde_json::json!({
+                            "requested_account_id": account_id,
+                            "block_height": 100,
+                            "block_hash": "11111111111111111111111111111111",
+                        }),
+                        format!("account {account_id} exists but is not initialized").into(),
+                    )
+                }
                 "EXPERIMENTAL_view_access_key" => rpc_error(
                     Some("UNKNOWN_ACCESS_KEY"),
                     serde_json::json!({
@@ -1103,6 +1131,65 @@ mod tests {
             tx.block_hash,
             CryptoHash::from_bytes([2; 32]),
             "block hash comes from the account view"
+        );
+    }
+
+    #[tokio::test]
+    async fn bootstrap_reads_the_bootstrap_nonce_past_an_uninitialized_account_error() {
+        let key = SecretKey::generate_ed25519();
+        let state_init =
+            crate::protocol::UniversalStateInitV1::new().with_access_key(key.public_key());
+        let account_id =
+            crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
+        let transport =
+            Arc::new(UninitializedUniversalTransport::reporting_uninitialized_account());
+        let near = crate::Near::custom("http://bootstrap-uninitialized.invalid", "test")
+            .transport(transport.clone())
+            .build()
+            .with_signer(InMemorySigner::new(account_id.clone(), key));
+
+        near.wait_until::<Submitted>()
+            .transaction(&account_id)
+            .add_action(Action::universal_state_init(state_init, NearToken::ZERO))
+            .await
+            .expect("bootstrap is sent");
+
+        let sent = transport.sent.lock().unwrap();
+        let tx = SignedTransaction::from_base64(&sent[0])
+            .unwrap()
+            .transaction;
+        assert_eq!(tx.signer_id, account_id);
+        assert_eq!(tx.nonce, 100_000_001);
+        assert_eq!(
+            tx.block_hash,
+            CryptoHash::from_bytes([2; 32]),
+            "block hash comes from the account view"
+        );
+    }
+
+    #[tokio::test]
+    async fn state_init_without_the_signing_key_keeps_the_uninitialized_account_error() {
+        let key = SecretKey::generate_ed25519();
+        let other = SecretKey::generate_ed25519().public_key();
+        let state_init = crate::protocol::UniversalStateInitV1::new().with_access_key(other);
+        let account_id =
+            crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
+        let near = crate::Near::custom("http://bootstrap-uninitialized.invalid", "test")
+            .transport(UninitializedUniversalTransport::reporting_uninitialized_account())
+            .build()
+            .with_signer(InMemorySigner::new(account_id.clone(), key));
+
+        let error = near
+            .sign(
+                &account_id,
+                vec![Action::universal_state_init(state_init, NearToken::ZERO)],
+            )
+            .await
+            .expect_err("the signing key is not installed by the state init");
+        assert!(
+            matches!(&error, Error::Rpc(e) if matches!(&**e,
+                RpcError::UninitializedAccount { account_id: id, .. } if *id == account_id)),
+            "{error:?}"
         );
     }
 
