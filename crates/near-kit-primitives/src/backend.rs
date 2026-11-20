@@ -74,7 +74,8 @@ pub trait Viewer: MaybeSend + MaybeSync {
 /// ```
 ///
 /// Generated clients need a `Clone` backend; `&T`, `Box<T>` and `Arc<T>`
-/// forward to `T`. Through a short borrow, send with [`Call::send`].
+/// forward to `T`, so a client over `&S` makes [`Call`]s that `.await`
+/// through that borrow.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot send transactions",
     label = "needs a signer",
@@ -476,18 +477,19 @@ where
 /// sends one transaction with this function call through the client's
 /// [`TxSender`] and resolves to the sender's [`Output`](TxSender::Output).
 ///
-/// Like [`View`], it owns its backend, so its future is `'static` whenever
-/// the backend is: `.await` boxes it, which needs an owned, `Arc` or
-/// `'static` backend. With a shorter borrow (a local `&sender`), use
-/// [`send`](Self::send)`.await`, which has no such bound.
+/// Like [`View`], it owns its backend. `'a` is how long the `.await` future
+/// may live, as for [`Tx`]: generated clients return `Call<'static, C>`,
+/// which shrinks to the backend's borrow when the backend is `&S`, so
+/// `.await` works through a borrow and spawns for an owned `'static` one.
 #[must_use = "a call does nothing until it is awaited"]
-pub struct Call<C> {
+pub struct Call<'a, C> {
     backend: C,
     contract_id: AccountId,
     call: FunctionCall,
+    _future: PhantomData<&'a ()>,
 }
 
-impl<C> Call<C> {
+impl<C> Call<'_, C> {
     /// Set the gas limit (default 30 Tgas).
     pub fn gas(mut self, gas: Gas) -> Self {
         self.call = self.call.gas(gas);
@@ -500,22 +502,19 @@ impl<C> Call<C> {
         self
     }
 
-    /// Send the call: what `.await` does, without boxing a `'static`
-    /// future, so it also works through a borrowed backend (`&sender`).
-    pub async fn send(self) -> Result<C::Output, ContractError<C::SendError>>
+    /// What `.await` does.
+    async fn send(self) -> Result<C::Output, C::SendError>
     where
         C: TxSender,
     {
-        let action = Action::try_from(self.call).map_err(ContractError::Codec)?;
+        let action = Action::try_from(self.call)?;
         // Fully qualified, so an inherent `send` on the backend can't shadow
         // the trait method.
-        TxSender::send(&self.backend, self.contract_id, vec![action])
-            .await
-            .map_err(ContractError::Backend)
+        TxSender::send(&self.backend, self.contract_id, vec![action]).await
     }
 }
 
-impl<C> fmt::Debug for Call<C> {
+impl<C> fmt::Debug for Call<'_, C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Call")
             .field("contract_id", &self.contract_id)
@@ -540,20 +539,15 @@ impl<C> fmt::Debug for Call<C> {
 /// # Ok(())
 /// # }
 /// ```
-impl<C> From<Call<C>> for FunctionCall {
-    fn from(call: Call<C>) -> Self {
+impl<C> From<Call<'_, C>> for FunctionCall {
+    fn from(call: Call<'_, C>) -> Self {
         call.call
     }
 }
 
-impl<C> IntoFuture for Call<C>
-where
-    C: TxSender + 'static,
-    C::Output: 'static,
-    C::SendError: 'static,
-{
-    type Output = Result<C::Output, ContractError<C::SendError>>;
-    type IntoFuture = BoxFuture<'static, Self::Output>;
+impl<'a, C: TxSender + 'a> IntoFuture for Call<'a, C> {
+    type Output = Result<C::Output, C::SendError>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(self.send())
@@ -800,7 +794,7 @@ pub(crate) mod expansion {
     }
 
     /// A call through `backend`.
-    pub fn call<C>(backend: C, contract_id: AccountId, call: FunctionCall) -> Call<C>
+    pub fn call<'a, C>(backend: C, contract_id: AccountId, call: FunctionCall) -> Call<'a, C>
     where
         C: TxSender,
     {
@@ -808,6 +802,7 @@ pub(crate) mod expansion {
             backend,
             contract_id,
             call,
+            _future: PhantomData,
         }
     }
 
@@ -1247,7 +1242,7 @@ mod tests {
             FunctionCall::new("add").args(FailingJson),
         ))
         .unwrap_err();
-        assert!(matches!(error, ContractError::Codec(CodecError::Json(_))));
+        assert!(matches!(error, CodecError::Json(_)));
         assert!(sender.sent.lock().unwrap().is_empty());
     }
 
@@ -1330,12 +1325,12 @@ mod tests {
     }
 
     #[test]
-    fn call_sends_through_a_local_borrow() {
-        // `.await` would need `&sender` to be `'static`; `send` doesn't.
+    fn call_awaits_through_a_local_borrow() {
         let sender = MockSender::default();
-        let sent =
-            futures::executor::block_on(call(&sender, contract(), FunctionCall::new("add")).send())
-                .unwrap();
+        let sent = futures::executor::block_on(
+            call(&sender, contract(), FunctionCall::new("add")).into_future(),
+        )
+        .unwrap();
         assert_eq!(sent, ActionCount(1));
         let recorded = sender.sent.lock().unwrap();
         assert_eq!(recorded.len(), 1);
@@ -1349,8 +1344,8 @@ mod tests {
         );
         drop(recorded);
         assert!(matches!(
-            futures::executor::block_on(failing.send()),
-            Err(ContractError::Codec(_))
+            futures::executor::block_on(failing.into_future()),
+            Err(CodecError::Json(_))
         ));
     }
 }

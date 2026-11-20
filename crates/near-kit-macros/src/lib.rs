@@ -747,7 +747,7 @@ fn generate_call_method(
         #(#cfgs)*
         #(#docs)*
         #[allow(clippy::too_many_arguments)]
-        pub fn #method_name(&self, #params) -> #near_kit::Call<#backend>
+        pub fn #method_name(&self, #params) -> #near_kit::Call<'static, #backend>
         where
             #backend: #near_kit::TxSender + ::core::clone::Clone,
         {
@@ -831,8 +831,9 @@ fn generate_function_call_method(
 ///   `C: Viewer + Clone` and return a `View`, `#[call]` methods need
 ///   `C: TxSender + Clone` and return a `Call`; each owns a clone of the
 ///   backend (`&T` and `Arc<T>` are `Clone` backends when `T` isn't).
-///   `.await` needs a `'static` backend; through a shorter `&T` borrow,
-///   finish a view with `.with_metadata()` and a call with `.send()`. When
+///   A call `.await`s through a borrowed backend; awaiting a view needs a
+///   `'static` backend, so through a shorter `&T` borrow, finish a view
+///   with `.with_metadata()`. When
 ///   the expansion resolves to near-kit with its `rpc` feature, `C`
 ///   defaults to `near_kit::Near`. Besides the contract's methods it has
 ///   `contract_id()`, `backend()` and `into_parts()`;
@@ -1048,8 +1049,7 @@ fn contract_impl(format: SerializationFormat, input: ItemTrait) -> syn::Result<T
         " Client for the [`{trait_name}`] contract, sending through a backend.\n\n \
          View methods need a `Viewer + Clone` backend; `#[call]` methods need `TxSender + Clone`. \
          For a backend that isn't `Clone`, use `&T` or `Arc<T>`; through a borrow that isn't \
-         `'static`, finish a view with `.with_metadata()` and a call with `.send()` instead of \
-         `.await`."
+         `'static`, finish a view with `.with_metadata()` instead of `.await`."
     );
 
     let expanded = quote! {

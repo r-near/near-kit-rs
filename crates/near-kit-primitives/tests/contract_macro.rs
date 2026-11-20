@@ -295,10 +295,9 @@ fn views_and_calls_own_their_backend() {
     let read = futures::executor::block_on(borrowed.get_count().with_metadata()).unwrap();
     assert_eq!((read.result, read.block_height), (3, 1));
 
-    // And a call through a local borrow, with `send` (`.await` would need
-    // the borrow to be `'static`).
+    // And a call through a local borrow, awaited.
     let local = Backend::default();
     let by_ref = Counter::client(&local, account!("c.near"));
-    futures::executor::block_on(by_ref.reset().send()).unwrap();
+    futures::executor::block_on(async { by_ref.reset().await }).unwrap();
     assert_eq!(local.sent.lock().unwrap().len(), 1);
 }

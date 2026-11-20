@@ -262,7 +262,7 @@ impl<C: Viewer> NonFungibleTokenClient<C> {
 }
 
 impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
-    fn call(&self, function_call: FunctionCall) -> Call<C> {
+    fn call(&self, function_call: FunctionCall) -> Call<'static, C> {
         call_through(
             self.backend.clone(),
             self.contract_id.clone(),
@@ -296,7 +296,7 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
         receiver_id: impl Into<AccountId>,
         token_id: impl AsRef<str>,
         memo: Option<String>,
-    ) -> Call<C> {
+    ) -> Call<'static, C> {
         self.nft_transfer(receiver_id.into(), token_id.as_ref(), None, memo)
     }
 
@@ -307,7 +307,7 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
         receiver_id: impl Into<AccountId>,
         token_id: impl AsRef<str>,
         approval_id: u64,
-    ) -> Call<C> {
+    ) -> Call<'static, C> {
         self.nft_transfer(
             receiver_id.into(),
             token_id.as_ref(),
@@ -322,7 +322,7 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
         token_id: &str,
         approval_id: Option<u64>,
         memo: Option<String>,
-    ) -> Call<C> {
+    ) -> Call<'static, C> {
         trace::debug!(contract = %self.contract_id, token_id, receiver = %receiver_id, "nft_transfer");
 
         let mut args = json!({ "receiver_id": receiver_id, "token_id": token_id });
@@ -382,7 +382,7 @@ impl<C: TxSender + Clone> NonFungibleTokenClient<C> {
         receiver_id: impl Into<AccountId>,
         token_id: impl AsRef<str>,
         msg: impl Into<String>,
-    ) -> Call<C> {
+    ) -> Call<'static, C> {
         let receiver_id = receiver_id.into();
         let token_id = token_id.as_ref();
         trace::debug!(contract = %self.contract_id, token_id, receiver = %receiver_id, "nft_transfer_call");

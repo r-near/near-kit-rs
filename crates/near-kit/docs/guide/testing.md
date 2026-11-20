@@ -62,10 +62,11 @@ let count = premium_count(&guestbook).await?;
 The bounds come from the generated client: view methods need
 `C: Viewer + Clone`, and awaiting the returned `View` needs the backend and
 its error to be `'static`, because the future owns a clone of the backend.
-`#[call]` methods need `C: TxSender + Clone` in the same way. Code that
-only borrows its backend can drop the `'static` bounds: finish views with
-[`View::with_metadata`](crate::View::with_metadata) and calls with
-[`Call::send`](crate::Call::send), which don't box the future.
+`#[call]` methods need `C: TxSender + Clone`, and the returned `Call`
+`.await`s through a borrowed backend. Code that only borrows its backend
+can drop the `'static` bounds by finishing views with
+[`View::with_metadata`](crate::View::with_metadata), which doesn't box the
+future.
 
 Code that sends transactions without a contract client can still be
 generic: [`TxSender::send`](crate::TxSender::send) takes a receiver and a
@@ -399,11 +400,10 @@ let wallet: Arc<dyn Wallet> = Arc::new(alice.clone());
 let token = FungibleToken::client(wallet, account!("usdc.testnet"));
 
 // A `Box<dyn Wallet>` is a sender too. It isn't `Clone`, so a client
-// borrows it, and a call through the borrow finishes with `.send()`.
+// borrows it.
 let boxed: Box<dyn Wallet> = Box::new(alice);
 FungibleToken::client(&boxed, account!("usdc.testnet"))
     .transfer(account!("bob.testnet"), 1_000_000, None)
-    .send()
     .await?;
 # Ok(())
 # }

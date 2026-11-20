@@ -241,7 +241,7 @@ impl<C: Viewer> FungibleTokenClient<C> {
 }
 
 impl<C: TxSender + Clone> FungibleTokenClient<C> {
-    fn call(&self, function_call: FunctionCall) -> Call<C> {
+    fn call(&self, function_call: FunctionCall) -> Call<'static, C> {
         call_through(
             self.backend.clone(),
             self.contract_id.clone(),
@@ -270,7 +270,11 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn storage_deposit(&self, account_id: impl Into<AccountId>, deposit: NearToken) -> Call<C> {
+    pub fn storage_deposit(
+        &self,
+        account_id: impl Into<AccountId>,
+        deposit: NearToken,
+    ) -> Call<'static, C> {
         let account_id = account_id.into();
         self.call(
             FunctionCall::new("storage_deposit")
@@ -313,7 +317,7 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
         receiver_id: impl Into<AccountId>,
         amount: u128,
         memo: Option<String>,
-    ) -> Call<C> {
+    ) -> Call<'static, C> {
         let receiver_id = receiver_id.into();
         trace::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer");
 
@@ -372,7 +376,7 @@ impl<C: TxSender + Clone> FungibleTokenClient<C> {
         receiver_id: impl Into<AccountId>,
         amount: u128,
         msg: impl Into<String>,
-    ) -> Call<C> {
+    ) -> Call<'static, C> {
         let receiver_id = receiver_id.into();
         trace::debug!(contract = %self.contract_id, receiver = %receiver_id, "ft_transfer_call");
 

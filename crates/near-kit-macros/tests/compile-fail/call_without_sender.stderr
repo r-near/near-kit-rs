@@ -36,24 +36,21 @@ note: required by a bound in `CounterClient::<__NearKitBackend>::increment`
 12 |     fn increment(&mut self);
    = note: this error originates in the macro `forward` which comes from the expansion of the attribute macro `near_kit::contract` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0277]: `Call<ViewOnly>` is not a future
+error[E0277]: `Call<'_, ViewOnly>` is not a future
   --> tests/compile-fail/call_without_sender.rs:35:33
    |
 35 |     let _ = counter.increment().await;
-   |                                 ^^^^^ `Call<ViewOnly>` is not a future
+   |                                 ^^^^^ `Call<'_, ViewOnly>` is not a future
    |
-   = help: the trait `IntoFuture` is not implemented for `Call<ViewOnly>`
-   = note: Call<ViewOnly> must be a future or must implement `IntoFuture` to be awaited
-help: the trait `IntoFuture` is conditionally implemented for `Call<C>`
+   = help: the trait `IntoFuture` is not implemented for `Call<'_, ViewOnly>`
+   = note: Call<'_, ViewOnly> must be a future or must implement `IntoFuture` to be awaited
+help: the trait `IntoFuture` is conditionally implemented for `Call<'_, C>`
   --> $WORKSPACE/crates/near-kit-primitives/src/backend.rs
    |
-   | / impl<C> IntoFuture for Call<C>
-   | | where
-   | |     C: TxSender + 'static,
-   | |        -------- unsatisfied requirement introduced here: `ViewOnly: TxSender`
-   | |     C::Output: 'static,
-   | |     C::SendError: 'static,
-   | |__________________________^
+   | impl<'a, C: TxSender + 'a> IntoFuture for Call<'a, C> {
+   | ^^^^^^^^^^^^--------^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |             |
+   |             unsatisfied requirement introduced here: `ViewOnly: TxSender`
 help: remove the `.await`
    |
 35 -     let _ = counter.increment().await;
