@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::{Action, ChainId, FunctionCallAction};
+use near_kit::protocol::{Action, FunctionCallAction};
 use near_kit::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
 use near_kit::*;
 
@@ -48,13 +48,13 @@ impl Viewer for Recorder {
 
 impl TxSender for Recorder {
     type Output = SendTxResponse;
-    type SendError = String;
+    type SendError = near_kit::transaction::CodecError;
 
     fn account_id(&self) -> &AccountId {
         unreachable!("the generated client doesn't ask for the sender")
     }
 
-    fn chain_id(&self) -> &ChainId {
+    fn chain_id(&self) -> &str {
         unreachable!("not used by these tests")
     }
 
@@ -62,7 +62,7 @@ impl TxSender for Recorder {
         &self,
         _receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<SendTxResponse, String> {
+    ) -> Result<SendTxResponse, near_kit::transaction::CodecError> {
         let mut methods = self.methods.lock().unwrap();
         for action in actions {
             match action {

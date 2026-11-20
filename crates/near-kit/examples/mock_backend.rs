@@ -34,7 +34,7 @@ use std::error::Error;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::{Action, ChainId, FunctionCallAction};
+use near_kit::protocol::{Action, FunctionCallAction};
 use near_kit::rpc::{BlockReference, FinalExecutionOutcome, SendTxResponse, ViewFunctionResult};
 use near_kit::standards::{FungibleToken, FungibleTokenClient};
 use near_kit::{
@@ -74,20 +74,17 @@ impl CheckOutput for FinalExecutionOutcome {
 /// first if it can't hold the token yet.
 ///
 /// Generic over the backend: in production `C` is a `SigningNear`. The
-/// `'static` bounds are there because awaiting a `View` or `Call` boxes a
-/// `'static` future that owns a clone of the backend. Code that only borrows
-/// its backend can drop them by finishing views with `.with_metadata()` and
-/// calls with `.send()`.
+/// errors are `'static` only because they end up in a `Box<dyn Error>`.
 async fn tip<C>(
     token: &FungibleTokenClient<C>,
     receiver: AccountId,
     whole_tokens: u128,
 ) -> Result<(), Box<dyn Error>>
 where
-    C: Viewer + TxSender + Clone + 'static,
+    C: Viewer + TxSender + Clone,
     C::Output: CheckOutput,
     C::ViewError: fmt::Debug + fmt::Display + 'static,
-    C::SendError: fmt::Debug + fmt::Display + 'static,
+    C::SendError: Error + 'static,
 {
     let decimals = token.metadata().await?.decimals;
     if !token.is_registered(receiver.clone()).await? {
@@ -144,7 +141,6 @@ impl CheckOutput for MockOutcome {
 #[derive(Clone)]
 struct MockChain {
     account_id: AccountId,
-    chain_id: ChainId,
     views: Arc<Mutex<ViewTable>>,
     sent: Arc<Mutex<SentLog>>,
     failing: Arc<Mutex<HashSet<String>>>,
@@ -154,7 +150,6 @@ impl MockChain {
     fn new(account_id: AccountId) -> Self {
         Self {
             account_id,
-            chain_id: ChainId::new("mock"),
             views: Arc::default(),
             sent: Arc::default(),
             failing: Arc::default(),
@@ -213,21 +208,21 @@ impl Viewer for MockChain {
 impl TxSender for MockChain {
     // A real backend returns an outcome; the mock reports only a failure.
     type Output = MockOutcome;
-    type SendError = String;
+    type SendError = near_kit::transaction::CodecError;
 
     fn account_id(&self) -> &AccountId {
         &self.account_id
     }
 
-    fn chain_id(&self) -> &ChainId {
-        &self.chain_id
+    fn chain_id(&self) -> &str {
+        "mock"
     }
 
     async fn send(
         &self,
         receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<MockOutcome, String> {
+    ) -> Result<MockOutcome, near_kit::transaction::CodecError> {
         let failing = self.failing.lock().unwrap();
         let failure = actions.iter().find_map(|action| match action {
             Action::FunctionCall(call) if failing.contains(&call.method_name) => {

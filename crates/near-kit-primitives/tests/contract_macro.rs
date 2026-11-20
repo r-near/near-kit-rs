@@ -7,7 +7,7 @@ use std::future::IntoFuture;
 use std::sync::{Arc, Mutex};
 
 use near_kit_primitives::ContractError;
-use near_kit_primitives::protocol::{Action, ChainId};
+use near_kit_primitives::protocol::Action;
 use near_kit_primitives::rpc::{BlockReference, Finality, SendTxResponse, ViewFunctionResult};
 use near_kit_primitives::transaction::CodecError;
 use near_kit_primitives::{
@@ -156,13 +156,13 @@ impl Viewer for Backend {
 
 impl TxSender for Backend {
     type Output = SendTxResponse;
-    type SendError = String;
+    type SendError = near_kit_primitives::transaction::CodecError;
 
     fn account_id(&self) -> &AccountId {
         unreachable!("not used by generated clients")
     }
 
-    fn chain_id(&self) -> &ChainId {
+    fn chain_id(&self) -> &str {
         unreachable!("not used by these tests")
     }
 
@@ -170,7 +170,7 @@ impl TxSender for Backend {
         &self,
         receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<SendTxResponse, String> {
+    ) -> Result<SendTxResponse, near_kit_primitives::transaction::CodecError> {
         self.sent.lock().unwrap().push((receiver_id, actions));
         Ok(SendTxResponse::new(
             CryptoHash::ZERO,
@@ -256,7 +256,7 @@ impl Viewer for Unclonable {
 /// An extension-trait helper can return the view itself, so callers can
 /// still pick a block or ask for metadata.
 trait CounterExt: Viewer + Clone + Sized {
-    fn count(&self) -> near_kit_primitives::View<Self, u64> {
+    fn count(&self) -> near_kit_primitives::View<'static, Self, u64> {
         Counter::client(self.clone(), account!("c.near")).get_count()
     }
 }
@@ -289,16 +289,15 @@ fn views_and_calls_own_their_backend() {
     assert_eq!(run(first.get_count()).unwrap(), 3);
     assert_eq!(run(second.get_count()).unwrap(), 3);
 
-    // Or by reference, reading with `with_metadata`.
+    // Or by reference, awaited through the local borrow.
     let unclonable = Unclonable;
     let borrowed = Counter::client(&unclonable, account!("c.near"));
-    let read = futures::executor::block_on(borrowed.get_count().with_metadata()).unwrap();
-    assert_eq!((read.result, read.block_height), (3, 1));
+    let count = futures::executor::block_on(async { borrowed.get_count().await }).unwrap();
+    assert_eq!(count, 3);
 
-    // And a call through a local borrow, with `send` (`.await` would need
-    // the borrow to be `'static`).
+    // And a call through a local borrow, awaited.
     let local = Backend::default();
     let by_ref = Counter::client(&local, account!("c.near"));
-    futures::executor::block_on(by_ref.reset().send()).unwrap();
+    futures::executor::block_on(async { by_ref.reset().await }).unwrap();
     assert_eq!(local.sent.lock().unwrap().len(), 1);
 }

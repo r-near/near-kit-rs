@@ -23,7 +23,7 @@ help: the trait `for<'de> near_kit::__private::serde::Deserialize<'de>` is not i
 note: required by a bound in `near_kit::__private::view_json`
  --> $WORKSPACE/crates/near-kit-primitives/src/backend.rs
   |
-  |     pub fn view_json<C, T>(
+  |     pub fn view_json<'a, C, T>(
 ...
   |         T: serde::de::DeserializeOwned,
   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `view_json`
@@ -52,7 +52,7 @@ help: the trait `near_kit::__private::borsh::BorshDeserialize` is not implemente
 note: required by a bound in `near_kit::__private::view_borsh`
   --> $WORKSPACE/crates/near-kit-primitives/src/backend.rs
    |
-   |     pub fn view_borsh<C, T>(
+   |     pub fn view_borsh<'a, C, T>(
 ...
    |         T: borsh::BorshDeserialize,
    |            ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `view_borsh`

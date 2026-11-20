@@ -1,7 +1,7 @@
 //! A view method on a client whose backend can't view reports the `Viewer`
 //! diagnostic.
 
-use near_kit::protocol::{Action, ChainId};
+use near_kit::protocol::Action;
 use near_kit::rpc::SendTxResponse;
 use near_kit::*;
 
@@ -18,17 +18,17 @@ struct SendOnly(AccountId);
 
 impl TxSender for SendOnly {
     type Output = SendTxResponse;
-    type SendError = String;
+    type SendError = near_kit::transaction::CodecError;
 
     fn account_id(&self) -> &AccountId {
         &self.0
     }
 
-    fn chain_id(&self) -> &ChainId {
+    fn chain_id(&self) -> &str {
         unreachable!("the test only compiles")
     }
 
-    async fn send(&self, _receiver: AccountId, _: Vec<Action>) -> Result<SendTxResponse, String> {
+    async fn send(&self, _receiver: AccountId, _: Vec<Action>) -> Result<SendTxResponse, near_kit::transaction::CodecError> {
         Ok(SendTxResponse::new(CryptoHash::ZERO, self.0.clone(), None))
     }
 }

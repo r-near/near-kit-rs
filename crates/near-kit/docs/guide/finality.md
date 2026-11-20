@@ -177,7 +177,7 @@ println!("{}", response.transaction_hash);
 ```
 
 One transaction can wait for another level than its client:
-[`Tx::wait_until`](crate::transaction::Tx::wait_until) goes after the
+[`Tx::wait_until`](crate::Tx::wait_until) goes after the
 actions and changes what `.await` returns, leaving the client as it was:
 
 ```rust,no_run

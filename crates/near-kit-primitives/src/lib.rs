@@ -21,7 +21,7 @@
 //!
 //! | Module | Contents |
 //! |--------|----------|
-//! | crate root | [`AccountId`], [`AccountIdRef`], [`NearToken`], [`Gas`], [`CryptoHash`], [`account!`]; the verbs [`Viewer`] and [`TxSender`]; the awaitable [`View`] and [`Call`], [`ContractError`], [`Contract`]; the platform bounds [`MaybeSend`] and [`MaybeSync`] |
+//! | crate root | [`AccountId`], [`AccountIdRef`], [`NearToken`], [`Gas`], [`CryptoHash`], [`account!`]; the verbs [`Viewer`] and [`TxSender`]; the awaitable [`View`], [`Call`] and [`Tx`], [`WithWaitLevel`], [`ContractError`], [`Contract`]; the platform bounds [`MaybeSend`] and [`MaybeSync`] |
 //! | [`protocol`] | Actions, transactions, delegate actions, chain IDs, state init, execution errors |
 //! | [`signer`] | Keys, signatures, [`signer::Signer`], [`signer::InMemorySigner`], [`signer::RotatingSigner`] |
 //! | [`transaction`] | [`transaction::FunctionCall`], [`transaction::CodecError`] and the typed wait levels |
@@ -67,9 +67,10 @@
 //!
 //! ## Your own backend
 //!
-//! Implement [`Viewer`] (`view_function`) or [`TxSender`] (`account_id` and
-//! `send`) and [`View`], [`Call`] and `#[contract]` clients run on it:
-//! a test double, a gateway, or a sender that queues actions. Both traits are
+//! Implement [`Viewer`] (`view_function`) or [`TxSender`] (`account_id`,
+//! `chain_id` and `send`) and [`View`], [`Call`], [`Tx`] and `#[contract]`
+//! clients run on it: a test double, a gateway, a wallet, or a sender that
+//! queues actions. Both traits are
 //! implemented for `&T`, `Box<T>` and `Arc<T>` too. The trait docs have
 //! examples; near-kit's
 //! [testing guide](https://docs.rs/near-kit/latest/near_kit/guide/testing/index.html)
@@ -113,7 +114,7 @@ pub mod signer;
 pub mod standards;
 pub mod transaction;
 
-pub use backend::{Call, Contract, ContractError, TxSender, View, Viewer};
+pub use backend::{Call, Contract, ContractError, Tx, TxSender, View, Viewer, WithWaitLevel};
 pub use platform::{MaybeSend, MaybeSync};
 pub use types::{AccountId, AccountIdRef, CryptoHash, Gas, NearToken};
 

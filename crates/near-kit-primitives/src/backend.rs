@@ -7,13 +7,14 @@
 
 use std::fmt;
 use std::future::{Future, IntoFuture};
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::error::CodecError;
 use crate::platform::{BoxFuture, MaybeSend, MaybeSync};
 use crate::transaction::FunctionCall;
 use crate::types::{
-    AccountId, AccountIdRef, Action, BlockReference, ChainId, Gas, NearToken, ViewFunctionResult,
+    AccountId, AccountIdRef, Action, BlockReference, Gas, NearToken, ViewFunctionResult, WaitLevel,
 };
 
 /// A backend that can run contract view functions.
@@ -48,7 +49,7 @@ pub trait Viewer: MaybeSend + MaybeSync {
     ) -> impl Future<Output = Result<ViewFunctionResult, Self::ViewError>> + MaybeSend;
 }
 
-/// A backend that can send transactions from a fixed account on a fixed
+/// A backend that sends transactions acting as a fixed account on a fixed
 /// chain.
 ///
 /// This is the write verb: a transaction is a receiver plus actions, and the
@@ -72,7 +73,8 @@ pub trait Viewer: MaybeSend + MaybeSync {
 /// ```
 ///
 /// Generated clients need a `Clone` backend; `&T`, `Box<T>` and `Arc<T>`
-/// forward to `T`. Through a short borrow, send with [`Call::send`].
+/// forward to `T`, so a client over `&S` makes [`Call`]s that `.await`
+/// through that borrow.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot send transactions",
     label = "needs a signer",
@@ -83,22 +85,53 @@ pub trait TxSender: MaybeSend + MaybeSync {
     /// just its hash and signer.
     ///
     /// It converts into a [`SendTxResponse`](crate::rpc::SendTxResponse)
-    /// naming a transaction that was really sent. A test double that sends
-    /// nothing has no such hash and returns a placeholder.
+    /// naming a transaction that was really submitted, so that `tx_status`
+    /// finds it. Its `sender_id` is the account that signed that
+    /// transaction. For a sender that acts through someone else's
+    /// transaction, such as a wallet contract whose relayer signs or a
+    /// relayed meta-transaction, that is the relayer, not
+    /// [`account_id`](Self::account_id).
+    ///
+    /// Only a test double that sends nothing may return a placeholder hash,
+    /// such as `CryptoHash::ZERO`; `tx_status` would find no transaction for
+    /// it.
     type Output: Into<crate::rpc::SendTxResponse>;
-    /// The backend's error. Unbounded.
-    type SendError;
+    /// The backend's error.
+    ///
+    /// It takes a [`CodecError`], so that an action whose arguments failed
+    /// to encode fails a [`Tx`] with this same error type. `near_kit::Error`,
+    /// `anyhow::Error` and `CodecError` itself qualify; a test double that
+    /// never fails can use `CodecError`.
+    type SendError: From<CodecError>;
 
-    /// The account transactions are sent from.
+    /// The account the transaction acts as: the predecessor of the receipts
+    /// that carry its actions, which a receiving contract sees as
+    /// `env::predecessor_account_id()`.
+    ///
+    /// For `near-kit`'s `SigningNear` it is also the account that signs and
+    /// pays for the transaction. A sender that acts through someone else's
+    /// transaction may have another account sign and pay for the outer
+    /// transaction: a wallet contract's relayer, or the relayer of a
+    /// meta-transaction. The [`Output`](Self::Output) names that signer.
     fn account_id(&self) -> &AccountId;
 
-    /// The chain transactions are sent on.
+    /// The ID of the chain transactions are sent on, such as `"mainnet"`.
     ///
+    /// It is a plain `&str`, so a sender that keeps the chain ID as a
+    /// `String`, or as a constant, can return it. Compare it with
+    /// `"mainnet"`, or convert it into a
+    /// [`ChainId`](crate::protocol::ChainId) for `is_mainnet()`.
     /// For `near-kit`'s `SigningNear` this is the chain ID its `Near` client
     /// was built with, which nothing checks against the RPC node.
-    fn chain_id(&self) -> &ChainId;
+    fn chain_id(&self) -> &str;
 
     /// Send one transaction with `actions` to `receiver_id`.
+    ///
+    /// A sender may refuse actions it can't express, with its own
+    /// [`SendError`](Self::SendError), before anything is signed or sent. A
+    /// wallet contract that only forwards function calls, transfers and
+    /// state inits is one such sender: it fails a transaction that adds an
+    /// access key.
     ///
     /// The returned future may borrow `self`: implement it as
     /// `async fn send(&self, ..)`.
@@ -107,6 +140,32 @@ pub trait TxSender: MaybeSend + MaybeSync {
         receiver_id: AccountId,
         actions: Vec<Action>,
     ) -> impl Future<Output = Result<Self::Output, Self::SendError>> + MaybeSend;
+
+    /// Start a [`Tx`] to `receiver_id` that sends through this sender.
+    ///
+    /// The transaction borrows the sender, and `.await` works through that
+    /// borrow. To move it into `tokio::spawn`, build it from an owned sender
+    /// with [`Tx::new`], or await it inside the spawned `async move` block.
+    fn transaction(&self, receiver_id: impl Into<AccountId>) -> Tx<'_, &Self> {
+        Tx::new(self, receiver_id)
+    }
+}
+
+/// A [`TxSender`] that can wait for a different [`WaitLevel`] per
+/// transaction, as `near-kit`'s `SigningNear<W>` does.
+///
+/// [`Tx::wait_until`] uses it; a sender opts in by implementing it. A wrapper
+/// sender forwards it by wrapping its inner sender's
+/// [`At`](Self::At) in itself.
+///
+/// The method takes `&self`, like `SigningNear::wait_until`, so bringing the
+/// trait into scope never moves a sender that has an inherent `wait_until`.
+pub trait WithWaitLevel: TxSender {
+    /// This sender, waiting for `L`. It fails with the same error type.
+    type At<L: WaitLevel>: TxSender<SendError = Self::SendError>;
+
+    /// The same sender, waiting for `L` instead.
+    fn wait_until<L: WaitLevel>(&self) -> Self::At<L>;
 }
 
 /// A typed contract interface: ties the marker type that `#[contract]`
@@ -128,8 +187,7 @@ pub trait TxSender: MaybeSend + MaybeSync {
 ///
 /// # async fn count<V>(backend: V, contract_id: AccountId) -> Result<u64, ContractError<V::ViewError>>
 /// # where
-/// #     V: Viewer + Clone + 'static,
-/// #     V::ViewError: 'static,
+/// #     V: Viewer + Clone,
 /// # {
 /// // `backend` is any `Viewer` (and `TxSender`, for `#[call]` methods).
 /// let counter = Counter::client(backend, contract_id);
@@ -146,7 +204,11 @@ pub trait Contract {
     fn client<C>(backend: C, contract_id: AccountId) -> Self::Client<C>;
 }
 
-/// Error from a [`View`] or [`Call`].
+/// Error from a [`View`].
+///
+/// A [`Call`] or [`Tx`] fails with its sender's
+/// [`SendError`](TxSender::SendError) instead, which takes encoding errors
+/// itself.
 ///
 /// Displays as the underlying error. It is a [`std::error::Error`] whenever
 /// the backend error is `Debug + Display`, not only when it is itself an
@@ -206,18 +268,19 @@ pub enum ContractError<E> {
 /// ```
 ///
 /// A `View` owns its backend (generated clients clone theirs into it), so a
-/// helper can return one and its future is `'static` whenever the backend
-/// is: it can be spawned. To share a backend that isn't `Clone`, hand the
-/// client an `Arc` of it. A borrowed backend (`&B`) works too, but then
-/// `.await` needs a `'static` borrow; [`with_metadata`](Self::with_metadata)
-/// has no such bound, and its `.result` is the value `.await` would give.
+/// helper can return one. `'a` is how long the `.await` future may live, as
+/// for [`Call`] and [`Tx`]: generated clients and `near_kit::Near::view`
+/// return `View<'static, C, T>`, which shrinks to the backend's borrow when
+/// the backend is `&B`. So `.await` works through a borrowed backend, and a
+/// view over an owned `'static` backend can be spawned. To share a backend
+/// that isn't `Clone`, hand the client a `&B` or an `Arc` of it.
 ///
 /// A `View` is [`Clone`] when its backend is, so one view can be run again
 /// and again. [`fetch_raw`](Self::fetch_raw) runs it without decoding and
 /// [`decode`](Self::decode) decodes later, for instance only when a polled
 /// result changed.
 #[must_use = "a view does nothing until it is awaited"]
-pub struct View<C, T> {
+pub struct View<'a, C, T> {
     backend: C,
     contract_id: AccountId,
     method: String,
@@ -226,9 +289,10 @@ pub struct View<C, T> {
     args: Result<Vec<u8>, CodecError>,
     block: BlockReference,
     decode: fn(&[u8]) -> Result<T, CodecError>,
+    _future: PhantomData<&'a ()>,
 }
 
-impl<C, T> View<C, T> {
+impl<C, T> View<'_, C, T> {
     fn new(
         backend: C,
         contract_id: AccountId,
@@ -243,6 +307,7 @@ impl<C, T> View<C, T> {
             args: Ok(args),
             block: BlockReference::default(),
             decode,
+            _future: PhantomData,
         }
     }
 
@@ -338,7 +403,7 @@ impl<C, T> View<C, T> {
     ///
     /// ```rust
     /// # use near_kit_primitives::{ContractError, View, Viewer};
-    /// # async fn poll<C: Viewer + Clone>(view: View<C, u64>, last: &mut Vec<u8>)
+    /// # async fn poll<C: Viewer + Clone>(view: View<'_, C, u64>, last: &mut Vec<u8>)
     /// #     -> Result<Option<u64>, ContractError<C::ViewError>> {
     /// let raw = view.clone().fetch_raw().await?;
     /// if raw.result == *last {
@@ -385,7 +450,7 @@ impl<C, T> View<C, T> {
 /// same way: same [`CodecError`] variant and message (and Borsh
 /// [`io::ErrorKind`](std::io::ErrorKind)), without the original's source
 /// chain.
-impl<C: Clone, T> Clone for View<C, T> {
+impl<C: Clone, T> Clone for View<'_, C, T> {
     fn clone(&self) -> Self {
         Self {
             backend: self.backend.clone(),
@@ -397,6 +462,7 @@ impl<C: Clone, T> Clone for View<C, T> {
             },
             block: self.block,
             decode: self.decode,
+            _future: PhantomData,
         }
     }
 }
@@ -412,7 +478,7 @@ fn copy_codec_error(error: &CodecError) -> CodecError {
     }
 }
 
-impl<C, T> fmt::Debug for View<C, T> {
+impl<C, T> fmt::Debug for View<'_, C, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("View")
             .field("contract_id", &self.contract_id)
@@ -423,14 +489,13 @@ impl<C, T> fmt::Debug for View<C, T> {
     }
 }
 
-impl<C, T> IntoFuture for View<C, T>
+impl<'a, C, T> IntoFuture for View<'a, C, T>
 where
-    C: Viewer + 'static,
-    C::ViewError: 'static,
-    T: 'static,
+    C: Viewer + 'a,
+    T: 'a,
 {
     type Output = Result<T, ContractError<C::ViewError>>;
-    type IntoFuture = BoxFuture<'static, Self::Output>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move { self.with_metadata().await.map(|view| view.result) })
@@ -443,18 +508,19 @@ where
 /// sends one transaction with this function call through the client's
 /// [`TxSender`] and resolves to the sender's [`Output`](TxSender::Output).
 ///
-/// Like [`View`], it owns its backend, so its future is `'static` whenever
-/// the backend is: `.await` boxes it, which needs an owned, `Arc` or
-/// `'static` backend. With a shorter borrow (a local `&sender`), use
-/// [`send`](Self::send)`.await`, which has no such bound.
+/// Like [`View`], it owns its backend, and `'a` is how long the `.await`
+/// future may live: generated clients return `Call<'static, C>`, which
+/// shrinks to the backend's borrow when the backend is `&S`, so `.await`
+/// works through a borrow and spawns for an owned `'static` one.
 #[must_use = "a call does nothing until it is awaited"]
-pub struct Call<C> {
+pub struct Call<'a, C> {
     backend: C,
     contract_id: AccountId,
     call: FunctionCall,
+    _future: PhantomData<&'a ()>,
 }
 
-impl<C> Call<C> {
+impl<C> Call<'_, C> {
     /// Set the gas limit (default 30 Tgas).
     pub fn gas(mut self, gas: Gas) -> Self {
         self.call = self.call.gas(gas);
@@ -467,22 +533,19 @@ impl<C> Call<C> {
         self
     }
 
-    /// Send the call: what `.await` does, without boxing a `'static`
-    /// future, so it also works through a borrowed backend (`&sender`).
-    pub async fn send(self) -> Result<C::Output, ContractError<C::SendError>>
+    /// What `.await` does.
+    async fn send(self) -> Result<C::Output, C::SendError>
     where
         C: TxSender,
     {
-        let action = Action::try_from(self.call).map_err(ContractError::Codec)?;
+        let action = Action::try_from(self.call)?;
         // Fully qualified, so an inherent `send` on the backend can't shadow
         // the trait method.
-        TxSender::send(&self.backend, self.contract_id, vec![action])
-            .await
-            .map_err(ContractError::Backend)
+        TxSender::send(&self.backend, self.contract_id, vec![action]).await
     }
 }
 
-impl<C> fmt::Debug for Call<C> {
+impl<C> fmt::Debug for Call<'_, C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Call")
             .field("contract_id", &self.contract_id)
@@ -507,28 +570,180 @@ impl<C> fmt::Debug for Call<C> {
 /// # Ok(())
 /// # }
 /// ```
-impl<C> From<Call<C>> for FunctionCall {
-    fn from(call: Call<C>) -> Self {
+impl<C> From<Call<'_, C>> for FunctionCall {
+    fn from(call: Call<'_, C>) -> Self {
         call.call
     }
 }
 
-impl<C> IntoFuture for Call<C>
-where
-    C: TxSender + 'static,
-    C::Output: 'static,
-    C::SendError: 'static,
-{
-    type Output = Result<C::Output, ContractError<C::SendError>>;
-    type IntoFuture = BoxFuture<'static, Self::Output>;
+impl<'a, C: TxSender + 'a> IntoFuture for Call<'a, C> {
+    type Output = Result<C::Output, C::SendError>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(self.send())
     }
 }
 
+/// One transaction being assembled: a receiver, the actions so far, and the
+/// [`TxSender`] that will send it.
+///
+/// Start one with [`TxSender::transaction`] (which borrows the sender),
+/// `SigningNear::transaction` (which owns a clone), or [`Tx::new`]. Add
+/// actions with [`add_action`](Self::add_action), then `.await` it. The
+/// result is the sender's own [`Output`](TxSender::Output) and
+/// [`SendError`](TxSender::SendError), so a `SigningNear` transaction fails
+/// with `near_kit::Error`.
+///
+/// An action whose arguments fail to encode is kept as a [`CodecError`] and
+/// returned, converted into the sender's error, without calling the sender.
+///
+/// `'a` is how long the `.await` future may live: the sender's borrow for a
+/// borrowed sender, `'static` for an owned one, which can be spawned.
+///
+/// For a sender that implements [`WithWaitLevel`],
+/// [`wait_until`](Self::wait_until) picks the wait level of this one
+/// transaction.
+///
+/// The same code works for any sender:
+///
+/// ```rust
+/// use near_kit_primitives::protocol::Action;
+/// use near_kit_primitives::transaction::FunctionCall;
+/// use near_kit_primitives::{AccountId, Gas, NearToken, TxSender};
+///
+/// async fn bump<S: TxSender>(sender: &S, counter: AccountId) -> Result<S::Output, S::SendError> {
+///     sender
+///         .transaction(counter)
+///         .add_action(
+///             FunctionCall::new("bump")
+///                 .args(serde_json::json!({ "by": 2 }))
+///                 .gas(Gas::from_tgas(10)),
+///         )
+///         .add_action(Action::transfer(NearToken::from_millinear(10)))
+///         .await
+/// }
+/// ```
+#[must_use = "transactions are not sent unless awaited"]
+pub struct Tx<'a, C> {
+    sender: C,
+    receiver_id: AccountId,
+    actions: Vec<Action>,
+    /// The first deferred encoding error; returned from `.await`.
+    error: Option<CodecError>,
+    _future: PhantomData<&'a ()>,
+}
+
+impl<'a, C> Tx<'a, C> {
+    /// A transaction to `receiver_id` with no actions yet, sent through
+    /// `sender`: owned (`Tx<'static, S>` for an owned `'static` sender, which
+    /// can be spawned) or borrowed (`&S`).
+    pub fn new(sender: C, receiver_id: impl Into<AccountId>) -> Self {
+        Self {
+            sender,
+            receiver_id: receiver_id.into(),
+            actions: Vec::new(),
+            error: None,
+            _future: PhantomData,
+        }
+    }
+
+    /// Append an action.
+    ///
+    /// Takes an [`Action`] or anything that converts into one, such as a
+    /// [`FunctionCall`]. If its arguments fail to encode, the [`CodecError`]
+    /// is kept and returned when the transaction is awaited; later actions
+    /// are still accepted but the transaction is never sent.
+    pub fn add_action<A>(mut self, action: A) -> Self
+    where
+        A: TryInto<Action>,
+        A::Error: Into<CodecError>,
+    {
+        match action.try_into() {
+            Ok(action) => self.actions.push(action),
+            Err(error) => {
+                if self.error.is_none() {
+                    self.error = Some(error.into());
+                }
+            }
+        }
+        self
+    }
+
+    /// The account the transaction goes to.
+    pub fn receiver_id(&self) -> &AccountId {
+        &self.receiver_id
+    }
+
+    /// The actions added so far, without any that failed to encode.
+    pub fn actions(&self) -> &[Action] {
+        &self.actions
+    }
+}
+
+impl<'a, C: WithWaitLevel> Tx<'a, C> {
+    /// Wait for `L` instead of the sender's own level, for this transaction
+    /// only.
+    ///
+    /// `.await` then resolves to the [`Output`](TxSender::Output) of
+    /// [`C::At<L>`](WithWaitLevel::At). The sender the transaction came from
+    /// keeps its own level, and the actions (and any kept encoding error)
+    /// carry over.
+    ///
+    /// The result owns `C::At<L>` (for a borrowed `SigningNear`, an owned
+    /// `SigningNear<L>`), so its lifetime is free again: a transaction
+    /// started through a borrow can be spawned after `wait_until`.
+    pub fn wait_until<'b, L: WaitLevel>(self) -> Tx<'b, C::At<L>> {
+        Tx {
+            sender: WithWaitLevel::wait_until::<L>(&self.sender),
+            receiver_id: self.receiver_id,
+            actions: self.actions,
+            error: self.error,
+            _future: PhantomData,
+        }
+    }
+}
+
+impl<C: TxSender> fmt::Debug for Tx<'_, C> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Tx")
+            .field("account_id", self.sender.account_id())
+            .field("receiver_id", &self.receiver_id)
+            .field("action_count", &self.actions.len())
+            .field("error", &self.error)
+            .finish()
+    }
+}
+
+/// Sends the transaction. A kept encoding error is returned, converted into
+/// the sender's error, without calling the sender.
+impl<'a, C: TxSender + 'a> IntoFuture for Tx<'a, C> {
+    type Output = Result<C::Output, C::SendError>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            if let Some(error) = self.error {
+                return Err(error.into());
+            }
+            // Fully qualified, so an inherent `send` on the sender can't
+            // shadow the trait method.
+            TxSender::send(&self.sender, self.receiver_id, self.actions).await
+        })
+    }
+}
+
 macro_rules! forward {
     ($($p:ty),+) => {$(
+        /// Forwards to `T`.
+        impl<T: WithWaitLevel + ?Sized> WithWaitLevel for $p {
+            type At<L: WaitLevel> = T::At<L>;
+
+            fn wait_until<L: WaitLevel>(&self) -> Self::At<L> {
+                (**self).wait_until::<L>()
+            }
+        }
+
         /// Forwards to `T`.
         impl<T: Viewer + ?Sized> Viewer for $p {
             type ViewError = T::ViewError;
@@ -553,7 +768,7 @@ macro_rules! forward {
                 (**self).account_id()
             }
 
-            fn chain_id(&self) -> &ChainId {
+            fn chain_id(&self) -> &str {
                 (**self).chain_id()
             }
 
@@ -576,12 +791,12 @@ pub(crate) mod expansion {
     use super::*;
 
     /// A JSON-decoded view.
-    pub fn view_json<C, T>(
+    pub fn view_json<'a, C, T>(
         backend: C,
         contract_id: AccountId,
         method: &'static str,
         args: Result<Vec<u8>, CodecError>,
-    ) -> View<C, T>
+    ) -> View<'a, C, T>
     where
         C: Viewer,
         T: serde::de::DeserializeOwned,
@@ -593,12 +808,12 @@ pub(crate) mod expansion {
     }
 
     /// A Borsh-decoded view.
-    pub fn view_borsh<C, T>(
+    pub fn view_borsh<'a, C, T>(
         backend: C,
         contract_id: AccountId,
         method: &'static str,
         args: Result<Vec<u8>, CodecError>,
-    ) -> View<C, T>
+    ) -> View<'a, C, T>
     where
         C: Viewer,
         T: borsh::BorshDeserialize,
@@ -610,7 +825,7 @@ pub(crate) mod expansion {
     }
 
     /// A call through `backend`.
-    pub fn call<C>(backend: C, contract_id: AccountId, call: FunctionCall) -> Call<C>
+    pub fn call<'a, C>(backend: C, contract_id: AccountId, call: FunctionCall) -> Call<'a, C>
     where
         C: TxSender,
     {
@@ -618,6 +833,7 @@ pub(crate) mod expansion {
             backend,
             contract_id,
             call,
+            _future: PhantomData,
         }
     }
 
@@ -721,13 +937,13 @@ mod tests {
 
     impl TxSender for MockSender {
         type Output = ActionCount;
-        type SendError = String;
+        type SendError = CodecError;
 
         fn account_id(&self) -> &AccountId {
             unreachable!("not used by Call")
         }
 
-        fn chain_id(&self) -> &ChainId {
+        fn chain_id(&self) -> &str {
             unreachable!("not used by Call")
         }
 
@@ -735,7 +951,7 @@ mod tests {
             &self,
             receiver_id: AccountId,
             actions: Vec<Action>,
-        ) -> Result<ActionCount, String> {
+        ) -> Result<ActionCount, CodecError> {
             let count = actions.len();
             self.sent.lock().unwrap().push((receiver_id, actions));
             Ok(ActionCount(count))
@@ -908,7 +1124,7 @@ mod tests {
 
     #[test]
     fn last_argument_setter_wins() {
-        type MockView = View<Arc<MockViewer>, u64>;
+        type MockView = View<'static, Arc<MockViewer>, u64>;
         let viewer = MockViewer::new(b"1");
         let view =
             |set: fn(MockView) -> MockView| set(View::json(viewer.clone(), contract(), "get")).args;
@@ -1057,7 +1273,7 @@ mod tests {
             FunctionCall::new("add").args(FailingJson),
         ))
         .unwrap_err();
-        assert!(matches!(error, ContractError::Codec(CodecError::Json(_))));
+        assert!(matches!(error, CodecError::Json(_)));
         assert!(sender.sent.lock().unwrap().is_empty());
     }
 
@@ -1132,20 +1348,19 @@ mod tests {
     fn borrowed_backends_forward() {
         let viewer = MockViewer::new(b"5");
         let by_ref: u64 = futures::executor::block_on(
-            view_json::<_, u64>(&*viewer, contract(), "get", Ok(Vec::new())).with_metadata(),
+            view_json::<_, u64>(&*viewer, contract(), "get", Ok(Vec::new())).into_future(),
         )
-        .unwrap()
-        .result;
+        .unwrap();
         assert_eq!(by_ref, 5);
     }
 
     #[test]
-    fn call_sends_through_a_local_borrow() {
-        // `.await` would need `&sender` to be `'static`; `send` doesn't.
+    fn call_awaits_through_a_local_borrow() {
         let sender = MockSender::default();
-        let sent =
-            futures::executor::block_on(call(&sender, contract(), FunctionCall::new("add")).send())
-                .unwrap();
+        let sent = futures::executor::block_on(
+            call(&sender, contract(), FunctionCall::new("add")).into_future(),
+        )
+        .unwrap();
         assert_eq!(sent, ActionCount(1));
         let recorded = sender.sent.lock().unwrap();
         assert_eq!(recorded.len(), 1);
@@ -1159,8 +1374,8 @@ mod tests {
         );
         drop(recorded);
         assert!(matches!(
-            futures::executor::block_on(failing.send()),
-            Err(ContractError::Codec(_))
+            futures::executor::block_on(failing.into_future()),
+            Err(CodecError::Json(_))
         ));
     }
 }

@@ -5,7 +5,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::{Action, ChainId};
+use near_kit::protocol::Action;
 use near_kit::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
 use near_kit::{AccountId, AccountIdRef, Contract, CryptoHash, TxSender, Viewer, account};
 
@@ -22,7 +22,7 @@ pub trait Counter {
 #[derive(Clone)]
 struct Recorder {
     account_id: AccountId,
-    chain_id: ChainId,
+    chain_id: String,
     methods: Arc<Mutex<Vec<String>>>,
 }
 
@@ -43,13 +43,13 @@ impl Viewer for Recorder {
 
 impl TxSender for Recorder {
     type Output = SendTxResponse;
-    type SendError = std::convert::Infallible;
+    type SendError = near_kit::transaction::CodecError;
 
     fn account_id(&self) -> &AccountId {
         &self.account_id
     }
 
-    fn chain_id(&self) -> &ChainId {
+    fn chain_id(&self) -> &str {
         &self.chain_id
     }
 
@@ -76,12 +76,12 @@ impl TxSender for Recorder {
 async fn a_boxed_backend_drives_a_contract_view_and_call() {
     let recorder = Recorder {
         account_id: account!("alice.testnet"),
-        chain_id: ChainId::testnet(),
+        chain_id: "testnet".to_owned(),
         methods: Arc::default(),
     };
     let backend: Box<Recorder> = Box::new(recorder.clone());
     assert_eq!(TxSender::account_id(&backend).as_str(), "alice.testnet");
-    assert!(TxSender::chain_id(&backend).is_testnet());
+    assert_eq!(TxSender::chain_id(&backend), "testnet");
 
     let counter = Counter::client(backend, account!("counter.testnet"));
     assert_eq!(counter.get().await.unwrap(), 7);

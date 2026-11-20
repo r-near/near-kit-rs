@@ -9,9 +9,11 @@ pub use near_kit::Gas
 pub use near_kit::MaybeSend
 pub use near_kit::MaybeSync
 pub use near_kit::NearToken
+pub use near_kit::Tx
 pub use near_kit::TxSender
 pub use near_kit::View
 pub use near_kit::Viewer
+pub use near_kit::WithWaitLevel
 pub use near_kit::account
 pub mod near_kit::events
 pub use near_kit::events::Event

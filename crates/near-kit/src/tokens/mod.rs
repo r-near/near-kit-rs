@@ -30,7 +30,7 @@ where
     if let Some(args) = args {
         view = view.args(args);
     }
-    Ok(view.with_metadata().await?.result)
+    view.await
 }
 
 #[cfg(test)]
@@ -40,7 +40,6 @@ pub(crate) mod mock {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
-    use crate::protocol::ChainId;
     use crate::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
     use crate::types::{AccountId, AccountIdRef, Action, CryptoHash};
     use crate::{TxSender, Viewer};
@@ -96,13 +95,13 @@ pub(crate) mod mock {
 
     impl TxSender for Mock {
         type Output = Sent;
-        type SendError = String;
+        type SendError = crate::transaction::CodecError;
 
         fn account_id(&self) -> &AccountId {
             unimplemented!("tokens never ask for the sender")
         }
 
-        fn chain_id(&self) -> &ChainId {
+        fn chain_id(&self) -> &str {
             unimplemented!("tokens never ask for the chain")
         }
 
@@ -110,7 +109,7 @@ pub(crate) mod mock {
             &self,
             _receiver_id: AccountId,
             actions: Vec<Action>,
-        ) -> Result<Sent, String> {
+        ) -> Result<Sent, crate::transaction::CodecError> {
             Ok(Sent(actions))
         }
     }

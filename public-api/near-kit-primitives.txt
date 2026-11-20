@@ -2970,8 +2970,8 @@ pub type near_kit_primitives::protocol::FunctionCallAction::Error = near_kit_pri
 pub fn near_kit_primitives::protocol::FunctionCallAction::try_from(near_kit_primitives::transaction::FunctionCall) -> core::result::Result<Self, Self::Error>
 impl core::fmt::Debug for near_kit_primitives::transaction::FunctionCall
 pub fn near_kit_primitives::transaction::FunctionCall::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<C> core::convert::From<near_kit_primitives::Call<C>> for near_kit_primitives::transaction::FunctionCall
-pub fn near_kit_primitives::transaction::FunctionCall::from(near_kit_primitives::Call<C>) -> Self
+impl<C> core::convert::From<near_kit_primitives::Call<'_, C>> for near_kit_primitives::transaction::FunctionCall
+pub fn near_kit_primitives::transaction::FunctionCall::from(near_kit_primitives::Call<'_, C>) -> Self
 pub struct near_kit_primitives::transaction::Included
 impl core::clone::Clone for near_kit_primitives::transaction::Included
 pub fn near_kit_primitives::transaction::Included::clone(&self) -> near_kit_primitives::transaction::Included
@@ -3030,19 +3030,18 @@ impl<E> core::error::Error for near_kit_primitives::ContractError<E> where Self:
 pub fn near_kit_primitives::ContractError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl<E> core::fmt::Display for near_kit_primitives::ContractError<E> where E: core::fmt::Display
 pub fn near_kit_primitives::ContractError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct near_kit_primitives::Call<C>
-impl<C> near_kit_primitives::Call<C>
-pub fn near_kit_primitives::Call<C>::deposit(self, near_token::NearToken) -> Self
-pub fn near_kit_primitives::Call<C>::gas(self, near_gas::NearGas) -> Self
-pub async fn near_kit_primitives::Call<C>::send(self) -> core::result::Result<<C as near_kit_primitives::TxSender>::Output, near_kit_primitives::ContractError<<C as near_kit_primitives::TxSender>::SendError>> where C: near_kit_primitives::TxSender
-impl<C> core::convert::From<near_kit_primitives::Call<C>> for near_kit_primitives::transaction::FunctionCall
-pub fn near_kit_primitives::transaction::FunctionCall::from(near_kit_primitives::Call<C>) -> Self
-impl<C> core::fmt::Debug for near_kit_primitives::Call<C>
-pub fn near_kit_primitives::Call<C>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<C> core::future::into_future::IntoFuture for near_kit_primitives::Call<C> where C: near_kit_primitives::TxSender + 'static, <C as near_kit_primitives::TxSender>::Output: 'static, <C as near_kit_primitives::TxSender>::SendError: 'static
-pub type near_kit_primitives::Call<C>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit_primitives::Call<C> as core::future::into_future::IntoFuture>::Output> + core::marker::Send)>>
-pub type near_kit_primitives::Call<C>::Output = core::result::Result<<C as near_kit_primitives::TxSender>::Output, near_kit_primitives::ContractError<<C as near_kit_primitives::TxSender>::SendError>>
-pub fn near_kit_primitives::Call<C>::into_future(self) -> Self::IntoFuture
+pub struct near_kit_primitives::Call<'a, C>
+impl<C> near_kit_primitives::Call<'_, C>
+pub fn near_kit_primitives::Call<'_, C>::deposit(self, near_token::NearToken) -> Self
+pub fn near_kit_primitives::Call<'_, C>::gas(self, near_gas::NearGas) -> Self
+impl<'a, C: near_kit_primitives::TxSender + 'a> core::future::into_future::IntoFuture for near_kit_primitives::Call<'a, C>
+pub type near_kit_primitives::Call<'a, C>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit_primitives::Call<'a, C> as core::future::into_future::IntoFuture>::Output> + core::marker::Send + 'a)>>
+pub type near_kit_primitives::Call<'a, C>::Output = core::result::Result<<C as near_kit_primitives::TxSender>::Output, <C as near_kit_primitives::TxSender>::SendError>
+pub fn near_kit_primitives::Call<'a, C>::into_future(self) -> Self::IntoFuture
+impl<C> core::convert::From<near_kit_primitives::Call<'_, C>> for near_kit_primitives::transaction::FunctionCall
+pub fn near_kit_primitives::transaction::FunctionCall::from(near_kit_primitives::Call<'_, C>) -> Self
+impl<C> core::fmt::Debug for near_kit_primitives::Call<'_, C>
+pub fn near_kit_primitives::Call<'_, C>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct near_kit_primitives::CryptoHash(_)
 impl near_kit_primitives::CryptoHash
 pub const near_kit_primitives::CryptoHash::ZERO: Self
@@ -3092,25 +3091,39 @@ impl serde_core::ser::Serialize for near_kit_primitives::CryptoHash where Self: 
 pub fn near_kit_primitives::CryptoHash::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::CryptoHash where Self: core::str::traits::FromStr, <Self as core::str::traits::FromStr>::Err: core::fmt::Display
 pub fn near_kit_primitives::CryptoHash::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-pub struct near_kit_primitives::View<C, T>
-impl<C, T> near_kit_primitives::View<C, T>
-pub fn near_kit_primitives::View<C, T>::args(self, impl serde_core::ser::Serialize) -> Self
-pub fn near_kit_primitives::View<C, T>::args_borsh(self, impl borsh::ser::BorshSerialize) -> Self
-pub fn near_kit_primitives::View<C, T>::args_raw(self, impl core::convert::Into<alloc::vec::Vec<u8>>) -> Self
-pub fn near_kit_primitives::View<C, T>::at(self, impl core::convert::Into<near_kit_primitives::rpc::BlockReference>) -> Self
-pub fn near_kit_primitives::View<C, T>::borsh(C, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::Into<alloc::string::String>) -> Self where C: near_kit_primitives::Viewer, T: borsh::de::BorshDeserialize
-pub fn near_kit_primitives::View<C, T>::decode(&self, &[u8]) -> core::result::Result<T, near_kit_primitives::transaction::CodecError>
-pub async fn near_kit_primitives::View<C, T>::fetch_raw(self) -> core::result::Result<near_kit_primitives::rpc::ViewFunctionResult, near_kit_primitives::ContractError<<C as near_kit_primitives::Viewer>::ViewError>> where C: near_kit_primitives::Viewer
-pub fn near_kit_primitives::View<C, T>::json(C, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::Into<alloc::string::String>) -> Self where C: near_kit_primitives::Viewer, T: serde_core::de::DeserializeOwned
-pub async fn near_kit_primitives::View<C, T>::with_metadata(self) -> core::result::Result<near_kit_primitives::rpc::ViewFunctionResult<T>, near_kit_primitives::ContractError<<C as near_kit_primitives::Viewer>::ViewError>> where C: near_kit_primitives::Viewer
-impl<C, T> core::fmt::Debug for near_kit_primitives::View<C, T>
-pub fn near_kit_primitives::View<C, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<C, T> core::future::into_future::IntoFuture for near_kit_primitives::View<C, T> where C: near_kit_primitives::Viewer + 'static, <C as near_kit_primitives::Viewer>::ViewError: 'static, T: 'static
-pub type near_kit_primitives::View<C, T>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit_primitives::View<C, T> as core::future::into_future::IntoFuture>::Output> + core::marker::Send)>>
-pub type near_kit_primitives::View<C, T>::Output = core::result::Result<T, near_kit_primitives::ContractError<<C as near_kit_primitives::Viewer>::ViewError>>
-pub fn near_kit_primitives::View<C, T>::into_future(self) -> Self::IntoFuture
-impl<C: core::clone::Clone, T> core::clone::Clone for near_kit_primitives::View<C, T>
-pub fn near_kit_primitives::View<C, T>::clone(&self) -> Self
+pub struct near_kit_primitives::Tx<'a, C>
+impl<'a, C: near_kit_primitives::WithWaitLevel> near_kit_primitives::Tx<'a, C>
+pub fn near_kit_primitives::Tx<'a, C>::wait_until<'b, L: near_kit_primitives::transaction::WaitLevel>(self) -> near_kit_primitives::Tx<'b, <C as near_kit_primitives::WithWaitLevel>::At>
+impl<'a, C> near_kit_primitives::Tx<'a, C>
+pub fn near_kit_primitives::Tx<'a, C>::actions(&self) -> &[near_kit_primitives::protocol::Action]
+pub fn near_kit_primitives::Tx<'a, C>::add_action<A>(self, A) -> Self where A: core::convert::TryInto<near_kit_primitives::protocol::Action>, <A as core::convert::TryInto>::Error: core::convert::Into<near_kit_primitives::transaction::CodecError>
+pub fn near_kit_primitives::Tx<'a, C>::new(C, impl core::convert::Into<near_account_id::account_id::AccountId>) -> Self
+pub fn near_kit_primitives::Tx<'a, C>::receiver_id(&self) -> &near_account_id::account_id::AccountId
+impl<'a, C: near_kit_primitives::TxSender + 'a> core::future::into_future::IntoFuture for near_kit_primitives::Tx<'a, C>
+pub type near_kit_primitives::Tx<'a, C>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit_primitives::Tx<'a, C> as core::future::into_future::IntoFuture>::Output> + core::marker::Send + 'a)>>
+pub type near_kit_primitives::Tx<'a, C>::Output = core::result::Result<<C as near_kit_primitives::TxSender>::Output, <C as near_kit_primitives::TxSender>::SendError>
+pub fn near_kit_primitives::Tx<'a, C>::into_future(self) -> Self::IntoFuture
+impl<C: near_kit_primitives::TxSender> core::fmt::Debug for near_kit_primitives::Tx<'_, C>
+pub fn near_kit_primitives::Tx<'_, C>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct near_kit_primitives::View<'a, C, T>
+impl<C, T> near_kit_primitives::View<'_, C, T>
+pub fn near_kit_primitives::View<'_, C, T>::args(self, impl serde_core::ser::Serialize) -> Self
+pub fn near_kit_primitives::View<'_, C, T>::args_borsh(self, impl borsh::ser::BorshSerialize) -> Self
+pub fn near_kit_primitives::View<'_, C, T>::args_raw(self, impl core::convert::Into<alloc::vec::Vec<u8>>) -> Self
+pub fn near_kit_primitives::View<'_, C, T>::at(self, impl core::convert::Into<near_kit_primitives::rpc::BlockReference>) -> Self
+pub fn near_kit_primitives::View<'_, C, T>::borsh(C, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::Into<alloc::string::String>) -> Self where C: near_kit_primitives::Viewer, T: borsh::de::BorshDeserialize
+pub fn near_kit_primitives::View<'_, C, T>::decode(&self, &[u8]) -> core::result::Result<T, near_kit_primitives::transaction::CodecError>
+pub async fn near_kit_primitives::View<'_, C, T>::fetch_raw(self) -> core::result::Result<near_kit_primitives::rpc::ViewFunctionResult, near_kit_primitives::ContractError<<C as near_kit_primitives::Viewer>::ViewError>> where C: near_kit_primitives::Viewer
+pub fn near_kit_primitives::View<'_, C, T>::json(C, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::Into<alloc::string::String>) -> Self where C: near_kit_primitives::Viewer, T: serde_core::de::DeserializeOwned
+pub async fn near_kit_primitives::View<'_, C, T>::with_metadata(self) -> core::result::Result<near_kit_primitives::rpc::ViewFunctionResult<T>, near_kit_primitives::ContractError<<C as near_kit_primitives::Viewer>::ViewError>> where C: near_kit_primitives::Viewer
+impl<'a, C, T> core::future::into_future::IntoFuture for near_kit_primitives::View<'a, C, T> where C: near_kit_primitives::Viewer + 'a, T: 'a
+pub type near_kit_primitives::View<'a, C, T>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit_primitives::View<'a, C, T> as core::future::into_future::IntoFuture>::Output> + core::marker::Send + 'a)>>
+pub type near_kit_primitives::View<'a, C, T>::Output = core::result::Result<T, near_kit_primitives::ContractError<<C as near_kit_primitives::Viewer>::ViewError>>
+pub fn near_kit_primitives::View<'a, C, T>::into_future(self) -> Self::IntoFuture
+impl<C, T> core::fmt::Debug for near_kit_primitives::View<'_, C, T>
+pub fn near_kit_primitives::View<'_, C, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<C: core::clone::Clone, T> core::clone::Clone for near_kit_primitives::View<'_, C, T>
+pub fn near_kit_primitives::View<'_, C, T>::clone(&self) -> Self
 pub trait near_kit_primitives::Contract
 pub type near_kit_primitives::Contract::Client<C>
 pub fn near_kit_primitives::Contract::client<C>(C, near_account_id::account_id::AccountId) -> Self::Client
@@ -3120,28 +3133,32 @@ pub trait near_kit_primitives::MaybeSync: core::marker::Sync
 impl<T: core::marker::Sync + ?core::marker::Sized> near_kit_primitives::MaybeSync for T
 pub trait near_kit_primitives::TxSender: near_kit_primitives::MaybeSend + near_kit_primitives::MaybeSync
 pub type near_kit_primitives::TxSender::Output: core::convert::Into<near_kit_primitives::rpc::SendTxResponse>
-pub type near_kit_primitives::TxSender::SendError
+pub type near_kit_primitives::TxSender::SendError: core::convert::From<near_kit_primitives::transaction::CodecError>
 pub fn near_kit_primitives::TxSender::account_id(&self) -> &near_account_id::account_id::AccountId
-pub fn near_kit_primitives::TxSender::chain_id(&self) -> &near_kit_primitives::protocol::ChainId
+pub fn near_kit_primitives::TxSender::chain_id(&self) -> &str
 pub fn near_kit_primitives::TxSender::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
+pub fn near_kit_primitives::TxSender::transaction(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit_primitives::Tx<'_, &Self>
 impl<T: near_kit_primitives::TxSender + ?core::marker::Sized> near_kit_primitives::TxSender for &T
 pub type &T::Output = <T as near_kit_primitives::TxSender>::Output
 pub type &T::SendError = <T as near_kit_primitives::TxSender>::SendError
 pub fn &T::account_id(&self) -> &near_account_id::account_id::AccountId
-pub fn &T::chain_id(&self) -> &near_kit_primitives::protocol::ChainId
+pub fn &T::chain_id(&self) -> &str
 pub fn &T::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
+pub fn &T::transaction(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit_primitives::Tx<'_, &Self>
 impl<T: near_kit_primitives::TxSender + ?core::marker::Sized> near_kit_primitives::TxSender for alloc::boxed::Box<T>
 pub type alloc::boxed::Box<T>::Output = <T as near_kit_primitives::TxSender>::Output
 pub type alloc::boxed::Box<T>::SendError = <T as near_kit_primitives::TxSender>::SendError
 pub fn alloc::boxed::Box<T>::account_id(&self) -> &near_account_id::account_id::AccountId
-pub fn alloc::boxed::Box<T>::chain_id(&self) -> &near_kit_primitives::protocol::ChainId
+pub fn alloc::boxed::Box<T>::chain_id(&self) -> &str
 pub fn alloc::boxed::Box<T>::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
+pub fn alloc::boxed::Box<T>::transaction(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit_primitives::Tx<'_, &Self>
 impl<T: near_kit_primitives::TxSender + ?core::marker::Sized> near_kit_primitives::TxSender for alloc::sync::Arc<T>
 pub type alloc::sync::Arc<T>::Output = <T as near_kit_primitives::TxSender>::Output
 pub type alloc::sync::Arc<T>::SendError = <T as near_kit_primitives::TxSender>::SendError
 pub fn alloc::sync::Arc<T>::account_id(&self) -> &near_account_id::account_id::AccountId
-pub fn alloc::sync::Arc<T>::chain_id(&self) -> &near_kit_primitives::protocol::ChainId
+pub fn alloc::sync::Arc<T>::chain_id(&self) -> &str
 pub fn alloc::sync::Arc<T>::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::protocol::Action>) -> impl core::future::future::Future<Output = core::result::Result<Self::Output, Self::SendError>> + near_kit_primitives::MaybeSend
+pub fn alloc::sync::Arc<T>::transaction(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit_primitives::Tx<'_, &Self>
 pub trait near_kit_primitives::Viewer: near_kit_primitives::MaybeSend + near_kit_primitives::MaybeSync
 pub type near_kit_primitives::Viewer::ViewError
 pub fn near_kit_primitives::Viewer::view_function(&self, &near_account_id::account_id_ref::AccountIdRef, &str, &[u8], near_kit_primitives::rpc::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::rpc::ViewFunctionResult, Self::ViewError>> + near_kit_primitives::MaybeSend
@@ -3154,3 +3171,15 @@ pub fn alloc::boxed::Box<T>::view_function(&self, &near_account_id::account_id_r
 impl<T: near_kit_primitives::Viewer + ?core::marker::Sized> near_kit_primitives::Viewer for alloc::sync::Arc<T>
 pub type alloc::sync::Arc<T>::ViewError = <T as near_kit_primitives::Viewer>::ViewError
 pub fn alloc::sync::Arc<T>::view_function(&self, &near_account_id::account_id_ref::AccountIdRef, &str, &[u8], near_kit_primitives::rpc::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::rpc::ViewFunctionResult, Self::ViewError>> + near_kit_primitives::MaybeSend
+pub trait near_kit_primitives::WithWaitLevel: near_kit_primitives::TxSender
+pub type near_kit_primitives::WithWaitLevel::At<L: near_kit_primitives::transaction::WaitLevel>: near_kit_primitives::TxSender<SendError = Self::SendError>
+pub fn near_kit_primitives::WithWaitLevel::wait_until<L: near_kit_primitives::transaction::WaitLevel>(&self) -> Self::At
+impl<T: near_kit_primitives::WithWaitLevel + ?core::marker::Sized> near_kit_primitives::WithWaitLevel for &T
+pub type &T::At<L: near_kit_primitives::transaction::WaitLevel> = <T as near_kit_primitives::WithWaitLevel>::At
+pub fn &T::wait_until<L: near_kit_primitives::transaction::WaitLevel>(&self) -> Self::At
+impl<T: near_kit_primitives::WithWaitLevel + ?core::marker::Sized> near_kit_primitives::WithWaitLevel for alloc::boxed::Box<T>
+pub type alloc::boxed::Box<T>::At<L: near_kit_primitives::transaction::WaitLevel> = <T as near_kit_primitives::WithWaitLevel>::At
+pub fn alloc::boxed::Box<T>::wait_until<L: near_kit_primitives::transaction::WaitLevel>(&self) -> Self::At
+impl<T: near_kit_primitives::WithWaitLevel + ?core::marker::Sized> near_kit_primitives::WithWaitLevel for alloc::sync::Arc<T>
+pub type alloc::sync::Arc<T>::At<L: near_kit_primitives::transaction::WaitLevel> = <T as near_kit_primitives::WithWaitLevel>::At
+pub fn alloc::sync::Arc<T>::wait_until<L: near_kit_primitives::transaction::WaitLevel>(&self) -> Self::At

@@ -9,9 +9,11 @@ pub use near_kit::Gas
 pub use near_kit::MaybeSend
 pub use near_kit::MaybeSync
 pub use near_kit::NearToken
+pub use near_kit::Tx
 pub use near_kit::TxSender
 pub use near_kit::View
 pub use near_kit::Viewer
+pub use near_kit::WithWaitLevel
 pub use near_kit::account
 pub use near_kit::contract
 pub use near_kit::reqwest
@@ -501,9 +503,9 @@ pub type near_kit::standards::FungibleToken::Client<C> = near_kit::standards::Fu
 pub fn near_kit::standards::FungibleToken::client<C>(C, near_account_id::account_id::AccountId) -> near_kit::standards::FungibleTokenClient<C>
 pub struct near_kit::standards::FungibleTokenClient<C>
 impl<C: near_kit_primitives::backend::TxSender + core::clone::Clone> near_kit::standards::FungibleTokenClient<C>
-pub fn near_kit::standards::FungibleTokenClient<C>::storage_deposit(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, near_token::NearToken) -> near_kit_primitives::backend::Call<C>
-pub fn near_kit::standards::FungibleTokenClient<C>::transfer(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, u128, core::option::Option<alloc::string::String>) -> near_kit_primitives::backend::Call<C>
-pub fn near_kit::standards::FungibleTokenClient<C>::transfer_call(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, u128, impl core::convert::Into<alloc::string::String>) -> near_kit_primitives::backend::Call<C>
+pub fn near_kit::standards::FungibleTokenClient<C>::storage_deposit(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, near_token::NearToken) -> near_kit_primitives::backend::Call<'static, C>
+pub fn near_kit::standards::FungibleTokenClient<C>::transfer(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, u128, core::option::Option<alloc::string::String>) -> near_kit_primitives::backend::Call<'static, C>
+pub fn near_kit::standards::FungibleTokenClient<C>::transfer_call(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, u128, impl core::convert::Into<alloc::string::String>) -> near_kit_primitives::backend::Call<'static, C>
 impl<C: near_kit_primitives::backend::Viewer> near_kit::standards::FungibleTokenClient<C>
 pub async fn near_kit::standards::FungibleTokenClient<C>::balance_of(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> core::result::Result<u128, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
 pub async fn near_kit::standards::FungibleTokenClient<C>::is_registered(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> core::result::Result<bool, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
@@ -579,9 +581,9 @@ pub type near_kit::standards::NonFungibleToken::Client<C> = near_kit::standards:
 pub fn near_kit::standards::NonFungibleToken::client<C>(C, near_account_id::account_id::AccountId) -> near_kit::standards::NonFungibleTokenClient<C>
 pub struct near_kit::standards::NonFungibleTokenClient<C>
 impl<C: near_kit_primitives::backend::TxSender + core::clone::Clone> near_kit::standards::NonFungibleTokenClient<C>
-pub fn near_kit::standards::NonFungibleTokenClient<C>::transfer(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::AsRef<str>, core::option::Option<alloc::string::String>) -> near_kit_primitives::backend::Call<C>
-pub fn near_kit::standards::NonFungibleTokenClient<C>::transfer_call(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::AsRef<str>, impl core::convert::Into<alloc::string::String>) -> near_kit_primitives::backend::Call<C>
-pub fn near_kit::standards::NonFungibleTokenClient<C>::transfer_with_approval(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::AsRef<str>, u64) -> near_kit_primitives::backend::Call<C>
+pub fn near_kit::standards::NonFungibleTokenClient<C>::transfer(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::AsRef<str>, core::option::Option<alloc::string::String>) -> near_kit_primitives::backend::Call<'static, C>
+pub fn near_kit::standards::NonFungibleTokenClient<C>::transfer_call(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::AsRef<str>, impl core::convert::Into<alloc::string::String>) -> near_kit_primitives::backend::Call<'static, C>
+pub fn near_kit::standards::NonFungibleTokenClient<C>::transfer_with_approval(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::AsRef<str>, u64) -> near_kit_primitives::backend::Call<'static, C>
 impl<C: near_kit_primitives::backend::Viewer> near_kit::standards::NonFungibleTokenClient<C>
 pub async fn near_kit::standards::NonFungibleTokenClient<C>::metadata(&self) -> core::result::Result<&near_kit::standards::NftContractMetadata, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
 pub async fn near_kit::standards::NonFungibleTokenClient<C>::supply_for_owner(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> core::result::Result<u64, near_kit_primitives::backend::ContractError<<C as near_kit_primitives::backend::Viewer>::ViewError>>
@@ -645,16 +647,6 @@ impl<'tx, W: near_kit_primitives::types::wait_level::WaitLevel> core::future::in
 pub type near_kit::transaction::SignedTransactionSend<'tx, W>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit::transaction::SignedTransactionSend<'tx, W> as core::future::into_future::IntoFuture>::Output> + core::marker::Send + 'tx)>>
 pub type near_kit::transaction::SignedTransactionSend<'tx, W>::Output = core::result::Result<<W as near_kit_primitives::types::wait_level::WaitLevel>::Response, near_kit::Error>
 pub fn near_kit::transaction::SignedTransactionSend<'tx, W>::into_future(self) -> Self::IntoFuture
-pub struct near_kit::transaction::Tx<W: near_kit_primitives::types::wait_level::WaitLevel>
-impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit::transaction::Tx<W>
-pub fn near_kit::transaction::Tx<W>::add_action<A>(self, A) -> Self where A: core::convert::TryInto<near_kit_primitives::types::action::Action>, <A as core::convert::TryInto>::Error: core::convert::Into<near_kit_primitives::error::CodecError>
-pub fn near_kit::transaction::Tx<W>::wait_until<W2: near_kit_primitives::types::wait_level::WaitLevel>(self) -> near_kit::transaction::Tx<W2>
-impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::fmt::Debug for near_kit::transaction::Tx<W>
-pub fn near_kit::transaction::Tx<W>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::future::into_future::IntoFuture for near_kit::transaction::Tx<W>
-pub type near_kit::transaction::Tx<W>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit::transaction::Tx<W> as core::future::into_future::IntoFuture>::Output> + core::marker::Send)>>
-pub type near_kit::transaction::Tx<W>::Output = core::result::Result<<W as near_kit_primitives::types::wait_level::WaitLevel>::Response, near_kit::Error>
-pub fn near_kit::transaction::Tx<W>::into_future(self) -> Self::IntoFuture
 #[non_exhaustive] pub enum near_kit::Error
 pub near_kit::Error::Borsh(alloc::string::String)
 pub near_kit::Error::Config(alloc::string::String)
@@ -712,7 +704,7 @@ pub fn near_kit::Near::rpc(&self) -> &near_kit::rpc::RpcClient
 pub fn near_kit::Near::send_signed<'tx>(&self, &'tx near_kit_primitives::types::transaction::SignedTransaction) -> near_kit::transaction::SignedTransactionSend<'tx>
 pub fn near_kit::Near::testnet() -> near_kit::NearBuilder
 pub fn near_kit::Near::tx_status(&self, &near_kit_primitives::types::hash::CryptoHash, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit::rpc::TransactionStatusQuery
-pub fn near_kit::Near::view<T: serde_core::de::DeserializeOwned>(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::Into<alloc::string::String>) -> near_kit_primitives::backend::View<near_kit::Near, T>
+pub fn near_kit::Near::view<T: serde_core::de::DeserializeOwned>(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::Into<alloc::string::String>) -> near_kit_primitives::backend::View<'static, near_kit::Near, T>
 pub fn near_kit::Near::with_signer(&self, impl near_kit_primitives::types::signer::Signer + 'static) -> near_kit::SigningNear
 impl core::clone::Clone for near_kit::Near
 pub fn near_kit::Near::clone(&self) -> near_kit::Near
@@ -743,7 +735,7 @@ pub fn near_kit::SigningNear<W>::near(&self) -> &near_kit::Near
 pub async fn near_kit::SigningNear<W>::sign(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, alloc::vec::Vec<near_kit_primitives::types::action::Action>) -> core::result::Result<near_kit_primitives::types::transaction::SignedTransaction, near_kit::Error>
 pub async fn near_kit::SigningNear<W>::sign_delegate(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, alloc::vec::Vec<near_kit_primitives::types::action::Action>, near_kit::transaction::DelegateOptions) -> core::result::Result<near_kit_primitives::types::action::SignedDelegateAction, near_kit::Error>
 pub fn near_kit::SigningNear<W>::signer(&self) -> &alloc::sync::Arc<dyn near_kit_primitives::types::signer::Signer>
-pub fn near_kit::SigningNear<W>::transaction(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit::transaction::Tx<W>
+pub fn near_kit::SigningNear<W>::transaction(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit_primitives::backend::Tx<'static, near_kit::SigningNear<W>>
 pub fn near_kit::SigningNear<W>::wait_until<W2: near_kit_primitives::types::wait_level::WaitLevel>(&self) -> near_kit::SigningNear<W2>
 pub fn near_kit::SigningNear<W>::with_signer(&self, impl near_kit_primitives::types::signer::Signer + 'static) -> near_kit::SigningNear<W>
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> core::clone::Clone for near_kit::SigningNear<W>
@@ -756,8 +748,11 @@ impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit_primitives::
 pub type near_kit::SigningNear<W>::Output = <W as near_kit_primitives::types::wait_level::WaitLevel>::Response
 pub type near_kit::SigningNear<W>::SendError = near_kit::Error
 pub fn near_kit::SigningNear<W>::account_id(&self) -> &near_account_id::account_id::AccountId
-pub fn near_kit::SigningNear<W>::chain_id(&self) -> &near_kit_primitives::types::network::ChainId
+pub fn near_kit::SigningNear<W>::chain_id(&self) -> &str
 pub fn near_kit::SigningNear<W>::send(&self, near_account_id::account_id::AccountId, alloc::vec::Vec<near_kit_primitives::types::action::Action>) -> impl core::future::future::Future<Output = core::result::Result<<W as near_kit_primitives::types::wait_level::WaitLevel>::Response, near_kit::Error>> + near_kit_primitives::platform::MaybeSend
 impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit_primitives::backend::Viewer for near_kit::SigningNear<W>
 pub type near_kit::SigningNear<W>::ViewError = near_kit::rpc::RpcError
 pub fn near_kit::SigningNear<W>::view_function(&self, &near_account_id::account_id_ref::AccountIdRef, &str, &[u8], near_kit_primitives::types::block_reference::BlockReference) -> impl core::future::future::Future<Output = core::result::Result<near_kit_primitives::types::rpc::ViewFunctionResult, near_kit::rpc::RpcError>> + near_kit_primitives::platform::MaybeSend
+impl<W: near_kit_primitives::types::wait_level::WaitLevel> near_kit_primitives::backend::WithWaitLevel for near_kit::SigningNear<W>
+pub type near_kit::SigningNear<W>::At<L: near_kit_primitives::types::wait_level::WaitLevel> = near_kit::SigningNear<L>
+pub fn near_kit::SigningNear<W>::wait_until<L: near_kit_primitives::types::wait_level::WaitLevel>(&self) -> near_kit::SigningNear<L>

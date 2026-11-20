@@ -42,8 +42,7 @@ use near_kit::*;
 /// How many of the latest 100 messages are premium.
 async fn premium_count<C>(guestbook: &GuestbookClient<C>) -> Result<usize, ContractError<C::ViewError>>
 where
-    C: Viewer + Clone + 'static,
-    C::ViewError: 'static,
+    C: Viewer + Clone,
 {
     let messages = guestbook
         .get_messages(Some("0"), Some("100"))
@@ -60,12 +59,10 @@ let count = premium_count(&guestbook).await?;
 ```
 
 The bounds come from the generated client: view methods need
-`C: Viewer + Clone`, and awaiting the returned `View` needs the backend and
-its error to be `'static`, because the future owns a clone of the backend.
-`#[call]` methods need `C: TxSender + Clone` in the same way. Code that
-only borrows its backend can drop the `'static` bounds: finish views with
-[`View::with_metadata`](crate::View::with_metadata) and calls with
-[`Call::send`](crate::Call::send), which don't box the future.
+`C: Viewer + Clone` and `#[call]` methods need `C: TxSender + Clone`. The
+returned [`View`](crate::View) and [`Call`](crate::Call) `.await` through a
+borrowed backend too, so a helper like this one needs no `'static` bounds;
+add them only to spawn the future.
 
 Code that sends transactions without a contract client can still be
 generic: [`TxSender::send`](crate::TxSender::send) takes a receiver and a
@@ -107,7 +104,7 @@ generated client, and the clones share the record:
 # #[derive(Debug, Deserialize)]
 # pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 # async fn premium_count<C>(guestbook: &GuestbookClient<C>) -> Result<usize, ContractError<C::ViewError>>
-# where C: Viewer + Clone + 'static, C::ViewError: 'static {
+# where C: Viewer + Clone {
 #     let messages = guestbook.get_messages(Some("0"), Some("100")).await?;
 #     Ok(messages.iter().filter(|m| m.premium).count())
 # }
@@ -224,7 +221,7 @@ inspect:
 # pub struct Message { pub premium: bool, pub sender: near_kit::AccountId, pub text: String }
 use std::sync::{Arc, Mutex};
 
-use near_kit::protocol::{Action, ChainId};
+use near_kit::protocol::Action;
 use near_kit::rpc::SendTxResponse;
 use near_kit::standards::FungibleToken;
 use near_kit::*;
@@ -233,13 +230,12 @@ use serde_json::json;
 #[derive(Clone)]
 struct Recorder {
     account_id: AccountId,
-    chain_id: ChainId,
     sent: Arc<Mutex<Vec<(AccountId, Vec<Action>)>>>,
 }
 
 impl Recorder {
     fn new(account_id: AccountId) -> Self {
-        Self { account_id, chain_id: ChainId::testnet(), sent: Default::default() }
+        Self { account_id, sent: Default::default() }
     }
 
     fn sent(&self) -> Vec<(AccountId, Vec<Action>)> {
@@ -249,14 +245,14 @@ impl Recorder {
 
 impl TxSender for Recorder {
     type Output = SendTxResponse;
-    type SendError = std::convert::Infallible;
+    type SendError = near_kit::transaction::CodecError;
 
     fn account_id(&self) -> &AccountId {
         &self.account_id
     }
 
-    fn chain_id(&self) -> &ChainId {
-        &self.chain_id
+    fn chain_id(&self) -> &str {
+        "testnet"
     }
 
     async fn send(
@@ -305,8 +301,8 @@ the encoded arguments, the gas and the deposit. That's where most mistakes
 in calling code are, such as a missing 1 yoctoNEAR deposit or an amount
 sent as a number instead of a string.
 
-To test failure handling, return an error from `send`. The caller sees it as
-`ContractError::Backend(e)` from a typed call, or `e` from
+To test failure handling, return an error from `send`. The caller sees that
+same error from a typed call, from awaiting a `Tx` and from
 `TxSender::send`.
 
 A recorder that stands in for a real sender can return a
@@ -328,83 +324,86 @@ implements them, including unsized `T`. Two consequences:
   A `Box<T>` is a backend too, and `Clone` when `T` is; a field that holds
   one needs no unboxing.
 - `Viewer` and `TxSender` have `async` methods, so `dyn TxSender` isn't a
-  type. To choose a backend at run time, put a small object-safe trait in
-  front of it and implement `TxSender` for that trait object. `Arc<dyn _>`
-  is then a `Clone` sender that every client accepts:
+  type. To choose a sender at run time, such as a recorder in tests and a
+  `SigningNear` otherwise, erase both into the `ArcTxSender` from the
+  [transactions chapter](crate::guide::transactions#a-sender-picked-at-run-time).
+  Their outputs and errors needn't match, and every client accepts the
+  result:
 
 ```rust
-use std::future::Future;
+# use std::future::Future;
+# use std::sync::Mutex;
+# use near_kit::protocol::Action;
+# use near_kit::rpc::{BoxFuture, SendTxResponse};
+# pub type DynSendError = Box<dyn std::error::Error + Send + Sync>;
+# pub trait DynTxSender: MaybeSend + MaybeSync {
+#     fn dyn_account_id(&self) -> &AccountId;
+#     fn dyn_chain_id(&self) -> &str;
+#     fn dyn_send(&self, receiver_id: AccountId, actions: Vec<Action>)
+#         -> BoxFuture<'_, Result<SendTxResponse, DynSendError>>;
+# }
+# impl<S> DynTxSender for S where S: TxSender, S::SendError: Into<DynSendError> {
+#     fn dyn_account_id(&self) -> &AccountId { self.account_id() }
+#     fn dyn_chain_id(&self) -> &str { self.chain_id() }
+#     fn dyn_send(&self, receiver_id: AccountId, actions: Vec<Action>)
+#         -> BoxFuture<'_, Result<SendTxResponse, DynSendError>> {
+#         Box::pin(async move {
+#             match self.send(receiver_id, actions).await {
+#                 Ok(output) => Ok(output.into()),
+#                 Err(error) => Err(error.into()),
+#             }
+#         })
+#     }
+# }
+# impl TxSender for dyn DynTxSender + '_ {
+#     type Output = SendTxResponse;
+#     type SendError = DynSendError;
+#     fn account_id(&self) -> &AccountId { self.dyn_account_id() }
+#     fn chain_id(&self) -> &str { self.dyn_chain_id() }
+#     fn send(&self, receiver_id: AccountId, actions: Vec<Action>)
+#         -> impl Future<Output = Result<SendTxResponse, DynSendError>> + MaybeSend {
+#         self.dyn_send(receiver_id, actions)
+#     }
+# }
+# pub type ArcTxSender = std::sync::Arc<dyn DynTxSender>;
+# #[derive(Clone)]
+# struct Recorder { account_id: AccountId, sent: std::sync::Arc<Mutex<Vec<(AccountId, Vec<Action>)>>> }
+# impl Recorder {
+#     fn new(account_id: AccountId) -> Self { Self { account_id, sent: Default::default() } }
+#     fn sent(&self) -> Vec<(AccountId, Vec<Action>)> { self.sent.lock().unwrap().clone() }
+# }
+# impl TxSender for Recorder {
+#     type Output = SendTxResponse;
+#     type SendError = near_kit::transaction::CodecError;
+#     fn account_id(&self) -> &AccountId { &self.account_id }
+#     fn chain_id(&self) -> &str { "testnet" }
+#     async fn send(&self, receiver_id: AccountId, actions: Vec<Action>) -> Result<SendTxResponse, Self::SendError> {
+#         self.sent.lock().unwrap().push((receiver_id, actions));
+#         Ok(SendTxResponse::new(CryptoHash::ZERO, self.account_id.clone(), None))
+#     }
+# }
 use std::sync::Arc;
 
-use near_kit::protocol::{Action, ChainId};
-use near_kit::rpc::{BoxFuture, FinalExecutionOutcome};
 use near_kit::standards::FungibleToken;
+use near_kit::transaction::Included;
 use near_kit::*;
 
-/// Any sender that waits for `Final` and fails with `near_kit::Error`.
-trait Wallet: MaybeSend + MaybeSync {
-    fn account(&self) -> &AccountId;
-    fn chain(&self) -> &ChainId;
-    fn send_boxed(
-        &self,
-        receiver_id: AccountId,
-        actions: Vec<Action>,
-    ) -> BoxFuture<'_, Result<FinalExecutionOutcome, Error>>;
-}
-
-impl<S> Wallet for S
-where
-    S: TxSender<Output = FinalExecutionOutcome, SendError = Error>,
-{
-    fn account(&self) -> &AccountId {
-        self.account_id()
-    }
-
-    fn chain(&self) -> &ChainId {
-        self.chain_id()
-    }
-
-    fn send_boxed(
-        &self,
-        receiver_id: AccountId,
-        actions: Vec<Action>,
-    ) -> BoxFuture<'_, Result<FinalExecutionOutcome, Error>> {
-        Box::pin(self.send(receiver_id, actions))
+// `ArcTxSender` and `Recorder` are the ones from the transactions chapter
+// and from "Record sends" above.
+fn sender(alice: Option<SigningNear>, recorder: &Recorder) -> ArcTxSender {
+    match alice {
+        Some(alice) => Arc::new(alice.wait_until::<Included>()),
+        None => Arc::new(recorder.clone()),
     }
 }
 
-impl TxSender for dyn Wallet {
-    type Output = FinalExecutionOutcome;
-    type SendError = Error;
-
-    fn account_id(&self) -> &AccountId {
-        self.account()
-    }
-
-    fn chain_id(&self) -> &ChainId {
-        self.chain()
-    }
-
-    fn send(
-        &self,
-        receiver_id: AccountId,
-        actions: Vec<Action>,
-    ) -> impl Future<Output = Result<FinalExecutionOutcome, Error>> + MaybeSend {
-        self.send_boxed(receiver_id, actions)
-    }
-}
-
-# async fn example(alice: SigningNear) -> Result<(), Error> {
-let wallet: Arc<dyn Wallet> = Arc::new(alice.clone());
-let token = FungibleToken::client(wallet, account!("usdc.testnet"));
-
-// A `Box<dyn Wallet>` is a sender too. It isn't `Clone`, so a client
-// borrows it, and a call through the borrow finishes with `.send()`.
-let boxed: Box<dyn Wallet> = Box::new(alice);
-FungibleToken::client(&boxed, account!("usdc.testnet"))
+# #[tokio::main(flavor = "current_thread")]
+# async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+let recorder = Recorder::new(account!("alice.testnet"));
+FungibleToken::client(sender(None, &recorder), account!("usdc.testnet"))
     .transfer(account!("bob.testnet"), 1_000_000, None)
-    .send()
     .await?;
+assert_eq!(recorder.sent().len(), 1);
 # Ok(())
 # }
 ```

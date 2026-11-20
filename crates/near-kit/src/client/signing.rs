@@ -1,7 +1,7 @@
 //! The signing client.
 
 use std::fmt;
-use std::future::{Future, IntoFuture};
+use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -13,7 +13,8 @@ use crate::types::{
 };
 
 use super::near::Near;
-use super::transaction::{DelegateOptions, PreparedTransaction, Tx};
+use super::transaction::{DelegateOptions, PreparedTransaction};
+use crate::Tx;
 
 /// A [`Near`] client with a signer: sends transactions as the signer's
 /// account.
@@ -346,9 +347,50 @@ impl<W: WaitLevel> SigningNear<W> {
 
     /// Start a transaction to `receiver_id`.
     ///
-    /// Add actions with [`Tx::add_action`] and `.await` the result. See
-    /// [`Tx`] for an example.
-    pub fn transaction(&self, receiver_id: impl Into<AccountId>) -> Tx<W> {
+    /// Add actions with [`Tx::add_action`] and `.await` the result. Awaiting
+    /// checks the transaction, signs it with a fresh nonce, sends it, retries
+    /// `InvalidNonce` / `NonceTooLarge` / `Expired` rejections up to
+    /// [`max_nonce_retries`](Self::max_nonce_retries), and waits for this
+    /// client's level `W`, so it resolves to `W::Response`. Pick another
+    /// level for one transaction with [`Tx::wait_until`]. An action whose
+    /// arguments fail to encode is kept and returned from `.await` as
+    /// [`Error::Json`] or [`Error::Borsh`], so building never fails.
+    ///
+    /// Before signing, `.await` rejects an empty action list, a state init
+    /// whose derived account isn't the receiver, and a delegate action sent
+    /// to anyone but its sender, with [`Error::Validation`]; nothing is sent.
+    ///
+    /// The transaction owns a clone of this client (cheap: shared `Arc`s), so
+    /// it is `Tx<'static, _>` and can be spawned or returned. On a
+    /// `SigningNear` or `&SigningNear` this method takes precedence over
+    /// [`TxSender::transaction`](crate::TxSender::transaction), which borrows
+    /// the sender; through an `Arc<SigningNear>` the trait method applies, so
+    /// write `(*alice).transaction(..)` to get an owned one there.
+    ///
+    /// ```rust,no_run
+    /// # use near_kit::*;
+    /// # use near_kit::protocol::Action;
+    /// # use near_kit::transaction::{ExecutedOptimistic, FunctionCall};
+    /// # async fn example(alice: SigningNear) -> Result<(), near_kit::Error> {
+    /// alice
+    ///     .transaction(account!("bob.testnet"))
+    ///     .add_action(Action::transfer(NearToken::from_near(1)))
+    ///     .await?
+    ///     .result()?;
+    ///
+    /// // Several actions in one atomic transaction, returning as soon as it
+    /// // executes rather than waiting for finality.
+    /// alice
+    ///     .transaction(account!("counter.testnet"))
+    ///     .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
+    ///     .add_action(FunctionCall::new("increment").gas(Gas::from_tgas(10)))
+    ///     .wait_until::<ExecutedOptimistic>()
+    ///     .await?
+    ///     .result()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn transaction(&self, receiver_id: impl Into<AccountId>) -> Tx<'static, SigningNear<W>> {
         Tx::new(self.clone(), receiver_id.into())
     }
 
@@ -532,8 +574,8 @@ impl<W: WaitLevel> crate::TxSender for SigningNear<W> {
         self.signer.account_id()
     }
 
-    fn chain_id(&self) -> &crate::protocol::ChainId {
-        self.near.chain_id()
+    fn chain_id(&self) -> &str {
+        self.near.chain_id().as_str()
     }
 
     fn send(
@@ -541,9 +583,32 @@ impl<W: WaitLevel> crate::TxSender for SigningNear<W> {
         receiver_id: AccountId,
         actions: Vec<Action>,
     ) -> impl Future<Output = Result<W::Response, Error>> + MaybeSend {
-        let mut tx = self.transaction(receiver_id);
-        tx.actions = actions;
-        tx.into_future()
+        // Boxed and owning clones of the client, like the `Tx` future this
+        // used to build; validation runs when it is first polled.
+        let near = self.near.clone();
+        let signer = self.signer.clone();
+        let future: super::transport::BoxFuture<'static, _> = Box::pin(async move {
+            PreparedTransaction::new(
+                &near,
+                signer,
+                receiver_id,
+                actions,
+                "transaction must have at least one action",
+            )?
+            .send::<W>()
+            .await
+        });
+        future
+    }
+}
+
+/// Lets [`Tx::wait_until`](crate::Tx::wait_until) pick the wait level of one
+/// transaction. Same as the inherent [`SigningNear::wait_until`].
+impl<W: WaitLevel> crate::WithWaitLevel for SigningNear<W> {
+    type At<L: WaitLevel> = SigningNear<L>;
+
+    fn wait_until<L: WaitLevel>(&self) -> SigningNear<L> {
+        SigningNear::wait_until(self)
     }
 }
 

@@ -68,7 +68,7 @@ impl Viewer for Scripted {
 /// The guide's loop, `polls` times and without the sleep: returns each
 /// decoded value with the block it was first seen at.
 async fn poll(
-    view: View<Scripted, Counted>,
+    view: View<'_, Scripted, Counted>,
     polls: usize,
 ) -> Result<Vec<(u64, u64)>, ContractError<String>> {
     let mut seen = Vec::new();
@@ -86,7 +86,7 @@ async fn poll(
     Ok(seen)
 }
 
-fn view(viewer: &Scripted) -> View<Scripted, Counted> {
+fn view(viewer: &Scripted) -> View<'static, Scripted, Counted> {
     View::json(viewer.clone(), account!("counter.near"), "get_count")
 }
 

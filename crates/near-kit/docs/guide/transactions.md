@@ -3,8 +3,8 @@
 ## Building and sending
 
 [`SigningNear::transaction`](crate::SigningNear::transaction) starts a
-[`Tx`](crate::transaction::Tx) to a receiver;
-[`add_action`](crate::transaction::Tx::add_action) appends an action;
+[`Tx`](crate::Tx) to a receiver;
+[`add_action`](crate::Tx::add_action) appends an action;
 awaiting it fetches a nonce and block hash, signs, sends and waits for the
 client's [wait level](crate::guide::finality) (`Final` by default):
 
@@ -67,6 +67,176 @@ tx.await?.result()?;
 The protocol caps the total gas one transaction can prepay for its
 function calls, so a long batch may need splitting into several
 transactions.
+
+### Through any sender
+
+`Tx` works with any [`TxSender`](crate::TxSender), not only `SigningNear`:
+a wallet, a gateway or a test double builds transactions with the same
+[`transaction`](crate::TxSender::transaction) and `add_action`, and
+`.await` returns that sender's own output and error. A function generic
+over its sender takes it by reference:
+
+```rust,no_run
+use near_kit::protocol::Action;
+use near_kit::transaction::FunctionCall;
+use near_kit::*;
+
+async fn bump<S: TxSender>(sender: &S) -> Result<S::Output, S::SendError> {
+    sender
+        .transaction(account!("counter.testnet"))
+        .add_action(FunctionCall::new("bump").args(serde_json::json!({ "by": 2 })))
+        .add_action(Action::transfer(NearToken::from_millinear(10)))
+        .await
+}
+```
+
+`TxSender::transaction` borrows the sender, so its `Tx` awaits but can't
+outlive it. `SigningNear::transaction` clones the client into the `Tx`
+instead, so that one can be spawned or returned; through an
+`Arc<SigningNear>`, write `(*alice).transaction(..)` to get it. For any
+other owned sender, start from [`Tx::new`](crate::Tx::new). A sender that
+implements [`WithWaitLevel`](crate::WithWaitLevel), as `SigningNear` does,
+also supports [`Tx::wait_until`](crate::Tx::wait_until) for one
+transaction.
+
+### A sender picked at run time
+
+`TxSender` has `async` methods, so `dyn TxSender` isn't a type. To hold a
+sender chosen at run time, say your own wallet sender or a `SigningNear`,
+put a small object-safe trait in front of it and implement `TxSender` for
+that trait object. Every sender whose error converts into a
+`Box<dyn std::error::Error + Send + Sync>` (any `Error + Send + Sync`
+type, or that box itself) erases to the same two types: its output
+converts into a [`SendTxResponse`](crate::rpc::SendTxResponse), and its
+error is boxed.
+
+```rust,no_run
+use std::future::Future;
+use std::sync::Arc;
+
+use near_kit::protocol::Action;
+use near_kit::rpc::{BoxFuture, SendTxResponse};
+use near_kit::transaction::{FunctionCall, Included};
+use near_kit::*;
+
+/// The error of a type-erased sender.
+pub type DynSendError = Box<dyn std::error::Error + Send + Sync>;
+
+/// An object-safe `TxSender`: every `TxSender` whose error converts into
+/// a `DynSendError` implements it.
+pub trait DynTxSender: MaybeSend + MaybeSync {
+    fn dyn_account_id(&self) -> &AccountId;
+
+    fn dyn_chain_id(&self) -> &str;
+
+    fn dyn_send(
+        &self,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> BoxFuture<'_, Result<SendTxResponse, DynSendError>>;
+}
+
+impl<S> DynTxSender for S
+where
+    S: TxSender,
+    S::SendError: Into<DynSendError>,
+{
+    fn dyn_account_id(&self) -> &AccountId {
+        self.account_id()
+    }
+
+    fn dyn_chain_id(&self) -> &str {
+        self.chain_id()
+    }
+
+    fn dyn_send(
+        &self,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> BoxFuture<'_, Result<SendTxResponse, DynSendError>> {
+        Box::pin(async move {
+            match self.send(receiver_id, actions).await {
+                Ok(output) => Ok(output.into()),
+                Err(error) => Err(error.into()),
+            }
+        })
+    }
+}
+
+impl TxSender for dyn DynTxSender + '_ {
+    type Output = SendTxResponse;
+    type SendError = DynSendError;
+
+    fn account_id(&self) -> &AccountId {
+        self.dyn_account_id()
+    }
+
+    fn chain_id(&self) -> &str {
+        self.dyn_chain_id()
+    }
+
+    fn send(
+        &self,
+        receiver_id: AccountId,
+        actions: Vec<Action>,
+    ) -> impl Future<Output = Result<SendTxResponse, DynSendError>> + MaybeSend {
+        self.dyn_send(receiver_id, actions)
+    }
+}
+
+/// A shared, type-erased sender.
+pub type ArcTxSender = Arc<dyn DynTxSender>;
+
+# struct MyWallet(AccountId);
+# impl TxSender for MyWallet {
+#     type Output = SendTxResponse;
+#     type SendError = DynSendError;
+#     fn account_id(&self) -> &AccountId { &self.0 }
+#     fn chain_id(&self) -> &str { "testnet" }
+#     async fn send(&self, _: AccountId, _: Vec<Action>) -> Result<SendTxResponse, DynSendError> {
+#         Ok(SendTxResponse::new(CryptoHash::ZERO, self.0.clone(), None))
+#     }
+# }
+// `MyWallet` is your own `TxSender`, with its own output and error.
+fn pick(alice: SigningNear, wallet: Option<MyWallet>) -> ArcTxSender {
+    match wallet {
+        Some(wallet) => Arc::new(wallet),
+        // Pick the wait level before erasing: `wait_until` doesn't survive it.
+        None => Arc::new(alice.wait_until::<Included>()),
+    }
+}
+
+# async fn example(alice: SigningNear, wallet: Option<MyWallet>) -> Result<(), DynSendError> {
+let sender = pick(alice, wallet);
+let sent = sender
+    .transaction(account!("counter.testnet"))
+    .add_action(FunctionCall::new("bump"))
+    .await?;
+println!("{} signed {}", sent.sender_id, sent.transaction_hash);
+# Ok(())
+# }
+```
+
+`ArcTxSender` is then a sender like any other: generic code takes it,
+`Tx::new(Arc::clone(&sender), id)` builds a transaction that can be
+spawned, and since it is `Clone`, a `#[contract]` client accepts it.
+Erasing a sender changes three things:
+
+- **The output** is a `SendTxResponse`: the hash and signer, plus the
+  execution outcome when the sender waited for one.
+- **The error** downcasts back to the sender's own:
+  `error.downcast_ref::<near_kit::Error>()` for a `SigningNear`. An
+  argument that failed to encode never reaches the sender, so it downcasts
+  to [`CodecError`](crate::transaction::CodecError).
+- **The wait level** can't change after the sender is erased.
+  `ArcTxSender` doesn't implement [`WithWaitLevel`](crate::WithWaitLevel),
+  so pick the level first, as `pick` does.
+
+Share it through `Arc`, `Box` or `&`, which forward `TxSender`; `Rc`
+doesn't. A [`Viewer`](crate::Viewer) erases the same way. Write the
+`view_function` of its trait object as an `async fn` that awaits the boxed
+future: returning that future directly fails with E0700, since its single
+lifetime ties together four borrows that the trait keeps separate.
 
 ## The actions
 

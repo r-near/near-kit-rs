@@ -262,7 +262,7 @@ mod custom_backend {
     use std::sync::Arc;
 
     use near_kit::ContractError;
-    use near_kit::protocol::{Action, ChainId};
+    use near_kit::protocol::Action;
     use near_kit::rpc::{BlockReference, SendTxResponse, ViewFunctionResult};
     use near_kit::*;
 
@@ -293,13 +293,13 @@ mod custom_backend {
 
     impl TxSender for Mock {
         type Output = SendTxResponse;
-        type SendError = String;
+        type SendError = near_kit::transaction::CodecError;
 
         fn account_id(&self) -> &AccountId {
             &self.0
         }
 
-        fn chain_id(&self) -> &ChainId {
+        fn chain_id(&self) -> &str {
             unreachable!("not used by these tests")
         }
 
@@ -307,7 +307,7 @@ mod custom_backend {
             &self,
             _receiver_id: AccountId,
             _actions: Vec<Action>,
-        ) -> Result<SendTxResponse, String> {
+        ) -> Result<SendTxResponse, near_kit::transaction::CodecError> {
             Ok(SendTxResponse::new(
                 CryptoHash::ZERO,
                 account!("mock.near"),
@@ -340,13 +340,13 @@ mod custom_backend {
 
     impl TxSender for dyn UserSender {
         type Output = SendTxResponse;
-        type SendError = String;
+        type SendError = near_kit::transaction::CodecError;
 
         fn account_id(&self) -> &AccountId {
             self.id()
         }
 
-        fn chain_id(&self) -> &ChainId {
+        fn chain_id(&self) -> &str {
             unreachable!("not used by these tests")
         }
 
@@ -354,7 +354,7 @@ mod custom_backend {
             &self,
             _receiver_id: AccountId,
             _actions: Vec<Action>,
-        ) -> Result<SendTxResponse, String> {
+        ) -> Result<SendTxResponse, near_kit::transaction::CodecError> {
             Ok(SendTxResponse::new(
                 CryptoHash::ZERO,
                 account!("mock.near"),

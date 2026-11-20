@@ -25,24 +25,23 @@ note: required by a bound in `CounterClient::<__NearKitBackend>::get_count`
 10 |     fn get_count(&self) -> u64;
    = note: this error originates in the attribute macro `near_kit::contract` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0277]: `View<SendOnly, u64>` is not a future
+error[E0277]: `View<'_, SendOnly, u64>` is not a future
   --> tests/compile-fail/view_without_viewer.rs:39:33
    |
 39 |     let _ = counter.get_count().await;
-   |                                 ^^^^^ `View<SendOnly, u64>` is not a future
+   |                                 ^^^^^ `View<'_, SendOnly, u64>` is not a future
    |
-   = help: the trait `IntoFuture` is not implemented for `View<SendOnly, u64>`
-   = note: View<SendOnly, u64> must be a future or must implement `IntoFuture` to be awaited
-help: the trait `IntoFuture` is conditionally implemented for `View<C, T>`
+   = help: the trait `IntoFuture` is not implemented for `View<'_, SendOnly, u64>`
+   = note: View<'_, SendOnly, u64> must be a future or must implement `IntoFuture` to be awaited
+help: the trait `IntoFuture` is conditionally implemented for `View<'_, C, T>`
   --> $WORKSPACE/crates/near-kit-primitives/src/backend.rs
    |
-   | / impl<C, T> IntoFuture for View<C, T>
+   | / impl<'a, C, T> IntoFuture for View<'a, C, T>
    | | where
-   | |     C: Viewer + 'static,
+   | |     C: Viewer + 'a,
    | |        ------ unsatisfied requirement introduced here: `SendOnly: Viewer`
-   | |     C::ViewError: 'static,
-   | |     T: 'static,
-   | |_______________^
+   | |     T: 'a,
+   | |__________^
 help: remove the `.await`
    |
 39 -     let _ = counter.get_count().await;
