@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.1...near-kit-macros-v0.16.0) - 2026-11-20
+
+### Added
+
+- [**breaking**] one Tx builder for every TxSender, typed errors through Call, and TxSender::chain_id as &str (0.34) ([#441](https://github.com/r-near/near-kit-rs/pull/441))
+
 ## [0.15.1](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.0...near-kit-macros-v0.15.1) - 2026-11-16
 
 ### Fixed
