@@ -142,6 +142,33 @@ pub enum RpcError {
         block_hash: Option<CryptoHash>,
     },
 
+    /// The account is a funded universal (`0u`) account whose state init
+    /// hasn't run yet (`UNINITIALIZED_ACCOUNT`), so it has no code, state or
+    /// access keys to view.
+    ///
+    /// Nodes newer than nearcore 2.14 return this from `view_function`,
+    /// `view_code`, `view_state`, `view_access_key`, `view_access_key_list`
+    /// and `view_gas_key_nonces`. Nodes up to 2.14 answer those as if the
+    /// account were initialized and empty instead:
+    /// [`AccessKeyNotFound`](Self::AccessKeyNotFound),
+    /// [`GasKeyNotFound`](Self::GasKeyNotFound),
+    /// [`ContractNotDeployed`](Self::ContractNotDeployed) or an empty result.
+    /// `view_account` is unaffected: it reports
+    /// [`AccountState::Uninitialized`](crate::rpc::AccountState::Uninitialized)
+    /// and the `bootstrap_nonce` the state init transaction needs.
+    ///
+    /// Not retryable: the account stays uninitialized until a transaction
+    /// carrying its state init lands.
+    #[error("Account not initialized: {account_id}")]
+    UninitializedAccount {
+        /// The account requested.
+        account_id: AccountId,
+        /// Height of the block the node queried, if it reported one.
+        block_height: Option<u64>,
+        /// Hash of the block the node queried, if it reported one.
+        block_hash: Option<CryptoHash>,
+    },
+
     /// The requested account ID is malformed (`INVALID_ACCOUNT`).
     ///
     /// `account_id` is the raw string the node rejected; it is not an
@@ -737,6 +764,7 @@ impl RpcError {
             RpcError::InvalidResponse(_) => "InvalidResponse",
             RpcError::Rpc { .. } => "Rpc",
             RpcError::AccountNotFound { .. } => "AccountNotFound",
+            RpcError::UninitializedAccount { .. } => "UninitializedAccount",
             RpcError::InvalidAccount { .. } => "InvalidAccount",
             RpcError::AccessKeyNotFound { .. } => "AccessKeyNotFound",
             RpcError::GasKeyNotFound { .. } => "GasKeyNotFound",
@@ -769,6 +797,7 @@ impl RpcError {
     pub fn block_height(&self) -> Option<u64> {
         match self {
             RpcError::AccountNotFound { block_height, .. }
+            | RpcError::UninitializedAccount { block_height, .. }
             | RpcError::InvalidAccount { block_height, .. }
             | RpcError::AccessKeyNotFound { block_height, .. }
             | RpcError::GasKeyNotFound { block_height, .. }
@@ -787,6 +816,7 @@ impl RpcError {
     pub fn block_hash(&self) -> Option<CryptoHash> {
         match self {
             RpcError::AccountNotFound { block_hash, .. }
+            | RpcError::UninitializedAccount { block_hash, .. }
             | RpcError::InvalidAccount { block_hash, .. }
             | RpcError::AccessKeyNotFound { block_hash, .. }
             | RpcError::GasKeyNotFound { block_hash, .. }
@@ -1218,6 +1248,11 @@ mod tests {
                 block_hash: Some(block_hash),
             },
             RpcError::ContractStateTooLarge {
+                account_id: account_id.clone(),
+                block_height: Some(7),
+                block_hash: Some(block_hash),
+            },
+            RpcError::UninitializedAccount {
                 account_id: account_id.clone(),
                 block_height: Some(7),
                 block_hash: Some(block_hash),

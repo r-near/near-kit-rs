@@ -209,7 +209,12 @@ async fn relay(
         .await
     {
         Ok(key) => key.nonce,
-        Err(RpcError::AccessKeyNotFound { .. } | RpcError::AccountNotFound { .. }) => {
+        // An uninitialized `0u` sender has no keys yet either.
+        Err(
+            RpcError::AccessKeyNotFound { .. }
+            | RpcError::AccountNotFound { .. }
+            | RpcError::UninitializedAccount { .. },
+        ) => {
             return Err(RelayError::Rejected(
                 "the key is not on the sender's account".into(),
             ));

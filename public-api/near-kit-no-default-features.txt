@@ -267,6 +267,10 @@ pub near_kit::rpc::RpcError::TooManyAccessKeys::block_hash: core::option::Option
 pub near_kit::rpc::RpcError::TooManyAccessKeys::block_height: core::option::Option<u64>
 pub near_kit::rpc::RpcError::TooManyAccessKeys::limit: u32
 pub near_kit::rpc::RpcError::TransactionNotFound(near_kit_primitives::types::hash::CryptoHash)
+pub near_kit::rpc::RpcError::UninitializedAccount
+pub near_kit::rpc::RpcError::UninitializedAccount::account_id: near_account_id::account_id::AccountId
+pub near_kit::rpc::RpcError::UninitializedAccount::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::UninitializedAccount::block_height: core::option::Option<u64>
 impl near_kit::rpc::RpcError
 pub fn near_kit::rpc::RpcError::block_hash(&self) -> core::option::Option<near_kit_primitives::types::hash::CryptoHash>
 pub fn near_kit::rpc::RpcError::block_height(&self) -> core::option::Option<u64>
