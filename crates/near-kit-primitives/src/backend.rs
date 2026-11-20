@@ -49,7 +49,7 @@ pub trait Viewer: MaybeSend + MaybeSync {
     ) -> impl Future<Output = Result<ViewFunctionResult, Self::ViewError>> + MaybeSend;
 }
 
-/// A backend that can send transactions from a fixed account on a fixed
+/// A backend that sends transactions acting as a fixed account on a fixed
 /// chain.
 ///
 /// This is the write verb: a transaction is a receiver plus actions, and the
@@ -85,8 +85,16 @@ pub trait TxSender: MaybeSend + MaybeSync {
     /// just its hash and signer.
     ///
     /// It converts into a [`SendTxResponse`](crate::rpc::SendTxResponse)
-    /// naming a transaction that was really sent. A test double that sends
-    /// nothing has no such hash and returns a placeholder.
+    /// naming a transaction that was really submitted, so that `tx_status`
+    /// finds it. Its `sender_id` is the account that signed that
+    /// transaction. For a sender that acts through someone else's
+    /// transaction, such as a wallet contract whose relayer signs or a
+    /// relayed meta-transaction, that is the relayer, not
+    /// [`account_id`](Self::account_id).
+    ///
+    /// Only a test double that sends nothing may return a placeholder hash,
+    /// such as `CryptoHash::ZERO`; `tx_status` would find no transaction for
+    /// it.
     type Output: Into<crate::rpc::SendTxResponse>;
     /// The backend's error.
     ///
@@ -96,7 +104,15 @@ pub trait TxSender: MaybeSend + MaybeSync {
     /// never fails can use `CodecError`.
     type SendError: From<CodecError>;
 
-    /// The account transactions are sent from.
+    /// The account the transaction acts as: the predecessor of the receipts
+    /// that carry its actions, which a receiving contract sees as
+    /// `env::predecessor_account_id()`.
+    ///
+    /// For `near-kit`'s `SigningNear` it is also the account that signs and
+    /// pays for the transaction. A sender that acts through someone else's
+    /// transaction may have another account sign and pay for the outer
+    /// transaction: a wallet contract's relayer, or the relayer of a
+    /// meta-transaction. The [`Output`](Self::Output) names that signer.
     fn account_id(&self) -> &AccountId;
 
     /// The ID of the chain transactions are sent on, such as `"mainnet"`.
@@ -110,6 +126,12 @@ pub trait TxSender: MaybeSend + MaybeSync {
     fn chain_id(&self) -> &str;
 
     /// Send one transaction with `actions` to `receiver_id`.
+    ///
+    /// A sender may refuse actions it can't express, with its own
+    /// [`SendError`](Self::SendError), before anything is signed or sent. A
+    /// wallet contract that only forwards function calls, transfers and
+    /// state inits is one such sender: it fails a transaction that adds an
+    /// access key.
     ///
     /// The returned future may borrow `self`: implement it as
     /// `async fn send(&self, ..)`.

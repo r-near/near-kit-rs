@@ -17,6 +17,14 @@ pub enum SyncCheckpoint {
 /// Reference to a specific block for RPC queries.
 ///
 /// Every NEAR RPC query operates on state at a specific block.
+///
+/// Deliberately exhaustive, like [`TxExecutionStatus`]: it mirrors
+/// nearcore's block reference (with its block ID split into `Height` and
+/// `Hash`), whose kinds have been stable for years, and a
+/// [`Viewer`](crate::Viewer) implementer matches on it to build its own
+/// request. That match needs no `_` arm, so a new kind of block reference
+/// would be a breaking release. [`Finality`] and [`SyncCheckpoint`] are
+/// exhaustive for the same reason.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlockReference {
     /// Query at latest block with specified finality.

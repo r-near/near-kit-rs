@@ -633,7 +633,13 @@ pub enum FinalExecutionStatus {
 pub struct SendTxResponse {
     /// Hash of the submitted transaction.
     pub transaction_hash: CryptoHash,
-    /// Account ID of the transaction signer.
+    /// The account that signed the transaction, which `tx_status` needs
+    /// along with the hash.
+    ///
+    /// From a [`TxSender`](crate::TxSender) that acts through someone
+    /// else's transaction, such as a wallet contract whose relayer signs or
+    /// a relayed meta-transaction, this is the relayer, not the sender's
+    /// [`account_id`](crate::TxSender::account_id).
     pub sender_id: AccountId,
     /// The execution outcome, once the node has one, exposed as-is (not
     /// validated): partial while the transaction runs, complete once it has
@@ -653,7 +659,7 @@ pub struct SendTxResponse {
 }
 
 impl SendTxResponse {
-    /// A response for `transaction_hash` sent by `sender_id`, with the
+    /// A response for `transaction_hash` signed by `sender_id`, with the
     /// outcome the node had so far. For a backend that returns one (a test
     /// mock of a `TxSender` at an early wait level, say).
     pub fn new(

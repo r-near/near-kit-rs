@@ -26,7 +26,7 @@ cover what does change.
 | `type SendError = Infallible` (a test double that never fails) | `type SendError = near_kit::transaction::CodecError` |
 | `type SendError = String`, or another type without `From<CodecError>` | Your own error type with `impl From<CodecError> for MyError`; `near_kit::Error`, `anyhow::Error`, `Box<dyn std::error::Error + Send + Sync>` and `CodecError` already qualify. A wrapper sender routes it to its inner sender's error: `MyError::Inner(E::from(error))` |
 | `fn chain_id(&self) -> &ChainId { &self.chain_id }` | `fn chain_id(&self) -> &str { self.chain_id.as_str() }`; a field can now be a plain `String`, and a sender built on `SigningNear` returns `self.near().chain_id().as_str()` |
-| `fn chain(&self) -> &ChainId` on an object-safe trait in front of `TxSender` | `fn chain(&self) -> &str` |
+| `fn chain(&self) -> &ChainId` on an object-safe trait in front of `TxSender` | `fn chain(&self) -> &str`. The transactions guide has a complete adapter ("A sender picked at run time") that erases any sender whose error converts into `Box<dyn Error + Send + Sync>`, `SigningNear` at every wait level included, to one `Arc<dyn _>` |
 | `impl TxSender for MySender` and nothing else | Unchanged, and `my_sender.transaction(id)` now works on it. Implement `WithWaitLevel` (`type At<L: WaitLevel>`, the same sender waiting for `L`) if it should support `Tx::wait_until` |
 
 Code that reads the chain ID through the trait now gets a `&str`. Compare
@@ -38,9 +38,10 @@ it directly (`sender.chain_id() == "mainnet"`) or convert it
 
 `Tx`, `Call` and `View` now carry a lifetime: how long their `.await`
 future may live. Values built from an owned backend are `'static`; a
-borrowed one shrinks to the borrow when awaited. A signature has to name
-the lifetime; an `async fn` parameter without it fails with E0726
-("implicit elided lifetime not allowed here").
+borrowed one shrinks to the borrow when awaited. Name the lifetime in
+every signature. An `async fn` parameter without it fails with E0726
+("implicit elided lifetime not allowed here"), but a return type without
+it can compile and borrow `self` (see below the table).
 
 | 0.33 | 0.34 |
 |---|---|
@@ -48,9 +49,24 @@ the lifetime; an `async fn` parameter without it fails with E0726
 | `Tx` or `Tx<W>`, including `let tx: Tx = ..` | `Tx<'static, SigningNear>` or `Tx<'static, SigningNear<W>>`; `Tx` has no default sender |
 | `async fn f(tx: Tx)` | `async fn f(tx: Tx<'_, SigningNear>)` |
 | `fn f(..) -> Call<C>`, `fn f(..) -> View<C, T>` | `-> Call<'static, C>`, `-> View<'static, C, T>` |
+| `fn view(&self) -> View<Self, T>` (or `-> Tx<Self>`) on a backend, returning one over `self.clone()` | `-> View<'static, Self, T>`, `-> Tx<'static, Self>` |
 | `async fn f(call: Call<C>)`, `async fn f(view: View<C, T>)` | `Call<'_, C>`, `View<'_, C, T>` |
 | A struct field of type `Tx<W>`, `Call<C>` or `View<C, T>` | Add `'static`, or a lifetime parameter on the struct |
 | `Tx::wait_until::<W2>()` on `Tx<W>` | Unchanged for `SigningNear`; on another sender it needs `C: WithWaitLevel` |
+
+A return type is where a missing lifetime still compiles: in a method
+that takes `&self` (or a function with one borrowed argument), it is that
+borrow. So `fn view(&self) -> View<Self, u32>` on a backend means
+`View<'_, Self, u32>`, even though the view owns a clone of the backend.
+Awaiting it in the same statement works, so the signature looks fine. The
+errors show up at callers that keep the view: a `let` binding of
+`backend().view()` fails with E0716 ("temporary value dropped while
+borrowed"), spawning it with E0597, returning it from a function with
+E0515, and storing it in a `View<'static, ..>` field with E0521. Write
+`View<'static, Self, u32>`; `Tx<Self>` needs the same. rustc's
+`mismatched_lifetime_syntaxes` warning ("hiding a lifetime that's elided
+elsewhere is confusing") points at the signature, but only while the crate
+otherwise compiles, and the `'_` it suggests keeps the borrow.
 
 **Errors from typed calls**
 
