@@ -35,6 +35,18 @@ Open an issue before a pull request. Describe the problem you hit and the code y
 have to write today; that's usually enough to tell which of the cases above it
 falls into.
 
+## Releases
+
+- **Fixes and additive changes** ship as patch releases whenever they're ready.
+  `cargo semver-checks` must agree that nothing breaks.
+- **Breaking changes** wait and go out together. They ship first as a release
+  candidate (`-rc.N`). The stable release follows once the downstream projects
+  that asked for the change build against the candidate, and someone from a second
+  downstream project has signed off.
+- **`near-kit-primitives`** is meant to reach 1.0, so its traits (`Viewer`,
+  `TxSender`) and types change only when the change can't wait for the next
+  batch of breaking changes.
+
 ## Developing
 
 Build, test and lint commands, code style, where code goes and the dependency
