@@ -4,6 +4,12 @@ All notable changes to `near-kit-sandbox` are documented in this file.
 
 ## [Unreleased]
 
+## [0.33.1](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.33.0...near-kit-sandbox-v0.33.1) - 2026-11-20
+
+### Added
+
+- RpcError::UninitializedAccount, and the state init bootstrap accepts it ([#442](https://github.com/r-near/near-kit-rs/pull/442))
+
 ## [0.30.0](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.30.0-rc.9...near-kit-sandbox-v0.30.0) - 2026-11-15
 
 The first stable 0.30 release, for near-kit 0.30. The 0.30.0-rc sections below

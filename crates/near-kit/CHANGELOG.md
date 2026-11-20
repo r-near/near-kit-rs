@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.1](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.33.0...near-kit-v0.33.1) - 2026-11-20
+
+### Added
+
+- RpcError::UninitializedAccount, and the state init bootstrap accepts it ([#442](https://github.com/r-near/near-kit-rs/pull/442))
+
 ## [0.33.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.32.0...near-kit-v0.33.0) - 2026-11-19
 
 ### Added
