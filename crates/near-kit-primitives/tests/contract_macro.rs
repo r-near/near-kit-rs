@@ -156,7 +156,7 @@ impl Viewer for Backend {
 
 impl TxSender for Backend {
     type Output = SendTxResponse;
-    type SendError = String;
+    type SendError = near_kit_primitives::transaction::CodecError;
 
     fn account_id(&self) -> &AccountId {
         unreachable!("not used by generated clients")
@@ -170,7 +170,7 @@ impl TxSender for Backend {
         &self,
         receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<SendTxResponse, String> {
+    ) -> Result<SendTxResponse, near_kit_primitives::transaction::CodecError> {
         self.sent.lock().unwrap().push((receiver_id, actions));
         Ok(SendTxResponse::new(
             CryptoHash::ZERO,

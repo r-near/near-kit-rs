@@ -48,7 +48,7 @@ impl Viewer for Recorder {
 
 impl TxSender for Recorder {
     type Output = SendTxResponse;
-    type SendError = String;
+    type SendError = near_kit::transaction::CodecError;
 
     fn account_id(&self) -> &AccountId {
         unreachable!("the generated client doesn't ask for the sender")
@@ -62,7 +62,7 @@ impl TxSender for Recorder {
         &self,
         _receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<SendTxResponse, String> {
+    ) -> Result<SendTxResponse, near_kit::transaction::CodecError> {
         let mut methods = self.methods.lock().unwrap();
         for action in actions {
             match action {

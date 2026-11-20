@@ -3,8 +3,8 @@
 ## Building and sending
 
 [`SigningNear::transaction`](crate::SigningNear::transaction) starts a
-[`Tx`](crate::transaction::Tx) to a receiver;
-[`add_action`](crate::transaction::Tx::add_action) appends an action;
+[`Tx`](crate::Tx) to a receiver;
+[`add_action`](crate::Tx::add_action) appends an action;
 awaiting it fetches a nonce and block hash, signs, sends and waits for the
 client's [wait level](crate::guide::finality) (`Final` by default):
 

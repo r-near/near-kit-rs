@@ -213,7 +213,7 @@ impl Viewer for MockChain {
 impl TxSender for MockChain {
     // A real backend returns an outcome; the mock reports only a failure.
     type Output = MockOutcome;
-    type SendError = String;
+    type SendError = near_kit::transaction::CodecError;
 
     fn account_id(&self) -> &AccountId {
         &self.account_id
@@ -227,7 +227,7 @@ impl TxSender for MockChain {
         &self,
         receiver_id: AccountId,
         actions: Vec<Action>,
-    ) -> Result<MockOutcome, String> {
+    ) -> Result<MockOutcome, near_kit::transaction::CodecError> {
         let failing = self.failing.lock().unwrap();
         let failure = actions.iter().find_map(|action| match action {
             Action::FunctionCall(call) if failing.contains(&call.method_name) => {

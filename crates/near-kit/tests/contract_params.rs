@@ -136,7 +136,7 @@ impl Viewer for Recorder {
 
 impl TxSender for Recorder {
     type Output = SendTxResponse;
-    type SendError = std::convert::Infallible;
+    type SendError = near_kit::transaction::CodecError;
 
     fn account_id(&self) -> &AccountId {
         unreachable!("not used by Call")

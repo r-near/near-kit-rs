@@ -128,7 +128,7 @@ pub use near_kit_primitives::account;
 pub use near_kit_primitives::{AccountId, AccountIdRef, CryptoHash, Gas, NearToken};
 #[doc(inline)]
 pub use near_kit_primitives::{
-    Call, Contract, ContractError, MaybeSend, MaybeSync, TxSender, View, Viewer,
+    Call, Contract, ContractError, MaybeSend, MaybeSync, Tx, TxSender, View, Viewer, WithWaitLevel,
 };
 
 #[cfg(feature = "rpc")]

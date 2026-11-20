@@ -7,6 +7,7 @@
 
 use std::fmt;
 use std::future::{Future, IntoFuture};
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::error::CodecError;
@@ -14,6 +15,7 @@ use crate::platform::{BoxFuture, MaybeSend, MaybeSync};
 use crate::transaction::FunctionCall;
 use crate::types::{
     AccountId, AccountIdRef, Action, BlockReference, ChainId, Gas, NearToken, ViewFunctionResult,
+    WaitLevel,
 };
 
 /// A backend that can run contract view functions.
@@ -86,8 +88,13 @@ pub trait TxSender: MaybeSend + MaybeSync {
     /// naming a transaction that was really sent. A test double that sends
     /// nothing has no such hash and returns a placeholder.
     type Output: Into<crate::rpc::SendTxResponse>;
-    /// The backend's error. Unbounded.
-    type SendError;
+    /// The backend's error.
+    ///
+    /// It takes a [`CodecError`], so that an action whose arguments failed
+    /// to encode fails a [`Tx`] with this same error type. `near_kit::Error`,
+    /// `anyhow::Error` and `CodecError` itself qualify; a test double that
+    /// never fails can use `CodecError`.
+    type SendError: From<CodecError>;
 
     /// The account transactions are sent from.
     fn account_id(&self) -> &AccountId;
@@ -107,6 +114,32 @@ pub trait TxSender: MaybeSend + MaybeSync {
         receiver_id: AccountId,
         actions: Vec<Action>,
     ) -> impl Future<Output = Result<Self::Output, Self::SendError>> + MaybeSend;
+
+    /// Start a [`Tx`] to `receiver_id` that sends through this sender.
+    ///
+    /// The transaction borrows the sender, and `.await` works through that
+    /// borrow. To move it into `tokio::spawn`, build it from an owned sender
+    /// with [`Tx::new`], or await it inside the spawned `async move` block.
+    fn transaction(&self, receiver_id: impl Into<AccountId>) -> Tx<'_, &Self> {
+        Tx::new(self, receiver_id)
+    }
+}
+
+/// A [`TxSender`] that can wait for a different [`WaitLevel`] per
+/// transaction, as `near-kit`'s `SigningNear<W>` does.
+///
+/// [`Tx::wait_until`] uses it; a sender opts in by implementing it. A wrapper
+/// sender forwards it by wrapping its inner sender's
+/// [`At`](Self::At) in itself.
+///
+/// The method takes `&self`, like `SigningNear::wait_until`, so bringing the
+/// trait into scope never moves a sender that has an inherent `wait_until`.
+pub trait WithWaitLevel: TxSender {
+    /// This sender, waiting for `L`. It fails with the same error type.
+    type At<L: WaitLevel>: TxSender<SendError = Self::SendError>;
+
+    /// The same sender, waiting for `L` instead.
+    fn wait_until<L: WaitLevel>(&self) -> Self::At<L>;
 }
 
 /// A typed contract interface: ties the marker type that `#[contract]`
@@ -527,8 +560,165 @@ where
     }
 }
 
+/// One transaction being assembled: a receiver, the actions so far, and the
+/// [`TxSender`] that will send it.
+///
+/// Start one with [`TxSender::transaction`] (which borrows the sender),
+/// `SigningNear::transaction` (which owns a clone), or [`Tx::new`]. Add
+/// actions with [`add_action`](Self::add_action), then `.await` it. The
+/// result is the sender's own [`Output`](TxSender::Output) and
+/// [`SendError`](TxSender::SendError), so a `SigningNear` transaction fails
+/// with `near_kit::Error`.
+///
+/// An action whose arguments fail to encode is kept as a [`CodecError`] and
+/// returned, converted into the sender's error, without calling the sender.
+///
+/// `'a` is how long the `.await` future may live: the sender's borrow for a
+/// borrowed sender, `'static` for an owned one, which can be spawned.
+///
+/// For a sender that implements [`WithWaitLevel`],
+/// [`wait_until`](Self::wait_until) picks the wait level of this one
+/// transaction.
+///
+/// The same code works for any sender:
+///
+/// ```rust
+/// use near_kit_primitives::protocol::Action;
+/// use near_kit_primitives::transaction::FunctionCall;
+/// use near_kit_primitives::{AccountId, Gas, NearToken, TxSender};
+///
+/// async fn bump<S: TxSender>(sender: &S, counter: AccountId) -> Result<S::Output, S::SendError> {
+///     sender
+///         .transaction(counter)
+///         .add_action(
+///             FunctionCall::new("bump")
+///                 .args(serde_json::json!({ "by": 2 }))
+///                 .gas(Gas::from_tgas(10)),
+///         )
+///         .add_action(Action::transfer(NearToken::from_millinear(10)))
+///         .await
+/// }
+/// ```
+#[must_use = "transactions are not sent unless awaited"]
+pub struct Tx<'a, C> {
+    sender: C,
+    receiver_id: AccountId,
+    actions: Vec<Action>,
+    /// The first deferred encoding error; returned from `.await`.
+    error: Option<CodecError>,
+    _future: PhantomData<&'a ()>,
+}
+
+impl<'a, C> Tx<'a, C> {
+    /// A transaction to `receiver_id` with no actions yet, sent through
+    /// `sender`: owned (`Tx<'static, S>` for an owned `'static` sender, which
+    /// can be spawned) or borrowed (`&S`).
+    pub fn new(sender: C, receiver_id: impl Into<AccountId>) -> Self {
+        Self {
+            sender,
+            receiver_id: receiver_id.into(),
+            actions: Vec::new(),
+            error: None,
+            _future: PhantomData,
+        }
+    }
+
+    /// Append an action.
+    ///
+    /// Takes an [`Action`] or anything that converts into one, such as a
+    /// [`FunctionCall`]. If its arguments fail to encode, the [`CodecError`]
+    /// is kept and returned when the transaction is awaited; later actions
+    /// are still accepted but the transaction is never sent.
+    pub fn add_action<A>(mut self, action: A) -> Self
+    where
+        A: TryInto<Action>,
+        A::Error: Into<CodecError>,
+    {
+        match action.try_into() {
+            Ok(action) => self.actions.push(action),
+            Err(error) => {
+                if self.error.is_none() {
+                    self.error = Some(error.into());
+                }
+            }
+        }
+        self
+    }
+
+    /// The account the transaction goes to.
+    pub fn receiver_id(&self) -> &AccountId {
+        &self.receiver_id
+    }
+
+    /// The actions added so far, without any that failed to encode.
+    pub fn actions(&self) -> &[Action] {
+        &self.actions
+    }
+}
+
+impl<'a, C: WithWaitLevel> Tx<'a, C> {
+    /// Wait for `L` instead of the sender's own level, for this transaction
+    /// only.
+    ///
+    /// `.await` then resolves to the [`Output`](TxSender::Output) of
+    /// [`C::At<L>`](WithWaitLevel::At). The sender the transaction came from
+    /// keeps its own level, and the actions (and any kept encoding error)
+    /// carry over.
+    ///
+    /// The result owns `C::At<L>` (for a borrowed `SigningNear`, an owned
+    /// `SigningNear<L>`), so its lifetime is free again: a transaction
+    /// started through a borrow can be spawned after `wait_until`.
+    pub fn wait_until<'b, L: WaitLevel>(self) -> Tx<'b, C::At<L>> {
+        Tx {
+            sender: WithWaitLevel::wait_until::<L>(&self.sender),
+            receiver_id: self.receiver_id,
+            actions: self.actions,
+            error: self.error,
+            _future: PhantomData,
+        }
+    }
+}
+
+impl<C: TxSender> fmt::Debug for Tx<'_, C> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Tx")
+            .field("signer_id", self.sender.account_id())
+            .field("receiver_id", &self.receiver_id)
+            .field("action_count", &self.actions.len())
+            .field("error", &self.error)
+            .finish()
+    }
+}
+
+/// Sends the transaction. A kept encoding error is returned, converted into
+/// the sender's error, without calling the sender.
+impl<'a, C: TxSender + 'a> IntoFuture for Tx<'a, C> {
+    type Output = Result<C::Output, C::SendError>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            if let Some(error) = self.error {
+                return Err(error.into());
+            }
+            // Fully qualified, so an inherent `send` on the sender can't
+            // shadow the trait method.
+            TxSender::send(&self.sender, self.receiver_id, self.actions).await
+        })
+    }
+}
+
 macro_rules! forward {
     ($($p:ty),+) => {$(
+        /// Forwards to `T`.
+        impl<T: WithWaitLevel + ?Sized> WithWaitLevel for $p {
+            type At<L: WaitLevel> = T::At<L>;
+
+            fn wait_until<L: WaitLevel>(&self) -> Self::At<L> {
+                (**self).wait_until::<L>()
+            }
+        }
+
         /// Forwards to `T`.
         impl<T: Viewer + ?Sized> Viewer for $p {
             type ViewError = T::ViewError;
@@ -721,7 +911,7 @@ mod tests {
 
     impl TxSender for MockSender {
         type Output = ActionCount;
-        type SendError = String;
+        type SendError = CodecError;
 
         fn account_id(&self) -> &AccountId {
             unreachable!("not used by Call")
@@ -735,7 +925,7 @@ mod tests {
             &self,
             receiver_id: AccountId,
             actions: Vec<Action>,
-        ) -> Result<ActionCount, String> {
+        ) -> Result<ActionCount, CodecError> {
             let count = actions.len();
             self.sent.lock().unwrap().push((receiver_id, actions));
             Ok(ActionCount(count))

@@ -1,10 +1,10 @@
 //! Transactions, function calls, and typed execution wait levels.
 //!
 //! The standalone items ([`FunctionCall`] and the wait levels) are
-//! re-exported from `near-kit-primitives`; [`Tx`] and the pre-signed
-//! submission need the `rpc` feature. The awaitable [`View`](crate::View)
-//! and [`Call`](crate::Call) returned by `#[contract]` clients are at the
-//! crate root.
+//! re-exported from `near-kit-primitives`; the pre-signed submission needs
+//! the `rpc` feature. The transaction builder [`Tx`](crate::Tx), and the
+//! awaitable [`View`](crate::View) and [`Call`](crate::Call) returned by
+//! `#[contract]` clients, are at the crate root.
 //!
 //! # Wait levels
 //!
@@ -48,8 +48,7 @@
 )]
 #![cfg_attr(
     not(feature = "rpc"),
-    doc = "[`Tx`]: https://docs.rs/near-kit/latest/near_kit/transaction/struct.Tx.html
-[signing-near]: https://docs.rs/near-kit/latest/near_kit/struct.SigningNear.html
+    doc = "[signing-near]: https://docs.rs/near-kit/latest/near_kit/struct.SigningNear.html
 [wait-until]: https://docs.rs/near-kit/latest/near_kit/struct.SigningNear.html#method.wait_until"
 )]
 
@@ -62,4 +61,4 @@ pub use near_kit_primitives::transaction::{
 };
 
 #[cfg(feature = "rpc")]
-pub use crate::client::{DelegateOptions, SignedTransactionSend, Tx};
+pub use crate::client::{DelegateOptions, SignedTransactionSend};

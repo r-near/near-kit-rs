@@ -96,7 +96,7 @@ alice
 # }
 ```
 
-Only sends from a `SigningNear` (a [`Tx`](crate::transaction::Tx), or a
+Only sends from a `SigningNear` (a [`Tx`](crate::Tx), or a
 typed contract call through one) retry like this. `sign`, `sign_delegate`
 and [`Near::send_signed`](crate::Near::send_signed) never re-sign: the
 signature fixes the nonce. Separately, the RPC layer re-sends the *same*

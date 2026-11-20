@@ -36,7 +36,7 @@ near.send_signed(&signed).await?.result()?;
 `.wait_until::<W>()`. It borrows the transaction; to spawn the send, move
 the transaction into an `async move` block.
 
-Three things differ from sending a [`Tx`](crate::transaction::Tx):
+Three things differ from sending a [`Tx`](crate::Tx):
 
 - **No nonce retry.** The signature fixes the nonce. If another transaction
   from the same key lands first with a higher nonce, this one fails with

@@ -293,7 +293,7 @@ mod custom_backend {
 
     impl TxSender for Mock {
         type Output = SendTxResponse;
-        type SendError = String;
+        type SendError = near_kit::transaction::CodecError;
 
         fn account_id(&self) -> &AccountId {
             &self.0
@@ -307,7 +307,7 @@ mod custom_backend {
             &self,
             _receiver_id: AccountId,
             _actions: Vec<Action>,
-        ) -> Result<SendTxResponse, String> {
+        ) -> Result<SendTxResponse, near_kit::transaction::CodecError> {
             Ok(SendTxResponse::new(
                 CryptoHash::ZERO,
                 account!("mock.near"),
@@ -340,7 +340,7 @@ mod custom_backend {
 
     impl TxSender for dyn UserSender {
         type Output = SendTxResponse;
-        type SendError = String;
+        type SendError = near_kit::transaction::CodecError;
 
         fn account_id(&self) -> &AccountId {
             self.id()
@@ -354,7 +354,7 @@ mod custom_backend {
             &self,
             _receiver_id: AccountId,
             _actions: Vec<Action>,
-        ) -> Result<SendTxResponse, String> {
+        ) -> Result<SendTxResponse, near_kit::transaction::CodecError> {
             Ok(SendTxResponse::new(
                 CryptoHash::ZERO,
                 account!("mock.near"),

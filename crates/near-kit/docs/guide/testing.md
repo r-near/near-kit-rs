@@ -249,7 +249,7 @@ impl Recorder {
 
 impl TxSender for Recorder {
     type Output = SendTxResponse;
-    type SendError = std::convert::Infallible;
+    type SendError = near_kit::transaction::CodecError;
 
     fn account_id(&self) -> &AccountId {
         &self.account_id

@@ -113,7 +113,7 @@ pub mod signer;
 pub mod standards;
 pub mod transaction;
 
-pub use backend::{Call, Contract, ContractError, TxSender, View, Viewer};
+pub use backend::{Call, Contract, ContractError, Tx, TxSender, View, Viewer, WithWaitLevel};
 pub use platform::{MaybeSend, MaybeSync};
 pub use types::{AccountId, AccountIdRef, CryptoHash, Gas, NearToken};
 

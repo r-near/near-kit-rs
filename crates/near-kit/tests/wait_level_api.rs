@@ -7,7 +7,7 @@ use near_kit::rpc::{
 };
 use near_kit::signer::InMemorySigner;
 use near_kit::transaction::{
-    Executed, ExecutedOptimistic, Final, Included, IncludedFinal, Submitted, Tx, WaitLevel,
+    Executed, ExecutedOptimistic, Final, Included, IncludedFinal, Submitted, WaitLevel,
 };
 use near_kit::*;
 
@@ -22,16 +22,16 @@ fn signing_clients_select_wait_levels_in_type_position() {
     let alice = alice();
     let transfer = || Action::transfer(NearToken::from_near(1));
 
-    let _default: Tx<Final> = alice
+    let _default: Tx<'_, SigningNear<Final>> = alice
         .transaction(account!("bob.testnet"))
         .add_action(transfer());
 
     let included: SigningNear<Included> = alice.wait_until::<Included>();
-    let _included: Tx<Included> = included
+    let _included: Tx<'_, SigningNear<Included>> = included
         .transaction(account!("bob.testnet"))
         .add_action(transfer());
 
-    let _final: Tx<Final> = included
+    let _final: Tx<'_, SigningNear<Final>> = included
         .wait_until::<Final>()
         .transaction(account!("bob.testnet"))
         .add_action(transfer());
@@ -40,12 +40,12 @@ fn signing_clients_select_wait_levels_in_type_position() {
 #[test]
 fn one_transaction_picks_its_own_wait_level() {
     let alice = alice();
-    let _included: Tx<Included> = alice
+    let _included: Tx<'_, SigningNear<Included>> = alice
         .transaction(account!("bob.testnet"))
         .add_action(Action::transfer(NearToken::from_near(1)))
         .wait_until::<Included>();
     // The client keeps its level.
-    let _still_final: Tx<Final> = alice.transaction(account!("bob.testnet"));
+    let _still_final: Tx<'_, SigningNear<Final>> = alice.transaction(account!("bob.testnet"));
 }
 
 #[allow(dead_code)]
@@ -109,7 +109,9 @@ async fn send_transaction_at<W: WaitLevel>(
 }
 
 #[allow(dead_code)]
-async fn send_tx_at<W: WaitLevel>(transaction: Tx<W>) -> Result<W::Response, Error> {
+async fn send_tx_at<W: WaitLevel>(
+    transaction: Tx<'_, SigningNear<W>>,
+) -> Result<W::Response, Error> {
     transaction.await
 }
 
@@ -126,7 +128,7 @@ async fn included_transaction_returns_progress(
 
 #[allow(dead_code)]
 async fn default_transaction_send_returns_execution_outcome(
-    transaction: Tx,
+    transaction: Tx<'_, SigningNear>,
 ) -> Result<FinalExecutionOutcome, Error> {
     transaction.await
 }

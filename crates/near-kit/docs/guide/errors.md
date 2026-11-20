@@ -2,7 +2,7 @@
 
 ## What a send returns
 
-Awaiting a [`Tx`](crate::transaction::Tx) (or a typed contract call) has
+Awaiting a [`Tx`](crate::Tx) (or a typed contract call) has
 five kinds of result:
 
 | Result | Meaning | On chain |

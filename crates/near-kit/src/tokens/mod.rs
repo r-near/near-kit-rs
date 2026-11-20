@@ -96,7 +96,7 @@ pub(crate) mod mock {
 
     impl TxSender for Mock {
         type Output = Sent;
-        type SendError = String;
+        type SendError = crate::transaction::CodecError;
 
         fn account_id(&self) -> &AccountId {
             unimplemented!("tokens never ask for the sender")
@@ -110,7 +110,7 @@ pub(crate) mod mock {
             &self,
             _receiver_id: AccountId,
             actions: Vec<Action>,
-        ) -> Result<Sent, String> {
+        ) -> Result<Sent, crate::transaction::CodecError> {
             Ok(Sent(actions))
         }
     }
