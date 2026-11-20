@@ -707,7 +707,7 @@ impl<'a, C: WithWaitLevel> Tx<'a, C> {
 impl<C: TxSender> fmt::Debug for Tx<'_, C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Tx")
-            .field("signer_id", self.sender.account_id())
+            .field("account_id", self.sender.account_id())
             .field("receiver_id", &self.receiver_id)
             .field("action_count", &self.actions.len())
             .field("error", &self.error)
