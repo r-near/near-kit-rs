@@ -445,6 +445,18 @@ fn parse_rpc_error(error: &JsonRpcError) -> RpcError {
                     };
                 }
             }
+            "UNINITIALIZED_ACCOUNT" => {
+                // Every method that returns it (the `query` request types and
+                // their `EXPERIMENTAL_*` forms) carries `requested_account_id`,
+                // so there is nothing to patch in afterwards.
+                if let Some(Ok(account_id)) = info_str("requested_account_id").map(str::parse) {
+                    return RpcError::UninitializedAccount {
+                        account_id,
+                        block_height,
+                        block_hash,
+                    };
+                }
+            }
             "INVALID_ACCOUNT" => {
                 let account_id = info_str("requested_account_id").unwrap_or("unknown");
                 return RpcError::InvalidAccount {
@@ -685,6 +697,23 @@ fn parse_rpc_error(error: &JsonRpcError) -> RpcError {
                 block_hash: None,
             };
         }
+    }
+
+    // nearcore's text for `UNINITIALIZED_ACCOUNT`, for a response that lost
+    // its `cause`: without a cause, a -32000 error would be retried.
+    if let Some(account_str) = error
+        .data
+        .as_ref()
+        .and_then(Value::as_str)
+        .and_then(|data| data.strip_prefix("account "))
+        .and_then(|rest| rest.strip_suffix(" exists but is not initialized"))
+        && let Ok(account_id) = account_str.parse()
+    {
+        return RpcError::UninitializedAccount {
+            account_id,
+            block_height: None,
+            block_hash: None,
+        };
     }
 
     RpcError::Rpc {
@@ -4063,6 +4092,92 @@ mod tests {
         );
     }
 
+    /// nearcore's answer to a view of a funded but uninitialized `0u`
+    /// account (`RpcQueryError::UninitializedAccount`, or the same variant of
+    /// `RpcCallFunctionError`), as both `query` and the `EXPERIMENTAL_*`
+    /// methods send it.
+    fn uninitialized_account_body(account_id: &AccountId) -> Vec<u8> {
+        rpc_error(
+            Some("UNINITIALIZED_ACCOUNT"),
+            serde_json::json!({
+                "requested_account_id": account_id,
+                "block_height": 100,
+                "block_hash": "11111111111111111111111111111111",
+            }),
+            format!("account {account_id} exists but is not initialized").into(),
+        )
+    }
+
+    #[test]
+    fn test_parse_rpc_error_uninitialized_account() {
+        let account_id: AccountId = "0u5ee2ed2e8fc7e7cbb0bd1e8d7c8e1aa0c33ab43f"
+            .parse()
+            .unwrap();
+        let response: JsonRpcResponse =
+            serde_json::from_slice(&uninitialized_account_body(&account_id)).unwrap();
+        let error = parse_rpc_error(&response.error.unwrap());
+        assert!(
+            matches!(
+                &error,
+                RpcError::UninitializedAccount {
+                    account_id: actual,
+                    block_height: Some(100),
+                    block_hash: Some(CryptoHash::ZERO),
+                } if *actual == account_id
+            ),
+            "got {error:?}"
+        );
+        assert_eq!(error.block_height(), Some(100));
+        assert_eq!(error.block_hash(), Some(CryptoHash::ZERO));
+        assert!(!error.is_retryable());
+        assert_eq!(
+            error.to_string(),
+            format!("Account not initialized: {account_id}")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_views_of_an_uninitialized_account_report_it() {
+        let account_id: AccountId = "0u5ee2ed2e8fc7e7cbb0bd1e8d7c8e1aa0c33ab43f"
+            .parse()
+            .unwrap();
+        let public_key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp"
+            .parse()
+            .unwrap();
+        let transport = CountingTransport::new(200, uninitialized_account_body(&account_id));
+        let rpc = transport.client();
+        let block = || BlockReference::Finality(Finality::Final);
+        let errors = [
+            rpc.view_function(&account_id, "get", b"{}", block())
+                .await
+                .unwrap_err(),
+            rpc.view_code(&account_id, block()).await.unwrap_err(),
+            rpc.view_state(&account_id, b"", None, None, block())
+                .await
+                .unwrap_err(),
+            rpc.view_access_key(&account_id, &public_key, block())
+                .await
+                .unwrap_err(),
+            rpc.view_access_key_list(&account_id, block())
+                .await
+                .unwrap_err(),
+            rpc.view_gas_key_nonces(&account_id, &public_key, block())
+                .await
+                .unwrap_err(),
+        ];
+        for error in errors {
+            assert!(
+                matches!(
+                    &error,
+                    RpcError::UninitializedAccount { account_id: actual, .. }
+                        if *actual == account_id
+                ),
+                "got {error:?}"
+            );
+        }
+        assert_eq!(transport.calls(), 6);
+    }
+
     #[test]
     fn test_parse_rpc_error_invalid_account() {
         let error = handler_error(
@@ -5296,6 +5411,30 @@ mod tests {
         };
         let result = parse_rpc_error(&error);
         assert!(matches!(result, RpcError::AccountNotFound { .. }));
+    }
+
+    #[test]
+    fn test_parse_rpc_error_fallback_uninitialized_account() {
+        // The envelope without its `cause`, as a proxy might pass it on.
+        let error = JsonRpcError {
+            code: -32000,
+            message: "Server error".to_string(),
+            data: Some(serde_json::json!(
+                "account 0u5ee2ed2e8fc7e7cbb0bd1e8d7c8e1aa0c33ab43f exists but is not initialized"
+            )),
+            cause: None,
+            name: None,
+        };
+        let result = parse_rpc_error(&error);
+        assert!(
+            matches!(
+                &result,
+                RpcError::UninitializedAccount { account_id, block_height: None, block_hash: None }
+                    if account_id.as_str() == "0u5ee2ed2e8fc7e7cbb0bd1e8d7c8e1aa0c33ab43f"
+            ),
+            "got {result:?}"
+        );
+        assert!(!result.is_retryable());
     }
 
     #[test]

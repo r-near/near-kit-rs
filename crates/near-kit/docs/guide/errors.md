@@ -172,13 +172,23 @@ use near_kit::*;
 async fn has_contract(near: &Near, account_id: &AccountId) -> Result<bool, Error> {
     match near.rpc().view_code(account_id, rpc::Finality::Final).await {
         Ok(_) => Ok(true),
-        Err(rpc::RpcError::ContractNotDeployed { .. } | rpc::RpcError::AccountNotFound { .. }) => {
-            Ok(false)
-        }
+        Err(
+            rpc::RpcError::ContractNotDeployed { .. }
+            | rpc::RpcError::AccountNotFound { .. }
+            | rpc::RpcError::UninitializedAccount { .. },
+        ) => Ok(false),
         Err(e) => Err(e.into()),
     }
 }
 ```
+
+`UninitializedAccount` is a funded universal (`0u`) account whose state init
+hasn't run yet. Nodes newer than nearcore 2.14 return it from every view that
+reads an account's code, state or keys (`view_function`, `view_code`,
+`view_state`, `view_access_key`, `view_access_key_list`,
+`view_gas_key_nonces`); older nodes answer those as if the account were
+initialized and empty. `view_account` still succeeds on such an account and
+reports [`AccountState::Uninitialized`](crate::rpc::AccountState::Uninitialized).
 
 Converting an `RpcError` into an `Error` promotes a structured
 `RpcError::InvalidTx` to `Error::InvalidTx`, so after `?` you match one
