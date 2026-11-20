@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.16.0](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.1...near-kit-macros-v0.16.0) - 2026-11-20
+## [0.16.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-macros-v0.15.1...near-kit-macros-v0.16.0-rc.1) - 2026-11-20
+
+Release candidate for 0.34, the one batch of breaking changes for this release. Upgrade notes are in [MIGRATION.md](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#upgrading-from-near-kit-033-to-034).
 
 ### Added
 
