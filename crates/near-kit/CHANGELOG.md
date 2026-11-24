@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.34.0-rc.2](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.34.0-rc.1...near-kit-v0.34.0-rc.2) - 2026-11-24
+## [0.34.0](https://github.com/r-near/near-kit-rs/compare/near-kit-v0.34.0-rc.1...near-kit-v0.34.0) - 2026-11-24
+
+The stable 0.34 release. Coming from 0.33, upgrade notes are in [MIGRATION.md](https://github.com/r-near/near-kit-rs/blob/main/MIGRATION.md#upgrading-from-near-kit-033-to-034); this section and 0.34.0-rc.1 below list every change since 0.33.1.
 
 ### Added
 
