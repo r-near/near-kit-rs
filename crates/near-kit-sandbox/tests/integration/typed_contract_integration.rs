@@ -252,7 +252,7 @@ pub trait StorageWithdraw {
 
 /// The gas and deposit of the transaction's only action, as signed.
 fn sent_gas_and_deposit(outcome: &FinalExecutionOutcome) -> (Gas, NearToken) {
-    match &outcome.transaction.actions[..] {
+    match &outcome.transaction.as_signed().unwrap().actions[..] {
         [ActionView::FunctionCall { gas, deposit, .. }] => (*gas, *deposit),
         other => panic!("expected one function call, got {other:?}"),
     }

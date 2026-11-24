@@ -1,0 +1,27 @@
+# Checks near-kit's external call (NEP-667) encoding, hashes and unique ids,
+# and its decoding of nearcore 2.15's views and errors, against nearcore's own
+# near-primitives at the 2.15.0-rc.1 tag (published as 0.39.0-rc.1). It also
+# writes `../fixtures/nearcore_2_15.json`, which near-kit-primitives' offline
+# tests read, and fails when that file no longer matches what nearcore
+# produces. A workspace of its own: the main workspace doesn't depend on
+# nearcore crates. CI runs it in a separate job:
+#
+#     cargo test --manifest-path crates/near-kit-primitives/tests/nearcore-wire/Cargo.toml
+#
+# Set `BLESS=1` to rewrite the fixture.
+[package]
+name = "nearcore-wire"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dev-dependencies]
+near-kit-primitives = { path = "../.." }
+near-primitives = "=0.39.0-rc.1"
+near-crypto = "=0.39.0-rc.1"
+near-primitives-core = "=0.39.0-rc.1"
+borsh = { version = "1", features = ["derive"] }
+serde = "1"
+serde_json = "1"

@@ -23,7 +23,6 @@ use super::transport::redact_url;
 use super::transport;
 use crate::error::{ReceiptToTxError, RpcError, TimeoutCause};
 use crate::trace;
-use crate::types::RpcTransactionResponse;
 use crate::types::{
     AccessKeyListView, AccessKeyView, AccountId, AccountIdRef, AccountView, BlockReference,
     BlockView, CompilationError, ContractCodeView, CryptoHash, EpochValidatorInfo,
@@ -31,6 +30,10 @@ use crate::types::{
     HostError, MethodResolveError, PublicKey, PublicKeyHandle, Receipt, ReceiptToTxResponse,
     SignedTransaction, StatusResponse, SyncCheckpoint, TxExecutionStatus, ViewFunctionResult,
     ViewStateAllResult, ViewStateResult,
+};
+use crate::types::{
+    EXTERNAL_CALL_METHOD, ExternalCall, ExternalCallResponse, RawStateInit, RpcTransactionResponse,
+    TxExecutionError,
 };
 
 /// Platform-appropriate async sleep, used for retry backoff.
@@ -41,7 +44,7 @@ use crate::types::{
 ///   and blocking the one thread is fine, since the whole guest is already
 ///   blocked on this future (the wasi:http transport is blocking too).
 /// - `wasm32-unknown-unknown`: no OS timers — use the JS host's via `gloo-timers`.
-async fn async_sleep(duration: Duration) {
+pub(crate) async fn async_sleep(duration: Duration) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         tokio::time::sleep(duration).await;
@@ -560,6 +563,30 @@ fn parse_rpc_error(error: &JsonRpcError) -> RpcError {
                     block_hash,
                 };
             }
+            "EXTERNAL_CALL_REFUSED" => {
+                // The cause name is authoritative: an error near-kit cannot
+                // decode keeps the node's text instead of demoting this to a
+                // generic error. `call_function` fills in the contract.
+                let error = info
+                    .and_then(|i| i.get("error"))
+                    .and_then(|e| serde_json::from_value::<TxExecutionError>(e.clone()).ok());
+                let logs = info
+                    .and_then(|i| i.get("logs"))
+                    .and_then(|l| serde_json::from_value::<Vec<String>>(l.clone()).ok())
+                    .unwrap_or_default();
+                let message = error
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| data_or_message.to_string());
+                return RpcError::ExternalCallRefused {
+                    contract_id: unknown_account(),
+                    error,
+                    message,
+                    logs,
+                    block_height,
+                    block_hash,
+                };
+            }
             "TOO_LARGE_CONTRACT_STATE" => {
                 // Without a parseable account, fall through to the generic
                 // error rather than inventing an account id.
@@ -901,15 +928,27 @@ impl RpcClient {
     /// the backoff delay comes only after every endpoint has failed. When
     /// every round has failed, the last error is returned. Any other error is
     /// returned at once. `sandbox_fast_forward` is never retried or sent to a
-    /// fallback, since it is not idempotent.
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, params), fields(rpc.method = method, rpc.url = %redact_url(self.url()))))]
+    /// fallback, since it is not idempotent, nor is
+    /// [`send_external_call`](Self::send_external_call).
     pub async fn request<P: Serialize, R: DeserializeOwned>(
         &self,
         method: &str,
         params: P,
     ) -> Result<R, RpcError> {
+        self.request_with(method, params, is_idempotent(method))
+            .await
+    }
+
+    /// [`request`](Self::request), sent once to the primary endpoint when
+    /// `repeatable` is false.
+    #[cfg_attr(feature = "tracing", tracing::instrument(name = "request", skip(self, params), fields(rpc.method = method, rpc.url = %redact_url(self.url()))))]
+    async fn request_with<P: Serialize, R: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: P,
+        repeatable: bool,
+    ) -> Result<R, RpcError> {
         let max_retries = self.retry_config.max_retries;
-        let repeatable = is_idempotent(method);
         let mut round: u32 = 0;
 
         loop {
@@ -1121,6 +1160,9 @@ impl RpcClient {
     ///
     /// Use [`RpcClient::view_access_key_list_page`] to drive the cursor
     /// yourself.
+    ///
+    /// For an account that does not exist, nodes from nearcore 2.15 return
+    /// [`RpcError::AccountNotFound`]; older nodes return an empty list.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, block), fields(%account_id)))]
     pub async fn view_access_key_list(
         &self,
@@ -1252,21 +1294,34 @@ impl RpcClient {
         args: &[u8],
         block: impl Into<BlockReference>,
     ) -> Result<ViewFunctionResult, RpcError> {
-        let params = with_block(
-            serde_json::json!({
-                "account_id": account_id.to_string(),
-                "method_name": method_name,
-                "args_base64": STANDARD.encode(args),
-            }),
-            block.into(),
-        );
+        self.call_function(account_id, method_name, args, None, block.into())
+            .await
+    }
 
-        // EXPERIMENTAL_call_function returns errors through the JSON-RPC
-        // error envelope, so `parse_rpc_error` handles them. Patch in
-        // the caller-known contract_id and method_name when they are
-        // missing from the error info (the experimental endpoint omits them).
+    /// Run `method_name` through `EXPERIMENTAL_call_function`, with a
+    /// universal state init if there is one.
+    ///
+    /// The endpoint's errors leave out the contract and the method, which
+    /// the caller knows, so they are filled in here.
+    async fn call_function(
+        &self,
+        account_id: &AccountIdRef,
+        method_name: &str,
+        args: &[u8],
+        state_init: Option<&RawStateInit>,
+        block: BlockReference,
+    ) -> Result<ViewFunctionResult, RpcError> {
+        let mut params = serde_json::json!({
+            "account_id": account_id.to_string(),
+            "method_name": method_name,
+            "args_base64": STANDARD.encode(args),
+        });
+        if let Some(state_init) = state_init {
+            params["state_init"] =
+                serde_json::json!({ "universal": STANDARD.encode(&state_init.0) });
+        }
         let response: CallFunctionResponse = self
-            .request("EXPERIMENTAL_call_function", params)
+            .request("EXPERIMENTAL_call_function", with_block(params, block))
             .await
             .map_err(|mut e| {
                 match &mut e {
@@ -1286,11 +1341,13 @@ impl RpcClient {
                         *contract_id = account_id.to_owned();
                         *method = method_name.to_string();
                     }
+                    RpcError::ExternalCallRefused { contract_id, .. } => {
+                        *contract_id = account_id.to_owned();
+                    }
                     _ => {}
                 }
                 e
             })?;
-
         Ok(
             ViewFunctionResult::new(response.result, response.block_height, response.block_hash)
                 .with_logs(response.logs),
@@ -1514,6 +1571,89 @@ impl RpcClient {
         Ok(response)
     }
 
+    /// Send an external call ([NEP-667], nearcore 2.15+) through `send_tx`
+    /// and wait for `wait_until`.
+    ///
+    /// The request is sent once, to the primary endpoint, whatever the
+    /// [`RetryConfig`]: a node cannot tell a repeat of an unsigned call from
+    /// a new one until the first copy is final, so a second send may be
+    /// included again as another copy.
+    ///
+    /// At [`TxExecutionStatus::None`] the node answers before the call is
+    /// included, with no outcome; from `Included` on, the outcome is the
+    /// copy's. A contract that refuses the call usually leaves no copy, as
+    /// chunk producers run the call first, so a send that waits times out
+    /// ([`RpcError::Timeout`]); dry-run it with
+    /// [`view_external_call`](Self::view_external_call) to see why. A
+    /// missing contract fails at once with [`RpcError::InvalidTx`], and so
+    /// does an encoding longer than the protocol's `max_call_size`
+    /// (`TransactionSizeExceeded`). A node before nearcore 2.15 cannot parse
+    /// the request: [`RpcError::ParseError`].
+    ///
+    /// On a timeout whose cause is [`TimeoutCause::Pending`] with an
+    /// outcome, `transaction_hash` is that copy's unique id; wait on it with
+    /// [`tx_status`](Self::tx_status), with the contract as the sender.
+    ///
+    /// [NEP-667]: https://github.com/near/NEPs/pull/667
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, call), fields(
+        contract = %call.contract_id(),
+        call_hash = %call.call_hash(),
+        ?wait_until,
+    )))]
+    pub async fn send_external_call(
+        &self,
+        call: &ExternalCall,
+        wait_until: TxExecutionStatus,
+    ) -> Result<ExternalCallResponse, RpcError> {
+        let params = serde_json::json!({
+            "external_call_base64": call.to_base64(),
+            "wait_until": wait_until.as_str(),
+        });
+        self.request_with("send_tx", params, false)
+            .await
+            .map_err(|mut e| {
+                if let RpcError::Timeout {
+                    transaction_hash,
+                    cause:
+                        Some(TimeoutCause::Pending {
+                            outcome: Some(outcome),
+                            ..
+                        }),
+                    ..
+                } = &mut e
+                {
+                    *transaction_hash = Some(outcome.transaction_outcome.id);
+                }
+                e
+            })
+    }
+
+    /// Dry-run an external call: run the contract's `__external_call` at
+    /// `block` as a chunk producer would before including the call, with its
+    /// state init if it has one, and return the value and logs.
+    ///
+    /// Uses `EXPERIMENTAL_call_function`. Nothing is written. A refusal is
+    /// [`RpcError::ExternalCallRefused`], with the reason and the run's logs.
+    ///
+    /// Only a nearcore 2.15+ node (protocol 89) runs it as an external call.
+    /// An older node runs `__external_call` as an ordinary view function and
+    /// ignores the state init, so its answer says nothing about the call.
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, call, block), fields(contract = %call.contract_id())))]
+    pub async fn view_external_call(
+        &self,
+        call: &ExternalCall,
+        block: impl Into<BlockReference>,
+    ) -> Result<ViewFunctionResult, RpcError> {
+        self.call_function(
+            call.contract_id(),
+            EXTERNAL_CALL_METHOD,
+            call.payload(),
+            call.state_init(),
+            block.into(),
+        )
+        .await
+    }
+
     /// Get transaction status with full receipt details.
     ///
     /// Uses `EXPERIMENTAL_tx_status` which returns complete receipt information.
@@ -1658,10 +1798,12 @@ fn retry_delay_ms(config: &RetryConfig, retry: u32) -> u64 {
 /// Whether `method` is safe to send again when the node may already have
 /// handled the first attempt (a dropped connection, a timeout, a 5xx).
 ///
-/// Queries are read-only, `send_tx` re-submits the same signed transaction
-/// (the node recognizes its hash and returns its status), and
+/// Queries are read-only, `send_tx` of a signed transaction re-submits it
+/// (the node recognizes its nonce and returns its status), and
 /// `sandbox_patch_state` writes absolute values. `sandbox_fast_forward`
 /// advances by a relative `delta_height`, so a retry could advance twice.
+/// `send_tx` of an external call has no nonce, so a node may include a
+/// repeat again; `RpcClient::send_external_call` never retries it.
 fn is_idempotent(method: &str) -> bool {
     method != "sandbox_fast_forward"
 }
@@ -6094,5 +6236,201 @@ mod tests {
         assert_eq!(page.last_key, None);
         assert_eq!(page.block_height, 9);
         assert_eq!(page.block_hash, QUERY_BLOCK_HASH.parse().unwrap());
+    }
+
+    /// `EXTERNAL_CALL_REFUSED` from a nearcore 2.15.0-rc.1 sandbox, for a
+    /// contract that logs "checking" and panics.
+    fn external_call_refused_body() -> Vec<u8> {
+        br#"{"jsonrpc":"2.0","error":{"name":"HANDLER_ERROR","cause":{"info":{"block_hash":"6dCy3jxB25K4xc2xufgCUNKbxcrUuwYYuYYRL74oxGFK","block_height":157,"error":{"ActionError":{"index":0,"kind":{"FunctionCallError":{"ExecutionError":"Smart contract panicked: refused"}}}},"logs":["checking"]},"name":"EXTERNAL_CALL_REFUSED"},"code":-32000,"message":"Server error","data":"The contract refused the external call: ActionError(ActionError { index: Some(0), kind: FunctionCallError(ExecutionError(\"Smart contract panicked: refused\")) })"},"id":1}"#.to_vec()
+    }
+
+    #[tokio::test]
+    async fn view_external_call_runs_the_reserved_method_with_the_state_init() {
+        let transport = CountingTransport::results([serde_json::json!({
+            "block_hash": QUERY_BLOCK_HASH,
+            "block_height": 156,
+            "logs": ["checking", "accepted"],
+            "result": [34, 111, 107, 34],
+        })]);
+        let client = transport.client();
+        let call = ExternalCall::new(crate::account!("wallet.near"), b"ok".to_vec())
+            .with_state_init(crate::types::RawStateInit(vec![4, 5, 6]));
+        let result = client
+            .view_external_call(&call, Finality::Optimistic)
+            .await
+            .unwrap();
+        assert_eq!(result.json::<String>().unwrap(), "ok");
+        assert_eq!(result.logs, ["checking", "accepted"]);
+        assert_eq!(result.block_height, 156);
+        assert_eq!(
+            transport.params(),
+            [serde_json::json!({
+                "account_id": "wallet.near",
+                "method_name": "__external_call",
+                "args_base64": "b2s=",
+                "state_init": { "universal": "BAUG" },
+                "finality": "optimistic",
+            })]
+        );
+
+        let without = ExternalCall::new(crate::account!("wallet.near"), b"ok".to_vec());
+        let transport = CountingTransport::results([serde_json::json!({
+            "block_hash": QUERY_BLOCK_HASH, "block_height": 1, "logs": [], "result": [],
+        })]);
+        transport
+            .client()
+            .view_external_call(&without, 7)
+            .await
+            .unwrap();
+        let params = &transport.params()[0];
+        assert!(params.get("state_init").is_none(), "{params}");
+        assert_eq!(params["block_id"], 7);
+    }
+
+    #[tokio::test]
+    async fn a_refused_dry_run_is_typed_with_the_reason_and_logs() {
+        let transport = CountingTransport::new(200, external_call_refused_body());
+        let call = ExternalCall::new(crate::account!("wallet.near"), b"rnope".to_vec());
+        let error = transport
+            .client()
+            .view_external_call(&call, Finality::Optimistic)
+            .await
+            .unwrap_err();
+        assert!(!error.is_retryable());
+        #[cfg(feature = "tracing")]
+        assert_eq!(error.variant_name(), "ExternalCallRefused");
+        assert_eq!(error.block_height(), Some(157));
+        assert!(error.block_hash().is_some());
+        match &error {
+            RpcError::ExternalCallRefused {
+                contract_id,
+                error: Some(TxExecutionError::ActionError(action)),
+                message,
+                logs,
+                ..
+            } => {
+                assert_eq!(contract_id, "wallet.near");
+                assert!(matches!(
+                    &action.kind,
+                    crate::types::ActionErrorKind::FunctionCallError(_)
+                ));
+                assert!(
+                    message.contains("Smart contract panicked: refused"),
+                    "{message}"
+                );
+                assert_eq!(logs, &["checking"]);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(
+            error
+                .to_string()
+                .starts_with("wallet.near refused the external call")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_view_names_its_contract_and_method() {
+        // What a node before 2.15 answers a dry run of `__external_call` that
+        // writes: the endpoint leaves the contract and the method out.
+        let body = rpc_error(
+            Some("CONTRACT_EXECUTION_ERROR"),
+            serde_json::json!({ "block_height": 47, "block_hash": CryptoHash::hash(b"47") }),
+            "Function call returned an error: ExecutionError(\"storage_write is not allowed in view calls\")"
+                .into(),
+        );
+        let transport = CountingTransport::new(200, body);
+        let call = ExternalCall::new(crate::account!("wallet.near"), b"ok".to_vec());
+        let error = transport
+            .client()
+            .view_external_call(&call, Finality::Final)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                RpcError::ContractExecution { contract_id, method_name: Some(method), .. }
+                    if contract_id == "wallet.near" && method == EXTERNAL_CALL_METHOD
+            ),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_view_of_the_reserved_method_names_the_refusing_contract() {
+        let transport = CountingTransport::new(200, external_call_refused_body());
+        let error = transport
+            .client()
+            .view_function(
+                crate::account!("wallet.near").as_ref(),
+                EXTERNAL_CALL_METHOD,
+                b"rnope",
+                Finality::Optimistic,
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                RpcError::ExternalCallRefused { contract_id, .. } if contract_id == "wallet.near"
+            ),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn an_external_call_refusal_keeps_its_cause_when_its_error_does_not_decode() {
+        let refused = |info: serde_json::Value| {
+            let body = rpc_error(
+                Some("EXTERNAL_CALL_REFUSED"),
+                info,
+                "refused for a new reason".into(),
+            );
+            let response: JsonRpcResponse = serde_json::from_slice(&body).unwrap();
+            parse_rpc_error(&response.error.unwrap())
+        };
+        let error =
+            refused(serde_json::json!({ "error": { "NewKind": {} }, "logs": "not a list" }));
+        match &error {
+            RpcError::ExternalCallRefused {
+                error: None,
+                message,
+                logs,
+                block_height: None,
+                ..
+            } => {
+                assert_eq!(message, "refused for a new reason");
+                assert!(logs.is_empty());
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(!error.is_retryable());
+        assert!(matches!(
+            refused(serde_json::json!(null)),
+            RpcError::ExternalCallRefused { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_external_call_send_carries_only_the_call() {
+        let transport = CountingTransport::results([serde_json::json!({
+            "final_execution_status": "NONE",
+        })]);
+        let call = ExternalCall::new(crate::account!("wallet.near"), b"ok".to_vec());
+        let response = transport
+            .client()
+            .send_external_call(&call, TxExecutionStatus::None)
+            .await
+            .unwrap();
+        assert_eq!(response.final_execution_status, TxExecutionStatus::None);
+        assert!(response.outcome.is_none());
+        assert_eq!(response.transaction_id(), None);
+        assert_eq!(
+            transport.params(),
+            [serde_json::json!({
+                "external_call_base64": call.to_base64(),
+                "wait_until": "NONE",
+            })]
+        );
     }
 }

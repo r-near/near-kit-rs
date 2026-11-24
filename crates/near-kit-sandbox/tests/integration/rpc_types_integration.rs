@@ -156,7 +156,10 @@ async fn test_final_execution_outcome_full_fields() {
         "Should have receipt outcomes"
     );
 
-    let tx = &outcome.transaction;
+    let tx = outcome
+        .transaction
+        .as_signed()
+        .expect("a signed transaction");
     assert_eq!(tx.signer_id, root_account);
     assert_eq!(tx.receiver_id, receiver_id);
     assert!(tx.nonce > 0, "Nonce should be positive");

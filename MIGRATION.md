@@ -1,3 +1,26 @@
+# Upgrading from near-kit 0.34 to 0.35
+
+**nearcore 2.15: external contract calls ([NEP-667](https://github.com/near/NEPs/pull/667)).**
+A transaction is now either signed or an external call, which has no
+signer, key, nonce or signature, and a receipt an external call starts
+has no signer key. Two view fields change type to say so; nothing else in
+existing code changes.
+
+| 0.34 | 0.35 |
+|---|---|
+| `outcome.transaction.signer_id`, `.receiver_id`, `.hash` | `outcome.transaction.sender_id()`, `.receiver_id()`, `.id()`, the same for both kinds (an external call's sender and receiver are its contract) |
+| `outcome.transaction.public_key`, `.nonce`, `.actions` (any `TransactionView` field) | `outcome.transaction.as_signed()` gives the `TransactionView` of a signed transaction, or match `TransactionEnvelopeView::Signed(tx)` |
+| `action_receipt.signer_public_key: PublicKey` | `Option<PublicKey>`, `None` for a receipt an external call started; `authorization_context` says which (`AuthorizationContext::AccessKey(key)` or `ExternalContractCall`) |
+
+`FinalExecutionOutcome::new` takes `impl Into<TransactionEnvelopeView>`
+and `ActionReceiptData::new` takes `impl Into<Option<PublicKey>>`, so
+calls that pass a `TransactionView` or a `PublicKey` compile unchanged.
+
+To send an external call, build an `ExternalCall`, dry-run it with
+`near.view_external_call(&call)` and send it with
+`near.send_external_call(&call)`; `near.find_external_call(&call, heights)`
+finds a copy after a send that failed.
+
 # Upgrading from near-kit 0.33 to 0.34
 
 **One `Tx` builder for every sender, and one error type per layer.**

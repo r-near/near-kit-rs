@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use crate::types::{
     AccountId, CryptoHash, FinalExecutionOutcome, GlobalContractIdentifierView, InvalidTxError,
-    PublicKey, TxExecutionStatus,
+    PublicKey, TxExecutionError, TxExecutionStatus,
 };
 
 // The client-free error types live in near-kit-primitives (each is public in
@@ -413,6 +413,34 @@ pub enum RpcError {
         cause: Option<TimeoutCause>,
     },
 
+    /// The contract refused an external call in a dry run
+    /// (`EXTERNAL_CALL_REFUSED`, nearcore 2.15+), as its chunk producer
+    /// would: its `__external_call` failed, or the call is invalid (no
+    /// contract, a state init that does not derive to the contract, an
+    /// encoding over the protocol's `max_call_size`). A dry run
+    /// (`Near::view_external_call`) returns it, and so does a view call of
+    /// `__external_call`.
+    ///
+    /// Not retryable: the same call is refused again until the contract's
+    /// state changes.
+    #[error("{contract_id} refused the external call: {message}")]
+    ExternalCallRefused {
+        /// The contract the call is for.
+        contract_id: AccountId,
+        /// Why the contract refused, or `None` if near-kit could not decode
+        /// the node's error (then `message` still has its text).
+        error: Option<TxExecutionError>,
+        /// The node's description of the refusal.
+        message: String,
+        /// The logs of the contract's run; empty for a call refused before
+        /// the run.
+        logs: Vec<String>,
+        /// Height of the block the call ran on, if the node reported one.
+        block_height: Option<u64>,
+        /// Hash of the block the call ran on, if the node reported one.
+        block_hash: Option<CryptoHash>,
+    },
+
     /// An unpaginated `view_access_key_list` request hit the node's cap
     /// (`TOO_MANY_ACCESS_KEYS`). Only `RpcClient::view_access_key_list_page`
     /// called without a `limit` or `after_key` can return it.
@@ -790,6 +818,7 @@ impl RpcError {
             RpcError::ParseError(_) => "ParseError",
             RpcError::Timeout { .. } => "Timeout",
             RpcError::TooManyAccessKeys { .. } => "TooManyAccessKeys",
+            RpcError::ExternalCallRefused { .. } => "ExternalCallRefused",
         }
     }
 
@@ -807,7 +836,8 @@ impl RpcError {
             | RpcError::ContractExecution { block_height, .. }
             | RpcError::MethodNotFound { block_height, .. }
             | RpcError::ContractPanic { block_height, .. }
-            | RpcError::TooManyAccessKeys { block_height, .. } => *block_height,
+            | RpcError::TooManyAccessKeys { block_height, .. }
+            | RpcError::ExternalCallRefused { block_height, .. } => *block_height,
             _ => None,
         }
     }
@@ -826,7 +856,8 @@ impl RpcError {
             | RpcError::ContractExecution { block_hash, .. }
             | RpcError::MethodNotFound { block_hash, .. }
             | RpcError::ContractPanic { block_hash, .. }
-            | RpcError::TooManyAccessKeys { block_hash, .. } => *block_hash,
+            | RpcError::TooManyAccessKeys { block_hash, .. }
+            | RpcError::ExternalCallRefused { block_hash, .. } => *block_hash,
             _ => None,
         }
     }
@@ -962,6 +993,28 @@ pub enum Error {
     /// failed. Holds the error message.
     #[error("Borsh error: {0}")]
     Borsh(String),
+
+    /// No copy of an external call was included at any of `heights`, all of
+    /// them final. An `ExternalCallSend` with `search_until` returns it
+    /// when its send failed and its search found nothing. A contract
+    /// that refuses a call usually leaves no copy at all: chunk producers
+    /// run the call first and skip it. Dry-run it with
+    /// `Near::view_external_call` to see why.
+    #[error(
+        "no copy of the external call {call_hash} to {contract_id} was included at heights {}..={}",
+        heights.start(),
+        heights.end()
+    )]
+    #[non_exhaustive]
+    ExternalCallNotFound {
+        /// The contract the call is for.
+        contract_id: AccountId,
+        /// The call's [`call_hash`](crate::protocol::ExternalCall::call_hash).
+        call_hash: CryptoHash,
+        /// The heights searched: from just above the final head before the
+        /// first send to the end the caller gave.
+        heights: std::ops::RangeInclusive<u64>,
+    },
 }
 
 impl From<RpcError> for Error {

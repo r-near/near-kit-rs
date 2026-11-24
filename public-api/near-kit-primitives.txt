@@ -218,6 +218,11 @@ pub near_kit_primitives::protocol::ActionErrorKind::NewReceiptValidationError(ne
 pub near_kit_primitives::protocol::ActionErrorKind::OnlyImplicitAccountCreationAllowed::account_id: near_account_id::account_id::AccountId
 #[non_exhaustive] pub near_kit_primitives::protocol::ActionErrorKind::ReceiptStorageProofSizeExceeded
 pub near_kit_primitives::protocol::ActionErrorKind::ReceiptStorageProofSizeExceeded::limit: u64
+#[non_exhaustive] pub near_kit_primitives::protocol::ActionErrorKind::ReservedMethodName
+pub near_kit_primitives::protocol::ActionErrorKind::ReservedMethodName::method_name: alloc::string::String
+#[non_exhaustive] pub near_kit_primitives::protocol::ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded
+pub near_kit_primitives::protocol::ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded::limit: u64
+pub near_kit_primitives::protocol::ActionErrorKind::TotalNumberOfGasKeyNoncesRemovedExceeded::number_of_nonces: u64
 #[non_exhaustive] pub near_kit_primitives::protocol::ActionErrorKind::TotalPromiseInputSizeExceeded
 pub near_kit_primitives::protocol::ActionErrorKind::TotalPromiseInputSizeExceeded::limit: u64
 pub near_kit_primitives::protocol::ActionErrorKind::TotalPromiseInputSizeExceeded::size: u64
@@ -304,6 +309,9 @@ pub near_kit_primitives::protocol::ActionsValidationError::TotalNumberOfActionsE
 #[non_exhaustive] pub near_kit_primitives::protocol::ActionsValidationError::TotalNumberOfDeployActionsExceeded
 pub near_kit_primitives::protocol::ActionsValidationError::TotalNumberOfDeployActionsExceeded::limit: u64
 pub near_kit_primitives::protocol::ActionsValidationError::TotalNumberOfDeployActionsExceeded::number_of_deploy_actions: u64
+#[non_exhaustive] pub near_kit_primitives::protocol::ActionsValidationError::TotalNumberOfGasKeyNoncesAddedExceeded
+pub near_kit_primitives::protocol::ActionsValidationError::TotalNumberOfGasKeyNoncesAddedExceeded::limit: u64
+pub near_kit_primitives::protocol::ActionsValidationError::TotalNumberOfGasKeyNoncesAddedExceeded::number_of_nonces: u64
 #[non_exhaustive] pub near_kit_primitives::protocol::ActionsValidationError::TotalNumberOfStateInitEntriesExceeded
 pub near_kit_primitives::protocol::ActionsValidationError::TotalNumberOfStateInitEntriesExceeded::limit: u64
 pub near_kit_primitives::protocol::ActionsValidationError::TotalNumberOfStateInitEntriesExceeded::number_of_entries: u64
@@ -385,6 +393,23 @@ impl core::fmt::Display for near_kit_primitives::protocol::DepositCostFailureRea
 pub fn near_kit_primitives::protocol::DepositCostFailureReason::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::protocol::DepositCostFailureReason
 pub fn near_kit_primitives::protocol::DepositCostFailureReason::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+#[non_exhaustive] pub enum near_kit_primitives::protocol::ExternalCallChunkLimit
+#[non_exhaustive] pub near_kit_primitives::protocol::ExternalCallChunkLimit::Compute
+pub near_kit_primitives::protocol::ExternalCallChunkLimit::Compute::limit: u64
+pub near_kit_primitives::protocol::ExternalCallChunkLimit::Compute::used: u64
+#[non_exhaustive] pub near_kit_primitives::protocol::ExternalCallChunkLimit::StorageProof
+pub near_kit_primitives::protocol::ExternalCallChunkLimit::StorageProof::limit: u64
+pub near_kit_primitives::protocol::ExternalCallChunkLimit::StorageProof::used: u64
+pub near_kit_primitives::protocol::ExternalCallChunkLimit::Unknown(near_kit_primitives::protocol::UnknownError)
+impl core::clone::Clone for near_kit_primitives::protocol::ExternalCallChunkLimit
+pub fn near_kit_primitives::protocol::ExternalCallChunkLimit::clone(&self) -> near_kit_primitives::protocol::ExternalCallChunkLimit
+impl core::error::Error for near_kit_primitives::protocol::ExternalCallChunkLimit
+impl core::fmt::Debug for near_kit_primitives::protocol::ExternalCallChunkLimit
+pub fn near_kit_primitives::protocol::ExternalCallChunkLimit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for near_kit_primitives::protocol::ExternalCallChunkLimit
+pub fn near_kit_primitives::protocol::ExternalCallChunkLimit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::protocol::ExternalCallChunkLimit
+pub fn near_kit_primitives::protocol::ExternalCallChunkLimit::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 #[non_exhaustive] pub enum near_kit_primitives::protocol::FunctionCallError
 pub near_kit_primitives::protocol::FunctionCallError::CompilationError(near_kit_primitives::protocol::CompilationError)
 pub near_kit_primitives::protocol::FunctionCallError::EvmError
@@ -416,6 +441,7 @@ pub near_kit_primitives::protocol::HostError::CannotReturnJointPromise
 #[non_exhaustive] pub near_kit_primitives::protocol::HostError::ContractSizeExceeded
 pub near_kit_primitives::protocol::HostError::ContractSizeExceeded::limit: u64
 pub near_kit_primitives::protocol::HostError::ContractSizeExceeded::size: u64
+pub near_kit_primitives::protocol::HostError::DepositInExternalCall
 #[non_exhaustive] pub near_kit_primitives::protocol::HostError::Deprecated
 pub near_kit_primitives::protocol::HostError::Deprecated::method_name: alloc::string::String
 #[non_exhaustive] pub near_kit_primitives::protocol::HostError::EcRecoverError
@@ -459,6 +485,8 @@ pub near_kit_primitives::protocol::HostError::NumberPromisesExceeded::limit: u64
 pub near_kit_primitives::protocol::HostError::NumberPromisesExceeded::number_of_promises: u64
 #[non_exhaustive] pub near_kit_primitives::protocol::HostError::P256VerifyInvalidInput
 pub near_kit_primitives::protocol::HostError::P256VerifyInvalidInput::msg: alloc::string::String
+#[non_exhaustive] pub near_kit_primitives::protocol::HostError::ProhibitedInExternalCall
+pub near_kit_primitives::protocol::HostError::ProhibitedInExternalCall::method_name: alloc::string::String
 #[non_exhaustive] pub near_kit_primitives::protocol::HostError::ProhibitedInView
 pub near_kit_primitives::protocol::HostError::ProhibitedInView::method_name: alloc::string::String
 #[non_exhaustive] pub near_kit_primitives::protocol::HostError::ReturnedValueLengthExceeded
@@ -510,8 +538,12 @@ impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::protocol::In
 pub fn near_kit_primitives::protocol::InvalidAccessKeyError::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 #[non_exhaustive] pub enum near_kit_primitives::protocol::InvalidTxError
 pub near_kit_primitives::protocol::InvalidTxError::ActionsValidation(near_kit_primitives::protocol::ActionsValidationError)
+#[non_exhaustive] pub near_kit_primitives::protocol::InvalidTxError::ContractNotFound
+pub near_kit_primitives::protocol::InvalidTxError::ContractNotFound::contract_id: near_account_id::account_id::AccountId
 pub near_kit_primitives::protocol::InvalidTxError::CostOverflow
 pub near_kit_primitives::protocol::InvalidTxError::Expired
+#[non_exhaustive] pub near_kit_primitives::protocol::InvalidTxError::ExternalCallChunkShareReached
+pub near_kit_primitives::protocol::InvalidTxError::ExternalCallChunkShareReached::share: near_kit_primitives::protocol::ExternalCallChunkLimit
 pub near_kit_primitives::protocol::InvalidTxError::InvalidAccessKeyError(near_kit_primitives::protocol::InvalidAccessKeyError)
 pub near_kit_primitives::protocol::InvalidTxError::InvalidChain
 #[non_exhaustive] pub near_kit_primitives::protocol::InvalidTxError::InvalidNonce
@@ -723,6 +755,8 @@ pub fn near_kit_primitives::protocol::ReceiptValidationError::deserialize<__D>(_
 pub near_kit_primitives::protocol::StorageError::FlatStorageBlockNotSupported(alloc::string::String)
 pub near_kit_primitives::protocol::StorageError::MemTrieLoadingError(alloc::string::String)
 pub near_kit_primitives::protocol::StorageError::MissingTrieValue(near_kit_primitives::protocol::MissingTrieValue)
+#[non_exhaustive] pub near_kit_primitives::protocol::StorageError::RecordingBudgetExceeded
+pub near_kit_primitives::protocol::StorageError::RecordingBudgetExceeded::limit: u64
 pub near_kit_primitives::protocol::StorageError::StorageInconsistentState(alloc::string::String)
 pub near_kit_primitives::protocol::StorageError::StorageInternalError
 pub near_kit_primitives::protocol::StorageError::UnexpectedTrieValue
@@ -1131,6 +1165,31 @@ impl serde_core::ser::Serialize for near_kit_primitives::protocol::Deterministic
 pub fn near_kit_primitives::protocol::DeterministicStateInitAction::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::protocol::DeterministicStateInitAction
 pub fn near_kit_primitives::protocol::DeterministicStateInitAction::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct near_kit_primitives::protocol::ExternalCall
+impl near_kit_primitives::protocol::ExternalCall
+pub fn near_kit_primitives::protocol::ExternalCall::call_hash(&self) -> near_kit_primitives::CryptoHash
+pub fn near_kit_primitives::protocol::ExternalCall::contract_id(&self) -> &near_account_id::account_id::AccountId
+pub fn near_kit_primitives::protocol::ExternalCall::from_base64(&str) -> core::result::Result<Self, near_kit_primitives::protocol::DecodeTransactionError>
+pub fn near_kit_primitives::protocol::ExternalCall::from_bytes(&[u8]) -> core::result::Result<Self, near_kit_primitives::protocol::DecodeTransactionError>
+pub fn near_kit_primitives::protocol::ExternalCall::new(impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::Into<alloc::vec::Vec<u8>>) -> Self
+pub fn near_kit_primitives::protocol::ExternalCall::payload(&self) -> &[u8]
+pub fn near_kit_primitives::protocol::ExternalCall::state_init(&self) -> core::option::Option<&near_global_contracts::universal_state_init::RawStateInit>
+pub fn near_kit_primitives::protocol::ExternalCall::to_base64(&self) -> alloc::string::String
+pub fn near_kit_primitives::protocol::ExternalCall::to_bytes(&self) -> alloc::vec::Vec<u8>
+pub fn near_kit_primitives::protocol::ExternalCall::unique_id(&self, u64) -> near_kit_primitives::CryptoHash
+pub fn near_kit_primitives::protocol::ExternalCall::with_state_init(self, impl core::convert::Into<near_global_contracts::universal_state_init::RawStateInit>) -> Self
+impl borsh::de::BorshDeserialize for near_kit_primitives::protocol::ExternalCall
+pub fn near_kit_primitives::protocol::ExternalCall::deserialize_reader<R: alloc::io::read::Read>(&mut R) -> core::io::error::Result<Self>
+impl borsh::ser::BorshSerialize for near_kit_primitives::protocol::ExternalCall
+pub fn near_kit_primitives::protocol::ExternalCall::serialize<W: core::io::write::Write>(&self, &mut W) -> core::io::error::Result<()>
+impl core::clone::Clone for near_kit_primitives::protocol::ExternalCall
+pub fn near_kit_primitives::protocol::ExternalCall::clone(&self) -> near_kit_primitives::protocol::ExternalCall
+impl core::cmp::Eq for near_kit_primitives::protocol::ExternalCall
+impl core::cmp::PartialEq for near_kit_primitives::protocol::ExternalCall
+pub fn near_kit_primitives::protocol::ExternalCall::eq(&self, &near_kit_primitives::protocol::ExternalCall) -> bool
+impl core::fmt::Debug for near_kit_primitives::protocol::ExternalCall
+pub fn near_kit_primitives::protocol::ExternalCall::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for near_kit_primitives::protocol::ExternalCall
 pub struct near_kit_primitives::protocol::FunctionCallAction
 pub near_kit_primitives::protocol::FunctionCallAction::args: alloc::vec::Vec<u8>
 pub near_kit_primitives::protocol::FunctionCallAction::deposit: near_token::NearToken
@@ -1528,6 +1587,7 @@ impl serde_core::ser::Serialize for near_kit_primitives::protocol::WithdrawFromG
 pub fn near_kit_primitives::protocol::WithdrawFromGasKeyAction::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::protocol::WithdrawFromGasKeyAction
 pub fn near_kit_primitives::protocol::WithdrawFromGasKeyAction::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub const near_kit_primitives::protocol::EXTERNAL_CALL_METHOD: &str
 pub fn near_kit_primitives::protocol::derive_deterministic_account_id(&near_global_contracts::state_init::StateInit) -> near_account_id::account_id::AccountId
 pub type near_kit_primitives::protocol::Nonce = u64
 pub type near_kit_primitives::protocol::NonceIndex = u16
@@ -1650,6 +1710,19 @@ impl core::fmt::Debug for near_kit_primitives::rpc::ActionView
 pub fn near_kit_primitives::rpc::ActionView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::ActionView
 pub fn near_kit_primitives::rpc::ActionView::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+#[non_exhaustive] pub enum near_kit_primitives::rpc::AuthorizationContext
+pub near_kit_primitives::rpc::AuthorizationContext::AccessKey(near_kit_primitives::signer::PublicKey)
+pub near_kit_primitives::rpc::AuthorizationContext::ExternalContractCall
+impl core::clone::Clone for near_kit_primitives::rpc::AuthorizationContext
+pub fn near_kit_primitives::rpc::AuthorizationContext::clone(&self) -> near_kit_primitives::rpc::AuthorizationContext
+impl core::cmp::Eq for near_kit_primitives::rpc::AuthorizationContext
+impl core::cmp::PartialEq for near_kit_primitives::rpc::AuthorizationContext
+pub fn near_kit_primitives::rpc::AuthorizationContext::eq(&self, &near_kit_primitives::rpc::AuthorizationContext) -> bool
+impl core::fmt::Debug for near_kit_primitives::rpc::AuthorizationContext
+pub fn near_kit_primitives::rpc::AuthorizationContext::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for near_kit_primitives::rpc::AuthorizationContext
+impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::AuthorizationContext
+pub fn near_kit_primitives::rpc::AuthorizationContext::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 #[non_exhaustive] pub enum near_kit_primitives::rpc::BandwidthRequests
 pub near_kit_primitives::rpc::BandwidthRequests::V1(near_kit_primitives::rpc::BandwidthRequestsV1)
 impl core::clone::Clone for near_kit_primitives::rpc::BandwidthRequests
@@ -1804,6 +1877,25 @@ impl serde_core::ser::Serialize for near_kit_primitives::rpc::SyncCheckpoint
 pub fn near_kit_primitives::rpc::SyncCheckpoint::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::SyncCheckpoint
 pub fn near_kit_primitives::rpc::SyncCheckpoint::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+#[non_exhaustive] pub enum near_kit_primitives::rpc::TransactionEnvelopeView
+pub near_kit_primitives::rpc::TransactionEnvelopeView::ExternalCall(near_kit_primitives::rpc::ExternalCallView)
+pub near_kit_primitives::rpc::TransactionEnvelopeView::Signed(near_kit_primitives::rpc::TransactionView)
+impl near_kit_primitives::rpc::TransactionEnvelopeView
+pub fn near_kit_primitives::rpc::TransactionEnvelopeView::as_external_call(&self) -> core::option::Option<&near_kit_primitives::rpc::ExternalCallView>
+pub fn near_kit_primitives::rpc::TransactionEnvelopeView::as_signed(&self) -> core::option::Option<&near_kit_primitives::rpc::TransactionView>
+pub fn near_kit_primitives::rpc::TransactionEnvelopeView::id(&self) -> near_kit_primitives::CryptoHash
+pub fn near_kit_primitives::rpc::TransactionEnvelopeView::receiver_id(&self) -> &near_account_id::account_id::AccountId
+pub fn near_kit_primitives::rpc::TransactionEnvelopeView::sender_id(&self) -> &near_account_id::account_id::AccountId
+impl core::clone::Clone for near_kit_primitives::rpc::TransactionEnvelopeView
+pub fn near_kit_primitives::rpc::TransactionEnvelopeView::clone(&self) -> near_kit_primitives::rpc::TransactionEnvelopeView
+impl core::convert::From<near_kit_primitives::rpc::ExternalCallView> for near_kit_primitives::rpc::TransactionEnvelopeView
+pub fn near_kit_primitives::rpc::TransactionEnvelopeView::from(near_kit_primitives::rpc::ExternalCallView) -> Self
+impl core::convert::From<near_kit_primitives::rpc::TransactionView> for near_kit_primitives::rpc::TransactionEnvelopeView
+pub fn near_kit_primitives::rpc::TransactionEnvelopeView::from(near_kit_primitives::rpc::TransactionView) -> Self
+impl core::fmt::Debug for near_kit_primitives::rpc::TransactionEnvelopeView
+pub fn near_kit_primitives::rpc::TransactionEnvelopeView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::TransactionEnvelopeView
+pub fn near_kit_primitives::rpc::TransactionEnvelopeView::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
 #[non_exhaustive] pub enum near_kit_primitives::rpc::TransactionNonceView
 #[non_exhaustive] pub near_kit_primitives::rpc::TransactionNonceView::GasKeyNonce
 pub near_kit_primitives::rpc::TransactionNonceView::GasKeyNonce::nonce: u64
@@ -1966,14 +2058,17 @@ impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::Account
 pub fn near_kit_primitives::rpc::AccountView::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 #[non_exhaustive] pub struct near_kit_primitives::rpc::ActionReceiptData
 pub near_kit_primitives::rpc::ActionReceiptData::actions: alloc::vec::Vec<near_kit_primitives::rpc::ActionView>
+pub near_kit_primitives::rpc::ActionReceiptData::authorization_context: core::option::Option<near_kit_primitives::rpc::AuthorizationContext>
+pub near_kit_primitives::rpc::ActionReceiptData::creation_protocol_version: core::option::Option<u32>
 pub near_kit_primitives::rpc::ActionReceiptData::gas_price: near_token::NearToken
 pub near_kit_primitives::rpc::ActionReceiptData::input_data_ids: alloc::vec::Vec<near_kit_primitives::CryptoHash>
 pub near_kit_primitives::rpc::ActionReceiptData::is_promise_yield: core::option::Option<bool>
 pub near_kit_primitives::rpc::ActionReceiptData::output_data_receivers: alloc::vec::Vec<near_kit_primitives::rpc::DataReceiverView>
+pub near_kit_primitives::rpc::ActionReceiptData::refund_to: core::option::Option<near_account_id::account_id::AccountId>
 pub near_kit_primitives::rpc::ActionReceiptData::signer_id: near_account_id::account_id::AccountId
-pub near_kit_primitives::rpc::ActionReceiptData::signer_public_key: near_kit_primitives::signer::PublicKey
+pub near_kit_primitives::rpc::ActionReceiptData::signer_public_key: core::option::Option<near_kit_primitives::signer::PublicKey>
 impl near_kit_primitives::rpc::ActionReceiptData
-pub fn near_kit_primitives::rpc::ActionReceiptData::new(near_account_id::account_id::AccountId, near_kit_primitives::signer::PublicKey, near_token::NearToken, alloc::vec::Vec<near_kit_primitives::rpc::ActionView>) -> Self
+pub fn near_kit_primitives::rpc::ActionReceiptData::new(near_account_id::account_id::AccountId, impl core::convert::Into<core::option::Option<near_kit_primitives::signer::PublicKey>>, near_token::NearToken, alloc::vec::Vec<near_kit_primitives::rpc::ActionView>) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::ActionReceiptData
 pub fn near_kit_primitives::rpc::ActionReceiptData::clone(&self) -> near_kit_primitives::rpc::ActionReceiptData
 impl core::fmt::Debug for near_kit_primitives::rpc::ActionReceiptData
@@ -2260,11 +2355,41 @@ impl core::fmt::Debug for near_kit_primitives::rpc::ExecutionOutcomeWithId
 pub fn near_kit_primitives::rpc::ExecutionOutcomeWithId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::ExecutionOutcomeWithId
 pub fn near_kit_primitives::rpc::ExecutionOutcomeWithId::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+#[non_exhaustive] pub struct near_kit_primitives::rpc::ExternalCallResponse
+pub near_kit_primitives::rpc::ExternalCallResponse::final_execution_status: near_kit_primitives::rpc::TxExecutionStatus
+pub near_kit_primitives::rpc::ExternalCallResponse::outcome: core::option::Option<near_kit_primitives::rpc::FinalExecutionOutcome>
+impl near_kit_primitives::rpc::ExternalCallResponse
+pub fn near_kit_primitives::rpc::ExternalCallResponse::transaction_id(&self) -> core::option::Option<near_kit_primitives::CryptoHash>
+impl core::clone::Clone for near_kit_primitives::rpc::ExternalCallResponse
+pub fn near_kit_primitives::rpc::ExternalCallResponse::clone(&self) -> near_kit_primitives::rpc::ExternalCallResponse
+impl core::fmt::Debug for near_kit_primitives::rpc::ExternalCallResponse
+pub fn near_kit_primitives::rpc::ExternalCallResponse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::ExternalCallResponse
+pub fn near_kit_primitives::rpc::ExternalCallResponse::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+#[non_exhaustive] pub struct near_kit_primitives::rpc::ExternalCallView
+pub near_kit_primitives::rpc::ExternalCallView::contract_id: near_account_id::account_id::AccountId
+pub near_kit_primitives::rpc::ExternalCallView::payload: alloc::vec::Vec<u8>
+pub near_kit_primitives::rpc::ExternalCallView::state_init: core::option::Option<alloc::vec::Vec<u8>>
+pub near_kit_primitives::rpc::ExternalCallView::transaction_id: near_kit_primitives::CryptoHash
+impl near_kit_primitives::rpc::ExternalCallView
+pub fn near_kit_primitives::rpc::ExternalCallView::new(near_account_id::account_id::AccountId, alloc::vec::Vec<u8>, near_kit_primitives::CryptoHash) -> Self
+impl core::clone::Clone for near_kit_primitives::rpc::ExternalCallView
+pub fn near_kit_primitives::rpc::ExternalCallView::clone(&self) -> near_kit_primitives::rpc::ExternalCallView
+impl core::cmp::Eq for near_kit_primitives::rpc::ExternalCallView
+impl core::cmp::PartialEq for near_kit_primitives::rpc::ExternalCallView
+pub fn near_kit_primitives::rpc::ExternalCallView::eq(&self, &near_kit_primitives::rpc::ExternalCallView) -> bool
+impl core::convert::From<near_kit_primitives::rpc::ExternalCallView> for near_kit_primitives::rpc::TransactionEnvelopeView
+pub fn near_kit_primitives::rpc::TransactionEnvelopeView::from(near_kit_primitives::rpc::ExternalCallView) -> Self
+impl core::fmt::Debug for near_kit_primitives::rpc::ExternalCallView
+pub fn near_kit_primitives::rpc::ExternalCallView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for near_kit_primitives::rpc::ExternalCallView
+impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::ExternalCallView
+pub fn near_kit_primitives::rpc::ExternalCallView::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 #[non_exhaustive] pub struct near_kit_primitives::rpc::FinalExecutionOutcome
 pub near_kit_primitives::rpc::FinalExecutionOutcome::receipts: alloc::vec::Vec<near_kit_primitives::rpc::Receipt>
 pub near_kit_primitives::rpc::FinalExecutionOutcome::receipts_outcome: alloc::vec::Vec<near_kit_primitives::rpc::ExecutionOutcomeWithId>
 pub near_kit_primitives::rpc::FinalExecutionOutcome::status: near_kit_primitives::rpc::FinalExecutionStatus
-pub near_kit_primitives::rpc::FinalExecutionOutcome::transaction: near_kit_primitives::rpc::TransactionView
+pub near_kit_primitives::rpc::FinalExecutionOutcome::transaction: near_kit_primitives::rpc::TransactionEnvelopeView
 pub near_kit_primitives::rpc::FinalExecutionOutcome::transaction_outcome: near_kit_primitives::rpc::ExecutionOutcomeWithId
 impl near_kit_primitives::rpc::FinalExecutionOutcome
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::checked(self) -> core::result::Result<near_kit_primitives::rpc::CheckedOutcome, near_kit_primitives::rpc::OutcomeError>
@@ -2275,7 +2400,7 @@ pub fn near_kit_primitives::rpc::FinalExecutionOutcome::is_failure(&self) -> boo
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::is_success(&self) -> bool
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::json<T: serde_core::de::DeserializeOwned>(&self) -> core::result::Result<T, near_kit_primitives::rpc::OutcomeError>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::logs(&self) -> impl core::iter::traits::iterator::Iterator<Item = &str>
-pub fn near_kit_primitives::rpc::FinalExecutionOutcome::new(near_kit_primitives::rpc::FinalExecutionStatus, near_kit_primitives::rpc::TransactionView, near_kit_primitives::rpc::ExecutionOutcomeWithId, alloc::vec::Vec<near_kit_primitives::rpc::ExecutionOutcomeWithId>) -> Self
+pub fn near_kit_primitives::rpc::FinalExecutionOutcome::new(near_kit_primitives::rpc::FinalExecutionStatus, impl core::convert::Into<near_kit_primitives::rpc::TransactionEnvelopeView>, near_kit_primitives::rpc::ExecutionOutcomeWithId, alloc::vec::Vec<near_kit_primitives::rpc::ExecutionOutcomeWithId>) -> Self
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::receipt_failures(&self) -> impl core::iter::traits::iterator::Iterator<Item = &near_kit_primitives::protocol::ActionError>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::result(&self) -> core::result::Result<alloc::vec::Vec<u8>, near_kit_primitives::rpc::OutcomeError>
 pub fn near_kit_primitives::rpc::FinalExecutionOutcome::total_gas_used(&self) -> near_gas::NearGas
@@ -2474,6 +2599,8 @@ impl near_kit_primitives::rpc::TransactionView
 pub fn near_kit_primitives::rpc::TransactionView::new(near_account_id::account_id::AccountId, near_kit_primitives::signer::PublicKey, u64, near_account_id::account_id::AccountId, near_kit_primitives::CryptoHash, near_kit_primitives::signer::Signature) -> Self
 impl core::clone::Clone for near_kit_primitives::rpc::TransactionView
 pub fn near_kit_primitives::rpc::TransactionView::clone(&self) -> near_kit_primitives::rpc::TransactionView
+impl core::convert::From<near_kit_primitives::rpc::TransactionView> for near_kit_primitives::rpc::TransactionEnvelopeView
+pub fn near_kit_primitives::rpc::TransactionEnvelopeView::from(near_kit_primitives::rpc::TransactionView) -> Self
 impl core::fmt::Debug for near_kit_primitives::rpc::TransactionView
 pub fn near_kit_primitives::rpc::TransactionView::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::rpc::TransactionView

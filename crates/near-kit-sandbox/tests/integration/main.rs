@@ -10,6 +10,7 @@ mod delegate_v2_integration;
 mod error_consolidation_integration;
 mod error_handling_integration;
 mod exec_metadata_integration;
+mod external_call_integration;
 mod gas_key_transaction_integration;
 mod global_contracts_integration;
 mod ml_dsa_integration;

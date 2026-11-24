@@ -50,7 +50,7 @@ fn relayed_transactions_resolve_at_final() {
 /// The inner actions of the single delegate action in `body`'s transaction.
 fn inner_actions(body: &str) -> Vec<Action> {
     let outcome: FinalExecutionOutcome = serde_json::from_str(body).unwrap();
-    match &outcome.transaction.actions[..] {
+    match &outcome.transaction.as_signed().unwrap().actions[..] {
         [
             ActionView::Delegate {
                 delegate_action, ..

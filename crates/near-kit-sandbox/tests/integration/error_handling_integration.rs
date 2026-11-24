@@ -29,19 +29,33 @@ async fn missing_account_returns_typed_error() {
 }
 
 #[tokio::test]
-async fn missing_account_access_keys_are_empty() {
+async fn missing_account_access_keys() {
     let (_, near) = shared_client().await;
     let account_id: AccountId = "missing-access-keys.sandbox"
         .parse()
         .expect("valid missing account ID");
 
+    // Nodes before 2.15 list no keys for a missing account; 2.15 (protocol
+    // 89 on the sandbox) answers that the account does not exist.
+    let node = near.near().rpc().status().await.expect("status");
     let keys = near
         .near()
         .rpc()
         .view_access_key_list(&account_id, near_kit::rpc::Finality::Final)
-        .await
-        .expect("the node represents missing-account keys as an empty list");
-    assert!(keys.keys.is_empty());
+        .await;
+    if node.protocol_version >= 89 {
+        assert!(
+            matches!(
+                &keys,
+                Err(RpcError::AccountNotFound { account_id: actual, .. }) if actual == &account_id
+            ),
+            "{} {keys:?}",
+            node.version.version
+        );
+    } else {
+        let keys = keys.expect("the node lists no keys for a missing account");
+        assert!(keys.keys.is_empty());
+    }
     assert!(
         !near
             .near()
