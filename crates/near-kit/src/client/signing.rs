@@ -552,6 +552,15 @@ impl<W: WaitLevel> AsRef<Near> for SigningNear<W> {
     }
 }
 
+/// The read-only client, cloned, so a type that keeps its own `Near` can take
+/// `impl Into<Near>` and accept a borrowed `SigningNear`. There is no
+/// conversion from an owned `SigningNear`: it would drop the signer.
+impl<W: WaitLevel> From<&SigningNear<W>> for Near {
+    fn from(client: &SigningNear<W>) -> Self {
+        client.near.clone()
+    }
+}
+
 impl<W: WaitLevel> crate::Viewer for SigningNear<W> {
     type ViewError = RpcError;
 
@@ -665,6 +674,34 @@ mod tests {
         assert_eq!(read_client(&near), read_client(&alice));
         assert_eq!(read_client(&alice_included), read_client(alice));
         assert_eq!(read_client(near), read_client(alice_included));
+    }
+
+    #[test]
+    fn owning_types_take_into_near() {
+        struct Reader {
+            near: Near,
+        }
+        impl Reader {
+            fn new(client: impl Into<Near>) -> Self {
+                Self {
+                    near: client.into(),
+                }
+            }
+        }
+
+        let alice = alice().wait_until::<Included>();
+        let near = alice.near().clone();
+        let url = near.rpc().url().to_string();
+        for reader in [
+            Reader::new(&alice),
+            Reader::new(&near),
+            Reader::new(near.clone()),
+        ] {
+            assert_eq!(reader.near.rpc().url(), url);
+            assert!(Arc::ptr_eq(&reader.near.rpc, &near.rpc));
+        }
+        // `alice` still signs after lending its client.
+        assert_eq!(alice.account_id().as_str(), "alice.testnet");
     }
 
     #[test]

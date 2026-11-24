@@ -84,6 +84,32 @@ height_and_balance(&alice, alice.account_id()).await?;
 # }
 ```
 
+A type that keeps its own read client can take `impl Into<Near>` instead. A
+`Near`, a `&Near` and a `&SigningNear` all convert, and the clone shares the
+connection. An owned `SigningNear` doesn't, because converting it would drop
+the signer:
+
+```rust,no_run
+use near_kit::*;
+
+struct Indexer {
+    near: Near,
+}
+
+impl Indexer {
+    fn new(client: impl Into<Near>) -> Self {
+        Self { near: client.into() }
+    }
+}
+
+# fn example(alice: SigningNear) {
+let near = Near::testnet().build();
+let from_near = Indexer::new(&near);
+let from_alice = Indexer::new(&alice);
+# let _ = (from_near.near, from_alice.near);
+# }
+```
+
 Both types are cheap to clone and are `Send + Sync`: a `Near` holds its RPC
 client in an `Arc`, and every `SigningNear` made from it shares that
 connection. Build one `Near` per endpoint at startup and derive a
