@@ -378,6 +378,15 @@ impl AsRef<Near> for Near {
     }
 }
 
+/// Clones the client, so a type that keeps its own `Near` can take
+/// `impl Into<Near>` and accept a `Near`, a `&Near` or a
+/// [`&SigningNear`](crate::SigningNear). The clone shares the RPC connection.
+impl From<&Near> for Near {
+    fn from(near: &Near) -> Self {
+        near.clone()
+    }
+}
+
 impl crate::Viewer for Near {
     type ViewError = RpcError;
 
