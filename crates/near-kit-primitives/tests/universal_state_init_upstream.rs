@@ -1,6 +1,7 @@
-//! near-kit's typed universal state init against near-global-contracts', whose
-//! `RawStateInit` and `StateInitError` near-kit re-exports: same bytes, same
-//! `0u` ids, same canonicality verdicts.
+//! near-kit re-exports near-global-contracts' universal state init types.
+//! These pin what near-kit adds on top: the action's raw-bytes `0u` id agrees
+//! with upstream's validated one on NEP-655's portable vectors, and near-kit's
+//! keys convert to the handles upstream stores.
 
 use std::collections::BTreeSet;
 
@@ -9,96 +10,29 @@ use near_kit_primitives::NearToken;
 use near_kit_primitives::protocol::{
     Action, RawStateInit, StateInitError, UniversalStateInit, UniversalStateInitV1,
 };
-use near_kit_primitives::signer::{PublicKey, PublicKeyHandle, SecretKey};
+use near_kit_primitives::signer::{PublicKeyHandle, SecretKey};
 
-fn to_nk_handle(handle: &up::PublicKeyHandle) -> PublicKeyHandle {
-    match handle {
-        up::PublicKeyHandle::ED25519(b) => PublicKeyHandle::Full(PublicKey::Ed25519(*b)),
-        up::PublicKeyHandle::SECP256K1(b) => PublicKeyHandle::Full(PublicKey::Secp256k1(*b)),
-        up::PublicKeyHandle::MLDSA65Hash(b) => PublicKeyHandle::MlDsa65Hash(*b),
-    }
-}
-
-fn to_nk(v: &up::UniversalStateInitV1) -> UniversalStateInit {
-    UniversalStateInit::V1(UniversalStateInitV1 {
-        code: v.code.clone(),
-        data: v.data.clone(),
-        access_keys: v.access_keys.iter().map(to_nk_handle).collect(),
-    })
-}
-
-fn upstream_samples() -> Vec<up::UniversalStateInitV1> {
-    let v1 = up::UniversalStateInitV1::default;
-    let mut ed_high = [0; 32];
-    ed_high[0] = 0xff;
-    let keys = [
-        up::PublicKeyHandle::MLDSA65Hash([0x00; 32]),
-        up::PublicKeyHandle::SECP256K1([0x01; 64]),
-        up::PublicKeyHandle::ED25519(ed_high),
-        up::PublicKeyHandle::ED25519([0x00; 32]),
-        up::PublicKeyHandle::MLDSA65Hash([0xff; 32]),
-        up::PublicKeyHandle::SECP256K1([0x00; 64]),
-    ];
-    let keys_only = keys.iter().cloned().fold(v1(), |s, k| s.with_access_key(k));
-    let everything = keys_only
-        .clone()
-        .with_code(up::GlobalContractId::AccountId(
-            "0sb0d7ef4f935c6ef78e08ad03569767aaec4223a3"
-                .parse()
-                .unwrap(),
-        ))
-        .with_data_entry(b"k", b"v");
-    vec![
-        v1(),
-        v1().with_code(up::GlobalContractId::AccountId(
-            "code.near".parse().unwrap(),
-        )),
-        v1().with_code(up::GlobalContractId::CodeHash([0x22; 32])),
-        v1().with_data_entry(b"b", b"2")
-            .with_data_entry(b"a", b"1")
-            .with_data_entry(b"ab", b"")
-            .with_data_entry(b"", b"empty-key")
-            .with_data_entry([0xff, 0x00], [0x00; 3]),
-        v1().with_access_key(up::PublicKeyHandle::MLDSA65Hash([0x11; 32])),
-        v1().with_code(up::GlobalContractId::CodeHash([0x22; 32]))
-            .with_data_entry(b"key", b"value"),
-        keys_only,
-        everything,
-    ]
-}
-
-/// The same logical value encodes to the same bytes and `0u` id in both
-/// crates, each decodes the other's bytes, and `Action::universal_state_init`
-/// carries either typed value as those bytes.
+/// near-kit's paths name upstream's types, so a value built through either
+/// crate is the same value.
 #[test]
-fn typed_encoding_and_ids_match_upstream() {
-    for v in upstream_samples() {
-        let theirs = up::UniversalStateInit::from(v.clone());
-        let ours = to_nk(&v);
-        let raw: RawStateInit = ours.to_raw();
-        assert_eq!(raw, theirs.to_raw());
-        assert_eq!(RawStateInit::from(&ours), raw);
-        assert_eq!(ours.derive_account_id(), theirs.derive_account_id());
-        assert_eq!(
-            raw.try_derive_account_id().unwrap(),
-            ours.derive_account_id()
-        );
-        assert_eq!(UniversalStateInit::from_raw(&raw).unwrap(), ours);
-        assert_eq!(up::UniversalStateInit::try_from(&raw).unwrap(), theirs);
-
-        let deposit = NearToken::from_yoctonear(1);
-        for action in [
-            Action::universal_state_init(&ours, deposit),
-            Action::universal_state_init(theirs.clone(), deposit),
-            Action::universal_state_init(raw.clone(), deposit),
-        ] {
-            let Action::UniversalStateInit(action) = action else {
-                panic!("expected a UniversalStateInit action");
-            };
-            assert_eq!(action.state_init, raw.0);
-            assert_eq!(action.derive_account_id(), ours.derive_account_id());
-        }
-    }
+fn types_are_upstreams() {
+    let ours: UniversalStateInit = UniversalStateInitV1::default()
+        .with_code(up::GlobalContractId::CodeHash([0x22; 32]))
+        .with_data_entry("key", "value")
+        .into();
+    let theirs: up::UniversalStateInit = ours.clone();
+    let raw: up::RawStateInit = RawStateInit::from(&theirs);
+    assert_eq!(
+        raw.try_derive_account_id().unwrap().as_str(),
+        "0uzvdgbyea2rd8ywx0kw3cg4vc0ez1x5fc2gyks4fdz9ae0xxvzan0"
+    );
+    let Action::UniversalStateInit(action) =
+        Action::universal_state_init(&ours, NearToken::from_yoctonear(1))
+    else {
+        panic!("expected a UniversalStateInit action");
+    };
+    assert_eq!(action.state_init, raw.0);
+    assert_eq!(action.decode_state_init().unwrap(), theirs);
 }
 
 /// near-global-contracts 0.3.2's portable NEP-655 canonicality vectors
@@ -183,15 +117,17 @@ const INVALID: &[(&str, &str)] = &[
     ("oversized declared key length", "000001000000ffffffff"),
 ];
 
-/// Valid vectors decode strictly and keep their id; invalid ones are rejected
-/// with the same `StateInitError` by `from_raw` and upstream's
-/// `validate_canonical`. The action's unvalidated id is over the bytes as
-/// given either way.
+/// Valid vectors keep their id through the typed decode, upstream's
+/// validated derive and near-kit's action; invalid ones are rejected by
+/// `validate_canonical` and `try_derive_account_id` with the same error. The
+/// action's unvalidated id is over the bytes as given either way.
 #[test]
-fn canonicality_vectors_match_upstream() {
+fn canonicality_vectors() {
     for (name, hex, id) in VALID {
         let raw = RawStateInit::from(hex::decode(hex).unwrap());
-        let typed = UniversalStateInit::from_raw(&raw).unwrap_or_else(|e| panic!("{name}: {e}"));
+        raw.validate_canonical()
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let typed = UniversalStateInit::try_from(&raw).unwrap();
         assert_eq!(typed.to_raw(), raw, "{name}");
         assert_eq!(typed.derive_account_id().as_str(), *id, "{name}");
         assert_eq!(raw.try_derive_account_id().unwrap().as_str(), *id, "{name}");
@@ -201,37 +137,45 @@ fn canonicality_vectors_match_upstream() {
             panic!("expected a UniversalStateInit action");
         };
         assert_eq!(action.derive_account_id().as_str(), *id, "{name}");
+        assert_eq!(action.decode_state_init().unwrap(), typed, "{name}");
     }
     for (name, hex) in INVALID {
         let raw = RawStateInit::from(hex::decode(hex).unwrap());
-        let ours = UniversalStateInit::from_raw(&raw).unwrap_err();
-        assert_eq!(Err(ours), raw.validate_canonical(), "{name}");
-        assert_eq!(Err(ours), raw.try_derive_account_id(), "{name}");
-        // The lenient decode agrees on what is merely non-canonical.
+        let error = raw.validate_canonical().unwrap_err();
+        assert_eq!(Err(error), raw.try_derive_account_id(), "{name}");
+        // The action's lenient decode accepts exactly what is merely
+        // non-canonical.
+        let Action::UniversalStateInit(action) =
+            Action::universal_state_init(raw, NearToken::from_yoctonear(0))
+        else {
+            panic!("expected a UniversalStateInit action");
+        };
         assert_eq!(
-            borsh::from_slice::<UniversalStateInit>(raw.as_ref()).is_ok(),
-            ours == StateInitError::NonCanonical,
+            action.decode_state_init().is_ok(),
+            error == StateInitError::NonCanonical,
             "{name}"
         );
     }
 }
 
-/// Both crates hash an ML-DSA-65 key into the same handle; near-kit also
-/// normalizes a full key put in through the public field.
+/// A near-kit ML-DSA-65 key goes in as upstream's hash handle, whether passed
+/// as a key or as a full near-kit handle, and the stored set has it once.
 #[test]
 fn ml_dsa_handles_match_upstream() {
     let pk = SecretKey::generate_ml_dsa65().public_key();
     let key: &[u8; 1952] = pk.as_bytes().try_into().unwrap();
     let theirs = up::PublicKeyHandle::from_ml_dsa_65_public_key(key);
     let ours = pk.to_ml_dsa65_hash().unwrap();
-    assert_eq!(ours, to_nk_handle(&theirs));
+    assert_eq!(PublicKeyHandle::from(theirs.clone()), ours);
 
-    let via_field = UniversalStateInit::V1(UniversalStateInitV1 {
-        access_keys: BTreeSet::from([PublicKeyHandle::Full(pk), ours]),
-        ..Default::default()
-    });
-    let upstream =
-        up::UniversalStateInit::from(up::UniversalStateInitV1::default().with_access_key(theirs));
-    assert_eq!(via_field.to_raw(), upstream.to_raw());
-    assert_eq!(via_field.derive_account_id(), upstream.derive_account_id());
+    let state_init: UniversalStateInit = UniversalStateInitV1::default()
+        .with_access_key(PublicKeyHandle::Full(pk.clone()))
+        .with_access_key(pk)
+        .with_access_key(ours)
+        .into();
+    let upstream = up::UniversalStateInit::from(
+        up::UniversalStateInitV1::default().with_access_key(theirs.clone()),
+    );
+    assert_eq!(state_init.access_keys(), &BTreeSet::from([theirs]));
+    assert_eq!(state_init.to_raw(), upstream.to_raw());
 }

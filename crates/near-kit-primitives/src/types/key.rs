@@ -378,9 +378,9 @@ const ML_DSA_65_HASH_PREFIX: &str = "ml-dsa-65-hash:";
 /// `PublicKey`.
 ///
 /// Parses from and prints as either form. There is no borsh impl: a handle
-/// is never part of a transaction, and the one wire format that carries
-/// handles ([`UniversalStateInit`](crate::protocol::UniversalStateInit)'s
-/// access keys) encodes them itself.
+/// is never part of a transaction. The one wire format that carries handles,
+/// [`UniversalStateInit`](crate::protocol::UniversalStateInit)'s access keys,
+/// holds near-sdk's handle type; `From` converts between the two.
 ///
 /// Ordering follows nearcore's: by key type (ed25519, secp256k1, a full
 /// ML-DSA-65 key, an ML-DSA-65 hash), then by bytes.

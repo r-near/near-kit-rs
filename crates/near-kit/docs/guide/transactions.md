@@ -436,7 +436,7 @@ use near_kit::*;
 
 # async fn example(alice: &SigningNear) -> Result<(), Error> {
 let key = SecretKey::generate_ed25519();
-let state_init: UniversalStateInit = UniversalStateInitV1::new().with_access_key(key.public_key()).into();
+let state_init: UniversalStateInit = UniversalStateInitV1::default().with_access_key(key.public_key()).into();
 let account_id = state_init.derive_account_id(); // "0u..."
 
 alice
@@ -460,7 +460,7 @@ use near_kit::*;
 
 # async fn example(alice: &SigningNear) -> Result<(), Error> {
 let key = SecretKey::generate_ed25519();
-let state_init: UniversalStateInit = UniversalStateInitV1::new().with_access_key(key.public_key()).into();
+let state_init: UniversalStateInit = UniversalStateInitV1::default().with_access_key(key.public_key()).into();
 let account_id = state_init.derive_account_id();
 
 alice
@@ -477,11 +477,14 @@ universal
 # }
 ```
 
-near-sdk passes state inits as
-[`RawStateInit`](crate::protocol::RawStateInit) bytes;
-`Action::universal_state_init` accepts those as well, and
-[`UniversalStateInit::from_raw`](crate::protocol::UniversalStateInit::from_raw)
-decodes them.
+These are near-global-contracts' types, the ones near-sdk uses, so a
+contract and its client share them. A state init you are handed travels as
+[`RawStateInit`](crate::protocol::RawStateInit) bytes, which
+`Action::universal_state_init` carries unchanged. Check them with
+[`RawStateInit::try_derive_account_id`](crate::protocol::RawStateInit::try_derive_account_id)
+before you fund the address, rather than decoding them into a
+`UniversalStateInit` and deriving from that: the typed decode accepts
+non-canonical bytes, whose re-encoding has a different id.
 
 ## Checks before signing
 
