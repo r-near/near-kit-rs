@@ -49,6 +49,15 @@ async fn global_contract_exists(near: &Near, id: &GlobalContractId) -> bool {
     }
 }
 
+/// The account as the node reports it at the final block.
+async fn view_account(near: &SigningNear, account_id: &AccountId) -> rpc::AccountView {
+    near.near()
+        .rpc()
+        .view_account(account_id, near_kit::rpc::Finality::Final)
+        .await
+        .unwrap()
+}
+
 /// End-to-end test: publish → deploy_from → call the deployed contract.
 #[tokio::test]
 async fn test_publish_deploy_from_call_end_to_end() {
@@ -79,6 +88,15 @@ async fn test_publish_deploy_from_call_end_to_end() {
         .unwrap()
         .result()
         .unwrap();
+
+    // The node reports a zero `code_hash` for an account on a global contract.
+    let account = view_account(&root_near, &user_id).await;
+    assert!(account.code_hash.is_zero());
+    assert_eq!(
+        account.global_contract_account_id.as_ref(),
+        Some(&publisher_id)
+    );
+    assert!(account.has_contract());
 
     user_near
         .wait_until::<Final>()
@@ -203,6 +221,11 @@ async fn test_deploy_from_hash() {
         .unwrap()
         .result()
         .unwrap();
+
+    let account = view_account(&root_near, &user_id).await;
+    assert!(account.code_hash.is_zero());
+    assert_eq!(account.global_contract_hash, Some(code_hash));
+    assert!(account.has_contract());
 
     let messages: Vec<serde_json::Value> = root_near
         .near()
