@@ -56,6 +56,7 @@ async fn sign_delegate_v2(
 }
 
 #[tokio::test]
+#[allow(deprecated)]
 async fn test_delegate_v2_relay() {
     let sandbox = sandbox_2_13().await;
     let root_near = sandbox.root_account();
@@ -124,6 +125,7 @@ async fn test_delegate_v2_relay() {
 }
 
 #[tokio::test]
+#[allow(deprecated)]
 async fn test_delegate_v2_rejected_as_removed_protocol_feature() {
     let (sandbox, root_near) = shared_client().await;
 

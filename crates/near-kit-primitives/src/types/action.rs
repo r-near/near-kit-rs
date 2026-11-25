@@ -683,6 +683,15 @@ impl Action {
 
     /// Create a DelegateV2 action from a versioned signed delegate action
     /// (gas-key meta-transactions, NEP-611).
+    ///
+    /// Nodes reject it from protocol version 87 (nearcore 2.14) with
+    /// [`ActionsValidationError::RemovedProtocolFeature`](crate::protocol::ActionsValidationError::RemovedProtocolFeature),
+    /// so a transaction carrying it fails on every network at that version
+    /// or later. Use [`Action::delegate`] instead. `Action::DelegateV2` still
+    /// decodes, for transactions and receipts from before the removal.
+    #[deprecated(
+        note = "nodes reject DelegateV2 from protocol 87 (nearcore 2.14); use Action::delegate"
+    )]
     pub fn delegate_v2(signed_delegate: VersionedSignedDelegateAction) -> Self {
         Self::DelegateV2(Box::new(signed_delegate))
     }
@@ -1000,6 +1009,7 @@ mod tests {
 
     /// Every variant's borsh tag is its nearcore discriminant, and it round-trips.
     #[test]
+    #[allow(deprecated)]
     fn test_action_discriminants() {
         let code_hash = CryptoHash::hash(&[1, 2, 3]);
         let v1 = create_test_delegate_action().into_signed(sig());
@@ -1238,6 +1248,7 @@ mod tests {
     /// them through the typed constructor and on the wire (borsh), as nearcore
     /// does.
     #[test]
+    #[allow(deprecated)]
     fn test_non_delegate_rejects_all_delegate_variants() {
         let secret = SecretKey::generate_ed25519();
 
