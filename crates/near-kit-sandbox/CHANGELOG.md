@@ -4,6 +4,13 @@ All notable changes to `near-kit-sandbox` are documented in this file.
 
 ## [Unreleased]
 
+## [0.35.0](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.34.1...near-kit-sandbox-v0.35.0) - 2026-11-25
+
+### Added
+
+- [**breaking**] support nearcore 2.15 and NEP-667 external calls ([#449](https://github.com/r-near/near-kit-rs/pull/449))
+- deprecate Action::delegate_v2, which nodes reject from protocol 87 ([#452](https://github.com/r-near/near-kit-rs/pull/452))
+
 ## [0.34.1](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.34.0...near-kit-sandbox-v0.34.1) - 2026-11-25
 
 Released with near-kit 0.34.1. The global-contract tests now check `AccountView::has_contract` ([#450](https://github.com/r-near/near-kit-rs/pull/450)).
