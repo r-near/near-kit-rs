@@ -60,7 +60,7 @@ fn kit_hash(hash: &CryptoHash) -> KitHash {
 /// A universal account's own state init, holding one access key.
 fn universal_call() -> ExternalCall {
     let key = SecretKey::ed25519_from_bytes([7; 32]);
-    let state_init: UniversalStateInit = UniversalStateInitV1::new()
+    let state_init: UniversalStateInit = UniversalStateInitV1::default()
         .with_access_key(key.public_key())
         .into();
     let account_id = state_init.derive_account_id();

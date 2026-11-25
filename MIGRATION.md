@@ -21,6 +21,21 @@ To send an external call, build an `ExternalCall`, dry-run it with
 `near.send_external_call(&call)`; `near.find_external_call(&call, heights)`
 finds a copy after a send that failed.
 
+**`UniversalStateInit` and `UniversalStateInitV1` are near-global-contracts' types.**
+near-kit re-exports them, as it already did `RawStateInit`, so a state init
+built with near-kit is the one near-sdk contracts take, and new builders
+upstream reach near-kit without a release here. The bytes and `0u` ids are
+the same. With them, the typed value gains serde (snake_case JSON), `Ord`
+and `Hash`, and loses `#[non_exhaustive]`.
+
+| 0.34 | 0.35 |
+|---|---|
+| `UniversalStateInitV1::new()` | `UniversalStateInitV1::default()` |
+| `UniversalStateInit::from_raw(&raw)?` (strict decode) | `raw.validate_canonical()?` then `UniversalStateInit::try_from(&raw)?`, or `raw.try_derive_account_id()?` when you only need the id. `try_from` alone is lenient: never derive an id from its result |
+| `state_init.has_access_key(&key)` | `state_init.access_keys().contains(&key.clone().into())` |
+| `access_keys: BTreeSet<near_kit::signer::PublicKeyHandle>` (field, `access_keys()`) | near-sdk's handle type. `with_access_key` still takes a near-kit `PublicKey` or `PublicKeyHandle` and stores an ML-DSA-65 key as its hash; `PublicKeyHandle::from(handle)` converts a stored one back to near-kit's |
+| A `UniversalStateInit` built through near-global-contracts or near-sdk passed to `Action::universal_state_init` | Unchanged; there is now one type |
+
 # Upgrading from near-kit 0.33 to 0.34
 
 **One `Tx` builder for every sender, and one error type per layer.**

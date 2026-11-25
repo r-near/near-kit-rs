@@ -292,7 +292,7 @@ async fn refusals_are_typed() {
 
     // A state init that does not derive to the contract is refused too.
     let mismatched = ExternalCall::new(contract_id.clone(), b"ok".to_vec())
-        .with_state_init(UniversalStateInitV1::new());
+        .with_state_init(UniversalStateInitV1::default());
     let err = near
         .view_external_call(&mismatched)
         .await
@@ -412,7 +412,7 @@ async fn a_call_with_a_state_init_initializes_a_universal_account() {
         .expect("publish the contract")
         .result()
         .expect("publish succeeds");
-    let state_init: UniversalStateInit = UniversalStateInitV1::new()
+    let state_init: UniversalStateInit = UniversalStateInitV1::default()
         .with_code(GlobalContractId::from(code_hash))
         .into();
     let account_id = state_init.derive_account_id();

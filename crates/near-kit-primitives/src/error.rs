@@ -100,8 +100,7 @@ pub enum ActionViewConversionError {
 ///
 /// About `0u` universal state init ([`RawStateInit`](crate::protocol::RawStateInit)),
 /// not the NEP-616 [`StateInit`](crate::protocol::StateInit). Returned by
-/// [`UniversalStateInit::from_raw`](crate::protocol::UniversalStateInit::from_raw)
-/// and `RawStateInit::try_derive_account_id`.
+/// `RawStateInit::validate_canonical` and `RawStateInit::try_derive_account_id`.
 pub use near_global_contracts::StateInitError;
 
 /// Error building a signer or signing with it.

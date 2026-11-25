@@ -400,14 +400,14 @@ impl UniversalStateInitAction {
     /// Does not validate the bytes, like nearcore's
     /// `derive_universal_account_id`: a malformed or non-canonical payload
     /// still derives an id, but the chain will never create that account.
-    /// To check first, use `RawStateInit::try_derive_account_id` or
-    /// [`UniversalStateInit::from_raw`].
+    /// To check first, use `RawStateInit::try_derive_account_id`.
     pub fn derive_account_id(&self) -> AccountId {
         super::universal_state_init::derive_universal_account_id(&self.state_init)
     }
 
     /// Decode the carried bytes leniently, accepting any well-formed encoding,
-    /// canonical or not; [`UniversalStateInit::from_raw`] is the strict decode.
+    /// canonical or not. Re-encoding the result can change its account id;
+    /// `RawStateInit::validate_canonical` is the strict check.
     pub fn decode_state_init(&self) -> Result<UniversalStateInit, StateInitError> {
         super::universal_state_init::decode_lenient(&self.state_init)
     }
@@ -756,9 +756,8 @@ impl Action {
     ///
     /// Accepts a typed [`UniversalStateInit`] /
     /// [`UniversalStateInitV1`](super::UniversalStateInitV1) (encoded
-    /// canonically), the same from near-global-contracts or near-sdk, or a
-    /// [`RawStateInit`] / `Vec<u8>` carried verbatim. The transaction's
-    /// receiver must be the derived account id; see
+    /// canonically), or a [`RawStateInit`] / `Vec<u8>` carried verbatim. The
+    /// transaction's receiver must be the derived account id; see
     /// [`UniversalStateInitAction::derive_account_id`].
     ///
     /// # Example
@@ -769,7 +768,7 @@ impl Action {
     /// # use near_kit_primitives::signer::PublicKey;
     /// let key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
     /// let action = Action::universal_state_init(
-    ///     UniversalStateInitV1::new().with_access_key(key),
+    ///     UniversalStateInitV1::default().with_access_key(key),
     ///     NearToken::from_millinear(1),
     /// );
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1059,7 +1058,7 @@ mod tests {
         use crate::types::{PublicKeyHandle, UniversalStateInitV1};
 
         // nearcore 2.14-release `test_derive_universal_account_id` key-only vector.
-        let typed: UniversalStateInit = UniversalStateInitV1::new()
+        let typed: UniversalStateInit = UniversalStateInitV1::default()
             .with_access_key(PublicKeyHandle::MlDsa65Hash([0x11; 32]))
             .into();
         let raw = typed.to_raw();

@@ -50,7 +50,7 @@ async fn universal_accounts_enabled(near: &SigningNear) -> bool {
 /// A key-only state init for a fresh key.
 fn key_only_state_init() -> (UniversalStateInit, AccountId, SecretKey) {
     let key = SecretKey::generate_ed25519();
-    let state_init: UniversalStateInit = UniversalStateInitV1::new()
+    let state_init: UniversalStateInit = UniversalStateInitV1::default()
         .with_access_key(key.public_key())
         .into();
     let account_id = state_init.derive_account_id();

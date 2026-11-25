@@ -56,6 +56,8 @@ pub use near_kit_primitives::protocol::RawStateInit
 pub use near_kit_primitives::protocol::StateInit
 pub use near_kit_primitives::protocol::StateInitError
 pub use near_kit_primitives::protocol::StateInitV1
+pub use near_kit_primitives::protocol::UniversalStateInit
+pub use near_kit_primitives::protocol::UniversalStateInitV1
 #[non_exhaustive] pub enum near_kit_primitives::protocol::AccessKeyPermission
 pub near_kit_primitives::protocol::AccessKeyPermission::FullAccess
 pub near_kit_primitives::protocol::AccessKeyPermission::FunctionCall(near_kit_primitives::protocol::FunctionCallPermission)
@@ -814,34 +816,6 @@ impl core::fmt::Display for near_kit_primitives::protocol::TxExecutionError
 pub fn near_kit_primitives::protocol::TxExecutionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::protocol::TxExecutionError
 pub fn near_kit_primitives::protocol::TxExecutionError::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-#[non_exhaustive] pub enum near_kit_primitives::protocol::UniversalStateInit
-pub near_kit_primitives::protocol::UniversalStateInit::V1(near_kit_primitives::protocol::UniversalStateInitV1)
-impl near_kit_primitives::protocol::UniversalStateInit
-pub fn near_kit_primitives::protocol::UniversalStateInit::access_keys(&self) -> &alloc::collections::btree::set::BTreeSet<near_kit_primitives::signer::PublicKeyHandle>
-pub fn near_kit_primitives::protocol::UniversalStateInit::code(&self) -> core::option::Option<&near_global_contracts::global_contract_identifier::GlobalContractId>
-pub fn near_kit_primitives::protocol::UniversalStateInit::data(&self) -> &alloc::collections::btree::map::BTreeMap<alloc::vec::Vec<u8>, alloc::vec::Vec<u8>>
-pub fn near_kit_primitives::protocol::UniversalStateInit::derive_account_id(&self) -> near_account_id::account_id::AccountId
-pub fn near_kit_primitives::protocol::UniversalStateInit::from_raw(&near_global_contracts::universal_state_init::RawStateInit) -> core::result::Result<Self, near_global_contracts::universal_state_init::StateInitError>
-pub fn near_kit_primitives::protocol::UniversalStateInit::has_access_key(&self, &near_kit_primitives::signer::PublicKey) -> bool
-pub fn near_kit_primitives::protocol::UniversalStateInit::to_raw(&self) -> near_global_contracts::universal_state_init::RawStateInit
-impl borsh::de::BorshDeserialize for near_kit_primitives::protocol::UniversalStateInit
-pub fn near_kit_primitives::protocol::UniversalStateInit::deserialize_reader<R: alloc::io::read::Read>(&mut R) -> core::io::error::Result<Self>
-impl borsh::ser::BorshSerialize for near_kit_primitives::protocol::UniversalStateInit
-pub fn near_kit_primitives::protocol::UniversalStateInit::serialize<W: core::io::write::Write>(&self, &mut W) -> core::io::error::Result<()>
-impl core::clone::Clone for near_kit_primitives::protocol::UniversalStateInit
-pub fn near_kit_primitives::protocol::UniversalStateInit::clone(&self) -> near_kit_primitives::protocol::UniversalStateInit
-impl core::cmp::Eq for near_kit_primitives::protocol::UniversalStateInit
-impl core::cmp::PartialEq for near_kit_primitives::protocol::UniversalStateInit
-pub fn near_kit_primitives::protocol::UniversalStateInit::eq(&self, &near_kit_primitives::protocol::UniversalStateInit) -> bool
-impl core::convert::From<&near_kit_primitives::protocol::UniversalStateInit> for near_global_contracts::universal_state_init::RawStateInit
-pub fn near_global_contracts::universal_state_init::RawStateInit::from(&near_kit_primitives::protocol::UniversalStateInit) -> Self
-impl core::convert::From<near_kit_primitives::protocol::UniversalStateInit> for near_global_contracts::universal_state_init::RawStateInit
-pub fn near_global_contracts::universal_state_init::RawStateInit::from(near_kit_primitives::protocol::UniversalStateInit) -> Self
-impl core::convert::From<near_kit_primitives::protocol::UniversalStateInitV1> for near_kit_primitives::protocol::UniversalStateInit
-pub fn near_kit_primitives::protocol::UniversalStateInit::from(near_kit_primitives::protocol::UniversalStateInitV1) -> Self
-impl core::fmt::Debug for near_kit_primitives::protocol::UniversalStateInit
-pub fn near_kit_primitives::protocol::UniversalStateInit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for near_kit_primitives::protocol::UniversalStateInit
 #[non_exhaustive] pub enum near_kit_primitives::protocol::VersionedDelegateActionPayload
 pub near_kit_primitives::protocol::VersionedDelegateActionPayload::V2(near_kit_primitives::protocol::DelegateActionV2)
 impl near_kit_primitives::protocol::VersionedDelegateActionPayload
@@ -1473,7 +1447,7 @@ pub struct near_kit_primitives::protocol::UniversalStateInitAction
 pub near_kit_primitives::protocol::UniversalStateInitAction::deposit: near_token::NearToken
 pub near_kit_primitives::protocol::UniversalStateInitAction::state_init: alloc::vec::Vec<u8>
 impl near_kit_primitives::protocol::UniversalStateInitAction
-pub fn near_kit_primitives::protocol::UniversalStateInitAction::decode_state_init(&self) -> core::result::Result<near_kit_primitives::protocol::UniversalStateInit, near_global_contracts::universal_state_init::StateInitError>
+pub fn near_kit_primitives::protocol::UniversalStateInitAction::decode_state_init(&self) -> core::result::Result<near_global_contracts::universal_state_init::UniversalStateInit, near_global_contracts::universal_state_init::StateInitError>
 pub fn near_kit_primitives::protocol::UniversalStateInitAction::derive_account_id(&self) -> near_account_id::account_id::AccountId
 impl borsh::de::BorshDeserialize for near_kit_primitives::protocol::UniversalStateInitAction
 pub fn near_kit_primitives::protocol::UniversalStateInitAction::deserialize_reader<__R: alloc::io::read::Read>(&mut __R) -> core::result::Result<Self, core::io::error::Error>
@@ -1491,29 +1465,6 @@ impl serde_core::ser::Serialize for near_kit_primitives::protocol::UniversalStat
 pub fn near_kit_primitives::protocol::UniversalStateInitAction::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for near_kit_primitives::protocol::UniversalStateInitAction
 pub fn near_kit_primitives::protocol::UniversalStateInitAction::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-pub struct near_kit_primitives::protocol::UniversalStateInitV1
-pub near_kit_primitives::protocol::UniversalStateInitV1::access_keys: alloc::collections::btree::set::BTreeSet<near_kit_primitives::signer::PublicKeyHandle>
-pub near_kit_primitives::protocol::UniversalStateInitV1::code: core::option::Option<near_global_contracts::global_contract_identifier::GlobalContractId>
-pub near_kit_primitives::protocol::UniversalStateInitV1::data: alloc::collections::btree::map::BTreeMap<alloc::vec::Vec<u8>, alloc::vec::Vec<u8>>
-impl near_kit_primitives::protocol::UniversalStateInitV1
-pub fn near_kit_primitives::protocol::UniversalStateInitV1::new() -> Self
-pub fn near_kit_primitives::protocol::UniversalStateInitV1::with_access_key(self, impl core::convert::Into<near_kit_primitives::signer::PublicKeyHandle>) -> Self
-pub fn near_kit_primitives::protocol::UniversalStateInitV1::with_code(self, near_global_contracts::global_contract_identifier::GlobalContractId) -> Self
-pub fn near_kit_primitives::protocol::UniversalStateInitV1::with_data_entry(self, impl core::convert::Into<alloc::vec::Vec<u8>>, impl core::convert::Into<alloc::vec::Vec<u8>>) -> Self
-impl core::clone::Clone for near_kit_primitives::protocol::UniversalStateInitV1
-pub fn near_kit_primitives::protocol::UniversalStateInitV1::clone(&self) -> near_kit_primitives::protocol::UniversalStateInitV1
-impl core::cmp::Eq for near_kit_primitives::protocol::UniversalStateInitV1
-impl core::cmp::PartialEq for near_kit_primitives::protocol::UniversalStateInitV1
-pub fn near_kit_primitives::protocol::UniversalStateInitV1::eq(&self, &near_kit_primitives::protocol::UniversalStateInitV1) -> bool
-impl core::convert::From<near_kit_primitives::protocol::UniversalStateInitV1> for near_global_contracts::universal_state_init::RawStateInit
-pub fn near_global_contracts::universal_state_init::RawStateInit::from(near_kit_primitives::protocol::UniversalStateInitV1) -> Self
-impl core::convert::From<near_kit_primitives::protocol::UniversalStateInitV1> for near_kit_primitives::protocol::UniversalStateInit
-pub fn near_kit_primitives::protocol::UniversalStateInit::from(near_kit_primitives::protocol::UniversalStateInitV1) -> Self
-impl core::default::Default for near_kit_primitives::protocol::UniversalStateInitV1
-pub fn near_kit_primitives::protocol::UniversalStateInitV1::default() -> near_kit_primitives::protocol::UniversalStateInitV1
-impl core::fmt::Debug for near_kit_primitives::protocol::UniversalStateInitV1
-pub fn near_kit_primitives::protocol::UniversalStateInitV1::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for near_kit_primitives::protocol::UniversalStateInitV1
 pub struct near_kit_primitives::protocol::UnknownError(pub serde_json::value::Value)
 impl core::clone::Clone for near_kit_primitives::protocol::UnknownError
 pub fn near_kit_primitives::protocol::UnknownError::clone(&self) -> near_kit_primitives::protocol::UnknownError
@@ -2767,6 +2718,8 @@ impl core::cmp::PartialEq for near_kit_primitives::signer::PublicKey
 pub fn near_kit_primitives::signer::PublicKey::eq(&self, &near_kit_primitives::signer::PublicKey) -> bool
 impl core::convert::From<near_kit_primitives::signer::PublicKey> for near_kit_primitives::signer::PublicKeyHandle
 pub fn near_kit_primitives::signer::PublicKeyHandle::from(near_kit_primitives::signer::PublicKey) -> Self
+impl core::convert::From<near_kit_primitives::signer::PublicKey> for near_sdk_core::types::public_key::PublicKeyHandle
+pub fn near_sdk_core::types::public_key::PublicKeyHandle::from(near_kit_primitives::signer::PublicKey) -> Self
 impl core::convert::TryFrom<&str> for near_kit_primitives::signer::PublicKey
 pub type near_kit_primitives::signer::PublicKey::Error = near_kit_primitives::signer::ParseKeyError
 pub fn near_kit_primitives::signer::PublicKey::try_from(&str) -> core::result::Result<Self, Self::Error>
@@ -2805,6 +2758,10 @@ impl core::cmp::PartialOrd for near_kit_primitives::signer::PublicKeyHandle
 pub fn near_kit_primitives::signer::PublicKeyHandle::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
 impl core::convert::From<near_kit_primitives::signer::PublicKey> for near_kit_primitives::signer::PublicKeyHandle
 pub fn near_kit_primitives::signer::PublicKeyHandle::from(near_kit_primitives::signer::PublicKey) -> Self
+impl core::convert::From<near_kit_primitives::signer::PublicKeyHandle> for near_sdk_core::types::public_key::PublicKeyHandle
+pub fn near_sdk_core::types::public_key::PublicKeyHandle::from(near_kit_primitives::signer::PublicKeyHandle) -> Self
+impl core::convert::From<near_sdk_core::types::public_key::PublicKeyHandle> for near_kit_primitives::signer::PublicKeyHandle
+pub fn near_kit_primitives::signer::PublicKeyHandle::from(near_sdk_core::types::public_key::PublicKeyHandle) -> Self
 impl core::fmt::Debug for near_kit_primitives::signer::PublicKeyHandle
 pub fn near_kit_primitives::signer::PublicKeyHandle::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for near_kit_primitives::signer::PublicKeyHandle

@@ -271,9 +271,11 @@ impl PreparedTransaction {
         self.actions.iter().any(|action| match action {
             Action::UniversalStateInit(action) => {
                 action.derive_account_id() == *signer_id
-                    && action
-                        .decode_state_init()
-                        .is_ok_and(|state_init| state_init.has_access_key(public_key))
+                    && action.decode_state_init().is_ok_and(|state_init| {
+                        state_init
+                            .access_keys()
+                            .contains(&public_key.clone().into())
+                    })
             }
             _ => false,
         })
@@ -832,7 +834,7 @@ mod tests {
             "{error:?}"
         );
 
-        let universal = crate::protocol::UniversalStateInitV1::new()
+        let universal = crate::protocol::UniversalStateInitV1::default()
             .with_access_key(SecretKey::generate_ed25519().public_key());
         let error = signing
             .sign(
@@ -931,7 +933,7 @@ mod tests {
     async fn self_signed_universal_state_init_uses_the_bootstrap_nonce() {
         let key = SecretKey::generate_ed25519();
         let state_init =
-            crate::protocol::UniversalStateInitV1::new().with_access_key(key.public_key());
+            crate::protocol::UniversalStateInitV1::default().with_access_key(key.public_key());
         let account_id =
             crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
         let transport = Arc::new(UninitializedUniversalTransport::default());
@@ -964,7 +966,7 @@ mod tests {
     async fn bootstrap_reads_the_bootstrap_nonce_past_an_uninitialized_account_error() {
         let key = SecretKey::generate_ed25519();
         let state_init =
-            crate::protocol::UniversalStateInitV1::new().with_access_key(key.public_key());
+            crate::protocol::UniversalStateInitV1::default().with_access_key(key.public_key());
         let account_id =
             crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
         let transport =
@@ -997,7 +999,7 @@ mod tests {
     async fn state_init_without_the_signing_key_keeps_the_uninitialized_account_error() {
         let key = SecretKey::generate_ed25519();
         let other = SecretKey::generate_ed25519().public_key();
-        let state_init = crate::protocol::UniversalStateInitV1::new().with_access_key(other);
+        let state_init = crate::protocol::UniversalStateInitV1::default().with_access_key(other);
         let account_id =
             crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
         let near = crate::Near::custom("http://bootstrap-uninitialized.invalid", "test")
@@ -1023,7 +1025,7 @@ mod tests {
     async fn state_init_without_the_signing_key_keeps_the_access_key_error() {
         let key = SecretKey::generate_ed25519();
         let other = SecretKey::generate_ed25519().public_key();
-        let state_init = crate::protocol::UniversalStateInitV1::new().with_access_key(other);
+        let state_init = crate::protocol::UniversalStateInitV1::default().with_access_key(other);
         let account_id =
             crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
         let near = crate::Near::custom("http://bootstrap.invalid", "test")
@@ -1787,7 +1789,7 @@ mod tests {
     ) {
         let key = SecretKey::generate_ed25519();
         let state_init =
-            crate::protocol::UniversalStateInitV1::new().with_access_key(key.public_key());
+            crate::protocol::UniversalStateInitV1::default().with_access_key(key.public_key());
         let account_id =
             crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
         let transport = Arc::new(UninitializedUniversalTransport::default());
@@ -1854,7 +1856,7 @@ mod tests {
     #[cfg(feature = "tracing")]
     #[test]
     fn actions_summary_names_each_action() {
-        let state_init = crate::protocol::UniversalStateInitV1::new()
+        let state_init = crate::protocol::UniversalStateInitV1::default()
             .with_access_key(SecretKey::generate_ed25519().public_key());
         let actions = [
             Action::create_account(),
@@ -2055,7 +2057,7 @@ mod tests {
 
         let key = SecretKey::generate_ed25519();
         let state_init =
-            crate::protocol::UniversalStateInitV1::new().with_access_key(key.public_key());
+            crate::protocol::UniversalStateInitV1::default().with_access_key(key.public_key());
         let account_id =
             crate::protocol::UniversalStateInit::from(state_init.clone()).derive_account_id();
         let near = crate::Near::custom("http://initialized.invalid", "test")

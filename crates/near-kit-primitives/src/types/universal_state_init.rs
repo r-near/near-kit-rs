@@ -1,12 +1,9 @@
-//! Typed initial state of a `0u` universal account (nearcore 2.14).
+//! Initial state of a `0u` universal account (nearcore 2.14), re-exported
+//! from near-global-contracts.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::io::{self, Read, Write};
-
-use borsh::{BorshDeserialize, BorshSerialize};
 use sha3::{Digest as _, Sha3_256};
 
-use super::{AccountId, GlobalContractId, PublicKey, PublicKeyHandle};
+use super::{AccountId, PublicKey, PublicKeyHandle};
 use crate::error::StateInitError;
 
 /// Prefix of every universal account id.
@@ -16,21 +13,13 @@ const UAID_DATA_SYMBOLS: usize = 52;
 /// Crockford base32, lowercase (no `i`, `l`, `o`, `u`).
 const CROCKFORD: &[u8; 32] = b"0123456789abcdefghjkmnpqrstvwxyz";
 
-/// Borsh tags of nearcore's `PublicKeyHandle`. Tag 2 belongs to a full
-/// ML-DSA-65 `PublicKey` and is never valid in a handle.
-const HANDLE_TAG_ED25519: u8 = 0;
-const HANDLE_TAG_SECP256K1: u8 = 1;
-const HANDLE_TAG_ML_DSA_65_HASH: u8 = 3;
-
 /// near-kit re-exports this from
-/// [`near-global-contracts`](https://crates.io/crates/near-global-contracts):
-/// it is the type near-sdk uses too, so pass state inits between crates as
-/// `RawStateInit`. Build one from near-kit's typed [`UniversalStateInit`] with
-/// `From` or [`UniversalStateInit::to_raw`], and decode one with
-/// [`UniversalStateInit::from_raw`]. The `UniversalStateInit` in the upstream
-/// text below is near-global-contracts' own typed value, a different type,
-/// whose `TryFrom` is lenient: never derive an account id from a value decoded
-/// that way. For the unvalidated id of the bytes an action carries, as the
+/// [`near-global-contracts`](https://crates.io/crates/near-global-contracts),
+/// as near-sdk does, so a state init passes between near-kit and contract code
+/// as one type. Check bytes you were handed with
+/// [`try_derive_account_id`](RawStateInit::try_derive_account_id) or
+/// [`validate_canonical`](RawStateInit::validate_canonical), and forward them
+/// unchanged. For the unvalidated id of the bytes an action carries, as the
 /// chain computes it, use
 /// [`UniversalStateInitAction::derive_account_id`](crate::protocol::UniversalStateInitAction::derive_account_id).
 ///
@@ -38,317 +27,82 @@ const HANDLE_TAG_ML_DSA_65_HASH: u8 = 3;
 ///
 pub use near_global_contracts::RawStateInit;
 
-impl From<UniversalStateInit> for RawStateInit {
-    fn from(state_init: UniversalStateInit) -> Self {
-        state_init.to_raw()
-    }
-}
-
-impl From<&UniversalStateInit> for RawStateInit {
-    fn from(state_init: &UniversalStateInit) -> Self {
-        state_init.to_raw()
-    }
-}
-
-impl From<UniversalStateInitV1> for RawStateInit {
-    fn from(state_init: UniversalStateInitV1) -> Self {
-        UniversalStateInit::V1(state_init).to_raw()
-    }
-}
-
-/// Versioned initial state of a `0u` universal account (nearcore 2.14).
+/// near-kit re-exports this from
+/// [`near-global-contracts`](https://crates.io/crates/near-global-contracts),
+/// as near-sdk does. Create the account with
+/// [`Action::universal_state_init`](crate::protocol::Action::universal_state_init),
+/// sent to [`derive_account_id`](UniversalStateInit::derive_account_id).
 ///
-/// A [`UniversalStateInit`] fully describes a universal account: its contract
-/// code (if any), initial storage, and full-access keys. The account id is
-/// `0u` followed by the Crockford base32 of SHA3-256 over the state init's
-/// borsh bytes, so whoever knows the state init knows the address before the
-/// account exists.
+/// Its `TryFrom<&RawStateInit>` is lenient: it accepts non-canonical bytes,
+/// and re-encoding the result can change the account id. Never derive an id
+/// from a value decoded that way; derive it from the bytes with
+/// [`RawStateInit::try_derive_account_id`].
 ///
-/// The id commits to the *exact* bytes, which is why the wire form is the raw
-/// [`RawStateInit`] and the typed value is only a view of it. nearcore accepts
-/// only the canonical encoding (sorted maps and sets without duplicates, one
-/// struct per version): universal accounts and the canonical-encoding rule
-/// both arrive at protocol 88 (nearcore 2.14), so no stable protocol has
-/// accepted any other encoding. [`UniversalStateInit::from_raw`] enforces that
-/// rule, so each logical value built here has exactly one id, while its
-/// lenient [`BorshDeserialize`] (`borsh::from_slice`) decodes any well-formed
-/// borsh, for inspecting bytes without judging them.
+/// ---
 ///
-/// This type is borsh-only; convert through [`RawStateInit`] (see there for
-/// near-global-contracts' same-named types). `Action::universal_state_init`
-/// accepts either crate's typed value.
+pub use near_global_contracts::UniversalStateInit;
+
+/// near-kit re-exports this from
+/// [`near-global-contracts`](https://crates.io/crates/near-global-contracts),
+/// as near-sdk does. Start from `UniversalStateInitV1::default()`.
+/// [`with_access_key`](UniversalStateInitV1::with_access_key) takes a
+/// near-kit [`PublicKey`] or [`PublicKeyHandle`] and stores an ML-DSA-65 key
+/// as the hash the chain keys it by. `access_keys` holds near-sdk's handle
+/// type; convert one to near-kit's with `PublicKeyHandle::from`.
 ///
-/// Mirrors nearcore's `UniversalStateInit`. New fields or semantics arrive as
-/// a new variant; the borsh discriminant is the only version marker. Create
-/// the account with [`Action::universal_state_init`](crate::protocol::Action::universal_state_init),
-/// sent to [`derive_account_id`](Self::derive_account_id).
+/// ---
 ///
-/// Its [`BorshSerialize`] output is always the canonical encoding, so
-/// `borsh::to_vec(&state_init)` equals [`to_raw`](Self::to_raw). Its
-/// [`BorshDeserialize`] is lenient: it accepts any well-formed encoding,
-/// canonical or not, and re-encoding the result can change its account id.
-///
-/// # Example
-///
-/// ```rust
-/// use near_kit_primitives::protocol::{UniversalStateInit, UniversalStateInitV1};
-/// use near_kit_primitives::signer::PublicKey;
-///
-/// let key: PublicKey = "ed25519:6E8sCci9badyRkXb3JoRpBj5p8C6Tw41ELDZoiihKEtp".parse()?;
-/// let state_init: UniversalStateInit = UniversalStateInitV1::new().with_access_key(key).into();
-///
-/// let account_id = state_init.derive_account_id();
-/// assert!(account_id.as_str().starts_with("0u"));
-/// assert_eq!(account_id.as_str().len(), 54);
-///
-/// // Round-trips through the canonical wire bytes.
-/// let raw = state_init.to_raw();
-/// assert_eq!(UniversalStateInit::from_raw(&raw)?, state_init);
-/// assert_eq!(raw.try_derive_account_id()?, account_id);
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum UniversalStateInit {
-    /// Version 1 (borsh discriminant `0`).
-    V1(UniversalStateInitV1),
-}
+pub use near_global_contracts::UniversalStateInitV1;
 
-/// Version 1 of [`UniversalStateInit`].
-///
-/// Which fields are set decides the kind of account: a key-only account has
-/// no `code`; a contract account has `code` and optionally seeded `data`.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct UniversalStateInitV1 {
-    /// Global contract the account runs, or `None` for a key-only account.
-    pub code: Option<GlobalContractId>,
-    /// Initial contract storage.
-    pub data: BTreeMap<Vec<u8>, Vec<u8>>,
-    /// Full-access keys.
-    ///
-    /// The chain stores ML-DSA-65 keys by their 32-byte hash, so a full
-    /// ML-DSA-65 key inserted here as [`PublicKeyHandle::Full`] is encoded as
-    /// that hash (and decodes back as [`PublicKeyHandle::MlDsa65Hash`]). Prefer
-    /// [`with_access_key`](Self::with_access_key), which hashes it on insert.
-    pub access_keys: BTreeSet<PublicKeyHandle>,
-}
+/// near-sdk's access-key handle, the element type of
+/// [`UniversalStateInitV1::access_keys`].
+type UpstreamHandle = near_global_contracts::PublicKeyHandle;
 
-impl UniversalStateInitV1 {
-    /// An empty state init: no code, no data, no keys.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the global contract the account runs.
-    pub fn with_code(mut self, code: GlobalContractId) -> Self {
-        self.code = Some(code);
-        self
-    }
-
-    /// Add an initial storage entry.
-    pub fn with_data_entry(mut self, key: impl Into<Vec<u8>>, value: impl Into<Vec<u8>>) -> Self {
-        self.data.insert(key.into(), value.into());
-        self
-    }
-
-    /// Add a full-access key.
-    ///
-    /// Accepts a [`PublicKey`] or a [`PublicKeyHandle`]. A full ML-DSA-65 key
-    /// is stored as the hash the chain keys it by.
-    pub fn with_access_key(mut self, key: impl Into<PublicKeyHandle>) -> Self {
-        self.access_keys.insert(canonical_handle(key.into()));
-        self
-    }
-}
-
-impl From<UniversalStateInitV1> for UniversalStateInit {
-    fn from(v1: UniversalStateInitV1) -> Self {
-        Self::V1(v1)
-    }
-}
-
-impl UniversalStateInit {
-    /// The global contract the account runs, or `None` for a key-only account.
-    pub fn code(&self) -> Option<&GlobalContractId> {
-        match self {
-            Self::V1(inner) => inner.code.as_ref(),
-        }
-    }
-
-    /// Initial contract storage.
-    pub fn data(&self) -> &BTreeMap<Vec<u8>, Vec<u8>> {
-        match self {
-            Self::V1(inner) => &inner.data,
-        }
-    }
-
-    /// Full-access keys.
-    pub fn access_keys(&self) -> &BTreeSet<PublicKeyHandle> {
-        match self {
-            Self::V1(inner) => &inner.access_keys,
-        }
-    }
-
-    /// Whether `key` is one of the full-access keys.
-    ///
-    /// A full ML-DSA-65 key matches the hash the state init stores it by.
-    pub fn has_access_key(&self, key: &PublicKey) -> bool {
-        let full = PublicKeyHandle::Full(key.clone());
-        self.access_keys().contains(&full) || self.access_keys().contains(&canonical_handle(full))
-    }
-
-    /// The canonical borsh encoding, ready to put in a `UniversalStateInit`
-    /// action.
-    pub fn to_raw(&self) -> RawStateInit {
-        RawStateInit(borsh::to_vec(self).expect("writing to a Vec cannot fail"))
-    }
-
-    /// Decode `raw`, rejecting non-canonical encodings, as nearcore does.
-    pub fn from_raw(raw: &RawStateInit) -> Result<Self, StateInitError> {
-        let decoded = Self::from_raw_lenient(raw)?;
-        if decoded.to_raw() != *raw {
-            return Err(StateInitError::NonCanonical);
-        }
-        Ok(decoded)
-    }
-
-    /// Decode `raw`, accepting any well-formed encoding, canonical or not.
-    ///
-    /// For inspecting bytes only: no stable protocol accepts a non-canonical
-    /// state init, and re-encoding the result can change its account id.
-    fn from_raw_lenient(raw: &RawStateInit) -> Result<Self, StateInitError> {
-        decode_lenient(&raw.0)
-    }
-
-    /// The `0u` universal account id of this state init: the id of its
-    /// canonical encoding.
-    pub fn derive_account_id(&self) -> AccountId {
-        derive_universal_account_id(&self.to_raw().0)
-    }
-}
-
-impl BorshSerialize for UniversalStateInit {
-    fn serialize<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        match self {
-            Self::V1(inner) => {
-                0u8.serialize(writer)?;
-                inner.code.serialize(writer)?;
-                // `BTreeMap` iterates in key order, which is the canonical
-                // order (by key bytes, not by their length-prefixed encoding).
-                inner.data.serialize(writer)?;
-                // Normalize full ML-DSA-65 keys to their hash, then re-sort and
-                // dedup, so the set is canonical however it was built.
-                let keys: BTreeSet<PublicKeyHandle> = inner
-                    .access_keys
-                    .iter()
-                    .cloned()
-                    .map(canonical_handle)
-                    .collect();
-                u32::try_from(keys.len())
-                    .map_err(|_| {
-                        io::Error::new(io::ErrorKind::InvalidInput, "too many access keys")
-                    })?
-                    .serialize(writer)?;
-                for key in &keys {
-                    serialize_handle(key, writer)?;
-                }
-                Ok(())
-            }
+impl From<PublicKey> for UpstreamHandle {
+    /// The handle the chain stores `key` under: the key itself for ed25519
+    /// and secp256k1, its hash for ML-DSA-65.
+    fn from(key: PublicKey) -> Self {
+        match key {
+            PublicKey::Ed25519(bytes) => Self::ED25519(bytes),
+            PublicKey::Secp256k1(bytes) => Self::SECP256K1(bytes),
+            key @ PublicKey::MlDsa65(_) => key
+                .to_ml_dsa65_hash()
+                .expect("an ML-DSA-65 key always has a hash")
+                .into(),
         }
     }
 }
 
-impl BorshDeserialize for UniversalStateInit {
-    fn deserialize_reader<R: Read>(reader: &mut R) -> io::Result<Self> {
-        match u8::deserialize_reader(reader)? {
-            0 => {
-                let code = Option::<GlobalContractId>::deserialize_reader(reader)?;
-                // Decoded by hand so the result does not depend on whether
-                // borsh's `de_strict_order` feature is enabled somewhere in the
-                // dependency graph: order is checked by `from_raw` instead.
-                let data_len = u32::deserialize_reader(reader)?;
-                let mut data = BTreeMap::new();
-                for _ in 0..data_len {
-                    let key = Vec::<u8>::deserialize_reader(reader)?;
-                    let value = Vec::<u8>::deserialize_reader(reader)?;
-                    data.insert(key, value);
-                }
-                let keys_len = u32::deserialize_reader(reader)?;
-                let mut access_keys = BTreeSet::new();
-                for _ in 0..keys_len {
-                    access_keys.insert(deserialize_handle(reader)?);
-                }
-                Ok(Self::V1(UniversalStateInitV1 {
-                    code,
-                    data,
-                    access_keys,
-                }))
-            }
-            tag => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("unknown UniversalStateInit version tag {tag}"),
-            )),
+impl From<PublicKeyHandle> for UpstreamHandle {
+    /// Same handle; a full ML-DSA-65 key becomes its hash.
+    fn from(handle: PublicKeyHandle) -> Self {
+        match handle {
+            PublicKeyHandle::Full(key) => key.into(),
+            PublicKeyHandle::MlDsa65Hash(hash) => Self::MLDSA65Hash(hash),
         }
     }
 }
 
-/// Lenient decode of state init bytes; shared by
-/// [`UniversalStateInit::from_raw`] and the `UniversalStateInit` action.
+impl From<UpstreamHandle> for PublicKeyHandle {
+    fn from(handle: UpstreamHandle) -> Self {
+        match handle {
+            UpstreamHandle::ED25519(bytes) => Self::Full(PublicKey::Ed25519(bytes)),
+            UpstreamHandle::SECP256K1(bytes) => Self::Full(PublicKey::Secp256k1(bytes)),
+            UpstreamHandle::MLDSA65Hash(hash) => Self::MlDsa65Hash(hash),
+        }
+    }
+}
+
+/// Lenient decode of state init bytes, for the `UniversalStateInit` action.
 pub(crate) fn decode_lenient(bytes: &[u8]) -> Result<UniversalStateInit, StateInitError> {
     borsh::from_slice(bytes).map_err(|_| StateInitError::Malformed)
 }
 
-/// The `0u` account id of state init bytes: SHA3-256 over them, as given.
+/// The `0u` account id of state init bytes: SHA3-256 over them, as given,
+/// whether they decode or not (nearcore's `derive_universal_account_id`).
 pub(crate) fn derive_universal_account_id(bytes: &[u8]) -> AccountId {
     let hash: [u8; 32] = Sha3_256::digest(bytes).into();
     encode_universal_account_id(&hash)
-}
-
-/// Replace a full ML-DSA-65 key with the hash the chain stores it by, as
-/// nearcore's `From<PublicKey> for PublicKeyHandle` does.
-fn canonical_handle(handle: PublicKeyHandle) -> PublicKeyHandle {
-    match handle {
-        PublicKeyHandle::Full(key @ PublicKey::MlDsa65(_)) => key
-            .to_ml_dsa65_hash()
-            .expect("an ML-DSA-65 key always has a hash"),
-        other => other,
-    }
-}
-
-/// nearcore's `PublicKeyHandle` borsh: a one-byte tag, then the key bytes
-/// (ed25519, secp256k1) or the 32-byte ML-DSA-65 hash.
-fn serialize_handle<W: Write>(handle: &PublicKeyHandle, writer: &mut W) -> io::Result<()> {
-    let tag = match handle {
-        PublicKeyHandle::Full(PublicKey::Ed25519(_)) => HANDLE_TAG_ED25519,
-        PublicKeyHandle::Full(PublicKey::Secp256k1(_)) => HANDLE_TAG_SECP256K1,
-        PublicKeyHandle::MlDsa65Hash(_) => HANDLE_TAG_ML_DSA_65_HASH,
-        PublicKeyHandle::Full(PublicKey::MlDsa65(_)) => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "a full ML-DSA-65 key is not a valid access key handle",
-            ));
-        }
-    };
-    tag.serialize(writer)?;
-    writer.write_all(handle.as_bytes())
-}
-
-fn deserialize_handle<R: Read>(reader: &mut R) -> io::Result<PublicKeyHandle> {
-    match u8::deserialize_reader(reader)? {
-        HANDLE_TAG_ED25519 => Ok(PublicKeyHandle::Full(PublicKey::Ed25519(
-            <[u8; 32]>::deserialize_reader(reader)?,
-        ))),
-        HANDLE_TAG_SECP256K1 => Ok(PublicKeyHandle::Full(PublicKey::Secp256k1(
-            <[u8; 64]>::deserialize_reader(reader)?,
-        ))),
-        HANDLE_TAG_ML_DSA_65_HASH => Ok(PublicKeyHandle::MlDsa65Hash(
-            <[u8; 32]>::deserialize_reader(reader)?,
-        )),
-        tag => Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("invalid access key handle tag {tag}"),
-        )),
-    }
 }
 
 /// Encode a 32-byte hash as a `0u` universal account id: the prefix, then 52
@@ -375,66 +129,10 @@ fn encode_universal_account_id(hash: &[u8; 32]) -> AccountId {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
-
-    fn ed_handle(b: u8) -> PublicKeyHandle {
-        PublicKeyHandle::Full(PublicKey::Ed25519([b; 32]))
-    }
-
-    fn mldsa_handle(b: u8) -> PublicKeyHandle {
-        PublicKeyHandle::MlDsa65Hash([b; 32])
-    }
-
-    /// Known-answer vectors from nearcore 2.14-release,
-    /// `core/primitives/src/utils.rs::test_derive_universal_account_id`.
-    #[test]
-    fn derive_account_id_matches_nearcore_vectors() {
-        let key_only = UniversalStateInit::V1(UniversalStateInitV1 {
-            code: None,
-            data: BTreeMap::new(),
-            access_keys: BTreeSet::from([mldsa_handle(0x11)]),
-        });
-        let mut key_only_bytes = vec![0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 3];
-        key_only_bytes.extend_from_slice(&[0x11; 32]);
-
-        let contract = UniversalStateInit::V1(UniversalStateInitV1 {
-            code: Some(GlobalContractId::CodeHash([0x22; 32])),
-            data: BTreeMap::from([(b"key".to_vec(), b"value".to_vec())]),
-            access_keys: BTreeSet::new(),
-        });
-        // The builder makes the same value.
-        let built: UniversalStateInit = UniversalStateInitV1::new()
-            .with_code(GlobalContractId::CodeHash([0x22; 32]))
-            .with_data_entry("key", "value")
-            .into();
-        assert_eq!(built, contract);
-        let mut contract_bytes = vec![0, 1, 0];
-        contract_bytes.extend_from_slice(&[0x22; 32]);
-        contract_bytes.extend_from_slice(&[1, 0, 0, 0, 3, 0, 0, 0]);
-        contract_bytes.extend_from_slice(b"key");
-        contract_bytes.extend_from_slice(&[5, 0, 0, 0]);
-        contract_bytes.extend_from_slice(b"value");
-        contract_bytes.extend_from_slice(&[0, 0, 0, 0]);
-
-        for (state_init, bytes, expected) in [
-            (
-                &key_only,
-                key_only_bytes,
-                "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g",
-            ),
-            (
-                &contract,
-                contract_bytes,
-                "0uzvdgbyea2rd8ywx0kw3cg4vc0ez1x5fc2gyks4fdz9ae0xxvzan0",
-            ),
-        ] {
-            let raw = state_init.to_raw();
-            assert_eq!(raw.0, bytes);
-            assert_eq!(raw.try_derive_account_id().unwrap().as_str(), expected);
-            assert_eq!(state_init.derive_account_id().as_str(), expected);
-            assert_eq!(UniversalStateInit::from_raw(&raw).unwrap(), *state_init);
-        }
-    }
+    use crate::types::{GlobalContractId, NearToken, SecretKey, UniversalStateInitAction};
 
     /// Encoder known-answer vectors from nearcore 2.14-release,
     /// `core/primitives-core/src/universal_account_id.rs`.
@@ -464,103 +162,107 @@ mod tests {
         }
     }
 
+    /// Known-answer vectors from nearcore 2.14-release,
+    /// `core/primitives/src/utils.rs::test_derive_universal_account_id`: the
+    /// action's raw-bytes id agrees with the typed and validated ids.
     #[test]
-    fn full_ml_dsa_key_is_stored_as_its_hash() {
-        let sk = crate::types::SecretKey::generate_ml_dsa65();
-        let pk = sk.public_key();
+    fn raw_id_matches_nearcore_vectors() {
+        let key_only: UniversalStateInit = UniversalStateInitV1::default()
+            .with_access_key(PublicKeyHandle::MlDsa65Hash([0x11; 32]))
+            .into();
+        let contract: UniversalStateInit = UniversalStateInitV1::default()
+            .with_code(GlobalContractId::CodeHash([0x22; 32]))
+            .with_data_entry("key", "value")
+            .into();
+        for (state_init, expected) in [
+            (
+                key_only,
+                "0ux8te7g99f9kqzdtp9h4qnwt9aczpgayymmtbdc50w199rcw3at1g",
+            ),
+            (
+                contract,
+                "0uzvdgbyea2rd8ywx0kw3cg4vc0ez1x5fc2gyks4fdz9ae0xxvzan0",
+            ),
+        ] {
+            let raw = state_init.to_raw();
+            assert_eq!(derive_universal_account_id(&raw.0).as_str(), expected);
+            assert_eq!(raw.try_derive_account_id().unwrap().as_str(), expected);
+            assert_eq!(state_init.derive_account_id().as_str(), expected);
+            assert_eq!(decode_lenient(&raw.0).unwrap(), state_init);
+        }
+    }
+
+    /// An ML-DSA-65 key goes in as the hash the chain stores it by, whether
+    /// passed as a `PublicKey` or as a full `PublicKeyHandle`, and comes back
+    /// out as near-kit's hash handle.
+    #[test]
+    fn ml_dsa_key_is_stored_as_its_hash() {
+        let pk = SecretKey::generate_ml_dsa65().public_key();
         let hash = pk.to_ml_dsa65_hash().unwrap();
 
-        let via_builder: UniversalStateInit = UniversalStateInitV1::new()
+        let via_key: UniversalStateInit = UniversalStateInitV1::default()
             .with_access_key(pk.clone())
             .into();
-        assert_eq!(via_builder.access_keys(), &BTreeSet::from([hash.clone()]));
-        assert!(via_builder.has_access_key(&pk));
-
-        // Inserted as a full key through the public field, it still encodes
-        // as the hash, and decodes back as one.
-        let via_field = UniversalStateInit::V1(UniversalStateInitV1 {
-            access_keys: BTreeSet::from([PublicKeyHandle::Full(pk.clone())]),
-            ..Default::default()
-        });
-        assert_eq!(via_field.to_raw(), via_builder.to_raw());
-        assert!(via_field.has_access_key(&pk));
-        assert!(
-            !via_field.has_access_key(&crate::types::SecretKey::generate_ed25519().public_key())
-        );
-        assert_eq!(
-            UniversalStateInit::from_raw(&via_field.to_raw()).unwrap(),
-            via_builder
-        );
-
-        // The full key and its hash are distinct set entries but the same
-        // handle on chain: encoding must normalize, then deduplicate, or the
-        // bytes would carry a duplicate key that the chain rejects.
-        let mixed = UniversalStateInit::V1(UniversalStateInitV1 {
-            access_keys: BTreeSet::from([PublicKeyHandle::Full(pk), hash]),
-            ..Default::default()
-        });
-        assert_eq!(mixed.access_keys().len(), 2);
-        let raw = mixed.to_raw();
-        assert_eq!(raw, via_builder.to_raw());
-        assert_eq!(UniversalStateInit::from_raw(&raw).unwrap(), via_builder);
-    }
-
-    /// Borsh bytes of `V1 { code: None, data, access_keys }`, written in the
-    /// order given. Ported from nearcore's `universal_state_init.rs` tests.
-    fn v1_bytes(data: &[(&[u8], &[u8])], access_keys: &[PublicKeyHandle]) -> RawStateInit {
-        let mut bytes = vec![0u8, 0u8];
-        bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        for (key, value) in data {
-            bytes.extend_from_slice(&(key.len() as u32).to_le_bytes());
-            bytes.extend_from_slice(key);
-            bytes.extend_from_slice(&(value.len() as u32).to_le_bytes());
-            bytes.extend_from_slice(value);
+        let via_full: UniversalStateInit = UniversalStateInitV1::default()
+            .with_access_key(PublicKeyHandle::Full(pk.clone()))
+            .into();
+        let both: UniversalStateInit = UniversalStateInitV1::default()
+            .with_access_key(pk.clone())
+            .with_access_key(hash.clone())
+            .into();
+        let key: &[u8; 1952] = pk.as_bytes().try_into().unwrap();
+        let expected = BTreeSet::from([UpstreamHandle::from_ml_dsa_65_public_key(key)]);
+        for state_init in [&via_key, &via_full, &both] {
+            assert_eq!(state_init.access_keys(), &expected);
+            assert_eq!(state_init.to_raw(), via_key.to_raw());
         }
-        bytes.extend_from_slice(&(access_keys.len() as u32).to_le_bytes());
-        for handle in access_keys {
-            serialize_handle(handle, &mut bytes).unwrap();
-        }
-        RawStateInit(bytes)
-    }
-
-    fn non_canonical_encodings() -> [RawStateInit; 5] {
-        [
-            v1_bytes(&[(b"b", b""), (b"a", b"")], &[]),
-            v1_bytes(&[(b"b", b""), (b"ab", b"")], &[]),
-            v1_bytes(&[], &[ed_handle(2), ed_handle(1)]),
-            v1_bytes(&[(b"a", b"1"), (b"a", b"2")], &[]),
-            v1_bytes(&[], &[ed_handle(1), ed_handle(1)]),
-        ]
+        let back: Vec<PublicKeyHandle> = via_key
+            .access_keys()
+            .iter()
+            .cloned()
+            .map(PublicKeyHandle::from)
+            .collect();
+        assert_eq!(back, std::slice::from_ref(&hash));
+        assert!(back[0].refers_to(&pk));
     }
 
     #[test]
-    fn non_canonical_is_rejected_strictly_and_decoded_leniently() {
-        for raw in non_canonical_encodings() {
-            assert_eq!(
-                UniversalStateInit::from_raw(&raw),
-                Err(StateInitError::NonCanonical),
-                "{raw:?}"
-            );
-            let lenient = UniversalStateInit::from_raw_lenient(&raw).unwrap();
-            assert_ne!(lenient.to_raw(), raw);
-            let action = crate::types::UniversalStateInitAction {
-                state_init: raw.0.clone(),
-                deposit: crate::types::NearToken::from_yoctonear(0),
-            };
-            assert_eq!(action.decode_state_init().unwrap(), lenient);
-            // The id is over the raw bytes, not their canonical re-encoding.
-            assert_eq!(
-                action.derive_account_id(),
-                derive_universal_account_id(&raw.0)
-            );
-            assert_ne!(
-                derive_universal_account_id(&raw.0),
-                lenient.derive_account_id()
-            );
-            assert_eq!(
-                raw.try_derive_account_id(),
-                Err(StateInitError::NonCanonical)
-            );
+    fn handles_convert_both_ways() {
+        let ed = SecretKey::generate_ed25519().public_key();
+        let secp = SecretKey::generate_secp256k1().public_key();
+        for handle in [
+            PublicKeyHandle::Full(ed),
+            PublicKeyHandle::Full(secp),
+            PublicKeyHandle::MlDsa65Hash([0x33; 32]),
+        ] {
+            let upstream = UpstreamHandle::from(handle.clone());
+            assert_eq!(PublicKeyHandle::from(upstream), handle);
         }
+    }
+
+    /// The action's id is over the bytes it carries, not over their canonical
+    /// re-encoding; the validated derive rejects them.
+    #[test]
+    fn non_canonical_bytes_keep_their_own_id() {
+        // V1, no code, two data entries with keys "b" then "a".
+        let unsorted = vec![
+            0, 0, 2, 0, 0, 0, 1, 0, 0, 0, b'b', 0, 0, 0, 0, 1, 0, 0, 0, b'a', 0, 0, 0, 0, 0, 0, 0,
+            0,
+        ];
+        let action = UniversalStateInitAction {
+            state_init: unsorted.clone(),
+            deposit: NearToken::from_yoctonear(0),
+        };
+        let lenient = action.decode_state_init().unwrap();
+        assert_ne!(lenient.to_raw().0, unsorted);
+        assert_eq!(
+            action.derive_account_id(),
+            derive_universal_account_id(&unsorted)
+        );
+        assert_ne!(action.derive_account_id(), lenient.derive_account_id());
+        assert_eq!(
+            RawStateInit(unsorted).try_derive_account_id(),
+            Err(StateInitError::NonCanonical)
+        );
     }
 }
