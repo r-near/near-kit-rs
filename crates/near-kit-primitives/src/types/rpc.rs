@@ -95,9 +95,15 @@ impl AccountView {
             .saturating_sub(self.locked)
     }
 
-    /// Check if this account has a deployed contract.
+    /// Check if this account has a contract: its own code, or a global
+    /// contract it uses by hash or by publisher account. For a global
+    /// contract the node reports a zero [`code_hash`](Self::code_hash) and
+    /// sets [`global_contract_hash`](Self::global_contract_hash) or
+    /// [`global_contract_account_id`](Self::global_contract_account_id).
     pub fn has_contract(&self) -> bool {
         !self.code_hash.is_zero()
+            || self.global_contract_hash.is_some()
+            || self.global_contract_account_id.is_some()
     }
 }
 
@@ -2988,6 +2994,19 @@ mod tests {
         assert!(!view.has_contract());
         view.code_hash = CryptoHash::hash(b"wasm");
         assert!(view.has_contract());
+    }
+
+    /// An account on a global contract has a zero `code_hash`, and still has a
+    /// contract.
+    #[test]
+    fn test_has_contract_counts_global_contracts() {
+        let mut by_hash = make_account_view(1, 0, 0);
+        by_hash.global_contract_hash = Some(CryptoHash::hash(b"wasm"));
+        assert!(by_hash.has_contract());
+
+        let mut by_account = make_account_view(1, 0, 0);
+        by_account.global_contract_account_id = Some("publisher.near".parse().unwrap());
+        assert!(by_account.has_contract());
     }
 
     #[test]
