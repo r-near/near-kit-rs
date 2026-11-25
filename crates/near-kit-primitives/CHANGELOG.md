@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.0-rc.1](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.34.1...near-kit-primitives-v0.35.0-rc.1) - 2026-11-25
+
+### Added
+
+- [**breaking**] support nearcore 2.15 and NEP-667 external calls ([#449](https://github.com/r-near/near-kit-rs/pull/449))
+- deprecate Action::delegate_v2, which nodes reject from protocol 87 ([#452](https://github.com/r-near/near-kit-rs/pull/452))
+
 ## [0.34.1](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.34.0...near-kit-primitives-v0.34.1) - 2026-11-25
 
 ### Fixed
