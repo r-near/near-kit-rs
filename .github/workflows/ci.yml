@@ -117,6 +117,33 @@ jobs:
       # file records.
       - run: cargo test
 
+  # Checks near-kit's external call encoding, hashes and unique ids, and its
+  # decoding of nearcore 2.15's views and errors, against nearcore's own
+  # near-primitives, and that the fixture near-kit-primitives' offline tests
+  # read is what nearcore produces. A separate workspace and job: the main
+  # workspace doesn't depend on nearcore crates.
+  nearcore-wire:
+    name: nearcore wire format
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/near-kit-primitives/tests/nearcore-wire
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/near-kit-primitives/tests/nearcore-wire
+          shared-key: nearcore-wire
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: "true"
+      - run: cargo fmt -- --check
+      # Not `--locked`: a release bumps near-kit-primitives' version, which
+      # this lock file records.
+      - run: cargo test
+
   docs:
     name: Docs
     runs-on: ubuntu-latest

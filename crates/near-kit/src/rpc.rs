@@ -87,17 +87,18 @@ pub use near_kit_primitives::rpc::OutcomeError;
 pub use near_kit_primitives::rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountContractView, AccountState, AccountView, ActionReceiptData, ActionView,
-    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
-    BlockHeaderView, BlockReference, BlockView, ChunkHeaderView, CongestionInfoView,
-    ContractCodeView, CurrentEpochValidatorInfo, DataReceiptData, DataReceiverView,
-    DelegateActionV2View, DelegateActionView, EpochValidatorInfo, ExecutionMetadata,
-    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
-    FinalExecutionStatus, Finality, GasKeyNoncesView, GasPrice, GasProfileEntry,
-    GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NextEpochValidatorInfo,
-    NodeVersion, Receipt, ReceiptContent, ReceiptToTxResponse, RpcTransactionResponse,
-    STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator, StateItem, StatusResponse,
-    SyncCheckpoint, SyncInfo, TransactionNonceView, TransactionView, TrieSplit, TxExecutionStatus,
-    ValidatorInfo, ValidatorKickoutReason, ValidatorKickoutView, ValidatorStakeView,
+    AuthorizationContext, BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests,
+    BandwidthRequestsV1, BlockHeaderView, BlockReference, BlockView, ChunkHeaderView,
+    CongestionInfoView, ContractCodeView, CurrentEpochValidatorInfo, DataReceiptData,
+    DataReceiverView, DelegateActionV2View, DelegateActionView, EpochValidatorInfo,
+    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
+    ExternalCallResponse, ExternalCallView, FinalExecutionOutcome, FinalExecutionStatus, Finality,
+    GasKeyNoncesView, GasPrice, GasProfileEntry, GlobalContractIdentifierView, MerkleDirection,
+    MerklePathItem, NextEpochValidatorInfo, NodeVersion, Receipt, ReceiptContent,
+    ReceiptToTxResponse, RpcTransactionResponse, STORAGE_AMOUNT_PER_BYTE, SendTxResponse,
+    SlashedValidator, StateItem, StatusResponse, SyncCheckpoint, SyncInfo, TransactionEnvelopeView,
+    TransactionNonceView, TransactionView, TrieSplit, TxExecutionStatus, ValidatorInfo,
+    ValidatorKickoutReason, ValidatorKickoutView, ValidatorStakeView,
     VersionedDelegateActionPayloadView, ViewFunctionResult, ViewStateAllResult, ViewStateResult,
 };
 
@@ -112,6 +113,6 @@ pub use crate::client::ReqwestTransport;
 pub use crate::client::WasiHttpTransport;
 #[cfg(feature = "rpc")]
 pub use crate::client::{
-    AccountExistsQuery, BalanceQuery, BoxFuture, RetryConfig, RpcClient, RpcEndpoint, RpcTransport,
-    TransactionStatusQuery, TransportResponse,
+    AccountExistsQuery, BalanceQuery, BoxFuture, ExternalCallDryRun, RetryConfig, RpcClient,
+    RpcEndpoint, RpcTransport, TransactionStatusQuery, TransportResponse,
 };

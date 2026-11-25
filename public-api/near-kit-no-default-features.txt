@@ -46,6 +46,9 @@ pub use near_kit::protocol::DeployContractAction
 pub use near_kit::protocol::DeployGlobalContractAction
 pub use near_kit::protocol::DepositCostFailureReason
 pub use near_kit::protocol::DeterministicStateInitAction
+pub use near_kit::protocol::EXTERNAL_CALL_METHOD
+pub use near_kit::protocol::ExternalCall
+pub use near_kit::protocol::ExternalCallChunkLimit
 pub use near_kit::protocol::FunctionCallAction
 pub use near_kit::protocol::FunctionCallError
 pub use near_kit::protocol::FunctionCallPermission
@@ -104,6 +107,7 @@ pub use near_kit::rpc::AccountState
 pub use near_kit::rpc::AccountView
 pub use near_kit::rpc::ActionReceiptData
 pub use near_kit::rpc::ActionView
+pub use near_kit::rpc::AuthorizationContext
 pub use near_kit::rpc::BandwidthRequest
 pub use near_kit::rpc::BandwidthRequestBitmap
 pub use near_kit::rpc::BandwidthRequests
@@ -125,6 +129,8 @@ pub use near_kit::rpc::ExecutionMetadata
 pub use near_kit::rpc::ExecutionOutcome
 pub use near_kit::rpc::ExecutionOutcomeWithId
 pub use near_kit::rpc::ExecutionStatus
+pub use near_kit::rpc::ExternalCallResponse
+pub use near_kit::rpc::ExternalCallView
 pub use near_kit::rpc::FinalExecutionOutcome
 pub use near_kit::rpc::FinalExecutionStatus
 pub use near_kit::rpc::Finality
@@ -148,6 +154,7 @@ pub use near_kit::rpc::StateItem
 pub use near_kit::rpc::StatusResponse
 pub use near_kit::rpc::SyncCheckpoint
 pub use near_kit::rpc::SyncInfo
+pub use near_kit::rpc::TransactionEnvelopeView
 pub use near_kit::rpc::TransactionNonceView
 pub use near_kit::rpc::TransactionView
 pub use near_kit::rpc::TrieSplit
@@ -217,6 +224,13 @@ pub near_kit::rpc::RpcError::ContractStateTooLarge::account_id: near_account_id:
 pub near_kit::rpc::RpcError::ContractStateTooLarge::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
 pub near_kit::rpc::RpcError::ContractStateTooLarge::block_height: core::option::Option<u64>
 pub near_kit::rpc::RpcError::EpochNotFound(alloc::string::String)
+pub near_kit::rpc::RpcError::ExternalCallRefused
+pub near_kit::rpc::RpcError::ExternalCallRefused::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::ExternalCallRefused::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::ExternalCallRefused::contract_id: near_account_id::account_id::AccountId
+pub near_kit::rpc::RpcError::ExternalCallRefused::error: core::option::Option<near_kit_primitives::types::error::TxExecutionError>
+pub near_kit::rpc::RpcError::ExternalCallRefused::logs: alloc::vec::Vec<alloc::string::String>
+pub near_kit::rpc::RpcError::ExternalCallRefused::message: alloc::string::String
 pub near_kit::rpc::RpcError::GasKeyNotFound
 pub near_kit::rpc::RpcError::GasKeyNotFound::account_id: near_account_id::account_id::AccountId
 pub near_kit::rpc::RpcError::GasKeyNotFound::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
@@ -361,6 +375,10 @@ pub near_kit::Error::Borsh(alloc::string::String)
 pub near_kit::Error::Config(alloc::string::String)
 pub near_kit::Error::Decode(near_kit_primitives::error::DecodeTransactionError)
 pub near_kit::Error::DecodeDelegate(near_kit_primitives::types::action::DecodeError)
+#[non_exhaustive] pub near_kit::Error::ExternalCallNotFound
+pub near_kit::Error::ExternalCallNotFound::call_hash: near_kit_primitives::types::hash::CryptoHash
+pub near_kit::Error::ExternalCallNotFound::contract_id: near_account_id::account_id::AccountId
+pub near_kit::Error::ExternalCallNotFound::heights: core::ops::range::RangeInclusive<u64>
 pub near_kit::Error::InvalidTx(alloc::boxed::Box<near_kit_primitives::types::error::InvalidTxError>)
 pub near_kit::Error::Json(serde_json::error::Error)
 pub near_kit::Error::KeyStore(near_kit::signer::KeyStoreError)

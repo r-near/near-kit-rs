@@ -279,6 +279,84 @@ impl Near {
         SignedTransactionSend::new(self.rpc.clone(), signed_tx)
     }
 
+    /// Send an external call ([NEP-667], nearcore 2.15+) and wait for the
+    /// outcome of the copy that answers it.
+    ///
+    /// No signer is needed: the contract authorizes the call in its
+    /// `__external_call` method and pays for it. Awaiting the returned
+    /// [`ExternalCallSend`](crate::transaction::ExternalCallSend) waits for
+    /// [`Final`](crate::transaction::Final); chain `.wait_until::<W>()` for
+    /// another executed level, and `.search_until(height)` to search for a
+    /// copy when the send fails. The call is sent once; its docs describe
+    /// the recovery, and what to check before sending it again.
+    ///
+    /// Dry-run the call first with
+    /// [`view_external_call`](Self::view_external_call): a call the contract
+    /// refuses is usually never included, so its send only times out.
+    ///
+    #[cfg_attr(feature = "contracts", doc = "```rust,no_run")]
+    #[cfg_attr(not(feature = "contracts"), doc = "```rust,ignore")]
+    /// use near_kit::*;
+    /// use near_kit::protocol::ExternalCall;
+    ///
+    /// # async fn example(near: Near, payload: Vec<u8>, expiry: u64) -> Result<(), Error> {
+    /// let call = ExternalCall::new(account!("wallet.near"), payload);
+    /// near.view_external_call(&call).await?;
+    /// let outcome = near.send_external_call(&call).search_until(expiry).await?;
+    /// println!("copy {} logged {:?}", outcome.transaction_hash(), outcome.logs().collect::<Vec<_>>());
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// [NEP-667]: https://github.com/near/NEPs/pull/667
+    pub fn send_external_call<'a>(
+        &self,
+        call: &'a crate::types::ExternalCall,
+    ) -> crate::transaction::ExternalCallSend<'a> {
+        crate::transaction::ExternalCallSend::new(self.rpc.clone(), call)
+    }
+
+    /// Dry-run an external call: run the contract's `__external_call` as a
+    /// chunk producer would, without writing anything. See
+    /// [`ExternalCallDryRun`](crate::rpc::ExternalCallDryRun).
+    pub fn view_external_call<'a>(
+        &self,
+        call: &'a crate::types::ExternalCall,
+    ) -> crate::rpc::ExternalCallDryRun<'a> {
+        crate::rpc::ExternalCallDryRun::new(self.rpc.clone(), call)
+    }
+
+    /// Find a copy of an external call included at one of `heights`.
+    ///
+    /// Probes `tx_status` for the call's
+    /// [`unique_id`](crate::protocol::ExternalCall::unique_id) at each
+    /// height, with the contract as the sender, once the height is final, so
+    /// a miss means there is no copy there. It waits, reading the final head
+    /// every 500 ms, until the final head reaches `heights.end()`; a
+    /// payload's expiry bounds the search.
+    ///
+    /// Returns the first copy the contract accepted, or if it accepted none,
+    /// the earliest refused one, as the node reports it (wait on it with
+    /// [`tx_status`](Self::tx_status)); `None` if there is no copy. A refused
+    /// copy's outcome has a failed transaction outcome. A node that does not
+    /// track the contract's shard cannot answer: that is
+    /// [`RpcError::ShardNotTracked`](crate::rpc::RpcError::ShardNotTracked).
+    /// Use it after a send that failed, with heights from just above the
+    /// final head before the send.
+    ///
+    /// Each request goes to whichever endpoint answers it, so with
+    /// [fallbacks](NearBuilder::fallback) the final head can come from a
+    /// fallback that is ahead of a lagging primary, and the primary's miss at
+    /// that height is taken as final. Search with one endpoint when a miss
+    /// must be certain.
+    pub async fn find_external_call(
+        &self,
+        call: &crate::types::ExternalCall,
+        heights: std::ops::RangeInclusive<u64>,
+    ) -> Result<Option<crate::types::FinalExecutionOutcome>, crate::Error> {
+        super::external_call::find(&self.rpc, call, heights).await
+    }
+
     /// Query transaction status and receipt progress.
     ///
     /// Uses `EXPERIMENTAL_tx_status` under the hood and returns an awaitable

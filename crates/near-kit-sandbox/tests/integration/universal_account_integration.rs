@@ -27,6 +27,10 @@ const UNIVERSAL_ACCOUNTS_PROTOCOL_VERSION: u32 = 88;
 /// is `(block_height - 1) * 1_000_000`, like a new access key's nonce.
 const ACCESS_KEY_NONCE_RANGE_MULTIPLIER: u64 = 1_000_000;
 
+/// Protocol version from which a new key's nonce starts at `h * 1e6 - 1`
+/// (`ProtocolFeature::RaiseInitialAccessKeyNonce`, nearcore 2.15).
+const RAISE_INITIAL_NONCE_PROTOCOL_VERSION: u32 = 89;
+
 /// Whether the node runs with `universal_accounts` enabled.
 async fn universal_accounts_enabled(near: &SigningNear) -> bool {
     let protocol_config: serde_json::Value = near
@@ -180,7 +184,10 @@ async fn test_universal_account_bootstraps_after_a_dropped_signature() {
         .await
         .expect("the bootstrap after a dropped one is sent");
     assert!(outcome.is_success(), "{outcome:?}");
-    assert_eq!(outcome.transaction.nonce, bootstrap_nonce + 1);
+    assert_eq!(
+        outcome.transaction.as_signed().unwrap().nonce,
+        bootstrap_nonce + 1
+    );
     assert_initialized_with(&root_near, &account_id, &key).await;
 }
 
@@ -242,10 +249,30 @@ async fn test_transfer_to_universal_account() {
             .bootstrap_nonce
             .expect("an uninitialized universal account reports a bootstrap_nonce");
         assert!(bootstrap_nonce > 0, "bootstrap_nonce must be set");
+        // The transfer receipt creates the account: its block's height `h`
+        // gives the nonce, `(h - 1) * 1e6` before v89 and `h * 1e6 - 1` from
+        // v89 (nearcore 2.15), as for any new key.
+        let created_in = outcome
+            .receipts_outcome
+            .first()
+            .expect("the transfer's receipt")
+            .block_hash;
+        let height = root_near
+            .near()
+            .rpc()
+            .block(BlockReference::from(created_in))
+            .await
+            .expect("the block that created the account")
+            .header
+            .height;
+        let expected = if status.protocol_version >= RAISE_INITIAL_NONCE_PROTOCOL_VERSION {
+            height * ACCESS_KEY_NONCE_RANGE_MULTIPLIER - 1
+        } else {
+            (height - 1) * ACCESS_KEY_NONCE_RANGE_MULTIPLIER
+        };
         assert_eq!(
-            bootstrap_nonce % ACCESS_KEY_NONCE_RANGE_MULTIPLIER,
-            0,
-            "bootstrap_nonce is derived from the creation block height"
+            bootstrap_nonce, expected,
+            "bootstrap_nonce is derived from the creation block height {height}"
         );
     } else {
         assert!(

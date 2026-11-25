@@ -756,7 +756,7 @@ impl<'de> Deserialize<'de> for RpcTransactionResponse {
         struct Wire {
             final_execution_status: TxExecutionStatus,
             status: Option<FinalExecutionStatus>,
-            transaction: Option<TransactionView>,
+            transaction: Option<TransactionEnvelopeView>,
             transaction_outcome: Option<ExecutionOutcomeWithId>,
             receipts_outcome: Option<Vec<ExecutionOutcomeWithId>>,
             receipts: Option<Vec<Receipt>>,
@@ -803,6 +803,44 @@ impl<'de> Deserialize<'de> for RpcTransactionResponse {
     }
 }
 
+/// What `send_tx` answers for an external call (nearcore 2.15+): the wait
+/// level reached and, once the node has one, the outcome of the copy that
+/// answers the send.
+///
+/// near-kit's low-level `RpcClient::send_external_call` returns it. There
+/// is no transaction hash: a copy's id is its unique id at the height of the
+/// block that includes it, so it is known only from the outcome
+/// ([`transaction_id`](Self::transaction_id)). At `TxExecutionStatus::None`
+/// the node answers before the call is included, with no outcome.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ExternalCallResponse {
+    /// The wait level that was reached.
+    pub final_execution_status: TxExecutionStatus,
+    /// The outcome of the copy, present from `Included` on. Its transaction
+    /// outcome carries the call's own result and logs; a refused copy has
+    /// a failure there.
+    pub outcome: Option<FinalExecutionOutcome>,
+}
+
+impl ExternalCallResponse {
+    /// The unique id of the copy that answers the send, once the node has
+    /// its outcome.
+    pub fn transaction_id(&self) -> Option<CryptoHash> {
+        self.outcome.as_ref().map(|o| o.transaction_outcome.id)
+    }
+}
+
+impl<'de> Deserialize<'de> for ExternalCallResponse {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let response = RpcTransactionResponse::deserialize(deserializer)?;
+        Ok(Self {
+            final_execution_status: response.final_execution_status,
+            outcome: response.outcome,
+        })
+    }
+}
+
 /// Final execution outcome from a NEAR transaction.
 ///
 /// Returned by both `send_tx` and `EXPERIMENTAL_tx_status` once the
@@ -820,9 +858,11 @@ impl<'de> Deserialize<'de> for RpcTransactionResponse {
 pub struct FinalExecutionOutcome {
     /// Overall transaction execution result.
     pub status: FinalExecutionStatus,
-    /// The transaction that was executed.
-    pub transaction: TransactionView,
-    /// Outcome of the transaction itself.
+    /// The transaction that was executed: a signed transaction or an
+    /// external call.
+    pub transaction: TransactionEnvelopeView,
+    /// Outcome of the transaction itself. An external call's carries the
+    /// call's own result and logs, under its unique id.
     pub transaction_outcome: ExecutionOutcomeWithId,
     /// Outcomes of all receipts spawned by the transaction.
     pub receipts_outcome: Vec<ExecutionOutcomeWithId>,
@@ -950,13 +990,13 @@ impl FinalExecutionOutcome {
     /// [`ExecutionOutcome::new`] shows a receipt that failed.
     pub fn new(
         status: FinalExecutionStatus,
-        transaction: TransactionView,
+        transaction: impl Into<TransactionEnvelopeView>,
         transaction_outcome: ExecutionOutcomeWithId,
         receipts_outcome: Vec<ExecutionOutcomeWithId>,
     ) -> Self {
         Self {
             status,
-            transaction,
+            transaction: transaction.into(),
             transaction_outcome,
             receipts_outcome,
             receipts: Vec::new(),
@@ -1105,9 +1145,10 @@ impl FinalExecutionOutcome {
     /// This is the safe way to read events: any contract can log an
     /// `EVENT_JSON:` line claiming any `standard`, and a failed receipt's
     /// logs stay although its changes were rolled back. It applies
-    /// [`ExecutionOutcome::events`] to the
-    /// [`receipts_outcome`](Self::receipts_outcome) entries that `contract`
-    /// executed and that succeeded.
+    /// [`ExecutionOutcome::events`] to the outcomes that `contract` executed
+    /// and that succeeded: the [`receipts_outcome`](Self::receipts_outcome)
+    /// entries, and the transaction outcome of an external call, whose run
+    /// happens there.
     ///
     /// The events are undecoded, since one transaction can carry several
     /// standards: keep the one you expect and [`decode`](Event::decode) it.
@@ -1196,9 +1237,9 @@ impl FinalExecutionOutcome {
         &self,
         contract: &AccountIdRef,
     ) -> impl Iterator<Item = Result<Event, serde_json::Error>> {
-        self.receipts_outcome
-            .iter()
-            .map(|receipt| &receipt.outcome)
+        std::iter::once(&self.transaction_outcome)
+            .chain(&self.receipts_outcome)
+            .map(|outcome| &outcome.outcome)
             .filter(move |outcome| outcome.executor_id == *contract && outcome.status.is_success())
             .flat_map(ExecutionOutcome::events)
     }
@@ -1369,8 +1410,8 @@ impl AsRef<FinalExecutionOutcome> for CheckedOutcome {
 impl From<FinalExecutionOutcome> for SendTxResponse {
     fn from(outcome: FinalExecutionOutcome) -> Self {
         Self::new(
-            outcome.transaction.hash,
-            outcome.transaction.signer_id.clone(),
+            outcome.transaction.id(),
+            outcome.transaction.sender_id().clone(),
             Some(outcome),
         )
     }
@@ -1515,6 +1556,139 @@ impl TransactionView {
             priority_fee: None,
             nonce_index: None,
             nonce_mode: None,
+        }
+    }
+}
+
+/// The view of an external call ([`ExternalCall`](crate::protocol::ExternalCall)),
+/// as `tx`, `send_tx` and `broadcast_tx_commit` show the copy that ran.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
+pub struct ExternalCallView {
+    /// The contract that authorized, paid for and received the call.
+    pub contract_id: AccountId,
+    /// The call's input (base64 on the wire).
+    #[serde_as(as = "Base64")]
+    pub payload: Vec<u8>,
+    /// The unique id of this copy of the call, which is its outcome id.
+    pub transaction_id: CryptoHash,
+    /// The borsh of the universal account state init this copy carries, if
+    /// any (base64 on the wire). A producer may strip it.
+    #[serde_as(as = "Option<Base64>")]
+    pub state_init: Option<Vec<u8>>,
+}
+
+impl ExternalCallView {
+    /// The view of a copy of a call to `contract_id` with `payload` and no
+    /// state init, whose unique id is `transaction_id`, for a test fixture.
+    pub fn new(contract_id: AccountId, payload: Vec<u8>, transaction_id: CryptoHash) -> Self {
+        Self {
+            contract_id,
+            payload,
+            transaction_id,
+            state_init: None,
+        }
+    }
+}
+
+/// A transaction of either kind, as an outcome shows it: a signed
+/// transaction or an external call.
+///
+/// nearcore 2.15 writes `"kind": "signed"` or `"kind": "external_call"`;
+/// JSON without `kind`, from older nodes, reads as a signed transaction.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum TransactionEnvelopeView {
+    /// A transaction signed by an access key or gas key.
+    Signed(TransactionView),
+    /// An external contract call.
+    ExternalCall(ExternalCallView),
+}
+
+impl TransactionEnvelopeView {
+    /// The id of the transaction's outcome, which `tx` takes as
+    /// `tx_hash`: a signed transaction's hash, or the unique id of the
+    /// external call's copy.
+    pub fn id(&self) -> CryptoHash {
+        match self {
+            Self::Signed(tx) => tx.hash,
+            Self::ExternalCall(call) => call.transaction_id,
+        }
+    }
+
+    /// The account `tx` takes as `sender_account_id`: the signer, or the
+    /// contract an external call went to.
+    pub fn sender_id(&self) -> &AccountId {
+        match self {
+            Self::Signed(tx) => &tx.signer_id,
+            Self::ExternalCall(call) => &call.contract_id,
+        }
+    }
+
+    /// The account the transaction went to. An external call is addressed to
+    /// its own contract.
+    pub fn receiver_id(&self) -> &AccountId {
+        match self {
+            Self::Signed(tx) => &tx.receiver_id,
+            Self::ExternalCall(call) => &call.contract_id,
+        }
+    }
+
+    /// The signed transaction, unless this is an external call.
+    pub fn as_signed(&self) -> Option<&TransactionView> {
+        match self {
+            Self::Signed(tx) => Some(tx),
+            Self::ExternalCall(_) => None,
+        }
+    }
+
+    /// The external call, unless this is a signed transaction.
+    pub fn as_external_call(&self) -> Option<&ExternalCallView> {
+        match self {
+            Self::Signed(_) => None,
+            Self::ExternalCall(call) => Some(call),
+        }
+    }
+}
+
+impl From<TransactionView> for TransactionEnvelopeView {
+    fn from(tx: TransactionView) -> Self {
+        Self::Signed(tx)
+    }
+}
+
+impl From<ExternalCallView> for TransactionEnvelopeView {
+    fn from(call: ExternalCallView) -> Self {
+        Self::ExternalCall(call)
+    }
+}
+
+// Decoded by hand rather than as an untagged enum, which would replace the
+// error inside a malformed transaction with "did not match any variant".
+impl<'de> Deserialize<'de> for TransactionEnvelopeView {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        let kind = match value.as_object_mut() {
+            Some(object) => object.remove("kind"),
+            None => return Err(D::Error::custom("expected a transaction object")),
+        };
+        match kind.as_ref().map(|kind| kind.as_str().ok_or(kind)) {
+            None | Some(Ok("signed")) => serde_json::from_value(value)
+                .map(Self::Signed)
+                .map_err(D::Error::custom),
+            Some(Ok("external_call")) => serde_json::from_value(value)
+                .map(Self::ExternalCall)
+                .map_err(D::Error::custom),
+            Some(Ok(other)) => Err(D::Error::unknown_variant(
+                other,
+                &["signed", "external_call"],
+            )),
+            Some(Err(kind)) => Err(D::Error::custom(format!(
+                "expected `kind` to be a string, got {kind}"
+            ))),
         }
     }
 }
@@ -2067,10 +2241,14 @@ impl TryFrom<VersionedDelegateActionPayloadView> for VersionedDelegateActionPayl
 ///
 /// ```rust
 /// use near_kit_primitives::protocol::{Action, ActionViewConversionError};
-/// use near_kit_primitives::rpc::FinalExecutionOutcome;
+/// use near_kit_primitives::rpc::{FinalExecutionOutcome, TransactionEnvelopeView};
 ///
 /// fn actions_of(outcome: FinalExecutionOutcome) -> Result<Vec<Action>, ActionViewConversionError> {
-///     outcome.transaction.actions.into_iter().map(Action::try_from).collect()
+///     match outcome.transaction {
+///         TransactionEnvelopeView::Signed(tx) => tx.actions.into_iter().map(Action::try_from).collect(),
+///         // An external call carries a payload, not actions.
+///         _ => Ok(Vec::new()),
+///     }
 /// }
 /// ```
 impl TryFrom<ActionView> for Action {
@@ -2551,10 +2729,13 @@ impl DataReceiverView {
 #[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
 pub struct ActionReceiptData {
-    /// Signer account ID.
+    /// The signer of the transaction that started the chain of receipts, or
+    /// the contract that accepted an external call.
     pub signer_id: AccountId,
-    /// Signer public key.
-    pub signer_public_key: PublicKey,
+    /// The key that signed the transaction that started the chain. `None`
+    /// in the chain an external call started, which no key signed.
+    #[serde(default)]
+    pub signer_public_key: Option<PublicKey>,
     /// Gas price for this receipt.
     pub gas_price: NearToken,
     /// Output data receivers.
@@ -2567,6 +2748,30 @@ pub struct ActionReceiptData {
     pub actions: Vec<ActionView>,
     /// Whether this is a promise yield.
     pub is_promise_yield: Option<bool>,
+    /// The account that gets the receipt's gas and deposit refunds, when it
+    /// is not the predecessor.
+    #[serde(default)]
+    pub refund_to: Option<AccountId>,
+    /// What authorized the chain of receipts. Every action receipt created
+    /// from protocol version 89 (nearcore 2.15) records it; older ones are
+    /// `None`.
+    #[serde(default)]
+    pub authorization_context: Option<AuthorizationContext>,
+    /// The protocol version the receipt was created at, whose fees price it.
+    /// Recorded from protocol version 89 on, with
+    /// [`authorization_context`](Self::authorization_context).
+    #[serde(default)]
+    pub creation_protocol_version: Option<u32>,
+}
+
+/// What authorized an action receipt's chain of receipts.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
+pub enum AuthorizationContext {
+    /// A transaction signed with this key started the chain.
+    AccessKey(PublicKey),
+    /// An external call, which no key signs, started the chain.
+    ExternalContractCall,
 }
 
 impl ActionReceiptData {
@@ -2574,23 +2779,26 @@ impl ActionReceiptData {
     /// `signer_public_key` and paid at `gas_price`, for a test fixture.
     ///
     /// [`output_data_receivers`](Self::output_data_receivers) and
-    /// [`input_data_ids`](Self::input_data_ids) start empty and
-    /// [`is_promise_yield`](Self::is_promise_yield) as `None`; set them
-    /// afterwards. See [`FinalExecutionOutcome::new`] for an example.
+    /// [`input_data_ids`](Self::input_data_ids) start empty, and
+    /// [`is_promise_yield`](Self::is_promise_yield) and the fields of newer
+    /// receipts as `None`; set them afterwards. See [`FinalExecutionOutcome::new`] for an example.
     pub fn new(
         signer_id: AccountId,
-        signer_public_key: PublicKey,
+        signer_public_key: impl Into<Option<PublicKey>>,
         gas_price: NearToken,
         actions: Vec<ActionView>,
     ) -> Self {
         Self {
             signer_id,
-            signer_public_key,
+            signer_public_key: signer_public_key.into(),
             gas_price,
             output_data_receivers: Vec::new(),
             input_data_ids: Vec::new(),
             actions,
             is_promise_yield: None,
+            refund_to: None,
+            authorization_context: None,
+            creation_protocol_version: None,
         }
     }
 }
@@ -2701,6 +2909,59 @@ pub struct NodeVersion {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_transaction_envelope_reads_the_same_for_both_kinds() {
+        let key = crate::types::SecretKey::ed25519_from_bytes([1; 32]);
+        let hash = CryptoHash::hash(b"tx");
+        let signed: TransactionEnvelopeView = TransactionView::new(
+            "alice.near".parse().unwrap(),
+            key.public_key(),
+            1,
+            "bob.near".parse().unwrap(),
+            hash,
+            key.sign(hash.as_bytes()),
+        )
+        .into();
+        assert_eq!(signed.id(), hash);
+        assert_eq!(signed.sender_id(), "alice.near");
+        assert_eq!(signed.receiver_id(), "bob.near");
+        assert_eq!(signed.as_signed().map(|tx| tx.nonce), Some(1));
+        assert!(signed.as_external_call().is_none());
+
+        let id = CryptoHash::hash(b"copy");
+        let call: TransactionEnvelopeView =
+            ExternalCallView::new("wallet.near".parse().unwrap(), vec![1, 2], id).into();
+        assert_eq!(call.id(), id);
+        assert_eq!(call.sender_id(), "wallet.near");
+        assert_eq!(call.receiver_id(), "wallet.near");
+        assert!(call.as_signed().is_none());
+        let view = call.as_external_call().unwrap();
+        assert_eq!(view.payload, [1, 2]);
+        assert_eq!(view.state_init, None);
+    }
+
+    #[test]
+    fn an_action_receipt_built_without_a_key_has_none() {
+        let receipt = ActionReceiptData::new(
+            "wallet.near".parse().unwrap(),
+            None,
+            NearToken::from_yoctonear(1),
+            vec![],
+        );
+        assert_eq!(receipt.signer_public_key, None);
+        assert_eq!(receipt.authorization_context, None);
+        assert_eq!(receipt.creation_protocol_version, None);
+        assert_eq!(receipt.refund_to, None);
+        let key = crate::types::SecretKey::ed25519_from_bytes([1; 32]).public_key();
+        let signed = ActionReceiptData::new(
+            "alice.near".parse().unwrap(),
+            key.clone(),
+            NearToken::from_yoctonear(1),
+            vec![],
+        );
+        assert_eq!(signed.signer_public_key, Some(key));
+    }
     use crate::protocol::ActionErrorKind;
     use crate::signer::KeyType;
 
@@ -3391,8 +3652,9 @@ mod tests {
     #[test]
     fn send_tx_response_from_outcome_keeps_hash_signer_and_outcome() {
         let outcome = make_success_outcome("");
-        let hash = outcome.transaction.hash;
-        let signer = outcome.transaction.signer_id.clone();
+        let signed = outcome.transaction.as_signed().unwrap();
+        let hash = signed.hash;
+        let signer = signed.signer_id.clone();
 
         let response = SendTxResponse::from(outcome.clone());
         assert_eq!(response.transaction_hash, hash);

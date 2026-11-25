@@ -59,6 +59,9 @@ pub use near_kit::protocol::DeployContractAction
 pub use near_kit::protocol::DeployGlobalContractAction
 pub use near_kit::protocol::DepositCostFailureReason
 pub use near_kit::protocol::DeterministicStateInitAction
+pub use near_kit::protocol::EXTERNAL_CALL_METHOD
+pub use near_kit::protocol::ExternalCall
+pub use near_kit::protocol::ExternalCallChunkLimit
 pub use near_kit::protocol::FunctionCallAction
 pub use near_kit::protocol::FunctionCallError
 pub use near_kit::protocol::FunctionCallPermission
@@ -117,6 +120,7 @@ pub use near_kit::rpc::AccountState
 pub use near_kit::rpc::AccountView
 pub use near_kit::rpc::ActionReceiptData
 pub use near_kit::rpc::ActionView
+pub use near_kit::rpc::AuthorizationContext
 pub use near_kit::rpc::BandwidthRequest
 pub use near_kit::rpc::BandwidthRequestBitmap
 pub use near_kit::rpc::BandwidthRequests
@@ -139,6 +143,8 @@ pub use near_kit::rpc::ExecutionMetadata
 pub use near_kit::rpc::ExecutionOutcome
 pub use near_kit::rpc::ExecutionOutcomeWithId
 pub use near_kit::rpc::ExecutionStatus
+pub use near_kit::rpc::ExternalCallResponse
+pub use near_kit::rpc::ExternalCallView
 pub use near_kit::rpc::FinalExecutionOutcome
 pub use near_kit::rpc::FinalExecutionStatus
 pub use near_kit::rpc::Finality
@@ -162,6 +168,7 @@ pub use near_kit::rpc::StateItem
 pub use near_kit::rpc::StatusResponse
 pub use near_kit::rpc::SyncCheckpoint
 pub use near_kit::rpc::SyncInfo
+pub use near_kit::rpc::TransactionEnvelopeView
 pub use near_kit::rpc::TransactionNonceView
 pub use near_kit::rpc::TransactionView
 pub use near_kit::rpc::TrieSplit
@@ -231,6 +238,13 @@ pub near_kit::rpc::RpcError::ContractStateTooLarge::account_id: near_account_id:
 pub near_kit::rpc::RpcError::ContractStateTooLarge::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
 pub near_kit::rpc::RpcError::ContractStateTooLarge::block_height: core::option::Option<u64>
 pub near_kit::rpc::RpcError::EpochNotFound(alloc::string::String)
+pub near_kit::rpc::RpcError::ExternalCallRefused
+pub near_kit::rpc::RpcError::ExternalCallRefused::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
+pub near_kit::rpc::RpcError::ExternalCallRefused::block_height: core::option::Option<u64>
+pub near_kit::rpc::RpcError::ExternalCallRefused::contract_id: near_account_id::account_id::AccountId
+pub near_kit::rpc::RpcError::ExternalCallRefused::error: core::option::Option<near_kit_primitives::types::error::TxExecutionError>
+pub near_kit::rpc::RpcError::ExternalCallRefused::logs: alloc::vec::Vec<alloc::string::String>
+pub near_kit::rpc::RpcError::ExternalCallRefused::message: alloc::string::String
 pub near_kit::rpc::RpcError::GasKeyNotFound
 pub near_kit::rpc::RpcError::GasKeyNotFound::account_id: near_account_id::account_id::AccountId
 pub near_kit::rpc::RpcError::GasKeyNotFound::block_hash: core::option::Option<near_kit_primitives::types::hash::CryptoHash>
@@ -332,6 +346,13 @@ impl core::future::into_future::IntoFuture for near_kit::rpc::BalanceQuery
 pub type near_kit::rpc::BalanceQuery::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit::rpc::BalanceQuery as core::future::into_future::IntoFuture>::Output> + core::marker::Send)>>
 pub type near_kit::rpc::BalanceQuery::Output = core::result::Result<near_kit_primitives::types::rpc::AccountBalance, near_kit::Error>
 pub fn near_kit::rpc::BalanceQuery::into_future(self) -> Self::IntoFuture
+pub struct near_kit::rpc::ExternalCallDryRun<'a>
+impl<'a> near_kit::rpc::ExternalCallDryRun<'a>
+pub fn near_kit::rpc::ExternalCallDryRun<'a>::at(self, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> Self
+impl<'a> core::future::into_future::IntoFuture for near_kit::rpc::ExternalCallDryRun<'a>
+pub type near_kit::rpc::ExternalCallDryRun<'a>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit::rpc::ExternalCallDryRun<'a> as core::future::into_future::IntoFuture>::Output> + core::marker::Send + 'a)>>
+pub type near_kit::rpc::ExternalCallDryRun<'a>::Output = core::result::Result<near_kit_primitives::types::rpc::ViewFunctionResult, near_kit::Error>
+pub fn near_kit::rpc::ExternalCallDryRun<'a>::into_future(self) -> Self::IntoFuture
 pub struct near_kit::rpc::RetryConfig
 pub near_kit::rpc::RetryConfig::initial_delay_ms: u64
 pub near_kit::rpc::RetryConfig::max_delay_ms: u64
@@ -355,6 +376,7 @@ pub async fn near_kit::rpc::RpcClient::receipt(&self, &near_kit_primitives::type
 pub async fn near_kit::rpc::RpcClient::receipt_to_tx(&self, &near_kit_primitives::types::hash::CryptoHash) -> core::result::Result<near_kit_primitives::types::rpc::ReceiptToTxResponse, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::request<P: serde_core::ser::Serialize, R: serde_core::de::DeserializeOwned>(&self, &str, P) -> core::result::Result<R, near_kit::rpc::RpcError>
 pub fn near_kit::rpc::RpcClient::retry_config(self, near_kit::rpc::RetryConfig) -> Self
+pub async fn near_kit::rpc::RpcClient::send_external_call(&self, &near_kit_primitives::types::external_call::ExternalCall, near_kit_primitives::types::block_reference::TxExecutionStatus) -> core::result::Result<near_kit_primitives::types::rpc::ExternalCallResponse, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::send_tx(&self, &near_kit_primitives::types::transaction::SignedTransaction, near_kit_primitives::types::block_reference::TxExecutionStatus) -> core::result::Result<near_kit_primitives::types::rpc::RpcTransactionResponse, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::status(&self) -> core::result::Result<near_kit_primitives::types::rpc::StatusResponse, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::tx_status(&self, &near_kit_primitives::types::hash::CryptoHash, &near_account_id::account_id_ref::AccountIdRef, near_kit_primitives::types::block_reference::TxExecutionStatus) -> core::result::Result<near_kit_primitives::types::rpc::RpcTransactionResponse, near_kit::rpc::RpcError>
@@ -365,6 +387,7 @@ pub async fn near_kit::rpc::RpcClient::view_access_key_list(&self, &near_account
 pub async fn near_kit::rpc::RpcClient::view_access_key_list_page(&self, &near_account_id::account_id_ref::AccountIdRef, core::option::Option<&near_kit_primitives::types::key::PublicKeyHandle>, core::option::Option<core::num::nonzero::NonZeroU32>, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::AccessKeyListView, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::view_account(&self, &near_account_id::account_id_ref::AccountIdRef, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::AccountView, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::view_code(&self, &near_account_id::account_id_ref::AccountIdRef, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::ContractCodeView, near_kit::rpc::RpcError>
+pub async fn near_kit::rpc::RpcClient::view_external_call(&self, &near_kit_primitives::types::external_call::ExternalCall, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::ViewFunctionResult, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::view_function(&self, &near_account_id::account_id_ref::AccountIdRef, &str, &[u8], impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::ViewFunctionResult, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::view_gas_key_nonces(&self, &near_account_id::account_id_ref::AccountIdRef, &near_kit_primitives::types::key::PublicKey, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::GasKeyNoncesView, near_kit::rpc::RpcError>
 pub async fn near_kit::rpc::RpcClient::view_global_contract_code(&self, impl core::convert::Into<near_global_contracts::global_contract_identifier::GlobalContractId>, impl core::convert::Into<near_kit_primitives::types::block_reference::BlockReference>) -> core::result::Result<near_kit_primitives::types::rpc::ContractCodeView, near_kit::rpc::RpcError>
@@ -632,6 +655,14 @@ impl core::default::Default for near_kit::transaction::DelegateOptions
 pub fn near_kit::transaction::DelegateOptions::default() -> near_kit::transaction::DelegateOptions
 impl core::fmt::Debug for near_kit::transaction::DelegateOptions
 pub fn near_kit::transaction::DelegateOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct near_kit::transaction::ExternalCallSend<'a, W: near_kit_primitives::types::wait_level::WaitLevel<Response = near_kit_primitives::types::rpc::FinalExecutionOutcome>>
+impl<'a, W: near_kit_primitives::types::wait_level::WaitLevel<Response = near_kit_primitives::types::rpc::FinalExecutionOutcome>> near_kit::transaction::ExternalCallSend<'a, W>
+pub fn near_kit::transaction::ExternalCallSend<'a, W>::search_until(self, u64) -> Self
+pub fn near_kit::transaction::ExternalCallSend<'a, W>::wait_until<W2: near_kit_primitives::types::wait_level::WaitLevel<Response = near_kit_primitives::types::rpc::FinalExecutionOutcome>>(self) -> near_kit::transaction::ExternalCallSend<'a, W2>
+impl<'a, W: near_kit_primitives::types::wait_level::WaitLevel<Response = near_kit_primitives::types::rpc::FinalExecutionOutcome>> core::future::into_future::IntoFuture for near_kit::transaction::ExternalCallSend<'a, W>
+pub type near_kit::transaction::ExternalCallSend<'a, W>::IntoFuture = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = <near_kit::transaction::ExternalCallSend<'a, W> as core::future::into_future::IntoFuture>::Output> + core::marker::Send + 'a)>>
+pub type near_kit::transaction::ExternalCallSend<'a, W>::Output = core::result::Result<near_kit_primitives::types::rpc::FinalExecutionOutcome, near_kit::Error>
+pub fn near_kit::transaction::ExternalCallSend<'a, W>::into_future(self) -> Self::IntoFuture
 pub struct near_kit::transaction::SignedTransactionSend<'tx, W: near_kit_primitives::types::wait_level::WaitLevel>
 impl<'tx, W: near_kit_primitives::types::wait_level::WaitLevel> near_kit::transaction::SignedTransactionSend<'tx, W>
 pub fn near_kit::transaction::SignedTransactionSend<'tx, W>::wait_until<W2: near_kit_primitives::types::wait_level::WaitLevel>(self) -> near_kit::transaction::SignedTransactionSend<'tx, W2>
@@ -644,6 +675,10 @@ pub near_kit::Error::Borsh(alloc::string::String)
 pub near_kit::Error::Config(alloc::string::String)
 pub near_kit::Error::Decode(near_kit_primitives::error::DecodeTransactionError)
 pub near_kit::Error::DecodeDelegate(near_kit_primitives::types::action::DecodeError)
+#[non_exhaustive] pub near_kit::Error::ExternalCallNotFound
+pub near_kit::Error::ExternalCallNotFound::call_hash: near_kit_primitives::types::hash::CryptoHash
+pub near_kit::Error::ExternalCallNotFound::contract_id: near_account_id::account_id::AccountId
+pub near_kit::Error::ExternalCallNotFound::heights: core::ops::range::RangeInclusive<u64>
 pub near_kit::Error::InvalidTx(alloc::boxed::Box<near_kit_primitives::types::error::InvalidTxError>)
 pub near_kit::Error::Json(serde_json::error::Error)
 pub near_kit::Error::KeyStore(near_kit::signer::KeyStoreError)
@@ -691,12 +726,15 @@ pub fn near_kit::Near::balance(&self, impl core::convert::Into<near_account_id::
 pub fn near_kit::Near::chain_id(&self) -> &near_kit_primitives::types::network::ChainId
 pub fn near_kit::Near::contract<T: near_kit_primitives::backend::Contract>(&self, impl core::convert::Into<near_account_id::account_id::AccountId>) -> <T as near_kit_primitives::backend::Contract>::Client
 pub fn near_kit::Near::custom(impl core::convert::Into<near_kit::rpc::RpcEndpoint>, impl core::convert::Into<near_kit_primitives::types::network::ChainId>) -> near_kit::NearBuilder
+pub async fn near_kit::Near::find_external_call(&self, &near_kit_primitives::types::external_call::ExternalCall, core::ops::range::RangeInclusive<u64>) -> core::result::Result<core::option::Option<near_kit_primitives::types::rpc::FinalExecutionOutcome>, near_kit::Error>
 pub fn near_kit::Near::mainnet() -> near_kit::NearBuilder
 pub fn near_kit::Near::rpc(&self) -> &near_kit::rpc::RpcClient
+pub fn near_kit::Near::send_external_call<'a>(&self, &'a near_kit_primitives::types::external_call::ExternalCall) -> near_kit::transaction::ExternalCallSend<'a>
 pub fn near_kit::Near::send_signed<'tx>(&self, &'tx near_kit_primitives::types::transaction::SignedTransaction) -> near_kit::transaction::SignedTransactionSend<'tx>
 pub fn near_kit::Near::testnet() -> near_kit::NearBuilder
 pub fn near_kit::Near::tx_status(&self, &near_kit_primitives::types::hash::CryptoHash, impl core::convert::Into<near_account_id::account_id::AccountId>) -> near_kit::rpc::TransactionStatusQuery
 pub fn near_kit::Near::view<T: serde_core::de::DeserializeOwned>(&self, impl core::convert::Into<near_account_id::account_id::AccountId>, impl core::convert::Into<alloc::string::String>) -> near_kit_primitives::backend::View<'static, near_kit::Near, T>
+pub fn near_kit::Near::view_external_call<'a>(&self, &'a near_kit_primitives::types::external_call::ExternalCall) -> near_kit::rpc::ExternalCallDryRun<'a>
 pub fn near_kit::Near::with_signer(&self, impl near_kit_primitives::types::signer::Signer + 'static) -> near_kit::SigningNear
 impl core::clone::Clone for near_kit::Near
 pub fn near_kit::Near::clone(&self) -> near_kit::Near

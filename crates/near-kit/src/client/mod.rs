@@ -5,6 +5,8 @@
 #[cfg(feature = "rpc")]
 mod endpoint;
 #[cfg(feature = "rpc")]
+mod external_call;
+#[cfg(feature = "rpc")]
 pub(crate) mod near;
 #[cfg(feature = "rpc")]
 mod nonce_manager;
@@ -27,6 +29,8 @@ mod keyring;
 
 #[cfg(feature = "rpc")]
 pub use endpoint::RpcEndpoint;
+#[cfg(feature = "rpc")]
+pub use external_call::{ExternalCallDryRun, ExternalCallSend};
 #[cfg(feature = "rpc")]
 pub use near::{Near, NearBuilder};
 #[cfg(feature = "rpc")]

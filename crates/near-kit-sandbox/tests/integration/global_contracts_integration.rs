@@ -171,11 +171,11 @@ async fn test_relayed_deploy_from_publisher() {
         rpc::ActionView::Delegate {
             delegate_action, ..
         },
-    ] = &status.transaction.actions[..]
+    ] = &status.transaction.as_signed().unwrap().actions[..]
     else {
         panic!(
             "expected one delegate action: {:?}",
-            status.transaction.actions
+            status.transaction.as_signed().unwrap().actions
         );
     };
     assert_eq!(delegate_action.actions, [Action::deploy_from(publisher_id)]);

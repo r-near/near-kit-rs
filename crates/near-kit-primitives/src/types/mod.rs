@@ -5,6 +5,7 @@ mod action;
 mod block_reference;
 mod csprng;
 mod error;
+mod external_call;
 mod hash;
 #[cfg(feature = "mnemonic")]
 mod hd;
@@ -33,10 +34,12 @@ pub use action::{
 pub use block_reference::{BlockReference, Finality, SyncCheckpoint, TxExecutionStatus};
 pub use error::{
     ActionError, ActionErrorKind, ActionsValidationError, CompilationError,
-    DepositCostFailureReason, FunctionCallError, HostError, InvalidAccessKeyError, InvalidTxError,
-    MethodResolveError, MissingTrieValue, MissingTrieValueContext, PrepareError,
-    ReceiptValidationError, StorageError, TxExecutionError, UnknownError, WasmTrap,
+    DepositCostFailureReason, ExternalCallChunkLimit, FunctionCallError, HostError,
+    InvalidAccessKeyError, InvalidTxError, MethodResolveError, MissingTrieValue,
+    MissingTrieValueContext, PrepareError, ReceiptValidationError, StorageError, TxExecutionError,
+    UnknownError, WasmTrap,
 };
+pub use external_call::{EXTERNAL_CALL_METHOD, ExternalCall};
 pub use hash::CryptoHash;
 pub use key::{KeyType, PublicKey, PublicKeyHandle, SecretKey, Signature};
 pub use network::ChainId;
@@ -44,16 +47,17 @@ pub use rpc::CheckedOutcome;
 pub use rpc::{
     AccessKeyDetails, AccessKeyInfoView, AccessKeyListView, AccessKeyPermissionView, AccessKeyView,
     AccountBalance, AccountContractView, AccountState, AccountView, ActionReceiptData, ActionView,
-    BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests, BandwidthRequestsV1,
-    BlockHeaderView, BlockView, ChunkHeaderView, CongestionInfoView, ContractCodeView,
-    DataReceiptData, DataReceiverView, DelegateActionV2View, DelegateActionView, ExecutionMetadata,
-    ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, FinalExecutionOutcome,
-    FinalExecutionStatus, GasKeyNoncesView, GasPrice, GasProfileEntry,
-    GlobalContractIdentifierView, MerkleDirection, MerklePathItem, NodeVersion, Receipt,
-    ReceiptContent, ReceiptToTxResponse, RpcTransactionResponse, STORAGE_AMOUNT_PER_BYTE,
-    SendTxResponse, SlashedValidator, StateItem, StatusResponse, SyncInfo, TransactionNonceView,
-    TransactionView, TrieSplit, ValidatorInfo, ValidatorStakeView,
-    VersionedDelegateActionPayloadView, ViewFunctionResult, ViewStateAllResult, ViewStateResult,
+    AuthorizationContext, BandwidthRequest, BandwidthRequestBitmap, BandwidthRequests,
+    BandwidthRequestsV1, BlockHeaderView, BlockView, ChunkHeaderView, CongestionInfoView,
+    ContractCodeView, DataReceiptData, DataReceiverView, DelegateActionV2View, DelegateActionView,
+    ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
+    ExternalCallResponse, ExternalCallView, FinalExecutionOutcome, FinalExecutionStatus,
+    GasKeyNoncesView, GasPrice, GasProfileEntry, GlobalContractIdentifierView, MerkleDirection,
+    MerklePathItem, NodeVersion, Receipt, ReceiptContent, ReceiptToTxResponse,
+    RpcTransactionResponse, STORAGE_AMOUNT_PER_BYTE, SendTxResponse, SlashedValidator, StateItem,
+    StatusResponse, SyncInfo, TransactionEnvelopeView, TransactionNonceView, TransactionView,
+    TrieSplit, ValidatorInfo, ValidatorStakeView, VersionedDelegateActionPayloadView,
+    ViewFunctionResult, ViewStateAllResult, ViewStateResult,
 };
 pub use rpc_extra::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutReason,

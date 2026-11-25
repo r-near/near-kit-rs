@@ -235,6 +235,14 @@ pub enum ActionErrorKind {
     #[error("account {account_id} has no state init applied yet")]
     #[non_exhaustive]
     AccountNotInitialized { account_id: AccountId },
+    /// A `FunctionCall` action called `__external_call`, which only an
+    /// external call or a view call can run.
+    #[error("method {method_name} is reserved for external contract calls")]
+    #[non_exhaustive]
+    ReservedMethodName { method_name: String },
+    #[error("receipt removed {number_of_nonces} gas key nonces, more than the limit ({limit})")]
+    #[non_exhaustive]
+    TotalNumberOfGasKeyNoncesRemovedExceeded { number_of_nonces: u64, limit: u64 },
     /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown action error: {0}")]
@@ -347,6 +355,17 @@ pub enum InvalidTxError {
         reason: DepositCostFailureReason,
         signer_id: AccountId,
     },
+    /// The target of an external call has no account or no contract, or is a
+    /// universal account the call carries no state init for.
+    #[error("account {contract_id} does not hold a contract")]
+    #[non_exhaustive]
+    ContractNotFound { contract_id: AccountId },
+    /// An external call didn't run because the chunk's external calls used
+    /// up one of their shares of the chunk's limits. A later chunk may take
+    /// it.
+    #[error("{share}")]
+    #[non_exhaustive]
+    ExternalCallChunkShareReached { share: ExternalCallChunkLimit },
     /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown transaction error: {0}")]
@@ -369,8 +388,28 @@ impl InvalidTxError {
             InvalidTxError::InvalidNonce { .. }
                 | InvalidTxError::ShardCongested { .. }
                 | InvalidTxError::ShardStuck { .. }
+                | InvalidTxError::ExternalCallChunkShareReached { .. }
         )
     }
+}
+
+/// A share of a chunk's limits that its external calls used up: what the
+/// chunk's earlier external calls used, and the share.
+#[derive(Debug, Clone, Deserialize, thiserror::Error)]
+#[non_exhaustive]
+pub enum ExternalCallChunkLimit {
+    #[error("external calls in the chunk used {used} of compute, reaching their share of {limit}")]
+    #[non_exhaustive]
+    Compute { used: u64, limit: u64 },
+    #[error(
+        "external calls in the chunk recorded {used} bytes of storage proof, reaching their share of {limit} bytes"
+    )]
+    #[non_exhaustive]
+    StorageProof { used: u64, limit: u64 },
+    /// Unrecognized variant or field shape; holds the raw JSON.
+    #[serde(untagged)]
+    #[error("unknown external call chunk limit: {0}")]
+    Unknown(UnknownError),
 }
 
 /// Error related to access key validation.
@@ -663,6 +702,11 @@ pub enum HostError {
     #[error("ML-DSA verification invalid input: {msg}")]
     #[non_exhaustive]
     MlDsaVerifyInvalidInput { msg: String },
+    #[error("{method_name} is not allowed in external contract calls")]
+    #[non_exhaustive]
+    ProhibitedInExternalCall { method_name: String },
+    #[error("external contract calls cannot have an attached deposit")]
+    DepositInExternalCall,
     /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown host error: {0}")]
@@ -792,6 +836,11 @@ pub enum ActionsValidationError {
     #[error("transfers to the universal account {account_id} are not allowed yet")]
     #[non_exhaustive]
     TransferToUniversalAccountNotAllowed { account_id: AccountId },
+    #[error(
+        "the actions in this receipt add {number_of_nonces} gas key nonces, more than the limit ({limit})"
+    )]
+    #[non_exhaustive]
+    TotalNumberOfGasKeyNoncesAddedExceeded { number_of_nonces: u64, limit: u64 },
     /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown actions validation error: {0}")]
@@ -855,6 +904,9 @@ pub enum StorageError {
     FlatStorageBlockNotSupported(String),
     #[error("trie is not loaded in memory: {0}")]
     MemTrieLoadingError(String),
+    #[error("read would record more than the recording budget of {limit} bytes")]
+    #[non_exhaustive]
+    RecordingBudgetExceeded { limit: u64 },
     /// Unrecognized variant or field shape; holds the raw JSON.
     #[serde(untagged)]
     #[error("unknown storage error: {0}")]
@@ -897,6 +949,25 @@ pub enum DepositCostFailureReason {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_full_chunk_share_is_retryable_and_a_missing_contract_is_not() {
+        let share: InvalidTxError = serde_json::from_value(serde_json::json!({
+            "ExternalCallChunkShareReached": { "share": { "Compute": { "used": 2, "limit": 1 } } }
+        }))
+        .unwrap();
+        assert!(share.is_retryable());
+        let missing: InvalidTxError = serde_json::from_value(serde_json::json!({
+            "ContractNotFound": { "contract_id": "wallet.near" }
+        }))
+        .unwrap();
+        assert!(!missing.is_retryable());
+        let too_large: InvalidTxError = serde_json::from_value(serde_json::json!({
+            "TransactionSizeExceeded": { "size": 20481, "limit": 20480 }
+        }))
+        .unwrap();
+        assert!(!too_large.is_retryable());
+    }
 
     #[test]
     fn test_prepare_error_2_12_variants() {
