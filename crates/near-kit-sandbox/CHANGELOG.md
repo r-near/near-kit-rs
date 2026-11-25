@@ -6,9 +6,7 @@ All notable changes to `near-kit-sandbox` are documented in this file.
 
 ## [0.34.1](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.34.0...near-kit-sandbox-v0.34.1) - 2026-11-25
 
-### Fixed
-
-- AccountView::has_contract counts global contracts ([#450](https://github.com/r-near/near-kit-rs/pull/450))
+Released with near-kit 0.34.1. The global-contract tests now check `AccountView::has_contract` ([#450](https://github.com/r-near/near-kit-rs/pull/450)).
 
 ## [0.34.0](https://github.com/r-near/near-kit-rs/compare/near-kit-sandbox-v0.34.0-rc.1...near-kit-sandbox-v0.34.0) - 2026-11-24
 

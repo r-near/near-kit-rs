@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- AccountView::has_contract counts global contracts ([#450](https://github.com/r-near/near-kit-rs/pull/450))
+- `AccountView::has_contract` counts global contracts: an account using one by hash or by publisher account has a zero `code_hash`, and was reported as having no contract ([#450](https://github.com/r-near/near-kit-rs/pull/450))
 
 ## [0.34.0](https://github.com/r-near/near-kit-rs/compare/near-kit-primitives-v0.34.0-rc.1...near-kit-primitives-v0.34.0) - 2026-11-24
 
